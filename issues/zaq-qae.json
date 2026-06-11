@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-11T15:41:55Z",
+  "description": "Expose inspect_request, steer_request, inject_request over Agent API using request registry and Factory wrappers.",
+  "id": "zaq-qae",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[stream-agent-3] Expose request inspection and steering",
+  "type": "task",
+  "updated_at": "2026-06-11T15:41:55Z"
+}
