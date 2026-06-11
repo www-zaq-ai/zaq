@@ -1,5 +1,91 @@
 # Changelog
 
+## [0.11.0](https://github.com/www-zaq-ai/zaq/compare/v0.10.0...v0.11.0) (2026-06-11)
+
+
+### Features
+
+* **bo-layout:** migrate sidebar styling to --zaq-* token system ([7ac2041](https://github.com/www-zaq-ai/zaq/commit/7ac2041e3301be821ed5702c1ca376b9ad7d5516))
+* **design-system:** add gradient border to primary btn, shape tokens, and component styles layer ([82ef3b8](https://github.com/www-zaq-ai/zaq/commit/82ef3b8b00da63a9f2c992b62ebaedd582e69042))
+* **design:** add zaq-text-* semantic text style classes from Figma ([f602b7b](https://github.com/www-zaq-ai/zaq/commit/f602b7b44b054b72e68b4262848e00812ac837fa))
+* **ingestion:** add pluggable fts backend with native postgres default ([121fbb6](https://github.com/www-zaq-ai/zaq/commit/121fbb608c0d723bbc71b15e9fe8f81988d9f48e))
+* **skills:** add /design-migrate skill for incremental styling migration ([126abfd](https://github.com/www-zaq-ai/zaq/commit/126abfde412e28fd7f9af4ba3bd98847a0927af1))
+* **skills:** add file write restrictions to design-migrate skill ([7683824](https://github.com/www-zaq-ai/zaq/commit/7683824d6064ec88035d2280c58e5619332b273a))
+* **skills:** add no-token-for-role annotation and forbidden example to diff format ([0943b63](https://github.com/www-zaq-ai/zaq/commit/0943b639aae0a305e7323d48400cb3eeff07b2e5))
+* **skills:** add semantic token role-matching rule to design-migrate invariants ([8f3d7cf](https://github.com/www-zaq-ai/zaq/commit/8f3d7cfe6f23428486c271db3d74458c31395616))
+* **skills:** add targeted e2e verification step to design-migrate skill ([8e9ec67](https://github.com/www-zaq-ai/zaq/commit/8e9ec67b2f89681b4abb371945ff64a4e49e888a))
+* **storybook:** add button playground, semantic token rename, and btn.css ([631efd7](https://github.com/www-zaq-ai/zaq/commit/631efd7270ee61669a131ba54e9e23c12e4067d1))
+* **storybook:** add component stories for BoModal, ChannelIcons, IconRegistry, MasterDetailLayout, and SearchableSelect ([58e5d7d](https://github.com/www-zaq-ai/zaq/commit/58e5d7db325a61cb2590757b0d36079dc45464b5))
+* **storybook:** add foundations/palette story with raw CSS variable swatches ([2aba2dc](https://github.com/www-zaq-ai/zaq/commit/2aba2dcfb9fb6b3d3a9cdea880a27f42be8afac4))
+* **storybook:** add foundations/spacing and foundations/typography stories ([06e5f8f](https://github.com/www-zaq-ai/zaq/commit/06e5f8f4f146be43a98689d2f56259686454be3e))
+* **storybook:** add icon + icon-only button variations to playground ([8cffb5c](https://github.com/www-zaq-ai/zaq/commit/8cffb5ce69decea84880cd1b913c8bfb38f926aa))
+* **storybook:** add line-height and letter-spacing token rows to fonts story ([31da8f6](https://github.com/www-zaq-ai/zaq/commit/31da8f610e4724c23a5a7f985373ca826db8f04a))
+* **storybook:** add Text Styles page to Semantics using zaq-text-* classes ([d6cafaa](https://github.com/www-zaq-ai/zaq/commit/d6cafaab720c9c1254da50c2b128ce1506e51862))
+* **storybook:** move colors/borders/shadows into new Semantic section ([0b0bc1e](https://github.com/www-zaq-ai/zaq/commit/0b0bc1e33365a04444cb21837a650d5829c3187a))
+* **storybook:** reorganize stories into categorized sections with semantic tokens ([cc1fe1a](https://github.com/www-zaq-ai/zaq/commit/cc1fe1a843588674fffd7aac1173928f5e64bdc9))
+
+
+### Bug Fixes
+
+* **AI Agent:** increase Executor call to factory.await/2 timeout to match the config in factory module ([4befb57](https://github.com/www-zaq-ai/zaq/commit/4befb57fdc52facb6f66b7ab9cc0591481be238e))
+* **CI:** storybooks e2e exclude from ci ([8b74e1a](https://github.com/www-zaq-ai/zaq/commit/8b74e1a903d558b61b999ec7f6a63c33c843d586))
+* **communication channel,imap:** strengthen ssl management and harden flaky tests ([36bf63a](https://github.com/www-zaq-ai/zaq/commit/36bf63a571f828c22f62bbc0251d7ddaaedcb4fd))
+* **config:** make dev.secret.exs import conditional to unblock CI ([2081ad9](https://github.com/www-zaq-ai/zaq/commit/2081ad961bc38438c7349bf1aa40e058981a7db3))
+* **config:** make dev.secret.exs import conditional to unblock CI ([a64a8f9](https://github.com/www-zaq-ai/zaq/commit/a64a8f97cdd7222382eba99c50233913c1cfd773))
+* **data source:** support jwt_bearer (service account) in auth credentials, implement for google drive ([1bd1c5a](https://github.com/www-zaq-ai/zaq/commit/1bd1c5a7d9ef068b0df0cc9aaac828055e513606))
+* **e2e:** pin Storybook server to PORT=4000 MIX_ENV=dev to avoid port collision with test server ([a71aa73](https://github.com/www-zaq-ai/zaq/commit/a71aa732c445e13e61967c878f01a98fa4899a59))
+* **foundations:** add unit to --letter-spacing-relaxed (1.0 → 0.1em) ([156f58c](https://github.com/www-zaq-ai/zaq/commit/156f58cc80feed42250097b48007e07aa037135e))
+* **ingestion:** activate paradedb on fresh installs via probe-driven setup ([946f783](https://github.com/www-zaq-ai/zaq/commit/946f783448492a19c3524936b4f17b494a074209))
+* **ingestion:** detect paradedb via functional probe and split fts ci ([8d76581](https://github.com/www-zaq-ai/zaq/commit/8d7658166baf4bf09abd6675f774c3f4300b9439))
+* **ingestion:** keep paradedb detection from aborting open transactions ([234d246](https://github.com/www-zaq-ai/zaq/commit/234d246b69bcb622b97a73ac19c629f493a83522))
+* **mcp:** enable context-awesome in MCP directory ([f8fde48](https://github.com/www-zaq-ai/zaq/commit/f8fde4863a30338fbbf585960954c4f5f075ae6a))
+* **MCP:** enable firecrawl and tweetsave MCP now working with jido_mcp ([99ee44f](https://github.com/www-zaq-ai/zaq/commit/99ee44f648a192b67aaf605ebeb065cf892fe763))
+* resolve merge conflict in config/dev.exs, apply storybook config changes ([5f3bf3d](https://github.com/www-zaq-ai/zaq/commit/5f3bf3dea2b536343f75393403d2477400eb27d9))
+* restore configs ([edd5151](https://github.com/www-zaq-ai/zaq/commit/edd515118ed852993e6653ec33a3b774e243c88a))
+* **skills:** add batching section to design-migrate skill ([eed021f](https://github.com/www-zaq-ai/zaq/commit/eed021ff5a224e11cf36d3418ac7c667c4a4d8a7))
+* **skills:** add timing column to file write restrictions to prevent premature component edits ([c3c32f0](https://github.com/www-zaq-ai/zaq/commit/c3c32f0f68c28b85efa31e192d58c947e9e5d707))
+* **skills:** address quality review findings in design-migrate skill ([b75f2d7](https://github.com/www-zaq-ai/zaq/commit/b75f2d70c3a066f1f4fdcd17cf120dd3198b9291))
+* **skills:** convert design-migrate to directory structure (SKILL.md) ([08702e9](https://github.com/www-zaq-ai/zaq/commit/08702e9d4a723e873d12f5230a5109dc740a1d36))
+* **skills:** replace 'app template' language with explicit file allowlist in Step 4/5 ([99cc6f4](https://github.com/www-zaq-ai/zaq/commit/99cc6f4e468c08e8760d39c6867544fca5a95020))
+* storybook toggle switch dark mode ([a63fbce](https://github.com/www-zaq-ai/zaq/commit/a63fbce96ac282ca1e41d99e95488428552559b7))
+* **storybook:** add missing surface-dark swatch to semantic colors story ([8b7758a](https://github.com/www-zaq-ai/zaq/commit/8b7758af18209912f5abefbf3183f1e4073e8227))
+* **storybook:** convert index.exs to PhoenixStorybook.Index modules for correct sidebar ordering ([f9a7b9e](https://github.com/www-zaq-ai/zaq/commit/f9a7b9ec32202f5b0894606c5de81c4733a0f683))
+* **storybook:** convert layouts index.exs to module format and set folder_index 4 ([27e3938](https://github.com/www-zaq-ai/zaq/commit/27e39382f988597eab1080222aea53a8e951a663))
+* **storybook:** correct font token labels to --zaq- prefix ([4290762](https://github.com/www-zaq-ai/zaq/commit/42907622544e72f394e98dd46ed3fe6a734bfb10))
+* **storybook:** escape HEEx {@ expressions in code display blocks ([948dd3b](https://github.com/www-zaq-ai/zaq/commit/948dd3bac90b1bc781de3788ec6d8e3a3919a7cf))
+* **storybook:** fix 5 stories that failed the smoke test ([3487358](https://github.com/www-zaq-ai/zaq/commit/34873581e3247f06cc091843be1c7c523815dc9c))
+* **storybook:** fix gitignore, reuseExistingServer CI safety, restore heroicons sparse, revert storybook version bump ([4403147](https://github.com/www-zaq-ai/zaq/commit/4403147d84ac7451aeaa150819cb266a02940af7))
+* **storybook:** isolate ZAQ dark mode from DaisyUI via data-zaq-theme attribute ([4be4e0a](https://github.com/www-zaq-ai/zaq/commit/4be4e0a4e56598fcc1e2e5c83236580be618fd8c))
+* **storybook:** pin Welcome to first position in sidebar via root .index.exs ([b2be326](https://github.com/www-zaq-ai/zaq/commit/b2be3266901141218d105c8a9eabcea24bd36ab0))
+* **storybook:** poll for server readiness in globalSetup, commit story-urls sentinel ([299be81](https://github.com/www-zaq-ai/zaq/commit/299be813b85b6bbf676e0369dddb887210dbc0c4))
+* **storybook:** prevent large scale bar overflow, update description ([94ef1e8](https://github.com/www-zaq-ai/zaq/commit/94ef1e8b581633f5f6a1efdd370b9b4be52d1dfc))
+* **storybook:** rename index.exs to .index.exs so PhoenixStorybook detects folder index modules ([0944daa](https://github.com/www-zaq-ai/zaq/commit/0944daaa90fdabe3530d4dd8af3e8ff4ecdee017))
+* **storybook:** replace .dark class shim with psb → data-theme dark mode bridge ([61744c7](https://github.com/www-zaq-ai/zaq/commit/61744c7a92806c2f5ed561c3a5902805b3725ec7))
+* **storybook:** replace &lt;&gt; sigil sample in text_styles story to fix HEEx compile error ([6fed9f9](https://github.com/www-zaq-ai/zaq/commit/6fed9f9245e6004ee14e6081d46448fc0c0677c6))
+* **storybook:** replace hero-plus/arrow-down-tray with icons already in Tailwind output ([1c0a744](https://github.com/www-zaq-ai/zaq/commit/1c0a74459518e049d8c76b9ad9fb8a6d29bdebfb))
+* **storybook:** replace legacy --zaq-font-primary with --zaq-font-family-body in colors story ([306ea84](https://github.com/www-zaq-ai/zaq/commit/306ea84d2ffd006378e0b8988bf2b24e90a56294))
+* **storybook:** update spacing story to --zaq-scale-* token names, add missing scale tokens ([c25312b](https://github.com/www-zaq-ai/zaq/commit/c25312b3e60b34ee4d801c0068acee81cecd35dc))
+* **storybook:** use blue-400 for scale bars, fix overflow on large tokens ([1f8f427](https://github.com/www-zaq-ai/zaq/commit/1f8f42700d377adc02d8388807b0b58901da09f3))
+* **storybook:** use filesystem discovery to find all stories, fix webServer url redirect ([2ef4f94](https://github.com/www-zaq-ai/zaq/commit/2ef4f940044557b4887a6877e3ed407ba613ebec))
+* **storybook:** use globalSetup for story discovery to fix empty test registration ([2e3d673](https://github.com/www-zaq-ai/zaq/commit/2e3d673dc3617a5ff104894c1ed1a786b10e2276))
+* **storybook:** wrap poll context in try/finally, skip final sleep on last attempt ([74de0e5](https://github.com/www-zaq-ai/zaq/commit/74de0e591538d97b50a791f2c2a0ebc8f49a6535))
+* **tests:** eliminate port race in OpenAIStub and fix precommit failures ([eb2e799](https://github.com/www-zaq-ai/zaq/commit/eb2e799988141e29c1f3eb2d2b074e51b883c1db))
+
+
+### Refactoring
+
+* **auth credentials:** multiple config management per data source ([9ed4f31](https://github.com/www-zaq-ai/zaq/commit/9ed4f31a11993c1e2a603b24f34bd7e28307b9f7))
+* **connect:** normalize scope parsing and document sync jwt refresh ([42473d4](https://github.com/www-zaq-ai/zaq/commit/42473d479a1541fccb2156d277862dd70600f19f))
+* **css:** prefix all foundation and semantic tokens with --zaq- ([8fe0cd2](https://github.com/www-zaq-ai/zaq/commit/8fe0cd2fb6d1ee73f459a1f9a3b90fb4a4fca013))
+* import dev.secret.exs at the end ([6e2f19f](https://github.com/www-zaq-ai/zaq/commit/6e2f19ffbcb7e21e5e490e2c23299f2dd4b294b4))
+* **ingestion:** extract probe result helpers and bm25 query builder ([903e42a](https://github.com/www-zaq-ai/zaq/commit/903e42ae6e9edcf16750c2d30209c4490083fccc))
+* split concerns to inject figma script on dev only ([edb88e7](https://github.com/www-zaq-ai/zaq/commit/edb88e79917e009993c316179ff9cc8d8be00e9f))
+* **storybook:** consolidate e2e tests and move storybook to dev ([e203baf](https://github.com/www-zaq-ai/zaq/commit/e203baf63c781b7a2463d0ab7c722e46dade18bf))
+* **storybook:** consolidate e2e tests and move storybook to dev ([62a08ee](https://github.com/www-zaq-ai/zaq/commit/62a08ee6101ca099c327a75651ed1c60cc9a6f6a))
+* **storybook:** move core_components and chat_message stories to legacy_ui/ ([9ab10aa](https://github.com/www-zaq-ai/zaq/commit/9ab10aab95ab099f26da8a516d1e0a84b3e9f896))
+* **storybook:** rename text_styles story to text_styles_deprecated ([402bdeb](https://github.com/www-zaq-ai/zaq/commit/402bdeb771be3f07287cd7f3d493e46bdb983748))
+* **storybook:** strip raw palette sections from colors story ([d27072f](https://github.com/www-zaq-ai/zaq/commit/d27072f7967cb45f9adbacd0daf33b8d8390d228))
+
 ## [0.10.0](https://github.com/www-zaq-ai/zaq/compare/v0.9.0...v0.10.0) (2026-05-28)
 
 

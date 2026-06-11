@@ -4,7 +4,7 @@ defmodule Zaq.MixProject do
   def project do
     [
       app: :zaq,
-      version: "0.10.0",
+      version: "0.11.0",
       source_url: "https://github.com/www-zaq-ai/zaq",
       homepage_url: "https://www-zaq-ai.github.io/zaq/",
       licenses: ["AGPL-3.0-only"],
