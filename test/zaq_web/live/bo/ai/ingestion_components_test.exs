@@ -5,6 +5,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
 
   alias ZaqWeb.Live.BO.AI.IngestionComponents
 
+  # Matches ZaqWeb.Live.BO.AI.IngestionComponents.file_icon/1 image branch (unique SVG gradient ids).
+  defp image_file_gradient_id(name), do: "img-gradient-#{:erlang.phash2(name)}"
+
   # ---------------------------------------------------------------------------
   # file_icon/1 — one test per extension branch
   # ---------------------------------------------------------------------------
@@ -46,21 +49,30 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
     end
 
     test "renders image icon for .png files" do
-      html = render_component(&IngestionComponents.file_icon/1, name: "photo.png")
+      name = "photo.png"
+      html = render_component(&IngestionComponents.file_icon/1, name: name)
+      id = image_file_gradient_id(name)
 
-      assert html =~ "paint0_linear_103_1789"
+      assert html =~ id
+      assert html =~ "url(##{id})"
     end
 
     test "renders image icon for .jpg files" do
-      html = render_component(&IngestionComponents.file_icon/1, name: "photo.jpg")
+      name = "photo.jpg"
+      html = render_component(&IngestionComponents.file_icon/1, name: name)
+      id = image_file_gradient_id(name)
 
-      assert html =~ "paint0_linear_103_1789"
+      assert html =~ id
+      assert html =~ "url(##{id})"
     end
 
     test "renders image icon for .jpeg files" do
-      html = render_component(&IngestionComponents.file_icon/1, name: "photo.jpeg")
+      name = "photo.jpeg"
+      html = render_component(&IngestionComponents.file_icon/1, name: name)
+      id = image_file_gradient_id(name)
 
-      assert html =~ "paint0_linear_103_1789"
+      assert html =~ id
+      assert html =~ "url(##{id})"
     end
 
     test "renders CSV icon for .csv files" do
