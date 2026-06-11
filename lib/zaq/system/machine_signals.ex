@@ -1,14 +1,12 @@
 defmodule Zaq.System.MachineSignals do
   @moduledoc false
 
-  @hash_prefix "zaq-signal-v1:"
-  @hash_length 32
   @cache_key {__MODULE__, :signals}
   @imds_timeout_ms 500
 
   @doc """
-  Returns the machine signals map with all available signals, hashed per the
-  wire format. Memoized in `:persistent_term` — probes run once per boot.
+  Returns the machine signals map with all available signals.
+  Memoized in `:persistent_term` — probes run once per boot.
   """
   @spec collect() :: map()
   def collect do
@@ -25,33 +23,6 @@ defmodule Zaq.System.MachineSignals do
 
   @doc false
   def reset_cache, do: :persistent_term.erase(@cache_key)
-
-  @doc """
-  Normalizes a raw signal value: trims whitespace, lowercases, collapses
-  internal whitespace runs to a single space.
-
-  Exported for shared test-vector verification with the Portal — both sides
-  must produce byte-identical output.
-  """
-  @spec normalize(String.t()) :: String.t()
-  def normalize(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> String.downcase()
-    |> String.replace(~r/\s+/, " ")
-  end
-
-  @doc """
-  Hashes a single signal. Wire format:
-  `sha256("zaq-signal-v1:" <> name <> ":" <> normalize(value))` → first 32 hex chars.
-  """
-  @spec hash_signal(String.t(), String.t()) :: String.t()
-  def hash_signal(name, value) when is_binary(name) and is_binary(value) do
-    (@hash_prefix <> name <> ":" <> normalize(value))
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
-    |> binary_part(0, @hash_length)
-  end
 
   # --- private builders ---
 
@@ -374,29 +345,19 @@ defmodule Zaq.System.MachineSignals do
     net_base = Keyword.get(cfg, :net_interfaces_path, "/sys/class/net")
     bt_base = Keyword.get(cfg, :bluetooth_path, "/sys/class/bluetooth")
 
-    iface_hashes =
-      case net_iface_macs(net_base) do
-        nil -> nil
-        macs -> Enum.map(macs, &hash_signal("net_interface", &1))
-      end
-
-    bt_hashes =
-      case bt_addresses(bt_base) do
-        nil -> nil
-        addrs -> Enum.map(addrs, &hash_signal("bluetooth_address", &1))
-      end
+    ifaces = net_iface_macs(net_base)
+    bt = bt_addresses(bt_base)
 
     section([
-      {"interfaces", iface_hashes && {:raw, iface_hashes}},
-      {"bluetooth", bt_hashes && {:raw, bt_hashes}}
+      {"interfaces", ifaces && {:raw, ifaces}},
+      {"bluetooth", bt && {:raw, bt}}
     ])
   end
 
   defp network_macos do
     macs = macos_iface_macs()
-    iface_hashes = macs && Enum.map(macs, &hash_signal("net_interface", &1))
 
-    section([{"interfaces", iface_hashes && {:raw, iface_hashes}}])
+    section([{"interfaces", macs && {:raw, macs}}])
   end
 
   defp macos_iface_macs do
@@ -432,10 +393,9 @@ defmodule Zaq.System.MachineSignals do
           |> Enum.map(&String.downcase(String.replace(&1, "-", ":")))
           |> Enum.reject(&(&1 in ["", "00:00:00:00:00:00"]))
 
-        iface_hashes =
-          if macs == [], do: nil, else: Enum.map(macs, &hash_signal("net_interface", &1))
+        ifaces = if macs == [], do: nil, else: macs
 
-        section([{"interfaces", iface_hashes && {:raw, iface_hashes}}])
+        section([{"interfaces", ifaces && {:raw, ifaces}}])
     end
   end
 
@@ -582,7 +542,7 @@ defmodule Zaq.System.MachineSignals do
         {_k, {:raw, nil}}, acc -> acc
         {_k, {:raw, []}}, acc -> acc
         {k, {:raw, v}}, acc -> Map.put(acc, k, v)
-        {k, v}, acc when is_binary(v) -> Map.put(acc, k, hash_signal(k, v))
+        {k, v}, acc when is_binary(v) -> Map.put(acc, k, v)
         _, acc -> acc
       end)
 
