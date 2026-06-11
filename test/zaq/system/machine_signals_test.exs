@@ -65,70 +65,23 @@ defmodule Zaq.System.MachineSignalsTest do
     path
   end
 
-  # --- normalize/1 ---
-
-  describe "normalize/1" do
-    test "trims leading and trailing whitespace" do
-      assert MachineSignals.normalize("  hello  ") == "hello"
-    end
-
-    test "lowercases" do
-      assert MachineSignals.normalize("Intel(R) Core i7") == "intel(r) core i7"
-    end
-
-    test "collapses internal whitespace runs to single space" do
-      assert MachineSignals.normalize("a  b\t\tc") == "a b c"
-    end
-
-    test "is idempotent" do
-      value = "  Intel(R)  Core  i7  "
-      once = MachineSignals.normalize(value)
-      assert MachineSignals.normalize(once) == once
-    end
-
-    test "handles empty string" do
-      assert MachineSignals.normalize("") == ""
-    end
+  defp write_executable!(dir, name, content) do
+    path = Path.join(dir, name)
+    File.write!(path, content)
+    File.chmod!(path, 0o755)
+    path
   end
 
-  # --- hash_signal/2 ---
+  defp prepend_path!(dir) do
+    previous = System.get_env("PATH")
+    System.put_env("PATH", dir <> ":" <> previous)
+    on_exit(fn -> System.put_env("PATH", previous) end)
+  end
 
-  describe "hash_signal/2" do
-    test "returns a 32-character lowercase hex string" do
-      result = MachineSignals.hash_signal("machine_id", "abc123")
-      assert String.length(result) == 32
-      assert result =~ ~r/^[0-9a-f]{32}$/
-    end
-
-    test "is deterministic — same inputs produce same output" do
-      h1 = MachineSignals.hash_signal("machine_id", "abc123")
-      h2 = MachineSignals.hash_signal("machine_id", "abc123")
-      assert h1 == h2
-    end
-
-    test "different names produce different hashes" do
-      h1 = MachineSignals.hash_signal("machine_id", "abc123")
-      h2 = MachineSignals.hash_signal("boot_id", "abc123")
-      assert h1 != h2
-    end
-
-    test "different values produce different hashes" do
-      h1 = MachineSignals.hash_signal("machine_id", "abc123")
-      h2 = MachineSignals.hash_signal("machine_id", "xyz789")
-      assert h1 != h2
-    end
-
-    test "normalizes value before hashing — whitespace variants are equal" do
-      h1 = MachineSignals.hash_signal("machine_id", "abc 123")
-      h2 = MachineSignals.hash_signal("machine_id", "  ABC  123  ")
-      assert h1 == h2
-    end
-
-    test "never raises on arbitrary binary input" do
-      for value <- ["", "\x00", "a\nb", <<0xFF, 0xFE>>, String.duplicate("x", 10_000)] do
-        assert is_binary(MachineSignals.hash_signal("k", value))
-      end
-    end
+  defp replace_path!(dir) do
+    previous = System.get_env("PATH")
+    System.put_env("PATH", dir)
+    on_exit(fn -> System.put_env("PATH", previous) end)
   end
 
   # --- collect/0 ---
@@ -177,25 +130,38 @@ defmodule Zaq.System.MachineSignalsTest do
       cfg(machine_id_paths: [Path.join(@fixtures, "machine-id")])
 
       result = MachineSignals.collect()
-      assert %{identity: %{"machine_id" => hash}} = result
-      assert String.length(hash) == 32
-      assert hash =~ ~r/^[0-9a-f]{32}$/
-      assert hash == MachineSignals.hash_signal("machine_id", "3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e")
+      assert %{identity: %{"machine_id" => machine_id}} = result
+      assert machine_id == "3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e\n"
     end
 
     test "reads boot_id from fixture path" do
       cfg(boot_id_path: Path.join(@fixtures, "boot-id"))
 
       result = MachineSignals.collect()
-      assert %{identity: %{"boot_id" => hash}} = result
-      assert hash == MachineSignals.hash_signal("boot_id", "a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+      assert %{identity: %{"boot_id" => boot_id}} = result
+      assert boot_id == "a1b2c3d4-e5f6-7890-abcd-ef1234567890\n"
     end
 
-    test "raw value is never present in output" do
-      cfg(machine_id_paths: [Path.join(@fixtures, "machine-id")])
+    test "reads all configured linux identity values as raw strings" do
+      tmp = tmp_dir("zaq_identity_test")
+
+      cfg(
+        machine_id_paths: [Path.join(@fixtures, "machine-id")],
+        product_uuid_path: write_file!(Path.join(tmp, "product_uuid"), "product-uuid\n"),
+        board_serial_path: write_file!(Path.join(tmp, "board_serial"), "board-serial\n"),
+        chassis_serial_path: write_file!(Path.join(tmp, "chassis_serial"), "chassis-serial\n"),
+        boot_id_path: Path.join(@fixtures, "boot-id")
+      )
 
       result = MachineSignals.collect()
-      refute inspect(result) =~ "3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e"
+
+      assert result.identity == %{
+               "machine_id" => "3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e\n",
+               "product_uuid" => "product-uuid\n",
+               "board_serial" => "board-serial\n",
+               "chassis_serial" => "chassis-serial\n",
+               "boot_id" => "a1b2c3d4-e5f6-7890-abcd-ef1234567890\n"
+             }
     end
   end
 
@@ -208,11 +174,8 @@ defmodule Zaq.System.MachineSignalsTest do
       assert Map.has_key?(cpu, "model")
       assert Map.has_key?(cpu, "cores")
 
-      expected_model =
-        MachineSignals.hash_signal("model", "Intel(R) Core(TM) i7-8565U CPU @ 1.80GHz")
-
-      assert cpu["model"] == expected_model
-      assert cpu["cores"] == MachineSignals.hash_signal("cores", "2")
+      assert cpu["model"] == "Intel(R) Core(TM) i7-8565U CPU @ 1.80GHz"
+      assert cpu["cores"] == "2"
     end
 
     test "omits cpu section when cpuinfo is unreadable and uname unavailable" do
@@ -239,9 +202,9 @@ defmodule Zaq.System.MachineSignalsTest do
       cfg(meminfo_path: Path.join(@fixtures, "meminfo"))
 
       result = MachineSignals.collect()
-      assert %{ram: %{"total_gib" => hash}} = result
+      assert %{ram: %{"total_gib" => total_gib}} = result
       # 8388608 kB = 8 GiB
-      assert hash == MachineSignals.hash_signal("total_gib", "8")
+      assert total_gib == "8"
     end
 
     test "omits ram section when meminfo lacks MemTotal" do
@@ -268,16 +231,14 @@ defmodule Zaq.System.MachineSignalsTest do
 
       result = MachineSignals.collect()
       assert %{motherboard: motherboard} = result
-      assert motherboard["sys_vendor"] == MachineSignals.hash_signal("sys_vendor", "Framework")
 
-      assert motherboard["product_name"] ==
-               MachineSignals.hash_signal("product_name", "Laptop 13")
-
-      assert motherboard["board_vendor"] ==
-               MachineSignals.hash_signal("board_vendor", "Framework")
-
-      assert motherboard["board_name"] == MachineSignals.hash_signal("board_name", "FRANBMCP0A")
-      assert motherboard["chassis_type"] == MachineSignals.hash_signal("chassis_type", "10")
+      assert motherboard == %{
+               "sys_vendor" => "Framework\n",
+               "product_name" => "Laptop 13\n",
+               "board_vendor" => "Framework\n",
+               "board_name" => "FRANBMCP0A\n",
+               "chassis_type" => "10\n"
+             }
     end
   end
 
@@ -286,6 +247,7 @@ defmodule Zaq.System.MachineSignalsTest do
       tmp = tmp_dir("zaq_gpu_test")
       display = Path.join(tmp, "0000:00:02.0")
       network = Path.join(tmp, "0000:00:1f.6")
+      unknown = Path.join(tmp, "0000:00:1d.0")
 
       write_file!(Path.join(display, "class"), "0x030000\n")
       write_file!(Path.join(display, "vendor"), "0x8086\n")
@@ -293,13 +255,14 @@ defmodule Zaq.System.MachineSignalsTest do
       write_file!(Path.join(network, "class"), "0x020000\n")
       write_file!(Path.join(network, "vendor"), "0x8086\n")
       write_file!(Path.join(network, "device"), "0x0d4f\n")
+      File.mkdir_p!(unknown)
 
       cfg(pci_devices_path: tmp)
 
       result = MachineSignals.collect()
       assert %{gpu: [gpu]} = result
-      assert gpu["vendor"] == MachineSignals.hash_signal("vendor", "0x8086")
-      assert gpu["device"] == MachineSignals.hash_signal("device", "0x9b41")
+      assert gpu["vendor"] == "0x8086\n"
+      assert gpu["device"] == "0x9b41\n"
     end
 
     test "omits linux PCI devices with incomplete display metadata" do
@@ -320,8 +283,8 @@ defmodule Zaq.System.MachineSignalsTest do
 
       result = MachineSignals.collect()
       assert %{os: os} = result
-      assert os["id"] == MachineSignals.hash_signal("id", "ubuntu")
-      assert os["version"] == MachineSignals.hash_signal("version", "22.04")
+      assert os["id"] == "ubuntu"
+      assert os["version"] == "22.04"
     end
 
     test "is_docker is a boolean" do
@@ -377,7 +340,7 @@ defmodule Zaq.System.MachineSignalsTest do
       refute Map.has_key?(result, :network)
     end
 
-    test "interface hashes are 32-char hex strings" do
+    test "interface addresses are returned as raw strings" do
       tmp = System.tmp_dir!() |> Path.join("zaq_net_test_#{System.unique_integer([:positive])}")
       eth0 = Path.join(tmp, "eth0")
       File.mkdir_p!(eth0)
@@ -391,9 +354,7 @@ defmodule Zaq.System.MachineSignalsTest do
       )
 
       result = MachineSignals.collect()
-      assert %{network: %{"interfaces" => [hash]}} = result
-      assert String.length(hash) == 32
-      assert hash =~ ~r/^[0-9a-f]{32}$/
+      assert %{network: %{"interfaces" => ["aa:bb:cc:dd:ee:ff"]}} = result
     end
 
     test "filters loopback and zero MACs and reads bluetooth addresses" do
@@ -407,23 +368,256 @@ defmodule Zaq.System.MachineSignalsTest do
       write_file!(Path.join([net, "bad0", "not-address"]), "ignored\n")
       write_file!(Path.join([bluetooth, "hci0", "address"]), "11:22:33:44:55:66\n")
       write_file!(Path.join([bluetooth, "hci1", "address"]), "\n")
+      File.mkdir_p!(Path.join(bluetooth, "hci2"))
 
       cfg(net_interfaces_path: net, bluetooth_path: bluetooth)
 
       result = MachineSignals.collect()
       assert %{network: network} = result
 
-      assert network["interfaces"] == [
-               MachineSignals.hash_signal("net_interface", "aa:bb:cc:dd:ee:ff")
-             ]
-
-      assert network["bluetooth"] == [
-               MachineSignals.hash_signal("bluetooth_address", "11:22:33:44:55:66")
-             ]
+      assert network["interfaces"] == ["aa:bb:cc:dd:ee:ff"]
+      assert network["bluetooth"] == ["11:22:33:44:55:66"]
     end
   end
 
   describe "collect/0 — alternate platforms" do
+    test "macos platform parses command output into raw sections" do
+      bin = tmp_dir("zaq_macos_bin")
+
+      write_executable!(bin, "ioreg", """
+      #!/bin/sh
+      printf '%s\n' '  "IOPlatformUUID" = "MAC-PRODUCT-UUID"'
+      printf '%s\n' '  "IOPlatformSerialNumber" = "MAC-BOARD-SERIAL"'
+      """)
+
+      write_executable!(bin, "sysctl", """
+      #!/bin/sh
+      case "$2" in
+        machdep.cpu.brand_string) printf '%s\n' 'Apple M3 Pro' ;;
+        hw.model) printf '%s\n' 'MacBookPro18,1' ;;
+        hw.logicalcpu) printf '%s\n' '12' ;;
+        hw.memsize) printf '%s\n' '17179869184' ;;
+        *) exit 1 ;;
+      esac
+      """)
+
+      write_executable!(bin, "system_profiler", """
+      #!/bin/sh
+      printf '%s\n' 'Chipset Model: Apple M3 Pro'
+      printf '%s\n' 'Vendor: Apple'
+      printf '%s\n' 'Chipset Model: External GPU'
+      printf '%s\n' 'Vendor: Acme'
+      """)
+
+      write_executable!(bin, "ifconfig", """
+      #!/bin/sh
+      printf '%s\n' 'ether AA:BB:CC:DD:EE:FF'
+      printf '%s\n' 'ether 00:00:00:00:00:00'
+      printf '%s\n' 'ether aa:bb:cc:dd:ee:ff'
+      """)
+
+      write_executable!(bin, "sw_vers", """
+      #!/bin/sh
+      case "$1" in
+        -productName) printf '%s\n' 'macOS' ;;
+        -productVersion) printf '%s\n' '14.5' ;;
+        *) exit 1 ;;
+      esac
+      """)
+
+      prepend_path!(bin)
+      cfg(platform: :macos)
+
+      result = MachineSignals.collect()
+
+      assert result.identity == %{
+               "product_uuid" => "MAC-PRODUCT-UUID",
+               "board_serial" => "MAC-BOARD-SERIAL"
+             }
+
+      assert result.motherboard == %{
+               "sys_vendor" => "Apple Inc.",
+               "product_name" => "MacBookPro18,1",
+               "board_vendor" => "Apple Inc.",
+               "board_name" => "MacBookPro18,1"
+             }
+
+      assert result.cpu["model"] == "Apple M3 Pro"
+      assert result.cpu["cores"] == "12"
+      assert result.ram == %{"total_gib" => "16"}
+
+      assert result.gpu == [
+               %{"vendor" => "Apple", "device" => "Apple M3 Pro"},
+               %{"vendor" => "Acme", "device" => "External GPU"}
+             ]
+
+      assert result.network == %{"interfaces" => ["aa:bb:cc:dd:ee:ff"]}
+      assert result.os["id"] == "macOS"
+      assert result.os["version"] == "14.5"
+      assert result.os["cgroup_v2"] == false
+    end
+
+    test "windows platform parses powershell output into raw sections" do
+      bin = tmp_dir("zaq_windows_bin")
+      previous_docker = System.get_env("DOCKER_RUNNING")
+
+      on_exit(fn ->
+        if previous_docker do
+          System.put_env("DOCKER_RUNNING", previous_docker)
+        else
+          System.delete_env("DOCKER_RUNNING")
+        end
+      end)
+
+      System.put_env("DOCKER_RUNNING", "true")
+
+      write_executable!(bin, "powershell", """
+      #!/bin/sh
+      for arg do cmd="$arg"; done
+
+      if printf '%s' "$cmd" | grep -q 'Cryptography'; then
+        printf '%s\n' 'WIN-MACHINE-GUID'
+      elif printf '%s' "$cmd" | grep -q 'ComputerSystemProduct'; then
+        printf '%s\n' 'WIN-PRODUCT-UUID'
+      elif printf '%s' "$cmd" | grep -q 'Win32_BIOS'; then
+        printf '%s\n' 'WIN-BOARD-SERIAL'
+      elif printf '%s' "$cmd" | grep -q 'Win32_ComputerSystem).*Manufacturer'; then
+        printf '%s\n' 'Framework'
+      elif printf '%s' "$cmd" | grep -q 'Win32_ComputerSystem).*Model'; then
+        printf '%s\n' 'Laptop 13'
+      elif printf '%s' "$cmd" | grep -q 'Win32_BaseBoard).*Manufacturer'; then
+        printf '%s\n' 'Framework'
+      elif printf '%s' "$cmd" | grep -q 'Win32_BaseBoard).*Product'; then
+        printf '%s\n' 'FRANBMCP0A'
+      elif printf '%s' "$cmd" | grep -q 'Win32_Processor.*Name'; then
+        printf '%s\n' 'Intel CPU'
+      elif printf '%s' "$cmd" | grep -q 'NumberOfLogicalProcessors'; then
+        printf '%s\n' '8'
+      elif printf '%s' "$cmd" | grep -q 'ProcessArchitecture'; then
+        printf '%s\n' 'X64'
+      elif printf '%s' "$cmd" | grep -q 'TotalPhysicalMemory'; then
+        printf '%s\n' '8589934592'
+      elif printf '%s' "$cmd" | grep -q 'Win32_VideoController'; then
+        printf '%s\n' 'NVIDIA|RTX 4090'
+        printf '%s\n' 'malformed'
+        printf '%s\n' 'AMD|Radeon'
+      elif printf '%s' "$cmd" | grep -q 'Get-NetAdapter'; then
+        printf '%s\n' 'AA-BB-CC-DD-EE-FF'
+        printf '%s\n' '00-00-00-00-00-00'
+        printf '%s\n' ''
+      elif printf '%s' "$cmd" | grep -q 'OSVersion'; then
+        printf '%s\n' '10.0.22631'
+      elif printf '%s' "$cmd" | grep -q 'Win32_OperatingSystem'; then
+        printf '%s\n' '11'
+      else
+        exit 1
+      fi
+      """)
+
+      prepend_path!(bin)
+      cfg(platform: :windows)
+
+      result = MachineSignals.collect()
+
+      assert result.identity == %{
+               "machine_id" => "WIN-MACHINE-GUID",
+               "product_uuid" => "WIN-PRODUCT-UUID",
+               "board_serial" => "WIN-BOARD-SERIAL"
+             }
+
+      assert result.motherboard == %{
+               "sys_vendor" => "Framework",
+               "product_name" => "Laptop 13",
+               "board_vendor" => "Framework",
+               "board_name" => "FRANBMCP0A"
+             }
+
+      assert result.cpu == %{"model" => "Intel CPU", "cores" => "8", "arch" => "X64"}
+      assert result.ram == %{"total_gib" => "8"}
+
+      assert result.gpu == [
+               %{"vendor" => "NVIDIA", "device" => "RTX 4090"},
+               %{"vendor" => "AMD", "device" => "Radeon"}
+             ]
+
+      assert result.network == %{"interfaces" => ["aa:bb:cc:dd:ee:ff"]}
+      assert result.os["kernel"] == "10.0.22631"
+      assert result.os["id"] == "windows"
+      assert result.os["version"] == "11"
+      assert result.os["is_docker"] == true
+      assert result.os["cgroup_v2"] == false
+    end
+
+    test "macos platform tolerates commands returning errors" do
+      bin = tmp_dir("zaq_macos_error_bin")
+
+      for command <- ["ioreg", "system_profiler", "ifconfig", "sw_vers", "uname"] do
+        write_executable!(bin, command, """
+        #!/bin/sh
+        exit 1
+        """)
+      end
+
+      write_executable!(bin, "sysctl", """
+      #!/bin/sh
+      case "$2" in
+        hw.memsize) printf '%s\n' 'not-a-number' ;;
+        *) exit 1 ;;
+      esac
+      """)
+
+      prepend_path!(bin)
+      cfg(platform: :macos)
+
+      result = MachineSignals.collect()
+
+      assert result[:version] == 1
+      refute Map.has_key?(result, :identity)
+      refute Map.has_key?(result, :gpu)
+      refute Map.has_key?(result, :network)
+      refute Map.has_key?(result, :ram)
+      assert result.os["is_docker"] in [true, false]
+      assert result.os["cgroup_v2"] == false
+    end
+
+    test "macos platform tolerates missing command executables" do
+      replace_path!(tmp_dir("zaq_empty_path"))
+      cfg(platform: :macos)
+
+      result = MachineSignals.collect()
+
+      assert result[:version] == 1
+      refute Map.has_key?(result, :identity)
+      refute Map.has_key?(result, :gpu)
+      refute Map.has_key?(result, :network)
+      refute Map.has_key?(result, :cpu)
+      refute Map.has_key?(result, :ram)
+    end
+
+    test "windows platform tolerates powershell command errors" do
+      bin = tmp_dir("zaq_windows_error_bin")
+
+      write_executable!(bin, "powershell", """
+      #!/bin/sh
+      exit 1
+      """)
+
+      prepend_path!(bin)
+      cfg(platform: :windows)
+
+      result = MachineSignals.collect()
+
+      assert result[:version] == 1
+      refute Map.has_key?(result, :identity)
+      refute Map.has_key?(result, :motherboard)
+      refute Map.has_key?(result, :cpu)
+      refute Map.has_key?(result, :ram)
+      refute Map.has_key?(result, :gpu)
+      refute Map.has_key?(result, :network)
+      assert result.os["id"] == "windows"
+      assert result.os["cgroup_v2"] == false
+    end
+
     test "macos platform probes return the stable wire shape" do
       cfg(platform: :macos)
 
@@ -435,10 +629,8 @@ defmodule Zaq.System.MachineSignalsTest do
       end
 
       if motherboard = result[:motherboard] do
-        assert motherboard["sys_vendor"] == MachineSignals.hash_signal("sys_vendor", "Apple Inc.")
-
-        assert motherboard["board_vendor"] ==
-                 MachineSignals.hash_signal("board_vendor", "Apple Inc.")
+        assert motherboard["sys_vendor"] == "Apple Inc."
+        assert motherboard["board_vendor"] == "Apple Inc."
       end
 
       if os = result[:os] do
@@ -454,7 +646,7 @@ defmodule Zaq.System.MachineSignalsTest do
       assert result[:version] == 1
 
       if os = result[:os] do
-        assert os["id"] == MachineSignals.hash_signal("id", "windows")
+        assert os["id"] == "windows"
         assert is_boolean(os["is_docker"])
         assert os["cgroup_v2"] == false
       end
