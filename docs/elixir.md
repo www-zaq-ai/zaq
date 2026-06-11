@@ -47,6 +47,26 @@
 
 ---
 
+## In-memory caching: `:persistent_term` vs ETS
+
+Choose based on the **write frequency** of the cached value, not on familiarity:
+
+| Profile | Use | Why |
+| --- | --- | --- |
+| Write-once (or rarely), read-hot | `:persistent_term` | Reads are constant-time with **no copying**. Every `put/2` or `erase/1` triggers a global GC pass across *all* processes — fine at startup, pathological under churn. |
+| Updated regularly, or many keys | ETS | Writes are cheap and isolated. Each read copies the value into the calling process — acceptable for small/medium terms. |
+
+Rules:
+
+- **`:persistent_term`** is for values detected/computed once at startup and read on every hot-path call — e.g. the detected FTS backend in `Zaq.Ingestion.FTSBackend` (`:persistent_term.put(@cache_key, backend)`), or the telemetry policy in `Zaq.Engine.Telemetry.Collector`.
+- Namespace keys with the module to avoid collisions: `@cache_key {__MODULE__, :backend}`.
+- Provide a reset function that calls `:persistent_term.erase/1` for tests, and restore state in `on_exit`.
+- **Never** store large or frequently-changing terms in `:persistent_term` — each update forces every process to scan its heap.
+- If a `:persistent_term` cache starts needing periodic refresh, **migrate it to ETS** rather than accepting repeated global GC.
+- For per-process or request-scoped state, use neither — pass data explicitly or use process state (GenServer/assigns).
+
+---
+
 ## Mix
 
 - Read the docs and options before using tasks: `mix help task_name`
