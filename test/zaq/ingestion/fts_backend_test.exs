@@ -1,7 +1,7 @@
 defmodule Zaq.Ingestion.FTSBackendTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Ingestion.FTSBackend
+  alias Zaq.Ingestion.{Chunk, FTSBackend}
   alias Zaq.Repo
 
   setup do
@@ -14,6 +14,18 @@ defmodule Zaq.Ingestion.FTSBackendTest do
   # affects the current test.
   defp drop_bm25_index do
     Repo.query!("DROP INDEX IF EXISTS chunks_bm25_idx")
+  end
+
+  # chunks is created at runtime (dynamic embedding dimension), not by
+  # migrations, so fresh CI databases need it before a BM25 index can exist.
+  # Native is pinned during creation so Chunk.create_table/1's internal
+  # backend lookup cannot cache a detection result mid-setup. All DDL rolls
+  # back with the sandbox.
+  defp create_chunks_table_with_bm25_index do
+    :persistent_term.put({FTSBackend, :backend}, FTSBackend.Native)
+    Chunk.create_table(1536)
+    FTSBackend.ParadeDB.setup_bm25_index(Repo, 1536)
+    FTSBackend.reset_cache()
   end
 
   describe "detect_and_cache/0" do
@@ -36,7 +48,7 @@ defmodule Zaq.Ingestion.FTSBackendTest do
 
     @tag :paradedb
     test "selects the ParadeDB backend when version_info() works and the BM25 index exists" do
-      FTSBackend.ParadeDB.setup_bm25_index(Repo, 1536)
+      create_chunks_table_with_bm25_index()
 
       assert FTSBackend.detect_and_cache() == FTSBackend.ParadeDB
     end
@@ -58,7 +70,7 @@ defmodule Zaq.Ingestion.FTSBackendTest do
 
     @tag :paradedb
     test "returns the ParadeDB backend on a working ParadeDB installation" do
-      FTSBackend.ParadeDB.setup_bm25_index(Repo, 1536)
+      create_chunks_table_with_bm25_index()
 
       assert FTSBackend.impl() == FTSBackend.ParadeDB
     end
