@@ -72,3 +72,9 @@ swarm
 swarm.config.yaml
 
 *.db
+
+# Personal Claude reference files (not for code review)
+CLAUDE.local.md
+.claude/specs/
+.claude/plans/
+.claude/superpowers/
