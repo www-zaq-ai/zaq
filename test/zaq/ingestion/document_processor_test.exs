@@ -1366,6 +1366,48 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert reason =~ "dimension_mismatch"
     end
 
+    test "process_and_store_chunks/2 returns report-level structural errors" do
+      stub_embedding_wrong_dimension()
+      stub_chunk_title_success()
+      doc = create_document(%{source: "dimension-mismatch-wrapper.md"})
+
+      content = "# Heading\n\n" <> String.duplicate("mismatch ", 120)
+
+      assert {:error, reason} = DocumentProcessor.process_and_store_chunks(content, doc.id)
+      assert reason =~ "Structural chunk processing error"
+      assert reason =~ "dimension_mismatch"
+    end
+
+    test "process_and_store_chunks_report/3 exits when chunk processing times out" do
+      original_ingestion_config = Application.get_env(:zaq, Zaq.Ingestion, [])
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_config)
+      end)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        original_ingestion_config
+        |> Keyword.put(:chunk_processing_concurrency, 1)
+        |> Keyword.put(:chunk_processing_timeout, 1)
+      )
+
+      counter = start_supervised!({Agent, fn -> %{inflight: 0, max: 0} end})
+      stub_embedding_with_concurrency_tracker(counter, 50)
+      stub_chunk_title_success()
+      doc = create_document(%{source: "timeout-report.md"})
+
+      content = "# Slow\n\n" <> String.duplicate("slow chunk ", 120)
+
+      assert {:timeout, {Task.Supervised, :stream, [1]}} =
+               catch_exit(
+                 DocumentProcessor.process_and_store_chunks_report(content, doc.id,
+                   reset_chunks: true
+                 )
+               )
+    end
+
     test "query_extraction/2 returns empty list when no matching sections exist" do
       stub_embedding_success()
       assert {:ok, []} = DocumentProcessor.query_extraction("no indexed content here")

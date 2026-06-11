@@ -48,14 +48,22 @@ defmodule Zaq.Ingestion.FTSBackend do
   Detection is functional, not catalog-based: `paradedb.version_info()` only
   succeeds when the pg_search binary is actually loaded and callable — a
   `pg_extension` catalog row can disagree with what is really installed
-  (partial upgrades, forked or patched builds). The legacy BM25 index must
-  also exist because the ParadeDB backend's `@@@` queries error without it,
-  so fresh installations stay on the native backend while existing ParadeDB
-  deployments keep their legacy query path.
+  (partial upgrades, forked or patched builds).
+
+  On a functional ParadeDB server the choice then depends on table state:
+
+    * `chunks_bm25_idx` exists → ParadeDB.
+    * no chunks table yet (fresh install) → ParadeDB. Nothing can be
+      searched before the table exists, and `setup_index/2` creates the
+      BM25 index together with the table, so the promise is self-fulfilling
+      from the first boot.
+    * chunks table without the index (legacy table created while the
+      extension was absent or broken) → Native, because the ParadeDB
+      backend's `@@@` queries error without the index.
   """
   def detect_and_cache do
     backend =
-      if paradedb_functional?() and bm25_index_present?() do
+      if paradedb_functional?() and (bm25_index_present?() or not chunks_table_exists?()) do
         __MODULE__.ParadeDB
       else
         __MODULE__.Native
@@ -64,6 +72,33 @@ defmodule Zaq.Ingestion.FTSBackend do
     :persistent_term.put(@cache_key, backend)
     Logger.info("[FTSBackend] active backend: #{inspect(backend)}")
     backend
+  end
+
+  @doc """
+  Provisions FTS indexes for a freshly created chunks table and re-detects
+  the active backend.
+
+  Dispatches on the functional probe rather than the cached backend: on a
+  fresh install the cache necessarily holds Native (`chunks_bm25_idx` cannot
+  exist before the chunks table does), so dispatching on `impl/0` would lock
+  the ParadeDB backend out forever.
+
+  The native column and index are always created — they are the universal
+  fallback and migration `20260528000001` expects `content_tsv` on ParadeDB
+  deployments too. The BM25 index is added on top when pg_search is
+  functional, and re-detection then switches the cache to ParadeDB.
+  """
+  def setup_index(repo, dimension) do
+    __MODULE__.Native.setup_bm25_index(repo, dimension)
+
+    if paradedb_functional?() do
+      __MODULE__.ParadeDB.setup_bm25_index(repo, dimension)
+    end
+
+    # detect_and_cache/0 overwrites the cached entry unconditionally, so no
+    # reset_cache/0 first — erase + put would mean two global GC passes.
+    detect_and_cache()
+    :ok
   end
 
   defp paradedb_functional? do
@@ -105,6 +140,23 @@ defmodule Zaq.Ingestion.FTSBackend do
         end)
 
         false
+    end
+  end
+
+  # Deliberately not Chunk.table_exists?/0 — that raises on query errors,
+  # while detection probes must never raise (they may run inside an open
+  # transaction at any point of the app lifecycle).
+  defp chunks_table_exists? do
+    case SQL.query(
+           Repo,
+           """
+           SELECT 1 FROM information_schema.tables
+           WHERE table_schema = 'public' AND table_name = 'chunks'
+           """,
+           []
+         ) do
+      {:ok, %{rows: [_ | _]}} -> true
+      _ -> false
     end
   end
 

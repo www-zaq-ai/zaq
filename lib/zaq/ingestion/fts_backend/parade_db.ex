@@ -2,8 +2,11 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
   @moduledoc """
   ParadeDB full-text search backend.
 
-  Preserves the legacy `pg_search` BM25 query path for existing installations
-  that still have the extension installed.
+  Uses the `pg_search` BM25 query path. Active wherever the extension is
+  functional and `chunks_bm25_idx` exists — legacy deployments as well as
+  fresh installs on ParadeDB-enabled servers, where
+  `Zaq.Ingestion.FTSBackend.setup_index/2` provisions the index at chunks
+  table creation.
   """
 
   @behaviour Zaq.Ingestion.FTSBackend

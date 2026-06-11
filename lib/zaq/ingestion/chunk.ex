@@ -172,7 +172,7 @@ defmodule Zaq.Ingestion.Chunk do
       []
     )
 
-    FTSBackend.impl().setup_bm25_index(Repo, dimension)
+    FTSBackend.setup_index(Repo, dimension)
 
     :ok
   end

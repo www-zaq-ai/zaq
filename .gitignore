@@ -1,5 +1,7 @@
-# Local-only Docker build file
+# Local-only Docker files
 Dockerfile_local
+docker-compose.local-postgres.yml
+docker-compose.local-parade.yml
 
 # The directory Mix will write compiled artifacts to.
 /_build/
