@@ -94,7 +94,8 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
         {200, streamed_reply(conn.request_path, "Stubbed draft", "gpt-4o")}
       end
 
-      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
       {:ok, agent: insert_configured_agent("MailResponder")}

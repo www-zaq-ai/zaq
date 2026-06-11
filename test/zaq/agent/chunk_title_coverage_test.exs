@@ -10,7 +10,8 @@ defmodule Zaq.Agent.ChunkTitleCoverageTest do
         {200, OpenAIStub.chat_completion("   ")}
       end
 
-      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, message} = ChunkTitle.ask("Some chunk content")
@@ -22,7 +23,8 @@ defmodule Zaq.Agent.ChunkTitleCoverageTest do
         {200, OpenAIStub.chat_completion(nil)}
       end
 
-      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, message} = ChunkTitle.ask("Some chunk content")
@@ -36,7 +38,8 @@ defmodule Zaq.Agent.ChunkTitleCoverageTest do
         {200, OpenAIStub.chat_completion("Here is Northwind Industries Overview")}
       end
 
-      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, "Northwind Industries Overview"} = ChunkTitle.ask("Some chunk content")
@@ -47,7 +50,8 @@ defmodule Zaq.Agent.ChunkTitleCoverageTest do
         {200, OpenAIStub.chat_completion("Here's Policy Details")}
       end
 
-      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, "Policy Details"} = ChunkTitle.ask("Some chunk content")
@@ -58,7 +62,8 @@ defmodule Zaq.Agent.ChunkTitleCoverageTest do
         {200, OpenAIStub.chat_completion("The title is: Benefits Policy Overview")}
       end
 
-      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:ok, "Benefits Policy Overview"} = ChunkTitle.ask("Some chunk content")
@@ -71,7 +76,8 @@ defmodule Zaq.Agent.ChunkTitleCoverageTest do
         {500, %{"error" => %{"message" => "Internal server error", "type" => "server_error"}}}
       end
 
-      {_pid, endpoint} = OpenAIStub.start_server(handler, self())
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
       assert {:error, message} = ChunkTitle.ask("Some chunk content")

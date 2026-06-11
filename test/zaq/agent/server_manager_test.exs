@@ -1423,7 +1423,8 @@ defmodule Zaq.Agent.ServerManagerTest do
       {200, streamed_reply(conn.request_path, "ok", "gpt-4.1-mini")}
     end
 
-    {_pid, endpoint} = OpenAIStub.start_server(handler, self())
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
 
     credential =
       ai_credential_fixture(%{

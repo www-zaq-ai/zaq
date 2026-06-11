@@ -8,8 +8,8 @@ defmodule Zaq.Channels.MattermostAdminTest do
 
   describe "fetch_bot_user_id/2" do
     test "returns bot id on HTTP 200" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn conn, _body ->
             assert conn.request_path == "/v1/api/v4/users/me"
             {200, %{"id" => "bot-user-1"}}
@@ -17,17 +17,21 @@ defmodule Zaq.Channels.MattermostAdminTest do
           self()
         )
 
+      start_supervised!(child_spec)
+
       assert {:ok, "bot-user-1"} = MattermostAdmin.fetch_bot_user_id(url, "token-1")
     end
 
     test "returns formatted HTTP error on non-200" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn _conn, _body ->
             {401, %{"error" => "unauthorized"}}
           end,
           self()
         )
+
+      start_supervised!(child_spec)
 
       assert {:error, "HTTP 401"} = MattermostAdmin.fetch_bot_user_id(url, "token-1")
     end
@@ -47,8 +51,8 @@ defmodule Zaq.Channels.MattermostAdminTest do
     end
 
     test "passes through ReqClient success" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn conn, body ->
             assert conn.method == "POST"
             assert conn.request_path == "/v1/api/v4/posts"
@@ -62,6 +66,7 @@ defmodule Zaq.Channels.MattermostAdminTest do
           self()
         )
 
+      start_supervised!(child_spec)
       insert_mattermost_config(url)
 
       assert {:ok, %{"id" => "post-1"}} = MattermostAdmin.send_message("chan-1", "hello")
@@ -70,14 +75,16 @@ defmodule Zaq.Channels.MattermostAdminTest do
 
   describe "list_teams/1" do
     test "atomizes team maps on success" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn conn, _body ->
             assert conn.request_path == "/v1/api/v4/users/me/teams"
             {200, [%{"id" => "team-1", "display_name" => "Core"}]}
           end,
           self()
         )
+
+      start_supervised!(child_spec)
 
       assert {:ok, [team]} = MattermostAdmin.list_teams(%{url: url, token: "token-1"})
       assert team.id == "team-1"
@@ -86,13 +93,15 @@ defmodule Zaq.Channels.MattermostAdminTest do
     end
 
     test "passes through ReqClient errors" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn _conn, _body ->
             {404, %{"error" => "boom"}}
           end,
           self()
         )
+
+      start_supervised!(child_spec)
 
       assert {:error, {404, %{"error" => "boom"}}} =
                MattermostAdmin.list_teams(%{url: url, token: "token-1"})
@@ -101,14 +110,16 @@ defmodule Zaq.Channels.MattermostAdminTest do
 
   describe "list_public_channels/2" do
     test "atomizes channel maps on success" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn conn, _body ->
             assert conn.request_path == "/v1/api/v4/teams/team-1/channels"
             {200, [%{"id" => "chan-1", "name" => "general"}]}
           end,
           self()
         )
+
+      start_supervised!(child_spec)
 
       assert {:ok, [channel]} =
                MattermostAdmin.list_public_channels(%{url: url, token: "token-1"}, "team-1")
@@ -119,13 +130,15 @@ defmodule Zaq.Channels.MattermostAdminTest do
     end
 
     test "passes through ReqClient errors" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn _conn, _body ->
             {404, %{"error" => "temporary"}}
           end,
           self()
         )
+
+      start_supervised!(child_spec)
 
       assert {:error, {404, %{"error" => "temporary"}}} =
                MattermostAdmin.list_public_channels(%{url: url, token: "token-1"}, "team-1")
@@ -138,8 +151,8 @@ defmodule Zaq.Channels.MattermostAdminTest do
     end
 
     test "passes through fetch_posts errors" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn conn, _body ->
             if conn.method == "GET" and conn.request_path == "/v1/api/v4/channels/chan-1/posts" do
               {404, %{"error" => "fetch-failed"}}
@@ -150,6 +163,7 @@ defmodule Zaq.Channels.MattermostAdminTest do
           self()
         )
 
+      start_supervised!(child_spec)
       insert_mattermost_config(url)
 
       assert {:error, {404, %{"error" => "fetch-failed"}}} =
@@ -157,8 +171,8 @@ defmodule Zaq.Channels.MattermostAdminTest do
     end
 
     test "deletes returned posts and returns deleted count" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn conn, _body ->
             case {conn.method, conn.request_path} do
               {"GET", "/v1/api/v4/channels/chan-1/posts"} ->
@@ -177,6 +191,7 @@ defmodule Zaq.Channels.MattermostAdminTest do
           self()
         )
 
+      start_supervised!(child_spec)
       insert_mattermost_config(url)
 
       assert {:ok, 2} = MattermostAdmin.clear_channel("chan-1")
@@ -190,8 +205,8 @@ defmodule Zaq.Channels.MattermostAdminTest do
     end
 
     test "returns zero when there are no posts to delete" do
-      {_pid, url} =
-        OpenAIStub.start_server(
+      {child_spec, url} =
+        OpenAIStub.server(
           fn conn, _body ->
             case {conn.method, conn.request_path} do
               {"GET", "/v1/api/v4/channels/chan-1/posts"} ->
@@ -204,6 +219,7 @@ defmodule Zaq.Channels.MattermostAdminTest do
           self()
         )
 
+      start_supervised!(child_spec)
       insert_mattermost_config(url)
 
       assert {:ok, 0} = MattermostAdmin.clear_channel("chan-1")

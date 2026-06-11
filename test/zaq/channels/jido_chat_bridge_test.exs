@@ -855,8 +855,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_conversations_module, StubConversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, RealRunPipelineNodeRouter)
 
-      {_pid, endpoint} =
-        OpenAIStub.start_server(
+      {child_spec, endpoint} =
+        OpenAIStub.server(
           fn conn, body ->
             payload = Jason.decode!(body)
 
@@ -899,6 +899,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
           end,
           self()
         )
+
+      start_supervised!(child_spec)
 
       credential =
         SystemConfigFixtures.ai_credential_fixture(%{
@@ -980,8 +982,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, RealAllActionsNodeRouter)
 
-      {_pid, endpoint} =
-        OpenAIStub.start_server(
+      {child_spec, endpoint} =
+        OpenAIStub.server(
           fn conn, body ->
             payload = Jason.decode!(body)
 
@@ -1014,6 +1016,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
           end,
           self()
         )
+
+      start_supervised!(child_spec)
 
       credential =
         SystemConfigFixtures.ai_credential_fixture(%{
@@ -1130,8 +1134,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, RealAllActionsNodeRouter)
 
-      {_pid, endpoint} =
-        OpenAIStub.start_server(
+      {child_spec, endpoint} =
+        OpenAIStub.server(
           fn conn, body ->
             payload = Jason.decode!(body)
 
@@ -1164,6 +1168,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
           end,
           self()
         )
+
+      start_supervised!(child_spec)
 
       credential =
         SystemConfigFixtures.ai_credential_fixture(%{
