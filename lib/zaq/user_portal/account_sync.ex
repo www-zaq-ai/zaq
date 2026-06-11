@@ -7,6 +7,7 @@ defmodule Zaq.UserPortal.AccountSync do
   """
 
   alias Zaq.Accounts.User
+  alias Zaq.System
 
   require Logger
 
@@ -18,7 +19,7 @@ defmodule Zaq.UserPortal.AccountSync do
   """
   @spec sync_email(User.t()) :: :ok | {:error, term()}
   def sync_email(%User{portal_consent: "accepted", email: email}) when is_binary(email) do
-    case client().update_email(email) do
+    case client().update_email(email, zaq_router_api_key()) do
       :ok ->
         :ok
 
@@ -29,6 +30,13 @@ defmodule Zaq.UserPortal.AccountSync do
   end
 
   def sync_email(%User{}), do: :ok
+
+  defp zaq_router_api_key do
+    case System.get_ai_provider_credential_by_name("ZAQ Router") do
+      %{api_key: key} when is_binary(key) -> key
+      _ -> nil
+    end
+  end
 
   defp client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 end

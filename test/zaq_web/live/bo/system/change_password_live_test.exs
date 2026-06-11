@@ -262,4 +262,109 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     refute updated_user.must_change_password
     assert updated_user.portal_consent == "declined"
   end
+
+  test "allows email override after portal reports the original email is taken", %{conn: conn} do
+    user =
+      user_fixture(%{username: "must_change_password_email_conflict", email: "taken@zaq.local"})
+
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn "taken@zaq.local" ->
+      {:error, {409, %{"message" => "This email already has a portal account."}}}
+    end)
+
+    Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn "fresh@zaq.local" ->
+      {:ok, %{litellm_api_key: "sk-fresh-email-key"}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    html = render_click(view, "accept_portal_consent")
+
+    assert html =~ "This email already has a portal account."
+    assert html =~ "Please use a different email address."
+    assert has_element?(view, "#portal-consent-email")
+
+    view
+    |> element("form[phx-change='portal_consent_email_change']")
+    |> render_change(%{"email" => "fresh@zaq.local"})
+
+    refute render(view) =~ "Please use a different email address."
+
+    render_click(view, "accept_portal_consent")
+
+    updated_user = Accounts.get_user!(user.id)
+    refute updated_user.must_change_password
+    assert updated_user.email == "fresh@zaq.local"
+    assert updated_user.portal_consent == "accepted"
+  end
+
+  test "records machine_taken when declining after a machine fingerprint conflict", %{conn: conn} do
+    user = user_fixture(%{username: "must_change_password_machine_conflict"})
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
+      {:error,
+       {409,
+        %{
+          "error" => "machine_fingerprint_taken",
+          "message" => "Machine fingerprint already registered to another account."
+        }}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    html = render_click(view, "accept_portal_consent")
+
+    assert html =~ "Machine fingerprint already registered"
+    assert has_element?(view, "[phx-click='decline_portal_consent']")
+    refute has_element?(view, "[phx-click='accept_portal_consent']")
+
+    render_click(view, "decline_portal_consent")
+    assert_redirect(view, ~p"/bo/dashboard")
+
+    updated_user = Accounts.get_user!(user.id)
+    refute updated_user.must_change_password
+    assert updated_user.portal_consent == "machine_taken"
+  end
+
+  test "close consent modal clears pending modal state without changing the password", %{
+    conn: conn
+  } do
+    user = user_fixture(%{username: "must_change_password_close_consent"})
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    assert has_element?(view, "[phx-click='accept_portal_consent']")
+
+    html = render_click(view, "close_consent_modal")
+
+    refute html =~ "To create your ZAQ account..."
+
+    unchanged_user = Accounts.get_user!(user.id)
+    assert unchanged_user.must_change_password
+    assert is_nil(unchanged_user.password_hash)
+  end
 end

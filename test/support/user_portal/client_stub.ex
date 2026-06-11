@@ -13,5 +13,5 @@ defmodule Zaq.UserPortal.ClientStub do
   def onboard_user(_email), do: {:error, :econnrefused}
 
   @impl true
-  def update_email(_email), do: {:error, :econnrefused}
+  def update_email(_email, _api_key), do: {:error, :econnrefused}
 end

@@ -212,7 +212,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
       user = user_fixture(%{username: "lane6_portal_sync", email: "old@example.com", role: role})
       {:ok, user} = Repo.update(User.portal_consent_changeset(user, "accepted"))
 
-      expect(Zaq.UserPortal.ClientMock, :update_email, fn email ->
+      expect(Zaq.UserPortal.ClientMock, :update_email, fn email, _api_key ->
         assert email == "new@example.com"
         :ok
       end)
@@ -234,7 +234,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
       user = user_fixture(%{username: "lane6_no_sync", email: "same@example.com", role: role})
       {:ok, user} = Repo.update(User.portal_consent_changeset(user, "accepted"))
 
-      stub(Zaq.UserPortal.ClientMock, :update_email, fn _email ->
+      stub(Zaq.UserPortal.ClientMock, :update_email, fn _email, _api_key ->
         flunk("update_email should not be called when email is unchanged")
       end)
 
@@ -255,7 +255,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
       user =
         user_fixture(%{username: "lane6_no_consent", email: "before@example.com", role: role})
 
-      stub(Zaq.UserPortal.ClientMock, :update_email, fn _email ->
+      stub(Zaq.UserPortal.ClientMock, :update_email, fn _email, _api_key ->
         flunk("update_email should not be called without consent")
       end)
 

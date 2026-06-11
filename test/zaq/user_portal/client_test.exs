@@ -155,7 +155,7 @@ defmodule Zaq.UserPortal.ClientTest do
       assert {:ok, %{litellm_api_key: "sk-test-key"}} = Client.onboard_user("admin@example.com")
     end
 
-    test "sends network block in request body" do
+    test "sends network block and machine_signals in request body" do
       test_pid = self()
 
       Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
@@ -182,6 +182,10 @@ defmodule Zaq.UserPortal.ClientTest do
       refute Map.has_key?(network, "ip_country")
       refute Map.has_key?(network, "is_vpn")
       refute Map.has_key?(network, "is_tor")
+      # machine_signals replaces machine_fingerprint
+      assert Map.has_key?(body, "machine_signals")
+      refute Map.has_key?(body, "machine_fingerprint")
+      assert body["machine_signals"]["version"] == 1
     end
 
     test "returns error on 400 response" do
@@ -240,10 +244,10 @@ defmodule Zaq.UserPortal.ClientTest do
 
   describe "update_email/2" do
     test "returns :ok on 200" do
-      assert :ok = Client.update_email("new@example.com")
+      assert :ok = Client.update_email("new@example.com", "sk-test-key")
     end
 
-    test "sends PATCH to /account/email with machine fingerprint as Bearer token and email body" do
+    test "sends PATCH to /account/email with litellm_api_key as Bearer token and email body" do
       test_pid = self()
 
       Req.Test.stub(Zaq.UserPortal.Client, fn conn ->
@@ -253,12 +257,14 @@ defmodule Zaq.UserPortal.ClientTest do
         Req.Test.json(conn, %{"ok" => true})
       end)
 
-      assert :ok = Client.update_email("new@example.com")
+      assert :ok = Client.update_email("new@example.com", "sk-my-key")
 
-      assert_received {:request, "PATCH", "/account/email", "Bearer " <> fingerprint,
+      assert_received {:request, "PATCH", "/account/email", "Bearer sk-my-key",
                        %{"email" => "new@example.com"}}
+    end
 
-      assert is_binary(fingerprint) and fingerprint != ""
+    test "returns {:error, :portal_sync_failed} when api_key is nil" do
+      assert {:error, :portal_sync_failed} = Client.update_email("user@example.com", nil)
     end
 
     test "returns {:error, :email_taken} on 409" do
@@ -268,7 +274,7 @@ defmodule Zaq.UserPortal.ClientTest do
         |> Req.Test.json(%{"error" => "email_taken"})
       end)
 
-      assert {:error, :email_taken} = Client.update_email("taken@example.com")
+      assert {:error, :email_taken} = Client.update_email("taken@example.com", "sk-test-key")
     end
 
     test "returns {:error, :same_email} on 422" do
@@ -278,7 +284,7 @@ defmodule Zaq.UserPortal.ClientTest do
         |> Req.Test.json(%{"error" => "same_email"})
       end)
 
-      assert {:error, :same_email} = Client.update_email("same@example.com")
+      assert {:error, :same_email} = Client.update_email("same@example.com", "sk-test-key")
     end
 
     test "returns {:error, :unauthorized} on 401" do
@@ -288,7 +294,7 @@ defmodule Zaq.UserPortal.ClientTest do
         |> Req.Test.json(%{"error" => "unauthorized"})
       end)
 
-      assert {:error, :unauthorized} = Client.update_email("user@example.com")
+      assert {:error, :unauthorized} = Client.update_email("user@example.com", "sk-test-key")
     end
 
     test "returns {:error, :invalid_email} on 400 invalid_email" do
@@ -298,7 +304,7 @@ defmodule Zaq.UserPortal.ClientTest do
         |> Req.Test.json(%{"error" => "invalid_email"})
       end)
 
-      assert {:error, :invalid_email} = Client.update_email("notanemail")
+      assert {:error, :invalid_email} = Client.update_email("notanemail", "sk-test-key")
     end
 
     test "returns {:error, :invalid_payload} on other 400 responses" do
@@ -308,7 +314,7 @@ defmodule Zaq.UserPortal.ClientTest do
         |> Req.Test.json(%{"error" => "invalid_payload"})
       end)
 
-      assert {:error, :invalid_payload} = Client.update_email("bad@example.com")
+      assert {:error, :invalid_payload} = Client.update_email("bad@example.com", "sk-test-key")
     end
 
     test "returns {:error, :account_suspended} on 403" do
@@ -318,7 +324,8 @@ defmodule Zaq.UserPortal.ClientTest do
         |> Req.Test.json(%{"error" => "account_suspended"})
       end)
 
-      assert {:error, :account_suspended} = Client.update_email("user@example.com")
+      assert {:error, :account_suspended} =
+               Client.update_email("user@example.com", "sk-test-key")
     end
 
     test "returns status and body for unknown portal errors" do
@@ -328,7 +335,8 @@ defmodule Zaq.UserPortal.ClientTest do
         |> Req.Test.json(%{"error" => "teapot"})
       end)
 
-      assert {:error, {418, %{"error" => "teapot"}}} = Client.update_email("user@example.com")
+      assert {:error, {418, %{"error" => "teapot"}}} =
+               Client.update_email("user@example.com", "sk-test-key")
     end
 
     test "returns {:error, reason} on transport error" do
@@ -336,7 +344,7 @@ defmodule Zaq.UserPortal.ClientTest do
         Req.Test.transport_error(conn, :econnrefused)
       end)
 
-      assert {:error, _} = Client.update_email("user@example.com")
+      assert {:error, _} = Client.update_email("user@example.com", "sk-test-key")
     end
   end
 
