@@ -2,6 +2,7 @@ defmodule Zaq.Ingestion.FTSBackendTest do
   use Zaq.DataCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias Ecto.Adapters.SQL
   alias Zaq.Ingestion.{Chunk, FTSBackend}
@@ -105,6 +106,15 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert FTSBackend.detect_and_cache() == FTSBackend.ParadeDB
     end
 
+    test "selects ParadeDB on a fresh install when the probe works before chunks exists" do
+      Repo.query!("DROP TABLE IF EXISTS chunks")
+      Repo.query!("DROP INDEX IF EXISTS chunks_bm25_idx")
+      ensure_callable_paradedb_version_info()
+      FTSBackend.reset_cache()
+
+      assert FTSBackend.detect_and_cache() == FTSBackend.ParadeDB
+    end
+
     @tag :paradedb
     test "selects the ParadeDB backend when version_info() works and the BM25 index exists" do
       create_chunks_table_with_bm25_index()
@@ -190,6 +200,26 @@ defmodule Zaq.Ingestion.FTSBackendTest do
   end
 
   describe "query helpers" do
+    test "rows_present? returns true only when a SQL result has rows" do
+      assert FTSBackend.rows_present?({:ok, %{rows: [[1]]}})
+      refute FTSBackend.rows_present?({:ok, %{rows: []}})
+      refute FTSBackend.rows_present?({:error, :unavailable})
+    end
+
+    test "callable_probe_result returns false for SQL errors" do
+      assert FTSBackend.callable_probe_result({:ok, %{rows: [[1]]}})
+
+      Logger.put_module_level(FTSBackend, :debug)
+      on_exit(fn -> Logger.delete_module_level(FTSBackend) end)
+
+      log =
+        capture_log([level: :debug], fn ->
+          refute FTSBackend.callable_probe_result({:error, :missing_function})
+        end)
+
+      assert log =~ "paradedb.version_info() not callable"
+    end
+
     test "sanitize_query_text removes invalid bytes, punctuation, and excessive length" do
       raw = "  what\xFF's: up?\0 " <> String.duplicate("x", 600)
 
@@ -245,6 +275,43 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert FTSBackend.ParadeDB.sanitize_query("alpha:beta OR gamma") == "alpha beta OR gamma"
     end
 
+    test "bm25_query sanitizes input and uses ParadeDB AND semantics" do
+      query = FTSBackend.ParadeDB.bm25_query("alpha:(beta)^2", 11)
+
+      {sql, params} = SQL.to_sql(:all, Repo, query)
+
+      assert sql =~ "paradedb.parse_with_field"
+      assert sql =~ "lenient => true"
+      assert sql =~ "conjunction_mode => true"
+      assert sql =~ "paradedb.score"
+      assert sql =~ ~s(ORDER BY paradedb.score)
+      assert params == ["alpha beta 2", 11]
+    end
+
+    test "bm25_query applies source filters after the ParadeDB base query" do
+      query = FTSBackend.ParadeDB.bm25_query("alpha beta", 3, ["docs/handbook"])
+
+      {sql, params} = SQL.to_sql(:all, Repo, query)
+
+      assert sql =~ ~s(INNER JOIN "documents")
+      assert sql =~ "document_id"
+      assert sql =~ "paradedb.parse_with_field"
+      assert params == ["alpha beta", "docs/handbook/%", 3]
+    end
+
+    test "bm25_search_group_by builds a sanitized ParadeDB query before execution" do
+      Chunk.create_table(1536)
+
+      assert {:ok, %{}} = FTSBackend.ParadeDB.bm25_search_group_by("alpha:(beta)^2", 5)
+    end
+
+    test "bm25_search_group_by includes source filters in the ParadeDB query" do
+      Chunk.create_table(1536)
+
+      assert {:ok, %{}} =
+               FTSBackend.ParadeDB.bm25_search_group_by("alpha beta", 5, ["docs/handbook"])
+    end
+
     test "fts_count_query sanitizes raw ParadeDB syntax before building the query" do
       query = FTSBackend.ParadeDB.fts_count_query("alpha:(beta)^2", 7)
 
@@ -253,6 +320,24 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert sql =~ "paradedb.parse_with_field"
       assert sql =~ "LIMIT"
       assert params == ["alpha beta 2", 7]
+    end
+
+    test "fts_count_query handles empty sanitized ParadeDB input deterministically" do
+      query = FTSBackend.ParadeDB.fts_count_query(" :()^ ", 2)
+
+      {sql, params} = SQL.to_sql(:all, Repo, query)
+
+      assert sql =~ "paradedb.parse_with_field"
+      assert params == ["", 2]
+    end
+
+    test "setup_bm25_index attempts to provision the pg_search extension and index" do
+      Chunk.create_table(1536)
+
+      assert :ok = FTSBackend.ParadeDB.setup_bm25_index(Repo, 1536)
+
+      assert {:ok, %{rows: [[1]]}} =
+               Repo.query("SELECT 1 FROM pg_indexes WHERE indexname = 'chunks_bm25_idx'")
     end
   end
 end

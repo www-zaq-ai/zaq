@@ -109,19 +109,17 @@ defmodule Zaq.Ingestion.FTSBackend do
   # inside an open transaction (Ecto.Multi, test sandbox), and a failed
   # statement would abort it (25P02) even when the error itself is handled.
   defp version_info_in_catalog? do
-    case SQL.query(
-           Repo,
-           """
-           SELECT 1 FROM pg_proc p
-           JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'paradedb' AND p.proname = 'version_info'
-           LIMIT 1
-           """,
-           []
-         ) do
-      {:ok, %{rows: [_ | _]}} -> true
-      _ -> false
-    end
+    SQL.query(
+      Repo,
+      """
+      SELECT 1 FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'paradedb' AND p.proname = 'version_info'
+      LIMIT 1
+      """,
+      []
+    )
+    |> rows_present?()
   end
 
   # Executing the function proves the pg_search binary is loaded — a catalog
@@ -130,45 +128,48 @@ defmodule Zaq.Ingestion.FTSBackend do
   defp version_info_callable? do
     opts = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
 
-    case SQL.query(Repo, "SELECT 1 FROM paradedb.version_info()", [], opts) do
-      {:ok, _result} ->
-        true
-
-      {:error, reason} ->
-        Logger.debug(fn ->
-          "[FTSBackend] paradedb.version_info() not callable, using native: #{inspect(reason)}"
-        end)
-
-        false
-    end
+    Repo
+    |> SQL.query("SELECT 1 FROM paradedb.version_info()", [], opts)
+    |> callable_probe_result()
   end
 
   # Deliberately not Chunk.table_exists?/0 — that raises on query errors,
   # while detection probes must never raise (they may run inside an open
   # transaction at any point of the app lifecycle).
   defp chunks_table_exists? do
-    case SQL.query(
-           Repo,
-           """
-           SELECT 1 FROM information_schema.tables
-           WHERE table_schema = 'public' AND table_name = 'chunks'
-           """,
-           []
-         ) do
-      {:ok, %{rows: [_ | _]}} -> true
-      _ -> false
-    end
+    SQL.query(
+      Repo,
+      """
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'chunks'
+      """,
+      []
+    )
+    |> rows_present?()
   end
 
   defp bm25_index_present? do
-    case SQL.query(
-           Repo,
-           "SELECT 1 FROM pg_indexes WHERE indexname = 'chunks_bm25_idx' LIMIT 1",
-           []
-         ) do
-      {:ok, %{rows: [_ | _]}} -> true
-      _ -> false
-    end
+    SQL.query(
+      Repo,
+      "SELECT 1 FROM pg_indexes WHERE indexname = 'chunks_bm25_idx' LIMIT 1",
+      []
+    )
+    |> rows_present?()
+  end
+
+  @doc "Returns true when a SQL query result contains at least one row."
+  def rows_present?({:ok, %{rows: [_ | _]}}), do: true
+  def rows_present?(_result), do: false
+
+  @doc "Returns whether the ParadeDB version probe completed successfully."
+  def callable_probe_result({:ok, _result}), do: true
+
+  def callable_probe_result({:error, reason}) do
+    Logger.debug(fn ->
+      "[FTSBackend] paradedb.version_info() not callable, using native: #{inspect(reason)}"
+    end)
+
+    false
   end
 
   @doc "Clears the cached backend. Use in tests or after extension changes."
