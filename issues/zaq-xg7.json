@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-11T15:41:55Z",
+  "description": "Add StreamEvents reducer/buffer and integrate Executor with ask_stream event enumerable.",
+  "id": "zaq-xg7",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[stream-agent-2] Process ask_stream events for realtime updates",
+  "type": "task",
+  "updated_at": "2026-06-11T15:41:55Z"
+}
