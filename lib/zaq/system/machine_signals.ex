@@ -72,7 +72,31 @@ defmodule Zaq.System.MachineSignals do
     end)
   end
 
+  defp platform do
+    case Keyword.get(cfg(), :platform) do
+      platform when platform in [:linux, :macos, :windows] ->
+        platform
+
+      _ ->
+        case :os.type() do
+          {:unix, :darwin} -> :macos
+          {:win32, _} -> :windows
+          _ -> :linux
+        end
+    end
+  end
+
+  # --- identity ---
+
   defp identity do
+    case platform() do
+      :linux -> identity_linux()
+      :macos -> identity_macos()
+      :windows -> identity_windows()
+    end
+  end
+
+  defp identity_linux do
     cfg = cfg()
 
     section([
@@ -90,7 +114,35 @@ defmodule Zaq.System.MachineSignals do
     ])
   end
 
+  defp identity_macos do
+    ioreg = ioreg_platform_expert()
+
+    section([
+      {"product_uuid", ioreg_extract(ioreg, "IOPlatformUUID")},
+      {"board_serial", ioreg_extract(ioreg, "IOPlatformSerialNumber")}
+    ])
+  end
+
+  defp identity_windows do
+    section([
+      {"machine_id",
+       ps_value("(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography').MachineGuid")},
+      {"product_uuid", ps_value("(Get-WmiObject Win32_ComputerSystemProduct).UUID")},
+      {"board_serial", ps_value("(Get-WmiObject Win32_BIOS).SerialNumber")}
+    ])
+  end
+
+  # --- motherboard ---
+
   defp motherboard do
+    case platform() do
+      :linux -> motherboard_linux()
+      :macos -> motherboard_macos()
+      :windows -> motherboard_windows()
+    end
+  end
+
+  defp motherboard_linux do
     cfg = cfg()
 
     section([
@@ -107,7 +159,37 @@ defmodule Zaq.System.MachineSignals do
     ])
   end
 
+  defp motherboard_macos do
+    model = sysctl_n("hw.model")
+
+    section([
+      {"sys_vendor", "Apple Inc."},
+      {"product_name", model},
+      {"board_vendor", "Apple Inc."},
+      {"board_name", model}
+    ])
+  end
+
+  defp motherboard_windows do
+    section([
+      {"sys_vendor", ps_value("(Get-WmiObject Win32_ComputerSystem).Manufacturer")},
+      {"product_name", ps_value("(Get-WmiObject Win32_ComputerSystem).Model")},
+      {"board_vendor", ps_value("(Get-WmiObject Win32_BaseBoard).Manufacturer")},
+      {"board_name", ps_value("(Get-WmiObject Win32_BaseBoard).Product")}
+    ])
+  end
+
+  # --- cpu ---
+
   defp cpu do
+    case platform() do
+      :linux -> cpu_linux()
+      :macos -> cpu_macos()
+      :windows -> cpu_windows()
+    end
+  end
+
+  defp cpu_linux do
     cfg = cfg()
     content = read_file(Keyword.get(cfg, :cpuinfo_path, "/proc/cpuinfo"))
 
@@ -118,14 +200,86 @@ defmodule Zaq.System.MachineSignals do
     ])
   end
 
+  defp cpu_macos do
+    # machdep.cpu.brand_string is Intel-only; fall back to hw.model for Apple Silicon
+    model = sysctl_n("machdep.cpu.brand_string") || sysctl_n("hw.model")
+
+    section([
+      {"model", model},
+      {"cores", sysctl_n("hw.logicalcpu")},
+      {"arch", uname("-m")}
+    ])
+  end
+
+  defp cpu_windows do
+    section([
+      {"model", ps_value("(Get-WmiObject Win32_Processor | Select-Object -First 1).Name")},
+      {"cores",
+       ps_value(
+         "(Get-WmiObject Win32_Processor | Select-Object -First 1).NumberOfLogicalProcessors"
+       )},
+      {"arch",
+       ps_value(
+         "[System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()"
+       )}
+    ])
+  end
+
+  # --- ram ---
+
   defp ram do
+    case platform() do
+      :linux -> ram_linux()
+      :macos -> ram_macos()
+      :windows -> ram_windows()
+    end
+  end
+
+  defp ram_linux do
     cfg = cfg()
     content = read_file(Keyword.get(cfg, :meminfo_path, "/proc/meminfo"))
 
     section([{"total_gib", mem_total_gib(content) |> int_str()}])
   end
 
+  defp ram_macos do
+    gib =
+      case sysctl_n("hw.memsize") do
+        nil -> nil
+        bytes_str -> parse_bytes_to_gib(bytes_str)
+      end
+
+    section([{"total_gib", int_str(gib)}])
+  end
+
+  defp ram_windows do
+    gib =
+      case ps_value("(Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory") do
+        nil -> nil
+        bytes_str -> parse_bytes_to_gib(bytes_str)
+      end
+
+    section([{"total_gib", int_str(gib)}])
+  end
+
+  defp parse_bytes_to_gib(bytes_str) do
+    case Integer.parse(bytes_str) do
+      {bytes, _} -> div(bytes, 1_073_741_824)
+      _ -> nil
+    end
+  end
+
+  # --- gpu ---
+
   defp gpu do
+    case platform() do
+      :linux -> gpu_linux()
+      :macos -> gpu_macos()
+      :windows -> gpu_windows()
+    end
+  end
+
+  defp gpu_linux do
     cfg = cfg()
     pci_base = Keyword.get(cfg, :pci_devices_path, "/sys/bus/pci/devices")
 
@@ -151,7 +305,71 @@ defmodule Zaq.System.MachineSignals do
     File.Error -> nil
   end
 
+  defp gpu_macos do
+    case System.cmd("system_profiler", ["SPDisplaysDataType"], stderr_to_stdout: false) do
+      {output, 0} -> parse_macos_gpus(output)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp parse_macos_gpus(output) do
+    # system_profiler lists "Chipset Model:" then "Vendor:" for each GPU in order
+    models =
+      Regex.scan(~r/Chipset Model:\s*(.+)/, output)
+      |> Enum.map(fn [_, m] -> String.trim(m) end)
+
+    vendors =
+      Regex.scan(~r/Vendor:\s*(.+)/, output)
+      |> Enum.map(fn [_, v] -> String.trim(v) end)
+
+    devs =
+      Enum.zip(vendors, models)
+      |> Enum.map(fn {vendor, device} ->
+        section([{"vendor", vendor}, {"device", device}])
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    if devs == [], do: nil, else: devs
+  end
+
+  defp gpu_windows do
+    script =
+      "Get-WmiObject Win32_VideoController | ForEach-Object { $_.AdapterCompatibility + '|' + $_.Name }"
+
+    case ps_lines(script) do
+      nil ->
+        nil
+
+      lines ->
+        devs =
+          lines
+          |> Enum.map(&windows_gpu_device/1)
+          |> Enum.reject(&is_nil/1)
+
+        if devs == [], do: nil, else: devs
+    end
+  end
+
+  defp windows_gpu_device(line) do
+    case String.split(line, "|", parts: 2) do
+      [vendor, device] -> section([{"vendor", vendor}, {"device", device}])
+      _ -> nil
+    end
+  end
+
+  # --- network ---
+
   defp network do
+    case platform() do
+      :linux -> network_linux()
+      :macos -> network_macos()
+      :windows -> network_windows()
+    end
+  end
+
+  defp network_linux do
     cfg = cfg()
     net_base = Keyword.get(cfg, :net_interfaces_path, "/sys/class/net")
     bt_base = Keyword.get(cfg, :bluetooth_path, "/sys/class/bluetooth")
@@ -172,6 +390,53 @@ defmodule Zaq.System.MachineSignals do
       {"interfaces", iface_hashes && {:raw, iface_hashes}},
       {"bluetooth", bt_hashes && {:raw, bt_hashes}}
     ])
+  end
+
+  defp network_macos do
+    macs = macos_iface_macs()
+    iface_hashes = macs && Enum.map(macs, &hash_signal("net_interface", &1))
+
+    section([{"interfaces", iface_hashes && {:raw, iface_hashes}}])
+  end
+
+  defp macos_iface_macs do
+    case System.cmd("ifconfig", [], stderr_to_stdout: false) do
+      {output, 0} ->
+        macs =
+          ~r/ether\s+([0-9a-f]{2}(?::[0-9a-f]{2}){5})/i
+          |> Regex.scan(output)
+          |> Enum.map(fn [_, mac] -> String.downcase(mac) end)
+          |> Enum.reject(&(&1 == "00:00:00:00:00:00"))
+          |> Enum.uniq()
+
+        if macs == [], do: nil, else: macs
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp network_windows do
+    script =
+      "Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -ExpandProperty MacAddress"
+
+    case ps_lines(script) do
+      nil ->
+        nil
+
+      raw_macs ->
+        macs =
+          raw_macs
+          |> Enum.map(&String.downcase(String.replace(&1, "-", ":")))
+          |> Enum.reject(&(&1 in ["", "00:00:00:00:00:00"]))
+
+        iface_hashes =
+          if macs == [], do: nil, else: Enum.map(macs, &hash_signal("net_interface", &1))
+
+        section([{"interfaces", iface_hashes && {:raw, iface_hashes}}])
+    end
   end
 
   defp net_iface_macs(base) do
@@ -219,7 +484,17 @@ defmodule Zaq.System.MachineSignals do
     end
   end
 
+  # --- os_info ---
+
   defp os_info do
+    case platform() do
+      :linux -> os_info_linux()
+      :macos -> os_info_macos()
+      :windows -> os_info_windows()
+    end
+  end
+
+  defp os_info_linux do
     cfg = cfg()
     os_release = read_file(Keyword.get(cfg, :os_release_path, "/etc/os-release"))
     dockerenv = Keyword.get(cfg, :dockerenv_path, "/.dockerenv")
@@ -237,6 +512,35 @@ defmodule Zaq.System.MachineSignals do
       {"cgroup_v2", {:raw, File.exists?(cgroup_ctrl)}}
     ])
   end
+
+  defp os_info_macos do
+    section([
+      {"kernel", uname("-r")},
+      {"id", sw_vers("productName")},
+      {"version", sw_vers("productVersion")},
+      {"hostname", read_hostname()},
+      {"is_docker", {:raw, File.exists?("/.dockerenv")}},
+      {"cgroup_v2", {:raw, false}}
+    ])
+  end
+
+  defp os_info_windows do
+    section([
+      {"kernel", ps_value("[System.Environment]::OSVersion.Version.ToString()")},
+      {"id", "windows"},
+      {"version", ps_value("(Get-WmiObject Win32_OperatingSystem).Version")},
+      {"hostname", read_hostname()},
+      {"is_docker", {:raw, windows_in_docker?()}},
+      {"cgroup_v2", {:raw, false}}
+    ])
+  end
+
+  defp windows_in_docker? do
+    System.get_env("DOCKER_RUNNING") == "true" or
+      File.exists?("C:\\ProgramData\\Docker\\config\\daemon.json")
+  end
+
+  # --- attestation ---
 
   defp attestation do
     tasks = [
@@ -380,6 +684,79 @@ defmodule Zaq.System.MachineSignals do
 
   defp int_str(nil), do: nil
   defp int_str(n), do: Integer.to_string(n)
+
+  # --- macOS helpers ---
+
+  defp ioreg_platform_expert do
+    case System.cmd("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], stderr_to_stdout: false) do
+      {output, 0} -> output
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp ioreg_extract(nil, _key), do: nil
+
+  defp ioreg_extract(output, key) do
+    case Regex.run(~r/"#{Regex.escape(key)}"\s*=\s*"([^"]+)"/, output) do
+      [_, v] -> String.trim(v)
+      _ -> nil
+    end
+  end
+
+  defp sysctl_n(key) do
+    case System.cmd("sysctl", ["-n", key], stderr_to_stdout: false) do
+      {output, 0} -> String.trim(output)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp sw_vers(field) do
+    case System.cmd("sw_vers", ["-#{field}"], stderr_to_stdout: false) do
+      {output, 0} -> String.trim(output)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  # --- Windows helpers ---
+
+  defp ps_value(script) do
+    case System.cmd(
+           "powershell",
+           ["-NoProfile", "-NonInteractive", "-Command", script],
+           stderr_to_stdout: false
+         ) do
+      {output, 0} ->
+        val = String.trim(output)
+        if val == "", do: nil, else: val
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp ps_lines(script) do
+    case ps_value(script) do
+      nil ->
+        nil
+
+      output ->
+        lines =
+          output
+          |> String.split("\n")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+
+        if lines == [], do: nil, else: lines
+    end
+  end
 
   defp cfg, do: Application.get_env(:zaq, __MODULE__, [])
 end
