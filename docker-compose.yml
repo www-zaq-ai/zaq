@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg18
     container_name: zaq-postgres
     environment:
       POSTGRES_DB: zaq_prod

@@ -1,3 +1,6 @@
+# Local-only Docker build file
+Dockerfile_local
+
 # The directory Mix will write compiled artifacts to.
 /_build/
 

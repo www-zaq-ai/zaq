@@ -4,6 +4,17 @@ defmodule Zaq.Ingestion.FTSBackend do
 
   The active backend is detected once at application startup and cached in
   `:persistent_term`, keeping search calls free of database probes.
+
+  ## Caching: `:persistent_term` vs ETS
+
+  `:persistent_term` is optimised for read-mostly data: lookups are
+  constant-time with no copying, but every update forces a global GC pass
+  across all processes. ETS is the right tool when the cached value changes
+  often — updates are cheap and isolated, at the cost of a copy on every
+  read. The detected backend is written once at startup and read on every
+  search call, which is exactly the write-once/read-hot profile
+  `:persistent_term` is built for. If this cache ever needs frequent
+  updates, move it to ETS instead.
   """
 
   import Ecto.Query
@@ -30,31 +41,54 @@ defmodule Zaq.Ingestion.FTSBackend do
     end
   end
 
-  @doc "Detects whether ParadeDB is installed and caches the active backend."
+  @doc """
+  Detects whether a working ParadeDB installation is present and caches the
+  active backend.
+
+  Detection is functional, not catalog-based: `paradedb.version_info()` only
+  succeeds when the pg_search binary is actually loaded and callable — a
+  `pg_extension` catalog row can disagree with what is really installed
+  (partial upgrades, forked or patched builds). The legacy BM25 index must
+  also exist because the ParadeDB backend's `@@@` queries error without it,
+  so fresh installations stay on the native backend while existing ParadeDB
+  deployments keep their legacy query path.
+  """
   def detect_and_cache do
     backend =
-      case SQL.query(
-             Repo,
-             "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' LIMIT 1",
-             []
-           ) do
-        {:ok, %{rows: [_ | _]}} ->
-          __MODULE__.ParadeDB
-
-        {:ok, _result} ->
-          __MODULE__.Native
-
-        {:error, reason} ->
-          Logger.warning(
-            "[FTSBackend] detection failed, falling back to native: #{inspect(reason)}"
-          )
-
-          __MODULE__.Native
+      if paradedb_functional?() and bm25_index_present?() do
+        __MODULE__.ParadeDB
+      else
+        __MODULE__.Native
       end
 
     :persistent_term.put(@cache_key, backend)
     Logger.info("[FTSBackend] active backend: #{inspect(backend)}")
     backend
+  end
+
+  defp paradedb_functional? do
+    case SQL.query(Repo, "SELECT 1 FROM paradedb.version_info()", []) do
+      {:ok, _result} ->
+        true
+
+      {:error, reason} ->
+        Logger.debug(fn ->
+          "[FTSBackend] paradedb.version_info() unavailable, using native: #{inspect(reason)}"
+        end)
+
+        false
+    end
+  end
+
+  defp bm25_index_present? do
+    case SQL.query(
+           Repo,
+           "SELECT 1 FROM pg_indexes WHERE indexname = 'chunks_bm25_idx' LIMIT 1",
+           []
+         ) do
+      {:ok, %{rows: [_ | _]}} -> true
+      _ -> false
+    end
   end
 
   @doc "Clears the cached backend. Use in tests or after extension changes."

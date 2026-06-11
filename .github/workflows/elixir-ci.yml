@@ -75,12 +75,12 @@ jobs:
         run: mix credo --strict
 
   test:
-    name: Test
+    name: Test (native Postgres)
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        image: paradedb/paradedb:0.23.0
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -128,6 +128,104 @@ jobs:
 
       - name: Run tests (fork PRs)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: mix test
+
+  test-paradedb:
+    name: Test (ParadeDB)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: paradedb/paradedb:0.23.0
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zaq_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MIX_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zaq_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.19.5"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Run ingestion tests against ParadeDB
+        run: mix test test/zaq/ingestion/ --include paradedb
+
+  # Early-warning signal for the next Elixir version — failures never block the PR.
+  test-elixir-1-20:
+    name: Test (Elixir 1.20, optional)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zaq_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MIX_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zaq_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.20"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-elixir-1-20-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-elixir-1-20-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Run tests
         run: mix test
 
   docs:
