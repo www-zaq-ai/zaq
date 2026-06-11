@@ -299,12 +299,14 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert params == ["alpha beta", "docs/handbook/%", 3]
     end
 
+    @tag :paradedb
     test "bm25_search_group_by builds a sanitized ParadeDB query before execution" do
       Chunk.create_table(1536)
 
       assert {:ok, %{}} = FTSBackend.ParadeDB.bm25_search_group_by("alpha:(beta)^2", 5)
     end
 
+    @tag :paradedb
     test "bm25_search_group_by includes source filters in the ParadeDB query" do
       Chunk.create_table(1536)
 
@@ -331,6 +333,7 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert params == ["", 2]
     end
 
+    @tag :paradedb
     test "setup_bm25_index attempts to provision the pg_search extension and index" do
       Chunk.create_table(1536)
 
