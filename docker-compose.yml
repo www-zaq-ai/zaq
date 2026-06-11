@@ -37,6 +37,8 @@ services:
       INGESTION_VOLUMES: "${INGESTION_VOLUMES:-documents}"
       INGESTION_VOLUMES_BASE: "${INGESTION_VOLUMES_BASE:-/zaq/volumes}"
       SYSTEM_CONFIG_ENCRYPTION_KEY: "${SYSTEM_CONFIG_ENCRYPTION_KEY}"
+      USER_PORTAL_BASE_URL: "${USER_PORTAL_BASE_URL:-http://host.docker.internal:4015}"
+      LITELLM_BASE_URL: "${LITELLM_BASE_URL:-http://host.docker.internal:4020}"
     volumes:
       - ./ingestion-volumes:/zaq/volumes
     extra_hosts:
