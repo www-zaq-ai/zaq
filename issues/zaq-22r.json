@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-11T15:41:55Z",
+  "description": "Add messages.trace field and persist agent stream traces separately from metadata.",
+  "id": "zaq-22r",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[stream-agent-1] Add top-level message trace persistence",
+  "type": "task",
+  "updated_at": "2026-06-11T15:41:55Z"
+}
