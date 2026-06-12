@@ -54,9 +54,12 @@
   --zaq-color-system-green-strong:   #007C6B; /* for text and icons success to respect WCAG*/
   --zaq-color-system-green:          #00baa6;
   --zaq-color-system-green-100:      #EFFFFD; /* for lightest success feedback surfaces */
+  
+  --zaq-color-system-orange-strong:  #843f00; /* for text and icons success to respect WCAG*/
+  --zaq-color-system-orange:         #df6f00;
+  --zaq-color-system-orange-100:     #fffbf0; /* for lightest warning feedback surfaces */
 
   --zaq-color-system-blue:   #2a7eff;
-  --zaq-color-system-orange: #df6f00;
 
 /* ============================================
    FOUNDATION TOKENS — Scale
@@ -112,6 +115,9 @@
   --zaq-color-system-green:          #0f4a2f;
   --zaq-color-system-green-100:      #0a2118; /* for success feedback surfaces */
 
+  --zaq-color-system-orange-strong:  #FFAA4D; /* for text and icons success to respect WCAG*/
+  --zaq-color-system-orange:         #7A3D00;
+  --zaq-color-system-orange-100:     #1E1208; /* for warning feedback surfaces */
+
   --zaq-color-system-blue:   #5b9fff;
-  --zaq-color-system-orange: #f78514;
 }

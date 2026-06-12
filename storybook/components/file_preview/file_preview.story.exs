@@ -1,46 +1,113 @@
 defmodule Storybook.Components.FilePreview.FilePreview do
   use PhoenixStorybook.Story, :page
 
-  def description, do: "Inline file preview panel (PDF, image, text, markdown, binary, not found) and file metadata display."
+  alias ZaqWeb.Storybook.FilePreviewFixtures, as: FP
+
+  def description do
+    """
+    Inline `FilePreview.meta/1` and `FilePreview.panel/1` — same preview map shape as \
+    `ZaqWeb.Live.BO.AI.FilePreviewData.load/2`. In the app, `panel/1` is embedded in \
+    `FilePreviewModal` with body background `#f7f6f3`; sections below use that wrapper only for context. \
+    Close / Escape on the real modal require LiveView (`cancel_event`).
+    """
+  end
 
   def render(assigns) do
     ~H"""
-    <div style="font-family: var(--zaq-font-primary, monospace); padding: 2rem; display: flex; flex-direction: column; gap: 3rem; max-width: 700px;">
-
+    <div style="font-family: var(--zaq-font-primary, monospace); padding: 2rem; display: flex; flex-direction: column; gap: 3rem; max-width: 56rem;">
       <section>
-        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">meta/1 — file metadata</h2>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
+          meta/1 — file metadata
+        </h2>
         <p style="font-size: 0.75rem; opacity: 0.5; font-family: ui-monospace, monospace; margin-bottom: 1rem;">
           &lt;ZaqWeb.Components.FilePreview.meta preview=&#123;&#64;preview&#125; /&gt;
         </p>
-        <ZaqWeb.Components.FilePreview.meta preview={%{
-          file_size: 24_576,
-          modified_at: NaiveDateTime.from_iso8601!("2024-03-15 09:22:00")
-        }} />
+        <div style="display: flex; justify-content: flex-end;">
+          <ZaqWeb.Components.FilePreview.meta preview={FP.meta_only_preview()} />
+        </div>
       </section>
 
       <section>
-        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">panel/1 — text file</h2>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
+          panel/1 — markdown
+        </h2>
         <p style="font-size: 0.75rem; opacity: 0.5; font-family: ui-monospace, monospace; margin-bottom: 1rem;">
-          &lt;ZaqWeb.Components.FilePreview.panel preview=&#123;&#64;preview&#125; /&gt;
+          HTML from
+          <code style="font-family: ui-monospace, monospace;">ZaqWeb.Helpers.Markdown.render/1</code>
+          (same as ingestion).
         </p>
-        <div style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1); border-radius: 8px; overflow: hidden; max-height: 200px;">
-          <ZaqWeb.Components.FilePreview.panel preview={%{
-            kind: :text,
-            content: "# Onboarding Guide\n\nWelcome to ZAQ. This guide covers the first steps for new team members.\n\n## Step 1: Account setup\n\nYour IT team will provide your initial credentials.",
-            ext: ".txt",
-            file_size: 1_024,
-            modified_at: NaiveDateTime.from_iso8601!("2024-03-10 14:00:00")
-          }} />
+        <div
+          class="bg-[#f7f6f3] p-6 rounded-xl"
+          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
+        >
+          <ZaqWeb.Components.FilePreview.panel preview={FP.markdown()} />
         </div>
       </section>
 
       <section>
-        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">panel/1 — file not found</h2>
-        <div style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1); border-radius: 8px; overflow: hidden;">
-          <ZaqWeb.Components.FilePreview.panel preview={%{kind: :not_found, relative_path: "documents/missing-file.pdf"}} />
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
+          panel/1 — text
+        </h2>
+        <div
+          class="bg-[#f7f6f3] p-6 rounded-xl"
+          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
+        >
+          <ZaqWeb.Components.FilePreview.panel preview={FP.text()} />
         </div>
       </section>
 
+      <section>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
+          panel/1 — image
+        </h2>
+        <div
+          class="bg-[#f7f6f3] p-6 rounded-xl"
+          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
+        >
+          <ZaqWeb.Components.FilePreview.panel preview={FP.image()} />
+        </div>
+      </section>
+
+      <section>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
+          panel/1 — pdf
+        </h2>
+        <p style="font-size: 0.75rem; opacity: 0.5; font-family: ui-monospace, monospace; margin-bottom: 1rem;">
+          Default <code style="font-family: ui-monospace, monospace;">pdf_height</code>
+          is <code style="font-family: ui-monospace, monospace;">80vh</code>
+          on <code style="font-family: ui-monospace, monospace;">panel/1</code>; the modal passes <code style="font-family: ui-monospace, monospace;">68vh</code>.
+        </p>
+        <div
+          class="bg-[#f7f6f3] p-6 rounded-xl"
+          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
+        >
+          <ZaqWeb.Components.FilePreview.panel preview={FP.pdf()} pdf_height="min(40vh, 320px)" />
+        </div>
+      </section>
+
+      <section>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
+          panel/1 — binary (download)
+        </h2>
+        <div
+          class="bg-[#f7f6f3] p-6 rounded-xl"
+          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
+        >
+          <ZaqWeb.Components.FilePreview.panel preview={FP.binary()} />
+        </div>
+      </section>
+
+      <section>
+        <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
+          panel/1 — file not found
+        </h2>
+        <div
+          class="bg-[#f7f6f3] p-6 rounded-xl"
+          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
+        >
+          <ZaqWeb.Components.FilePreview.panel preview={FP.not_found()} />
+        </div>
+      </section>
     </div>
     """
   end

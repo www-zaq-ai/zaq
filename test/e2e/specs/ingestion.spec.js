@@ -17,7 +17,7 @@ const CONFIG_PATH = "/bo/system-config"
 
 const SEL = {
   // Ingestion page — warning banner (shown when chunks table does not exist)
-  warningHeading: 'p.font-mono.text-amber-800',
+  warningHeading: '[data-testid="embedding-warning-title"]',
   warningLink: 'a[href="/bo/system-config?tab=embedding"]',
 
   // System config — embedding tab

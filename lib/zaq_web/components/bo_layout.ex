@@ -628,34 +628,25 @@ defmodule ZaqWeb.Components.BOLayout do
           <div
             :if={Phoenix.Flash.get(@flash, :info)}
             id="flash-info"
-            class="mb-4 rounded-xl zaq-success zaq-text-body px-4 py-3 flex items-center gap-2"
+            class="zaq-feedback-banner zaq-success zaq-text-body"
             phx-hook="FlashAutoDismiss"
             data-auto-dismiss-duration={if @auto_dismiss, do: @auto_dismiss_duration, else: 0}
           >
-            <svg
-              class="w-4 h-4 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M5 13l4 4L19 7" />
-            </svg>
-            <span class="flex-1">{Phoenix.Flash.get(@flash, :info)}</span>
+            <span class="zaq-feedback-icon">
+              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+            <span class="zaq-feedback-body">{Phoenix.Flash.get(@flash, :info)}</span>
             <button
+              type="button"
               phx-click="lv:clear-flash"
               phx-value-key="info"
               data-flash-dismiss
-              class="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
+              class="zaq-feedback-dismiss"
               aria-label="Dismiss"
             >
-              <svg
-                class="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
+              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -663,34 +654,25 @@ defmodule ZaqWeb.Components.BOLayout do
           <div
             :if={Phoenix.Flash.get(@flash, :error)}
             id="flash-error"
-            class="mb-4 rounded-xl zaq-danger zaq-text-body px-4 py-3 flex items-center gap-2"
+            class="zaq-feedback-banner zaq-danger zaq-text-body"
             phx-hook="FlashAutoDismiss"
             data-auto-dismiss-duration={if @auto_dismiss, do: @auto_dismiss_duration, else: 0}
           >
-            <svg
-              class="w-4 h-4 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
-            </svg>
-            <span class="flex-1">{Phoenix.Flash.get(@flash, :error)}</span>
+            <span class="zaq-feedback-icon">
+              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+              </svg>
+            </span>
+            <span class="zaq-feedback-body">{Phoenix.Flash.get(@flash, :error)}</span>
             <button
+              type="button"
               phx-click="lv:clear-flash"
               phx-value-key="error"
               data-flash-dismiss
-              class="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
+              class="zaq-feedback-dismiss"
               aria-label="Dismiss"
             >
-              <svg
-                class="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
+              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
