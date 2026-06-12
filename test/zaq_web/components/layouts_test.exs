@@ -27,14 +27,6 @@ defmodule ZaqWeb.LayoutsTest do
     assert html =~ "id=\"server-error\""
   end
 
-  test "theme_toggle/1 renders all theme buttons" do
-    html = render_component(&Layouts.theme_toggle/1, %{})
-
-    assert html =~ "data-phx-theme=\"system\""
-    assert html =~ "data-phx-theme=\"light\""
-    assert html =~ "data-phx-theme=\"dark\""
-  end
-
   test "figma_capture_script/1 renders script when enabled" do
     html = render_component(&FigmaCaptureScript.figma_capture_script/1, enabled: true)
 

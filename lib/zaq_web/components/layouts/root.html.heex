@@ -14,21 +14,49 @@
     </script>
     <script>
       (() => {
+        const root = document.documentElement;
+
+        /* ZAQ foundations + semantics use [data-zaq-theme="dark"]; DaisyUI / Phoenix use data-theme. */
+        const syncZaqTheme = (theme) => {
+          const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const zaqDark = theme === "dark" || (theme === "system" && prefersDark);
+          if (zaqDark) {
+            root.setAttribute("data-zaq-theme", "dark");
+          } else {
+            root.removeAttribute("data-zaq-theme");
+          }
+        };
+
         const setTheme = (theme) => {
           if (theme === "system") {
             localStorage.removeItem("phx:theme");
-            document.documentElement.removeAttribute("data-theme");
+            root.removeAttribute("data-theme");
           } else {
             localStorage.setItem("phx:theme", theme);
-            document.documentElement.setAttribute("data-theme", theme);
+            root.setAttribute("data-theme", theme);
           }
+          syncZaqTheme(theme);
         };
-        if (!document.documentElement.hasAttribute("data-theme")) {
+
+        if (!root.hasAttribute("data-theme")) {
           setTheme(localStorage.getItem("phx:theme") || "system");
+        } else {
+          const attr = root.getAttribute("data-theme");
+          const theme = attr === "light" || attr === "dark" ? attr : "system";
+          syncZaqTheme(theme);
         }
-        window.addEventListener("storage", (e) => e.key === "phx:theme" && setTheme(e.newValue || "system"));
-        
-        window.addEventListener("phx:set-theme", (e) => setTheme(e.target.dataset.phxTheme));
+
+        window.addEventListener("storage", (e) => {
+          if (e.key === "phx:theme") setTheme(e.newValue || "system");
+        });
+
+        window.addEventListener("phx:set-theme", (e) => {
+          setTheme(e.target?.dataset?.phxTheme || "system");
+        });
+
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+          if (!localStorage.getItem("phx:theme")) syncZaqTheme("system");
+        });
       })();
     </script>
   </head>

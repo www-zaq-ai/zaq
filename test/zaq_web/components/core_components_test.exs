@@ -54,6 +54,14 @@ defmodule ZaqWeb.CoreComponentsTest do
     assert String.trim(html) == ""
   end
 
+  test "theme_toggle/1 renders all theme buttons" do
+    html = render_component(&CoreComponents.theme_toggle/1, %{})
+
+    assert html =~ "data-phx-theme=\"system\""
+    assert html =~ "data-phx-theme=\"light\""
+    assert html =~ "data-phx-theme=\"dark\""
+  end
+
   test "button/1 renders button and link variants" do
     button_html =
       render_component(&CoreComponents.button/1,
