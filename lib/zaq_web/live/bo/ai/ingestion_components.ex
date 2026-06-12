@@ -10,6 +10,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   import ZaqWeb.Helpers.DateFormat
   import ZaqWeb.Components.SearchableSelect
+  alias ZaqWeb.Components.DesignSystem.Breadcrumb
+  alias ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader
+  alias ZaqWeb.Components.DesignSystem.IngestionVolumeSelector
+  alias ZaqWeb.Components.DesignSystem.Toggle
   alias ZaqWeb.Helpers.SizeFormat
 
   # ── Helpers ──────────────────────────────────────────────────────────────
@@ -226,228 +230,33 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   def status_color("failed"), do: "bg-red-100 text-red-600"
   def status_color(_), do: "bg-black/5 text-black/30"
 
-  # ── Volume Selector ───────────────────────────────────────────────────────
-
   attr :volumes, :map, required: true
   attr :current_volume, :string, required: true
 
   def volume_selector(assigns) do
-    ~H"""
-    <div class="flex items-center gap-2">
-      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider shrink-0">
-        Volume
-      </p>
-      <div class="flex items-center gap-1 flex-wrap">
-        <button
-          :for={{name, _path} <- Enum.sort(@volumes)}
-          phx-click="switch_volume"
-          phx-value-volume={name}
-          class={[
-            "font-mono text-[0.7rem] px-2.5 py-1 rounded-lg transition-colors",
-            if(@current_volume == name,
-              do: "bg-[var(--zaq-color-accent)] text-white",
-              else: "bg-black/5 text-black/40 hover:bg-black/10"
-            )
-          ]}
-        >
-          {name}
-        </button>
-      </div>
-    </div>
-    """
+    IngestionVolumeSelector.volume_selector(assigns)
   end
-
-  # ── File Browser Header ───────────────────────────────────────────────────
 
   attr :selected, :any, required: true
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
 
   def file_browser_header(assigns) do
-    ~H"""
-    <div class="flex flex-wrap items-center gap-2 mb-3">
-      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mr-auto">
-        File Browser
-      </p>
-      <div class="flex items-center gap-2 flex-wrap">
-        <button
-          id="new-folder-button"
-          phx-click="show_new_folder_modal"
-          class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-black/5 text-black/40 hover:bg-black/10 transition-colors flex items-center gap-1"
-        >
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          New Folder
-        </button>
-        <button
-          id="add-raw-md-button"
-          phx-click="show_add_raw_modal"
-          class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-black/5 text-black/40 hover:bg-black/10 transition-colors flex items-center gap-1"
-        >
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-            />
-          </svg>
-          Add Raw MD
-        </button>
-        <button
-          :if={MapSet.size(@selected) > 0}
-          id="bulk-delete-button"
-          phx-click="show_delete_confirmation"
-          class="font-mono text-[0.7rem] px-2.5 py-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors flex items-center gap-1 cursor-pointer"
-        >
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
-          Delete ({MapSet.size(@selected)})
-        </button>
-        <button
-          :for={mode <- ~w(async inline)}
-          id={"ingest-mode-#{mode}"}
-          phx-click="set_mode"
-          phx-value-mode={mode}
-          class={[
-            "font-mono text-[0.7rem] px-2.5 py-1 rounded-lg transition-colors",
-            if(@ingest_mode == mode,
-              do: "bg-[var(--zaq-color-accent)] text-white",
-              else: "bg-black/5 text-black/40 hover:bg-black/10"
-            )
-          ]}
-        >
-          {mode}
-        </button>
-        <button
-          id="ingest-selected-button"
-          phx-click="ingest_selected"
-          disabled={MapSet.size(@selected) == 0 or not @embedding_ready}
-          class={[
-            "font-mono text-[0.78rem] font-bold px-4 py-1.5 rounded-lg transition-all",
-            if(MapSet.size(@selected) > 0 and @embedding_ready,
-              do:
-                "bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)]",
-              else: "bg-black/5 text-black/20 cursor-not-allowed"
-            )
-          ]}
-        >
-          Ingest Selected ({MapSet.size(@selected)})
-        </button>
-      </div>
-    </div>
-    """
+    IngestionFileBrowserHeader.file_browser_header(assigns)
   end
-
-  # ── Breadcrumbs ───────────────────────────────────────────────────────────
 
   attr :breadcrumbs, :list, required: true
   attr :current_dir, :string, required: true
 
-  def breadcrumbs(assigns) do
-    ~H"""
-    <div class="flex items-center gap-1.5 mb-3 font-mono text-[0.75rem]">
-      <button
-        :if={@current_dir != "."}
-        phx-click="go_back"
-        class="flex items-center justify-center w-6 h-6 rounded-lg bg-black/5 text-black/40 hover:bg-black/10 hover:text-black/60 transition-colors shrink-0 mr-1"
-        title="Go back"
-      >
-        <svg
-          class="w-3.5 h-3.5"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
-      </button>
-      <button phx-click="navigate" phx-value-path="." class="zaq-text-accent hover:underline">
-        root
-      </button>
-      <span :for={crumb <- @breadcrumbs} class="flex items-center gap-1">
-        <span class="text-black/20">/</span>
-        <button
-          phx-click="navigate"
-          phx-value-path={crumb.path}
-          class="zaq-text-accent hover:underline"
-        >
-          {crumb.name}
-        </button>
-      </span>
-    </div>
-    """
+  def breadcrumb(assigns) do
+    Breadcrumb.breadcrumb(assigns)
   end
-
-  # ── View Mode Toggle ──────────────────────────────────────────────────────
 
   attr :view_mode, :string, required: true
   attr :entries, :list, required: true
 
-  def view_mode_toggle(assigns) do
-    ~H"""
-    <div class="flex items-center gap-1 mb-3">
-      <div class="flex items-center bg-black/5 rounded-lg p-0.5">
-        <button
-          phx-click="toggle_view_mode"
-          phx-value-mode="list"
-          class={[
-            "p-1.5 rounded-md transition-colors",
-            if(@view_mode == "list",
-              do: "bg-white text-black/70 shadow-sm",
-              else: "text-black/30 hover:text-black/50"
-            )
-          ]}
-          title="List view"
-        >
-          <svg
-            class="w-3.5 h-3.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-        <button
-          phx-click="toggle_view_mode"
-          phx-value-mode="grid"
-          class={[
-            "p-1.5 rounded-md transition-colors",
-            if(@view_mode == "grid",
-              do: "bg-white text-black/70 shadow-sm",
-              else: "text-black/30 hover:text-black/50"
-            )
-          ]}
-          title="Grid view"
-        >
-          <svg
-            class="w-3.5 h-3.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"
-            />
-          </svg>
-        </button>
-      </div>
-      <span class="font-mono text-[0.68rem] text-black/40 ml-1">{length(@entries)} item(s)</span>
-    </div>
-    """
+  def toggle(assigns) do
+    Toggle.toggle(assigns)
   end
 
   # ── File List View ────────────────────────────────────────────────────────

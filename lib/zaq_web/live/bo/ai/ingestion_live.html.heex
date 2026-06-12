@@ -44,8 +44,8 @@
           ingest_mode={@ingest_mode}
           embedding_ready={@embedding_ready}
         />
-        <.breadcrumbs breadcrumbs={@breadcrumbs} current_dir={@current_dir} />
-        <.view_mode_toggle view_mode={@view_mode} entries={@entries} />
+        <.breadcrumb breadcrumbs={@breadcrumbs} current_dir={@current_dir} />
+        <.toggle view_mode={@view_mode} entries={@entries} />
         <.file_list_view
           :if={@view_mode == "list"}
           entries={@entries}
