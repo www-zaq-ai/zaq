@@ -104,7 +104,7 @@ defmodule Zaq.UserPortal.Provisioner do
       %ImageToTextConfig{}
       |> ImageToTextConfig.changeset(%{
         credential_id: cred_id,
-        model: "google/gemma-4-31b-it"
+        model: "nvidia/nemotron-nano-12b-v2-vl"
       })
       |> System.save_image_to_text_config()
     end

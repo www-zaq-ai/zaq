@@ -320,6 +320,25 @@ defmodule Zaq.AccountsTest do
       assert {:error, :not_found} = Accounts.authenticate_user("nobody", "pass")
     end
 
+    test "authenticates user by email with valid password" do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "Validpass123!"})
+
+      assert {:ok, authed} = Accounts.authenticate_user(user.email, "Validpass123!")
+      assert authed.id == user.id
+    end
+
+    test "rejects invalid password when logging in by email" do
+      user = user_fixture()
+      {:ok, _} = Accounts.change_password(user, %{password: "Validpass123!"})
+
+      assert {:error, :invalid_password} = Accounts.authenticate_user(user.email, "wrong")
+    end
+
+    test "returns not_found for unknown email" do
+      assert {:error, :not_found} = Accounts.authenticate_user("nobody@example.com", "pass")
+    end
+
     test "authenticates super admin with env credentials on first login" do
       Application.put_env(:zaq, :super_admin, username: "superadmin", password: "envpass")
       role = role_fixture(%{name: "super_admin"})

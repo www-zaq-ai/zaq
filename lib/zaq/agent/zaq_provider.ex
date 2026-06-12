@@ -14,34 +14,53 @@ defmodule Zaq.Agent.ZAQProvider do
 
   @provider_id :zaq_router
 
-  @vision_modalities %{input: [:image, :text, :video], output: [:text]}
+  @vision_modalities %{input: [:image, :text], output: [:text]}
+
+  @embedding_caps_3072 %{
+    chat: false,
+    embeddings: %{default_dimensions: 3072, max_dimensions: 3072},
+    json: %{native: false, schema: false, strict: false},
+    reasoning: %{enabled: false},
+    streaming: %{text: false, tool_calls: false},
+    tools: %{enabled: false}
+  }
 
   @default_models %{
-    # Chat model
+    # ── LLM / Chat models ──────────────────────────────────────────────
+    # Free
     "openai/gpt-oss-120b" => %{
+      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
+    },
+    "qwen/qwen3-235b-a22b-2507" => %{
       capabilities: %{chat: true, tools: %{enabled: true}}
     },
-    # "owl-alpha" => %{
-    #   capabilities: %{chat: true, tools: %{enabled: true}}
-    # },
-    # Vision models (appear in image-to-text config)
-    # "gemma-4-26b-a4b-it" => %{
-    #   capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-    #   modalities: @vision_modalities
-    # },
-    "google/gemma-4-31b-it" => %{
+    "mistralai/mistral-small-2603" => %{
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
       modalities: @vision_modalities
     },
-    # "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" => %{
-    #   capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-    #   modalities: %{input: [:image, :text, :video, :audio], output: [:text]}
-    # },
-    # "nvidia/nemotron-nano-12b-v2-vl" => %{
-    #   capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
-    #   modalities: @vision_modalities
-    # },
-    # Embedding model
+    "deepseek/deepseek-v4-pro" => %{
+      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
+    },
+
+    # ── Vision models (image-to-text) ──────────────────────────────────
+    "nvidia/nemotron-nano-12b-v2-vl" => %{
+      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
+      modalities: @vision_modalities
+    },
+    "google/gemma-3-27b-it" => %{
+      capabilities: %{chat: true, tools: %{enabled: true}},
+      modalities: @vision_modalities
+    },
+    "google/gemini-2.5-flash-lite" => %{
+      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
+      modalities: @vision_modalities
+    },
+    "qwen/qwen3-vl-235b-a22b-instruct" => %{
+      capabilities: %{chat: true, tools: %{enabled: true}},
+      modalities: @vision_modalities
+    },
+
+    # ── Embedding models ───────────────────────────────────────────────
     "nvidia/llama-nemotron-embed-vl-1b-v2" => %{
       capabilities: %{
         chat: false,
@@ -51,7 +70,19 @@ defmodule Zaq.Agent.ZAQProvider do
         streaming: %{text: false, tool_calls: false},
         tools: %{enabled: false}
       }
-    }
+    },
+    "openai/text-embedding-3-small" => %{
+      capabilities: %{
+        chat: false,
+        embeddings: %{default_dimensions: 1536, max_dimensions: 1536},
+        json: %{native: false, schema: false, strict: false},
+        reasoning: %{enabled: false},
+        streaming: %{text: false, tool_calls: false},
+        tools: %{enabled: false}
+      }
+    },
+    "google/gemini-embedding-001" => %{capabilities: @embedding_caps_3072},
+    "openai/text-embedding-3-large" => %{capabilities: @embedding_caps_3072}
   }
 
   @doc "Returns the LiteLLM base URL configured for this deployment."

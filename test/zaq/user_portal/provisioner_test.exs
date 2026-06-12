@@ -35,7 +35,9 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       assert System.get_embedding_config().dimension == 2048
 
       assert System.get_image_to_text_config().credential_id == credential.id
-      assert System.get_image_to_text_config().model == "google/gemma-4-31b-it"
+
+      assert System.get_image_to_text_config().model ==
+               "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     end
 
     test "does not overwrite existing configs on second call" do
