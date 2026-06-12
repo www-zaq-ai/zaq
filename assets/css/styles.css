@@ -280,3 +280,181 @@ pre.zaq-file-preview-body {
 .zaq-link-underline:focus-visible {
   text-decoration-thickness: 2px;
 }
+
+/* ── Icon — small inline (shared: breadcrumbs, segment toggles, toolbars) ─ */
+
+.zaq-icon-sm {
+  width: var(--zaq-scale-14);
+  height: var(--zaq-scale-14);
+  flex-shrink: 0;
+}
+
+/* ── Breadcrumb (`ZaqWeb.Components.DesignSystem.Breadcrumb`)
+      Path trail + back control. Generic BO pattern — safe to reuse outside ingestion. ─ */
+
+.zaq-breadcrumb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-8);
+  margin-bottom: var(--zaq-scale-12);
+}
+
+.zaq-breadcrumb-trail {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+}
+
+.zaq-breadcrumb-sep {
+  color: var(--zaq-text-color-body-tertiary);
+  opacity: 0.5;
+}
+
+.zaq-breadcrumb-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--zaq-scale-24);
+  height: var(--zaq-scale-24);
+  margin-right: var(--zaq-scale-4);
+  padding: 0;
+  border: none;
+  border-radius: var(--zaq-scale-8);
+  background: var(--zaq-surface-color-elevated);
+  color: var(--zaq-text-color-body-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.zaq-breadcrumb-back-btn:hover {
+  background: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-secondary);
+}
+
+.zaq-breadcrumb-crumb-link {
+  color: var(--zaq-text-color-body-accent);
+}
+
+/* ── Toggle — segmented control (`ZaqWeb.Components.DesignSystem.Toggle`)
+      Pill shell + segment buttons (e.g. list/grid). Generic BO pattern — reuse anywhere. ─ */
+
+.zaq-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+  margin-bottom: var(--zaq-scale-16);
+}
+
+.zaq-toggle-group {
+  display: flex;
+  align-items: center;
+  padding: var(--zaq-scale-2);
+  border-radius: var(--zaq-scale-8);
+  background: var(--zaq-surface-color-elevated);
+}
+
+.zaq-toggle-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--zaq-scale-8);
+  border: none;
+  border-radius: var(--zaq-scale-8);
+  background: transparent;
+  color: var(--zaq-text-color-body-tertiary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.zaq-toggle-segment:hover {
+  color: var(--zaq-text-color-body-secondary);
+}
+
+.zaq-toggle-segment--active {
+  background: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-secondary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.zaq-toggle-count {
+  margin-left: var(--zaq-scale-4);
+  color: var(--zaq-text-color-body-tertiary);
+}
+
+/* ── Ingestion chrome band (shared by `IngestionVolumeSelector`, `IngestionFileBrowserHeader`)
+      One row shell + actions cluster + chip tokens — reuse together for consistent BO file UI. ─ */
+
+.zaq-ingestion-chrome-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--zaq-scale-8);
+}
+
+/* Toolbar row sits above breadcrumbs inside the same stack; add rhythm below the action bar. */
+.zaq-ingestion-chrome-row--spaced {
+  margin-bottom: var(--zaq-scale-16);
+}
+
+.zaq-ingestion-chrome-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--zaq-scale-8);
+}
+
+/* Tighter chip-to-chip gap (e.g. volume names) */
+.zaq-ingestion-chrome-actions--compact {
+  gap: var(--zaq-scale-4);
+}
+
+.zaq-ingestion-meta-label {
+  text-transform: uppercase;
+  color: var(--zaq-text-color-body-tertiary);
+  flex-shrink: 0;
+}
+
+.zaq-ingestion-meta-label--push {
+  margin-right: auto;
+}
+
+.zaq-ingestion-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--zaq-scale-4);
+  padding: var(--zaq-scale-4) var(--zaq-scale-10);
+  border-radius: var(--zaq-scale-8);
+  border: var(--zaq-border-thickness-default) solid transparent;
+  background: var(--zaq-surface-color-elevated);
+  color: var(--zaq-text-color-body-tertiary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.zaq-ingestion-chip:hover {
+  background: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-secondary);
+}
+
+.zaq-ingestion-chip--active {
+  background: var(--zaq-surface-color-accent);
+  color: var(--zaq-text-color-body-secondary);
+  border-color: var(--zaq-border-color-accent);
+}
+
+.zaq-ingestion-chip--active:hover {
+  background: var(--zaq-surface-color-accent);
+  color: var(--zaq-text-color-body-secondary);
+}
+
+.zaq-ingestion-chip--danger {
+  background: var(--zaq-surface-color-danger);
+  color: var(--zaq-text-color-body-danger);
+  border-color: var(--zaq-border-color-danger);
+}
+
+.zaq-ingestion-chip--danger:hover {
+  filter: brightness(0.97);
+}
