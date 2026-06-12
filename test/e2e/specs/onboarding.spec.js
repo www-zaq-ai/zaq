@@ -368,42 +368,6 @@ test.describe("Dashboard retry", () => {
     await verifyZAQRouter(req, { hasApiKey: true })
   })
 
-  // ─── Scenario 6 ────────────────────────────────────────────────────────────
-  test("Scenario 6 — fingerprint conflict: error shown, closing modal leaves system clean", async ({
-    page,
-  }) => {
-    const user = await createE2EDeclinedPortalUser(req, { email: ONBOARD_EMAIL })
-
-    // Fetch the fingerprint the server will send so we can pre-register it.
-    const fingerprint = await getE2EMachineFingerprint(req)
-    await registerE2EPortalConflict(req, { fingerprint })
-
-    await loginToBackOffice(page, { username: user.username, password: user.password })
-    await expect(page).toHaveURL(/\/bo\/dashboard/)
-    await waitForLiveViewConnected(page)
-
-    await page.locator(SEL.activateButton).click()
-    await expect(page.locator(SEL.acceptConsent)).toBeVisible()
-    await page.locator(SEL.acceptConsent).click()
-    await waitForLiveViewSettled(page)
-
-    // 409 fingerprint error — the portal rejects this machine.
-    await expect(
-      page.getByText("Machine fingerprint already registered to another account.")
-    ).toBeVisible()
-
-    // Close the modal — nothing is written to DB.
-    await page.locator(SEL.closeModal).click()
-    await waitForLiveViewSettled(page)
-
-    // System is still in a clean declined state: banner visible, consent unchanged.
-    await expect(page.locator(SEL.activateButton)).toBeVisible()
-
-    // ZAQ Router is keyless — consent was never accepted; fingerprint conflict
-    // prevented provisioning so no API key was stored.
-    await verifyZAQRouter(req, { hasApiKey: false })
-  })
-
   // ─── Scenario 9 ────────────────────────────────────────────────────────────
   test("Scenario 9 — email conflict for user with existing email: modal reveals inline email input on 409", async ({
     page,

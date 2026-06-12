@@ -37,7 +37,7 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       assert System.get_image_to_text_config().credential_id == credential.id
 
       assert System.get_image_to_text_config().model ==
-               "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+               "nvidia/nemotron-nano-12b-v2-vl"
     end
 
     test "does not overwrite existing configs on second call" do
