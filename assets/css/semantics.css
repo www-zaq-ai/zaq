@@ -12,7 +12,7 @@
   --zaq-surface-color-accent:   var(--zaq-color-blue-100);
   --zaq-surface-color-danger:   var(--zaq-color-system-red-100);
   --zaq-surface-color-success:  var(--zaq-color-system-green-100);
-  
+  --zaq-surface-color-warning:  var(--zaq-color-system-orange-100);
 
   /* ── semantics/colors/border ─────────────────────────────────────────────── */
   --zaq-border-color-default: var(--zaq-color-neutral-300);
@@ -20,7 +20,7 @@
   --zaq-border-color-accent:  var(--zaq-color-blue-300);
   --zaq-border-color-danger:  var(--zaq-color-system-red);
   --zaq-border-color-success: var(--zaq-color-system-green);
-  
+  --zaq-border-color-warning: var(--zaq-color-system-orange);
 
   /* ── semantics/colors/text/body ─────────────────────────────────────────── */
   --zaq-text-color-body-default:   var(--zaq-color-black-400);
@@ -30,6 +30,7 @@
   --zaq-text-color-body-accent:    var(--zaq-color-blue-400);
   --zaq-text-color-body-danger:    var(--zaq-color-system-red-strong); /* for text and icons to respect WCAG*/
   --zaq-text-color-body-success:   var(--zaq-color-system-green-strong); /* for text and icons to respect WCAG*/
+  --zaq-text-color-body-warning:   var(--zaq-color-system-orange-strong); /* for text and icons to respect WCAG*/
 
 
   /* ── semantics/colors/icon ───────────────────────────────────────────── */

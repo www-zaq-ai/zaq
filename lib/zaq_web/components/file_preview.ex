@@ -14,10 +14,12 @@ defmodule ZaqWeb.Components.FilePreview do
   def meta(assigns) do
     ~H"""
     <div class="text-right">
-      <p class="font-mono text-[0.68rem] text-black/30">
+      <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
         {SizeFormat.format_size(@preview.file_size)}
       </p>
-      <p class="font-mono text-[0.65rem] text-black/25">{format_datetime(@preview.modified_at)}</p>
+      <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
+        {format_datetime(@preview.modified_at)}
+      </p>
     </div>
     """
   end
@@ -29,10 +31,10 @@ defmodule ZaqWeb.Components.FilePreview do
     ~H"""
     <div
       :if={@preview.kind == :not_found}
-      class="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-16 text-center"
+      class="zaq-file-preview-shell zaq-file-preview-shell--inset text-center"
     >
       <svg
-        class="w-10 h-10 mx-auto mb-3 text-black/15"
+        class="zaq-file-preview-icon-muted mx-auto mb-3 h-10 w-10"
         fill="none"
         stroke="currentColor"
         stroke-width="1.5"
@@ -44,66 +46,74 @@ defmodule ZaqWeb.Components.FilePreview do
           d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
         />
       </svg>
-      <p class="font-mono text-[0.85rem] text-black/40">File not found</p>
-      <p class="font-mono text-[0.72rem] text-black/25 mt-1">{@preview.relative_path}</p>
+      <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+        File not found
+      </p>
+      <p class="zaq-text-caption mt-1" style="color: var(--zaq-text-color-body-tertiary)">
+        {@preview.relative_path}
+      </p>
     </div>
 
-    <div
-      :if={@preview.kind == :markdown}
-      class="bg-white rounded-2xl border border-black/[0.06] shadow-sm"
-    >
-      <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">
-        <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-[#03b6d4]/10 text-[#03b6d4]">
+    <div :if={@preview.kind == :markdown} class="zaq-file-preview-shell">
+      <div class="zaq-file-preview-bar zaq-file-preview-bar--rounded-top">
+        <span class="zaq-file-preview-type-chip zaq-file-preview-type-chip--accent zaq-text-caption uppercase tracking-wide">
           {String.trim_leading(@preview.ext, ".")}
         </span>
-        <span class="font-mono text-[0.65rem] text-black/25">rendered</span>
+        <span
+          class="zaq-text-caption uppercase tracking-wide"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          rendered
+        </span>
       </div>
-      <div class="px-10 py-8 md-content max-w-none">
+      <div class="zaq-file-preview-body md-content max-w-none">
         {Phoenix.HTML.raw(@preview.rendered_html)}
       </div>
     </div>
 
-    <div
-      :if={@preview.kind == :text}
-      class="bg-white rounded-2xl border border-black/[0.06] shadow-sm"
-    >
-      <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">
-        <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-black/5 text-black/40">
+    <div :if={@preview.kind == :text} class="zaq-file-preview-shell">
+      <div class="zaq-file-preview-bar zaq-file-preview-bar--rounded-top">
+        <span class="zaq-file-preview-type-chip zaq-file-preview-type-chip--muted zaq-text-caption uppercase tracking-wide">
           {String.trim_leading(@preview.ext, ".")}
         </span>
-        <span class="font-mono text-[0.65rem] text-black/25">plain text</span>
+        <span
+          class="zaq-text-caption uppercase tracking-wide"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          plain text
+        </span>
       </div>
-      <pre class="px-8 py-6 font-mono text-[0.82rem] text-black/70 whitespace-pre-wrap break-words overflow-x-auto leading-relaxed">{@preview.content}</pre>
+      <pre class="zaq-text-pre zaq-file-preview-body">{@preview.content}</pre>
     </div>
 
-    <div
-      :if={@preview.kind == :image}
-      class="bg-white rounded-2xl border border-black/[0.06] shadow-sm"
-    >
-      <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa] rounded-t-2xl">
-        <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-black/5 text-black/40">
+    <div :if={@preview.kind == :image} class="zaq-file-preview-shell">
+      <div class="zaq-file-preview-bar zaq-file-preview-bar--rounded-top">
+        <span class="zaq-file-preview-type-chip zaq-file-preview-type-chip--muted zaq-text-caption uppercase tracking-wide">
           {String.trim_leading(@preview.ext, ".")}
         </span>
-        <span class="font-mono text-[0.65rem] text-black/25">image</span>
+        <span
+          class="zaq-text-caption uppercase tracking-wide"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          image
+        </span>
       </div>
-      <div class="p-8 flex items-center justify-center bg-[#fafafa] rounded-b-2xl">
-        <img
-          src={@preview.raw_url}
-          alt={@preview.filename}
-          class="max-w-full max-h-[70vh] rounded-xl shadow-sm object-contain"
-        />
+      <div class="zaq-file-preview-media-well">
+        <img src={@preview.raw_url} alt={@preview.filename} />
       </div>
     </div>
 
-    <div
-      :if={@preview.kind == :pdf}
-      class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden"
-    >
-      <div class="flex items-center gap-2 px-6 py-3 border-b border-black/[0.06] bg-[#fafafa]">
-        <span class="font-mono text-[0.65rem] px-2 py-0.5 rounded-lg bg-red-100 text-red-500">
+    <div :if={@preview.kind == :pdf} class="zaq-file-preview-shell overflow-hidden">
+      <div class="zaq-file-preview-bar">
+        <span class="zaq-file-preview-type-chip zaq-file-preview-type-chip--accent zaq-text-caption uppercase tracking-wide">
           pdf
         </span>
-        <span class="font-mono text-[0.65rem] text-black/25">document</span>
+        <span
+          class="zaq-text-caption uppercase tracking-wide"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          document
+        </span>
       </div>
       <iframe
         src={@preview.raw_url}
@@ -115,10 +125,10 @@ defmodule ZaqWeb.Components.FilePreview do
 
     <div
       :if={@preview.kind == :binary}
-      class="bg-white rounded-2xl border border-black/[0.06] shadow-sm p-16 text-center"
+      class="zaq-file-preview-shell zaq-file-preview-shell--inset text-center"
     >
       <svg
-        class="w-10 h-10 mx-auto mb-3 text-black/15"
+        class="zaq-file-preview-icon-muted mx-auto mb-3 h-10 w-10"
         fill="none"
         stroke="currentColor"
         stroke-width="1.5"
@@ -131,14 +141,16 @@ defmodule ZaqWeb.Components.FilePreview do
         />
         <polyline points="14 2 14 8 20 8" />
       </svg>
-      <p class="font-mono text-[0.85rem] text-black/40">Preview not available</p>
-      <p class="font-mono text-[0.72rem] text-black/25 mt-1 mb-5">
+      <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+        Preview not available
+      </p>
+      <p class="zaq-text-caption mb-5 mt-1" style="color: var(--zaq-text-color-body-tertiary)">
         {String.trim_leading(@preview.ext, ".")} files cannot be previewed in the browser
       </p>
       <a
         href={@preview.raw_url}
         download={@preview.filename}
-        class="font-mono text-[0.78rem] font-semibold px-5 py-2.5 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+        class="zaq-btn zaq-btn-primary zaq-btn-text_label-default"
       >
         Download file
       </a>

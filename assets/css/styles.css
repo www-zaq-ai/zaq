@@ -103,8 +103,142 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
+/* ── File preview (BO ingestion / modal) ─────────────────────────────────── */
+
+.zaq-file-preview-shell {
+  background: var(--zaq-surface-color-raised);
+  border-radius: var(--zaq-scale-16);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* Use with .zaq-file-preview-shell on not-found / binary blocks */
+.zaq-file-preview-shell--inset {
+  padding: var(--zaq-scale-64);
+}
+
+/* Panel toolbars + modal title row (add .justify-between in HEEX for modal) */
+.zaq-file-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-8);
+  padding: var(--zaq-scale-16) var(--zaq-scale-24);
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-elevated);
+}
+
+/* First row inside a rounded shell (markdown / text / image); omit on PDF */
+.zaq-file-preview-bar--rounded-top {
+  border-top-left-radius: var(--zaq-scale-16);
+  border-top-right-radius: var(--zaq-scale-16);
+}
+
+.zaq-file-preview-type-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-8);
+}
+
+.zaq-file-preview-type-chip--accent {
+  background: var(--zaq-surface-color-accent);
+  color: var(--zaq-text-color-body-accent);
+}
+
+.zaq-file-preview-type-chip--muted {
+  /* Raised reads slightly above the elevated toolbar band */
+  background: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-tertiary);
+}
+
+.zaq-file-preview-media-well {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--zaq-scale-32);
+  background: var(--zaq-surface-color-elevated);
+  border-bottom-left-radius: var(--zaq-scale-16);
+  border-bottom-right-radius: var(--zaq-scale-16);
+}
+
+.zaq-file-preview-media-well img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: var(--zaq-scale-16);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* Markdown body + plain-text <pre> share one padding rhythm */
+.zaq-file-preview-body {
+  padding: var(--zaq-scale-24) var(--zaq-scale-32);
+}
+
+pre.zaq-file-preview-body {
+  margin: 0;
+  color: var(--zaq-text-color-body-default);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  word-break: break-word;
+}
+
+.zaq-file-preview-scroll {
+  max-height: 80vh;
+  overflow: auto;
+  padding: var(--zaq-scale-24);
+  background: var(--zaq-surface-color-base);
+}
+
+.zaq-file-preview-icon-muted {
+  color: var(--zaq-text-color-body-tertiary);
+}
+
 
 /* ── Inline feedback ─────────────────────────────────────────────────── */
+
+/* Shared layout for BO flash rows + inline feedback (matches flash: gap-8, mb-16, py-12 px-16, rounded-xl) */
+.zaq-feedback-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-16);
+  margin-bottom: var(--zaq-scale-16);
+  padding: var(--zaq-scale-16) var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-16);
+}
+
+.zaq-feedback-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.zaq-feedback-dismiss {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  line-height: 0;
+}
+
+.zaq-feedback-dismiss:hover,
+.zaq-feedback-dismiss:focus-visible {
+  opacity: 1;
+}
+
+.zaq-feedback-dismiss > svg {
+  width: var(--zaq-scale-16);
+  height: var(--zaq-scale-16);
+  flex-shrink: 0;
+}
+
+/* Icon slot for feedback callouts (warning, success, danger, info) — wrap the svg in .zaq-feedback-icon */
+.zaq-feedback-icon > svg {
+  width: var(--zaq-scale-24);
+  height: var(--zaq-scale-24);
+  flex-shrink: 0;
+}
 
 /* feedback/danger */
 
@@ -119,4 +253,30 @@
   background: var(--zaq-surface-color-success);
   color: var(--zaq-text-color-body-success);
   border: var(--zaq-border-color-success) solid var(--zaq-border-thickness-default);
+}
+
+/* feedback/warning — semantic surface only (pair with .zaq-feedback-banner) */
+.zaq-warning {
+  background: var(--zaq-surface-color-warning);
+  color: var(--zaq-text-color-body-warning);
+  border: var(--zaq-border-color-warning) solid var(--zaq-border-thickness-default);
+}
+
+.zaq-warning p + p {
+  margin-top: var(--zaq-scale-4);
+}
+
+/* Universal underlined link — combine with any .zaq-text-* or inherited color; hover thickens underline only */
+.zaq-link-underline {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-underline-offset: var(--zaq-scale-8);
+  text-decoration-thickness: 1px;
+  text-decoration-skip-ink: auto;
+}
+
+.zaq-link-underline:hover,
+.zaq-link-underline:focus-visible {
+  text-decoration-thickness: 2px;
 }
