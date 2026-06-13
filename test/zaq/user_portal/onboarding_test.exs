@@ -1,5 +1,9 @@
 defmodule Zaq.UserPortal.OnboardingTest do
-  use Zaq.DataCase, async: true
+  # async: false — this suite mutates the global Application env for
+  # Zaq.System.SecretConfig (encryption_key: nil). Running it concurrently
+  # races other async tests that encrypt credentials, causing intermittent
+  # "missing SYSTEM_CONFIG_ENCRYPTION_KEY" failures (e.g. ProviderSpecTest).
+  use Zaq.DataCase, async: false
 
   import Mox
   import Zaq.AccountsFixtures
