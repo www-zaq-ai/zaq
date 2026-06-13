@@ -40,7 +40,7 @@ defmodule Zaq.Agent.Tools.Workflow.Iterate do
     description: "Runs a downstream pipeline once per item in a list, collecting results.",
     schema: [
       items: [
-        type: :list,
+        type: {:list, :any},
         required: true,
         doc: "List of items to process individually."
       ],
@@ -69,8 +69,8 @@ defmodule Zaq.Agent.Tools.Workflow.Iterate do
       ]
     ],
     output_schema: [
-      results: [type: :list, required: true, doc: "Successful per-item pipeline results."],
-      errors: [type: :list, required: true, doc: "Collected errors for failed items."]
+      results: [type: {:list, :any}, required: true, doc: "Successful per-item pipeline results."],
+      errors: [type: {:list, :any}, required: true, doc: "Collected errors for failed items."]
     ]
 
   use Zaq.Engine.Workflows.Action

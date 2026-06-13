@@ -114,6 +114,21 @@ defmodule Zaq.Engine.Workflows.CronTriggerWorkerTest do
       assert event.name == "engine:cron.daily_sync"
     end
 
+    test "dispatches event payload carrying the explicit machine marker" do
+      trigger = create_cron_trigger()
+      dispatched = start_supervised!({Agent, fn -> nil end})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        Agent.update(dispatched, fn _ -> event end)
+        event
+      end)
+
+      :ok = CronTriggerWorker.perform(build_job(trigger.id))
+
+      event = Agent.get(dispatched, & &1)
+      assert event.request == %{trigger_id: trigger.id, machine: true}
+    end
+
     test "dispatches event routed to :engine destination" do
       trigger = create_cron_trigger()
       dispatched = start_supervised!({Agent, fn -> nil end})

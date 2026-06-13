@@ -7,6 +7,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
   import ZaqWeb.Live.BO.AI.WorkflowComponents
 
+  import ZaqWeb.Live.BO.AI.WorkflowRunHelpers, only: [manual_source_event: 1]
+
   alias Zaq.Event
   alias ZaqWeb.Components.{BOFileUpload, BOLayout, BOModal}
 
@@ -152,7 +154,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       %Zaq.Engine.Workflows.Workflow{} = workflow ->
         run_event =
           Event.new(
-            %{module: Zaq.Engine.Workflows, function: :create_run, args: [workflow, %{}]},
+            %{
+              module: Zaq.Engine.Workflows,
+              function: :create_run,
+              args: [workflow, manual_source_event(socket.assigns.current_user)]
+            },
             :engine
           )
 

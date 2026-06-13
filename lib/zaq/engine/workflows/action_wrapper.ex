@@ -26,6 +26,15 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
   from params before the wrapped module is called, so the wrapped module only sees
   its own domain params.
 
+  ## Context injection
+
+  Each step's context is enriched with `run_id`, `step_name`, the run's
+  `source_event.actor` (the identity that caused the run), and
+  `skip_permissions` — `true` only when `source_event.assigns` carries an
+  explicit `skip_permissions: true` flag (set at run creation for machine/cron
+  and BO manual runs), `false` otherwise. A missing actor never implies the
+  bypass.
+
   ## Resume idempotency
 
   On resume after a pause, `run/2` checks for an existing `"completed"` `StepRun`
@@ -137,7 +146,16 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
         input: json_safe(action_params)
       })
 
-    enriched_context = Map.merge(context || %{}, %{run_id: run_id, step_name: step_name})
+    source_event = run_id |> Workflows.get_run!() |> Map.get(:source_event)
+    actor = source_event && source_event.actor
+
+    enriched_context =
+      Map.merge(context || %{}, %{
+        run_id: run_id,
+        step_name: step_name,
+        actor: actor,
+        skip_permissions: skip_permissions?(source_event)
+      })
 
     try do
       case call_action(mod, action_params, enriched_context, timeout_ms) do
@@ -266,4 +284,14 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
 
   defp json_safe_key(k) when is_atom(k), do: Atom.to_string(k)
   defp json_safe_key(k), do: k
+
+  # The bypass must be an explicit flag persisted on the run's source_event
+  # (string keys after the JSONB round-trip, atom keys in-process); anything
+  # else — including a missing actor — means no bypass.
+  defp skip_permissions?(%{assigns: assigns}) when is_map(assigns) do
+    Map.get(assigns, :skip_permissions) == true or
+      Map.get(assigns, "skip_permissions") == true
+  end
+
+  defp skip_permissions?(_), do: false
 end

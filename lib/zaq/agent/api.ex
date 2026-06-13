@@ -319,6 +319,11 @@ defmodule Zaq.Agent.Api do
     # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
     incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
 
+    # Channels build the actor before IdentityPlug runs, so the resolved
+    # person_id must be propagated here. Downstream consumers (workflow
+    # triggers via the post-dispatch broadcast, persistence hops) rely on it.
+    event = enrich_actor_person(event, incoming.person_id)
+
     incoming_dims = incoming.metadata |> Map.get("telemetry_dimensions", %{})
 
     pipeline_opts =
@@ -367,6 +372,20 @@ defmodule Zaq.Agent.Api do
 
     maybe_dispatch_return_hop(event, incoming, outgoing)
   end
+
+  # Never overwrites an existing actor person_id and never writes nil —
+  # a missing person must stay missing (nil is not an identity).
+  defp enrich_actor_person(%Event{} = event, nil), do: event
+
+  defp enrich_actor_person(%Event{actor: actor} = event, person_id) when is_map(actor) do
+    if Map.get(actor, :person_id) || Map.get(actor, "person_id") do
+      event
+    else
+      %{event | actor: Map.put(actor, :person_id, person_id)}
+    end
+  end
+
+  defp enrich_actor_person(%Event{} = event, _person_id), do: event
 
   # This function is a good candidate to go into the NodeRouter for generalization
   defp maybe_dispatch_return_hop(%Event{} = event, %Incoming{} = incoming, %Outgoing{} = outgoing) do
