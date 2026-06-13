@@ -107,6 +107,7 @@ defmodule Zaq.Agent.Executor do
   - `:system_prompt` — override the agent's `job` field for this run only
   - `:person_id` — passed into the retrieval context for permission scoping
   - `:team_ids` — list of team IDs passed into the retrieval context
+  - `:event` — the dispatching `%Zaq.Event{}`; its `actor` is exposed to tools via the tool context
   - `:agent_module`, `:server_manager_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
   """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
@@ -156,6 +157,7 @@ defmodule Zaq.Agent.Executor do
                  team_ids: Keyword.get(opts, :team_ids, []),
                  source_filter: Keyword.get(opts, :source_filter),
                  skip_permissions: Keyword.get(opts, :skip_permissions, false),
+                 actor: event_actor(opts),
                  node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
                },
                extra_refs: %{
@@ -354,16 +356,33 @@ defmodule Zaq.Agent.Executor do
     incoming.metadata
     |> Map.get("telemetry_dimensions", %{})
     |> Enum.reduce(%{}, fn
-      {key, value}, acc when is_binary(key) -> Map.put(acc, String.to_atom(key), value)
+      {key, value}, acc when is_binary(key) -> Map.put(acc, existing_atom_or_key(key), value)
       {key, value}, acc when is_atom(key) -> Map.put(acc, key, value)
       _, acc -> acc
     end)
+  end
+
+  # Dimension keys arrive as strings from channel metadata — convert only to
+  # atoms that already exist to avoid atom-table exhaustion.
+  defp existing_atom_or_key(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> key
   end
 
   defp error_type(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_type({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
   defp error_type(%{__struct__: mod}), do: inspect(mod)
   defp error_type(_), do: "unknown"
+
+  # The actor travels on the dispatching %Zaq.Event{}; expose it to tools so
+  # they see the same identity shape as workflow steps (ActionWrapper).
+  defp event_actor(opts) do
+    case Keyword.get(opts, :event) do
+      %Event{actor: actor} -> actor
+      _ -> nil
+    end
+  end
 
   defp node_router(opts) do
     Keyword.get(

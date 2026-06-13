@@ -51,7 +51,7 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
     description: "Orchestrates a downstream pipeline over a list of items in chunks.",
     schema: [
       items: [
-        type: :list,
+        type: {:list, :any},
         required: true,
         doc: "List of items to process in batches."
       ],
@@ -91,8 +91,12 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
       ]
     ],
     output_schema: [
-      results: [type: :list, required: true, doc: "Successful pipeline results per chunk."],
-      errors: [type: :list, required: true, doc: "Collected errors for failed chunks."]
+      results: [
+        type: {:list, :any},
+        required: true,
+        doc: "Successful pipeline results per chunk."
+      ],
+      errors: [type: {:list, :any}, required: true, doc: "Collected errors for failed chunks."]
     ]
 
   use Zaq.Engine.Workflows.Action

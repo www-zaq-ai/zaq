@@ -37,8 +37,12 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
   }
 
   defp create_run do
+    create_run_with_source_event(@valid_source_event)
+  end
+
+  defp create_run_with_source_event(source_event) do
     {:ok, wf} = Workflows.create_workflow(@valid_workflow_attrs)
-    {:ok, run} = Workflows.create_run(wf, @valid_source_event)
+    {:ok, run} = Workflows.create_run(wf, source_event)
     run
   end
 
@@ -518,6 +522,124 @@ defmodule Zaq.Engine.Workflows.ActionWrapperTest do
       ctx = ContextProbe.get_context()
       assert ctx.run_id == run.id
       assert ctx.extra == "val"
+    end
+
+    test "injects the source_event actor into context" do
+      source_event = %{
+        "request" => nil,
+        "assigns" => %{"trigger_type" => "event"},
+        "trace_id" => Ecto.UUID.generate(),
+        "actor" => %{"id" => "u1", "person_id" => 42, "name" => "alice"}
+      }
+
+      run = create_run_with_source_event(source_event)
+      ActionWrapper.run(wp(run, ContextCaptureAction, "ctx_step", 0), %{})
+
+      ctx = ContextProbe.get_context()
+      assert ctx.actor["person_id"] == 42
+      assert ctx.actor["name"] == "alice"
+    end
+
+    test "skip_permissions is true only with the explicit persisted flag" do
+      source_event = %{
+        "request" => nil,
+        "assigns" => %{"trigger_type" => "manual", "skip_permissions" => true},
+        "trace_id" => Ecto.UUID.generate()
+      }
+
+      run = create_run_with_source_event(source_event)
+      ActionWrapper.run(wp(run, ContextCaptureAction, "ctx_step", 0), %{})
+
+      ctx = ContextProbe.get_context()
+      assert ctx.skip_permissions == true
+    end
+
+    test "skip_permissions defaults to false for an unflagged, actorless run" do
+      run = create_run()
+      ActionWrapper.run(wp(run, ContextCaptureAction, "ctx_step", 0), %{})
+
+      ctx = ContextProbe.get_context()
+      assert ctx.skip_permissions == false
+      assert is_nil(ctx.actor)
+    end
+  end
+
+  describe "run/2 — fetch_history end-to-end authorization" do
+    alias Zaq.Accounts.People
+    alias Zaq.Agent.Tools.Accounts.History
+    alias Zaq.Engine.Conversations
+
+    defp person_with_conversation do
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Wrapped Person",
+          email: "wrapped#{System.unique_integer([:positive])}@example.com"
+        })
+
+      {:ok, conv} =
+        Conversations.create_conversation(%{
+          channel_type: "bo",
+          channel_user_id: "u_#{System.unique_integer([:positive])}",
+          person_id: person.id
+        })
+
+      {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "hello"})
+      {person, conv}
+    end
+
+    test "flagged machine run may target a person via params" do
+      {person, conv} = person_with_conversation()
+
+      source_event = %{
+        "request" => nil,
+        "assigns" => %{"trigger_type" => "manual", "skip_permissions" => true},
+        "trace_id" => Ecto.UUID.generate()
+      }
+
+      run = create_run_with_source_event(source_event)
+
+      assert {:ok, result} =
+               ActionWrapper.run(
+                 wp(run, History, "history", 0) |> Map.put(:person_id, person.id),
+                 %{}
+               )
+
+      assert [%{id: conv_id}] = result.conversations
+      assert conv_id == conv.id
+
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.status == "completed"
+    end
+
+    test "actor-carrying run recalls the actor's own conversations" do
+      {person, conv} = person_with_conversation()
+
+      source_event = %{
+        "request" => nil,
+        "assigns" => %{"trigger_type" => "event"},
+        "trace_id" => Ecto.UUID.generate(),
+        "actor" => %{"id" => "u1", "person_id" => person.id, "name" => "alice"}
+      }
+
+      run = create_run_with_source_event(source_event)
+
+      assert {:ok, result} = ActionWrapper.run(wp(run, History, "history", 0), %{})
+      assert [%{id: conv_id}] = result.conversations
+      assert conv_id == conv.id
+    end
+
+    test "actorless unflagged run is unauthorized and the step fails" do
+      {person, _conv} = person_with_conversation()
+      run = create_run()
+
+      assert {:error, _} =
+               ActionWrapper.run(
+                 wp(run, History, "history", 0) |> Map.put(:person_id, person.id),
+                 %{}
+               )
+
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.status == "failed"
     end
   end
 end

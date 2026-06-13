@@ -167,5 +167,7 @@ config :swoosh, :api_client, false
 
 # config :zaq, :jido_telemetry_bridge, include_llm_deltas: true
 
+config :zaq, :workflows_enabled, true
+
 # Imported last so per-worktree overrides (database name, port, etc.) win over all defaults above.
 import_config "dev.secret.exs"
