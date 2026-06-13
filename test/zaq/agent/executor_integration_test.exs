@@ -48,10 +48,21 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   defmodule StubFactoryStreamError do
-    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-
-    def await(:request, _opts) do
-      {:error, ReqLLM.Error.API.Stream.exception(reason: "stream closed mid-flight", cause: nil)}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []) do
+      {:ok,
+       %{
+         request: :request,
+         events: [
+           %{
+             kind: :request_failed,
+             at_ms: 1,
+             data: %{
+               error:
+                 ReqLLM.Error.API.Stream.exception(reason: "stream closed mid-flight", cause: nil)
+             }
+           }
+         ]
+       }}
     end
 
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
