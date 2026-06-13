@@ -1277,6 +1277,29 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
     end
 
+    test "run_pipeline event actor carries the author identity with a person_id slot" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      incoming = %ChatIncoming{
+        text: "who am i",
+        external_room_id: "room-actor",
+        external_thread_id: nil,
+        external_message_id: "msg-actor",
+        author: %Author{user_id: "u-actor", user_name: "alice"},
+        metadata: %{}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+      assert_received {:node_router_run_pipeline_event, event}
+
+      # person_id is nil at bridge time — IdentityPlug resolves it later in
+      # Zaq.Agent.Api; the bridge must still expose the slot.
+      assert %{id: "u-actor", name: "alice", person_id: nil} = event.actor
+    end
+
     test "channel assignment wins over provider and global defaults in NodeRouter dispatch" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
