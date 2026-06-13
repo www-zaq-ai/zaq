@@ -1,5 +1,7 @@
 defmodule Zaq.Engine.ConversationsTest do
-  use Zaq.DataCase, async: true
+  # This module exercises the globally named telemetry buffer, which shares DB
+  # sandbox ownership across tests and must not run concurrently.
+  use Zaq.DataCase, async: false
 
   @moduletag capture_log: true
 
@@ -602,6 +604,8 @@ defmodule Zaq.Engine.ConversationsTest do
                 p.dimension_key ==
                   ^"channel_config_id=#{config.id}|channel_type=mattermost|role=assistant"
         )
+
+      assert %Point{} = point
 
       assert point.dimensions == %{
                "channel_config_id" => to_string(config.id),
