@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/www-zaq-ai/zaq/compare/v0.11.0...v0.12.0) (2026-06-13)
+
+
+### Features
+
+* **communication, AI agent:** stream llm response with full trace logging and live rendering ([b1efc03](https://github.com/www-zaq-ai/zaq/commit/b1efc03507ca26a7d4eb6b2b87f97e976412a33e))
+
+
+### Bug Fixes
+
+* **BO:** correctly assign trace field type in migration, remove storybook from coverage ([7eb1f40](https://github.com/www-zaq-ai/zaq/commit/7eb1f408ee609e0515f9e49b62ffd0dc76dab6dd))
+* **People:** no people creation for BO messages ([a611f83](https://github.com/www-zaq-ai/zaq/commit/a611f83be59e97164e57d1d8f9336d8dd8f5898c))
+
 ## [0.11.0](https://github.com/www-zaq-ai/zaq/compare/v0.10.0...v0.11.0) (2026-06-11)
 
 
