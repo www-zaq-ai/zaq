@@ -9,6 +9,7 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
   """
 
   import Swoosh.Email
+  import Zaq.Helpers, only: [blank?: 1]
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Mailer
@@ -217,10 +218,6 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
   end
 
   defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
-
-  defp blank?(nil), do: true
-  defp blank?(""), do: true
-  defp blank?(_), do: false
 
   defp map_get(map, key), do: SmtpHelpers.map_get(map, key)
 

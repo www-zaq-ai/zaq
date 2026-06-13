@@ -14,6 +14,14 @@ defmodule Zaq.Agent.ZAQRouter do
 
   @provider_id :zaq_router
 
+  # First-run bootstrap defaults. Each must exist as a key in @default_models
+  # (asserted at compile time below) so provisioning never wires a config that
+  # points at a model the catalog doesn't advertise.
+  @default_chat_model "openai/gpt-oss-120b"
+  @default_embedding_model "nvidia/llama-nemotron-embed-vl-1b-v2"
+  @default_embedding_dimension 2048
+  @default_image_model "nvidia/nemotron-nano-12b-v2-vl"
+
   @vision_modalities %{input: [:image, :text], output: [:text]}
 
   @embedding_caps_3072 %{
@@ -84,6 +92,25 @@ defmodule Zaq.Agent.ZAQRouter do
     "google/gemini-embedding-001" => %{capabilities: @embedding_caps_3072},
     "openai/text-embedding-3-large" => %{capabilities: @embedding_caps_3072}
   }
+
+  # Compile-time guard: the bootstrap default models must be real catalog entries.
+  for model <- [@default_chat_model, @default_embedding_model, @default_image_model] do
+    unless Map.has_key?(@default_models, model) do
+      raise "ZAQRouter default model #{inspect(model)} is not present in @default_models"
+    end
+  end
+
+  @doc "Default chat/LLM model wired on first-run provisioning."
+  @spec default_chat_model() :: String.t()
+  def default_chat_model, do: @default_chat_model
+
+  @doc "Default embedding model and its dimension wired on first-run provisioning."
+  @spec default_embedding_model() :: {String.t(), pos_integer()}
+  def default_embedding_model, do: {@default_embedding_model, @default_embedding_dimension}
+
+  @doc "Default image-to-text model wired on first-run provisioning."
+  @spec default_image_model() :: String.t()
+  def default_image_model, do: @default_image_model
 
   @doc "Returns the LiteLLM base URL configured for this deployment."
   @spec default_endpoint() :: String.t()

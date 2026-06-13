@@ -161,6 +161,8 @@ defmodule Zaq.UserPortal.Client do
     |> Map.get(:utc_offset)
     |> div(60)
   rescue
-    _ -> nil
+    # from_erl!/from_naive! raise ArgumentError on invalid/ambiguous local time
+    # or when the "local" time zone database is unavailable in this environment.
+    ArgumentError -> nil
   end
 end

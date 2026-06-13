@@ -1,6 +1,8 @@
 defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   use ZaqWeb, :live_view
 
+  import Zaq.Helpers, only: [blank?: 1]
+
   alias Zaq.Accounts
   alias Zaq.UserPortal.Onboarding
   alias ZaqWeb.ChangesetErrors
@@ -22,7 +24,8 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> assign(:pending_attrs, nil)
      |> assign(:consent_modal_error, nil)
      |> assign(:portal_consent_email, "")
-     |> assign(:allow_email_override, false)}
+     |> assign(:allow_email_override, false)
+     |> assign(:current_year, Date.utc_today().year)}
   end
 
   def handle_event("validate", params, socket) do
@@ -55,28 +58,35 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
       |> assign(:form, to_form(merged_form_params))
       |> PasswordHelpers.assign_password_feedback(form_params)
 
-    if password != confirmation do
-      {:noreply, assign(socket, :error_message, "Passwords do not match")}
-    else
-      attrs = %{"password" => password, "email" => merged_form_params["email"]}
+    cond do
+      password != confirmation ->
+        {:noreply, assign(socket, :error_message, "Passwords do not match")}
 
-      socket =
-        socket
-        |> assign(:pending_attrs, attrs)
-        |> assign(:error_message, nil)
+      # Catch a blank email inline, before the consent modal, rather than letting
+      # it surface as a changeset error after the user has navigated the modal.
+      blank?(merged_form_params["email"]) ->
+        {:noreply, assign(socket, :error_message, "Email can't be blank")}
 
-      case fetch_portal_metadata() do
-        {:ok, metadata} ->
-          {:noreply,
-           socket
-           |> assign(:portal_metadata, metadata)
-           |> assign(:portal_consent_email, merged_form_params["email"] || "")
-           |> assign(:show_consent_modal, true)}
+      true ->
+        attrs = %{"password" => password, "email" => merged_form_params["email"]}
 
-        :unavailable ->
-          # Portal unreachable — skip modal, create account without portal.
-          {:noreply, apply_onboarding(socket, :unavailable)}
-      end
+        socket =
+          socket
+          |> assign(:pending_attrs, attrs)
+          |> assign(:error_message, nil)
+
+        case fetch_portal_metadata() do
+          {:ok, metadata} ->
+            {:noreply,
+             socket
+             |> assign(:portal_metadata, metadata)
+             |> assign(:portal_consent_email, merged_form_params["email"] || "")
+             |> assign(:show_consent_modal, true)}
+
+          :unavailable ->
+            # Portal unreachable — skip modal, create account without portal.
+            {:noreply, apply_onboarding(socket, :unavailable)}
+        end
     end
   end
 
@@ -181,7 +191,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   end
 
   defp fetch_portal_metadata do
-    case portal_client().fetch_onboarding("free") do
+    case Zaq.UserPortal.client().fetch_onboarding("free") do
       {:ok, payload} ->
         if plan_active?(payload),
           do: {:ok, get_in(payload, ["metadata"]) || %{}},
@@ -196,6 +206,4 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     Map.get(payload, "plan_status") == "enabled" and
       Map.get(payload, "available", false) == true
   end
-
-  defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 end

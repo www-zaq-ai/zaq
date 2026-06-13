@@ -19,6 +19,8 @@ defmodule Zaq.UserPortal.Onboarding do
   config. The dashboard retry later fills in the API key.
   """
 
+  import Zaq.Helpers, only: [blank?: 1]
+
   alias Zaq.Accounts
   alias Zaq.Accounts.User
   alias Zaq.Repo
@@ -102,8 +104,6 @@ defmodule Zaq.UserPortal.Onboarding do
     do: {:ok, Ecto.Changeset.fetch_field!(changeset, :email)}
 
   defp fetch_valid_email(%Ecto.Changeset{} = changeset), do: {:error, changeset}
-
-  defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
 
   defp apply_consent(user, :declined) do
     # Always scaffold the keyless ZAQ Router credential so the provider is listed

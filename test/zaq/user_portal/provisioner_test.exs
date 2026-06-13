@@ -4,7 +4,7 @@ defmodule Zaq.UserPortal.ProvisionerTest do
   alias Zaq.System
   alias Zaq.UserPortal.Provisioner
 
-  describe "provision_with_key/2" do
+  describe "provision_with_key/1" do
     test "creates a new ZAQ Router credential when none exists" do
       assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-new"})
       credential = System.get_ai_provider_credential!(credential.id)

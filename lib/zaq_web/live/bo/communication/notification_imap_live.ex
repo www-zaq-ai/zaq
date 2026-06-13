@@ -2,6 +2,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
+  import Zaq.Helpers, only: [blank?: 1]
+
   require Logger
 
   alias Zaq.Agent
@@ -492,11 +494,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
-
-  defp blank?(nil), do: true
-  defp blank?(""), do: true
-  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
-  defp blank?(_), do: false
 
   defp channels_module,
     do: Application.get_env(:zaq, :notification_imap_router_module, Zaq.Channels.Api)

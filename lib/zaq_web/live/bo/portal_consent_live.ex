@@ -9,6 +9,8 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
   use ZaqWeb, :live_component
 
+  import Zaq.Helpers, only: [blank?: 1]
+
   alias Zaq.UserPortal.Onboarding
 
   require Logger
@@ -61,7 +63,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
          banner_eligible?(socket.assigns.current_user) do
       socket
       |> assign(:portal_loaded, true)
-      |> start_async(:load_portal, fn -> portal_client().fetch_onboarding("free") end)
+      |> start_async(:load_portal, fn -> Zaq.UserPortal.client().fetch_onboarding("free") end)
     else
       socket
     end
@@ -299,9 +301,5 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
   defp plan_available?(nil), do: false
   defp plan_available?(metadata), do: Map.get(metadata, "available", false) == true
 
-  defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
-
   defp metadata(portal_metadata), do: get_in(portal_metadata || %{}, ["metadata"]) || %{}
-
-  defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
 end

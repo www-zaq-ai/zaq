@@ -159,6 +159,29 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert has_element?(view, ~s(input[name="email"][required]))
   end
 
+  test "rejects a blank email inline before showing the consent modal", %{conn: conn} do
+    user = user_fixture(%{username: "must_change_password_blank_email"})
+    Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "email" => "",
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    # Caught server-side up front: inline error, and the consent modal is not shown.
+    assert has_element?(view, "div.alert-error span", "Email can't be blank")
+    refute has_element?(view, ~s(button[phx-click="accept_portal_consent"]))
+
+    # Nothing was persisted — the account still has no email.
+    assert is_nil(Accounts.get_user!(user.id).email)
+  end
+
   test "requires valid email when user email is missing", %{conn: conn} do
     user = user_fixture(%{username: "must_change_password_invalid_email"})
     Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])

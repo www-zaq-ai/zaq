@@ -19,13 +19,17 @@ defmodule Zaq.UserPortal.Provisioner do
   @credential_name "ZAQ Router"
   @description "ZAQ Router gives you the ability to access different models."
 
+  @doc "The canonical name of the ZAQ Router credential."
+  @spec credential_name() :: String.t()
+  def credential_name, do: @credential_name
+
   @doc """
   Calls the portal to onboard the user by email and provisions the ZAQ credential
   with the returned API key. Returns `{:ok, credential}` or `{:error, reason}`.
   """
   @spec provision_for_user(String.t()) :: {:ok, AIProviderCredential.t()} | {:error, term()}
   def provision_for_user(email) when is_binary(email) do
-    case client().onboard_user(email) do
+    case Zaq.UserPortal.client().onboard_user(email) do
       {:ok, litellm} -> provision_with_key(litellm)
       {:error, reason} -> {:error, reason}
     end
@@ -47,9 +51,9 @@ defmodule Zaq.UserPortal.Provisioner do
     end
   end
 
-  @spec provision_with_key(%{litellm_api_key: String.t()}, keyword()) ::
+  @spec provision_with_key(%{litellm_api_key: String.t()}) ::
           {:ok, AIProviderCredential.t()} | {:error, term()}
-  def provision_with_key(%{litellm_api_key: api_key}, _opts \\ []) when is_binary(api_key) do
+  def provision_with_key(%{litellm_api_key: api_key}) when is_binary(api_key) do
     attrs = credential_attrs(%{api_key: api_key})
 
     result =
@@ -68,8 +72,6 @@ defmodule Zaq.UserPortal.Provisioner do
     end
   end
 
-  defp client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
-
   defp credential_attrs(extra) do
     Map.merge(
       %{
@@ -84,31 +86,45 @@ defmodule Zaq.UserPortal.Provisioner do
   end
 
   defp provision_system_configs(%AIProviderCredential{id: cred_id}) do
+    {embedding_model, embedding_dimension} = ZAQRouter.default_embedding_model()
+
     if is_nil(System.get_llm_config().credential_id) do
       %LLMConfig{}
-      |> LLMConfig.changeset(%{credential_id: cred_id, model: "openai/gpt-oss-120b"})
+      |> LLMConfig.changeset(%{credential_id: cred_id, model: ZAQRouter.default_chat_model()})
       |> System.save_llm_config()
+      |> log_config_result("LLM")
     end
 
     if is_nil(System.get_embedding_config().credential_id) do
       %EmbeddingConfig{}
       |> EmbeddingConfig.changeset(%{
         credential_id: cred_id,
-        model: "nvidia/llama-nemotron-embed-vl-1b-v2",
-        dimension: 2048
+        model: embedding_model,
+        dimension: embedding_dimension
       })
       |> System.save_embedding_config()
+      |> log_config_result("embedding")
     end
 
     if is_nil(System.get_image_to_text_config().credential_id) do
       %ImageToTextConfig{}
       |> ImageToTextConfig.changeset(%{
         credential_id: cred_id,
-        model: "nvidia/nemotron-nano-12b-v2-vl"
+        model: ZAQRouter.default_image_model()
       })
       |> System.save_image_to_text_config()
+      |> log_config_result("image-to-text")
     end
 
     :ok
+  end
+
+  # Config wiring is best-effort — a failure here must not roll back the
+  # already-created credential — but it must never fail silently.
+  defp log_config_result({:ok, _config} = result, _label), do: result
+
+  defp log_config_result({:error, reason} = result, label) do
+    Logger.warning("ZAQ Router #{label} config wiring failed: #{inspect(reason)}")
+    result
   end
 end
