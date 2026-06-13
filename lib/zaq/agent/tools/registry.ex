@@ -15,6 +15,13 @@ defmodule Zaq.Agent.Tools.Registry do
 
   @tools [
     %{
+      key: "accounts.fetch_history",
+      label: "Recall conversation history",
+      description:
+        "Search and recall the requesting person's past conversations by topic and/or time period (self-access only; admin runs may target a person via explicit skip_permissions)",
+      module: Zaq.Agent.Tools.Accounts.History
+    },
+    %{
       key: "answering.search_knowledge_base",
       label: "Search knowledge base",
       description: "Search the ZAQ knowledge base with a refined query (answering-only)",

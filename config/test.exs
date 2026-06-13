@@ -99,6 +99,8 @@ config :phoenix,
 # E2E observability routes and log collector are always available in test env
 config :zaq, e2e: true
 
+config :zaq, :workflows_enabled, true
+
 if e2e? do
   config :zaq, Zaq.Repo,
     pool: DBConnection.ConnectionPool,

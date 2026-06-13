@@ -190,6 +190,20 @@ Authentication and signature verification are provider-specific and handled insi
 
 `Zaq.Channels.CommunicationBridge` is the stateless helper boundary used by API/bridge flows for provider-targeted operations.
 
+### Event actor shape
+
+When a bridge dispatches a `run_pipeline` event, it sets the event `actor` from the
+incoming message author:
+
+```elixir
+%{id: author_id, name: author_name, provider: provider, person_id: person_id}
+```
+
+`person_id` is the ZAQ Person ID and is usually `nil` at bridge time — `IdentityPlug`
+resolves it inside `Zaq.Agent.Api`, which enriches the event actor before the
+post-dispatch broadcast (so workflow triggers see the resolved identity). `id` remains
+the channel-provider author ID; the two ID spaces are intentionally separate keys.
+
 ### Public API
 
 | Function                     | Description                                                  |

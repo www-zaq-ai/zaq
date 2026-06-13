@@ -229,6 +229,86 @@ defmodule Zaq.Agent.ApiTest do
     assert Keyword.get(opts, :foo) == :bar
   end
 
+  test "run_pipeline enriches event actor with the resolved person_id" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        actor: %{id: "u1", name: "alice", provider: :web, person_id: nil},
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          identity_plug: SpyIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.actor.person_id == 99
+  end
+
+  test "run_pipeline never overwrites an existing actor person_id" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        actor: %{id: "u1", person_id: 7},
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          identity_plug: SpyIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.actor.person_id == 7
+  end
+
+  test "run_pipeline leaves the actor untouched when identity stays unresolved" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+    actor = %{id: "u1", name: "alice", provider: :web, person_id: nil}
+
+    event =
+      Event.new(incoming, :agent,
+        actor: actor,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          identity_plug: NilPersonIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.actor == actor
+  end
+
+  test "run_pipeline tolerates a nil actor" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          identity_plug: SpyIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert is_nil(result.actor)
+  end
+
   test "returns invalid request for run_pipeline with malformed payload" do
     event = Event.new(%{bad: true}, :agent, opts: [action: :run_pipeline])
 

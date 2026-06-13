@@ -26,7 +26,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
     end)
 
     conn = init_test_session(conn, %{user_id: user.id})
-    %{conn: conn}
+    %{conn: conn, user: user}
   end
 
   @valid_node %{
@@ -188,6 +188,30 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
                view |> element("button[phx-click='run_workflow']") |> render_click()
 
       assert path =~ "/bo/workflows/#{workflow.id}/runs/"
+    end
+
+    test "manual run persists admin source_event — audit actor and explicit bypass", %{
+      conn: conn,
+      user: user
+    } do
+      workflow = workflow_fixture(%{name: "Audited", nodes: [@valid_node]})
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
+
+      assert {:error, {:live_redirect, _}} =
+               view |> element("button[phx-click='run_workflow']") |> render_click()
+
+      [run] = Workflows.list_runs(workflow.id)
+      source_event = run.source_event
+
+      assert get_in(source_event.assigns, ["trigger_type"]) == "manual"
+      assert get_in(source_event.assigns, ["skip_permissions"]) == true
+
+      # BO users have no Person record: the actor is audit-only and must not
+      # carry a person identity.
+      actor = source_event.actor
+      assert actor["name"] == user.username
+      assert actor["provider"] == "bo"
+      assert is_nil(actor["person_id"])
     end
   end
 
