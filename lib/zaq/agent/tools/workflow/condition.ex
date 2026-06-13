@@ -57,7 +57,7 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
       passed: [type: :boolean, required: true, doc: "true if all conditions matched."],
       input: [type: :map, required: true, doc: "The original input map, passed through."],
       failed_conditions: [
-        type: :list,
+        type: {:list, :any},
         required: false,
         doc: "Conditions that did not match. Present only when passed: false."
       ]

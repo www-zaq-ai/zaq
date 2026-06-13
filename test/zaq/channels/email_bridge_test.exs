@@ -416,6 +416,21 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert selected_id == provider_agent.id
     end
 
+    test "run_pipeline event actor carries the author identity with a person_id slot" do
+      Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      config = insert_imap_channel_config(%{})
+      payload = %{"body_text" => "hello"}
+      sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
+
+      assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
+      assert_received {:node_router_run_pipeline_event, event}
+
+      # person_id is nil at bridge time — IdentityPlug resolves it later in
+      # Zaq.Agent.Api; the bridge must still expose the slot.
+      assert %{id: "author@example.com", person_id: nil} = event.actor
+    end
+
     test "falls back to global default agent selection when provider default is absent" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
 

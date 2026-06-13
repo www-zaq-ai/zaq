@@ -1334,8 +1334,15 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp channel_assignment_agent_id(_config, _channel_id), do: nil
 
+  # person_id is usually nil at this point — IdentityPlug resolves it later in
+  # Zaq.Agent.Api, which enriches the event actor with the resolved id.
   defp actor_from_incoming(%Incoming{} = incoming) do
-    %{id: incoming.author_id, name: incoming.author_name, provider: incoming.provider}
+    %{
+      id: incoming.author_id,
+      name: incoming.author_name,
+      provider: incoming.provider,
+      person_id: incoming.person_id
+    }
   end
 
   defp hooks_module do

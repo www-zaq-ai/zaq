@@ -451,6 +451,43 @@ defmodule Zaq.Agent.ExecutorTest do
       assert tool_context.incoming == incoming
     end
 
+    test "tool_context carries the event actor when an :event opt is given" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 21}
+      actor = %{id: "u1", name: "alice", provider: :web, person_id: 21}
+      event = Zaq.Event.new(incoming, :agent, actor: actor)
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: "coverage",
+        event: event
+      )
+
+      assert_received {:coverage_ask, _content, _configured_agent, tool_context, _extra_refs}
+      assert tool_context.actor == actor
+    end
+
+    test "tool_context actor is nil without an :event opt" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 22}
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: "coverage"
+      )
+
+      assert_received {:coverage_ask, _content, _configured_agent, tool_context, _extra_refs}
+      assert is_nil(tool_context.actor)
+    end
+
     test "error telemetry classifies tuple and struct reasons" do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 14}
 

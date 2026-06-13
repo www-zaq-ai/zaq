@@ -69,6 +69,14 @@ skip_permissions = Map.get(context, :skip_permissions, false)
 # Never: skip_permissions = is_nil(person_id)
 ```
 
+For person-scoped tools the identity must come from the **trusted execution context**,
+never from LLM-supplied parameters: `ctx[:person_id]` on the chat path (set by the
+pipeline from the channel-resolved author) or `ctx[:actor]` on the workflow path (set by
+`ActionWrapper` from the run's `source_event`). An LLM-facing `person_id` parameter may
+be honored only under `ctx[:skip_permissions] == true` (see
+`Zaq.Agent.Tools.Accounts.History` for the reference implementation). Blank/empty-string
+IDs never resolve to an identity.
+
 ---
 
 ## Pipeline Flow
@@ -203,6 +211,14 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 ### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.ListKnowledgeBaseFiles`)
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities
+
+### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)
+- Recalls the requesting person's past conversations by topic (`query`) and/or time
+  window (`last_n_days` integer or ISO `from_date`/`to_date`), grouped per conversation
+  with titles
+- Identity is resolved from the trusted context (chat `ctx[:person_id]`, workflow
+  `ctx[:actor]`); the `person_id` parameter is honored only on `skip_permissions` runs
+- Doubles as a workflow action (`use Zaq.Engine.Workflows.Action`)
 
 ### Runtime Factory (`Zaq.Agent.Factory`)
 - Standard runtime agent for all configured agents

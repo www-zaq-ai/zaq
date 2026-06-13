@@ -8,7 +8,7 @@ defmodule ZaqWeb.Live.BO.WorkflowGuard do
   import Phoenix.LiveView
 
   def on_mount(:require_workflows, _params, _session, socket) do
-    if Application.get_env(:zaq, :workflows_enabled, true) do
+    if Application.get_env(:zaq, :workflows_enabled, false) do
       {:cont, socket}
     else
       {:halt, push_navigate(socket, to: ~p"/bo/dashboard")}

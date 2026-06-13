@@ -32,6 +32,26 @@ defmodule Zaq.Engine.ConversationsTest do
     )
   end
 
+  defp person_fixture_for_search do
+    {:ok, person} =
+      People.create_person(%{
+        "full_name" => "Search Person",
+        "email" => "search#{System.unique_integer([:positive])}@example.com"
+      })
+
+    person
+  end
+
+  defp set_updated_at(conv, datetime) do
+    {1, _} =
+      Repo.update_all(
+        from(c in Zaq.Engine.Conversations.Conversation, where: c.id == ^conv.id),
+        set: [updated_at: datetime]
+      )
+
+    :ok
+  end
+
   # ── create_conversation/1 ───────────────────────────────────────────
 
   describe "create_conversation/1" do
@@ -1154,6 +1174,146 @@ defmodule Zaq.Engine.ConversationsTest do
 
       results = Conversations.list_conversations(team_id: team.id)
       assert Enum.any?(results, &(&1.id == conv.id))
+    end
+  end
+
+  # ── list_conversations/1 search and date filters ─────────────────────
+
+  describe "list_conversations/1 search and date filters" do
+    test ":query matches conversation by title, case-insensitively" do
+      {:ok, conv} =
+        Conversations.create_conversation(conv_attrs(%{title: "Company X negotiation"}))
+
+      {:ok, other} = Conversations.create_conversation(conv_attrs(%{title: "Weekly sync"}))
+
+      ids = Conversations.list_conversations(query: "company x") |> Enum.map(& &1.id)
+      assert conv.id in ids
+      refute other.id in ids
+    end
+
+    test ":query matches conversation by message content" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs(%{title: "Untitled"}))
+
+      {:ok, _msg} =
+        Conversations.add_message(conv, %{
+          role: "user",
+          content: "we decided to raise salaries by 5 percent"
+        })
+
+      {:ok, other} = Conversations.create_conversation(conv_attrs(%{title: "Untitled"}))
+      {:ok, _msg} = Conversations.add_message(other, %{role: "user", content: "lunch plans"})
+
+      ids = Conversations.list_conversations(query: "raise salaries") |> Enum.map(& &1.id)
+      assert conv.id in ids
+      refute other.id in ids
+    end
+
+    test ":query does not duplicate a conversation with multiple matching messages" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "budget question"})
+      {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "budget answer"})
+
+      ids = Conversations.list_conversations(query: "budget") |> Enum.map(& &1.id)
+      assert Enum.count(ids, &(&1 == conv.id)) == 1
+    end
+
+    test ":query treats SQL wildcards literally" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs(%{title: "100% sure"}))
+      {:ok, other} = Conversations.create_conversation(conv_attrs(%{title: "100 reasons"}))
+
+      ids = Conversations.list_conversations(query: "100%") |> Enum.map(& &1.id)
+      assert conv.id in ids
+      refute other.id in ids
+    end
+
+    test "blank :query applies no filter" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      ids = Conversations.list_conversations(query: "   ") |> Enum.map(& &1.id)
+      assert conv.id in ids
+    end
+
+    test ":from and :to bound on updated_at" do
+      now = DateTime.utc_now()
+
+      {:ok, recent} = Conversations.create_conversation(conv_attrs())
+      :ok = set_updated_at(recent, DateTime.add(now, -2, :day))
+
+      {:ok, old} = Conversations.create_conversation(conv_attrs())
+      :ok = set_updated_at(old, DateTime.add(now, -40, :day))
+
+      {:ok, future} = Conversations.create_conversation(conv_attrs())
+      :ok = set_updated_at(future, DateTime.add(now, 2, :day))
+
+      ids =
+        Conversations.list_conversations(
+          from: DateTime.add(now, -7, :day),
+          to: now
+        )
+        |> Enum.map(& &1.id)
+
+      assert recent.id in ids
+      refute old.id in ids
+      refute future.id in ids
+    end
+
+    test ":query composes with :person_id — never leaks another person's match" do
+      person = person_fixture_for_search()
+      other_person = person_fixture_for_search()
+
+      {:ok, mine} =
+        Conversations.create_conversation(
+          conv_attrs(%{person_id: person.id, title: "Project Atlas decision"})
+        )
+
+      {:ok, theirs} =
+        Conversations.create_conversation(
+          conv_attrs(%{person_id: other_person.id, title: "Project Atlas decision"})
+        )
+
+      ids =
+        Conversations.list_conversations(query: "Atlas", person_id: person.id)
+        |> Enum.map(& &1.id)
+
+      assert mine.id in ids
+      refute theirs.id in ids
+    end
+
+    test ":query, :from/:to, :person_id and :limit compose" do
+      now = DateTime.utc_now()
+      person = person_fixture_for_search()
+
+      convs =
+        for i <- 1..3 do
+          {:ok, conv} =
+            Conversations.create_conversation(
+              conv_attrs(%{person_id: person.id, title: "Quarterly review #{i}"})
+            )
+
+          :ok = set_updated_at(conv, DateTime.add(now, -i, :day))
+          conv
+        end
+
+      {:ok, outside_range} =
+        Conversations.create_conversation(
+          conv_attrs(%{person_id: person.id, title: "Quarterly review old"})
+        )
+
+      :ok = set_updated_at(outside_range, DateTime.add(now, -30, :day))
+
+      results =
+        Conversations.list_conversations(
+          query: "Quarterly",
+          person_id: person.id,
+          from: DateTime.add(now, -7, :day),
+          to: now,
+          limit: 2
+        )
+
+      ids = Enum.map(results, & &1.id)
+      assert length(results) == 2
+      refute outside_range.id in ids
+      assert Enum.all?(ids, &(&1 in Enum.map(convs, fn c -> c.id end)))
     end
   end
 
