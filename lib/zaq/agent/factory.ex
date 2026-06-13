@@ -16,8 +16,8 @@ defmodule Zaq.Agent.Factory do
   - Safe request dispatch via `ask_with_config/4`, including server-state
     runtime-config fallback and best-effort system prompt synchronization before
     each ask.
-  - Request-scoped runtime context propagation for status updates and tool trace
-    collection, using process-local keys consumed by surrounding pipeline code.
+  - Streamed request dispatch; callers consume runtime events from `ask_stream/3`
+    for status updates, trace collection, and measurements.
 
   Typical flow:
 
@@ -43,11 +43,9 @@ defmodule Zaq.Agent.Factory do
     tools: []
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, JidoTelemetryBridge, ProviderSpec}
+  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, ProviderSpec}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
-
-  import Zaq.Engine.Messages, only: [is_present_message_id: 1]
 
   def strategy_opts do
     super()
@@ -131,7 +129,8 @@ defmodule Zaq.Agent.Factory do
   `runtime_config/1` on a cold server. Ensures the system prompt is set before dispatching,
   retrying up to 4 times with a 20 ms backoff if `set_system_prompt` fails.
 
-  Returns `{:ok, request_handle}` that callers pass to `await/2`, or `{:error, reason}`.
+  Returns `{:ok, %{request: request_handle, events: events}}` for callers to reduce
+  through `Zaq.Agent.StreamEvents.consume/3`, or `{:error, reason}`.
 
   ## Options
 
@@ -140,7 +139,7 @@ defmodule Zaq.Agent.Factory do
   - Any other opts are forwarded to the underlying `Jido.AI.Agent` ask call
   """
   @spec ask_with_config(GenServer.server(), String.t(), ConfiguredAgent.t(), keyword()) ::
-          {:ok, Jido.AI.Request.Handle.t()} | {:error, term()}
+          {:ok, %{request: term(), events: Enumerable.t()}} | {:error, term()}
   def ask_with_config(server, query, %ConfiguredAgent{} = configured_agent, opts \\ [])
       when is_binary(query) do
     with {:ok, config} <- server_runtime_config(server, configured_agent),
@@ -151,75 +150,16 @@ defmodule Zaq.Agent.Factory do
         |> Keyword.put(:max_iterations, configured_agent.max_iterations || 10)
         |> Keyword.put_new(:timeout, 300_000)
 
-      ask(server, query, ask_opts)
+      ask_stream(server, query, ask_opts)
     end
   end
 
-  @impl true
-  def on_before_cmd(agent, {:ai_react_start, params} = action) do
-    maybe_put_status_context(params)
-    super(agent, action)
-  end
-
-  def on_before_cmd(agent, action), do: super(agent, action)
-
-  @impl true
-  def on_after_cmd(agent, {:ai_react_cancel, _params} = action, directives) do
-    Process.delete(:zaq_status_context)
-    Process.delete(:zaq_tool_trace_context)
-    super(agent, action, directives)
-  end
-
-  def on_after_cmd(agent, {:ai_react_request_error, _params} = action, directives) do
-    Process.delete(:zaq_status_context)
-    Process.delete(:zaq_tool_trace_context)
-    super(agent, action, directives)
-  end
-
-  def on_after_cmd(agent, {:ai_react_finish, _params} = action, directives) do
-    Process.delete(:zaq_status_context)
-    Process.delete(:zaq_tool_trace_context)
-    super(agent, action, directives)
-  end
-
-  def on_after_cmd(agent, action, directives), do: super(agent, action, directives)
-
-  defp maybe_put_status_context(params) when is_map(params) do
-    refs = Map.get(params, :extra_refs, %{})
-
-    case Map.get(refs, :zaq_status_context) do
-      %{request_id: request_id, incoming: %Zaq.Engine.Messages.Incoming{}} = ctx
-      when is_present_message_id(request_id) ->
-        Process.put(:zaq_status_context, ctx)
-        JidoTelemetryBridge.register_request_context(request_id, ctx)
-
-      _ ->
-        :ok
-    end
-
-    maybe_put_tool_trace_context(refs)
-  end
-
-  defp maybe_put_status_context(_), do: :ok
-
-  defp maybe_put_tool_trace_context(refs) when is_map(refs) do
-    case Map.get(refs, :zaq_tool_trace_context) do
-      %{request_id: request_id, collector_pid: collector_pid}
-      when is_present_message_id(request_id) and is_pid(collector_pid) ->
-        trace_ctx = %{
-          request_id: request_id,
-          collector_pid: collector_pid
-        }
-
-        Process.put(:zaq_tool_trace_context, trace_ctx)
-        JidoTelemetryBridge.register_request_context(request_id, trace_ctx)
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp maybe_put_tool_trace_context(_), do: :ok
+  @doc """
+  Awaits a request handle or the stream envelope returned by `ask_with_config/4`.
+  """
+  @spec await(term(), keyword()) :: {:ok, term()} | {:error, term()}
+  def await(%{request: request}, opts), do: await(request, opts)
+  def await(request, opts), do: super(request, opts)
 
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do

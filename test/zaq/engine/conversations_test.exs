@@ -4,9 +4,24 @@ defmodule Zaq.Engine.ConversationsTest do
   @moduletag capture_log: true
 
   alias Zaq.Accounts.People
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Telemetry.{Buffer, Point}
 
   # ── Helpers ────────────────────────────────────────────────────────
+
+  defp channel_config_fixture(provider) do
+    attrs = %{
+      name: "#{provider}-#{System.unique_integer([:positive])}",
+      provider: provider,
+      kind: "retrieval",
+      url: "https://#{provider}.example",
+      token: "secret-#{System.unique_integer([:positive])}"
+    }
+
+    {:ok, config} = %ChannelConfig{} |> ChannelConfig.changeset(attrs) |> Repo.insert()
+    config
+  end
 
   defp conv_attrs(overrides \\ %{}) do
     Map.merge(
@@ -65,6 +80,38 @@ defmodule Zaq.Engine.ConversationsTest do
       assert conv.channel_type == "mattermost"
     end
 
+    test "scopes existing conversations by non-nil channel_config_id" do
+      channel_user_id = "chan_cfg_#{System.unique_integer([:positive])}"
+      config_one = channel_config_fixture("mattermost")
+      config_two = channel_config_fixture("slack")
+
+      {:ok, config_one_conv} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_one.id
+        )
+
+      {:ok, config_two_conv} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_two.id
+        )
+
+      {:ok, config_one_again} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_one.id
+        )
+
+      assert config_one_conv.id == config_one_again.id
+      refute config_one_conv.id == config_two_conv.id
+      assert config_one_conv.channel_config_id == config_one.id
+      assert config_two_conv.channel_config_id == config_two.id
+    end
+
     test "returns same conversation on second call with same channel_user_id + channel_type" do
       {:ok, first} =
         Conversations.get_or_create_conversation_for_channel("chan_2", "mattermost", nil)
@@ -108,6 +155,19 @@ defmodule Zaq.Engine.ConversationsTest do
       results = Conversations.list_conversations(channel_user_id: "mm_filter_user")
       assert Enum.any?(results, &(&1.id == conv.id))
     end
+
+    test "applies offset and ignores unknown opts" do
+      {:ok, newest} = Conversations.create_conversation(conv_attrs())
+      Process.sleep(2)
+      {:ok, middle} = Conversations.create_conversation(conv_attrs())
+      Process.sleep(2)
+      {:ok, oldest} = Conversations.create_conversation(conv_attrs())
+
+      results = Conversations.list_conversations(offset: 1, ignored: true)
+
+      assert Enum.map(results, & &1.id) == [middle.id, newest.id]
+      refute Enum.any?(results, &(&1.id == oldest.id))
+    end
   end
 
   # ── update_conversation/2 ───────────────────────────────────────────
@@ -148,6 +208,71 @@ defmodule Zaq.Engine.ConversationsTest do
   end
 
   describe "persist_from_incoming/2" do
+    test "uses an existing conversation when metadata carries conversation_id" do
+      {:ok, existing} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "persist-existing-#{System.unique_integer([:positive])}"
+        })
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Use the existing conversation",
+        channel_id: "chan-existing",
+        author_id: "author-existing",
+        provider: :mattermost,
+        metadata: %{conversation_id: existing.id}
+      }
+
+      result = %{
+        answer: "Stored on the existing thread.",
+        confidence_score: 0.99,
+        latency_ms: 12,
+        prompt_tokens: 3,
+        completion_tokens: 4,
+        total_tokens: 7
+      }
+
+      existing_id = existing.id
+
+      assert {:ok, %{conversation_id: ^existing_id}} =
+               Conversations.persist_from_incoming(incoming, result)
+
+      messages = Conversations.list_messages(existing)
+
+      assert Enum.map(messages, & &1.role) == ["user", "assistant"]
+
+      assert Enum.map(messages, & &1.content) == [
+               "Use the existing conversation",
+               "Stored on the existing thread."
+             ]
+    end
+
+    test "creates api conversations from nil provider metadata and uses author_id as channel_user_id" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "API inbound message",
+        channel_id: "api-chan",
+        author_id: "api-author-#{System.unique_integer([:positive])}",
+        provider: 123,
+        metadata: nil
+      }
+
+      result = %{
+        answer: "API reply",
+        confidence_score: 0.88,
+        latency_ms: 18,
+        prompt_tokens: 2,
+        completion_tokens: 3,
+        total_tokens: 5
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_from_incoming(incoming, result)
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_type == "api"
+      assert conversation.channel_user_id == incoming.author_id
+    end
+
     test "normalizes legacy email provider and groups by email thread key" do
       result = %{
         answer: "Sure, here is the answer.",
@@ -180,8 +305,11 @@ defmodule Zaq.Engine.ConversationsTest do
         metadata: %{"email" => %{"thread_key" => thread_key}}
       }
 
-      assert :ok = Conversations.persist_from_incoming(first, result)
-      assert :ok = Conversations.persist_from_incoming(second, result)
+      assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
+               Conversations.persist_from_incoming(first, result)
+
+      assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
+               Conversations.persist_from_incoming(second, result)
 
       [conv] = Conversations.list_conversations(channel_type: "email:imap")
       assert conv.channel_user_id == thread_key
@@ -191,10 +319,140 @@ defmodule Zaq.Engine.ConversationsTest do
       assert Enum.count(messages, &(&1.role == "assistant")) == 2
 
       assistant_message = Enum.find(messages, &(&1.role == "assistant"))
-      assert assistant_message.metadata == %{"tool_calls" => []}
+      assert assistant_message.metadata == %{}
     end
 
-    test "stores assistant tool_calls in message metadata" do
+    test "uses normalized thread_id when email metadata is invalid" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Email body",
+        channel_id: "email-1",
+        author_id: "author-thread@example.com",
+        provider: :email,
+        thread_id: "<thread@example.com>",
+        metadata: %{"email" => "invalid"}
+      }
+
+      result = %{
+        answer: "Thread reply",
+        confidence_score: 0.9,
+        latency_ms: 10,
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_from_incoming(incoming, result)
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_type == "email:imap"
+      assert conversation.channel_user_id == "thread@example.com"
+    end
+
+    test "uses normalized message_id when email metadata is nil" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Email body",
+        channel_id: "email-2",
+        author_id: "author-message@example.com",
+        provider: :email,
+        message_id: "<msg@example.com>",
+        metadata: nil
+      }
+
+      result = %{
+        answer: "Message reply",
+        confidence_score: 0.9,
+        latency_ms: 10,
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_from_incoming(incoming, result)
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_user_id == "msg@example.com"
+    end
+
+    test "falls back to author_id when email thread and message ids are missing" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Email body",
+        channel_id: "email-3",
+        author_id: "author-fallback@example.com",
+        provider: :email,
+        metadata: %{}
+      }
+
+      result = %{
+        answer: "Fallback reply",
+        confidence_score: 0.9,
+        latency_ms: 10,
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_from_incoming(incoming, result)
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_user_id == "author-fallback@example.com"
+    end
+
+    test "uses atom-keyed email thread metadata" do
+      thread_key = "atom-thread-#{System.unique_integer([:positive])}"
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Email body",
+        channel_id: "email-4",
+        author_id: "author-atom@example.com",
+        provider: :email,
+        metadata: %{email: %{"thread_key" => thread_key}}
+      }
+
+      result = %{
+        answer: "Atom reply",
+        confidence_score: 0.9,
+        latency_ms: 10,
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_from_incoming(incoming, result)
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_user_id == thread_key
+    end
+
+    test "falls back to author_id when atom email metadata has no thread_key match" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Email body",
+        channel_id: "email-5",
+        author_id: "author-atom-fallback@example.com",
+        provider: :email,
+        metadata: %{email: %{other_key: "ignored"}}
+      }
+
+      result = %{
+        answer: "Atom fallback reply",
+        confidence_score: 0.9,
+        latency_ms: 10,
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_from_incoming(incoming, result)
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_user_id == "author-atom-fallback@example.com"
+    end
+
+    test "does not store assistant tool_calls in message metadata" do
       result = %{
         answer: "Done.",
         confidence_score: 0.91,
@@ -221,22 +479,74 @@ defmodule Zaq.Engine.ConversationsTest do
         provider: :mattermost
       }
 
-      assert :ok = Conversations.persist_from_incoming(incoming, result)
+      assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
+               Conversations.persist_from_incoming(incoming, result)
 
-      [conv] = Conversations.list_conversations(channel_type: "mattermost")
+      [conv] = Conversations.list_conversations(channel_user_id: "user-1")
       messages = Conversations.list_messages(conv)
       assistant = Enum.find(messages, &(&1.role == "assistant"))
 
-      assert assistant.metadata["tool_calls"] == [
-               %{
-                 "tool_name" => "search_knowledge_base",
-                 "timestamp" => "2026-05-02T10:00:00Z",
-                 "params" => %{"query" => "zaq"},
-                 "response" => %{"hits" => 3},
-                 "response_time_ms" => 15,
-                 "status" => "ok"
-               }
-             ]
+      refute Map.has_key?(assistant.metadata, "tool_calls")
+    end
+
+    test "stores assistant trace in top-level message trace" do
+      trace = [
+        %{
+          "id" => "llm-1",
+          "type" => "content",
+          "content" => "answer",
+          "turn_id" => "0",
+          "started_at" => "2026-06-11T10:00:00Z",
+          "unsafe" => {:ok, %{ref: make_ref(), at: ~U[2026-06-11 10:00:00Z]}}
+        }
+      ]
+
+      result = %{
+        answer: "answer",
+        confidence_score: 0.91,
+        latency_ms: 88,
+        prompt_tokens: 10,
+        completion_tokens: 12,
+        total_tokens: 22,
+        trace: trace,
+        measurements: %{
+          "latency_ms" => 88,
+          "prompt_tokens" => 10,
+          "completion_tokens" => 12,
+          "total_tokens" => 22
+        },
+        model: "openai:gpt-4o-mini",
+        agent: %{id: 12, name: "Answering"}
+      }
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Question",
+        channel_id: "chan-trace",
+        author_id: "user-trace",
+        provider: :mattermost
+      }
+
+      assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
+               Conversations.persist_from_incoming(incoming, result)
+
+      [conv] = Conversations.list_conversations(channel_user_id: "user-trace")
+      messages = Conversations.list_messages(conv)
+      assistant = Enum.find(messages, &(&1.role == "assistant"))
+
+      assert Jason.encode!(assistant.trace)
+      assert [%{"id" => "llm-1", "type" => "content", "unsafe" => unsafe}] = assistant.trace
+      assert is_list(unsafe)
+      refute Map.has_key?(assistant.metadata, "tool_calls")
+
+      assert assistant.metadata["measurements"] == %{
+               "latency_ms" => 88,
+               "prompt_tokens" => 10,
+               "completion_tokens" => 12,
+               "total_tokens" => 22
+             }
+
+      assert assistant.metadata["model"] == "openai:gpt-4o-mini"
+      assert assistant.metadata["agent"] == %{"id" => 12, "name" => "Answering"}
     end
   end
 
@@ -269,6 +579,58 @@ defmodule Zaq.Engine.ConversationsTest do
       assert msg.model == "gpt-4"
       assert msg.prompt_tokens == 100
       assert msg.confidence_score == 0.9
+    end
+
+    test "records assistant telemetry points and flushes them to storage" do
+      config = channel_config_fixture("mattermost")
+
+      {:ok, conv} =
+        Conversations.create_conversation(
+          conv_attrs(%{channel_type: "mattermost", channel_config_id: config.id})
+        )
+
+      assert {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "answer"})
+      assert msg.role == "assistant"
+
+      assert :ok = Buffer.flush()
+
+      point =
+        Repo.one(
+          from p in Point,
+            where:
+              p.metric_key == "qa.answer.count" and
+                p.dimension_key ==
+                  ^"channel_config_id=#{config.id}|channel_type=mattermost|role=assistant"
+        )
+
+      assert point.dimensions == %{
+               "channel_config_id" => to_string(config.id),
+               "channel_type" => "mattermost",
+               "role" => "assistant"
+             }
+    end
+
+    test "adds assistant message with trace" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      trace = [
+        %{
+          "id" => "llm-1",
+          "type" => "content",
+          "content" => "streamed",
+          "turn_id" => "0",
+          "started_at" => "2026-06-11T10:00:00Z"
+        }
+      ]
+
+      assert {:ok, msg} =
+               Conversations.add_message(conv, %{
+                 role: "assistant",
+                 content: "answer",
+                 trace: trace
+               })
+
+      assert msg.trace == trace
     end
 
     test "rejects invalid role" do
@@ -344,6 +706,14 @@ defmodule Zaq.Engine.ConversationsTest do
 
       assert rating.rating == 5
       assert rating.message_id == msg.id
+    end
+
+    test "returns an error changeset when attrs contain an invalid rating" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "answer"})
+
+      assert {:error, changeset} = Conversations.rate_message_by_id(msg.id, %{rating: 6})
+      assert %{rating: _} = errors_on(changeset)
     end
 
     test "updates existing rating (upsert) for the same user" do
@@ -522,6 +892,19 @@ defmodule Zaq.Engine.ConversationsTest do
       results = Conversations.list_conversations(limit: 2)
       assert length(results) <= 2
     end
+
+    test "returns telegram conversations with nil channel_user_id without crashing" do
+      {:ok, conv} =
+        Conversations.create_conversation(%{
+          channel_type: "telegram",
+          channel_user_id: nil
+        })
+
+      [loaded] = Conversations.list_conversations(channel_type: "telegram")
+
+      assert loaded.id == conv.id
+      assert loaded.person_id == nil
+    end
   end
 
   # ── get_or_create_conversation_for_channel/3 edge cases ─────────────
@@ -579,6 +962,17 @@ defmodule Zaq.Engine.ConversationsTest do
       found = Conversations.get_rating(msg, %{user_id: user.id})
       assert found.rating == 4
       assert found.user_id == user.id
+    end
+
+    test "returns the only rating when no rater attrs are provided" do
+      user = user_fixture()
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "reply"})
+      {:ok, rating} = Conversations.rate_message(msg, %{user_id: user.id, rating: 4})
+
+      assert found = Conversations.get_rating(msg, %{})
+      assert found.id == rating.id
+      assert found.rating == 4
     end
 
     test "returns rating for channel user" do

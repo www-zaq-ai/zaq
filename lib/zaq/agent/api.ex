@@ -15,7 +15,19 @@ defmodule Zaq.Agent.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Agent
-  alias Zaq.Agent.{ErrorMessage, Executor, MCP, Pipeline, PromptGuard, RuntimeSync, Status}
+
+  alias Zaq.Agent.{
+    ErrorMessage,
+    Executor,
+    Factory,
+    MCP,
+    Pipeline,
+    PromptGuard,
+    RequestRegistry,
+    RuntimeSync,
+    Status
+  }
+
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.{Event, EventHop}
   alias Zaq.InternalBoundaries
@@ -76,6 +88,38 @@ defmodule Zaq.Agent.Api do
 
       other ->
         invalid_request_response(event, other)
+    end
+  end
+
+  def handle_event(%Event{} = event, :inspect_request, _context) do
+    case request_id_request(event.request) do
+      {:ok, request_id} -> %{event | response: RequestRegistry.get(request_id)}
+      {:error, reason} -> %{event | response: {:error, {:invalid_request, reason}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, action, _context)
+      when action in [:steer_request, :inject_request] do
+    factory_module = Keyword.get(event.opts, :factory_module, Factory)
+
+    with {:ok, request_id} <- request_id_request(event.request),
+         {:ok, content} <- content_request(event.request),
+         {:ok, %{server_id: server_id}} when not is_nil(server_id) <-
+           RequestRegistry.get(request_id) do
+      response =
+        case action do
+          :steer_request ->
+            factory_module.steer(server_id, content, expected_request_id: request_id)
+
+          :inject_request ->
+            factory_module.inject(server_id, content, expected_request_id: request_id)
+        end
+
+      %{event | response: response}
+    else
+      {:ok, state} when is_map(state) -> %{event | response: {:error, :missing_server_id}}
+      {:error, reason} -> %{event | response: {:error, reason}}
+      other -> %{event | response: {:error, other}}
     end
   end
 
@@ -244,6 +288,24 @@ defmodule Zaq.Agent.Api do
     end
   end
 
+  defp request_id_request(request) when is_map(request) do
+    case fetch_key(request, :request_id) do
+      {:ok, request_id} when is_binary(request_id) and request_id != "" -> {:ok, request_id}
+      _ -> {:error, :missing_request_id}
+    end
+  end
+
+  defp request_id_request(_), do: {:error, :missing_request_id}
+
+  defp content_request(request) when is_map(request) do
+    case fetch_key(request, :content) do
+      {:ok, content} when is_binary(content) and content != "" -> {:ok, content}
+      _ -> {:error, :missing_content}
+    end
+  end
+
+  defp content_request(_), do: {:error, :missing_content}
+
   defp normalize_action_error({:error, {:invalid_request, _} = reason}), do: {:error, reason}
   defp normalize_action_error({:error, reason}), do: {:error, {:action_failed, reason}}
   defp normalize_action_error(other), do: other
@@ -312,12 +374,12 @@ defmodule Zaq.Agent.Api do
       node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
       case persist_response_context(node_router_mod, event, incoming, outgoing) do
-        :ok ->
+        {:ok, persisted} ->
           event
-          |> schedule_return_hop(outgoing)
+          |> schedule_return_hop(enrich_outgoing_with_persistence(outgoing, persisted))
 
-        {:error, reason} ->
-          %{event | response: {:error, {:persist_failed, reason}}}
+        {:error, _reason} ->
+          schedule_return_hop(event, outgoing)
       end
     else
       %{event | response: outgoing}
@@ -355,12 +417,26 @@ defmodule Zaq.Agent.Api do
       )
 
     case node_router_mod.dispatch(%{persist_event | assigns: event.assigns}).response do
-      :ok -> :ok
-      {:ok, _} -> :ok
+      :ok -> {:ok, %{}}
+      {:ok, persisted} when is_map(persisted) -> {:ok, persisted}
+      {:ok, _} -> {:ok, %{}}
       {:error, reason} -> {:error, reason}
       other -> {:error, {:invalid_persist_response, other}}
     end
   end
+
+  defp enrich_outgoing_with_persistence(%Outgoing{} = outgoing, persisted)
+       when is_map(persisted) do
+    metadata =
+      outgoing.metadata
+      |> maybe_put_persisted(:conversation_id, Map.get(persisted, :conversation_id))
+      |> maybe_put_persisted(:assistant_message_id, Map.get(persisted, :assistant_message_id))
+
+    %{outgoing | metadata: metadata}
+  end
+
+  defp maybe_put_persisted(metadata, _key, nil), do: metadata
+  defp maybe_put_persisted(metadata, key, value), do: Map.put(metadata, key, value)
 
   defp guard_error_outgoing(%Incoming{} = incoming) do
     Outgoing.from_pipeline_result(incoming, %{

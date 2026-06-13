@@ -38,9 +38,9 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
      |> assign(:feedback_message_id, nil)
      |> assign(:feedback_reasons, [])
      |> assign(:feedback_comment, "")
-     |> assign(:tool_calls_modal_for, nil)
-     |> assign(:tool_calls_modal_entries, [])
-     |> assign(:expanded_tool_call_ids, MapSet.new())
+     |> assign(:message_info_modal_for, nil)
+     |> assign(:message_info_modal, MessageHelpers.empty_message_info())
+     |> assign(:expanded_trace_ids, MapSet.new())
      |> assign(:preview, nil)}
   rescue
     Ecto.NoResultsError ->
@@ -128,33 +128,33 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
     {:noreply, PreviewHelpers.close_preview(socket)}
   end
 
-  def handle_event("open_tool_calls_modal", %{"id" => id}, socket) do
-    tool_calls =
+  def handle_event("open_message_info_modal", %{"id" => id}, socket) do
+    message_info =
       socket.assigns.messages
       |> find_message(id)
-      |> tool_calls_for_message()
+      |> MessageHelpers.message_info_from_message()
 
     {:noreply,
      socket
-     |> assign(:tool_calls_modal_for, id)
-     |> assign(:tool_calls_modal_entries, tool_calls)
-     |> assign(:expanded_tool_call_ids, MapSet.new())}
+     |> assign(:message_info_modal_for, id)
+     |> assign(:message_info_modal, message_info)
+     |> assign(:expanded_trace_ids, MapSet.new())}
   end
 
-  def handle_event("close_tool_calls_modal", _params, socket) do
+  def handle_event("close_message_info_modal", _params, socket) do
     {:noreply,
      socket
-     |> assign(:tool_calls_modal_for, nil)
-     |> assign(:tool_calls_modal_entries, [])
-     |> assign(:expanded_tool_call_ids, MapSet.new())}
+     |> assign(:message_info_modal_for, nil)
+     |> assign(:message_info_modal, MessageHelpers.empty_message_info())
+     |> assign(:expanded_trace_ids, MapSet.new())}
   end
 
-  def handle_event("toggle_tool_call_details", %{"tool_id" => tool_id}, socket) do
+  def handle_event("toggle_trace_details", %{"trace_id" => trace_id}, socket) do
     updated =
-      socket.assigns.expanded_tool_call_ids
-      |> MessageHelpers.toggle_tool_call_details(tool_id)
+      socket.assigns.expanded_trace_ids
+      |> MessageHelpers.toggle_trace_details(trace_id)
 
-    {:noreply, assign(socket, :expanded_tool_call_ids, updated)}
+    {:noreply, assign(socket, :expanded_trace_ids, updated)}
   end
 
   def handle_event("noop", _params, socket), do: {:noreply, socket}
@@ -204,17 +204,6 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
 
     if is_list(messages), do: messages, else: []
   end
-
-  defp tool_calls_for_message(nil), do: []
-
-  defp tool_calls_for_message(message) do
-    message
-    |> then(fn msg -> Map.get(msg, :metadata) || Map.get(msg, "metadata") || %{} end)
-    |> Map.get("tool_calls", [])
-    |> normalize_tool_calls()
-  end
-
-  defp normalize_tool_calls(tool_calls), do: MessageHelpers.normalize_tool_calls(tool_calls)
 
   defp infer_feedback_from_ratings(ratings),
     do: MessageHelpers.infer_feedback_from_ratings(ratings)

@@ -33,7 +33,7 @@ Before writing any new agent-service code, verify which entry point already cove
 
 | I need to… | Use |
 |---|---|
-| Make an LLM call | `Factory.ask/2` or `Factory.ask_with_config/2` — never call ReqLLM or Jido directly |
+| Make an LLM call | `Factory.ask/2` or `Factory.ask_with_config/4` — never call ReqLLM or Jido directly |
 | Execute a configured agent | `Executor.run/2` — handles server presence, config loading, factory delegation |
 | Build a response from pipeline output | `Outgoing.from_pipeline_result/2` — do not construct response maps inline |
 | Store or read conversation turns | `Zaq.Agent.History` — `build/1`, `entry_key/2` |
@@ -53,6 +53,7 @@ Use this to decide where new code belongs. When a function would violate the "Do
 | `ProviderSpec` | Provider-atom normalisation (`reqllm_provider/1`), fixed-URL detection, base-URL injection, `build/1` for configured agents | Agent lifecycle, LLM calls, credential storage |
 | `Factory` | Model spec assembly (`build_model_spec/0,1`), `ask/ask_with_config`, generation opts | Provider/URL logic (delegated to `ProviderSpec`), credential resolution, pipeline orchestration |
 | `Executor` | Configured-agent lifecycle, config loading, factory delegation, `:answering` status broadcast | LLM call details, response struct construction |
+| `StreamEvents` | Request-local stream reduction, realtime buffered updates, trace/tool capture, model/measurement extraction | Server lifecycle, provider config, persistence |
 | `ServerManager` | `AgentServer` start/stop/lookup per configured agent id | Provider logic, URL handling, answer building, branching by agent type |
 | `Pipeline` | Orchestration of retrieval → answering steps, hook dispatch | LLM calls, response struct construction, agent-type branches, status broadcasts |
 | `Answering` | Answer extraction, `Result` struct, telemetry | Agent lifecycle, provider/credential details |
@@ -91,6 +92,7 @@ User question (BO Chat / Channel)
           → Executor.run/2  (agent_id: nil)
               → Status.broadcast(:answering)  ← PubSub → ChatLive
               → Factory.ask_with_config/4
+              → StreamEvents.consume/3       ← realtime updates + trace/measurements
           → Hooks.dispatch_async(:answer_generated, ...)
           → Hooks.dispatch_async(:pipeline_complete, ...)
 
@@ -98,6 +100,7 @@ User question (BO Chat / Channel)
       → Executor.run/2  (agent_id: N)
           → Status.broadcast(:answering)    ← PubSub → ChatLive
           → Factory.ask_with_config/4
+          → StreamEvents.consume/3           ← realtime updates + trace/measurements
 
   → %Outgoing{} → Router.deliver → WebBridge.send_reply → PubSub → ChatLive
 
@@ -143,7 +146,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
   2. **Signal**: `Status.broadcast(:validating)` — fired once after the guard passes, before routing
   3. **Route**: no `event.assigns["agent_selection"]` → `Pipeline.run/2`; explicit `agent_id` → `Executor.run/2`
 - Both `prompt_guard:` and `status_module:` are injectable via event opts for testing
-- `Zaq.Agent.Executor` loads the configured agent (or default answering agent), ensures server presence, broadcasts `:answering`, then delegates to `Factory`
+- `Zaq.Agent.Executor` loads the configured agent (or default answering agent), ensures server presence, broadcasts `:answering`, delegates dispatch to `Factory`, then consumes stream events through `StreamEvents`
 - **Auditability rule (mandatory):** channel delivery is allowed only after persistence succeeds. In `Zaq.Agent.Api`, `persist_from_incoming` must complete successfully before scheduling the `:deliver_outgoing` return hop. If persistence fails, the API must return `{:error, {:persist_failed, reason}}` and must not dispatch to Channels.
 - Runtime sync actions also enter through `Zaq.Agent.Api` and call `Zaq.Agent.RuntimeSync`:
   - `:configured_agent_updated`
@@ -222,15 +225,12 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
   - endpoint hard cap: `2000` MCP endpoints
 - These checks are implemented in `Zaq.Agent.MCP.Runtime` and must remain centralized there.
 
-### Jido Telemetry Bridge (`Zaq.Agent.JidoTelemetryBridge`)
-- Attaches to Jido AI telemetry events (`request`, `llm`, `tool`, `tool.execute`) on the agent node
-- Bridges selected telemetry events into BO status broadcasts (`:thinking`, `:tool_call`, `:mcp_call`) when `:zaq_status_context` is present
-- When `include_llm_deltas: true`, maps LLM reasoning deltas to `Status.broadcast(..., :retrieving, ...)` so chat can stream reasoning progress
-- Writes level-aware console logs:
-  - `info`: compact lifecycle summaries
-  - `debug`: sanitized payload details
-  - `warning/error`: timeout and failure paths
-- Config (`:zaq, :jido_telemetry_bridge`): `enabled`, `include_llm_deltas`, `max_payload_chars`
+### Stream Events (`Zaq.Agent.StreamEvents`)
+- Reduces `Jido.AI.Agent.ask_stream/3` events into one request result consumed by `Executor`.
+- Broadcasts buffered realtime updates through `Status.broadcast/4` so all channels keep using the same channel update flow.
+- Captures a uniform top-level message trace list, including content/reasoning segments and tool calls.
+- Extracts `measurements`, `model`, and sanitized `agent` metadata from the stream result; token counts come from stream usage.
+- Registers request-local inspection state in `Zaq.Agent.RequestRegistry` for inspect/steer/inject actions.
 
 ### Provider Spec (`Zaq.Agent.ProviderSpec`)
 - Central home for provider normalization (`reqllm_provider/1`) and fixed-URL policy (`fixed_url_provider?/1`)
@@ -338,7 +338,6 @@ lib/zaq/agent/
 ├── history.ex                  # Conversation history map helpers
 ├── history_loader.ex           # Loads initial runtime context from stored history
 ├── idle_lifecycle.ex           # Runtime idle-lifecycle policy helpers
-├── jido_telemetry_bridge.ex    # Jido telemetry logger + status bridge
 ├── logprobs_analyzer.ex        # Confidence scoring from logprobs
 ├── mcp.ex                      # MCP endpoint context + orchestration
 ├── mcp/
@@ -350,8 +349,10 @@ lib/zaq/agent/
 ├── prompt_template.ex          # Ecto schema + context for DB-stored prompts
 ├── provider_spec.ex            # Provider normalization + model spec policy
 ├── query_filters.ex            # Retrieval query filter helpers
+├── request_registry.ex         # Request-local inspection state
 ├── retrieval.ex                # Query rewriting agent; broadcasts :retrieving
 ├── runtime_sync.ex             # Runtime orchestration for agent + MCP mutations
+├── stream_events.ex            # Stream reduction, realtime updates, trace capture
 ├── server_manager.ex           # Ensures one AgentServer per configured agent id
 ├── status.ex                   # Fire-and-forget PubSub status broadcast
 ├── supervisor.ex               # Agent role supervisor with dynamic AgentServer tree

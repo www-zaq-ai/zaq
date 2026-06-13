@@ -161,45 +161,6 @@ const liveSocket = new LiveSocket("/live", Socket, {
         this.el.scrollTop = this.el.scrollHeight
       }
     },
-    Typewriter: {
-      mounted() {
-        const el = this.el
-        const fullText = el.textContent
-        const finalHtml = el.innerHTML
-        if (!fullText || !fullText.trim()) return
-
-        el.textContent = ""
-        el.style.visibility = "visible"
-
-        let i = 0
-        const speed = 14
-        const step = 3
-
-        this._typewriterTimeout = null
-
-        const type = () => {
-          if (i <= fullText.length) {
-            el.textContent = fullText.slice(0, i)
-            i += step
-            this._typewriterTimeout = setTimeout(type, speed)
-          } else {
-            el.innerHTML = finalHtml
-          }
-        }
-
-        type()
-      },
-      updated() {
-        // intentional no-op — never let LiveView re-trigger typing
-      },
-      destroyed() {
-        if (this._typewriterTimeout) {
-          clearTimeout(this._typewriterTimeout)
-          this._typewriterTimeout = null
-        }
-      }
-    },
-
     FocusInput: {
       mounted() {
         this.el.focus()

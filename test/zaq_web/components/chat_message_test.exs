@@ -18,7 +18,7 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     assert html =~ "Copy"
   end
 
-  test "assistant_bubble renders typewriter attrs, source chip and click target" do
+  test "assistant_bubble renders markdown immediately, source chip and click target" do
     html =
       render_component(&ChatMessage.assistant_bubble/1,
         content: "Answer with source",
@@ -32,8 +32,8 @@ defmodule ZaqWeb.Components.ChatMessageTest do
       )
 
     assert html =~ "id=\"msg-body-m-1\""
-    assert html =~ "phx-hook=\"Typewriter\""
-    assert html =~ "phx-update=\"ignore\""
+    refute html =~ "phx-hook=\"Typewriter\""
+    refute html =~ "phx-update=\"ignore\""
     assert html =~ "title=\"91% confidence\""
     assert html =~ "width:91%"
     assert html =~ "background:#22c55e"
@@ -288,116 +288,200 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     assert atom_no_click_html =~ "href=\"/bo/preview/docs/atom-no-click.md\""
   end
 
-  test "tool_calls_popin renders row and keeps details collapsed by default" do
+  test "message_info_popin renders metadata, measurements, and collapsed traces" do
     html =
-      render_component(&ChatMessage.tool_calls_popin/1,
+      render_component(&ChatMessage.message_info_popin/1,
         visible: true,
         message_id: "msg-1",
-        tool_calls: [
-          %{
-            "tool_call_id" => "call-1",
-            "tool_name" => "search_code",
-            "timestamp" => "2026-05-02T10:00:00Z",
-            "params" => %{"query" => "ZAQ"},
-            "response" => %{"matches" => 2},
-            "response_time_ms" => 42
-          }
-        ],
+        message_info: %{
+          agent: %{"name" => "Answering Agent"},
+          model: "openai:gpt-4o-mini",
+          measurements: %{"latency_ms" => 42},
+          traces: [
+            %{
+              "id" => "trace-1",
+              "type" => "tool_call",
+              "name" => "search_code",
+              "started_at" => "2026-05-02T10:00:00Z",
+              "duration_ms" => 42
+            }
+          ]
+        },
         expanded_ids: MapSet.new(),
-        close_event: "close_tool_calls_modal",
-        toggle_event: "toggle_tool_call_details"
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
       )
 
-    assert html =~ "data-testid=\"tool-calls-popin\""
-    assert html =~ "Tool calls (1)"
-    assert html =~ "data-testid=\"tool-call-row-call-1\""
-    refute html =~ "data-testid=\"tool-call-details-call-1\""
+    assert html =~ "data-testid=\"message-info-popin\""
+    assert html =~ "Answering Agent"
+    assert html =~ "openai:gpt-4o-mini"
+    assert html =~ "latency_ms"
+    assert html =~ "Tool Call · Search Code"
+    assert html =~ "data-testid=\"trace-row-trace-1\""
+    refute html =~ "data-testid=\"trace-details-trace-1\""
   end
 
-  test "tool_calls_popin expanded details format response time and fallback values" do
+  test "message_info_popin handles non-map message_info" do
     html =
-      render_component(&ChatMessage.tool_calls_popin/1,
+      render_component(&ChatMessage.message_info_popin/1,
+        visible: true,
+        message_id: "msg-non-map",
+        message_info: nil,
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
+      )
+
+    assert html =~ "Agent"
+    assert html =~ "Model"
+    assert html =~ "n/a"
+    assert html =~ "Traces (0)"
+    assert html =~ "No measurements available."
+  end
+
+  test "message_info_popin formats empty and string measurement values" do
+    html =
+      render_component(&ChatMessage.message_info_popin/1,
+        visible: true,
+        message_id: "msg-measurements",
+        message_info: %{
+          measurements: %{
+            empty: "",
+            nil_value: nil,
+            string_value: "ready"
+          },
+          traces: []
+        },
+        expanded_ids: MapSet.new(),
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
+      )
+
+    assert html =~ "empty"
+    assert html =~ "nil_value"
+    assert html =~ "string_value"
+    assert html =~ "ready"
+    assert html =~ "n/a"
+  end
+
+  test "message_info_popin renders fallback trace label and tool_call_id legacy type" do
+    html =
+      render_component(&ChatMessage.message_info_popin/1,
+        visible: true,
+        message_id: "msg-legacy-trace",
+        message_info: %{
+          traces: [
+            %{"id" => "fallback-label", "duration_ms" => nil},
+            %{id: "legacy-id", tool_call_id: "atom-call", duration_ms: "slow"}
+          ]
+        },
+        expanded_ids: MapSet.new(),
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
+      )
+
+    assert html =~ "Trace"
+    assert html =~ ~s(data-testid="trace-row-fallback-label")
+    assert html =~ "Tool Call"
+    assert html =~ ~s(data-testid="trace-row-legacy-id")
+    assert html =~ "n/a"
+  end
+
+  test "message_info_popin sorts traces by numeric timestamps" do
+    html =
+      render_component(&ChatMessage.message_info_popin/1,
+        visible: true,
+        message_id: "msg-sorted-traces",
+        message_info: %{
+          traces: [
+            %{"id" => "float-later", "name" => "float_later", "started_at_ms" => 20.9},
+            %{"id" => "int-earlier", "name" => "int_earlier", "started_at_ms" => 10}
+          ]
+        },
+        expanded_ids: MapSet.new(),
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
+      )
+
+    assert html =~ "Int Earlier"
+    assert html =~ "Float Later"
+    assert String.split(html, ~s(data-testid="trace-row-int-earlier")) |> length() == 2
+    assert html =~ ~s(data-testid="trace-row-int-earlier")
+    assert html =~ ~s(data-testid="trace-row-float-later")
+
+    assert :binary.match(html, ~s(trace-row-int-earlier)) <
+             :binary.match(html, ~s(trace-row-float-later))
+  end
+
+  test "message_info_popin expands full json and supports legacy tool call fields" do
+    html =
+      render_component(&ChatMessage.message_info_popin/1,
         visible: true,
         message_id: "msg-2",
-        tool_calls: [
-          %{
-            "tool_call_id" => "call-edge",
-            "tool_name" => "fetch.metrics",
-            "timestamp" => "",
-            "params" => nil,
-            "response" => fn -> :ok end,
-            "response_time_ms" => 12.345
-          }
-        ],
+        message_info: %{
+          agent: nil,
+          model: nil,
+          measurements: %{},
+          traces: [
+            %{
+              "tool_call_id" => "call-edge",
+              "tool_name" => "fetch.metrics",
+              "timestamp" => "",
+              "params" => nil,
+              "response" => fn -> :ok end,
+              "response_time_ms" => 12.345
+            }
+          ]
+        },
         expanded_ids: MapSet.new(["call-edge"]),
-        close_event: "close_tool_calls_modal",
-        toggle_event: "toggle_tool_call_details"
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
       )
 
-    assert html =~ "data-testid=\"tool-call-details-call-edge\""
+    assert html =~ "data-testid=\"trace-details-call-edge\""
+    assert html =~ "Tool Call · Fetch Metrics"
     assert html =~ "12.35 ms"
-    assert html =~ "Timestamp:</span>"
     assert html =~ "n/a"
-    assert html =~ "null"
+    assert html =~ "nil"
     assert html =~ "#Function&lt;"
+    assert html =~ "phx-click=\"copy_message\""
   end
 
-  test "tool_calls_popin handles non-list tool_calls by showing zero count" do
+  test "message_info_popin handles empty values" do
     html =
-      render_component(&ChatMessage.tool_calls_popin/1,
+      render_component(&ChatMessage.message_info_popin/1,
         visible: true,
         message_id: "msg-3",
-        tool_calls: nil,
+        message_info: %{},
         expanded_ids: MapSet.new(),
-        close_event: "close_tool_calls_modal",
-        toggle_event: "toggle_tool_call_details"
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
       )
 
-    assert html =~ "data-testid=\"tool-calls-popin\""
-    assert html =~ "Tool calls (0)"
+    assert html =~ "data-testid=\"message-info-popin\""
+    assert html =~ "Traces (0)"
+    assert html =~ "No measurements available."
   end
 
-  test "tool_calls_popin raises on mixed entries with non-map tool call" do
-    assert_raise BadMapError, fn ->
-      render_component(&ChatMessage.tool_calls_popin/1,
-        visible: true,
-        message_id: "msg-4",
-        tool_calls: [
-          "not-a-map",
-          %{
-            "tool_call_id" => "valid-call",
-            "tool_name" => "search_code",
-            "timestamp" => "2026-05-02T10:00:00Z",
-            "response_time_ms" => 11
-          }
-        ],
-        expanded_ids: MapSet.new(),
-        close_event: "close_tool_calls_modal",
-        toggle_event: "toggle_tool_call_details"
-      )
-    end
-  end
-
-  test "tool_calls_popin does not render when hidden or message id is not binary" do
+  test "message_info_popin does not render when hidden or message id is not binary" do
     hidden_html =
-      render_component(&ChatMessage.tool_calls_popin/1,
+      render_component(&ChatMessage.message_info_popin/1,
         visible: false,
         message_id: "msg-1",
-        tool_calls: [],
-        close_event: "close_tool_calls_modal",
-        toggle_event: "toggle_tool_call_details"
+        message_info: %{},
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
       )
 
     non_binary_id_html =
-      render_component(&ChatMessage.tool_calls_popin/1,
+      render_component(&ChatMessage.message_info_popin/1,
         visible: true,
         message_id: nil,
-        tool_calls: [],
-        close_event: "close_tool_calls_modal",
-        toggle_event: "toggle_tool_call_details"
+        message_info: %{},
+        close_event: "close_message_info_modal",
+        toggle_event: "toggle_trace_details"
       )
 
-    refute hidden_html =~ "data-testid=\"tool-calls-popin\""
-    refute non_binary_id_html =~ "data-testid=\"tool-calls-popin\""
+    refute hidden_html =~ "data-testid=\"message-info-popin\""
+    refute non_binary_id_html =~ "data-testid=\"message-info-popin\""
   end
 end

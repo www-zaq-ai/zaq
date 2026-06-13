@@ -64,7 +64,7 @@ defmodule ZaqWeb.Components.ChatMessage do
 
   attr :content, :string, required: true
   attr :timestamp, :any, required: true
-  # When set, the body div receives id + phx-hook="Typewriter" + phx-update="ignore"
+  # When set, the body div receives a stable id for live message updates.
   attr :msg_id, :string, default: nil
   attr :confidence, :float, default: nil
   # List of sources — strings (file paths) or maps with "path" and optional "index"
@@ -92,11 +92,9 @@ defmodule ZaqWeb.Components.ChatMessage do
             "px-4 py-3 rounded-2xl rounded-bl-none border shadow-sm",
             if(@is_error, do: "bg-red-50 border-red-200", else: "bg-white zaq-card-border-soft")
           ]}>
-            <%!-- Body — with optional Typewriter hook for live rendering --%>
+            <%!-- Body — markdown is rendered before display and patched immediately. --%>
             <div
               id={@msg_id && "msg-body-#{@msg_id}"}
-              phx-hook={@msg_id && "Typewriter"}
-              phx-update={@msg_id && "ignore"}
               class={[
                 "text-[0.85rem] leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4",
                 if(@is_error, do: "text-red-600", else: "zaq-text-ink")
@@ -151,21 +149,21 @@ defmodule ZaqWeb.Components.ChatMessage do
     """
   end
 
-  attr :tool_calls, :list, default: []
+  attr :available, :boolean, default: false
   attr :message_id, :string, required: true
   attr :open_event, :string, required: true
 
-  def tool_calls_info_button(assigns) do
+  def message_info_button(assigns) do
     ~H"""
     <button
-      :if={Enum.any?(@tool_calls)}
+      :if={@available}
       type="button"
       phx-click={@open_event}
       phx-value-id={@message_id}
       class="p-1.5 rounded-lg transition-all hover:bg-[#eeece8]"
       style="color:#b8b5ae;"
-      title="Show tool calls"
-      data-testid={"tool-calls-info-#{@message_id}"}
+      title="Show message information"
+      data-testid={"message-info-#{@message_id}"}
     >
       <svg
         width="13"
@@ -285,27 +283,30 @@ defmodule ZaqWeb.Components.ChatMessage do
 
   attr :visible, :boolean, default: false
   attr :message_id, :string, default: nil
-  attr :tool_calls, :list, default: []
+  attr :message_info, :map, default: %{}
   attr :expanded_ids, :any, default: nil
   attr :close_event, :string, required: true
   attr :toggle_event, :string, required: true
 
-  def tool_calls_popin(assigns) do
+  def message_info_popin(assigns) do
     assigns =
       assigns
       |> assign_new(:expanded_ids, fn -> MapSet.new() end)
-      |> assign(:tool_calls_count, length(assigns.tool_calls || []))
+      |> assign(:traces, traces(assigns.message_info))
+      |> assign(:measurements, measurements(assigns.message_info))
+      |> assign(:agent_name, agent_name(assigns.message_info))
+      |> assign(:model_name, model_name(assigns.message_info))
 
     ~H"""
     <div
       :if={@visible and is_binary(@message_id)}
       class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
-      data-testid="tool-calls-popin"
+      data-testid="message-info-popin"
     >
       <div class="bg-white rounded-2xl shadow-2xl p-5 w-[min(800px,95vw)] max-h-[85vh] border border-black/10 overflow-hidden">
         <div class="flex items-center justify-between mb-3">
           <p class="font-mono text-sm font-bold text-[#2c3a50]">
-            Tool calls ({@tool_calls_count})
+            Message information
           </p>
           <button
             type="button"
@@ -317,51 +318,76 @@ defmodule ZaqWeb.Components.ChatMessage do
         </div>
 
         <div class="overflow-y-auto pr-1" style="max-height: calc(85vh - 90px);">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+            <div class="rounded-xl border border-[#e8e6e1] bg-[#fcfcfb] px-3 py-2">
+              <p class="font-mono text-[0.62rem] uppercase tracking-widest text-[#9e9b94]">Agent</p>
+              <p class="font-mono text-[0.75rem] text-[#2c2b28] truncate">{@agent_name}</p>
+            </div>
+            <div class="rounded-xl border border-[#e8e6e1] bg-[#fcfcfb] px-3 py-2">
+              <p class="font-mono text-[0.62rem] uppercase tracking-widest text-[#9e9b94]">Model</p>
+              <p class="font-mono text-[0.75rem] text-[#2c2b28] truncate">{@model_name}</p>
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <p class="font-mono text-[0.68rem] font-bold text-[#7f7c76] mb-2">Measurements</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div
+                :for={{key, value} <- @measurements}
+                class="rounded-lg border border-[#ece9e3] bg-white px-2.5 py-2 flex items-center justify-between gap-3"
+              >
+                <span class="font-mono text-[0.66rem] text-[#7f7c76] truncate">{key}</span>
+                <span class="font-mono text-[0.66rem] text-[#2c2b28]">
+                  {format_detail_value(value)}
+                </span>
+              </div>
+              <p :if={@measurements == []} class="font-mono text-[0.66rem] text-[#9e9b94]">
+                No measurements available.
+              </p>
+            </div>
+          </div>
+
+          <p class="font-mono text-[0.68rem] font-bold text-[#7f7c76] mb-2">
+            Traces ({length(@traces)})
+          </p>
           <ul class="space-y-2">
             <li
-              :for={tc <- sort_tool_calls_chronologically(@tool_calls)}
+              :for={trace <- sort_traces_chronologically(@traces)}
               class="border border-[#e8e6e1] rounded-xl overflow-hidden"
             >
               <button
                 type="button"
                 phx-click={@toggle_event}
-                phx-value-tool_id={tool_call_id(tc)}
+                phx-value-trace_id={trace_id(trace)}
                 class="w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-[#faf9f7]"
-                data-testid={"tool-call-row-#{tool_call_id(tc)}"}
+                data-testid={"trace-row-#{trace_id(trace)}"}
               >
                 <span class="font-mono text-[0.75rem] text-[#2c2b28] truncate">
-                  {friendly_tool_name(Map.get(tc, :tool_name) || Map.get(tc, "tool_name"))}
+                  {trace_label(trace)}
                 </span>
                 <span class="font-mono text-[0.62rem] text-[#9e9b94]">
-                  {format_response_time(
-                    Map.get(tc, :response_time_ms) || Map.get(tc, "response_time_ms")
-                  )}
+                  {format_response_time(trace_duration_ms(trace))}
                 </span>
               </button>
 
               <div
-                :if={MapSet.member?(@expanded_ids, tool_call_id(tc))}
+                :if={MapSet.member?(@expanded_ids, trace_id(trace))}
                 class="px-3 pb-3 pt-1 bg-[#fcfcfb] border-t border-[#f0ede8]"
-                data-testid={"tool-call-details-#{tool_call_id(tc)}"}
+                data-testid={"trace-details-#{trace_id(trace)}"}
               >
-                <p class="font-mono text-[0.68rem] text-[#7f7c76]">
-                  <span class="font-bold">Timestamp:</span>
-                  {format_detail_value(Map.get(tc, :timestamp) || Map.get(tc, "timestamp"))}
-                </p>
-                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2 mb-1">
-                  <span class="font-bold">Params</span>
-                </p>
-                <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(Map.get(tc, :params) || Map.get(tc, "params"))}</pre>
-                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2 mb-1">
-                  <span class="font-bold">Response</span>
-                </p>
-                <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(Map.get(tc, :response) || Map.get(tc, "response"))}</pre>
-                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2">
-                  <span class="font-bold">Response time:</span>
-                  {format_response_time(
-                    Map.get(tc, :response_time_ms) || Map.get(tc, "response_time_ms")
-                  )}
-                </p>
+                <div class="flex items-center justify-between mt-2 mb-1">
+                  <p class="font-mono text-[0.68rem] text-[#7f7c76] font-bold">Full JSON</p>
+                  <button
+                    type="button"
+                    phx-click="copy_message"
+                    phx-value-text={pretty_json(trace)}
+                    class="font-mono text-[0.62rem] px-2 py-1 rounded-md border border-black/10 text-black/60 hover:bg-black/5"
+                    title="Copy trace JSON"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(trace)}</pre>
               </div>
             </li>
           </ul>
@@ -551,23 +577,97 @@ defmodule ZaqWeb.Components.ChatMessage do
 
   defp humanize_memory_label(_), do: "LLM general knowledge"
 
-  defp friendly_tool_name(tool_name) when is_binary(tool_name) and tool_name != "" do
-    tool_name
+  defp traces(message_info) when is_map(message_info) do
+    case Map.get(message_info, :traces) || Map.get(message_info, "traces") do
+      traces when is_list(traces) -> Enum.filter(traces, &is_map/1)
+      _ -> []
+    end
+  end
+
+  defp traces(_), do: []
+
+  defp measurements(message_info) when is_map(message_info) do
+    case Map.get(message_info, :measurements) || Map.get(message_info, "measurements") do
+      measurements when is_map(measurements) ->
+        measurements
+        |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp measurements(_), do: []
+
+  defp agent_name(message_info) when is_map(message_info) do
+    agent = Map.get(message_info, :agent) || Map.get(message_info, "agent")
+
+    cond do
+      is_binary(agent) and agent != "" -> agent
+      is_map(agent) -> Map.get(agent, :name) || Map.get(agent, "name") || "n/a"
+      true -> "n/a"
+    end
+  end
+
+  defp agent_name(_), do: "n/a"
+
+  defp model_name(message_info) when is_map(message_info) do
+    case Map.get(message_info, :model) || Map.get(message_info, "model") do
+      model when is_binary(model) and model != "" -> model
+      _ -> "n/a"
+    end
+  end
+
+  defp model_name(_), do: "n/a"
+
+  defp trace_label(trace) do
+    type = trace_value(trace, [:type, "type"]) || legacy_trace_type(trace)
+
+    name =
+      trace_value(trace, [:name, "name", :tool_name, "tool_name"])
+
+    label =
+      [friendly_trace_part(type), friendly_trace_part(name)]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join(" · ")
+
+    case label do
+      "" -> "Trace"
+      label -> label
+    end
+  end
+
+  defp friendly_trace_part(value) when is_binary(value) and value != "" do
+    value
     |> String.replace(~r/[_\.]+/, " ")
     |> String.trim()
     |> String.split(" ", trim: true)
     |> Enum.map_join(" ", &String.capitalize/1)
   end
 
-  defp friendly_tool_name(_), do: "Unknown tool"
+  defp friendly_trace_part(_), do: nil
 
-  defp tool_call_id(tc) do
+  defp legacy_trace_type(trace) when is_map(trace) do
+    if Map.has_key?(trace, :tool_name) || Map.has_key?(trace, "tool_name") ||
+         Map.has_key?(trace, :tool_call_id) || Map.has_key?(trace, "tool_call_id") do
+      "tool_call"
+    end
+  end
+
+  defp legacy_trace_type(_), do: nil
+
+  defp trace_id(trace) do
     id =
-      Map.get(tc, :tool_call_id) ||
-        Map.get(tc, "tool_call_id") ||
-        Map.get(tc, :timestamp) ||
-        Map.get(tc, "timestamp") ||
-        inspect(tc)
+      trace_value(trace, [
+        :id,
+        "id",
+        :tool_call_id,
+        "tool_call_id",
+        :started_at,
+        "started_at",
+        :timestamp,
+        "timestamp"
+      ]) || inspect(trace)
 
     if is_binary(id), do: id, else: inspect(id)
   end
@@ -590,22 +690,49 @@ defmodule ZaqWeb.Components.ChatMessage do
     end
   end
 
-  defp sort_tool_calls_chronologically(tool_calls) when is_list(tool_calls) do
-    Enum.sort_by(tool_calls, &tool_call_timestamp_sort_key/1, :asc)
+  defp sort_traces_chronologically(traces) when is_list(traces) do
+    Enum.sort_by(traces, &trace_timestamp_sort_key/1, :asc)
   end
 
-  defp sort_tool_calls_chronologically(_), do: []
+  defp sort_traces_chronologically(_), do: []
 
-  defp tool_call_timestamp_sort_key(tc) when is_map(tc) do
-    timestamp = Map.get(tc, :timestamp) || Map.get(tc, "timestamp")
+  defp trace_timestamp_sort_key(trace) when is_map(trace) do
+    ms = trace_value(trace, [:started_at_ms, "started_at_ms", :ended_at_ms, "ended_at_ms"])
 
+    timestamp =
+      trace_value(trace, [
+        :started_at,
+        "started_at",
+        :ended_at,
+        "ended_at",
+        :timestamp,
+        "timestamp"
+      ])
+
+    numeric_timestamp_sort_key(ms) || iso8601_timestamp_sort_key(timestamp)
+  end
+
+  defp trace_timestamp_sort_key(_), do: {1, 0}
+
+  defp trace_duration_ms(trace) when is_map(trace) do
+    trace_value(trace, [:duration_ms, "duration_ms", :response_time_ms, "response_time_ms"])
+  end
+
+  defp trace_duration_ms(_), do: nil
+
+  defp trace_value(map, keys) when is_map(map), do: Enum.find_value(keys, &Map.get(map, &1))
+  defp trace_value(_map, _keys), do: nil
+
+  defp numeric_timestamp_sort_key(ms) when is_integer(ms), do: {0, ms}
+  defp numeric_timestamp_sort_key(ms) when is_float(ms), do: {0, trunc(ms)}
+  defp numeric_timestamp_sort_key(_), do: nil
+
+  defp iso8601_timestamp_sort_key(timestamp) do
     case DateTime.from_iso8601(to_string(timestamp || "")) do
       {:ok, dt, _offset} -> {0, DateTime.to_unix(dt, :microsecond)}
       _ -> {1, 0}
     end
   end
-
-  defp tool_call_timestamp_sort_key(_), do: {1, 0}
 
   defp build_body_html(content, []), do: Phoenix.HTML.html_escape(content)
 

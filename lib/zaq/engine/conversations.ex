@@ -18,6 +18,8 @@ defmodule Zaq.Engine.Conversations do
   }
 
   alias Zaq.Accounts.{Person, PersonChannel}
+  alias Zaq.Agent.CitationNormalizer
+  alias Zaq.Agent.StreamEvents
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
   alias Zaq.Utils.EmailUtils
@@ -167,34 +169,69 @@ defmodule Zaq.Engine.Conversations do
   def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result) do
     channel_type = normalize_channel_type(msg.provider)
     channel_user_id = conversation_channel_user_id(msg, channel_type)
+    %{body: assistant_body, sources: assistant_sources} = normalize_assistant_response(result)
 
-    with {:ok, conv} <-
-           get_or_create_conversation_for_channel(
-             channel_user_id,
-             channel_type,
-             nil
-           ),
+    with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, channel_type),
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
          {:ok, conv} <- maybe_assign_person(conv, msg.person_id || Map.get(result, :person_id)),
          {:ok, _} <- add_message(conv, %{role: "user", content: msg.content}),
-         {:ok, _} <-
+         {:ok, assistant_msg} <-
            add_message(conv, %{
              role: "assistant",
-             content: result.answer,
+             content: assistant_body,
              confidence_score: result.confidence_score,
              latency_ms: result.latency_ms,
              prompt_tokens: result.prompt_tokens,
              completion_tokens: result.completion_tokens,
              total_tokens: result.total_tokens,
-             metadata: assistant_metadata(result)
+             model: Map.get(result, :model) || Map.get(result, "model"),
+             sources: assistant_sources,
+             metadata: assistant_metadata(result),
+             trace: assistant_trace(result)
            }) do
-      :ok
+      {:ok, %{conversation_id: conv.id, assistant_message_id: assistant_msg.id}}
     end
   end
 
+  defp conversation_for_persistence(msg, channel_user_id, channel_type) do
+    case metadata_conversation_id(msg.metadata) do
+      id when is_binary(id) and id != "" ->
+        case get_conversation(id) do
+          %Conversation{} = conv -> {:ok, conv}
+          nil -> {:error, :conversation_not_found}
+        end
+
+      _ ->
+        get_or_create_conversation_for_channel(channel_user_id, channel_type, nil)
+    end
+  end
+
+  defp metadata_conversation_id(metadata) when is_map(metadata),
+    do: Map.get(metadata, :conversation_id) || Map.get(metadata, "conversation_id")
+
+  defp metadata_conversation_id(_), do: nil
+
+  defp normalize_assistant_response(result) when is_map(result) do
+    body = Map.get(result, :answer) || Map.get(result, "answer") || ""
+    sources = Map.get(result, :sources) || Map.get(result, "sources") || []
+    CitationNormalizer.normalize(body, sources)
+  end
+
   defp assistant_metadata(result) when is_map(result) do
-    tool_calls = Map.get(result, :tool_calls) || Map.get(result, "tool_calls") || []
-    %{"tool_calls" => tool_calls}
+    %{
+      "measurements" => Map.get(result, :measurements) || Map.get(result, "measurements") || %{},
+      "model" => Map.get(result, :model) || Map.get(result, "model"),
+      "agent" => Map.get(result, :agent) || Map.get(result, "agent")
+    }
+    |> Enum.reject(fn {_key, value} -> value in [nil, %{}] end)
+    |> Map.new()
+    |> StreamEvents.json_safe()
+  end
+
+  defp assistant_trace(result) when is_map(result) do
+    result
+    |> Map.get(:trace, Map.get(result, "trace", []))
+    |> StreamEvents.json_safe()
   end
 
   defp touch_conversation(%Conversation{} = conv) do

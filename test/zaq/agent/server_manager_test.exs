@@ -1467,7 +1467,7 @@ defmodule Zaq.Agent.ServerManagerTest do
                    configured_agent,
                    timeout: 15_000
                  ) do
-              {:ok, request} -> Factory.await(request, timeout: 20_000)
+              {:ok, %{request: request}} -> Factory.await(request, timeout: 20_000)
               error -> error
             end
           catch
@@ -1504,7 +1504,7 @@ defmodule Zaq.Agent.ServerManagerTest do
   defp ask_and_await_with_retry(server_ref, configured_agent, content, attempts_left)
        when attempts_left > 0 do
     result =
-      with {:ok, request} <-
+      with {:ok, %{request: request}} <-
              Factory.ask_with_config(server_ref, content, configured_agent, timeout: 15_000),
            {:ok, _answer} = ok <- Factory.await(request, timeout: 20_000) do
         ok

@@ -5,8 +5,4 @@ defmodule Zaq.Agent.SupervisorTest do
     registry = Jido.registry_name(Zaq.Agent.Jido)
     assert is_pid(Process.whereis(registry))
   end
-
-  test "jido telemetry bridge is started" do
-    assert is_pid(Process.whereis(Zaq.Agent.JidoTelemetryBridge))
-  end
 end

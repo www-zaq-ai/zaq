@@ -14,7 +14,8 @@ defmodule Zaq.Agent.Executor do
   - Agent selection and per-run overrides (for example temporary
     `:system_prompt`).
   - Server orchestration through `Zaq.Agent.ServerManager.ensure_server/2`.
-  - Query execution via `Zaq.Agent.Factory.ask_with_config/4` and await.
+  - Query execution via `Zaq.Agent.Factory.ask_with_config/4` and
+    `Zaq.Agent.StreamEvents.consume/3`.
   - User-facing side effects: typing signal (Channels API through
     `Zaq.NodeRouter`) and answering status broadcasts (`Zaq.Agent.Status`).
   - Observability: execution counters, latency/confidence metrics, and
@@ -30,12 +31,20 @@ defmodule Zaq.Agent.Executor do
   require Logger
 
   alias Zaq.Agent
-  alias Zaq.Agent.{Answering, ErrorMessage, Factory, LogprobsAnalyzer, ServerManager}
+
+  alias Zaq.Agent.{
+    Answering,
+    ErrorMessage,
+    Factory,
+    LogprobsAnalyzer,
+    ServerManager,
+    StreamEvents
+  }
+
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
   alias Zaq.Utils.DateUtils
-  import Zaq.Engine.Messages, only: [present_message_id?: 1, request_key: 1]
 
   @doc """
   Derives a stable scope string from an incoming message used to key the Jido agent server.
@@ -92,8 +101,9 @@ defmodule Zaq.Agent.Executor do
 
   Loads the configured agent (or the default answering agent when no `:agent_id` opt is
   given), ensures its Jido server is running, sends a typing indicator, submits the
-  question via `Factory.ask_with_config/4`, waits up to 45 s for the answer, then
-  records telemetry and returns a normalized `Outgoing.t()`.
+  question via `Factory.ask_with_config/4`, consumes stream events for realtime
+  updates and trace capture, then records telemetry and returns a normalized
+  `Outgoing.t()`.
 
   On any `{:error, reason}` in the pipeline the error is logged, an error telemetry
   event is emitted, and a safe fallback `Outgoing.t()` is returned — this function
@@ -127,8 +137,6 @@ defmodule Zaq.Agent.Executor do
       |> Keyword.get(:question, incoming.content)
       |> timestamp_question()
 
-    initial_request_id = request_id_from_incoming(incoming)
-
     result =
       with {:ok, configured_agent} <- selected_agent_result,
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
@@ -148,7 +156,7 @@ defmodule Zaq.Agent.Executor do
                node_router(opts)
              ),
            %Incoming{} = incoming <- normalize_status_result(status_result, incoming),
-           {:ok, request} <-
+           {:ok, %{request: _request, events: events}} <-
              factory_module.ask_with_config(server_id, question, configured_agent,
                tool_context: %{
                  incoming: incoming,
@@ -157,27 +165,25 @@ defmodule Zaq.Agent.Executor do
                  source_filter: Keyword.get(opts, :source_filter),
                  skip_permissions: Keyword.get(opts, :skip_permissions, false),
                  node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
-               },
-               extra_refs: %{
-                 zaq_status_context: %{
-                   request_id: initial_request_id,
-                   incoming: incoming,
-                   node_router: node_router(opts),
-                   telemetry_dimensions: dims
-                 },
-                 zaq_tool_trace_context: tool_trace_context(incoming)
                }
              ),
-           # With tool calling, multiple turns can occur in a single request, high timeout avoids false negatives
-           {:ok, answer} <- factory_module.await(request, timeout: 320_000) do
-        tool_calls = collect_tool_calls(incoming)
+           {:ok, stream_result} <-
+             StreamEvents.consume(events, incoming,
+               started_at: started_at,
+               server_id: server_id,
+               agent: configured_agent,
+               node_router: node_router(opts),
+               status_module: status_mod(opts)
+             ) do
+        incoming = stream_result.incoming
+        answer = %{result: stream_result.answer, usage: stream_result.usage}
 
         confidence =
           LogprobsAnalyzer.confidence_from_metadata_or_nil(%{
             logprobs: LogprobsAnalyzer.from_response(answer)
           })
 
-        result = success_result(answer, configured_agent, started_at, confidence, tool_calls)
+        result = success_result(answer, configured_agent, confidence, stream_result)
         :ok = record_success_telemetry(result, dims)
         Outgoing.from_pipeline_result(incoming, result)
       else
@@ -233,21 +239,26 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp success_result(answer, configured_agent, started_at, confidence, tool_calls) do
+  defp success_result(answer, configured_agent, confidence, stream_result) do
     answer_text = normalize_answer(answer)
-    metrics = extract_metrics(answer, started_at)
+    measurements = Map.get(stream_result, :measurements, %{}) || %{}
 
     %{
       answer: answer_text,
-      confidence_score: confidence || metrics.confidence_score,
-      latency_ms: metrics.latency_ms,
-      prompt_tokens: metrics.prompt_tokens,
-      completion_tokens: metrics.completion_tokens,
-      total_tokens: metrics.total_tokens,
+      confidence_score: confidence,
+      latency_ms: measurement_value(measurements, "latency_ms"),
+      prompt_tokens: measurement_value(measurements, "prompt_tokens"),
+      completion_tokens: measurement_value(measurements, "completion_tokens"),
+      total_tokens: measurement_value(measurements, "total_tokens"),
       error: false,
       configured_agent_id: configured_agent.id,
       configured_agent_name: configured_agent.name,
-      tool_calls: tool_calls,
+      agent: stream_result.agent,
+      model: stream_result.model,
+      measurements: measurements,
+      termination_reason: stream_result.termination_reason,
+      tool_calls: stream_result.tool_calls,
+      trace: stream_result.trace,
       sources: []
     }
   end
@@ -275,31 +286,8 @@ defmodule Zaq.Agent.Executor do
   defp normalize_answer(answer) when is_binary(answer), do: answer
   defp normalize_answer(other), do: inspect(other)
 
-  defp extract_metrics(answer, started_at) do
-    usage = find_usage(answer)
-
-    %{
-      latency_ms: System.monotonic_time(:millisecond) - started_at,
-      prompt_tokens: usage_value(usage, [:prompt_tokens, :input_tokens]),
-      completion_tokens: usage_value(usage, [:completion_tokens, :output_tokens]),
-      total_tokens: usage_value(usage, [:total_tokens]),
-      confidence_score: nil
-    }
-  end
-
-  defp find_usage(%{usage: usage}) when is_map(usage), do: usage
-  defp find_usage(%{"usage" => usage}) when is_map(usage), do: usage
-  defp find_usage(%{result: result}), do: find_usage(result)
-  defp find_usage(%{"result" => result}), do: find_usage(result)
-  defp find_usage(_), do: %{}
-
-  defp usage_value(usage, keys) do
-    Enum.find_value(keys, fn key ->
-      case Map.get(usage, key) || Map.get(usage, to_string(key)) do
-        value when is_integer(value) -> value
-        _ -> nil
-      end
-    end)
+  defp measurement_value(measurements, key) when is_map(measurements) do
+    Map.get(measurements, key) || Map.get(measurements, String.to_atom(key))
   end
 
   defp record_success_telemetry(result, dims) do
@@ -309,6 +297,8 @@ defmodule Zaq.Agent.Executor do
     if is_integer(result.latency_ms),
       do: Telemetry.record("qa.answer.latency_ms", result.latency_ms, dims),
       else: :ok
+
+    :ok = record_token_telemetry(result.measurements, dims)
 
     if is_number(result.confidence_score) do
       :ok = Telemetry.record("qa.answer.confidence", result.confidence_score, dims)
@@ -325,6 +315,35 @@ defmodule Zaq.Agent.Executor do
       :ok
     end
   end
+
+  defp record_token_telemetry(measurements, dims) when is_map(measurements) do
+    :ok =
+      maybe_record_token_metric(
+        "qa.tokens.prompt",
+        measurement_value(measurements, "prompt_tokens"),
+        dims
+      )
+
+    :ok =
+      maybe_record_token_metric(
+        "qa.tokens.completion",
+        measurement_value(measurements, "completion_tokens"),
+        dims
+      )
+
+    maybe_record_token_metric(
+      "qa.tokens.total",
+      measurement_value(measurements, "total_tokens"),
+      dims
+    )
+  end
+
+  defp record_token_telemetry(_measurements, _dims), do: :ok
+
+  defp maybe_record_token_metric(_metric_key, value, _dims) when not is_integer(value), do: :ok
+
+  defp maybe_record_token_metric(metric_key, value, dims),
+    do: Telemetry.record(metric_key, value, dims)
 
   defp normalize_status_result(%Incoming{} = updated_incoming, _fallback_incoming),
     do: updated_incoming
@@ -382,34 +401,5 @@ defmodule Zaq.Agent.Executor do
 
   defp status_mod(opts) do
     Keyword.get(opts, :status_module, Zaq.Agent.Status)
-  end
-
-  defp tool_trace_context(%Incoming{} = incoming) do
-    request_id = request_id_from_incoming(incoming)
-
-    if present_message_id?(request_id) do
-      %{request_id: request_id, collector_pid: self()}
-    else
-      nil
-    end
-  end
-
-  defp collect_tool_calls(%Incoming{} = incoming) do
-    request_id = request_id_from_incoming(incoming)
-
-    if present_message_id?(request_id) do
-      receive do
-        {:zaq_tool_traces, ^request_id, traces} when is_list(traces) -> traces
-      after
-        # The message is supposed to be already in the mailbox at this stage
-        50 -> []
-      end
-    else
-      []
-    end
-  end
-
-  defp request_id_from_incoming(%Incoming{} = incoming) do
-    request_key(incoming)
   end
 end

@@ -4,8 +4,6 @@ defmodule Zaq.Agent.ExecutorTest do
   doctest Zaq.Agent.Executor
 
   alias Zaq.Agent.Executor
-  alias Zaq.Agent.Factory
-  alias Zaq.Agent.JidoTelemetryBridge
   alias Zaq.Engine.Messages.Incoming
 
   defmodule StubAgent do
@@ -20,133 +18,14 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule StubFactory do
-    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, _opts), do: {:ok, %{result: "stubbed answer"}}
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
-  end
-
-  defmodule StubFactoryWithToolTrace do
-    def ask_with_config(_server, _content, _configured_agent, opts \\ []) do
-      extra_refs = Keyword.get(opts, :extra_refs, %{})
-      trace_ctx = Map.get(extra_refs, :zaq_tool_trace_context)
-      status_ctx = Map.get(extra_refs, :zaq_status_context)
-      mode = Process.get(:stub_tool_trace_mode, :direct)
-
-      if is_map(trace_ctx) do
-        send(self(), {:trace_ctx, trace_ctx})
-        Process.put(:stub_trace_request_id, trace_ctx[:request_id])
-      end
-
-      if is_map(status_ctx) do
-        send(self(), {:status_ctx, status_ctx})
-      end
-
-      if mode == :runtime_topology do
-        Factory.on_before_cmd(%{}, {:ai_react_start, %{extra_refs: extra_refs}})
-        emit_runtime_topology_events(trace_ctx)
-      end
-
-      {:ok, :request}
-    end
-
-    def await(:request, _opts) do
-      request_id = Process.get(:stub_trace_request_id)
-
-      if Process.get(:stub_tool_trace_mode, :direct) == :direct do
-        send(self(), {:zaq_tool_traces, request_id, [%{tool_name: "read_file", status: "ok"}]})
-      end
-
-      {:ok, %{result: "stubbed answer"}}
-    end
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
+      do: {:ok, %{request: :request, events: [completed_event("stubbed answer")]}}
 
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
 
-    defp emit_runtime_topology_events(%{request_id: request_id}) do
-      parent = self()
-
-      task =
-        Task.async(fn ->
-          :ok =
-            JidoTelemetryBridge.handle_event(
-              [:jido, :ai, :tool, :start],
-              %{},
-              %{tool_call_id: "tool-1", tool_name: "mcp__read_file"},
-              %{}
-            )
-
-          :ok =
-            JidoTelemetryBridge.handle_event(
-              [:jido, :ai, :tool, :execute, :stop],
-              %{duration_ms: 8},
-              %{
-                request_id: request_id,
-                tool_call_id: "tool-1",
-                tool_name: "mcp__read_file",
-                args: %{path: "README.md"},
-                result: %{ok: true}
-              },
-              %{}
-            )
-
-          :ok =
-            JidoTelemetryBridge.handle_event(
-              [:jido, :ai, :request, :complete],
-              %{},
-              %{request_id: request_id},
-              %{}
-            )
-
-          send(parent, :stub_runtime_topology_done)
-        end)
-
-      Task.await(task, 1_000)
-
-      receive do
-        :stub_runtime_topology_done -> :ok
-      after
-        1_000 -> :ok
-      end
+    defp completed_event(result, usage \\ %{}) do
+      %{kind: :request_completed, at_ms: 10, data: %{result: result, usage: usage}}
     end
-
-    defp emit_runtime_topology_events(_), do: :ok
-  end
-
-  defmodule StubFactoryWithIntegerToolTrace do
-    def ask_with_config(_server, _content, _configured_agent, opts \\ []) do
-      extra_refs = Keyword.get(opts, :extra_refs, %{})
-      trace_ctx = Map.get(extra_refs, :zaq_tool_trace_context)
-
-      if is_map(trace_ctx) do
-        send(self(), {:trace_ctx, trace_ctx})
-        Process.put(:stub_trace_request_id, trace_ctx[:request_id])
-      end
-
-      {:ok, :request}
-    end
-
-    def await(:request, _opts) do
-      request_id = Process.get(:stub_trace_request_id)
-      send(self(), {:zaq_tool_traces, request_id, [%{tool_name: "read_file", status: "ok"}]})
-      {:ok, %{result: "stubbed answer"}}
-    end
-
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
-  end
-
-  defmodule StubFactoryNoToolTrace do
-    def ask_with_config(_server, _content, _configured_agent, opts \\ []) do
-      extra_refs = Keyword.get(opts, :extra_refs, %{})
-      trace_ctx = Map.get(extra_refs, :zaq_tool_trace_context)
-
-      if is_map(trace_ctx) do
-        send(self(), {:trace_ctx, trace_ctx})
-      end
-
-      {:ok, :request}
-    end
-
-    def await(:request, _opts), do: {:ok, %{result: "stubbed answer"}}
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
   defmodule CoverageStubAgent do
@@ -167,18 +46,40 @@ defmodule Zaq.Agent.ExecutorTest do
         :coverage_ask,
         content,
         configured_agent,
-        Keyword.get(opts, :tool_context),
-        Keyword.get(opts, :extra_refs)
+        Keyword.get(opts, :tool_context)
       })
 
-      {:ok, :coverage_request}
-    end
+      case Process.get(:coverage_await_result, {:ok, %{result: "stubbed answer"}}) do
+        {:ok, response} ->
+          {:ok, %{request: :coverage_request, events: [completed_event(response)]}}
 
-    def await(:coverage_request, _opts),
-      do: Process.get(:coverage_await_result, {:ok, %{result: "stubbed answer"}})
+        {:error, reason} ->
+          {:ok, %{request: :coverage_request, events: [failed_event(reason)]}}
+      end
+    end
 
     def answering_configured_agent,
       do: %{id: :answering, name: "answering", job: "Configured job"}
+
+    defp completed_event(%{result: result, usage: usage}) do
+      %{kind: :request_completed, at_ms: 10, data: %{result: result, usage: usage}}
+    end
+
+    defp completed_event(%{"result" => %{"usage" => usage}} = result) do
+      %{kind: :request_completed, at_ms: 10, data: %{result: result, usage: usage}}
+    end
+
+    defp completed_event(%{result: result}) do
+      %{kind: :request_completed, at_ms: 10, data: %{result: result}}
+    end
+
+    defp completed_event(result) do
+      %{kind: :request_completed, at_ms: 10, data: %{result: result}}
+    end
+
+    defp failed_event(reason) do
+      %{kind: :request_failed, at_ms: 10, data: %{error: reason}}
+    end
   end
 
   defmodule CoverageStubStatus do
@@ -283,22 +184,34 @@ defmodule Zaq.Agent.ExecutorTest do
       def answering_configured_agent,
         do: %Zaq.Agent.ConfiguredAgent{id: :answering, name: "answering", strategy: "react"}
 
-      def ask_with_config(_server_id, _query, _agent, _opts \\ []), do: {:ok, make_ref()}
-      def await(_ref, _opts), do: {:ok, "hi"}
+      def ask_with_config(_server_id, _query, _agent, _opts \\ []),
+        do: {:ok, %{request: make_ref(), events: [completed_event("hi")]}}
+
       def runtime_config(_agent), do: {:ok, %{system_prompt: "", tools: [], llm_opts: []}}
+
+      defp completed_event(result) do
+        %{kind: :request_completed, at_ms: 10, data: %{result: result}}
+      end
     end
 
     defmodule StubFactoryWithUsage do
       def answering_configured_agent,
         do: %Zaq.Agent.ConfiguredAgent{id: :answering, name: "answering", strategy: "react"}
 
-      def ask_with_config(_server_id, _query, _agent, _opts \\ []), do: {:ok, make_ref()}
-
-      def await(_ref, _opts) do
+      def ask_with_config(_server_id, _query, _agent, _opts \\ []) do
         {:ok,
          %{
-           result: "the answer",
-           usage: %{prompt_tokens: 50, completion_tokens: 25, total_tokens: 75}
+           request: make_ref(),
+           events: [
+             %{
+               kind: :request_completed,
+               at_ms: 10,
+               data: %{
+                 result: "the answer",
+                 usage: %{prompt_tokens: 50, completion_tokens: 25, total_tokens: 75}
+               }
+             }
+           ]
          }}
       end
 
@@ -388,237 +301,6 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
-  describe "run/2 tool trace metadata" do
-    test "adds tool_calls from telemetry message" do
-      incoming = %Incoming{
-        content: "hello",
-        channel_id: "bo-test",
-        provider: :web,
-        message_id: "req-123",
-        metadata: %{request_id: "req-123"}
-      }
-
-      outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryWithIntegerToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      assert_received {:trace_ctx, %{request_id: "req-123", collector_pid: pid}}
-      assert pid == self()
-      assert outgoing.metadata[:tool_calls] == [%{tool_name: "read_file", status: "ok"}]
-    end
-
-    test "injects canonical incoming telemetry dimensions plus execution fields in status context" do
-      incoming =
-        Incoming.new(%{
-          content: "hello",
-          channel_id: "bo-test",
-          provider: :web,
-          message_id: "req-124",
-          metadata: %{request_id: "req-124"}
-        })
-
-      _outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryWithToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      assert_received {:status_ctx, %{telemetry_dimensions: dims}}
-      assert dims[:channel_type] == "bo"
-      assert dims[:channel_config_id] == "unknown"
-      assert dims[:execution_path] == "custom_agent"
-      assert dims[:configured_agent_id] == 77
-      assert dims[:configured_agent_name] == "Stub Agent"
-    end
-
-    test "keeps atom telemetry keys and ignores unsupported key types" do
-      incoming = %Incoming{
-        content: "hello",
-        channel_id: "bo-test",
-        provider: :web,
-        message_id: "req-atom",
-        metadata: %{
-          "telemetry_dimensions" => %{
-            "channel_config_id" => "123",
-            {1, 2} => "ignored",
-            channel_type: "bo"
-          },
-          request_id: "req-atom"
-        }
-      }
-
-      _outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryWithToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      assert_received {:status_ctx, %{telemetry_dimensions: dims}}
-      assert dims[:channel_type] == "bo"
-      assert dims[:channel_config_id] == "123"
-      refute Map.has_key?(dims, {1, 2})
-    end
-
-    test "does not inject trace context when message_id is blank and collects no tool calls" do
-      incoming = %Incoming{
-        content: "hello",
-        channel_id: "bo-test",
-        provider: :web,
-        message_id: "",
-        metadata: %{}
-      }
-
-      outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryNoToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      refute_received {:trace_ctx, _}
-      assert outgoing.metadata[:tool_calls] == []
-    end
-
-    test "falls back to message_id when metadata request_id is missing" do
-      incoming = %Incoming{
-        content: "hello",
-        channel_id: "bo-test",
-        provider: :web,
-        message_id: 52,
-        metadata: %{}
-      }
-
-      outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryNoToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      assert_received {:trace_ctx, %{request_id: 52, collector_pid: pid}}
-      assert pid == self()
-      assert outgoing.metadata[:tool_calls] == []
-    end
-
-    test "falls back to message_id when metadata request_id is blank" do
-      incoming = %Incoming{
-        content: "hello",
-        channel_id: "bo-test",
-        provider: :web,
-        message_id: "req-blank-fallback",
-        metadata: %{request_id: ""}
-      }
-
-      outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryNoToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      assert_received {:trace_ctx, %{request_id: "req-blank-fallback", collector_pid: pid}}
-      assert pid == self()
-      assert outgoing.metadata[:tool_calls] == []
-    end
-
-    test "adds tool_calls from telemetry message when message_id is integer" do
-      incoming = %Incoming{
-        content: "hello",
-        channel_id: "bo-test",
-        provider: :web,
-        message_id: 52,
-        metadata: %{request_id: 52}
-      }
-
-      outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryWithToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      assert_received {:trace_ctx, %{request_id: 52, collector_pid: pid}}
-      assert pid == self()
-      assert outgoing.metadata[:tool_calls] == [%{tool_name: "read_file", status: "ok"}]
-    end
-
-    test "runtime bridge topology collects tool_calls for integer request_id" do
-      Process.put(:stub_tool_trace_mode, :runtime_topology)
-
-      on_exit(fn ->
-        Process.delete(:stub_tool_trace_mode)
-        Process.delete(:zaq_status_context)
-        Process.delete(:zaq_tool_trace_context)
-      end)
-
-      incoming = %Incoming{
-        content: "hello",
-        channel_id: "bo-test",
-        provider: :web,
-        message_id: 52,
-        metadata: %{}
-      }
-
-      outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryWithToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      assert [%{tool_call_id: "tool-1", tool_name: "mcp__read_file", status: "ok"} = trace] =
-               outgoing.metadata[:tool_calls]
-
-      assert trace.params == %{"path" => "README.md"}
-      assert trace.response == %{"ok" => true}
-      assert trace.response_time_ms == 8
-    end
-
-    test "uses string-key metadata request_id for tool trace context and collection" do
-      incoming = %Incoming{
-        content: "hello",
-        channel_id: "bo-test",
-        provider: :web,
-        message_id: nil,
-        metadata: %{"request_id" => "req-123"}
-      }
-
-      outgoing =
-        Executor.run(incoming,
-          agent_id: "stub",
-          agent_module: StubAgent,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactoryWithToolTrace,
-          node_router: StubNodeRouter
-        )
-
-      assert_received {:trace_ctx, %{request_id: "req-123", collector_pid: pid}}
-      assert pid == self()
-      assert outgoing.metadata[:tool_calls] == [%{tool_name: "read_file", status: "ok"}]
-    end
-  end
-
   describe "coverage gaps" do
     test "derive_scope supports binary provider normalization" do
       incoming = %Incoming{
@@ -644,7 +326,7 @@ defmodule Zaq.Agent.ExecutorTest do
         system_prompt: "temporary job override"
       )
 
-      assert_received {:coverage_ask, _content, configured_agent, _tool_context, _extra_refs}
+      assert_received {:coverage_ask, _content, configured_agent, _tool_context}
       assert configured_agent.job == "temporary job override"
       assert configured_agent.name == "Stub Agent"
     end
@@ -736,9 +418,8 @@ defmodule Zaq.Agent.ExecutorTest do
         )
 
       assert outgoing.metadata[:error] == false
-      assert_received {:coverage_ask, _content, _configured_agent, tool_context, extra_refs}
+      assert_received {:coverage_ask, _content, _configured_agent, tool_context}
       assert tool_context.incoming == incoming
-      assert extra_refs.zaq_status_context.incoming == incoming
     end
 
     test "error telemetry classifies tuple and struct reasons" do
@@ -781,7 +462,7 @@ defmodule Zaq.Agent.ExecutorTest do
       )
 
       assert_received {:coverage_ask, {:raw_question, "keep as-is"}, _configured_agent,
-                       _tool_context, _extra_refs}
+                       _tool_context}
     end
   end
 end
