@@ -11,24 +11,28 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
   alias Zaq.UserPortal.Onboarding
 
+  require Logger
+
   @impl true
   def mount(socket) do
-    # Reachability + metadata are fetched exactly once, when the component is
-    # first added to the page — never again on parent re-renders.
-    {portal_reachable, portal_metadata} = load_portal_onboarding()
-
+    # Defaults only — the portal is never contacted from mount. Reaching the
+    # portal here would block the BO header (and therefore every BO page) on a
+    # synchronous HTTP call. Metadata is fetched asynchronously, once, after the
+    # socket connects (see maybe_load_portal/1 + handle_async/3).
     {:ok,
      assign(socket,
-       portal_reachable: portal_reachable,
-       portal_metadata: portal_metadata,
-       plan_enabled: plan_enabled?(portal_metadata),
-       plan_available: plan_available?(portal_metadata),
+       portal_reachable: false,
+       portal_checked: false,
+       portal_loaded: false,
+       portal_metadata: nil,
+       plan_enabled: false,
+       plan_available: false,
+       show_portal_banner: false,
        show_portal_consent_modal: false,
        show_post_accept_modal: false,
        portal_consent_accepted: false,
        portal_provision_error: nil,
-       allow_email_override: false,
-       decline_only: false
+       allow_email_override: false
      )}
   end
 
@@ -38,16 +42,71 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
      socket
      |> assign(:id, id)
      |> assign(:current_user, current_user)
-     |> assign(
-       :show_portal_banner,
-       not socket.assigns.portal_consent_accepted and
-         socket.assigns.portal_reachable and
-         socket.assigns.plan_enabled and
-         socket.assigns.plan_available and
-         current_user.portal_consent == "declined"
-     )
+     |> maybe_load_portal()
+     |> assign_banner()
      |> assign(:require_portal_email, blank?(current_user.email))
      |> assign_new(:portal_consent_email, fn -> current_user.email || "" end)}
+  end
+
+  # Kicks off the portal metadata fetch exactly once, and only on a connected
+  # socket. The dead (static) render and every later parent re-render skip it,
+  # so page loads never wait on the portal. When the portal is unreachable the
+  # banner simply never appears — the rest of ZAQ is unaffected.
+  #
+  # The fetch is also gated on banner eligibility: the banner can only ever show
+  # to a user whose consent is "declined". Users who already accepted (or never
+  # declined) never see it, so we never call the portal for them.
+  defp maybe_load_portal(socket) do
+    if connected?(socket) and not socket.assigns.portal_loaded and
+         banner_eligible?(socket.assigns.current_user) do
+      socket
+      |> assign(:portal_loaded, true)
+      |> start_async(:load_portal, fn -> portal_client().fetch_onboarding("free") end)
+    else
+      socket
+    end
+  end
+
+  # Only a user who explicitly declined can be shown the re-activation banner.
+  defp banner_eligible?(current_user), do: current_user.portal_consent == "declined"
+
+  @impl true
+  def handle_async(:load_portal, {:ok, result}, socket) do
+    {portal_reachable, portal_metadata} =
+      case result do
+        {:ok, metadata} -> {true, metadata}
+        :unavailable -> {false, nil}
+      end
+
+    {:noreply,
+     socket
+     |> assign(
+       portal_reachable: portal_reachable,
+       portal_checked: true,
+       portal_metadata: portal_metadata,
+       plan_enabled: plan_enabled?(portal_metadata),
+       plan_available: plan_available?(portal_metadata)
+     )
+     |> assign_banner()}
+  end
+
+  def handle_async(:load_portal, {:exit, reason}, socket) do
+    Logger.warning("Portal onboarding fetch failed: #{inspect(reason)}")
+    {:noreply, assign(socket, portal_reachable: false, portal_checked: true)}
+  end
+
+  defp assign_banner(socket) do
+    %{assigns: a} = socket
+
+    assign(
+      socket,
+      :show_portal_banner,
+      not a.portal_consent_accepted and
+        a.portal_reachable and
+        a.plan_enabled and
+        a.plan_available and
+        a.current_user.portal_consent == "declined"
+    )
   end
 
   @impl true
@@ -89,7 +148,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
       </div>
 
       <div
-        :if={not @portal_reachable}
+        :if={@portal_checked and not @portal_reachable}
         class="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2"
       >
         <svg
@@ -118,7 +177,6 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
         on_email_change="portal_consent_email_change"
         available={@plan_available}
         error={@portal_provision_error}
-        decline_only={@decline_only}
       />
 
       <ZaqWeb.Components.PortalConsentModal.portal_post_accept_modal
@@ -142,8 +200,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
      assign(socket,
        show_portal_consent_modal: false,
        portal_provision_error: nil,
-       allow_email_override: false,
-       decline_only: false
+       allow_email_override: false
      )}
   end
 
@@ -197,7 +254,6 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
          socket
          |> assign(:portal_provision_error, error_msg)
          |> assign(:show_portal_consent_modal, true)
-         |> assign(:decline_only, mode == :decline_only)
          |> assign(:allow_email_override, mode == :allow_override)
          |> then(fn s ->
            if mode == :allow_override and not socket.assigns.require_portal_email,
@@ -208,7 +264,6 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
   end
 
   # Returns {error_message, mode} where mode is one of:
-  #   :decline_only   — machine already bound to another account; only decline is possible
   #   :allow_override — email conflict; show email input so user can try a different address
   #   :none           — generic error; show message only
   defp provision_error_with_override({409, body}, _require_email) do
@@ -218,11 +273,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
         _ -> "This email is already registered with ZAQ Portal."
       end
 
-    if machine_conflict?(msg) do
-      {msg, :decline_only}
-    else
-      {msg <> " Please use a different email address.", :allow_override}
-    end
+    {msg <> " Please use a different email address.", :allow_override}
   end
 
   # Surface the portal's own message for non-409 errors.
@@ -234,8 +285,6 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
   defp provision_error_with_override(_reason, _require_email) do
     {"Could not reach the ZAQ portal. Please try again later.", :none}
   end
-
-  defp machine_conflict?(message), do: String.contains?(message, "machine")
 
   defp email_error_message(changeset) do
     case changeset.errors[:email] do
@@ -249,13 +298,6 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
 
   defp plan_available?(nil), do: false
   defp plan_available?(metadata), do: Map.get(metadata, "available", false) == true
-
-  defp load_portal_onboarding do
-    case portal_client().fetch_onboarding("free") do
-      {:ok, metadata} -> {true, metadata}
-      :unavailable -> {false, nil}
-    end
-  end
 
   defp portal_client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 

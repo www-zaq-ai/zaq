@@ -3,7 +3,7 @@ defmodule Zaq.Application do
 
   use Application
   alias LLMDB.Generated.ValidModalities
-  alias Zaq.Agent.ZAQProvider
+  alias Zaq.Agent.ZAQRouter
   alias Zaq.Ingestion.FTSBackend
   alias Zaq.Ingestion.ObanTelemetry
   alias Zaq.System.UpdateBadgeWorker
@@ -56,7 +56,7 @@ defmodule Zaq.Application do
         # Forces ValidModalities to load so all modality atoms exist in the VM
         # before LLMDB.load/0 calls String.to_existing_atom/1 on the snapshot.
         _ = ValidModalities.list()
-        LLMDB.load(ZAQProvider.llmdb_opts())
+        LLMDB.load(ZAQRouter.llmdb_opts())
         ok
 
       other ->

@@ -289,7 +289,7 @@ async function createE2EDeclinedPortalUser(request, attrs = {}, options = {}) {
   return res.json();
 }
 
-// Pre-register a conflicting email and/or machine fingerprint.
+// Pre-register a conflicting email.
 // The next portal_onboard call with that value returns a real 409.
 // Conflicts are cleared by POST /e2e/reset.
 async function registerE2EPortalConflict(request, attrs = {}, options = {}) {
@@ -310,17 +310,6 @@ async function setE2EPortalOffline(request, offline = true, options = {}) {
     throw new Error(`/e2e/portal/offline returned ${res.status()} ${await res.text()}`);
   }
   return res.json();
-}
-
-// Returns the machine fingerprint the E2E server sends to the portal stub.
-// Use in fingerprint-conflict specs to seed the right value.
-async function getE2EMachineFingerprint(request, options = {}) {
-  const baseURL = normalizeBaseURL(options.baseURL);
-  const res = await request.get(`${baseURL}/e2e/machine-fingerprint`);
-  if (!res.ok()) {
-    throw new Error(`/e2e/machine-fingerprint returned ${res.status()} ${await res.text()}`);
-  }
-  return (await res.json()).fingerprint;
 }
 
 async function getE2EZAQRouterCredential(request, options = {}) {
@@ -353,7 +342,6 @@ module.exports = {
   createE2EDeclinedPortalUser,
   registerE2EPortalConflict,
   setE2EPortalOffline,
-  getE2EMachineFingerprint,
   getE2EZAQRouterCredential,
   pickSearchableSelect,
   createAiCredential,

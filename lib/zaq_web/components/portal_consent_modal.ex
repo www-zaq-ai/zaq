@@ -2,7 +2,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   @moduledoc """
   Dark-themed consent modal for ZAQ portal account provisioning.
 
-  Explains what data is collected (email + machine fingerprint) and why,
+  Explains what data is collected (email + machine signals) and why,
   then lets the user accept or decline. Used during bootstrap onboarding
   and from the dashboard retry banner.
 
@@ -59,12 +59,10 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   attr :email, :string, default: nil
   attr :on_email_change, :string, default: "portal_consent_email_change"
   attr :available, :boolean, default: true
-  attr :decline_only, :boolean, default: false
   attr :target, :any, default: nil
 
   def portal_consent_modal(assigns) do
-    show_email_input =
-      not assigns.decline_only and (assigns.require_email or assigns.allow_email_override)
+    show_email_input = assigns.require_email or assigns.allow_email_override
 
     assigns =
       assigns
@@ -72,8 +70,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
       |> assign(:show_email_input, show_email_input)
       |> assign(
         :accept_disabled,
-        assigns.decline_only or
-          not assigns.available or
+        not assigns.available or
           (show_email_input and not email_entered?(assigns.email))
       )
       |> assign(
@@ -155,7 +152,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
             >
               <rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" />
             </svg>
-            A machine fingerprint (anonymous hardware identifier)
+            Anonymous machine signals (hardware identifiers)
           </li>
         </ul>
 
@@ -224,7 +221,6 @@ defmodule ZaqWeb.Components.PortalConsentModal do
 
         <div class="flex flex-col gap-3">
           <button
-            :if={not @decline_only}
             phx-click={@on_accept}
             phx-target={@target}
             disabled={@accept_disabled}

@@ -52,7 +52,7 @@ defmodule Zaq.UserPortal.Onboarding do
           {:ok, User.t()}
           | {:error, Ecto.Changeset.t()}
   def complete_bootstrap_onboarding(user, attrs, consent)
-      when consent in [:accepted, :declined, :unavailable, :pre_provisioned, :machine_taken] do
+      when consent in [:accepted, :declined, :unavailable, :pre_provisioned] do
     with {:ok, registered_user} <- Accounts.complete_registration(user, attrs) do
       apply_consent(registered_user, consent)
     end
@@ -104,14 +104,6 @@ defmodule Zaq.UserPortal.Onboarding do
   defp fetch_valid_email(%Ecto.Changeset{} = changeset), do: {:error, changeset}
 
   defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
-
-  # Machine fingerprint already registered elsewhere — record permanently so the
-  # dashboard retry banner never appears (the user can't claim from this machine).
-  defp apply_consent(user, :machine_taken) do
-    user
-    |> User.portal_consent_changeset("machine_taken")
-    |> Repo.update()
-  end
 
   defp apply_consent(user, :declined) do
     # Always scaffold the keyless ZAQ Router credential so the provider is listed

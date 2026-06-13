@@ -1,4 +1,4 @@
-defmodule Zaq.Agent.ZAQProvider do
+defmodule Zaq.Agent.ZAQRouter do
   @moduledoc """
   Registers ZAQ Provider as a custom entry in the LLMDB catalog.
 

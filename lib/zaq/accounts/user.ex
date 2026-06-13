@@ -67,7 +67,7 @@ defmodule Zaq.Accounts.User do
   end
 
   def portal_consent_changeset(user, consent)
-      when consent in ["accepted", "declined", "machine_taken"] do
+      when consent in ["accepted", "declined"] do
     change(user, portal_consent: consent)
   end
 

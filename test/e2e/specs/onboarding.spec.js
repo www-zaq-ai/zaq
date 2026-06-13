@@ -8,7 +8,6 @@ const {
   createE2EDeclinedPortalUser,
   registerE2EPortalConflict,
   setE2EPortalOffline,
-  getE2EMachineFingerprint,
   getE2EZAQRouterCredential,
 } = require("../support/bo")
 

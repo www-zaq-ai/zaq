@@ -120,7 +120,9 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       assert is_nil(Zaq.System.get_embedding_config().credential_id)
       assert is_nil(Zaq.System.get_image_to_text_config().credential_id)
 
-      {:ok, _view2, html2} = live(fresh_conn(user), ~p"/bo/dashboard")
+      # Portal metadata is fetched asynchronously after connect, so await it.
+      {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
+      html2 = render_async(view2)
       assert html2 =~ "ZAQ portal is not reachable in this environment"
       refute html2 =~ "Activate"
     end
@@ -198,6 +200,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       assert is_nil(Zaq.System.get_llm_config().credential_id)
 
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
+      render_async(view2)
       assert has_element?(view2, "#portal-consent button", "Activate")
       assert render(view2) =~ "Claim your $2"
 
@@ -231,6 +234,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       stub_onboard_error(409, %{"message" => "A user with this email is already provisioned."})
 
       {:ok, view, _html} = live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/dashboard")
+      render_async(view)
       view |> element("#portal-consent button", "Activate") |> render_click()
       html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
 
@@ -245,6 +249,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       stub_portal_reachable()
 
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
+      render_async(view2)
       view2 |> element("#portal-consent button", "Activate") |> render_click()
       view2 |> element("[phx-click='accept_portal_consent']") |> render_click()
 
@@ -275,6 +280,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       stub_onboard_error(409, %{"message" => "A user with this email is already provisioned."})
 
       {:ok, view, _html} = live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/dashboard")
+      render_async(view)
       view |> element("#portal-consent button", "Activate") |> render_click()
 
       assert has_element?(view, "#portal-consent-email")
@@ -306,40 +312,6 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       credential = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
       assert credential.api_key == @api_key
       assert Zaq.System.get_llm_config().credential_id == credential.id
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Scenario 6 — Machine fingerprint conflict; user closes modal, system survives
-  # ---------------------------------------------------------------------------
-  # Real 409 body with a fingerprint-specific message. Client must extract it.
-  # Closing the modal must not write any DB record.
-  # ---------------------------------------------------------------------------
-
-  describe "Scenario 6 — machine fingerprint conflict; user closes modal, system survives" do
-    test "fingerprint error surfaces in modal; closing leaves system in a clean declined state",
-         %{conn: conn} do
-      user = declined_registered_user(%{username: "i6_#{uid()}", email: @email})
-
-      stub_onboard_error(409, %{
-        "message" => "Machine fingerprint already registered to another account."
-      })
-
-      {:ok, view, _html} = live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/dashboard")
-      assert has_element?(view, "#portal-consent button", "Activate")
-      view |> element("#portal-consent button", "Activate") |> render_click()
-      html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
-
-      assert html =~ "Machine fingerprint already registered"
-
-      view |> element("[phx-click='close_portal_consent_modal']") |> render_click()
-
-      still = Accounts.get_user!(user.id)
-      assert still.portal_consent == "declined"
-      assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
-      assert is_nil(Zaq.System.get_llm_config().credential_id)
-
-      assert has_element?(view, "#portal-consent button", "Activate")
     end
   end
 

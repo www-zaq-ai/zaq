@@ -11,7 +11,7 @@ Onboarding turns a freshly installed ZAQ instance into a usable one by:
 
 1. Forcing the bootstrap admin to set an email + password on first login.
 2. Asking for **consent** to provision a ZAQ Portal account (email + machine
-   fingerprint are sent to the portal).
+   signals are sent to the portal).
 3. On acceptance, **provisioning** the "ZAQ Router" credential with the LiteLLM
    API key returned by the portal, and wiring first-run LLM / embedding /
    image-to-text configs.
@@ -30,7 +30,7 @@ is listed, and the user can retry later from the dashboard banner.
 | `Zaq.UserPortal.ClientBehaviour` | Behaviour resolved via `Application.get_env(:zaq, :user_portal_client, …)`; tests substitute a `Mox` mock. |
 | `Zaq.UserPortal.AccountSync` | Best-effort sync of email changes to the portal for `accepted` users only. |
 | `Zaq.Accounts` | `complete_registration/2` (email + password write) and `bootstrap_admin_pending_onboarding/0` (detects the pending first-run admin). |
-| `Zaq.System.MachineFingerprint` | Stable 32-char hex machine identifier sent to the portal for account binding. |
+| `Zaq.System.MachineSignals` | Collects non-PII machine signals (machine-id, OS, hardware specs) sent to the portal for account de-duplication. |
 
 UI:
 
@@ -57,13 +57,10 @@ Entry point: an admin whose account is still in the pending state.
    - `{:ok, _}` → `complete_bootstrap_onboarding(user, attrs, :pre_provisioned)`
      records consent `"accepted"` (provisioning already done) and shows the
      post-accept modal.
-   - `{:error, {409, machine_fingerprint_taken}}` → machine already bound;
-     surfaces an error and only **decline** remains possible.
    - `{:error, {409, …}}` → email already registered; the modal reveals an
      email-override input so the user can try a different address.
    - other `{:error, _}` → message advising decline + dashboard retry.
-4. **Decline** (`decline_portal_consent`) → consent `:declined`
-   (or `:machine_taken` after a machine-fingerprint conflict).
+4. **Decline** (`decline_portal_consent`) → consent `:declined`.
 5. **`complete_bootstrap_onboarding/3`** writes registration via
    `Accounts.complete_registration/2`, then `apply_consent/2` persists the
    recorded consent and (for declined/unavailable) scaffolds the keyless
@@ -86,8 +83,8 @@ bootstrap. Metadata + reachability are fetched **once** on component mount.
   attempt commits nothing.
 - `entered_email` is used when the user has no email on file, or when they supply
   a non-blank override (the 409 email-correction flow).
-- Errors are mapped to UI modes: `:decline_only` (machine conflict),
-  `:allow_override` (email conflict), or `:none` (generic).
+- Errors are mapped to UI modes: `:allow_override` (email conflict) or
+  `:none` (generic).
 
 ## Consent States
 
@@ -97,7 +94,6 @@ Persisted on `users.portal_consent`:
 | ----- | ------- |
 | `"accepted"` | Provisioned successfully; eligible for `AccountSync` email sync. |
 | `"declined"` | User declined, **or** portal was unreachable (`:unavailable`). Dashboard retry banner remains available. Keyless "ZAQ Router" credential scaffolded. |
-| `"machine_taken"` | Machine fingerprint already bound to another account. Recorded permanently so the retry banner never appears (this machine can't claim). |
 
 ## Provisioning Details (`Provisioner`)
 
@@ -114,8 +110,8 @@ Persisted on `users.portal_consent`:
 
 | Call | Endpoint | Payload / Notes |
 | ---- | -------- | --------------- |
-| `onboard_user/1` | `POST {base}/onboarding` | `{email, machine_fingerprint, plan: "free", network}`. Returns `{:ok, %{litellm_api_key}}` or `{:error, {status, body}}`. |
-| `update_email/1` | `PATCH {base}/account/email` | Bearer = machine fingerprint. Maps 400/401/403/409/422 to atom error codes. |
+| `onboard_user/1` | `POST {base}/onboarding` | `{email, machine_signals, plan: "free", network}`. Returns `{:ok, %{litellm_api_key}}` or `{:error, {status, body}}`. |
+| `update_email/2` | `PATCH {base}/account/email` | Bearer = LiteLLM API key. Maps 400/401/403/409/422 to atom error codes. |
 | `fetch_onboarding/1` | `GET {base}/onboarding/:slug` | Any failure (refused/timeout/non-200/5xx) returns `:unavailable`. |
 
 - Base URL: `Application.fetch_env!(:zaq, :user_portal_base_url)`.

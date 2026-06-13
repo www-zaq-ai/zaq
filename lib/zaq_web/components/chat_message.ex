@@ -103,7 +103,7 @@ defmodule ZaqWeb.Components.ChatMessage do
                 <%!-- Budget exceeded: prompt user to top up wallet via portal --%>
                 <div class="mt-1 p-3 bg-green-50 border border-green-200 rounded-lg">
                   <p class="text-[0.8rem] text-green-800 mb-3">
-                    Top up your wallet to continue using ZAQ AI Provider.
+                    Top up your wallet to continue using ZAQ Router.
                   </p>
                   <a
                     href={@portal_url}
@@ -462,98 +462,6 @@ defmodule ZaqWeb.Components.ChatMessage do
   end
 
   # ---------------------------------------------------------------------------
-  # Tool calls popin component
-  # ---------------------------------------------------------------------------
-
-  attr :visible, :boolean, default: false
-  attr :message_id, :string, default: nil
-  attr :tool_calls, :list, default: []
-  attr :expanded_ids, :any, default: nil
-  attr :close_event, :string, required: true
-  attr :toggle_event, :string, required: true
-
-  def tool_calls_popin(assigns) do
-    assigns =
-      assigns
-      |> assign_new(:expanded_ids, fn -> MapSet.new() end)
-      |> assign(:tool_calls_count, length(assigns.tool_calls || []))
-
-    ~H"""
-    <div
-      :if={@visible and is_binary(@message_id)}
-      class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
-      data-testid="tool-calls-popin"
-    >
-      <div class="bg-white rounded-2xl shadow-2xl p-5 w-[min(800px,95vw)] max-h-[85vh] border border-black/10 overflow-hidden">
-        <div class="flex items-center justify-between mb-3">
-          <p class="font-mono text-sm font-bold text-[#2c3a50]">
-            Tool calls ({@tool_calls_count})
-          </p>
-          <button
-            type="button"
-            phx-click={@close_event}
-            class="font-mono text-[0.72rem] px-2 py-1 rounded-md border border-black/10 text-black/60 hover:bg-black/5"
-          >
-            Close
-          </button>
-        </div>
-
-        <div class="overflow-y-auto pr-1" style="max-height: calc(85vh - 90px);">
-          <ul class="space-y-2">
-            <li
-              :for={tc <- sort_tool_calls_chronologically(@tool_calls)}
-              class="border border-[#e8e6e1] rounded-xl overflow-hidden"
-            >
-              <button
-                type="button"
-                phx-click={@toggle_event}
-                phx-value-tool_id={tool_call_id(tc)}
-                class="w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-[#faf9f7]"
-                data-testid={"tool-call-row-#{tool_call_id(tc)}"}
-              >
-                <span class="font-mono text-[0.75rem] text-[#2c2b28] truncate">
-                  {friendly_tool_name(Map.get(tc, :tool_name) || Map.get(tc, "tool_name"))}
-                </span>
-                <span class="font-mono text-[0.62rem] text-[#9e9b94]">
-                  {format_response_time(
-                    Map.get(tc, :response_time_ms) || Map.get(tc, "response_time_ms")
-                  )}
-                </span>
-              </button>
-
-              <div
-                :if={MapSet.member?(@expanded_ids, tool_call_id(tc))}
-                class="px-3 pb-3 pt-1 bg-[#fcfcfb] border-t border-[#f0ede8]"
-                data-testid={"tool-call-details-#{tool_call_id(tc)}"}
-              >
-                <p class="font-mono text-[0.68rem] text-[#7f7c76]">
-                  <span class="font-bold">Timestamp:</span>
-                  {format_detail_value(Map.get(tc, :timestamp) || Map.get(tc, "timestamp"))}
-                </p>
-                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2 mb-1">
-                  <span class="font-bold">Params</span>
-                </p>
-                <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(Map.get(tc, :params) || Map.get(tc, "params"))}</pre>
-                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2 mb-1">
-                  <span class="font-bold">Response</span>
-                </p>
-                <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(Map.get(tc, :response) || Map.get(tc, "response"))}</pre>
-                <p class="font-mono text-[0.68rem] text-[#7f7c76] mt-2">
-                  <span class="font-bold">Response time:</span>
-                  {format_response_time(
-                    Map.get(tc, :response_time_ms) || Map.get(tc, "response_time_ms")
-                  )}
-                </p>
-              </div>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  # ---------------------------------------------------------------------------
   # Source card component
   # ---------------------------------------------------------------------------
 
@@ -845,44 +753,6 @@ defmodule ZaqWeb.Components.ChatMessage do
       _ -> inspect(value, pretty: true, limit: :infinity)
     end
   end
-
-  defp friendly_tool_name(tool_name) when is_binary(tool_name) and tool_name != "" do
-    tool_name
-    |> String.replace(~r/[_\.]+/, " ")
-    |> String.trim()
-    |> String.split(" ", trim: true)
-    |> Enum.map_join(" ", &String.capitalize/1)
-  end
-
-  defp friendly_tool_name(_), do: "Unknown tool"
-
-  defp tool_call_id(tc) do
-    id =
-      Map.get(tc, :tool_call_id) ||
-        Map.get(tc, "tool_call_id") ||
-        Map.get(tc, :timestamp) ||
-        Map.get(tc, "timestamp") ||
-        inspect(tc)
-
-    if is_binary(id), do: id, else: inspect(id)
-  end
-
-  defp sort_tool_calls_chronologically(tool_calls) when is_list(tool_calls) do
-    Enum.sort_by(tool_calls, &tool_call_timestamp_sort_key/1, :asc)
-  end
-
-  defp sort_tool_calls_chronologically(_), do: []
-
-  defp tool_call_timestamp_sort_key(tc) when is_map(tc) do
-    timestamp = Map.get(tc, :timestamp) || Map.get(tc, "timestamp")
-
-    case DateTime.from_iso8601(to_string(timestamp || "")) do
-      {:ok, dt, _offset} -> {0, DateTime.to_unix(dt, :microsecond)}
-      _ -> {1, 0}
-    end
-  end
-
-  defp tool_call_timestamp_sort_key(_), do: {1, 0}
 
   defp sort_traces_chronologically(traces) when is_list(traces) do
     Enum.sort_by(traces, &trace_timestamp_sort_key/1, :asc)

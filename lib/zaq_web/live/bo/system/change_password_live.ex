@@ -22,8 +22,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> assign(:pending_attrs, nil)
      |> assign(:consent_modal_error, nil)
      |> assign(:portal_consent_email, "")
-     |> assign(:allow_email_override, false)
-     |> assign(:machine_conflict, false)}
+     |> assign(:allow_email_override, false)}
   end
 
   def handle_event("validate", params, socket) do
@@ -96,14 +95,6 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         attrs = Map.put(socket.assigns.pending_attrs, "email", email)
         {:noreply, apply_onboarding(socket, :pre_provisioned, attrs)}
 
-      {:error, {409, %{"error" => "machine_fingerprint_taken"} = body}} ->
-        msg = Map.get(body, "message", "This machine fingerprint is already registered.")
-
-        {:noreply,
-         socket
-         |> assign(:consent_modal_error, msg)
-         |> assign(:machine_conflict, true)}
-
       {:error, {409, body}} ->
         msg = Map.get(body, "message", "This email is already registered.")
 
@@ -124,8 +115,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   end
 
   def handle_event("decline_portal_consent", _params, socket) do
-    consent = if socket.assigns.machine_conflict, do: :machine_taken, else: :declined
-    {:noreply, apply_onboarding(socket, consent)}
+    {:noreply, apply_onboarding(socket, :declined)}
   end
 
   def handle_event("portal_consent_email_change", %{"email" => email}, socket) do
@@ -149,8 +139,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> assign(:pending_attrs, nil)
      |> assign(:consent_modal_error, nil)
      |> assign(:allow_email_override, false)
-     |> assign(:portal_consent_email, "")
-     |> assign(:machine_conflict, false)}
+     |> assign(:portal_consent_email, "")}
   end
 
   defp apply_onboarding(socket, portal_consent) do
@@ -167,7 +156,6 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> assign(:consent_modal_error, nil)
         |> assign(:allow_email_override, false)
         |> assign(:portal_consent_email, "")
-        |> assign(:machine_conflict, false)
         |> onboarding_success_redirect(portal_consent)
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -177,7 +165,6 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> assign(:consent_modal_error, nil)
         |> assign(:allow_email_override, false)
         |> assign(:portal_consent_email, "")
-        |> assign(:machine_conflict, false)
         |> assign(:error_message, ChangesetErrors.format(changeset))
     end
   end

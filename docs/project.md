@@ -14,7 +14,7 @@ customer-provided LLM endpoint.
 |---|---|
 | Language | Elixir 1.19.5 / Erlang OTP 28 |
 | Web | Phoenix 1.7, Phoenix LiveView |
-| Database | PostgreSQL 16+ with pgvector |
+| Database | PostgreSQL 16+ with pgvector `>= 0.7.0` (`halfvec` support) |
 | Jobs | Oban |
 | Assets | Node.js 20+ |
 | LLM | Customer-provided, configured per deployment |

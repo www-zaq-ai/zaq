@@ -88,7 +88,7 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 - **Local Mix development**
   - Elixir `~> 1.15` (tested with Elixir 1.19.5)
   - Erlang/OTP 28
-  - PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) extension
+  - PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) `>= 0.7.0` (required for the `halfvec` type used by embeddings)
   - Python 3.10+ (for PDF ingestion pipeline)
   - Node.js 20+ (optional, only for Playwright E2E tests)
 

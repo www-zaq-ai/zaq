@@ -53,25 +53,6 @@ defmodule ZaqWeb.E2EControllerTest do
       conn = post(conn, "/e2e/portal/onboarding", %{email: "safe@example.com"})
       assert json_response(conn, 200)["status"] == "ok"
     end
-
-    @tag :integration
-    test "returns 409 when fingerprint is pre-registered as a conflict", %{conn: conn} do
-      PortalState.register_conflict(fingerprint: "bad-fp")
-      conn = post(conn, "/e2e/portal/onboarding", %{machine_fingerprint: "bad-fp"})
-      body = json_response(conn, 409)
-      assert body["message"] =~ "fingerprint"
-    end
-
-    @tag :integration
-    test "email conflict takes precedence over fingerprint conflict", %{conn: conn} do
-      PortalState.register_conflict(email: "e@e.com", fingerprint: "fp")
-
-      conn =
-        post(conn, "/e2e/portal/onboarding", %{email: "e@e.com", machine_fingerprint: "fp"})
-
-      body = json_response(conn, 409)
-      assert body["message"] =~ "already provisioned"
-    end
   end
 
   describe "POST /e2e/portal/conflicts" do
@@ -88,16 +69,9 @@ defmodule ZaqWeb.E2EControllerTest do
     end
 
     @tag :integration
-    test "registers a fingerprint conflict", %{conn: conn} do
-      conn = post(conn, "/e2e/portal/conflicts", %{fingerprint: "seed-fp"})
-      assert json_response(conn, 200)["ok"] == true
-      assert PortalState.conflict_fingerprint?("seed-fp")
-    end
-
-    @tag :integration
-    test "returns 400 when neither email nor fingerprint provided", %{conn: conn} do
+    test "returns 400 when no email provided", %{conn: conn} do
       conn = post(conn, "/e2e/portal/conflicts", %{})
-      assert json_response(conn, 400)["error"] =~ "email or fingerprint"
+      assert json_response(conn, 400)["error"] =~ "email"
     end
   end
 

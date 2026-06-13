@@ -74,8 +74,10 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       assert is_nil(Zaq.System.get_embedding_config().credential_id)
       assert is_nil(Zaq.System.get_image_to_text_config().credential_id)
 
-      # Dashboard shows unreachable notice, not the Activate banner
-      {:ok, _view2, html2} = live(fresh_conn(user), ~p"/bo/dashboard")
+      # Dashboard shows unreachable notice, not the Activate banner. The portal
+      # metadata is fetched asynchronously after connect, so await it.
+      {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
+      html2 = render_async(view2)
       assert html2 =~ "ZAQ portal is not reachable in this environment"
       refute html2 =~ "Activate"
     end
@@ -171,8 +173,9 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       assert is_nil(keyless_cred.api_key)
       assert is_nil(Zaq.System.get_llm_config().credential_id)
 
-      # Dashboard: Activate banner present with offer copy
+      # Dashboard: Activate banner present with offer copy (fetched async).
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
+      render_async(view2)
       assert has_element?(view2, "#portal-consent button", "Activate")
       assert render(view2) =~ "Claim your $2"
 
@@ -215,6 +218,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       end)
 
       {:ok, view, _html} = live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/dashboard")
+      render_async(view)
       view |> element("#portal-consent button", "Activate") |> render_click()
       html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
 
@@ -233,6 +237,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       end)
 
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
+      render_async(view2)
       view2 |> element("#portal-consent button", "Activate") |> render_click()
       view2 |> element("[phx-click='accept_portal_consent']") |> render_click()
 
@@ -273,6 +278,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       end)
 
       {:ok, view, _html} = live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/dashboard")
+      render_async(view)
 
       view |> element("#portal-consent button", "Activate") |> render_click()
 
@@ -311,115 +317,6 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       credential = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
       assert credential.api_key == "sk-new-email-key"
       assert Zaq.System.get_llm_config().credential_id == credential.id
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Scenario 6 — Machine fingerprint conflict; user closes modal, system survives
-  # ---------------------------------------------------------------------------
-  # The portal rejects because this machine fingerprint is already registered to
-  # another account. No email change can fix this. The user sees the error in the
-  # retry modal, closes it, and continues without portal integration. State must
-  # remain valid: consent still "declined", no credential created, Activate banner
-  # still visible so the user can retry later (e.g. from a different machine).
-  # ---------------------------------------------------------------------------
-
-  describe "Scenario 6 — machine fingerprint conflict; user closes modal, system survives" do
-    test "fingerprint error surfaces in modal; closing leaves system in a clean declined state",
-         %{conn: conn} do
-      user = declined_registered_user(%{username: "s6_#{uid()}", email: @email})
-
-      Mox.stub(Zaq.UserPortal.ClientMock, :fetch_onboarding, fn _slug ->
-        {:ok, Zaq.PortalStubs.onboarding_message()}
-      end)
-
-      Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
-        {:error,
-         {409, %{"message" => "Machine fingerprint already registered to another account."}}}
-      end)
-
-      {:ok, view, _html} = live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/dashboard")
-
-      assert has_element?(view, "#portal-consent button", "Activate")
-      view |> element("#portal-consent button", "Activate") |> render_click()
-      html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
-
-      assert html =~ "Machine fingerprint already registered"
-
-      # User closes the modal (the only valid path — fingerprint cannot be changed)
-      view |> element("[phx-click='close_portal_consent_modal']") |> render_click()
-
-      # DB: state entirely unchanged by closing the modal
-      still = Accounts.get_user!(user.id)
-      assert still.portal_consent == "declined"
-      assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
-      assert is_nil(Zaq.System.get_llm_config().credential_id)
-
-      # Banner persists after closing — offer remains claimable (different machine, support fix, etc.)
-      assert has_element?(view, "#portal-consent button", "Activate")
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Scenario 6b — Machine fingerprint conflict at BOOTSTRAP (not dashboard retry)
-  # ---------------------------------------------------------------------------
-  # A fresh admin fills change-password, sees the consent modal, and accepts.
-  # The portal rejects with 409 machine_fingerprint_taken. The consent modal must
-  # stay open with an inline error — NOT close, flash, and redirect. The user
-  # then clicks Decline to proceed without portal setup.
-  # ---------------------------------------------------------------------------
-
-  describe "Scenario 6b — machine fingerprint conflict at bootstrap" do
-    setup do
-      Mox.stub(Zaq.UserPortal.ClientMock, :fetch_onboarding, fn _slug ->
-        {:ok, Zaq.PortalStubs.onboarding_message()}
-      end)
-
-      :ok
-    end
-
-    test "modal stays open with inline fingerprint error; user declines to proceed",
-         %{conn: conn} do
-      user = user_fixture(%{username: "s6b_#{uid()}", email: @email})
-      conn = init_test_session(conn, %{user_id: user.id})
-
-      Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
-        {:error,
-         {409,
-          %{
-            "error" => "machine_fingerprint_taken",
-            "message" => "Machine fingerprint already registered to another account."
-          }}}
-      end)
-
-      {:ok, view, _html} = live(conn, ~p"/bo/change-password")
-      submit_bootstrap_form(view)
-
-      # Modal must appear after form submit
-      assert has_element?(view, "[phx-click='accept_portal_consent']")
-
-      # User accepts — portal rejects with fingerprint conflict
-      html = render_click(view, "accept_portal_consent")
-
-      # Modal must still be open in decline-only mode (accept hidden, decline visible)
-      assert has_element?(view, "[phx-click='decline_portal_consent']"),
-             "expected consent modal to stay open after fingerprint conflict, but it closed"
-
-      # Inline error must be visible inside the modal
-      assert html =~ "Machine fingerprint already registered",
-             "expected fingerprint error to be shown inline in the modal"
-
-      # User explicitly declines to proceed without portal setup
-      render_click(view, "decline_portal_consent")
-
-      flash = assert_redirect(view, ~p"/bo/dashboard")
-      assert flash["info"] =~ "Password changed"
-
-      # DB: machine_taken consent recorded, no credential created (fingerprint conflict path)
-      updated = Accounts.get_user!(user.id)
-      refute updated.must_change_password
-      assert updated.portal_consent == "machine_taken"
-      assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
     end
   end
 

@@ -7,7 +7,7 @@ defmodule Zaq.UserPortal.Provisioner do
   portal returns a LiteLLM API key. It delegates all persistence to `Zaq.System`.
   """
 
-  alias Zaq.Agent.ZAQProvider
+  alias Zaq.Agent.ZAQRouter
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.EmbeddingConfig
@@ -75,7 +75,7 @@ defmodule Zaq.UserPortal.Provisioner do
       %{
         name: @credential_name,
         provider: "zaq_router",
-        endpoint: ZAQProvider.default_endpoint(),
+        endpoint: ZAQRouter.default_endpoint(),
         sovereign: false,
         description: @description
       },

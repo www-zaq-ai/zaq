@@ -95,8 +95,6 @@ defmodule Zaq.UserPortal.Client do
   defp portal_error_code(400, _), do: :invalid_payload
   defp portal_error_code(401, _), do: :unauthorized
   defp portal_error_code(403, _), do: :account_suspended
-  defp portal_error_code(409, %{"error" => "machine_already_registered"}), do: :machine_taken
-  defp portal_error_code(409, %{"error" => "machine_fingerprint_taken"}), do: :machine_taken
   defp portal_error_code(409, _), do: :email_taken
   defp portal_error_code(422, _), do: :same_email
   defp portal_error_code(status, body), do: {status, body}

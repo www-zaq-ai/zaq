@@ -137,7 +137,7 @@ defmodule Zaq.E2E.Reset do
 
   @doc """
   Seed a user who has already completed bootstrap with `portal_consent="declined"`.
-  Used for dashboard-retry scenarios (email conflict, fingerprint conflict, etc.).
+  Used for dashboard-retry scenarios (email conflict, etc.).
 
   Optional attrs:
     - "username" (default "e2e_declined_portal")

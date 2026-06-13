@@ -182,9 +182,7 @@ defmodule Zaq.UserPortal.ClientTest do
       refute Map.has_key?(network, "ip_country")
       refute Map.has_key?(network, "is_vpn")
       refute Map.has_key?(network, "is_tor")
-      # machine_signals replaces machine_fingerprint
       assert Map.has_key?(body, "machine_signals")
-      refute Map.has_key?(body, "machine_fingerprint")
       assert body["machine_signals"]["version"] == 1
     end
 

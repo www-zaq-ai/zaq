@@ -306,42 +306,6 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert updated_user.portal_consent == "accepted"
   end
 
-  test "records machine_taken when declining after a machine fingerprint conflict", %{conn: conn} do
-    user = user_fixture(%{username: "must_change_password_machine_conflict"})
-    conn = init_test_session(conn, %{user_id: user.id})
-
-    Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
-      {:error,
-       {409,
-        %{
-          "error" => "machine_fingerprint_taken",
-          "message" => "Machine fingerprint already registered to another account."
-        }}}
-    end)
-
-    {:ok, view, _html} = live(conn, ~p"/bo/change-password")
-
-    view
-    |> form("#change-password-form", %{
-      "password" => "StrongPass1!",
-      "password_confirmation" => "StrongPass1!"
-    })
-    |> render_submit()
-
-    html = render_click(view, "accept_portal_consent")
-
-    assert html =~ "Machine fingerprint already registered"
-    assert has_element?(view, "[phx-click='decline_portal_consent']")
-    refute has_element?(view, "[phx-click='accept_portal_consent']")
-
-    render_click(view, "decline_portal_consent")
-    assert_redirect(view, ~p"/bo/dashboard")
-
-    updated_user = Accounts.get_user!(user.id)
-    refute updated_user.must_change_password
-    assert updated_user.portal_consent == "machine_taken"
-  end
-
   test "close consent modal clears pending modal state without changing the password", %{
     conn: conn
   } do

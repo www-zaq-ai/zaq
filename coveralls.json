@@ -1,3 +1,3 @@
 {
-  "skip_files": ["^deps/", "^test/", "storybook/"]
+  "skip_files": ["^deps/", "^test/", "^storybook/"]
 }

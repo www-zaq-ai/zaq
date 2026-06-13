@@ -7,7 +7,6 @@ defmodule ZaqWeb.E2EController do
   alias Zaq.E2E.{LogCollector, PortalState, ProcessorState, Reset}
   alias Zaq.Engine.Telemetry
   alias Zaq.System, as: SystemContext
-  alias Zaq.System.MachineFingerprint
 
   @e2e_enabled Application.compile_env(:zaq, :e2e, false)
 
@@ -188,54 +187,39 @@ defmodule ZaqWeb.E2EController do
   #
   # Checks Zaq.E2E.PortalState for pre-registered conflicts (seed them via
   # POST /e2e/portal/conflicts before triggering the accept action in a spec).
-  # Email conflicts are checked first; fingerprint conflicts second.
   # Any unregistered input returns a canned success response.
   def portal_onboard(conn, params) do
     email = Map.get(params, "email")
-    fingerprint = Map.get(params, "machine_fingerprint")
 
-    cond do
-      is_binary(email) and PortalState.conflict_email?(email) ->
-        conn
-        |> put_status(409)
-        |> json(%{
-          "error" => "email_already_registered",
-          "message" => "A user with this email is already provisioned."
-        })
-
-      is_binary(fingerprint) and PortalState.conflict_fingerprint?(fingerprint) ->
-        conn
-        |> put_status(409)
-        |> json(%{
-          "error" => "machine_fingerprint_taken",
-          "message" => "Machine fingerprint already registered to another account."
-        })
-
-      true ->
-        json(conn, %{
-          "status" => "ok",
-          "user" => %{
-            "litellm_api_key" => "sk-e2e-portal-key",
-            "litellm_user_id" => "llm-user-e2e"
-          }
-        })
+    if is_binary(email) and PortalState.conflict_email?(email) do
+      conn
+      |> put_status(409)
+      |> json(%{
+        "error" => "email_already_registered",
+        "message" => "A user with this email is already provisioned."
+      })
+    else
+      json(conn, %{
+        "status" => "ok",
+        "user" => %{
+          "litellm_api_key" => "sk-e2e-portal-key",
+          "litellm_user_id" => "llm-user-e2e"
+        }
+      })
     end
   end
 
   # POST /e2e/portal/conflicts — seed conflict conditions before a spec step.
-  # Body: {"email": "taken@example.com"} and/or {"fingerprint": "abc123"}
+  # Body: {"email": "taken@example.com"}
   # Conflicts persist until POST /e2e/reset clears them.
   def register_portal_conflict(conn, params) do
-    opts =
-      []
-      |> maybe_put(:email, Map.get(params, "email"))
-      |> maybe_put(:fingerprint, Map.get(params, "fingerprint"))
+    opts = maybe_put([], :email, Map.get(params, "email"))
 
     if opts == [] do
-      conn |> put_status(:bad_request) |> json(%{error: "provide email or fingerprint"})
+      conn |> put_status(:bad_request) |> json(%{error: "provide email"})
     else
       PortalState.register_conflict(opts)
-      json(conn, %{ok: true, registered: Map.take(params, ["email", "fingerprint"])})
+      json(conn, %{ok: true, registered: Map.take(params, ["email"])})
     end
   end
 
@@ -259,12 +243,6 @@ defmodule ZaqWeb.E2EController do
   def create_declined_portal_user(conn, params) do
     {user, password} = Reset.seed_declined_portal_user!(params)
     json(conn, %{ok: true, username: user.username, password: password, user_id: user.id})
-  end
-
-  # GET /e2e/machine-fingerprint — returns the fingerprint this server will send
-  # to the portal stub. Use in fingerprint-conflict specs to know what to seed.
-  def get_machine_fingerprint(conn, _params) do
-    json(conn, %{fingerprint: MachineFingerprint.get()})
   end
 
   # GET /e2e/zaq-router-credential — returns whether the "ZAQ Router" AI

@@ -355,6 +355,9 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   end
 
   defp open_portal_consent(view) do
+    # The Activate banner only appears once the async portal fetch resolves.
+    render_async(view)
+
     view
     |> element("#portal-consent button", "Activate")
     |> render_click()
