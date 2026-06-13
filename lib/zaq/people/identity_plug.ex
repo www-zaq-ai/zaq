@@ -29,6 +29,9 @@ defmodule Zaq.People.IdentityPlug do
   # Private
   # ---------------------------------------------------------------------------
 
+  defp resolve(%Incoming{provider: provider}, _opts) when provider in [:web, "web"],
+    do: {:error, :bo_user}
+
   defp resolve(%Incoming{author_id: nil}, _opts), do: {:error, :no_author}
 
   defp resolve(%Incoming{} = incoming, opts) do

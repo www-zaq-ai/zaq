@@ -352,6 +352,17 @@ defmodule Zaq.People.IdentityPlugTest do
   # ── Edge cases ───────────────────────────────────────────────────────────
 
   describe "call/2 edge cases" do
+    test "returns BO web messages unchanged without creating a person" do
+      msg = incoming(%{provider: :web, author_id: "1", person_id: nil})
+
+      before_count = Repo.aggregate(Person, :count, :id)
+      result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
+      after_count = Repo.aggregate(Person, :count, :id)
+
+      assert result == msg
+      assert before_count == after_count
+    end
+
     test "returns message unchanged when author_id is nil" do
       msg = incoming(%{author_id: nil})
 
