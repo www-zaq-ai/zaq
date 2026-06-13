@@ -227,4 +227,37 @@ defmodule Zaq.Agent.LogprobsAnalyzerTest do
       assert result.alternatives == []
     end
   end
+
+  describe "from_response/1" do
+    test "extracts provider_meta atom-keyed logprobs" do
+      logprobs = [%{token: "x", logprob: -0.2}]
+      response = %{provider_meta: %{logprobs: logprobs}}
+
+      assert LogprobsAnalyzer.from_response(response) == logprobs
+    end
+
+    test "extracts provider_meta string-keyed logprobs" do
+      logprobs = [%{"token" => "x", "logprob" => -0.2}]
+      response = %{provider_meta: %{"logprobs" => logprobs}}
+
+      assert LogprobsAnalyzer.from_response(response) == logprobs
+    end
+  end
+
+  describe "logprobs_unsupported_error?/1" do
+    test "detects logprob-related unsupported errors" do
+      assert LogprobsAnalyzer.logprobs_unsupported_error?("logprobs are not supported")
+
+      assert LogprobsAnalyzer.logprobs_unsupported_error?(
+               {:unsupported, "log_prob option rejected"}
+             )
+
+      assert LogprobsAnalyzer.logprobs_unsupported_error?(%{error: "top_log_probs unavailable"})
+    end
+
+    test "returns false for unrelated errors" do
+      refute LogprobsAnalyzer.logprobs_unsupported_error?(:timeout)
+      refute LogprobsAnalyzer.logprobs_unsupported_error?("provider rate limited")
+    end
+  end
 end

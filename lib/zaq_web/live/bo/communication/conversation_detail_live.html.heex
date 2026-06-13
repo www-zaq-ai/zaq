@@ -94,10 +94,11 @@
                 source_click_event="open_preview_modal"
               >
                 <:actions>
-                  <ZaqWeb.Components.ChatMessage.tool_calls_info_button
-                    tool_calls={Map.get(item.metadata || %{}, "tool_calls", [])}
+                  <% message_info = MessageHelpers.message_info_from_message(item) %>
+                  <ZaqWeb.Components.ChatMessage.message_info_button
+                    available={MessageHelpers.message_info_available?(message_info)}
                     message_id={item.id}
-                    open_event="open_tool_calls_modal"
+                    open_event="open_message_info_modal"
                   />
                   <ZaqWeb.Components.ChatMessage.copy_action_button text={item.content || ""} />
                   <ZaqWeb.Components.ChatMessage.feedback_positive_button
@@ -189,13 +190,13 @@
     cancel_event="close_preview_modal"
   />
 
-  <ZaqWeb.Components.ChatMessage.tool_calls_popin
-    visible={is_binary(@tool_calls_modal_for)}
-    message_id={@tool_calls_modal_for}
-    tool_calls={@tool_calls_modal_entries}
-    expanded_ids={@expanded_tool_call_ids}
-    close_event="close_tool_calls_modal"
-    toggle_event="toggle_tool_call_details"
+  <ZaqWeb.Components.ChatMessage.message_info_popin
+    visible={is_binary(@message_info_modal_for)}
+    message_id={@message_info_modal_for}
+    message_info={@message_info_modal}
+    expanded_ids={@expanded_trace_ids}
+    close_event="close_message_info_modal"
+    toggle_event="toggle_trace_details"
   />
 
   <div

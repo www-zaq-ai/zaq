@@ -113,7 +113,7 @@ defmodule Zaq.Agent.LogprobsAnalyzer do
   end
 
   @doc """
-  Extracts logprobs from a response map returned by `factory_module.await/2`.
+  Extracts logprobs from a response map returned by the agent runtime.
   Returns the logprobs list or `nil` if not present.
   """
   @spec from_response(term()) :: list() | nil

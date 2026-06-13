@@ -6,7 +6,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.Author
   alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
-  alias Zaq.Agent.{JidoTelemetryBridge, MCP, ServerManager}
+  alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
@@ -966,14 +966,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "persists full tool_calls metadata after a tool-call pipeline run" do
-      handler_id = "zaq-agent-jido-telemetry-bridge"
-      :telemetry.detach(handler_id)
-      assert {:ok, %{enabled?: true}} = JidoTelemetryBridge.init([])
-
-      on_exit(fn ->
-        :ok = JidoTelemetryBridge.terminate(:normal, %{enabled?: true})
-      end)
-
       {mcp_child_spec, mcp_endpoint} = mcp_server(self(), timeout_ms: 0, tool_name: "lookup_tool")
       start_supervised!(mcp_child_spec)
 
@@ -1109,23 +1101,17 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         end)
 
       assert assistant_message
-      assert is_list(assistant_message.metadata["tool_calls"])
-      refute assistant_message.metadata["tool_calls"] == []
+      refute Map.has_key?(assistant_message.metadata, "tool_calls")
+      assert is_list(assistant_message.trace)
+      refute assistant_message.trace == []
 
-      [first_call | _] = assistant_message.metadata["tool_calls"]
-      assert String.contains?(first_call["tool_name"], "lookup_tool")
-      assert first_call["status"] in ["ok", "error"]
+      first_call = Enum.find(assistant_message.trace, &(Map.get(&1, "type") == "tool_call"))
+      assert first_call
+      assert String.contains?(first_call["name"], "lookup_tool")
+      assert first_call["status"] in ["completed", "ok", "error"]
     end
 
-    test "persists tool_calls metadata when incoming external_message_id is integer" do
-      handler_id = "zaq-agent-jido-telemetry-bridge"
-      :telemetry.detach(handler_id)
-      assert {:ok, %{enabled?: true}} = JidoTelemetryBridge.init([])
-
-      on_exit(fn ->
-        :ok = JidoTelemetryBridge.terminate(:normal, %{enabled?: true})
-      end)
-
+    test "persists tool call trace when incoming external_message_id is integer" do
       {mcp_child_spec, mcp_endpoint} = mcp_server(self(), timeout_ms: 0, tool_name: "lookup_tool")
       start_supervised!(mcp_child_spec)
 
@@ -1257,8 +1243,9 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         end)
 
       assert assistant_message
-      assert is_list(assistant_message.metadata["tool_calls"])
-      refute assistant_message.metadata["tool_calls"] == []
+      refute Map.has_key?(assistant_message.metadata, "tool_calls")
+      assert is_list(assistant_message.trace)
+      refute assistant_message.trace == []
     end
 
     test "uses NodeRouter dispatch path when bridge modules are defaults" do

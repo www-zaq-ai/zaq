@@ -67,7 +67,7 @@ defmodule Zaq.Channels.WebBridge do
       Phoenix.PubSub.broadcast(
         Zaq.PubSub,
         "chat:#{session_id}",
-        {:status_update, request_id, stage, message}
+        {:status_update, request_id, stage, message, Map.get(request, :update_intent)}
       )
 
       message_id = Map.get(request, :message_id) || request_id

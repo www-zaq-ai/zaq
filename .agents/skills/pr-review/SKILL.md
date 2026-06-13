@@ -12,7 +12,7 @@ Your goal is to produce a high-signal review that is accurate, contextual, and a
 
 ## Primary review objectives
 
-Review the pull request with a balanced approach focusing on:
+Review the changes in the current branch (all commited and uncommited files) with a balanced approach focusing on:
 
 1. Code quality and best practices
 

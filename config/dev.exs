@@ -167,7 +167,5 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
-# config :zaq, :jido_telemetry_bridge, include_llm_deltas: true
-
 # Imported last so per-worktree overrides (database name, port, etc.) win over all defaults above.
 if File.exists?("config/dev.secret.exs"), do: import_config("dev.secret.exs")

@@ -1,9 +1,5 @@
-Setup: `mix setup`
-Run app: `mix phx.server` or `iex -S mix phx.server`
-DB setup: `mix ecto.setup`
-Run tests: `mix test`
-Run one test file: `mix test test/path/file_test.exs`
-Run failed tests: `mix test --failed`
-Coverage: `mix coveralls` / `mix coveralls.html`
-Pre-merge checks: `mix precommit`
-Assets: `mix assets.build` and `mix assets.deploy`
+- `bw prime` before starting work on this repo.
+- `mix test test/<path>.exs` for targeted test runs.
+- `mix format --check-formatted` for formatting verification; `mix format` after code edits.
+- `mix q` for the repo’s required final quality check.
+- Common Mix aliases: `mix setup`, `mix test`, `mix quality`, `mix precommit`, `mix e2e`.

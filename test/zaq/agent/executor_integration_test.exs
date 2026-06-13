@@ -19,21 +19,32 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   defmodule StubFactoryResult do
-    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, _opts), do: {:ok, %{result: "from-result"}}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
+      do: {:ok, %{request: :request, events: [completed_event(%{result: "from-result"})]}}
+
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
+
+    defp completed_event(data), do: %{kind: :request_completed, at_ms: 1, data: data}
   end
 
   defmodule StubFactoryAnswer do
-    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, _opts), do: {:ok, %{answer: "from-answer"}}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
+      do:
+        {:ok,
+         %{request: :request, events: [completed_event(%{result: %{answer: "from-answer"}})]}}
+
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
+
+    defp completed_event(data), do: %{kind: :request_completed, at_ms: 1, data: data}
   end
 
   defmodule StubFactoryOther do
-    def ask_with_config(_server, _content, _configured_agent, _opts \\ []), do: {:ok, :request}
-    def await(:request, _opts), do: {:ok, %{unexpected: 123}}
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
+      do: {:ok, %{request: :request, events: [completed_event(%{result: %{unexpected: 123}})]}}
+
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
+
+    defp completed_event(data), do: %{kind: :request_completed, at_ms: 1, data: data}
   end
 
   test "runs configured agent end-to-end with only AI edge mocked" do

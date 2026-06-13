@@ -33,25 +33,30 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
         model: "gpt-4",
         confidence_score: 0.9,
         sources: [%{"index" => 1, "path" => "guide.md"}],
+        latency_ms: 120,
+        trace: [
+          %{
+            "id" => "call-a",
+            "type" => "tool_call",
+            "name" => "read_file",
+            "started_at" => "2026-05-02T10:00:00Z",
+            "arguments" => %{"path" => "guide.md"},
+            "response" => %{"ok" => true},
+            "duration_ms" => 35
+          },
+          %{
+            "id" => "call-b",
+            "type" => "tool_call",
+            "name" => "search_code",
+            "started_at" => "2026-05-02T10:00:01Z",
+            "arguments" => %{"query" => "ZAQ"},
+            "response" => %{"matches" => 3},
+            "duration_ms" => 85
+          }
+        ],
         metadata: %{
-          "tool_calls" => [
-            %{
-              "tool_call_id" => "call-a",
-              "tool_name" => "read_file",
-              "timestamp" => "2026-05-02T10:00:00Z",
-              "params" => %{"path" => "guide.md"},
-              "response" => %{"ok" => true},
-              "response_time_ms" => 35
-            },
-            %{
-              "tool_call_id" => "call-b",
-              "tool_name" => "search_code",
-              "timestamp" => "2026-05-02T10:00:01Z",
-              "params" => %{"query" => "ZAQ"},
-              "response" => %{"matches" => 3},
-              "response_time_ms" => 85
-            }
-          ]
+          "agent" => %{"name" => "Answering"},
+          "measurements" => %{"latency_ms" => 120}
         }
       })
 
@@ -139,6 +144,23 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
       assert rating.comment =~ "Not accurate"
       assert rating.comment =~ "Missing context"
     end
+
+    test "closes negative feedback modal when cancel is clicked", %{conn: conn, user: user} do
+      {conv, assistant_msg} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      view
+      |> element("button[phx-value-id='#{assistant_msg.id}'][phx-value-type='negative']")
+      |> render_click()
+
+      assert has_element?(view, "#feedback-modal")
+
+      view
+      |> element("#feedback-modal button", "Cancel")
+      |> render_click()
+
+      refute has_element?(view, "#feedback-modal")
+    end
   end
 
   describe "share management" do
@@ -148,6 +170,22 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
 
       html = view |> element("button", "Share") |> render_click()
       assert html =~ "Share Conversation"
+    end
+
+    test "closes share dialog without creating a share", %{conn: conn, user: user} do
+      {conv, _} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      view |> element("button", "Share") |> render_click()
+
+      assert render(view) =~ "Share Conversation"
+
+      view
+      |> element("button[phx-click='close_share_dialog']", "Cancel")
+      |> render_click()
+
+      refute render(view) =~ "Share Conversation"
+      assert Conversations.list_shares(conv) == []
     end
 
     test "creates a share and shows link with copy button", %{conn: conn, user: user} do
@@ -216,23 +254,40 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
       assert has_element?(view, "#file-preview-modal")
       assert has_element?(view, "#file-preview-modal p", "File not found")
     end
+
+    test "closes preview modal from shared source chip", %{conn: conn, user: user} do
+      {conv, _assistant_msg} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      view
+      |> element(~s(button[data-testid="source-chip"]))
+      |> render_click()
+
+      assert has_element?(view, "#file-preview-modal")
+
+      view
+      |> element("#file-preview-modal button[title='Close']")
+      |> render_click()
+
+      refute has_element?(view, "#file-preview-modal")
+    end
   end
 
-  describe "tool calls popin" do
-    test "shows info icon, opens popin, sorts by response time, and expands details", %{
+  describe "message info popin" do
+    test "shows info icon, opens popin, sorts traces, and expands details", %{
       conn: conn,
       user: user
     } do
       {conv, assistant_msg} = create_conv_with_messages(user.id)
       {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
 
-      assert has_element?(view, ~s([data-testid="tool-calls-info-#{assistant_msg.id}"]))
+      assert has_element?(view, ~s([data-testid="message-info-#{assistant_msg.id}"]))
 
       view
-      |> element(~s([data-testid="tool-calls-info-#{assistant_msg.id}"]))
+      |> element(~s([data-testid="message-info-#{assistant_msg.id}"]))
       |> render_click()
 
-      assert has_element?(view, ~s([data-testid="tool-calls-popin"]))
+      assert has_element?(view, ~s([data-testid="message-info-popin"]))
 
       html = render(view)
       assert String.contains?(html, "Search Code")
@@ -243,15 +298,30 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
       assert read_idx < search_idx
 
       view
-      |> element(~s([data-testid="tool-call-row-call-b"]))
+      |> element(~s([data-testid="trace-row-call-b"]))
       |> render_click()
 
       details = render(view)
-      assert details =~ "Timestamp:"
-      assert details =~ "Params"
-      assert details =~ "Response"
-      assert details =~ "Response time:"
+      assert details =~ "Full JSON"
+      assert details =~ "search_code"
       assert details =~ "85 ms"
+    end
+
+    test "closes message info popin from the close control", %{conn: conn, user: user} do
+      {conv, assistant_msg} = create_conv_with_messages(user.id)
+      {:ok, view, _html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+
+      view
+      |> element(~s([data-testid="message-info-#{assistant_msg.id}"]))
+      |> render_click()
+
+      assert has_element?(view, ~s([data-testid="message-info-popin"]))
+
+      view
+      |> element(~s([data-testid="message-info-popin"] [phx-click="close_message_info_modal"]))
+      |> render_click()
+
+      refute has_element?(view, ~s([data-testid="message-info-popin"]))
     end
   end
 end

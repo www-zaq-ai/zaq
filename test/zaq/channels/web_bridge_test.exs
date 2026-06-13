@@ -55,7 +55,7 @@ defmodule Zaq.Channels.WebBridgeTest do
       assert {:ok, %{action: :created, message_id: "req-42"}} =
                WebBridge.upsert_message(%{}, request, %{})
 
-      assert_receive {:status_update, "req-42", :answering, "Checking sources"}
+      assert_receive {:status_update, "req-42", :answering, "Checking sources", nil}
     end
 
     test "broadcasts :answering when intent_meta is nil" do
@@ -71,7 +71,7 @@ defmodule Zaq.Channels.WebBridgeTest do
       assert {:ok, %{action: :created, message_id: "req-43"}} =
                WebBridge.upsert_message(%{}, request, %{})
 
-      assert_receive {:status_update, "req-43", :answering, "Generating response"}
+      assert_receive {:status_update, "req-43", :answering, "Generating response", nil}
     end
   end
 end

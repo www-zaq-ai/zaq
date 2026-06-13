@@ -271,7 +271,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert {:ok, _agent} = Jido.AI.register_tool(server, MCPProbeTool)
 
-    assert {:ok, request} =
+    assert {:ok, %{request: request}} =
              Factory.ask_with_config(server, "hello", configured_agent, timeout: 35_000)
 
     assert {:ok, _answer} = Factory.await(request, timeout: 45_000)
@@ -324,75 +324,6 @@ defmodule Zaq.Agent.FactoryTest do
     test "returns nil for non-binary ids" do
       assert Factory.spawn_opts_from_server_id(nil) == nil
       assert Factory.spawn_opts_from_server_id(123) == nil
-    end
-  end
-
-  describe "lifecycle callbacks" do
-    test "on_before_cmd start branch stores integer request_id contexts" do
-      incoming = %Incoming{
-        provider: :web,
-        content: "Hi",
-        channel_id: "bo",
-        metadata: %{session_id: "s-1"}
-      }
-
-      params = %{
-        extra_refs: %{
-          zaq_status_context: %{request_id: 52, incoming: incoming, node_router: Zaq.NodeRouter},
-          zaq_tool_trace_context: %{request_id: 52, collector_pid: self()}
-        }
-      }
-
-      ignore_callback_errors(fn ->
-        Factory.on_before_cmd(%{}, {:ai_react_start, params})
-      end)
-
-      assert Process.get(:zaq_status_context) == params.extra_refs.zaq_status_context
-      assert Process.get(:zaq_tool_trace_context) == params.extra_refs.zaq_tool_trace_context
-
-      Process.delete(:zaq_status_context)
-      Process.delete(:zaq_tool_trace_context)
-    end
-
-    test "on_after_cmd cleanup branches clear status and tool trace process keys" do
-      Process.put(:zaq_status_context, %{request_id: "req-1"})
-      Process.put(:zaq_tool_trace_context, %{request_id: "req-1", collector_pid: self()})
-
-      ignore_callback_errors(fn ->
-        Factory.on_after_cmd(%{}, {:ai_react_cancel, %{}}, [])
-      end)
-
-      assert Process.get(:zaq_status_context) == nil
-      assert Process.get(:zaq_tool_trace_context) == nil
-
-      Process.put(:zaq_status_context, %{request_id: "req-2"})
-      Process.put(:zaq_tool_trace_context, %{request_id: "req-2", collector_pid: self()})
-
-      ignore_callback_errors(fn ->
-        Factory.on_after_cmd(%{}, {:ai_react_request_error, %{}}, [])
-      end)
-
-      assert Process.get(:zaq_status_context) == nil
-      assert Process.get(:zaq_tool_trace_context) == nil
-
-      Process.put(:zaq_status_context, %{request_id: "req-3"})
-      Process.put(:zaq_tool_trace_context, %{request_id: "req-3", collector_pid: self()})
-
-      ignore_callback_errors(fn ->
-        Factory.on_after_cmd(%{}, {:ai_react_finish, %{}}, [])
-      end)
-
-      assert Process.get(:zaq_status_context) == nil
-      assert Process.get(:zaq_tool_trace_context) == nil
-    end
-
-    test "on_before_cmd start branch tolerates non-map params" do
-      ignore_callback_errors(fn ->
-        Factory.on_before_cmd(%{}, {:ai_react_start, :invalid_params})
-      end)
-
-      assert Process.get(:zaq_status_context) == nil
-      assert Process.get(:zaq_tool_trace_context) == nil
     end
   end
 

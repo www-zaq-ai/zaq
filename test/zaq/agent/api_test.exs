@@ -2,6 +2,8 @@ defmodule Zaq.Agent.ApiTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Api
+  alias Zaq.Agent.MCP
+  alias Zaq.Agent.RequestRegistry
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
 
@@ -50,6 +52,18 @@ defmodule Zaq.Agent.ApiTest do
     def mcp_endpoint_updated(_request), do: {:error, :mcp_failed}
   end
 
+  defmodule StubFactory do
+    def steer(server_id, content, opts) do
+      send(self(), {:steer_called, server_id, content, opts})
+      {:ok, :steered}
+    end
+
+    def inject(server_id, content, opts) do
+      send(self(), {:inject_called, server_id, content, opts})
+      {:ok, :injected}
+    end
+  end
+
   defmodule BlockingPromptGuard do
     def validate(_content), do: {:error, :prompt_injection}
   end
@@ -73,6 +87,18 @@ defmodule Zaq.Agent.ApiTest do
     def dispatch(event) do
       send(self(), {:node_router_dispatch, Keyword.get(event.opts, :action), event})
       %{event | response: :ok}
+    end
+  end
+
+  defmodule NilPersonNodeRouter do
+    def dispatch(event) do
+      response =
+        case Keyword.get(event.opts, :action) do
+          :get_person -> nil
+          _ -> :ok
+        end
+
+      %{event | response: response}
     end
   end
 
@@ -105,6 +131,18 @@ defmodule Zaq.Agent.ApiTest do
       response =
         case Keyword.get(event.opts, :action) do
           :persist_from_incoming -> {:ok, %{persisted: true}}
+          _ -> :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule PersistOkNonMapNodeRouter do
+    def dispatch(event) do
+      response =
+        case Keyword.get(event.opts, :action) do
+          :persist_from_incoming -> {:ok, :persisted}
           _ -> :ok
         end
 
@@ -199,6 +237,130 @@ defmodule Zaq.Agent.ApiTest do
     assert result.response == {:error, {:invalid_request, %{bad: true}}}
   end
 
+  test "inspect_request returns in-flight request state" do
+    request_id = "req-api-#{System.unique_integer([:positive])}"
+    RequestRegistry.put(request_id, %{status: :streaming, server_id: "server-1"})
+
+    event = Event.new(%{request_id: request_id}, :agent, opts: [action: :inspect_request])
+    result = Api.handle_event(event, :inspect_request, nil)
+
+    assert {:ok, %{status: :streaming, server_id: "server-1"}} = result.response
+  end
+
+  test "inspect_request returns invalid_request for missing request_id" do
+    result =
+      Api.handle_event(
+        Event.new(%{}, :agent, opts: [action: :inspect_request]),
+        :inspect_request,
+        nil
+      )
+
+    assert result.response == {:error, {:invalid_request, :missing_request_id}}
+  end
+
+  test "inspect_request returns invalid_request for non-map payload" do
+    result =
+      Api.handle_event(
+        Event.new(:bad, :agent, opts: [action: :inspect_request]),
+        :inspect_request,
+        nil
+      )
+
+    assert result.response == {:error, {:invalid_request, :missing_request_id}}
+  end
+
+  test "steer_request routes to active server through factory" do
+    request_id = "req-steer-#{System.unique_integer([:positive])}"
+    RequestRegistry.put(request_id, %{status: :streaming, server_id: "server-steer"})
+
+    event =
+      Event.new(%{request_id: request_id, content: "adjust"}, :agent,
+        opts: [action: :steer_request, factory_module: StubFactory]
+      )
+
+    result = Api.handle_event(event, :steer_request, nil)
+
+    assert result.response == {:ok, :steered}
+    assert_received {:steer_called, "server-steer", "adjust", [expected_request_id: ^request_id]}
+  end
+
+  test "inject_request routes to active server through factory" do
+    request_id = "req-inject-#{System.unique_integer([:positive])}"
+    RequestRegistry.put(request_id, %{status: :streaming, server_id: "server-inject"})
+
+    event =
+      Event.new(%{request_id: request_id, content: "tool result"}, :agent,
+        opts: [action: :inject_request, factory_module: StubFactory]
+      )
+
+    result = Api.handle_event(event, :inject_request, nil)
+
+    assert result.response == {:ok, :injected}
+
+    assert_received {:inject_called, "server-inject", "tool result",
+                     [expected_request_id: ^request_id]}
+  end
+
+  test "steer_request returns missing_server_id when registry state lacks server_id" do
+    request_id = "req-steer-missing-server-#{System.unique_integer([:positive])}"
+    RequestRegistry.put(request_id, %{status: :streaming})
+
+    event =
+      Event.new(%{request_id: request_id, content: "adjust"}, :agent,
+        opts: [action: :steer_request, factory_module: StubFactory]
+      )
+
+    result = Api.handle_event(event, :steer_request, nil)
+
+    assert result.response == {:error, :missing_server_id}
+  end
+
+  test "inject_request returns not_found when registry entry is absent" do
+    request_id = "req-inject-missing-#{System.unique_integer([:positive])}"
+
+    event =
+      Event.new(%{request_id: request_id, content: "tool result"}, :agent,
+        opts: [action: :inject_request, factory_module: StubFactory]
+      )
+
+    result = Api.handle_event(event, :inject_request, nil)
+
+    assert result.response == {:error, :not_found}
+  end
+
+  test "steer_request returns missing_content when request content is empty" do
+    request_id = "req-steer-missing-content-#{System.unique_integer([:positive])}"
+    RequestRegistry.put(request_id, %{status: :streaming, server_id: "server-steer"})
+
+    event =
+      Event.new(%{request_id: request_id, content: ""}, :agent,
+        opts: [action: :steer_request, factory_module: StubFactory]
+      )
+
+    result = Api.handle_event(event, :steer_request, nil)
+
+    assert result.response == {:error, :missing_content}
+  end
+
+  test "inject_request wraps non-map registry state" do
+    request_id = "req-inject-bad-state-#{System.unique_integer([:positive])}"
+
+    try do
+      :ets.insert(:zaq_agent_request_registry, {request_id, :bad_state})
+
+      event =
+        Event.new(%{request_id: request_id, content: "tool result"}, :agent,
+          opts: [action: :inject_request, factory_module: StubFactory]
+        )
+
+      result = Api.handle_event(event, :inject_request, nil)
+
+      assert result.response == {:error, {:ok, :bad_state}}
+    after
+      RequestRegistry.delete(request_id)
+    end
+  end
+
   test "delegates to executor when event has explicit agent selection" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
@@ -258,6 +420,31 @@ defmodule Zaq.Agent.ApiTest do
     assert Keyword.get(opts, :agent_id) == 7
     assert Keyword.get(opts, :history) == %{}
     assert Keyword.get(opts, :telemetry_dimensions) == %{}
+  end
+
+  test "delegates to executor when selected agent person lookup returns nil" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          executor_module: StubExecutor,
+          identity_plug: PassthroughIdentityPlug,
+          node_router: NilPersonNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "selected"
+
+    assert_received {:executor_called, ^incoming, opts}
+    assert Keyword.get(opts, :team_ids) == []
   end
 
   test "pipeline path inherits telemetry_dimensions from incoming when pipeline_opts omits them" do
@@ -451,7 +638,7 @@ defmodule Zaq.Agent.ApiTest do
     assert result.request == result.response
   end
 
-  test "run_pipeline returns persist_failed when persist_from_incoming fails" do
+  test "run_pipeline schedules delivery when persist_from_incoming fails" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
 
     event =
@@ -468,10 +655,13 @@ defmodule Zaq.Agent.ApiTest do
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
-    assert result.response == {:error, {:persist_failed, :db_down}}
+    assert %Outgoing{} = result.response
+    assert result.response.body == "ok"
+    assert result.next_hop.destination == :channels
+    assert result.opts[:action] == :deliver_outgoing
   end
 
-  test "run_pipeline returns persist_failed for invalid persist response" do
+  test "run_pipeline schedules delivery for invalid persist response" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
 
     event =
@@ -488,8 +678,33 @@ defmodule Zaq.Agent.ApiTest do
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
-    assert result.response ==
-             {:error, {:persist_failed, {:invalid_persist_response, :unexpected}}}
+    assert %Outgoing{} = result.response
+    assert result.response.body == "ok"
+    assert result.next_hop.destination == :channels
+    assert result.opts[:action] == :deliver_outgoing
+  end
+
+  test "run_pipeline accepts non-map persist response and keeps outgoing metadata unchanged" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: PersistOkNonMapNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.metadata == %{}
+    assert result.next_hop.destination == :channels
+    assert result.opts[:action] == :deliver_outgoing
   end
 
   test "run_pipeline returns outgoing directly when provider is nil" do
@@ -1020,6 +1235,39 @@ defmodule Zaq.Agent.ApiTest do
         Api.handle_event(Event.new(%{}, :agent), :system_config_mcp_predefined_catalog, nil)
 
       assert is_map(result.response)
+    end
+
+    test "system_config_mcp_get_endpoint returns not_found for missing endpoint" do
+      id = System.unique_integer([:positive]) * -1
+
+      result =
+        Api.handle_event(Event.new(%{id: id}, :agent), :system_config_mcp_get_endpoint, nil)
+
+      assert result.response == {:error, :not_found}
+    end
+
+    test "system_config_mcp_change_endpoint returns default changeset attrs for endpoint" do
+      unique = System.unique_integer([:positive])
+
+      {:ok, endpoint} =
+        MCP.create_mcp_endpoint(%{
+          name: "mcp-endpoint-#{unique}",
+          type: "remote",
+          status: "enabled",
+          timeout_ms: 5_000,
+          url: "https://example.com/#{unique}"
+        })
+
+      result =
+        Api.handle_event(
+          Event.new(%{endpoint: endpoint}, :agent),
+          :system_config_mcp_change_endpoint,
+          nil
+        )
+
+      assert %Ecto.Changeset{valid?: true, changes: %{} = changes} = result.response
+      assert result.response.data.id == endpoint.id
+      assert changes == %{}
     end
 
     test "returns invalid request for malformed MCP system config payloads" do

@@ -11,12 +11,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
+  alias Zaq.Repo
   alias Zaq.TestSupport.OpenAIStub
   alias ZaqWeb.Helpers.DateFormat
+  alias ZaqWeb.Live.BO.Communication.MessageHelpers
 
   defmodule NodeRouterFake do
     def dispatch(event) do
@@ -365,6 +368,132 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert html =~ "generating response"
   end
 
+  test "status_update stream_delta updates live assistant message instead of status indicator", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "req-stream")
+    end)
+
+    send(view.pid, {:status_update, "req-stream", :answering, "Final **answer**", :stream_delta})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.status == :answering and assigns.status_message == "" and
+        assigns.streaming_response_active == true and
+        Enum.any?(assigns.messages, fn message ->
+          message.role == :bot and message.id == "stream-req-stream" and
+            message.body == "Final **answer**"
+        end)
+    end)
+
+    html = render(view)
+    assert html =~ "Final"
+    assert html =~ "<strong>answer</strong>"
+    refute html =~ "generating response"
+  end
+
+  test "status_update stream_delta with string intent updates streaming message and clears status message",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "req-string")
+    end)
+
+    send(view.pid, {:status_update, "req-string", :answering, "chunk", "stream_delta"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.status == :answering and assigns.status_message == "" and
+        assigns.streaming_response_active == true and
+        Enum.any?(assigns.messages, fn message ->
+          message.role == :bot and message.id == "stream-req-string" and message.body == "chunk"
+        end)
+    end)
+  end
+
+  test "status_update with unknown string and invalid non-binary intents keeps normal status update",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "req-unknown")
+    end)
+
+    send(
+      view.pid,
+      {:status_update, "req-unknown", :answering, "still working",
+       "not_existing_atom_for_chat_live_test"}
+    )
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.status == :answering and assigns.status_message == "still working" and
+        assigns.streaming_response_active == false and
+        not Enum.any?(assigns.messages, fn message -> message.id == "stream-req-unknown" end)
+    end)
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "req-map")
+    end)
+
+    send(view.pid, {:status_update, "req-map", :answering, "map intent", %{}})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.status == :answering and assigns.status_message == "map intent" and
+        assigns.streaming_response_active == false and
+        not Enum.any?(assigns.messages, fn message -> message.id == "stream-req-map" end)
+    end)
+  end
+
+  test "status_update stream_delta updates existing streaming message preserving timestamp", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "req-repeat")
+    end)
+
+    send(view.pid, {:status_update, "req-repeat", :answering, "first", :stream_delta})
+
+    first_streaming_message =
+      eventually_value(fn ->
+        state = :sys.get_state(view.pid)
+
+        Enum.find(state.socket.assigns.messages, fn message ->
+          message.id == "stream-req-repeat"
+        end)
+      end)
+
+    first_timestamp = first_streaming_message.timestamp
+
+    send(view.pid, {:status_update, "req-repeat", :answering, "second", :stream_delta})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+      stream_messages = Enum.filter(assigns.messages, &(&1.id == "stream-req-repeat"))
+
+      length(stream_messages) == 1 and
+        hd(stream_messages).body == "second" and
+        hd(stream_messages).timestamp == first_timestamp and
+        Enum.any?(assigns.messages, &(&1.welcome == true))
+    end)
+  end
+
   test "status_update unknown stage atom does not crash", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
@@ -401,25 +530,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "pipeline_result matching nil request id persists via NodeRouter and updates history", %{
-    conn: conn,
-    user: user
-  } do
-    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :create_conversation, fn [_attrs] ->
-      {:ok, %{id: "conv-1", user_id: nil}}
-    end)
-
-    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :update_conversation, fn [_conv, attrs] ->
-      {:ok, %{id: "conv-1", user_id: attrs.user_id}}
-    end)
-
-    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :add_message, fn [_conv, attrs] ->
-      case attrs.role do
-        "assistant" -> {:ok, %{id: "bot-db-1"}}
-        "user" -> {:ok, %{id: "user-db-1"}}
-      end
-    end)
-
+  test "pipeline_result matching nil request id applies persisted metadata and updates history",
+       %{
+         conn: conn,
+         user: _user
+       } do
     NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :list_conversations, [])
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
@@ -434,6 +549,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         sources: ["guide.md"],
         metadata: %{
           answer: "Pipeline answer [[source:guide.md]]",
+          assistant_message_id: "bot-db-1",
+          conversation_id: "conv-1",
           confidence_score: 0.9,
           error: false
         }
@@ -452,31 +569,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         bot.sources == [%{"index" => 1, "type" => "document", "path" => "guide.md"}]
     end)
 
-    calls = NodeRouterFake.calls()
-
-    assert Enum.any?(calls, fn {r, m, f, _a} ->
-             r == :engine and m == Zaq.Engine.Conversations and f == :create_conversation
-           end)
-
-    assert Enum.any?(calls, fn {r, m, f, _a} ->
-             r == :engine and m == Zaq.Engine.Conversations and f == :update_conversation
-           end)
-
-    assert Enum.count(calls, fn {r, m, f, _a} ->
+    refute Enum.any?(NodeRouterFake.calls(), fn {r, m, f, _a} ->
              r == :engine and m == Zaq.Engine.Conversations and f == :add_message
-           end) == 3
-
-    assert Enum.any?(calls, fn {r, m, f, args} ->
-             r == :engine and m == Zaq.Engine.Conversations and f == :add_message and
-               match?([_conv, %{role: "assistant", metadata: %{"welcome" => true}}], args)
-           end)
-
-    assert Enum.any?(calls, fn {r, m, f, args} ->
-             r == :engine and m == Zaq.Engine.Conversations and f == :update_conversation and
-               case args do
-                 [_conv, %{user_id: uid}] -> uid == user.id
-                 _ -> false
-               end
            end)
   end
 
@@ -1167,7 +1261,68 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "tool call info icon appears only when assistant metadata has tool_calls", %{
+  test "load_conversation maps fallback DB message roles and normalizes persisted sources", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    now = DateTime.utc_now()
+    system_id = Ecto.UUID.generate()
+    assistant_id = Ecto.UUID.generate()
+
+    Repo.insert_all(
+      Message,
+      [
+        %{
+          id: system_id,
+          conversation_id: conv.id,
+          role: "system",
+          content: "system payload",
+          sources: [],
+          metadata: %{},
+          trace: [],
+          inserted_at: now
+        },
+        %{
+          id: assistant_id,
+          conversation_id: conv.id,
+          role: "assistant",
+          content: "assistant payload",
+          sources: [%{path: "atom-path.md"}],
+          metadata: %{},
+          trace: [],
+          inserted_at: DateTime.add(now, 1, :second)
+        }
+      ],
+      on_conflict: :nothing
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conv.id})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      system_message = Enum.find(assigns.messages, &String.contains?(&1.body, "system payload"))
+      assistant_message = Enum.find(assigns.messages, &(Map.get(&1, :db_id) == assistant_id))
+
+      system_message != nil and
+        system_message.role == :bot and
+        assistant_message != nil and
+        assistant_message.sources == [
+          %{"index" => 1, "type" => "document", "path" => "atom-path.md"}
+        ]
+    end)
+  end
+
+  test "message info icon appears for traces or legacy tools but not empty metadata", %{
     conn: conn,
     user: user
   } do
@@ -1183,7 +1338,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     {:ok, _} =
       Conversations.add_message(conv, %{
         role: "assistant",
-        content: "A with tools",
+        content: "A with legacy tools",
         metadata: %{
           "tool_calls" => [
             %{
@@ -1198,6 +1353,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         }
       })
 
+    {:ok, _} =
+      Conversations.add_message(conv, %{
+        role: "assistant",
+        content: "A with trace",
+        trace: [%{"id" => "trace-a", "type" => "content", "started_at_ms" => 1}],
+        metadata: %{"measurements" => %{"latency_ms" => 10}}
+      })
+
     {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "A without tools"})
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
@@ -1206,26 +1369,32 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
 
-      bot_ids_with_tool_calls =
+      bot_ids_with_message_info =
         state.socket.assigns.messages
-        |> Enum.filter(&(Map.get(&1, :role) == :bot and Map.get(&1, :tool_calls, []) != []))
+        |> Enum.filter(fn msg ->
+          Map.get(msg, :role) == :bot and
+            MessageHelpers.message_info_available?(Map.get(msg, :message_info, %{}))
+        end)
         |> Enum.map(& &1.id)
 
-      bot_ids_without_tool_calls =
+      bot_ids_without_message_info =
         state.socket.assigns.messages
-        |> Enum.filter(&(Map.get(&1, :role) == :bot and Map.get(&1, :tool_calls, []) == []))
+        |> Enum.filter(fn msg ->
+          Map.get(msg, :role) == :bot and
+            not MessageHelpers.message_info_available?(Map.get(msg, :message_info, %{}))
+        end)
         |> Enum.map(& &1.id)
 
-      Enum.all?(bot_ids_with_tool_calls, fn id ->
-        has_element?(view, ~s([data-testid="tool-calls-info-#{id}"]))
+      Enum.all?(bot_ids_with_message_info, fn id ->
+        has_element?(view, ~s([data-testid="message-info-#{id}"]))
       end) and
-        Enum.all?(bot_ids_without_tool_calls, fn id ->
-          not has_element?(view, ~s([data-testid="tool-calls-info-#{id}"]))
+        Enum.all?(bot_ids_without_message_info, fn id ->
+          not has_element?(view, ~s([data-testid="message-info-#{id}"]))
         end)
     end)
   end
 
-  test "tool calls popin opens and expands details in chat", %{conn: conn, user: user} do
+  test "message info popin opens legacy tools as traces in chat", %{conn: conn, user: user} do
     {:ok, conv} =
       Conversations.create_conversation(%{
         user_id: user.id,
@@ -1268,7 +1437,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       state = :sys.get_state(view.pid)
 
       Enum.any?(state.socket.assigns.messages, fn msg ->
-        Map.get(msg, :role) == :bot and Map.get(msg, :tool_calls, []) != []
+        Map.get(msg, :role) == :bot and
+          MessageHelpers.message_info_available?(Map.get(msg, :message_info, %{}))
       end)
     end)
 
@@ -1276,14 +1446,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     bot_id =
       state.socket.assigns.messages
-      |> Enum.find(&(Map.get(&1, :role) == :bot and Map.get(&1, :tool_calls, []) != []))
+      |> Enum.find(fn msg ->
+        Map.get(msg, :role) == :bot and
+          MessageHelpers.message_info_available?(Map.get(msg, :message_info, %{}))
+      end)
       |> Map.fetch!(:id)
 
     view
-    |> element(~s([data-testid="tool-calls-info-#{bot_id}"]))
+    |> element(~s([data-testid="message-info-#{bot_id}"]))
     |> render_click()
 
-    assert has_element?(view, ~s([data-testid="tool-calls-popin"]))
+    assert has_element?(view, ~s([data-testid="message-info-popin"]))
 
     html = render(view)
     {read_idx, _} = :binary.match(html, "Read File")
@@ -1291,14 +1464,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert search_idx < read_idx
 
     view
-    |> element(~s([data-testid="tool-call-row-slow"]))
+    |> element(~s([data-testid="trace-row-slow"]))
     |> render_click()
 
     details = render(view)
-    assert details =~ "Timestamp:"
-    assert details =~ "Params"
-    assert details =~ "Response"
-    assert details =~ "Response time:"
+    assert details =~ "Full JSON"
+    assert details =~ "read_file"
+    assert details =~ "phx-click=\"copy_message\""
+    assert details =~ "response_time_ms"
     assert details =~ "90 ms"
   end
 
@@ -1643,7 +1816,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     refute has_element?(view, "#feedback-modal")
   end
 
-  test "close_tool_calls_modal clears tool call modal assigns", %{conn: conn} do
+  test "close_message_info_modal clears message info modal assigns", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
     send(
@@ -1657,7 +1830,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
            answer: "with tool",
            confidence_score: 0.8,
            error: false,
-           tool_calls: [%{"id" => "tool-1", "name" => "lookup", "arguments" => "{}"}]
+           trace: [%{"id" => "tool-1", "type" => "tool_call", "name" => "lookup"}]
          }
        }, "question"}
     )
@@ -1674,12 +1847,29 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         Map.get(msg, :role) == :bot and Map.get(msg, :body) == "with tool"
       end)
 
-    render_hook(view, "open_tool_calls_modal", %{"id" => bot_message.id})
-    render_hook(view, "close_tool_calls_modal", %{})
+    render_hook(view, "open_message_info_modal", %{"id" => bot_message.id})
+    render_hook(view, "close_message_info_modal", %{})
 
     assert_eventually(fn ->
       updated = :sys.get_state(view.pid).socket.assigns
-      is_nil(updated.tool_calls_modal_for) and updated.tool_calls_modal_entries == []
+
+      is_nil(updated.message_info_modal_for) and
+        updated.message_info_modal == MessageHelpers.empty_message_info()
+    end)
+  end
+
+  test "open_message_info_modal with unknown id uses empty message info", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    render_hook(view, "open_message_info_modal", %{"id" => "missing-message"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      assigns.message_info_modal_for == "missing-message" and
+        assigns.message_info_modal == MessageHelpers.empty_message_info() and
+        assigns.expanded_trace_ids == MapSet.new()
     end)
   end
 
@@ -1873,13 +2063,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     view |> element("#chat-form") |> render_submit(%{"message" => "Run MCP timeout tool"})
 
-    assert_eventually(fn ->
-      html = render(view)
+    assert_eventually(
+      fn ->
+        html = render(view)
 
-      String.contains?(html, "final") and
-        not String.contains?(html, "mcp_runtime_call_exit") and
-        not String.contains?(html, "{:error")
-    end)
+        String.contains?(html, "final") and
+          not String.contains?(html, "mcp_runtime_call_exit") and
+          not String.contains?(html, "{:error")
+      end,
+      160
+    )
   end
 
   test "pipeline_result with nil body trims gracefully without crashing", %{conn: conn} do
@@ -1939,7 +2132,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         channel_id: "bo",
         provider: :web,
         sources: [],
-        metadata: %{confidence_score: nil, error: false}
+        metadata: %{
+          assistant_message_id: "bot-conv-nil-conf",
+          confidence_score: nil,
+          conversation_id: "conv-nil-conf",
+          error: false
+        }
       },
       "question"
     })
@@ -2053,6 +2251,158 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
       Enum.any?(state.socket.assigns.messages, &(&1.role == :bot and &1.body == "answer"))
+    end)
+  end
+
+  test "send_message with existing conversation reuses resolve_conversation get_conversation", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    NodeRouterFake.put(:engine, Conversations, :get_conversation, fn [id] -> %{id: id} end)
+
+    NodeRouterFake.put(:engine, Conversations, :add_message, fn [_conv, attrs] ->
+      case attrs.role do
+        "assistant" -> {:ok, %{id: "bot-existing"}}
+        "user" -> {:ok, %{id: "user-existing"}}
+        _ -> {:ok, %{id: "other-existing"}}
+      end
+    end)
+
+    NodeRouterFake.put(:engine, Conversations, :list_conversations, fn _ ->
+      Conversations.list_conversations(user_id: user.id, limit: 50)
+    end)
+
+    NodeRouterFake.put_dispatch(fn event ->
+      %{event | response: %Outgoing{body: "ok", channel_id: "bo", provider: :web}}
+    end)
+
+    NodeRouterFake.put(:agent, Retrieval, :ask, {
+      :ok,
+      %{
+        "query" => "existing conversation question",
+        "language" => "en",
+        "positive_answer" => "Searching...",
+        "negative_answer" => "No answer"
+      }
+    })
+
+    NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:ok, []})
+
+    NodeRouterFake.put(:agent, Answering, :ask, {
+      :ok,
+      %{answer: "existing conversation answer", confidence: %{score: 0.9}}
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    conv_id = conv.id
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_conversation_id, conv_id)
+    end)
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "Question"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      calls = NodeRouterFake.calls()
+      assigns = state.socket.assigns
+
+      Enum.any?(calls, fn
+        {:engine, Conversations, :get_conversation, [^conv_id]} -> true
+        _ -> false
+      end) and
+        not Enum.any?(calls, fn
+          {:engine, Conversations, :create_conversation, _} -> true
+          _ -> false
+        end) and
+        assigns.current_conversation_id == conv_id
+    end)
+  end
+
+  test "send_message with missing conversation falls back to create_conversation", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    fresh_conv_id = Ecto.UUID.generate()
+
+    NodeRouterFake.put(:engine, Conversations, :get_conversation, fn [_id] -> nil end)
+
+    NodeRouterFake.put(:engine, Conversations, :create_conversation, fn [_attrs] ->
+      {:ok, %{id: fresh_conv_id, user_id: user.id}}
+    end)
+
+    NodeRouterFake.put(:engine, Conversations, :add_message, fn [_conv, attrs] ->
+      case attrs.role do
+        "assistant" -> {:ok, %{id: "bot-fresh"}}
+        "user" -> {:ok, %{id: "user-fresh"}}
+        _ -> {:ok, %{id: "welcome-fresh"}}
+      end
+    end)
+
+    NodeRouterFake.put(:engine, Conversations, :list_conversations, fn _ ->
+      Conversations.list_conversations(user_id: user.id, limit: 50)
+    end)
+
+    NodeRouterFake.put_dispatch(fn event ->
+      %{event | response: %Outgoing{body: "ok", channel_id: "bo", provider: :web}}
+    end)
+
+    NodeRouterFake.put(:agent, Retrieval, :ask, {
+      :ok,
+      %{
+        "query" => "fresh conversation question",
+        "language" => "en",
+        "positive_answer" => "Searching...",
+        "negative_answer" => "No answer"
+      }
+    })
+
+    NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:ok, []})
+
+    NodeRouterFake.put(:agent, Answering, :ask, {
+      :ok,
+      %{answer: "fresh conversation answer", confidence: %{score: 0.9}}
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    conv_id = conv.id
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_conversation_id, conv_id)
+    end)
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "Question"})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      calls = NodeRouterFake.calls()
+      assigns = state.socket.assigns
+
+      Enum.any?(calls, fn
+        {:engine, Conversations, :get_conversation, [^conv_id]} -> true
+        _ -> false
+      end) and
+        Enum.any?(calls, fn
+          {:engine, Conversations, :create_conversation, _} -> true
+          _ -> false
+        end) and
+        assigns.current_conversation_id == fresh_conv_id
     end)
   end
 
@@ -2249,6 +2599,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     state = :sys.get_state(view.pid)
     refute state.socket.assigns.show_delete_confirm
     refute has_element?(view, "#delete-confirm-modal")
+  end
+
+  test "delete_chat with no active conversation only closes delete modal", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.show_delete_confirm, true)
+    end)
+
+    render_hook(view, "delete_chat", %{})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(view.pid)
+      assigns = state.socket.assigns
+
+      is_nil(assigns.current_conversation_id) and
+        assigns.show_delete_confirm == false and
+        length(assigns.messages) == 1 and
+        hd(assigns.messages).welcome == true
+    end)
   end
 
   test "delete_chat_confirm with active conversation sets show_delete_confirm true", %{

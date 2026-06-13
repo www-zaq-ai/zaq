@@ -20,6 +20,7 @@ defmodule Zaq.Engine.Conversations.Message do
     field :sources, {:array, :map}, default: []
     field :latency_ms, :integer
     field :metadata, :map, default: %{}
+    field :trace, {:array, :map}, default: []
 
     belongs_to :conversation, Conversation
     has_many :ratings, MessageRating
@@ -43,7 +44,8 @@ defmodule Zaq.Engine.Conversations.Message do
       :confidence_score,
       :sources,
       :latency_ms,
-      :metadata
+      :metadata,
+      :trace
     ])
     |> validate_required([:conversation_id, :role, :content])
     |> validate_inclusion(:role, @valid_roles)

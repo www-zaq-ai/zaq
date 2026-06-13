@@ -50,5 +50,118 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
       expanded = MapSet.new(["tool-1"])
       assert MessageHelpers.toggle_tool_call_details(expanded, "tool-1") == MapSet.new()
     end
+
+    test "adds missing tool id to expanded set" do
+      expanded = MapSet.new()
+
+      assert MessageHelpers.toggle_tool_call_details(expanded, "tool-2") ==
+               MapSet.new(["tool-2"])
+    end
+  end
+
+  describe "message_info_from_runtime/1" do
+    test "returns empty info for non-map runtime metadata" do
+      assert MessageHelpers.message_info_from_runtime(nil) == %{
+               agent: nil,
+               model: nil,
+               measurements: %{},
+               traces: []
+             }
+    end
+
+    test "uses configured agent name when runtime metadata has no agent" do
+      info = MessageHelpers.message_info_from_runtime(%{configured_agent_name: "Support Agent"})
+
+      assert info.agent == %{"name" => "Support Agent"}
+      assert info.model == nil
+      assert info.measurements == %{}
+      assert info.traces == []
+    end
+
+    test "ignores invalid trace and legacy tool calls" do
+      info =
+        MessageHelpers.message_info_from_runtime(%{
+          trace: :not_a_trace,
+          tool_calls: :not_tool_calls
+        })
+
+      assert info.traces == []
+    end
+  end
+
+  describe "message_info_from_message/1" do
+    test "returns empty info for nil message" do
+      assert MessageHelpers.message_info_from_message(nil) == MessageHelpers.empty_message_info()
+    end
+
+    test "uses trace when present and ignores legacy tool calls" do
+      info =
+        MessageHelpers.message_info_from_message(%{
+          model: "gpt-4o",
+          trace: [%{"id" => "trace-1", "type" => "content"}],
+          metadata: %{
+            "tool_calls" => [%{"tool_call_id" => "legacy"}],
+            "measurements" => %{"latency_ms" => 12},
+            "agent" => %{"name" => "Agent"}
+          }
+        })
+
+      assert info.model == "gpt-4o"
+      assert info.agent == %{"name" => "Agent"}
+      assert info.measurements == %{"latency_ms" => 12}
+      assert info.traces == [%{"id" => "trace-1", "type" => "content"}]
+    end
+
+    test "falls back to legacy metadata tool calls when trace is empty" do
+      legacy = %{"tool_call_id" => "legacy", "tool_name" => "lookup"}
+
+      info =
+        MessageHelpers.message_info_from_message(%{
+          trace: [],
+          metadata: %{"tool_calls" => [legacy]}
+        })
+
+      assert info.traces == [legacy]
+      assert MessageHelpers.message_info_available?(info)
+    end
+
+    test "empty legacy message info is unavailable" do
+      refute MessageHelpers.message_info_available?(MessageHelpers.message_info_from_message(%{}))
+    end
+
+    test "filters non-map trace entries" do
+      info =
+        MessageHelpers.message_info_from_message(%{
+          trace: [%{"id" => "trace-1"}, "bad", nil],
+          metadata: %{}
+        })
+
+      assert info.traces == [%{"id" => "trace-1"}]
+    end
+  end
+
+  describe "message_info_available?/1" do
+    test "returns true when string-key measurements are present" do
+      assert MessageHelpers.message_info_available?(%{"measurements" => %{"latency_ms" => 42}})
+    end
+
+    test "ignores non-map measurements" do
+      refute MessageHelpers.message_info_available?(%{measurements: "not-a-map"})
+    end
+
+    test "ignores non-list traces" do
+      refute MessageHelpers.message_info_available?(%{traces: "not-a-list"})
+    end
+
+    test "returns false for non-map input" do
+      refute MessageHelpers.message_info_available?(nil)
+    end
+  end
+
+  describe "toggle_trace_details/2" do
+    test "removes existing trace id from expanded set" do
+      expanded = MapSet.new(["trace-1"])
+      assert MessageHelpers.toggle_trace_details(expanded, "trace-1") == MapSet.new()
+    end
   end
 end
