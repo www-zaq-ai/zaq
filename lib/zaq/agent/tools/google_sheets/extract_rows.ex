@@ -21,7 +21,7 @@ defmodule Zaq.Agent.Tools.GoogleSheets.ExtractRows do
     name: "extract_sheet_rows",
     description: "Convert raw sheet content into a normalized list of row maps.",
     schema: [record: [type: :any, required: true, doc: "Spreadsheet record from GetSheet"]],
-    output_schema: [rows: [type: :list, required: true, doc: "Normalized row maps"]]
+    output_schema: [rows: [type: {:list, :any}, required: true, doc: "Normalized row maps"]]
 
   use Zaq.Engine.Workflows.Action
 

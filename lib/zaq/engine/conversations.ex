@@ -87,7 +87,14 @@ defmodule Zaq.Engine.Conversations do
   @doc """
   Lists conversations with optional filters.
 
-  Supported opts: `user_id`, `channel_user_id`, `status`, `limit`, `offset`.
+  Supported opts:
+
+  - `user_id`, `channel_user_id`, `channel_type`, `status`, `person_id`,
+    `team_id`, `limit`, `offset` — equality/scoping filters.
+  - `query` — case-insensitive text search against the conversation title or
+    any message content. SQL wildcards in the input are matched literally;
+    blank input applies no filter.
+  - `from` / `to` — `DateTime` bounds (inclusive) on `updated_at`.
   """
   def list_conversations(opts \\ []) do
     query = from(c in Conversation, order_by: [desc: c.updated_at])
@@ -113,6 +120,15 @@ defmodule Zaq.Engine.Conversations do
           person_subquery = from(p in Person, where: ^team_id in p.team_ids, select: p.id)
           where(q, [c], c.person_id in subquery(person_subquery))
 
+        {:query, text}, q when is_binary(text) ->
+          apply_search_filter(q, String.trim(text))
+
+        {:from, %DateTime{} = from}, q ->
+          where(q, [c], c.updated_at >= ^from)
+
+        {:to, %DateTime{} = to}, q ->
+          where(q, [c], c.updated_at <= ^to)
+
         {:limit, n}, q ->
           limit(q, ^n)
 
@@ -127,6 +143,23 @@ defmodule Zaq.Engine.Conversations do
     |> Repo.all()
     |> backfill_missing_person_ids()
     |> Repo.preload([:person, :user])
+  end
+
+  defp apply_search_filter(query, ""), do: query
+
+  defp apply_search_filter(query, text) do
+    pattern = "%" <> escape_like_wildcards(text) <> "%"
+
+    matching_messages =
+      from(m in Message, where: ilike(m.content, ^pattern), select: m.conversation_id)
+
+    where(query, [c], ilike(c.title, ^pattern) or c.id in subquery(matching_messages))
+  end
+
+  # ILIKE parameters are injection-safe, but `%`/`_` in user input would act
+  # as wildcards — escape them so search terms match literally.
+  defp escape_like_wildcards(text) do
+    String.replace(text, ~r/([\\%_])/, "\\\\\\1")
   end
 
   @doc "Updates a conversation with the given attrs."

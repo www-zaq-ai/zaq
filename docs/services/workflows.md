@@ -212,6 +212,24 @@ Triggers are purely event-name-driven. A `Trigger` record has two fields:
 
 When `NodeRouter.dispatch/1` broadcasts a `%Zaq.Event{}`, `Engine.EventRegistry` matches the event's `name` against all enabled triggers. For each match, `Engine.TriggerNode` creates and starts runs for every active workflow linked to that trigger via the `trigger_workflows` join table. There are no type-based trigger implementations — matching and dispatch are purely by event name.
 
+### Run identity and permission context
+
+Every run's `source_event` carries the identity and permission context that
+`ActionWrapper` injects into each step's context:
+
+- **actor** — `TriggerNode` copies the triggering event's `actor` (channels set it from
+  the message author; `Zaq.Agent.Api` enriches it with the IdentityPlug-resolved
+  `person_id`). Actorless events store `actor: nil` — never a fabricated identity.
+- **skip_permissions** — `source_event.assigns.skip_permissions` is `true` only when set
+  explicitly at run creation: `CronTriggerWorker` marks its trigger payload with
+  `machine: true` (translated by `TriggerNode`), and BO manual runs
+  (`WorkflowsLive`/`WorkflowDetailLive`) set it directly with an audit-only `bo` actor
+  (BO users have no Person record). A missing actor never implies the bypass.
+
+Steps authorize against this context — e.g. `Zaq.Agent.Tools.Accounts.History` resolves
+the person from `ctx[:actor]["person_id"]` and honors its `person_id` parameter only
+under `skip_permissions: true`.
+
 ---
 
 ## Adding a New Action Type

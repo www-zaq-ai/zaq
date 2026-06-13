@@ -254,6 +254,84 @@ defmodule Zaq.Engine.TriggerNodeTest do
     end
   end
 
+  describe "fire/2 — actor and machine-marker propagation" do
+    test "propagates the incoming event actor into source_event.actor" do
+      trigger = create_trigger("actor_event")
+      workflow = create_active_workflow("ActorWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      actor = %{id: "u1", name: "alice", person_id: 42}
+      incoming_event = %{build_event(:actor_event) | actor: actor}
+
+      assert :ok = TriggerNode.fire("engine:actor_event", incoming_event)
+
+      [run] = Workflows.list_runs(workflow.id)
+      stored = run.source_event.actor
+      assert stored["person_id"] == 42 or stored[:person_id] == 42
+    end
+
+    test "actor stays nil for actorless events — never fabricated" do
+      trigger = create_trigger("actorless_event")
+      workflow = create_active_workflow("ActorlessWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      assert :ok = TriggerNode.fire("engine:actorless_event", build_event(:actorless_event))
+
+      [run] = Workflows.list_runs(workflow.id)
+      assert is_nil(run.source_event.actor)
+    end
+
+    test "explicit machine marker sets skip_permissions in assigns" do
+      trigger = create_trigger("machine_event")
+      workflow = create_active_workflow("MachineWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      incoming_event = build_event(:machine_event, %{trigger_id: 7, machine: true})
+
+      assert :ok = TriggerNode.fire("engine:machine_event", incoming_event)
+
+      [run] = Workflows.list_runs(workflow.id)
+      assert get_in(run.source_event.assigns, ["skip_permissions"]) == true
+    end
+
+    test "string-keyed machine marker is honored (JSONB-shaped payload)" do
+      trigger = create_trigger("machine_string_event")
+      workflow = create_active_workflow("MachineStringWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      incoming_event = build_event(:machine_string_event, %{"machine" => true})
+
+      assert :ok = TriggerNode.fire("engine:machine_string_event", incoming_event)
+
+      [run] = Workflows.list_runs(workflow.id)
+      assert get_in(run.source_event.assigns, ["skip_permissions"]) == true
+    end
+
+    test "no marker means no bypass — even when the actor is nil" do
+      trigger = create_trigger("no_bypass_event")
+      workflow = create_active_workflow("NoBypassWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      assert :ok = TriggerNode.fire("engine:no_bypass_event", build_event(:no_bypass_event))
+
+      [run] = Workflows.list_runs(workflow.id)
+      assert get_in(run.source_event.assigns, ["skip_permissions"]) == false
+    end
+
+    test "a truthy-but-not-true marker does not grant bypass" do
+      trigger = create_trigger("sneaky_marker_event")
+      workflow = create_active_workflow("SneakyMarkerWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      incoming_event = build_event(:sneaky_marker_event, %{"machine" => "yes"})
+
+      assert :ok = TriggerNode.fire("engine:sneaky_marker_event", incoming_event)
+
+      [run] = Workflows.list_runs(workflow.id)
+      assert get_in(run.source_event.assigns, ["skip_permissions"]) == false
+    end
+  end
+
   describe "list_workflows_for_trigger/1 (context function)" do
     test "returns active workflows linked to a trigger by event_name string" do
       trigger = create_trigger("context_test_event")

@@ -8,6 +8,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   import ZaqWeb.Live.BO.AI.WorkflowComponents
 
   alias Oban.Cron.Expression, as: CronExpression
+  import ZaqWeb.Live.BO.AI.WorkflowRunHelpers, only: [manual_source_event: 1]
+
   alias Zaq.Event
 
   alias ZaqWeb.Components.{BOLayout, BOModal}
@@ -145,13 +147,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
 
   def handle_event("run_workflow", %{"workflow_id" => _workflow_id}, socket) do
     workflow = socket.assigns.workflow
-
-    source_event = %Event{
-      request: nil,
-      next_hop: nil,
-      trace_id: Ecto.UUID.generate(),
-      assigns: %{trigger_type: :manual, input: %{}}
-    }
+    source_event = manual_source_event(socket.assigns.current_user)
 
     run_event =
       Event.new(

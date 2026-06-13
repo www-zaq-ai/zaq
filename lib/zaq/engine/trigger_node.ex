@@ -9,7 +9,11 @@ defmodule Zaq.Engine.TriggerNode do
 
   Propagates the triggering event's payload and trace_id into the run's
   `source_event.assigns.input`, making the event payload available as the
-  initial fact for the starting node.
+  initial fact for the starting node. The triggering event's `actor` is copied
+  onto the `source_event` so steps can authorize against the person who caused
+  the run; an explicit `machine: true` payload marker (set by
+  `CronTriggerWorker`) translates to `assigns.skip_permissions = true` — a
+  missing actor alone never grants the bypass.
 
   Failures in individual workflow runs do not crash the TriggerNode call —
   errors are logged but do not propagate.
@@ -64,10 +68,30 @@ defmodule Zaq.Engine.TriggerNode do
 
     input = build_input(incoming_event)
 
-    %{event | assigns: %{trigger_type: :event, workflow_id: workflow.id, input: input}}
+    %{
+      event
+      | actor: incoming_actor(incoming_event),
+        assigns: %{
+          trigger_type: :event,
+          workflow_id: workflow.id,
+          input: input,
+          skip_permissions: machine_event?(incoming_event)
+        }
+    }
   end
 
   defp build_input(incoming_event) do
     Map.get(incoming_event, :request) || Map.get(incoming_event, "request") || %{}
+  end
+
+  defp incoming_actor(incoming_event) do
+    Map.get(incoming_event, :actor) || Map.get(incoming_event, "actor")
+  end
+
+  # The bypass requires an explicit machine marker on the triggering payload —
+  # an absent actor must never imply it (nil is not a grant).
+  defp machine_event?(incoming_event) do
+    request = build_input(incoming_event)
+    Map.get(request, :machine) == true or Map.get(request, "machine") == true
   end
 end
