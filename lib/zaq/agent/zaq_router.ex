@@ -112,9 +112,16 @@ defmodule Zaq.Agent.ZAQRouter do
   @spec default_image_model() :: String.t()
   def default_image_model, do: @default_image_model
 
-  @doc "Returns the LiteLLM base URL configured for this deployment."
-  @spec default_endpoint() :: String.t()
-  def default_endpoint, do: Application.get_env(:zaq, :litellm_base_url, "")
+  @doc """
+  Returns the LiteLLM base URL configured for this deployment, or `nil` when the
+  `:litellm_base_url` config is unset.
+
+  Returning `nil` (rather than `""`) keeps the unset state detectable: callers
+  that persist a credential let the `:endpoint` `validate_required` reject it with
+  a clear changeset error instead of silently wiring an empty endpoint.
+  """
+  @spec default_endpoint() :: String.t() | nil
+  def default_endpoint, do: Application.get_env(:zaq, :litellm_base_url)
 
   @doc "Returns the `LLMDB.load/1` opts that inject ZAQ Provider into the catalog."
   @spec llmdb_opts() :: keyword()

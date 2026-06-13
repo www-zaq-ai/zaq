@@ -792,7 +792,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # Returns the base_url for any provider, or "" for "custom".
   defp provider_endpoint("custom"), do: ""
 
-  defp provider_endpoint("zaq_router"), do: ZAQRouter.default_endpoint()
+  defp provider_endpoint("zaq_router"), do: ZAQRouter.default_endpoint() || ""
 
   defp provider_endpoint(provider_id) do
     provider_atom = String.to_existing_atom(provider_id)

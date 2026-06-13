@@ -101,9 +101,9 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
       end
 
     case Onboarding.try_provision(email) do
-      {:ok, _credential} ->
+      {:ok, litellm} ->
         attrs = Map.put(socket.assigns.pending_attrs, "email", email)
-        {:noreply, apply_onboarding(socket, :pre_provisioned, attrs)}
+        {:noreply, apply_onboarding(socket, {:pre_provisioned, litellm}, attrs)}
 
       {:error, {409, body}} ->
         msg = Map.get(body, "message", "This email is already registered.")
@@ -179,8 +179,11 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     end
   end
 
-  defp onboarding_success_redirect(socket, consent)
-       when consent in [:accepted, :pre_provisioned] do
+  defp onboarding_success_redirect(socket, {:pre_provisioned, _litellm}) do
+    assign(socket, :show_post_accept_modal, true)
+  end
+
+  defp onboarding_success_redirect(socket, :accepted) do
     assign(socket, :show_post_accept_modal, true)
   end
 

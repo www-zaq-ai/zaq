@@ -24,12 +24,26 @@ defmodule Zaq.UserPortal.Provisioner do
   def credential_name, do: @credential_name
 
   @doc """
+  Claims a LiteLLM API key from the portal for `email` **without** writing
+  anything locally. Returns `{:ok, %{litellm_api_key: key}}` or `{:error, reason}`.
+
+  Pair with `provision_with_key/1` to persist the credential. Keeping the portal
+  HTTP call separate from the DB write lets the bootstrap flow commit the
+  credential in the same transaction as the account registration, so a failed
+  registration never leaves an orphaned credential.
+  """
+  @spec claim_key(String.t()) :: {:ok, %{litellm_api_key: String.t()}} | {:error, term()}
+  def claim_key(email) when is_binary(email) do
+    Zaq.UserPortal.client().onboard_user(email)
+  end
+
+  @doc """
   Calls the portal to onboard the user by email and provisions the ZAQ credential
   with the returned API key. Returns `{:ok, credential}` or `{:error, reason}`.
   """
   @spec provision_for_user(String.t()) :: {:ok, AIProviderCredential.t()} | {:error, term()}
   def provision_for_user(email) when is_binary(email) do
-    case Zaq.UserPortal.client().onboard_user(email) do
+    case claim_key(email) do
       {:ok, litellm} -> provision_with_key(litellm)
       {:error, reason} -> {:error, reason}
     end
