@@ -105,7 +105,9 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       {:ok, view, _html} = live(conn, ~p"/bo/change-password")
       submit_bootstrap_form(view)
 
-      flash = assert_redirect(view, ~p"/bo/dashboard")
+      # Portal metadata is fetched asynchronously; the :unavailable result issues
+      # the dashboard redirect once it resolves.
+      flash = assert_redirect(view, ~p"/bo/dashboard", 1000)
       assert flash["info"] =~ "Password changed"
 
       updated = Accounts.get_user!(user.id)

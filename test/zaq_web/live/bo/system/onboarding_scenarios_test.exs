@@ -51,12 +51,13 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/change-password")
 
-      # Portal unreachable → LiveView redirects immediately on submit (no modal).
-      # The redirect itself is proof the modal was never shown: if a modal were
-      # rendered, the view would stay mounted waiting for accept/decline.
+      # Portal unreachable → LiveView redirects to the dashboard once the async
+      # portal fetch resolves to :unavailable (no modal). The redirect itself is
+      # proof the modal was never shown: if a modal were rendered, the view would
+      # stay mounted waiting for accept/decline.
       submit_bootstrap_form(view)
 
-      flash = assert_redirect(view, ~p"/bo/dashboard")
+      flash = assert_redirect(view, ~p"/bo/dashboard", 1000)
       assert flash["info"] =~ "Password changed"
 
       # Registration persisted
