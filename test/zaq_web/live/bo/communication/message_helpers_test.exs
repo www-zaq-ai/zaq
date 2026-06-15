@@ -74,8 +74,36 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
 
       assert info.agent == %{"name" => "Support Agent"}
       assert info.model == nil
-      assert info.measurements == %{}
+
+      assert info.measurements == %{
+               "prompt_tokens" => "not provided",
+               "completion_tokens" => "not provided",
+               "total_tokens" => "not provided"
+             }
+
       assert info.traces == []
+    end
+
+    test "uses canonical measurement construction for runtime metadata" do
+      info =
+        MessageHelpers.message_info_from_runtime(%{
+          measurements: %{
+            "latency_ms" => 12,
+            "input_tokens" => 999,
+            "output_tokens" => 999,
+            "total_tokens" => 999
+          },
+          prompt_tokens: 3,
+          completion_tokens: 4,
+          total_tokens: 7
+        })
+
+      assert info.measurements == %{
+               "latency_ms" => 12,
+               "prompt_tokens" => 3,
+               "completion_tokens" => 4,
+               "total_tokens" => 7
+             }
     end
 
     test "ignores invalid trace and legacy tool calls" do
@@ -98,6 +126,9 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
       info =
         MessageHelpers.message_info_from_message(%{
           model: "gpt-4o",
+          prompt_tokens: 3,
+          completion_tokens: 4,
+          total_tokens: 7,
           trace: [%{"id" => "trace-1", "type" => "content"}],
           metadata: %{
             "tool_calls" => [%{"tool_call_id" => "legacy"}],
@@ -108,8 +139,55 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
 
       assert info.model == "gpt-4o"
       assert info.agent == %{"name" => "Agent"}
-      assert info.measurements == %{"latency_ms" => 12}
+
+      assert info.measurements == %{
+               "latency_ms" => 12,
+               "prompt_tokens" => 3,
+               "completion_tokens" => 4,
+               "total_tokens" => 7
+             }
+
       assert info.traces == [%{"id" => "trace-1", "type" => "content"}]
+    end
+
+    test "uses message token columns instead of duplicated metadata token measurements" do
+      info =
+        MessageHelpers.message_info_from_message(%{
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15,
+          metadata: %{
+            "measurements" => %{
+              "latency_ms" => 42,
+              "input_tokens" => 999,
+              "output_tokens" => 999,
+              "total_tokens" => 999
+            }
+          }
+        })
+
+      assert info.measurements == %{
+               "latency_ms" => 42,
+               "prompt_tokens" => 10,
+               "completion_tokens" => 5,
+               "total_tokens" => 15
+             }
+    end
+
+    test "shows not provided token measurements when token columns are empty" do
+      info =
+        MessageHelpers.message_info_from_message(%{
+          role: "assistant",
+          metadata: %{}
+        })
+
+      assert info.measurements == %{
+               "prompt_tokens" => "not provided",
+               "completion_tokens" => "not provided",
+               "total_tokens" => "not provided"
+             }
+
+      assert MessageHelpers.message_info_available?(info)
     end
 
     test "falls back to legacy metadata tool calls when trace is empty" do
@@ -125,8 +203,16 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
       assert MessageHelpers.message_info_available?(info)
     end
 
-    test "empty legacy message info is unavailable" do
-      refute MessageHelpers.message_info_available?(MessageHelpers.message_info_from_message(%{}))
+    test "empty persisted message info is available through not provided token rows" do
+      info = MessageHelpers.message_info_from_message(%{})
+
+      assert info.measurements == %{
+               "prompt_tokens" => "not provided",
+               "completion_tokens" => "not provided",
+               "total_tokens" => "not provided"
+             }
+
+      assert MessageHelpers.message_info_available?(info)
     end
 
     test "filters non-map trace entries" do

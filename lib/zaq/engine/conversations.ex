@@ -20,6 +20,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Accounts.{Person, PersonChannel}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
+  alias Zaq.Engine.Messages.Measurements
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
   alias Zaq.Utils.EmailUtils
@@ -219,7 +220,10 @@ defmodule Zaq.Engine.Conversations do
 
   defp assistant_metadata(result) when is_map(result) do
     %{
-      "measurements" => Map.get(result, :measurements) || Map.get(result, "measurements") || %{},
+      "measurements" =>
+        result
+        |> Map.get(:measurements, Map.get(result, "measurements", %{}))
+        |> Measurements.metadata_measurements(),
       "model" => Map.get(result, :model) || Map.get(result, "model"),
       "agent" => Map.get(result, :agent) || Map.get(result, "agent")
     }

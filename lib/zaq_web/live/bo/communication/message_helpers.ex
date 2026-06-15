@@ -12,6 +12,8 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
   - Modal state management helpers
   """
 
+  alias Zaq.Engine.Messages.Measurements
+
   def positive_rater_attrs(current_user) do
     if current_user,
       do: %{user_id: current_user.id, rating: 5},
@@ -72,7 +74,7 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
     %{
       agent: get_any(metadata, [:agent, "agent"]) || runtime_agent(metadata),
       model: get_any(metadata, [:model, "model"]),
-      measurements: get_any(metadata, [:measurements, "measurements"]) || %{},
+      measurements: Measurements.message_info_measurements(metadata),
       traces: normalize_traces(trace, legacy_tool_calls)
     }
   end
@@ -89,7 +91,7 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
     %{
       agent: get_any(metadata, ["agent", :agent]),
       model: get_any(message, [:model, "model"]) || get_any(metadata, ["model", :model]),
-      measurements: get_any(metadata, ["measurements", :measurements]) || %{},
+      measurements: Measurements.message_info_measurements(message),
       traces: normalize_traces(trace, legacy_tool_calls)
     }
   end

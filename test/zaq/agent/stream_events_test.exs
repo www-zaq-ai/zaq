@@ -11,6 +11,14 @@ defmodule Zaq.Agent.StreamEventsTest do
     end
   end
 
+  defmodule StructEvent do
+    defstruct [:kind, :at_ms, :iteration, :tool_call_id, :tool_name, :data]
+  end
+
+  defmodule JsonStruct do
+    defstruct [:name]
+  end
+
   test "coalesces small deltas and flushes the full content on terminal event" do
     incoming = incoming()
 
@@ -38,16 +46,105 @@ defmodule Zaq.Agent.StreamEventsTest do
     refute Map.has_key?(trace_entry, "content")
 
     assert result.measurements["total_tokens"] == 3
-    assert result.measurements["prompt_tokens"] == 1
-    assert result.measurements["completion_tokens"] == 2
     assert result.measurements["input_tokens"] == 1
     assert result.measurements["output_tokens"] == 2
+    refute Map.has_key?(result.measurements, "prompt_tokens")
+    refute Map.has_key?(result.measurements, "completion_tokens")
     assert result.measurements["turn_count"] == 1
     assert result.measurements["llm_call_count"] == 1
     assert result.model == "openai:gpt-4o-mini"
     assert result.agent == %{id: 42, name: "Answering"}
     assert_receive {:broadcast, :answering, "hello world", :stream_delta}
     refute_receive {:broadcast, _, _, _}
+  end
+
+  test "uses llm_completed usage when terminal usage is empty" do
+    events = [
+      event(:llm_completed, 20, %{
+        text: "hello world",
+        usage: %{input_tokens: 3, output_tokens: 1}
+      }),
+      event(:request_completed, 30, %{result: "hello world", usage: %{}})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert result.usage.input_tokens == 3
+    assert result.usage.output_tokens == 1
+    assert result.measurements["input_tokens"] == 3
+    assert result.measurements["output_tokens"] == 1
+    assert result.measurements["total_tokens"] == 4
+  end
+
+  test "uses empty usage when llm_completed carries no usage map" do
+    events = [
+      event(:llm_completed, 10, %{usage: nil}),
+      event(:request_completed, 20, %{result: "done"})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert result.answer == "done"
+    assert result.usage == %{}
+  end
+
+  test "merges numeric token usage after ignoring invalid token values" do
+    events = [
+      event(:llm_completed, 10, %{usage: %{"input_tokens" => "n/a"}}),
+      event(:llm_completed, 20, %{usage: %{"input_tokens" => 4}}),
+      event(:request_completed, 30, %{result: "done", usage: %{}})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert result.usage.input_tokens == 4
+    assert result.measurements["input_tokens"] == 4
+    assert is_nil(result.measurements["total_tokens"])
+  end
+
+  test "normalizes string token keys and numeric usage values" do
+    events = [
+      event(:llm_completed, 10, %{
+        usage: %{
+          "input_tokens" => "2",
+          "output_tokens" => "3",
+          "inputTokenCount" => "5",
+          "outputTokenCount" => "7"
+        }
+      }),
+      event(:request_completed, 20, %{result: "done", usage: %{}})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert result.usage.input_tokens == 2
+    assert result.usage.output_tokens == 3
+    assert result.usage.inputTokenCount == 5
+    assert result.usage.outputTokenCount == 7
+    assert result.measurements["input_tokens"] == 2
+    assert result.measurements["output_tokens"] == 3
+    assert result.measurements["total_tokens"] == 5
+  end
+
+  test "normalizes provider token usage shapes from llm_completed" do
+    events = [
+      event(:llm_completed, 20, %{
+        usage: %{
+          "tokens" => %{
+            "promptTokenCount" => "8.0",
+            "candidatesTokenCount" => 3.9
+          },
+          "totalTokenCount" => "11.0"
+        }
+      }),
+      event(:request_completed, 30, %{result: "done", usage: %{}})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert result.measurements["input_tokens"] == 8
+    assert result.measurements["output_tokens"] == 3
+    assert result.measurements["total_tokens"] == 11
   end
 
   test "flushes when chunk type changes and stores thinking as reasoning trace" do
@@ -87,6 +184,14 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert is_binary(safe["nested"]["self"])
   end
 
+  test "json_safe converts structs without recursing forever" do
+    safe = StreamEvents.json_safe(%JsonStruct{name: :ok})
+
+    assert safe["name"] == "ok"
+    assert safe["__struct__"] == Atom.to_string(JsonStruct)
+    assert Jason.encode!(safe)
+  end
+
   test "captures tool calls in trace and result" do
     incoming = incoming()
 
@@ -110,6 +215,40 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert result.measurements["tool_call_count"] == 1
     assert_receive {:broadcast, :tool_call, "Using search", :tool_call}
     assert_receive {:broadcast, :tool_call, "Finished search", :tool_call}
+  end
+
+  test "uses struct event timestamps for tool started entries" do
+    events = [
+      %StructEvent{
+        kind: :tool_started,
+        at_ms: 1_765_411_200_000,
+        iteration: 0,
+        tool_call_id: "struct-tool",
+        data: %{tool_name: "lookup"}
+      },
+      event(:request_completed, 30, %{result: "done"})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [%{"id" => "struct-tool", "started_at" => started_at}] = result.tool_calls
+    assert is_binary(started_at)
+  end
+
+  test "keeps tool started timestamps nil when the map has no at_ms field" do
+    events = [
+      %{
+        kind: :tool_started,
+        iteration: 0,
+        tool_call_id: "map-tool",
+        data: %{tool_name: "lookup"}
+      },
+      event(:request_completed, 20, %{result: "done"})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [%{"id" => "map-tool", "started_at" => nil}] = result.tool_calls
   end
 
   describe "terminal events" do
@@ -266,6 +405,14 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert safe["123"] == "number_key"
     assert is_binary(safe["opaque"]["pid"])
     assert is_binary(safe["opaque"]["ref"])
+    assert Jason.encode!(safe)
+  end
+
+  test "json_safe falls back to inspect for bitstrings" do
+    safe = StreamEvents.json_safe(<<1::1>>)
+
+    assert is_binary(safe)
+    assert String.starts_with?(safe, "<<1::size(1)>>")
     assert Jason.encode!(safe)
   end
 

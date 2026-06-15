@@ -70,6 +70,7 @@ config/test.secret.exs
 .swarm
 swarm
 swarm.config.yaml
+.tool-versions
 
 *.db
 

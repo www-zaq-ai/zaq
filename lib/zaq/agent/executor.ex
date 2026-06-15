@@ -282,8 +282,8 @@ defmodule Zaq.Agent.Executor do
       answer: answer_text,
       confidence_score: confidence,
       latency_ms: measurement_value(measurements, "latency_ms"),
-      prompt_tokens: measurement_value(measurements, "prompt_tokens"),
-      completion_tokens: measurement_value(measurements, "completion_tokens"),
+      prompt_tokens: measurement_value(measurements, "input_tokens"),
+      completion_tokens: measurement_value(measurements, "output_tokens"),
       total_tokens: measurement_value(measurements, "total_tokens"),
       error: false,
       configured_agent_id: configured_agent.id,
@@ -351,7 +351,7 @@ defmodule Zaq.Agent.Executor do
       do: Telemetry.record("qa.answer.latency_ms", result.latency_ms, dims),
       else: :ok
 
-    :ok = record_token_telemetry(result.measurements, dims)
+    :ok = record_token_telemetry(result, dims)
 
     if is_number(result.confidence_score) do
       :ok = Telemetry.record("qa.answer.confidence", result.confidence_score, dims)
@@ -369,24 +369,24 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp record_token_telemetry(measurements, dims) when is_map(measurements) do
+  defp record_token_telemetry(result, dims) when is_map(result) do
     :ok =
       maybe_record_token_metric(
         "qa.tokens.prompt",
-        measurement_value(measurements, "prompt_tokens"),
+        Map.get(result, :prompt_tokens),
         dims
       )
 
     :ok =
       maybe_record_token_metric(
         "qa.tokens.completion",
-        measurement_value(measurements, "completion_tokens"),
+        Map.get(result, :completion_tokens),
         dims
       )
 
     maybe_record_token_metric(
       "qa.tokens.total",
-      measurement_value(measurements, "total_tokens"),
+      Map.get(result, :total_tokens),
       dims
     )
   end

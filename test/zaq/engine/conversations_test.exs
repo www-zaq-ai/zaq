@@ -513,8 +513,8 @@ defmodule Zaq.Engine.ConversationsTest do
         trace: trace,
         measurements: %{
           "latency_ms" => 88,
-          "prompt_tokens" => 10,
-          "completion_tokens" => 12,
+          "input_tokens" => 10,
+          "output_tokens" => 12,
           "total_tokens" => 22
         },
         model: "openai:gpt-4o-mini",
@@ -539,12 +539,12 @@ defmodule Zaq.Engine.ConversationsTest do
       assert [%{"id" => "llm-1", "type" => "content", "unsafe" => unsafe}] = assistant.trace
       assert is_list(unsafe)
       refute Map.has_key?(assistant.metadata, "tool_calls")
+      assert assistant.prompt_tokens == 10
+      assert assistant.completion_tokens == 12
+      assert assistant.total_tokens == 22
 
       assert assistant.metadata["measurements"] == %{
-               "latency_ms" => 88,
-               "prompt_tokens" => 10,
-               "completion_tokens" => 12,
-               "total_tokens" => 22
+               "latency_ms" => 88
              }
 
       assert assistant.metadata["model"] == "openai:gpt-4o-mini"

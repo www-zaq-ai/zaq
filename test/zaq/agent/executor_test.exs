@@ -208,7 +208,7 @@ defmodule Zaq.Agent.ExecutorTest do
                at_ms: 10,
                data: %{
                  result: "the answer",
-                 usage: %{prompt_tokens: 50, completion_tokens: 25, total_tokens: 75}
+                 usage: %{input_tokens: 50, output_tokens: 25, total_tokens: 75}
                }
              }
            ]
@@ -264,6 +264,35 @@ defmodule Zaq.Agent.ExecutorTest do
       assert result.metadata[:completion_tokens] == 25
       assert result.metadata[:total_tokens] == 75
       assert result.metadata[:error] == false
+    end
+
+    test "does not read prompt and completion aliases from runtime measurements" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 7}
+
+      Process.put(:coverage_await_result, {
+        :ok,
+        %{
+          result: "the answer",
+          usage: %{prompt_tokens: 50, completion_tokens: 25, total_tokens: 75}
+        }
+      })
+
+      result =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CoverageStubServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          scope: "coverage"
+        )
+
+      assert result.metadata[:prompt_tokens] == 50
+      assert result.metadata[:completion_tokens] == 25
+      assert result.metadata[:total_tokens] == 75
+      refute Map.has_key?(result.metadata[:measurements], "prompt_tokens")
+      refute Map.has_key?(result.metadata[:measurements], "completion_tokens")
     end
 
     test "nil confidence from stub does not appear as 0.0 in metadata" do

@@ -13,6 +13,16 @@ defmodule Zaq.Agent.StreamEvents do
   @flush_chars 20
   @flush_interval_ms 100
   @terminal_kinds [:request_completed, :request_failed, :request_cancelled]
+  @input_token_keys [:input_tokens, :prompt_tokens, :input, :promptTokenCount, :inputTokenCount]
+  @output_token_keys [
+    :output_tokens,
+    :completion_tokens,
+    :output,
+    :candidatesTokenCount,
+    :outputTokenCount
+  ]
+  @total_token_keys [:total_tokens, :total, :totalTokenCount]
+  @token_count_keys @input_token_keys ++ @output_token_keys ++ @total_token_keys
 
   @type result :: %{
           answer: term(),
@@ -81,6 +91,9 @@ defmodule Zaq.Agent.StreamEvents do
     case kind(event) do
       :llm_delta ->
         handle_llm_delta(event, state)
+
+      :llm_completed ->
+        handle_llm_completed(event, state)
 
       :tool_started ->
         handle_tool_started(event, state)
@@ -152,6 +165,16 @@ defmodule Zaq.Agent.StreamEvents do
     end
   end
 
+  defp handle_llm_completed(event, state) do
+    usage = normalize_usage(data_get(data(event), :usage))
+
+    if map_size(usage) > 0 do
+      %{state | usage: merge_usage(state.usage, usage)}
+    else
+      state
+    end
+  end
+
   defp handle_tool_started(event, state) do
     data = data(event)
 
@@ -208,11 +231,12 @@ defmodule Zaq.Agent.StreamEvents do
 
   defp handle_request_completed(state, event) do
     data = data(event)
+    usage = completed_request_usage(state.usage, data_get(data, :usage))
 
     %{
       state
       | answer: data_get(data, :result),
-        usage: normalize_usage(data_get(data, :usage)),
+        usage: usage,
         termination_reason: data_get(data, :termination_reason) || :complete
     }
     |> register(:completed)
@@ -339,8 +363,6 @@ defmodule Zaq.Agent.StreamEvents do
   defp measurements(state) do
     %{
       "latency_ms" => duration_ms(state.started_at, System.monotonic_time(:millisecond)),
-      "prompt_tokens" => usage_value(state.usage, [:prompt_tokens, :input_tokens]),
-      "completion_tokens" => usage_value(state.usage, [:completion_tokens, :output_tokens]),
       "total_tokens" => usage_value(state.usage, [:total_tokens]),
       "input_tokens" => usage_value(state.usage, [:input_tokens, :prompt_tokens]),
       "output_tokens" => usage_value(state.usage, [:output_tokens, :completion_tokens]),
@@ -368,10 +390,78 @@ defmodule Zaq.Agent.StreamEvents do
     Enum.find_value(keys, fn key ->
       case Map.get(usage, key) || Map.get(usage, to_string(key)) do
         value when is_integer(value) -> value
-        _ -> nil
+        value -> token_value(value)
       end
     end)
   end
+
+  defp usage_value(_usage, _keys), do: nil
+
+  defp token_counts(usage) when is_map(usage) do
+    sources = usage_sources(usage)
+
+    input_tokens = first_token_value(sources, @input_token_keys)
+    output_tokens = first_token_value(sources, @output_token_keys)
+    total_tokens = first_token_value(sources, @total_token_keys)
+
+    %{}
+    |> maybe_put_token_count(:input_tokens, input_tokens)
+    |> maybe_put_token_count(:output_tokens, output_tokens)
+    |> maybe_put_token_count(
+      :total_tokens,
+      total_tokens || token_sum(input_tokens, output_tokens)
+    )
+  end
+
+  defp usage_sources(usage) do
+    nested_tokens = Map.get(usage, :tokens) || Map.get(usage, "tokens")
+
+    [usage, nested_tokens]
+    |> Enum.filter(&is_map/1)
+  end
+
+  defp first_token_value(sources, keys) do
+    Enum.find_value(sources, fn usage ->
+      Enum.find_value(keys, fn key ->
+        usage
+        |> token_key_value(key)
+        |> token_value()
+      end)
+    end)
+  end
+
+  defp token_key_value(usage, key) when is_atom(key),
+    do: Map.get(usage, key) || Map.get(usage, to_string(key))
+
+  defp token_key_value(usage, key), do: Map.get(usage, key)
+
+  defp token_value(value) do
+    case numeric_value(value) do
+      {:ok, number} when is_number(number) -> max(trunc(number), 0)
+      :error -> nil
+    end
+  end
+
+  defp maybe_put_token_count(usage, _key, nil), do: usage
+  defp maybe_put_token_count(usage, key, value), do: Map.put(usage, key, value)
+
+  defp token_sum(input_tokens, output_tokens)
+       when is_integer(input_tokens) and is_integer(output_tokens),
+       do: input_tokens + output_tokens
+
+  defp token_sum(_input_tokens, _output_tokens), do: nil
+
+  defp numeric_value(value) when is_integer(value), do: {:ok, value}
+  defp numeric_value(value) when is_float(value), do: {:ok, value}
+
+  defp numeric_value(value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, ""} -> {:ok, number}
+      _ -> :error
+    end
+  end
+
+  defp numeric_value(_), do: :error
 
   defp duration_ms(start_ms, end_ms) when is_integer(start_ms) and is_integer(end_ms),
     do: max(end_ms - start_ms, 0)
@@ -445,8 +535,79 @@ defmodule Zaq.Agent.StreamEvents do
   defp normalize_chunk_type("thinking"), do: :thinking
   defp normalize_chunk_type(_), do: :unknown
 
-  defp normalize_usage(usage) when is_map(usage), do: usage
+  defp normalize_usage(usage) when is_map(usage),
+    do: normalize_usage_map(usage, derive_token_counts?: true)
+
   defp normalize_usage(_), do: %{}
+
+  defp normalize_usage_map(usage, opts) do
+    normalized =
+      Map.new(usage, fn {key, value} ->
+        key = normalize_usage_key(key)
+        {key, normalize_usage_value(key, value)}
+      end)
+
+    if Keyword.get(opts, :derive_token_counts?, false) do
+      Map.merge(normalized, token_counts(normalized))
+    else
+      normalized
+    end
+  end
+
+  defp merge_usage(existing, incoming) do
+    Map.merge(normalize_usage(existing), normalize_usage(incoming), &merge_usage_value/3)
+  end
+
+  defp completed_request_usage(existing, incoming) do
+    incoming = normalize_usage(incoming)
+
+    if map_size(incoming) > 0 do
+      incoming
+    else
+      normalize_usage(existing)
+    end
+  end
+
+  defp numeric_usage_value(value) do
+    case numeric_value(value) do
+      {:ok, number} -> number
+      :error -> value
+    end
+  end
+
+  defp normalize_usage_key("input_tokens"), do: :input_tokens
+  defp normalize_usage_key("output_tokens"), do: :output_tokens
+  defp normalize_usage_key("total_tokens"), do: :total_tokens
+  defp normalize_usage_key("prompt_tokens"), do: :prompt_tokens
+  defp normalize_usage_key("completion_tokens"), do: :completion_tokens
+  defp normalize_usage_key("promptTokenCount"), do: :promptTokenCount
+  defp normalize_usage_key("inputTokenCount"), do: :inputTokenCount
+  defp normalize_usage_key("candidatesTokenCount"), do: :candidatesTokenCount
+  defp normalize_usage_key("outputTokenCount"), do: :outputTokenCount
+  defp normalize_usage_key("totalTokenCount"), do: :totalTokenCount
+  defp normalize_usage_key(key), do: key
+
+  defp normalize_usage_value(key, value)
+       when key in @token_count_keys,
+       do: numeric_usage_value(value)
+
+  defp normalize_usage_value(_key, value) when is_map(value),
+    do: normalize_usage_map(value, derive_token_counts?: false)
+
+  defp normalize_usage_value(_key, value), do: value
+
+  defp merge_usage_value(_key, left, right) when is_map(left) and is_map(right),
+    do: merge_usage(left, right)
+
+  defp merge_usage_value(key, left, right)
+       when key in @token_count_keys do
+    case {numeric_value(left), numeric_value(right)} do
+      {{:ok, left}, {:ok, right}} -> left + right
+      _ -> right
+    end
+  end
+
+  defp merge_usage_value(_key, _left, right), do: right
 
   defp kind(event), do: field(event, :kind)
   defp data(event), do: field(event, :data) || %{}
@@ -471,8 +632,8 @@ defmodule Zaq.Agent.StreamEvents do
   defp do_json_safe(%_{} = struct) do
     struct
     |> Map.from_struct()
-    |> Map.put(:__struct__, struct.__struct__)
-    |> do_json_safe()
+    |> Map.new(fn {key, value} -> {safe_key(key), json_safe(value)} end)
+    |> Map.put("__struct__", Atom.to_string(struct.__struct__))
   end
 
   defp do_json_safe(map) when is_map(map) do
