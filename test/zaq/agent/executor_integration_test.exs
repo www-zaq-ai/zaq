@@ -68,6 +68,34 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     def answering_configured_agent, do: %{id: :answering, name: "answering"}
   end
 
+  # Streams visible answer content, then the stream fails. The user already saw
+  # tokens, so the error bubble must be suppressed.
+  defmodule StubFactoryStreamErrorAfterContent do
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []) do
+      {:ok,
+       %{
+         request: :request,
+         events: [
+           %{
+             kind: :llm_delta,
+             at_ms: 1,
+             data: %{chunk_type: :content, delta: "Partial answer already shown"}
+           },
+           %{
+             kind: :request_failed,
+             at_ms: 2,
+             data: %{
+               error:
+                 ReqLLM.Error.API.Stream.exception(reason: "stream closed mid-flight", cause: nil)
+             }
+           }
+         ]
+       }}
+    end
+
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
   test "runs configured agent end-to-end with only AI edge mocked" do
     handler = fn conn, body ->
       payload = Jason.decode!(body)
@@ -426,7 +454,31 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert_receive {:openai_request, "POST", "/v1/responses", "", _body}, 1_000
   end
 
-  test "suppresses stream error when status_message_id is already set in incoming metadata" do
+  test "suppresses stream error only after answer content was already delivered" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "bo-test",
+      provider: :web,
+      metadata: %{status_message_id: "msg-123"}
+    }
+
+    outgoing =
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: StubAgent,
+        server_manager_module: StubServerManager,
+        factory_module: StubFactoryStreamErrorAfterContent
+      )
+
+    assert outgoing.metadata.error == false
+    assert outgoing.metadata[:suppressed] == true
+    assert outgoing.body == ""
+  end
+
+  test "surfaces stream error when status_message_id is set but no content was delivered" do
+    # Regression: a budget/rate-limit error fails on the very first token. A
+    # status placeholder exists, but the user saw nothing — so the error must be
+    # surfaced, not suppressed into an empty bubble.
     incoming = %Incoming{
       content: "hello",
       channel_id: "bo-test",
@@ -442,9 +494,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
         factory_module: StubFactoryStreamError
       )
 
-    assert outgoing.metadata.error == false
-    assert outgoing.metadata[:suppressed] == true
-    assert outgoing.body == ""
+    assert outgoing.metadata.error == true
+    assert outgoing.body =~ "something went wrong"
   end
 
   test "surfaces stream error when no status_message_id is set in incoming metadata" do

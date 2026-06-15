@@ -33,7 +33,8 @@ defmodule Zaq.Agent.StreamEvents do
           incoming: Incoming.t()
         }
 
-  @spec consume(Enumerable.t(), Incoming.t(), keyword()) :: {:ok, result()} | {:error, term()}
+  @spec consume(Enumerable.t(), Incoming.t(), keyword()) ::
+          {:ok, result()} | {:error, term(), result()}
   def consume(events, %Incoming{} = incoming, opts \\ []) do
     state = initial_state(incoming, opts)
 
@@ -51,8 +52,10 @@ defmodule Zaq.Agent.StreamEvents do
     final_state = flush(final_state, force?: true)
 
     case final_state.error do
+      # Return the partial result alongside the error so callers can tell whether
+      # any answer content actually reached the user before the stream failed.
       nil -> {:ok, result(final_state)}
-      error -> {:error, error}
+      error -> {:error, error, result(final_state)}
     end
   end
 

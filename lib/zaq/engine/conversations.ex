@@ -608,7 +608,7 @@ defmodule Zaq.Engine.Conversations do
   defp generate_and_apply_title(id, content) do
     case TitleGenerator.generate(content) do
       {:ok, title} -> apply_generated_title(id, title)
-      {:error, _reason} -> :ok
+      {:fallback, title, _reason} -> apply_generated_title(id, title)
     end
   end
 

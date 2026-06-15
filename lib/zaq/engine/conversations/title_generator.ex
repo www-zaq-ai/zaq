@@ -7,6 +7,13 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
 
   The call is cheap (one short user turn) and is always performed
   asynchronously so it never blocks the message-storage path.
+
+  Title generation must never break the conversation flow. If the provider
+  is unavailable, rate-limited, over budget, or returns nothing usable, this
+  module derives a deterministic fallback title from the user's own message
+  and returns `{:fallback, title, reason}` — the caller always gets a usable
+  title, and the underlying error is surfaced (logged + carried in the tuple)
+  rather than silently dropped.
   """
 
   require Logger
@@ -17,9 +24,22 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   alias Zaq.Utils.TextUtils
 
   @max_words 6
+  @default_title "New Conversation"
 
   @doc """
   Generates a concise title from the first user message of a conversation.
+
+  Returns one of:
+
+    * `{:ok, title}` — the LLM produced a usable title.
+    * `{:fallback, title, reason}` — the LLM call failed (provider error,
+      rate limit, budget exceeded, empty/unusable response, or an
+      unexpected exception). `title` is derived deterministically from
+      `user_message` and `reason` carries the original failure so it can be
+      logged or passed to the next step.
+
+  It never returns an error tuple and never raises — a title is always
+  produced so conversations are never left untitled.
 
   ## Examples
 
@@ -60,36 +80,53 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
       end
 
     case Generation.generate_text(model_spec, [Context.user(prompt)], gen_opts) do
-      {:ok, response} -> response |> Response.text() |> build_title()
-      {:error, reason} -> log_error(reason)
+      {:ok, response} -> response |> Response.text() |> build_title(user_message)
+      {:error, reason} -> fallback(user_message, reason)
     end
+  rescue
+    error -> fallback(user_message, error)
   end
 
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
 
-  defp build_title(nil) do
-    Logger.error("TitleGenerator failed: Empty assistant response content")
-    {:error, "Empty assistant response content"}
+  defp build_title(nil, user_message) do
+    fallback(user_message, "Empty assistant response content")
   end
 
-  defp build_title(text) do
-    title =
-      text
-      |> TextUtils.normalize_generated_title(@max_words)
+  defp build_title(text, user_message) do
+    title = TextUtils.normalize_generated_title(text, @max_words)
 
     if title == "" do
-      Logger.error("TitleGenerator failed: Empty assistant response content")
-      {:error, "Empty assistant response content"}
+      fallback(user_message, "Empty assistant response content")
     else
       Logger.info("TitleGenerator: generated \"#{title}\"")
       {:ok, title}
     end
   end
 
-  defp log_error(reason) do
-    Logger.error("TitleGenerator failed: #{inspect(reason)}")
-    {:error, inspect(reason)}
+  # The LLM lane failed — never block the conversation. Derive a deterministic
+  # title from the user's own message and surface the original error.
+  defp fallback(user_message, reason) do
+    title = fallback_title(user_message)
+    Logger.warning("TitleGenerator falling back to \"#{title}\": #{inspect(reason)}")
+    {:fallback, title, reason}
   end
+
+  # Title-cased first few words of the user message, or a generic default when
+  # the message is empty/blank.
+  defp fallback_title(user_message) do
+    user_message
+    |> to_string()
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.take(@max_words)
+    |> case do
+      [] -> @default_title
+      words -> Enum.map_join(words, " ", &capitalize_word/1)
+    end
+  end
+
+  defp capitalize_word(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
+  defp capitalize_word(word), do: word
 end

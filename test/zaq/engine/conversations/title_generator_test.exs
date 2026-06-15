@@ -53,7 +53,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
       assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}
     end
 
-    test "returns error when assistant content is unusable" do
+    test "falls back to a message-derived title when assistant content is unusable" do
       handler = fn _conn, _body ->
         {200, OpenAIStub.chat_completion("   ")}
       end
@@ -63,11 +63,11 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
 
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:error, "Empty assistant response content"} =
+      assert {:fallback, "Can You Help Me With Account", "Empty assistant response content"} =
                TitleGenerator.generate("Can you help me with account settings?")
     end
 
-    test "rescues and returns error tuple when LLM call fails" do
+    test "falls back and surfaces the error when the LLM call fails" do
       handler = fn _conn, _body ->
         {503, %{"error" => %{"message" => "Service unavailable", "type" => "server_error"}}}
       end
@@ -77,9 +77,23 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
 
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:error, message} = TitleGenerator.generate("Please generate a title")
-      assert is_binary(message)
-      assert message != ""
+      assert {:fallback, "Please Generate A Title", reason} =
+               TitleGenerator.generate("Please generate a title")
+
+      refute is_nil(reason)
+    end
+
+    test "falls back to the default title when the user message is blank" do
+      handler = fn _conn, _body ->
+        {503, %{"error" => %{"message" => "Service unavailable", "type" => "server_error"}}}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:fallback, "New Conversation", _reason} = TitleGenerator.generate("   ")
     end
   end
 end
