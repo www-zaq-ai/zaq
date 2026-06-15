@@ -53,7 +53,7 @@ defmodule Zaq.UserPortal.Provisioner do
   Creates the "ZAQ Router" credential with no API key, used when the portal is
   unreachable during onboarding so the provider is still listed for the user.
 
-  Unlike `provision_with_key/2`, this does **not** wire the LLM/embedding/image
+  Unlike `provision_with_key/1`, this does **not** wire the LLM/embedding/image
   configs and does **not** overwrite an existing credential. A later successful
   portal claim updates the same credential by name and fills in the API key.
   """

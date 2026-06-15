@@ -56,10 +56,15 @@ defmodule Zaq.UserPortal.Onboarding do
   the registration write, credential write, and accepted-consent record run as a
   Sage saga inside a single DB transaction, so a failure in any step rolls the
   whole thing back rather than orphaning a credential.
+
+  With raw `:accepted` consent, provisioning runs synchronously; if it fails the
+  consent is recorded as `"declined"` and `{:error, {:provisioning_failed, reason}}`
+  is returned so the caller can surface a message.
   """
   @spec complete_bootstrap_onboarding(User.t(), map(), consent() | pre_provisioned()) ::
           {:ok, User.t()}
           | {:error, Ecto.Changeset.t()}
+          | {:error, {:provisioning_failed, term()}}
   def complete_bootstrap_onboarding(user, attrs, {:pre_provisioned, litellm}) do
     Sage.new()
     |> Sage.run(:registration, fn _effects, _opts ->

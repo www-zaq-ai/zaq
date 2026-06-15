@@ -86,8 +86,8 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
        portal_reachable: portal_reachable,
        portal_checked: true,
        portal_metadata: portal_metadata,
-       plan_enabled: plan_enabled?(portal_metadata),
-       plan_available: plan_available?(portal_metadata)
+       plan_enabled: Zaq.UserPortal.plan_enabled?(portal_metadata),
+       plan_available: Zaq.UserPortal.plan_available?(portal_metadata)
      )
      |> assign_banner()}
   end
@@ -249,8 +249,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
          )}
 
       {:error, reason} ->
-        {error_msg, mode} =
-          provision_error_with_override(reason, socket.assigns.require_portal_email)
+        {error_msg, mode} = Zaq.UserPortal.provision_error(reason)
 
         {:noreply,
          socket
@@ -265,41 +264,12 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
     end
   end
 
-  # Returns {error_message, mode} where mode is one of:
-  #   :allow_override — email conflict; show email input so user can try a different address
-  #   :none           — generic error; show message only
-  defp provision_error_with_override({409, body}, _require_email) do
-    msg =
-      case body do
-        %{"message" => m} when is_binary(m) and m != "" -> m
-        _ -> "This email is already registered with ZAQ Portal."
-      end
-
-    {msg <> " Please use a different email address.", :allow_override}
-  end
-
-  # Surface the portal's own message for non-409 errors.
-  defp provision_error_with_override({_status, %{"message" => message}}, _require_email)
-       when is_binary(message) and message != "" do
-    {message, :none}
-  end
-
-  defp provision_error_with_override(_reason, _require_email) do
-    {"Could not reach the ZAQ portal. Please try again later.", :none}
-  end
-
   defp email_error_message(changeset) do
     case changeset.errors[:email] do
       {message, _opts} -> "Email #{message}."
       _ -> "Please enter a valid email address."
     end
   end
-
-  defp plan_enabled?(%{"plan_status" => "enabled"}), do: true
-  defp plan_enabled?(_), do: false
-
-  defp plan_available?(nil), do: false
-  defp plan_available?(metadata), do: Map.get(metadata, "available", false) == true
 
   defp metadata(portal_metadata), do: get_in(portal_metadata || %{}, ["metadata"]) || %{}
 end

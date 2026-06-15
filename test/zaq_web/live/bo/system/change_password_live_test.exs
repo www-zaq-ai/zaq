@@ -107,15 +107,15 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/bo/change-password")
 
-    html =
-      view
-      |> form("#change-password-form", %{
-        "password" => "StrongPass1!",
-        "password_confirmation" => "StrongPass1!"
-      })
-      |> render_submit()
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
 
-    assert html =~ "To create your ZAQ account..."
+    # Portal metadata is fetched asynchronously; the consent modal appears once it resolves.
+    assert render_async(view) =~ "To create your ZAQ account..."
 
     render_click(view, "decline_portal_consent")
     assert_redirect(view, ~p"/bo/dashboard")
@@ -234,7 +234,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/change-password")
 
     # Submitting redirects straight to the dashboard: no consent popup is shown.
-    # (If the popup were rendered the view would stay put awaiting accept/decline.)
+    # The async portal fetch resolves to :unavailable, which skips the modal.
     view
     |> form("#change-password-form", %{
       "password" => "StrongPass1!",
@@ -242,7 +242,8 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    assert_redirect(view, ~p"/bo/dashboard")
+    # The async portal fetch resolves shortly after submit and issues the redirect.
+    assert_redirect(view, ~p"/bo/dashboard", 1000)
 
     updated_user = Accounts.get_user!(user.id)
     refute updated_user.must_change_password
@@ -271,9 +272,11 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
+    render_async(view)
+
     html = render_click(view, "accept_portal_consent")
 
-    assert html =~ "Portal activation failed"
+    assert html =~ "Could not reach the ZAQ portal"
     assert has_element?(view, "[phx-click='decline_portal_consent']")
 
     render_click(view, "decline_portal_consent")

@@ -262,7 +262,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
     """
   end
 
-  defp email_entered?(email), do: is_binary(email) and String.trim(email) != ""
+  defp email_entered?(email), do: not Zaq.Helpers.blank?(email)
 
   attr :show, :boolean, required: true
   attr :post_accept, :map, default: %{}
