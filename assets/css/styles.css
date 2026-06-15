@@ -434,3 +434,32 @@ pre.zaq-file-preview-body {
   background: var(--zaq-border-color-success);
   border-radius: var(--zaq-scale-16);
 }
+
+/* ── Dropzone (`ZaqWeb.Components.DesignSystem.Dropzone`) — dashed upload shell + progress bar ─ */
+
+.zaq-dropzone {
+  margin-top: var(--zaq-scale-16);
+  background: var(--zaq-surface-color-raised);
+  border-radius: var(--zaq-scale-16);
+  border: var(--zaq-scale-2) dashed var(--zaq-border-color-default);
+  padding: var(--zaq-scale-24);
+  transition: border-color 150ms ease;
+}
+
+.zaq-dropzone:hover {
+  border-color: var(--zaq-border-color-accent);
+}
+
+.zaq-upload-progress-track {
+  height: var(--zaq-scale-8);
+  background: var(--zaq-surface-color-base);
+  border-radius: var(--zaq-scale-999);
+  overflow: hidden;
+}
+
+.zaq-upload-progress-fill {
+  height: 100%;
+  border-radius: var(--zaq-scale-999);
+  background: var(--zaq-bg-loading-default);
+  transition: width 150ms ease;
+}
