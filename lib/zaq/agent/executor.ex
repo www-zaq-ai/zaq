@@ -187,55 +187,63 @@ defmodule Zaq.Agent.Executor do
         :ok = record_success_telemetry(result, dims)
         Outgoing.from_pipeline_result(incoming, result)
       else
-        {:error, %ReqLLM.Error.API.Stream{} = reason} ->
-          if is_nil(get_in(incoming.metadata, [:status_message_id])) do
-            Logger.error("Configured agent execution failed: #{inspect(reason)}")
-
-            :ok =
-              Telemetry.record(
-                "qa.custom_agent.execution.error",
-                1,
-                Map.put(dims, :error_type, error_type(reason))
-              )
-
-            Outgoing.from_pipeline_result(
-              incoming,
-              error_result(reason, maybe_configured_agent(selected_agent_result))
-            )
-          else
+        {:error, %ReqLLM.Error.API.Stream{} = reason, partial} ->
+          if suppress_stream_error?(incoming, partial) do
             # Stream error after tokens were already delivered — the answer is visible.
             # Suppress the error bubble so we don't overlay a complete streamed response.
             Logger.warning(
               "Stream ended with error after content was delivered (suppressing error bubble): #{inspect(reason)}"
             )
 
-            :ok =
-              Telemetry.record(
-                "qa.custom_agent.execution.error",
-                1,
-                Map.put(dims, :error_type, error_type(reason))
-              )
-
+            record_execution_error(dims, reason)
             Outgoing.from_pipeline_result(incoming, suppressed_stream_error_result(reason))
+          else
+            # Stream failed before any content reached the user (e.g. budget/rate
+            # limit on the first token). Surface the error instead of an empty bubble.
+            surface_execution_error(incoming, reason, dims, selected_agent_result)
           end
 
+        {:error, reason, _partial} ->
+          surface_execution_error(incoming, reason, dims, selected_agent_result)
+
         {:error, reason} ->
-          Logger.error("Configured agent execution failed: #{inspect(reason)}")
-
-          :ok =
-            Telemetry.record(
-              "qa.custom_agent.execution.error",
-              1,
-              Map.put(dims, :error_type, error_type(reason))
-            )
-
-          Outgoing.from_pipeline_result(
-            incoming,
-            error_result(reason, maybe_configured_agent(selected_agent_result))
-          )
+          surface_execution_error(incoming, reason, dims, selected_agent_result)
       end
 
     result
+  end
+
+  # Suppress only when a streaming surface exists AND answer content was actually
+  # delivered to the user. The mere presence of a status placeholder is not proof
+  # that any tokens reached the user.
+  defp suppress_stream_error?(%Incoming{} = incoming, partial) do
+    not is_nil(get_in(incoming.metadata, [:status_message_id])) and content_delivered?(partial)
+  end
+
+  defp content_delivered?(%{answer: answer}) when is_binary(answer),
+    do: String.trim(answer) != ""
+
+  defp content_delivered?(_), do: false
+
+  defp surface_execution_error(incoming, reason, dims, selected_agent_result) do
+    Logger.error("Configured agent execution failed: #{inspect(reason)}")
+    record_execution_error(dims, reason)
+
+    Outgoing.from_pipeline_result(
+      incoming,
+      error_result(reason, maybe_configured_agent(selected_agent_result))
+    )
+  end
+
+  defp record_execution_error(dims, reason) do
+    :ok =
+      Telemetry.record(
+        "qa.custom_agent.execution.error",
+        1,
+        Map.put(dims, :error_type, error_type(reason))
+      )
+
+    :ok
   end
 
   defp ensure_agent_server(server_manager_module, configured_agent, opts) do
@@ -340,7 +348,15 @@ defmodule Zaq.Agent.Executor do
   defp normalize_answer(other), do: inspect(other)
 
   defp measurement_value(measurements, key) when is_map(measurements) do
-    Map.get(measurements, key) || Map.get(measurements, String.to_atom(key))
+    Map.get(measurements, key) || Map.get(measurements, safe_existing_atom(key))
+  end
+
+  # Measurement maps may use string or atom keys. Never mint new atoms from
+  # runtime data (atom-exhaustion DoS) — only resolve atoms that already exist.
+  defp safe_existing_atom(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   defp record_success_telemetry(result, dims) do

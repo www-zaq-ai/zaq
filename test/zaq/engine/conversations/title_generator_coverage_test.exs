@@ -59,7 +59,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
   end
 
   describe "generate/2 — nil response content" do
-    test "returns error when LLM returns nil content" do
+    test "falls back to a message-derived title when LLM returns nil content" do
       handler = fn _conn, _body ->
         {200, OpenAIStub.chat_completion(nil)}
       end
@@ -68,13 +68,13 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
       start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:error, message} = TitleGenerator.generate("How do I reset my password?")
-      assert is_binary(message)
+      assert {:fallback, "How Do I Reset My Password?", "Empty assistant response content"} =
+               TitleGenerator.generate("How do I reset my password?")
     end
   end
 
   describe "generate/2 — whitespace-only response after trimming" do
-    test "returns error when content becomes empty after prefix removal" do
+    test "falls back when content becomes empty after prefix removal" do
       handler = fn _conn, _body ->
         # A string that is only whitespace after trimming
         {200, OpenAIStub.chat_completion("   ")}
@@ -84,7 +84,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
       start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:error, "Empty assistant response content"} =
+      assert {:fallback, "Anything", "Empty assistant response content"} =
                TitleGenerator.generate("Anything")
     end
   end
