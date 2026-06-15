@@ -91,12 +91,8 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp build_title(nil, user_message) do
-    fallback(user_message, "Empty assistant response content")
-  end
-
   defp build_title(text, user_message) do
-    title = TextUtils.normalize_generated_title(text, @max_words)
+    title = text |> to_string() |> TextUtils.normalize_generated_title(@max_words)
 
     if title == "" do
       fallback(user_message, "Empty assistant response content")
@@ -128,5 +124,4 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   end
 
   defp capitalize_word(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
-  defp capitalize_word(word), do: word
 end

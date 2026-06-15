@@ -71,6 +71,86 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
       assert {:fallback, "How Do I Reset My Password?", "Empty assistant response content"} =
                TitleGenerator.generate("How do I reset my password?")
     end
+
+    test "falls back when the assistant message omits content" do
+      handler = fn _conn, _body ->
+        {200,
+         %{
+           "id" => "chatcmpl-test",
+           "object" => "chat.completion",
+           "created" => 0,
+           "model" => "test-model",
+           "choices" => [
+             %{
+               "index" => 0,
+               "message" => %{"role" => "assistant"},
+               "finish_reason" => "stop"
+             }
+           ]
+         }}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:fallback, "How Do I Reset My Password?", "Empty assistant response content"} =
+               TitleGenerator.generate("How do I reset my password?")
+    end
+  end
+
+  describe "generate/2 — model and provider fallback coverage" do
+    test "uses the provided model override" do
+      handler = fn _conn, body ->
+        payload = Jason.decode!(body)
+        assert payload["model"] == "coverage-model"
+
+        {200, OpenAIStub.chat_completion("Coverage Model Title")}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint, model: "base-model")
+
+      assert {:ok, "Coverage Model Title"} =
+               TitleGenerator.generate("Which model handles this?", model: "coverage-model")
+    end
+
+    test "falls back when the provider returns an error tuple" do
+      handler = fn _conn, _body ->
+        {503, %{"error" => %{"message" => "service unavailable"}}}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:fallback, "Need A Coverage Title", reason} =
+               TitleGenerator.generate("Need a coverage title")
+
+      refute is_nil(reason)
+    end
+
+    test "falls back to the default title when the user message is blank" do
+      handler = fn _conn, _body ->
+        {503, %{"error" => %{"message" => "service unavailable"}}}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:fallback, "New Conversation", _reason} = TitleGenerator.generate("   ")
+    end
+  end
+
+  describe "generate/2 — exception fallback" do
+    test "rescues unexpected local errors and returns a deterministic fallback title" do
+      assert {:fallback, "Explain Billing Retry Behavior", reason} =
+               TitleGenerator.generate("Explain billing retry behavior", :invalid_opts)
+
+      refute is_nil(reason)
+    end
   end
 
   describe "generate/2 — whitespace-only response after trimming" do

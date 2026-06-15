@@ -76,6 +76,18 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
              )
   end
 
+  test "runtime endpoint id uses the default endpoint count when creating a new atom" do
+    id = System.unique_integer([:positive]) + 1_000_000
+
+    assert {:ok, endpoint_id} =
+             Runtime.runtime_endpoint_id(id,
+               atom_count_fn: fn -> 10 end,
+               atom_limit_fn: fn -> 100_000 end
+             )
+
+    assert endpoint_id == String.to_atom("mcp_#{id}")
+  end
+
   test "build_endpoint builds remote streamable_http endpoint and decrypts secret headers" do
     {:ok, encrypted_auth} = EncryptedString.encrypt("Bearer abc")
 
@@ -95,6 +107,31 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
     assert opts[:mcp_path] == "/mcp"
     assert opts[:headers]["X-App"] == "zaq"
     assert opts[:headers]["Authorization"] == "Bearer abc"
+  end
+
+  test "build_endpoint_attrs builds registration payloads for remote endpoints" do
+    endpoint = %Endpoint{
+      name: "Remote",
+      type: "remote",
+      timeout_ms: 5000,
+      url: "https://example.com/mcp",
+      headers: %{"X-App" => "zaq"}
+    }
+
+    assert {:ok, attrs} = Runtime.build_endpoint_attrs(:remote_attrs, endpoint)
+
+    assert attrs.endpoint_id == :remote_attrs
+
+    assert attrs.endpoint.transport ==
+             {:streamable_http,
+              base_url: "https://example.com", mcp_path: "/mcp", headers: %{"X-App" => "zaq"}}
+
+    assert attrs.endpoint.timeouts.request_ms == 5000
+  end
+
+  test "build_endpoint_attrs returns unsupported type errors" do
+    endpoint = %Endpoint{type: "other", timeout_ms: 5000}
+    assert {:error, :unsupported_type} = Runtime.build_endpoint_attrs(:bad_attrs, endpoint)
   end
 
   test "build_endpoint returns error for invalid remote url" do
@@ -150,6 +187,32 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
     assert {:ok, runtime_nil} = Runtime.build_endpoint(:remote_nil_port, endpoint_nil)
     assert {:streamable_http, nil_opts} = runtime_nil.transport
     assert nil_opts[:base_url] == "http://example.org"
+  end
+
+  test "build_endpoint treats non-map header and environment fields as empty maps" do
+    remote_endpoint = %Endpoint{
+      type: "remote",
+      timeout_ms: 5000,
+      url: "https://example.org/mcp",
+      headers: nil,
+      secret_headers: ["bad"]
+    }
+
+    local_endpoint = %Endpoint{
+      type: "local",
+      timeout_ms: 5000,
+      command: "npx",
+      environments: nil,
+      secret_environments: ["bad"]
+    }
+
+    assert {:ok, remote_runtime} = Runtime.build_endpoint(:remote_non_maps, remote_endpoint)
+    assert {:streamable_http, remote_opts} = remote_runtime.transport
+    assert remote_opts[:headers] == %{}
+
+    assert {:ok, local_runtime} = Runtime.build_endpoint(:local_non_maps, local_endpoint)
+    assert {:stdio, local_opts} = local_runtime.transport
+    assert local_opts[:env] == %{}
   end
 
   test "build_endpoint returns invalid url for non-binary remote url" do
@@ -310,6 +373,74 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
     assert_received {:listed_tools, :zaq_mcp_test}
     assert_received {:listed_tools, :zaq_mcp_test}
     assert_received {:unregistered, :zaq_mcp_test}
+  end
+
+  test "test_list_tools retries capability errors reported in alternate shapes" do
+    endpoint = %Endpoint{type: "remote", timeout_ms: 2000, url: "http://localhost:8000/mcp"}
+
+    first_errors = [
+      {:error,
+       %{
+         details: %MCPError{
+           reason: :internal_error,
+           message: "Server capabilities not set",
+           data: nil
+         }
+       }},
+      {:error, %{details: %{"message" => "Server capabilities not set"}}}
+    ]
+
+    for {first_error, index} <- Enum.with_index(first_errors) do
+      test_pid = self()
+      process_key = {:listed_once_alt_capability, index}
+
+      list_tools_fn = fn endpoint_id, _timeout ->
+        send(test_pid, {:listed_tools, index, endpoint_id})
+
+        case Process.get(process_key) do
+          true ->
+            {:ok, %{status: :ok, endpoint: endpoint_id}}
+
+          _ ->
+            Process.put(process_key, true)
+            first_error
+        end
+      end
+
+      assert {:ok, %{status: :ok, endpoint: :zaq_mcp_test}} =
+               Runtime.test_list_tools(endpoint,
+                 register_fn: fn _runtime_endpoint -> :ok end,
+                 unregister_fn: fn _endpoint_id -> :ok end,
+                 ensure_client_fn: fn _endpoint_id -> {:error, :no_client} end,
+                 list_tools_fn: list_tools_fn,
+                 retry_sleep_ms: 1
+               )
+
+      assert_received {:listed_tools, ^index, :zaq_mcp_test}
+      assert_received {:listed_tools, ^index, :zaq_mcp_test}
+    end
+  end
+
+  test "test_list_tools does not retry non-binary capability messages" do
+    endpoint = %Endpoint{type: "remote", timeout_ms: 2000, url: "http://localhost:8000/mcp"}
+    first_error = {:error, %{details: %{message: nil}}}
+
+    list_tools_fn = fn endpoint_id, _timeout ->
+      send(self(), {:listed_tools, endpoint_id})
+      first_error
+    end
+
+    assert ^first_error =
+             Runtime.test_list_tools(endpoint,
+               register_fn: fn _runtime_endpoint -> :ok end,
+               unregister_fn: fn _endpoint_id -> :ok end,
+               ensure_client_fn: fn _endpoint_id -> {:error, :no_client} end,
+               list_tools_fn: list_tools_fn,
+               retry_sleep_ms: 1
+             )
+
+    assert_received {:listed_tools, :zaq_mcp_test}
+    refute_received {:listed_tools, :zaq_mcp_test}
   end
 
   test "build_endpoint ignores undecryptable secret values and keeps plain entries" do
