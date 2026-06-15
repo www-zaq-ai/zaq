@@ -15,6 +15,14 @@ defmodule Zaq.TestSupport.OpenAIStub do
       {:openai_request, conn.method, conn.request_path, conn.query_string, body}
     )
 
+    # Force the connection closed after each response. The stub binds an
+    # ephemeral port per test and is torn down at test end, but ReqLLM's shared
+    # Finch pool keeps HTTP/1 keep-alive connections keyed by host:port. Under a
+    # full suite the OS reuses freed ports, so a later test can inherit a stale
+    # pooled connection to a now-dead Bandit and hang mid-stream until the
+    # ExUnit timeout. `Connection: close` prevents Finch from pooling it.
+    conn = put_resp_header(conn, "connection", "close")
+
     case opts[:handler].(conn, body) do
       {status, %{} = response} ->
         conn

@@ -23,9 +23,12 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
 
   defp insert_configured_agent(name), do: insert_configured_agent(name, true)
 
-  defp insert_configured_agent(name, active) do
+  defp insert_configured_agent(name, active),
+    do: insert_configured_agent(name, active, "https://api.openai.com/v1")
+
+  defp insert_configured_agent(name, active, endpoint) do
     credential =
-      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+      ai_credential_fixture(%{provider: "openai", endpoint: endpoint})
 
     {:ok, agent} =
       Agent.create_agent(%{
@@ -98,7 +101,11 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
       start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
-      {:ok, agent: insert_configured_agent("MailResponder")}
+      # Point the agent's credential at the local stub too. The agent resolves its
+      # endpoint from its credential (not the seeded default llm_config), so without
+      # this the Executor makes a real call to api.openai.com — normally swallowed into
+      # a fallback Outgoing, but it can hang mid-stream in CI and time out the test.
+      {:ok, agent: insert_configured_agent("MailResponder", true, endpoint)}
     end
 
     test "returns {:ok, %{drafts: [...]}} with one draft per email" do
@@ -214,6 +221,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReplyTest do
                DraftReply.run(%{emails: [email], agent_name: "MailResponder"}, %{})
 
       assert draft.to_address == "atom@example.com"
+      assert_received {:openai_request, _, _, _, _}
     end
   end
 
