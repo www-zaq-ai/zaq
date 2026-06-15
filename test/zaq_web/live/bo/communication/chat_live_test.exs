@@ -855,6 +855,39 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
+  test "renders error message when dispatch returns an error Outgoing (empty-bubble regression)",
+       %{conn: conn} do
+    # Simulates a provider failure (e.g. budget exceeded) that fails before any
+    # token streams: the executor surfaces an error Outgoing, but the streaming
+    # placeholder is empty. The error must replace the empty bubble in the UI.
+    NodeRouterFake.put_dispatch(fn %Event{} = event ->
+      incoming = event.request
+
+      %{
+        event
+        | response: %Outgoing{
+            body: "Your AI credits have run out.",
+            channel_id: incoming.channel_id,
+            provider: incoming.provider,
+            metadata: %{
+              error: true,
+              error_type: "ReqLLM.Error.API.Stream",
+              confidence_score: nil,
+              sources: []
+            }
+          }
+      }
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    view
+    |> element("#chat-form")
+    |> render_submit(%{"message" => "are the apify tools registered"})
+
+    assert_eventually(fn -> render(view) =~ "Your AI credits have run out." end)
+  end
+
   test "date separator appears in message list after loading a conversation", %{
     conn: conn,
     user: user

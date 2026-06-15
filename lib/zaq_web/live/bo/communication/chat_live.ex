@@ -713,18 +713,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
          %Event{} = event
        )
        when is_pid(live_view_pid) do
-    case event do
-      %Event{request: %Outgoing{}, response: :ok} ->
+    cond do
+      # An error Outgoing must always reach the UI. The provider may have failed
+      # before the first token (e.g. budget/rate limit), leaving an empty
+      # streaming placeholder that needs to be replaced with the error message.
+      error_outgoing?(outgoing) ->
+        send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
         :ok
 
-      %Event{response: %Outgoing{}} ->
+      # Already delivered through channels, or streamed successfully — the UI has
+      # already rendered the answer, so don't emit a duplicate.
+      match?(%Event{request: %Outgoing{}, response: :ok}, event) or
+          match?(%Event{response: %Outgoing{}}, event) ->
         :ok
 
-      _other ->
+      true ->
         send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
         :ok
     end
   end
+
+  defp error_outgoing?(%Outgoing{metadata: metadata}) when is_map(metadata),
+    do: metadata[:error] == true
+
+  defp error_outgoing?(_), do: false
 
   defp maybe_put_agent_selection(%Event{} = event, selected_agent_id) do
     case selected_agent_id do
