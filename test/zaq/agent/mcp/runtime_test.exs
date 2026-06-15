@@ -113,8 +113,30 @@ defmodule Zaq.Agent.MCP.RuntimeTest do
     assert {:ok, runtime_endpoint} = Runtime.build_endpoint(:remote_default_port, endpoint)
     assert {:streamable_http, opts} = runtime_endpoint.transport
     assert opts[:base_url] == "https://example.com"
-    assert opts[:mcp_path] == "/mcp"
+    assert opts[:mcp_path] == "/"
     assert runtime_endpoint.timeouts.request_ms == 5000
+  end
+
+  test "build_endpoint preserves an explicit root path for remote urls" do
+    endpoint = %Endpoint{type: "remote", timeout_ms: 60_000, url: "https://mcp.apify.com/"}
+
+    assert {:ok, runtime_endpoint} = Runtime.build_endpoint(:remote_root_path, endpoint)
+    assert {:streamable_http, opts} = runtime_endpoint.transport
+    assert opts[:base_url] == "https://mcp.apify.com"
+    assert opts[:mcp_path] == "/"
+  end
+
+  test "build_endpoint preserves an explicit non-root path for remote urls" do
+    endpoint = %Endpoint{
+      type: "remote",
+      timeout_ms: 5000,
+      url: "https://mcp.firecrawl.dev/v2/mcp"
+    }
+
+    assert {:ok, runtime_endpoint} = Runtime.build_endpoint(:remote_explicit_path, endpoint)
+    assert {:streamable_http, opts} = runtime_endpoint.transport
+    assert opts[:base_url] == "https://mcp.firecrawl.dev"
+    assert opts[:mcp_path] == "/v2/mcp"
   end
 
   test "build_endpoint supports http default port and nil port urls" do
