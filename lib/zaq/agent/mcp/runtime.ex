@@ -204,7 +204,7 @@ defmodule Zaq.Agent.MCP.Runtime do
       {:error, :invalid_url}
     else
       base_url = "#{uri.scheme}://#{uri.host}#{port_segment(uri)}"
-      path = if is_binary(uri.path) and uri.path != "", do: uri.path, else: "/mcp"
+      path = if is_binary(uri.path) and uri.path != "", do: uri.path, else: "/"
       {:ok, %{base_url: base_url, mcp_path: path}}
     end
   end

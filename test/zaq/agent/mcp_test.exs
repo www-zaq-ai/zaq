@@ -160,8 +160,20 @@ defmodule Zaq.Agent.MCPTest do
       assert firecrawl.icon == "hero-fire-solid"
       assert firecrawl.defaults.type == "remote"
       assert firecrawl.defaults.status == "disabled"
-      assert firecrawl.defaults.url == "https://mcp.firecrawl.dev"
+      assert firecrawl.defaults.url == "https://mcp.firecrawl.dev/v2/mcp"
       assert firecrawl.defaults.secret_headers == %{"Authorization" => "Bearer {API_KEY}"}
+    end
+
+    test "catalog includes Apify remote MCP defaults" do
+      assert apify = MCP.predefined_catalog()["apify_mcp"]
+      assert apify.name == "Apify"
+      assert apify.icon == "hero-globe-alt-solid"
+      assert apify.editable == true
+      assert apify.defaults.type == "remote"
+      assert apify.defaults.status == "disabled"
+      assert apify.defaults.url == "https://mcp.apify.com/"
+      assert apify.defaults.timeout_ms == 60_000
+      assert apify.defaults.secret_headers == %{"Authorization" => "Bearer {API_KEY}"}
     end
 
     test "filter includes disabled placeholders for predefined MCPs not yet enabled" do

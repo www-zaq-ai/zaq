@@ -77,7 +77,7 @@ defmodule Zaq.Agent.MCP do
         type: "remote",
         status: "disabled",
         timeout_ms: 5000,
-        url: "https://mcp.firecrawl.dev",
+        url: "https://mcp.firecrawl.dev/v2/mcp",
         headers: %{},
         secret_headers: %{"Authorization" => "Bearer {API_KEY}"},
         environments: %{},
@@ -135,6 +135,24 @@ defmodule Zaq.Agent.MCP do
         url: "https://mcp.tweetsave.org/mcp",
         headers: %{},
         secret_headers: %{},
+        environments: %{},
+        secret_environments: %{},
+        settings: %{}
+      }
+    },
+    "apify_mcp" => %{
+      id: "apify_mcp",
+      name: "Apify",
+      icon: "hero-globe-alt-solid",
+      description: "Apify MCP for running web scrapers and automation actors from Apify Store.",
+      editable: true,
+      defaults: %{
+        type: "remote",
+        status: "disabled",
+        timeout_ms: 60_000,
+        url: "https://mcp.apify.com/",
+        headers: %{},
+        secret_headers: %{"Authorization" => "Bearer {API_KEY}"},
         environments: %{},
         secret_environments: %{},
         settings: %{}

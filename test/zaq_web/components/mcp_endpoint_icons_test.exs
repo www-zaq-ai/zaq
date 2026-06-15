@@ -38,6 +38,13 @@ defmodule ZaqWeb.Components.MCPEndpointIconsTest do
       render_component(&MCPEndpointIcons.icon/1, endpoint_key: "tweetsave_mcp", class: "w-4 h-4")
 
     assert tweetsave =~ "#38BDF8"
+
+    apify =
+      render_component(&MCPEndpointIcons.icon/1, endpoint_key: "apify_mcp", class: "w-4 h-4")
+
+    assert apify =~ "#246DFF"
+    assert apify =~ "#20A34E"
+    assert apify =~ "#F86606"
   end
 
   test "renders fallback icon for unknown or nil key" do
