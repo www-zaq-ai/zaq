@@ -45,7 +45,7 @@ defmodule Zaq.Engine.ConversationsTitleGenerationIntegrationTest do
     assert Conversations.get_conversation!(conv_id).title == "Generated Support Title"
   end
 
-  test "does not broadcast a title when generation fails" do
+  test "broadcasts a deterministic fallback title when generation fails" do
     handler = fn _conn, _body ->
       {503, %{"error" => %{"message" => "service unavailable"}}}
     end
@@ -64,9 +64,13 @@ defmodule Zaq.Engine.ConversationsTitleGenerationIntegrationTest do
     assert {:ok, _msg} = Conversations.add_message(conv, %{role: "user", content: "Need a title"})
 
     assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}, 5_000
-    refute_receive {:title_updated, ^conv_id, _title}, 500
 
-    assert is_nil(Conversations.get_conversation!(conv_id).title)
+    # Provider errors must never leave a conversation untitled: TitleGenerator
+    # derives a deterministic fallback from the user's own message and the
+    # caller applies + broadcasts it like any other title.
+    assert_receive {:title_updated, ^conv_id, "Need A Title"}, 5_000
+
+    assert Conversations.get_conversation!(conv_id).title == "Need A Title"
   end
 
   test "does not broadcast a title if the conversation is deleted before the LLM responds" do
