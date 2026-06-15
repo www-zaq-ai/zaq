@@ -8,6 +8,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon, as: IngFileIcon
   import IngFileIcon, only: [file_icon_color: 1]
 
+  import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [file_ingestion_status: 2]
+
   alias ZaqWeb.Helpers.SizeFormat
 
   attr :entries, :list, required: true
@@ -125,7 +127,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               :if={
                 entry.type == :directory or
                   (entry.type == :file and
-                     Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?)
+                     file_ingestion_status(@ingestion_map, entry.name).can_share?)
               }
               phx-click="share_item"
               phx-value-path={Path.join(@current_dir, entry.name)}
@@ -215,12 +217,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               <span class="font-mono text-[0.6rem] text-black/30 mt-0.5">
                 {SizeFormat.format_size(entry.size)}
               </span>
-              <% status =
-                Map.get(@ingestion_map, entry.name, %{
-                  ingested_at: nil,
-                  stale?: false,
-                  job_status: nil
-                }) %>
+              <% status = file_ingestion_status(@ingestion_map, entry.name) %>
               <%= cond do %>
                 <% status.job_status == "processing" -> %>
                   <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 mt-1 animate-pulse">

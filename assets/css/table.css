@@ -1,0 +1,138 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   `.zaq-table` — BO data table shell (list / dense grids).
+   Consumes semantic tokens from semantics.css only.
+   Primary consumer: `ZaqWeb.Components.DesignSystem.IngestionFileListView`.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Shell (radius needs `border-collapse: separate`; avoid `overflow: hidden`
+      on the table — it breaks `position: sticky` on header rows.) ─ */
+
+.zaq-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--zaq-surface-color-raised);
+  border-radius: var(--zaq-card-radius-default);
+}
+
+.zaq-table thead tr:first-child th:first-child {
+  border-top-left-radius: var(--zaq-card-radius-default);
+}
+
+.zaq-table thead tr:first-child th:last-child {
+  border-top-right-radius: var(--zaq-card-radius-default);
+}
+
+.zaq-table tbody tr:last-child td:first-child {
+  border-bottom-left-radius: var(--zaq-card-radius-default);
+}
+
+.zaq-table tbody tr:last-child td:last-child {
+  border-bottom-right-radius: var(--zaq-card-radius-default);
+}
+
+.zaq-table thead th {
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-table tbody td {
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.zaq-table thead tr {
+  background: var(--zaq-surface-color-base);
+}
+
+.zaq-table tbody tr {
+  transition: background-color 150ms ease;
+}
+
+.zaq-table tbody tr:hover:not(.zaq-table-row--plain):not(.zaq-table-row--sidecar) {
+  background: var(--zaq-surface-color-base);
+}
+
+.zaq-table tbody tr.zaq-table-row--plain:hover {
+  background: transparent;
+}
+
+.zaq-table tbody tr.zaq-table-row--sidecar {
+  background: var(--zaq-surface-color-accent);
+}
+
+/* ── Row selection (scoped checkboxes — no extra classes in markup) ─ */
+
+.zaq-table input[type="checkbox"] {
+  width: var(--zaq-scale-16);
+  height: var(--zaq-scale-16);
+  flex-shrink: 0;
+  border-radius: var(--zaq-scale-4);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  cursor: pointer;
+  accent-color: var(--zaq-text-color-body-accent);
+  transition: outline-color 150ms ease, border-color 150ms ease;
+}
+
+.zaq-table input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--zaq-border-color-accent);
+  outline-offset: 2px;
+}
+
+/* ── File name: open preview (default → accent on hover) ─ */
+
+.zaq-table-preview-link {
+  color: var(--zaq-text-color-body-default);
+  transition: color 150ms ease;
+}
+
+.zaq-table-preview-link:hover {
+  color: var(--zaq-text-color-body-accent);
+}
+
+/* ── Sidecar row: converted markdown preview control ─ */
+
+.zaq-table-sidecar-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-8);
+  width: 100%;
+  padding-left: var(--zaq-scale-24);
+  margin-left: var(--zaq-scale-16);
+  border-left: var(--zaq-border-thickness-default) dashed var(--zaq-border-color-default);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+}
+
+.zaq-table-sidecar-preview > svg:first-of-type {
+  flex-shrink: 0;
+  width: var(--zaq-scale-12);
+  height: var(--zaq-scale-12);
+  color: var(--zaq-text-color-body-tertiary);
+}
+
+.zaq-table-sidecar-preview:hover > svg:first-of-type {
+  color: var(--zaq-text-color-body-accent);
+}
+
+.zaq-table-sidecar-preview-name {
+  color: var(--zaq-text-color-body-secondary);
+  transition: color 150ms ease, text-decoration-thickness 150ms ease;
+}
+
+.zaq-table-sidecar-preview:hover .zaq-table-sidecar-preview-name {
+  color: var(--zaq-text-color-body-accent);
+  text-decoration: underline;
+  text-underline-offset: var(--zaq-scale-4);
+}
+
+.zaq-table-sidecar-preview-meta {
+  flex-shrink: 0;
+  white-space: nowrap;
+}

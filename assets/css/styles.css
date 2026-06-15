@@ -284,8 +284,8 @@ pre.zaq-file-preview-body {
 /* ── Icon — small inline (shared: breadcrumbs, segment toggles, toolbars) ─ */
 
 .zaq-icon-sm {
-  width: var(--zaq-scale-14);
-  height: var(--zaq-scale-14);
+  width: var(--zaq-scale-16);
+  height: var(--zaq-scale-16);
   flex-shrink: 0;
 }
 
@@ -417,6 +417,19 @@ pre.zaq-file-preview-body {
 
 .zaq-ingestion-meta-label--push {
   margin-right: auto;
+}
+
+/* Shared-with chip (ingestion file list — access column) */
+.zaq-ingestion-pill--shared {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+  padding: var(--zaq-scale-4) var(--zaq-scale-8);
+  border-radius: var(--zaq-scale-4);
+  background: var(--zaq-surface-color-accent);
+  color: var(--zaq-text-color-body-accent);
+  cursor: default;
+  white-space: nowrap;
 }
 
 /* Jobs panel — <progress> webkit / moz pseudo-elements cannot be set inline */

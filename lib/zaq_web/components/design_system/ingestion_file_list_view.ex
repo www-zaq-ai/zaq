@@ -10,6 +10,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon, as: IngFileIcon
   import IngFileIcon, only: [file_icon: 1]
 
+  import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [file_ingestion_status: 2]
+
   alias ZaqWeb.Helpers.SizeFormat
 
   attr :entries, :list, required: true
@@ -20,50 +22,52 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
 
   def file_list_view(assigns) do
     ~H"""
-    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm max-h-[45vh] overflow-y-scroll overflow-x-auto">
-      <table class="w-full min-w-[700px] xl:min-w-0">
+    <div class="max-h-[45vh] overflow-y-scroll overflow-x-auto">
+      <table class="zaq-table zaq-border-default w-full min-w-[700px] xl:min-w-0">
         <thead>
-          <tr class="border-b border-black/[0.06] bg-[#fafafa] sticky top-0 z-10">
+          <tr class="sticky top-0 z-10">
             <th class="w-6 px-2 py-2 xl:px-3 xl:py-3.5">
               <input
                 type="checkbox"
                 phx-click="select_all"
                 checked={MapSet.size(@selected) > 0 and MapSet.size(@selected) == length(@entries)}
-                class="rounded border-black/20 zaq-text-accent focus:ring-[var(--zaq-color-accent)]"
               />
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-full max-w-0">
+            <th class="text-left zaq-ingestion-meta-label zaq-text-caption px-2 py-2 xl:px-4 xl:py-3.5 w-full max-w-0">
               Name
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-24 whitespace-nowrap">
+            <th class="text-left zaq-ingestion-meta-label zaq-text-caption px-2 py-2 xl:px-4 xl:py-3.5 w-24 whitespace-nowrap">
               Size
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-36">
+            <th class="text-left zaq-ingestion-meta-label zaq-text-caption px-2 py-2 xl:px-4 xl:py-3.5 w-36">
               Status
             </th>
-            <th class="text-left font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 w-28 whitespace-nowrap">
+            <th class="text-left zaq-ingestion-meta-label zaq-text-caption px-2 py-2 xl:px-4 xl:py-3.5 w-28 whitespace-nowrap">
               Access
             </th>
-            <th class="text-right font-mono text-[0.68rem] font-semibold text-black/40 uppercase tracking-wider px-2 py-2 xl:px-4 xl:py-3.5 whitespace-nowrap">
+            <th class="text-right zaq-ingestion-meta-label zaq-text-caption px-2 py-2 xl:px-4 xl:py-3.5 whitespace-nowrap">
               Modified
             </th>
           </tr>
         </thead>
         <tbody>
-          <tr :if={@entries == []} class="border-b border-black/[0.04]">
-            <td colspan="6" class="px-4 py-8 text-center font-mono text-[0.8rem] text-black/30">
+          <tr :if={@entries == []} class="zaq-table-row--plain">
+            <td
+              colspan="6"
+              class="px-4 py-8 text-center zaq-text-body-sm"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Empty directory
             </td>
           </tr>
           <%= for entry <- @entries do %>
-            <tr class="border-b border-black/[0.04] last:border-0 hover:bg-black/[0.015] transition-colors group">
+            <tr class="group transition-colors">
               <td class="px-2 py-2 xl:px-3 xl:py-3 w-6">
                 <input
                   type="checkbox"
                   phx-click="toggle_select"
                   phx-value-path={Path.join(@current_dir, entry.name)}
                   checked={MapSet.member?(@selected, Path.join(@current_dir, entry.name))}
-                  class="rounded border-black/20 zaq-text-accent focus:ring-[var(--zaq-color-accent)]"
                 />
               </td>
               <td class="px-2 py-2 xl:px-4 xl:py-3 max-w-0 w-full">
@@ -72,13 +76,15 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     <button
                       phx-click="navigate"
                       phx-value-path={Path.join(@current_dir, entry.name)}
-                      class="flex items-center gap-2 font-mono text-[0.85rem] zaq-text-accent hover:underline min-w-0"
+                      class="flex items-center gap-2 min-w-0 zaq-text-body zaq-link-underline text-left cursor-pointer"
+                      style="color: var(--zaq-text-color-body-accent)"
                       title={entry.name}
                     >
                       <svg
-                        class="w-4 h-4 text-amber-500 shrink-0"
+                        class="w-4 h-4 shrink-0"
                         fill="currentColor"
                         viewBox="0 0 20 20"
+                        style="color: var(--zaq-text-color-body-warning)"
                       >
                         <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
                       </svg>
@@ -89,7 +95,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       type="button"
                       phx-click="open_preview"
                       phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
-                      class="flex items-center gap-2 font-mono text-[0.85rem] text-black hover:text-[var(--zaq-color-accent)] hover:underline min-w-0 text-left cursor-pointer"
+                      class="flex items-center gap-2 min-w-0 text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
                       title={entry.name}
                     >
                       <.file_icon
@@ -104,7 +110,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       phx-click="move_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors cursor-pointer"
+                      class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                       title="Move to…"
                     >
                       <svg
@@ -130,7 +136,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       phx-click="rename_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-black/5 rounded-lg text-black/30 hover:text-black/60 transition-colors cursor-pointer"
+                      class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                       title="Rename"
                     >
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -151,7 +157,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       phx-click="share_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-[var(--zaq-color-accent-soft)] rounded-lg text-black/30 hover:text-[var(--zaq-color-accent)] transition-colors cursor-pointer"
+                      class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                       title="Share with roles"
                     >
                       <svg
@@ -172,7 +178,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       phx-click="delete_item"
                       phx-value-path={Path.join(@current_dir, entry.name)}
                       phx-value-type={entry.type}
-                      class="p-1.5 hover:bg-red-500/10 rounded-lg text-black/30 hover:text-red-500 transition-colors cursor-pointer"
+                      class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-icon"
                       title="Delete"
                     >
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,7 +193,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   </div>
                 </div>
               </td>
-              <td class="font-mono text-[0.78rem] text-black/40 px-2 py-2 xl:px-4 xl:py-3 w-24 whitespace-nowrap">
+              <td
+                class="zaq-text-body-sm px-2 py-2 xl:px-4 xl:py-3 w-24 whitespace-nowrap"
+                style="color: var(--zaq-text-color-body-tertiary)"
+              >
                 <%= if entry.type == :file do %>
                   {SizeFormat.format_size(entry.size)}
                 <% else %>
@@ -200,14 +209,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               <%!-- Status column: ingestion state only --%>
               <td class="px-2 py-2 xl:px-4 xl:py-3">
                 <%= if entry.type == :file do %>
-                  <% status =
-                    Map.get(@ingestion_map, entry.name, %{
-                      ingested_at: nil,
-                      stale?: false,
-                      permissions_count: 0,
-                      is_public: false,
-                      can_share?: false
-                    }) %>
+                  <% status = file_ingestion_status(@ingestion_map, entry.name) %>
                   <%= cond do %>
                     <% status.job_status == "processing" -> %>
                       <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit whitespace-nowrap animate-pulse">
@@ -268,27 +270,37 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <% folder_stats = Map.get(@ingestion_map, entry.name) %>
                   <%= cond do %>
                     <% folder_stats && folder_stats.file_count > 0 && folder_stats.ingested_count == folder_stats.file_count -> %>
-                      <span class="font-mono text-[0.78rem] text-emerald-600">
+                      <span
+                        class="zaq-text-body-sm"
+                        style="color: var(--zaq-text-color-body-success)"
+                      >
                         {folder_stats.file_count}/{folder_stats.file_count}
                       </span>
                     <% folder_stats && folder_stats.ingested_count > 0 -> %>
-                      <span class="font-mono text-[0.78rem] text-amber-600">
+                      <span
+                        class="zaq-text-body-sm"
+                        style="color: var(--zaq-text-color-body-warning)"
+                      >
                         {folder_stats.ingested_count}/{folder_stats.file_count}
                       </span>
                     <% true -> %>
-                      <span class="font-mono text-[0.65rem] text-black/20">—</span>
+                      <span
+                        class="zaq-text-caption"
+                        style="color: var(--zaq-text-color-body-tertiary)"
+                      >
+                        —
+                      </span>
                   <% end %>
                 <% end %>
               </td>
               <%!-- Access column: shared / public badges --%>
               <td class="px-2 py-2 xl:px-4 xl:py-3 w-28">
                 <%= if entry.type == :file do %>
-                  <% status =
-                    Map.get(@ingestion_map, entry.name, %{permissions_count: 0, is_public: false}) %>
+                  <% status = file_ingestion_status(@ingestion_map, entry.name) %>
                   <div class="flex items-center gap-1 flex-wrap">
                     <span
                       :if={status.permissions_count > 0}
-                      class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent cursor-default whitespace-nowrap"
+                      class="zaq-ingestion-pill--shared zaq-text-caption"
                       title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                     >
                       <svg
@@ -349,13 +361,16 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   </span>
                 <% end %>
               </td>
-              <td class="font-mono text-[0.78rem] text-black/40 px-2 py-2 xl:px-4 xl:py-3 text-right whitespace-nowrap">
+              <td
+                class="zaq-text-body-sm px-2 py-2 xl:px-4 xl:py-3 text-right whitespace-nowrap"
+                style="color: var(--zaq-text-color-body-tertiary)"
+              >
                 {format_datetime(entry.modified_at)}
               </td>
             </tr>
             <tr
               :if={Map.get(entry, :related_md)}
-              class="border-b border-black/[0.04] last:border-0 zaq-bg-accent-faint"
+              class="zaq-table-row--sidecar"
             >
               <td></td>
               <td class="px-4 py-1.5 overflow-hidden max-w-0" colspan="5">
@@ -369,11 +384,11 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       Map.get(entry, :related_md, %{name: ""}).name
                     ])
                   }
-                  class="flex items-center gap-2 pl-6 ml-4 border-l border-dashed border-black/10 w-full text-left cursor-pointer group/sidecar"
+                  class="zaq-table-sidecar-preview"
                   title="Preview converted markdown"
                 >
                   <svg
-                    class="w-3 h-3 shrink-0 text-black/20"
+                    class="shrink-0"
                     fill="none"
                     stroke="currentColor"
                     stroke-width="2"
@@ -385,10 +400,13 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     name={Map.get(entry, :related_md, %{name: ""}).name}
                     class="w-3.5 h-3.5 zaq-text-accent"
                   />
-                  <span class="font-mono text-[0.78rem] text-black/40 group-hover/sidecar:zaq-text-accent group-hover/sidecar:underline transition-colors truncate min-w-0">
+                  <span class="zaq-table-sidecar-preview-name zaq-text-body truncate min-w-0">
                     {Map.get(entry, :related_md, %{name: ""}).name}
                   </span>
-                  <span class="font-mono text-[0.65rem] text-black/25 shrink-0 whitespace-nowrap">
+                  <span
+                    class="zaq-table-sidecar-preview-meta zaq-text-caption"
+                    style="color: var(--zaq-text-color-body-tertiary)"
+                  >
                     {SizeFormat.format_size(Map.get(entry, :related_md, %{}).size)}
                   </span>
                 </button>
