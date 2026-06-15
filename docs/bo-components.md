@@ -114,7 +114,7 @@ Use `BOLayout.diagnostic_card/1`, `BOLayout.config_row/1`, and `BOLayout.feature
 
 - **Primary action**: use `.zaq-btn-primary` from `btn.css`.
 - **Secondary action**: use `.zaq-btn-secondary` from `btn.css`.
-- **Destructive**: use `.zaq-btn-destructive` from `btn.css` if available; otherwise extend `btn.css` — do not write one-off Tailwind button styles.
+- **Destructive / danger**: use `.zaq-btn-danger` from `btn.css`, documented in the **Danger** section of that file. For ingestion-style toolbar chips, compose `.zaq-btn` + `.zaq-btn-tertiary` + `.zaq-btn-danger` (internal tokens: `--zaq-btn-danger-*`). Do not write one-off Tailwind button styles.
 - Never use daisyUI button classes. Never hand-roll button styles with `font-mono`, `zaq-bg-accent`, or `bg-red-*`.
 
 ---

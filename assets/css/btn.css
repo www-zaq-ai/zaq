@@ -3,6 +3,8 @@
    These --zaq-btn-* variables are INTERNAL to btn.css only.
    ⚠️  Never reference --zaq-btn-* variables outside this file.
        They exist solely to build .zaq-btn-* classes below.
+   Danger tokens (--zaq-btn-danger-*) are documented in the **Danger** section; do not
+   mix them into Primary / Secondary / Ghost / Tertiary token blocks.
    Dark mode is handled automatically — all tokens reference foundation
    variables that flip in [data-theme="dark"] via foundations.css.
    ───────────────────────────────────────────────────────────────────────────── */
@@ -71,6 +73,35 @@
   --zaq-btn-ghost-color-icon-resting:  var(--zaq-color-blue-300);
   --zaq-btn-ghost-color-icon-hover:    var(--zaq-color-blue-400);
   --zaq-btn-ghost-color-icon-disabled: var(--zaq-color-black-100);
+
+  /* btn/tertiary — colors only; compose with .zaq-btn (layout, gap, padding, radius, border) */
+  
+  /* btn/tertiary/color/bg */
+  --zaq-btn-tertiary-color-bg-resting: var(--zaq-surface-color-elevated);
+  --zaq-btn-tertiary-color-bg-hover:   var(--zaq-surface-color-raised);
+  --zaq-btn-tertiary-color-bg-disabled: var(--zaq-surface-color-base);
+  --zaq-btn-tertiary-color-bg-active: var(--zaq-surface-color-accent);
+
+  /* btn/tertiary/color/text */
+  --zaq-btn-tertiary-color-text-resting: var(--zaq-text-color-body-tertiary);
+  --zaq-btn-tertiary-color-text-hover:   var(--zaq-text-color-body-secondary);
+  --zaq-btn-tertiary-color-text-disabled: var(--zaq-text-color-body-disabled);
+  --zaq-btn-tertiary-color-text-active: var(--zaq-text-color-body-secondary);
+
+  /* btn/tertiary/color/border */
+  --zaq-btn-tertiary-color-border-resting: transparent;
+  --zaq-btn-tertiary-color-border-hover: var(--zaq-border-color-accent);
+  --zaq-btn-tertiary-color-border-disabled: transparent;
+  --zaq-btn-tertiary-color-border-active: var(--zaq-border-color-accent);
+
+  /*
+   * btn/danger — internal tokens for `.zaq-btn-danger` (see Danger section below).
+   * Compose with `.zaq-btn` + `.zaq-btn-tertiary` for destructive toolbar chips.
+   */
+  --zaq-btn-danger-color-bg: var(--zaq-surface-color-danger);
+  --zaq-btn-danger-color-text: var(--zaq-text-color-body-danger);
+  --zaq-btn-danger-color-border: var(--zaq-border-color-danger);
+  --zaq-btn-danger-filter-hover: brightness(0.97);
 }
 
 /* ── Dark mode overrides ─────────────────────────────────────────────────── */
@@ -172,4 +203,55 @@
 .zaq-btn-ghost[aria-disabled="true"] {
   background-color: var(--zaq-btn-ghost-color-bg-disabled);
   color:            var(--zaq-btn-ghost-color-text-disabled);
+}
+
+/* ── Tertiary (ingestion chrome) ─────────────────────────────────────────── */
+/* Compose: .zaq-btn .zaq-btn-tertiary [.zaq-btn-tertiary--active] + .zaq-btn-text_label-default.
+   Destructive variant: add .zaq-btn-danger (documented in Danger section below). */
+.zaq-btn.zaq-btn-tertiary {
+  background: var(--zaq-btn-tertiary-color-bg-resting);
+  color: var(--zaq-btn-tertiary-color-text-resting);
+  border-color: var(--zaq-btn-tertiary-color-border-resting);
+}
+
+.zaq-btn.zaq-btn-tertiary:hover {
+  background: var(--zaq-btn-tertiary-color-bg-hover);
+  color: var(--zaq-btn-tertiary-color-text-hover);
+}
+
+.zaq-btn.zaq-btn-tertiary.zaq-btn-tertiary--active {
+  background: var(--zaq-btn-tertiary-color-bg-active);
+  color: var(--zaq-btn-tertiary-color-text-active);
+  border-color: var(--zaq-btn-tertiary-color-border-active);
+}
+
+.zaq-btn.zaq-btn-tertiary.zaq-btn-tertiary--active:hover {
+  background: var(--zaq-btn-tertiary-color-bg-active);
+  color: var(--zaq-btn-tertiary-color-text-active);
+}
+
+/* ── Danger (destructive modifier) ───────────────────────────────────────────
+   Class: .zaq-btn-danger
+
+   Purpose: destructive / high-attention actions (delete, cancel job, etc.).
+   Tokens: --zaq-btn-danger-* (internal to this file only).
+
+   Composition (current product pattern):
+     .zaq-btn .zaq-btn-tertiary .zaq-btn-danger
+   — shell layout from .zaq-btn, neutral chrome from .zaq-btn-tertiary, then danger
+     overrides background, text, and border. Typography: `.zaq-btn-text_label-default`
+     from `text-styles.css` (same as other `.zaq-btn` variants); meta labels may use `.zaq-text-caption`.
+
+   Do not use .zaq-btn-danger without .zaq-btn (layout and focus affordances live on the shell).
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.zaq-btn.zaq-btn-tertiary.zaq-btn-danger {
+  background: var(--zaq-btn-danger-color-bg);
+  color: var(--zaq-btn-danger-color-text);
+  border-color: var(--zaq-btn-danger-color-border);
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, filter 150ms ease;
+}
+
+.zaq-btn.zaq-btn-tertiary.zaq-btn-danger:hover {
+  filter: var(--zaq-btn-danger-filter-hover);
 }

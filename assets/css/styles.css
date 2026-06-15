@@ -419,42 +419,18 @@ pre.zaq-file-preview-body {
   margin-right: auto;
 }
 
-.zaq-ingestion-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--zaq-scale-4);
-  padding: var(--zaq-scale-4) var(--zaq-scale-10);
-  border-radius: var(--zaq-scale-8);
-  border: var(--zaq-border-thickness-default) solid transparent;
+/* Jobs panel — <progress> webkit / moz pseudo-elements cannot be set inline */
+.zaq-jobs-panel-progress::-webkit-progress-bar {
   background: var(--zaq-surface-color-elevated);
-  color: var(--zaq-text-color-body-tertiary);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  border-radius: var(--zaq-scale-16);
 }
 
-.zaq-ingestion-chip:hover {
-  background: var(--zaq-surface-color-raised);
-  color: var(--zaq-text-color-body-secondary);
+.zaq-jobs-panel-progress::-webkit-progress-value {
+  background: var(--zaq-border-color-success);
+  border-radius: var(--zaq-scale-16);
 }
 
-.zaq-ingestion-chip--active {
-  background: var(--zaq-surface-color-accent);
-  color: var(--zaq-text-color-body-secondary);
-  border-color: var(--zaq-border-color-accent);
-}
-
-.zaq-ingestion-chip--active:hover {
-  background: var(--zaq-surface-color-accent);
-  color: var(--zaq-text-color-body-secondary);
-}
-
-.zaq-ingestion-chip--danger {
-  background: var(--zaq-surface-color-danger);
-  color: var(--zaq-text-color-body-danger);
-  border-color: var(--zaq-border-color-danger);
-}
-
-.zaq-ingestion-chip--danger:hover {
-  filter: brightness(0.97);
+.zaq-jobs-panel-progress::-moz-progress-bar {
+  background: var(--zaq-border-color-success);
+  border-radius: var(--zaq-scale-16);
 }

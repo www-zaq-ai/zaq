@@ -3,8 +3,9 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
   Toolbar for the BO ingestion file browser: labels, folder actions, ingest mode, primary ingest CTA.
 
   **Layout / tokens:** same ingestion chrome band as `IngestionVolumeSelector` in `assets/css/styles.css`
-  (`.zaq-ingestion-chrome-row--spaced`, `.zaq-ingestion-chrome-actions`, `.zaq-ingestion-meta-label`, `.zaq-ingestion-chip*`, `.zaq-icon-sm`, `.zaq-btn*`)
-  with `.zaq-text-caption` from `text-styles.css` for chip and meta label type (per design-migrate: no new text stacks in `styles.css`).
+  (`.zaq-ingestion-chrome-row--spaced`, `.zaq-ingestion-chrome-actions`, `.zaq-ingestion-meta-label`)
+  with `.zaq-btn` + `.zaq-btn-tertiary*` in `assets/css/btn.css`, `.zaq-btn-text_label-default` on tertiary buttons (`text-styles.css`), plus `.zaq-icon-sm`, `.zaq-btn-primary` / other `.zaq-btn-*`
+  with `.zaq-text-caption` from `text-styles.css` for the meta label only (per design-migrate: no new text stacks in `styles.css`).
   """
 
   use Phoenix.Component
@@ -23,7 +24,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
         <button
           id="new-folder-button"
           phx-click="show_new_folder_modal"
-          class="zaq-ingestion-chip zaq-text-caption"
+          class="zaq-btn zaq-btn-tertiary zaq-btn-text_label-default"
           type="button"
         >
           <svg class="zaq-icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -34,7 +35,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
         <button
           id="add-raw-md-button"
           phx-click="show_add_raw_modal"
-          class="zaq-ingestion-chip zaq-text-caption"
+          class="zaq-btn zaq-btn-tertiary zaq-btn-text_label-default"
           type="button"
         >
           <svg class="zaq-icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -51,7 +52,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
           :if={MapSet.size(@selected) > 0}
           id="bulk-delete-button"
           phx-click="show_delete_confirmation"
-          class="zaq-ingestion-chip zaq-ingestion-chip--danger zaq-text-caption"
+          class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-text_label-default"
           type="button"
         >
           <svg class="zaq-icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -71,8 +72,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
           phx-value-mode={mode}
           type="button"
           class={[
-            "zaq-ingestion-chip zaq-text-caption",
-            @ingest_mode == mode && "zaq-ingestion-chip--active"
+            "zaq-btn zaq-btn-tertiary zaq-btn-text_label-default",
+            @ingest_mode == mode && "zaq-btn-tertiary--active"
           ]}
         >
           {mode}
