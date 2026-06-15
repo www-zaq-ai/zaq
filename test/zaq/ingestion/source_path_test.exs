@@ -1,5 +1,9 @@
 defmodule Zaq.Ingestion.SourcePathTest do
-  use ExUnit.Case, async: true
+  # async: false — these tests mutate the global `Application.put_env(:zaq, Zaq.Ingestion,
+  # base_path: ...)`, which the "default" volume resolves at runtime. Running async would leak
+  # the transient base_path into concurrent tests (e.g. DirectorySnapshotTest), making them list
+  # the wrong directory. Every other base_path-mutating module is async: false for this reason.
+  use ExUnit.Case, async: false
 
   alias Zaq.Ingestion.{FileExplorer, SourcePath}
 

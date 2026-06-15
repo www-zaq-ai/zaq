@@ -276,6 +276,11 @@ defmodule Zaq.System do
   @doc "Gets an AI provider credential by id, returning `nil` when not found."
   def get_ai_provider_credential(id), do: Repo.get(AIProviderCredential, id)
 
+  @doc "Gets an AI provider credential by name, returning `nil` when not found."
+  def get_ai_provider_credential_by_name(name) when is_binary(name) do
+    Repo.get_by(AIProviderCredential, name: name)
+  end
+
   @doc "Returns a changeset for AI provider credentials."
   def change_ai_provider_credential(%AIProviderCredential{} = credential, attrs \\ %{}) do
     AIProviderCredential.changeset(credential, attrs)

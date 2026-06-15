@@ -23,6 +23,13 @@ end
 config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  # Portal/LiteLLM URLs default to the live services in prod. dev/test keep their
+  # own defaults from config/{dev,test}.exs — runtime.exs only touches these keys
+  # in prod, so it never clobbers those compile-time values.
+  config :zaq,
+    user_portal_base_url: System.get_env("USER_PORTAL_BASE_URL", "https://portal.zaq.ai"),
+    litellm_base_url: System.get_env("LITELLM_BASE_URL", "https://llm.zaq.ai")
+
   # SMTP password encryption (used by BO System Configuration page)
   # - SYSTEM_CONFIG_ENCRYPTION_KEY is required to save non-empty SMTP passwords
   # - key must represent exactly 32 bytes (raw 32-byte, base64-32-byte, or 64-char hex)

@@ -105,7 +105,7 @@ defmodule Zaq.MixProject do
       {:sage, "~> 0.6.3"},
 
       # Jido Ecosystem
-      {:llm_db, "~> 2026.5", runtime: false},
+      {:llm_db, "~> 2026.5", runtime: false, override: true},
       {:jido, "~> 2.3", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       # {:jido_chat, "~> 1.0"},

@@ -368,6 +368,10 @@ defmodule Zaq.Agent do
     |> Changeset.add_error(:base, message)
   end
 
+  # ZAQ Provider is a LiteLLM gateway — always route through OpenAI-compatible protocol,
+  # mirroring the treatment in ProviderSpec.reqllm_provider/1.
+  defp runtime_provider_from_atom(:zaq_router), do: {:ok, :openai}
+
   defp runtime_provider_from_atom(provider_atom) when is_atom(provider_atom) do
     case ReqLLM.provider(provider_atom) do
       {:ok, _provider_module} ->

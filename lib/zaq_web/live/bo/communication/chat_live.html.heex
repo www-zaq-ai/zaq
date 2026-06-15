@@ -238,6 +238,7 @@
                     confidence={item.confidence}
                     sources={Map.get(item, :sources, [])}
                     is_error={Map.get(item, :error, false)}
+                    error_type={Map.get(item, :error_type)}
                     source_click_event="open_preview_modal"
                   >
                     <:actions>

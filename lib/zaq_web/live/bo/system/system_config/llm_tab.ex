@@ -28,6 +28,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
           phx-submit="save_llm"
           phx-change="validate_llm"
           class="space-y-5"
+          novalidate
         >
           <input type="hidden" name="llm_config[path]" value={@form[:path].value} />
           <div class="grid grid-cols-2 gap-4">
@@ -110,7 +111,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
               </label>
               <input
                 type="number"
-                min="0.01"
+                min="0"
                 max="1"
                 step="0.05"
                 name="llm_config[top_p]"

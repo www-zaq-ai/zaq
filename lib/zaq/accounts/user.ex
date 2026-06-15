@@ -17,6 +17,7 @@ defmodule Zaq.Accounts.User do
     field :password, :string, virtual: true
     field :password_hash, :string
     field :must_change_password, :boolean, default: true
+    field :portal_consent, :string
 
     belongs_to :role, Zaq.Accounts.Role
 
@@ -43,29 +44,18 @@ defmodule Zaq.Accounts.User do
   end
 
   @doc """
-  Creates a changeset for bootstrap onboarding, conditionally requiring email.
+  Creates a changeset for bootstrap onboarding (registration).
 
-  If the user already has an email, only password is validated.
-  If the user has no email, both email and password are required and validated.
+  Email and password are always required — registration is not valid without an
+  email. Validates email format and uniqueness and hashes the password.
   """
   def bootstrap_onboarding_changeset(user, attrs) do
     user
     |> cast(attrs, [:email, :password])
-    |> maybe_validate_required_email()
+    |> validate_required([:email, :password])
     |> validate_email_format_and_uniqueness()
-    |> validate_required([:password])
     |> PasswordPolicy.validate(:password)
     |> hash_password()
-  end
-
-  defp maybe_validate_required_email(changeset) do
-    email = get_field(changeset, :email)
-
-    if is_binary(email) and String.trim(email) != "" do
-      changeset
-    else
-      validate_required(changeset, [:email])
-    end
   end
 
   defp validate_email_format_and_uniqueness(changeset) do
@@ -74,6 +64,27 @@ defmodule Zaq.Accounts.User do
       message: "must be a valid email address"
     )
     |> unique_constraint(:email)
+  end
+
+  def portal_consent_changeset(user, consent)
+      when consent in ["accepted", "declined"] do
+    change(user, portal_consent: consent)
+  end
+
+  @doc """
+  Changeset for the dashboard portal-activation (retry) flow.
+
+  Records consent as accepted and, for older accounts with no email on file,
+  captures and validates the email. The email format is validated here so an
+  invalid address never reaches the portal. `Zaq.UserPortal.Onboarding.activate_portal/2`
+  builds this changeset, validates it up front, and only persists it once
+  provisioning succeeds — so a failed attempt never commits an email change.
+  """
+  def portal_activation_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email, :portal_consent])
+    |> validate_required([:email, :portal_consent])
+    |> validate_email_format_and_uniqueness()
   end
 
   defp hash_password(%{valid?: true, changes: %{password: password}} = changeset) do

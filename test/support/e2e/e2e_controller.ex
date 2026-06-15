@@ -4,7 +4,7 @@ defmodule ZaqWeb.E2EController do
   use ZaqWeb, :controller
 
   alias Zaq.Agent.MCP
-  alias Zaq.E2E.{LogCollector, ProcessorState, Reset}
+  alias Zaq.E2E.{LogCollector, PortalState, ProcessorState, Reset}
   alias Zaq.Engine.Telemetry
   alias Zaq.System, as: SystemContext
 
@@ -128,6 +128,141 @@ defmodule ZaqWeb.E2EController do
         conn |> put_status(:bad_request) |> json(%{error: "missing path"}) |> halt()
     end
   end
+
+  # POST /e2e/bootstrap-admin — seed the initial "admin" user that satisfies
+  # bootstrap_admin_pending?/1 (single insert, no password, inserted_at == updated_at).
+  # After calling this, GET /bo/bootstrap-login creates a session and redirects to
+  # /bo/change-password without requiring a password — matching the real first-run flow.
+  def create_bootstrap_admin(conn, _params) do
+    Reset.seed_bootstrap_admin!()
+    json(conn, %{ok: true})
+  end
+
+  # POST /e2e/onboarding-user — seed (or replace) a user pending bootstrap
+  # onboarding. Returns the credentials the spec uses to log in and drive the
+  # /bo/change-password flow. Optional JSON body: {"username": ..., "password": ...}.
+  def create_onboarding_user(conn, params) do
+    {user, password} = Reset.seed_onboarding_user!(params)
+    json(conn, %{ok: true, username: user.username, password: password})
+  end
+
+  # GET /e2e/portal/onboarding/:slug — loopback stub for
+  # Zaq.UserPortal.Client.fetch_onboarding/1. Returns 503 when PortalState is
+  # offline (the client treats any 5xx as :unavailable). Otherwise returns the
+  # canned metadata shape the real portal produces.
+  def portal_onboarding_metadata(conn, _params) do
+    if PortalState.offline?() do
+      conn |> put_status(503) |> json(%{"error" => "portal offline"})
+    else
+      json(conn, %{
+        "status" => "ok",
+        "message" => %{
+          "message" => "Free credits activated — your ZAQ portal account is ready.",
+          "offer_slug" => "free",
+          "plan_status" => "enabled",
+          "available" => true,
+          "metadata" => %{
+            "title" => "Activate your free credits",
+            "body" => "To create your ZAQ account...",
+            "accept_label" => "Accept & activate free credits",
+            "decline_label" => "Decline — continue without free credits",
+            "subtitle" => "Optional · You can skip this",
+            "footnote" => "Free credits can be claimed later from the dashboard.",
+            "banner_text" =>
+              "Claim your $2 in free AI credits — activate your ZAQ portal account.",
+            "post_accept" => %{
+              "title" => "Activation email has been sent",
+              "main_message" =>
+                "Verify your email within 4 hours to keep using your free credits",
+              "secondary_message" =>
+                "You have the option to change your email address in your user account"
+            }
+          }
+        }
+      })
+    end
+  end
+
+  # POST /e2e/portal/onboarding — loopback stub for Zaq.UserPortal.Client.onboard_user/1.
+  #
+  # Checks Zaq.E2E.PortalState for pre-registered conflicts (seed them via
+  # POST /e2e/portal/conflicts before triggering the accept action in a spec).
+  # Any unregistered input returns a canned success response.
+  def portal_onboard(conn, params) do
+    email = Map.get(params, "email")
+
+    if is_binary(email) and PortalState.conflict_email?(email) do
+      conn
+      |> put_status(409)
+      |> json(%{
+        "error" => "email_already_registered",
+        "message" => "A user with this email is already provisioned."
+      })
+    else
+      json(conn, %{
+        "status" => "ok",
+        "user" => %{
+          "litellm_api_key" => "sk-e2e-portal-key",
+          "litellm_user_id" => "llm-user-e2e"
+        }
+      })
+    end
+  end
+
+  # POST /e2e/portal/conflicts — seed conflict conditions before a spec step.
+  # Body: {"email": "taken@example.com"}
+  # Conflicts persist until POST /e2e/reset clears them.
+  def register_portal_conflict(conn, params) do
+    opts = maybe_put([], :email, Map.get(params, "email"))
+
+    if opts == [] do
+      conn |> put_status(:bad_request) |> json(%{error: "provide email"})
+    else
+      PortalState.register_conflict(opts)
+      json(conn, %{ok: true, registered: Map.take(params, ["email"])})
+    end
+  end
+
+  # POST /e2e/portal/offline — toggle the portal stub's offline mode.
+  # Body: {"offline": true} or {"offline": false}.
+  # When offline, portal_onboarding_metadata returns 503 (client treats as :unavailable).
+  def set_portal_offline(conn, %{"offline" => offline}) when is_boolean(offline) do
+    PortalState.set_offline(offline)
+    json(conn, %{ok: true, offline: offline})
+  end
+
+  def set_portal_offline(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "provide {offline: true|false}"})
+  end
+
+  # POST /e2e/declined-portal-user — seed a user who completed bootstrap with
+  # portal_consent="declined". Used for dashboard-retry scenarios (4, 5, 6).
+  # Optional body: {"username": ..., "password": ..., "email": ...}
+  # When "email" is omitted the user has no email (Scenario 5).
+  # Returns {ok, username, password, user_id}.
+  def create_declined_portal_user(conn, params) do
+    {user, password} = Reset.seed_declined_portal_user!(params)
+    json(conn, %{ok: true, username: user.username, password: password, user_id: user.id})
+  end
+
+  # GET /e2e/zaq-router-credential — returns whether the "ZAQ Router" AI
+  # credential exists and whether it has an API key. Used by E2E specs to
+  # assert provisioning state without clicking through the system config UI.
+  def get_zaq_router_credential(conn, _params) do
+    case SystemContext.get_ai_provider_credential_by_name("ZAQ Router") do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{found: false, has_api_key: false})
+
+      credential ->
+        json(conn, %{
+          found: true,
+          has_api_key: is_binary(credential.api_key) and credential.api_key != ""
+        })
+    end
+  end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, val), do: Keyword.put(opts, key, val)
 
   # GET /e2e/health
   def health(conn, _params) do

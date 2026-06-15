@@ -111,12 +111,13 @@ defmodule Zaq.Accounts do
   end
 
   @doc """
-  Completes the bootstrap onboarding by updating the admin user's password and email.
+  Completes the bootstrap registration by writing the admin user's email and password.
 
-  Only used during the initial bootstrap flow when the admin user has not yet
-  completed onboarding. Sets `must_change_password` to false.
+  Used during the initial bootstrap flow. Email and password are required; on
+  success `must_change_password` is set to false. This is a single registration
+  write — portal consent and provisioning are owned by `Zaq.UserPortal.Onboarding`.
   """
-  def complete_bootstrap_onboarding(user, attrs) do
+  def complete_registration(user, attrs) do
     user
     |> User.bootstrap_onboarding_changeset(attrs)
     |> Repo.update()
@@ -194,13 +195,18 @@ defmodule Zaq.Accounts do
 
   defp password_secret(_), do: ""
 
-  def authenticate_user(username, password) do
-    case get_user_by_username(username) do
+  def authenticate_user(identifier, password) do
+    user =
+      if String.contains?(identifier, "@"),
+        do: get_user_by_email(identifier),
+        else: get_user_by_username(identifier)
+
+    case user do
       %User{password_hash: nil, must_change_password: true} = user ->
-        # First login — check against env credentials
+        # First login — check against env credentials (username-based only)
         config = Application.get_env(:zaq, :super_admin)
 
-        if config[:username] == username and config[:password] == password do
+        if config[:username] == user.username and config[:password] == password do
           {:ok, user}
         else
           {:error, :invalid_password}

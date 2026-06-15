@@ -1,10 +1,13 @@
 defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
   use ZaqWeb.ConnCase
 
+  import Mox
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.User
+  alias Zaq.Repo
 
   setup %{conn: conn} do
     admin = user_fixture(%{username: "user_form_admin"})
@@ -23,6 +26,20 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
     |> render_change()
 
     assert has_element?(view, "p", "can't be blank")
+  end
+
+  test "shows password policy feedback while validating new user password", %{conn: conn} do
+    role = role_fixture(%{name: "lane6_new_password_feedback"})
+    {:ok, view, _html} = live(conn, ~p"/bo/users/new")
+
+    view
+    |> form("form[phx-submit='save']",
+      user: %{username: "lane6_new_feedback", password: "weak", role_id: role.id}
+    )
+    |> render_change()
+
+    assert has_element?(view, "li", "At least 8 characters")
+    assert has_element?(view, "li", "At least one uppercase letter")
   end
 
   test "creates a user and redirects", %{conn: conn} do
@@ -89,6 +106,56 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
     assert {:ok, _user} = Accounts.authenticate_user(admin.username, "NextStrong1!")
   end
 
+  test "validates password change feedback before save", %{conn: conn, admin: admin} do
+    {:ok, view, _html} = live(conn, ~p"/bo/users/#{admin.id}/edit")
+
+    view
+    |> element("#toggle-password-edit")
+    |> render_click()
+
+    view
+    |> form("form[phx-submit='save_password_change']",
+      password_change: %{
+        current_password: "StrongPass1!",
+        new_password: "NextStrong1!",
+        new_password_confirmation: "Mismatch1!"
+      }
+    )
+    |> render_change()
+
+    assert has_element?(view, "#password-change-confirmation-status", "Passwords do not match")
+    assert has_element?(view, "#save-password-change[disabled]")
+
+    view
+    |> form("form[phx-submit='save_password_change']",
+      password_change: %{
+        current_password: "StrongPass1!",
+        new_password: "NextStrong1!",
+        new_password_confirmation: "NextStrong1!"
+      }
+    )
+    |> render_change()
+
+    assert has_element?(view, "#password-change-confirmation-status", "Passwords match")
+    refute has_element?(view, "#save-password-change[disabled]")
+  end
+
+  test "can cancel the password change fieldset", %{conn: conn, admin: admin} do
+    {:ok, view, _html} = live(conn, ~p"/bo/users/#{admin.id}/edit")
+
+    view
+    |> element("#toggle-password-edit")
+    |> render_click()
+
+    assert has_element?(view, "#password-change-fieldset")
+
+    view
+    |> element("#cancel-password-change")
+    |> render_click()
+
+    refute has_element?(view, "#password-change-fieldset")
+  end
+
   test "rejects password change when editing another user", %{conn: conn} do
     role = role_fixture(%{name: "lane6_target_role"})
     target = user_fixture(%{username: "lane6_target_user", role: role})
@@ -137,5 +204,70 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
     |> render_submit()
 
     assert has_element?(view, "p", "can't be blank")
+  end
+
+  describe "portal email sync on edit" do
+    test "syncs email to portal when user has accepted consent and email changed", %{conn: conn} do
+      role = role_fixture(%{name: "lane6_portal_sync_role"})
+      user = user_fixture(%{username: "lane6_portal_sync", email: "old@example.com", role: role})
+      {:ok, user} = Repo.update(User.portal_consent_changeset(user, "accepted"))
+
+      expect(Zaq.UserPortal.ClientMock, :update_email, fn email, _api_key ->
+        assert email == "new@example.com"
+        :ok
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/users/#{user.id}/edit")
+
+      view
+      |> form("form[phx-submit='save']",
+        user: %{username: "lane6_portal_sync", email: "new@example.com", role_id: role.id}
+      )
+      |> render_submit()
+
+      assert_redirect(view, ~p"/bo/users")
+      verify!(Zaq.UserPortal.ClientMock)
+    end
+
+    test "does not call portal when email is unchanged", %{conn: conn} do
+      role = role_fixture(%{name: "lane6_no_sync_role"})
+      user = user_fixture(%{username: "lane6_no_sync", email: "same@example.com", role: role})
+      {:ok, user} = Repo.update(User.portal_consent_changeset(user, "accepted"))
+
+      stub(Zaq.UserPortal.ClientMock, :update_email, fn _email, _api_key ->
+        flunk("update_email should not be called when email is unchanged")
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/users/#{user.id}/edit")
+
+      view
+      |> form("form[phx-submit='save']",
+        user: %{username: "lane6_no_sync_updated", email: "same@example.com", role_id: role.id}
+      )
+      |> render_submit()
+
+      assert_redirect(view, ~p"/bo/users")
+    end
+
+    test "does not call portal when user has not accepted consent", %{conn: conn} do
+      role = role_fixture(%{name: "lane6_no_consent_role"})
+
+      user =
+        user_fixture(%{username: "lane6_no_consent", email: "before@example.com", role: role})
+
+      stub(Zaq.UserPortal.ClientMock, :update_email, fn _email, _api_key ->
+        flunk("update_email should not be called without consent")
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/users/#{user.id}/edit")
+
+      view
+      |> form("form[phx-submit='save']",
+        user: %{username: "lane6_no_consent", email: "after@example.com", role_id: role.id}
+      )
+      |> render_submit()
+
+      assert_redirect(view, ~p"/bo/users")
+    end
   end
 end

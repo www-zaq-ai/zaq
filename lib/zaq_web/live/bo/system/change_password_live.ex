@@ -1,7 +1,10 @@
 defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
   use ZaqWeb, :live_view
 
+  import Zaq.Helpers, only: [blank?: 1]
+
   alias Zaq.Accounts
+  alias Zaq.UserPortal.Onboarding
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Helpers.PasswordHelpers
 
@@ -14,7 +17,15 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> assign(:user, user)
      |> assign(:form, to_form(form_params))
      |> PasswordHelpers.assign_password_feedback(form_params)
-     |> assign(:error_message, nil)}
+     |> assign(:error_message, nil)
+     |> assign(:show_consent_modal, false)
+     |> assign(:show_post_accept_modal, false)
+     |> assign(:portal_metadata, nil)
+     |> assign(:pending_attrs, nil)
+     |> assign(:consent_modal_error, nil)
+     |> assign(:portal_consent_email, "")
+     |> assign(:allow_email_override, false)
+     |> assign(:current_year, Date.utc_today().year)}
   end
 
   def handle_event("validate", params, socket) do
@@ -47,36 +58,155 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
       |> assign(:form, to_form(merged_form_params))
       |> PasswordHelpers.assign_password_feedback(form_params)
 
-    if password != confirmation do
-      {:noreply, assign(socket, :error_message, "Passwords do not match")}
-    else
-      socket
-      |> update_password(password, email)
-      |> then(&{:noreply, &1})
+    cond do
+      password != confirmation ->
+        {:noreply, assign(socket, :error_message, "Passwords do not match")}
+
+      # Catch a blank email inline, before the consent modal, rather than letting
+      # it surface as a changeset error after the user has navigated the modal.
+      blank?(merged_form_params["email"]) ->
+        {:noreply, assign(socket, :error_message, "Email can't be blank")}
+
+      true ->
+        attrs = %{"password" => password, "email" => merged_form_params["email"]}
+
+        socket =
+          socket
+          |> assign(:pending_attrs, attrs)
+          |> assign(:error_message, nil)
+
+        case fetch_portal_metadata() do
+          {:ok, metadata} ->
+            {:noreply,
+             socket
+             |> assign(:portal_metadata, metadata)
+             |> assign(:portal_consent_email, merged_form_params["email"] || "")
+             |> assign(:show_consent_modal, true)}
+
+          :unavailable ->
+            # Portal unreachable — skip modal, create account without portal.
+            {:noreply, apply_onboarding(socket, :unavailable)}
+        end
     end
   end
 
-  defp update_password(socket, password, email) do
-    attrs =
-      if is_binary(email) do
-        %{"password" => password, "email" => email}
+  # Accept: try portal provisioning first, create account only on success.
+  def handle_event("accept_portal_consent", _params, socket) do
+    email =
+      if socket.assigns.allow_email_override and
+           String.trim(socket.assigns.portal_consent_email || "") != "" do
+        socket.assigns.portal_consent_email
       else
-        %{"password" => password}
+        socket.assigns.pending_attrs["email"]
       end
 
-    case Accounts.complete_bootstrap_onboarding(socket.assigns.user, attrs) do
+    case Onboarding.try_provision(email) do
+      {:ok, litellm} ->
+        attrs = Map.put(socket.assigns.pending_attrs, "email", email)
+        {:noreply, apply_onboarding(socket, {:pre_provisioned, litellm}, attrs)}
+
+      {:error, {409, body}} ->
+        msg = Map.get(body, "message", "This email is already registered.")
+
+        {:noreply,
+         socket
+         |> assign(:consent_modal_error, msg <> " Please use a different email address.")
+         |> assign(:allow_email_override, true)
+         |> assign(:portal_consent_email, "")}
+
+      {:error, _reason} ->
+        {:noreply,
+         assign(
+           socket,
+           :consent_modal_error,
+           "Portal activation failed — you can decline and retry from the dashboard."
+         )}
+    end
+  end
+
+  def handle_event("decline_portal_consent", _params, socket) do
+    {:noreply, apply_onboarding(socket, :declined)}
+  end
+
+  def handle_event("portal_consent_email_change", %{"email" => email}, socket) do
+    {:noreply, assign(socket, portal_consent_email: email, consent_modal_error: nil)}
+  end
+
+  def handle_event("close_post_accept_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> put_flash(
+       :info,
+       "You're all set! Your workspace is ready — drop your files to bring your company brain to life. Check your email to activate your account."
+     )
+     |> push_navigate(to: ~p"/bo/ingestion")}
+  end
+
+  def handle_event("close_consent_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_consent_modal, false)
+     |> assign(:pending_attrs, nil)
+     |> assign(:consent_modal_error, nil)
+     |> assign(:allow_email_override, false)
+     |> assign(:portal_consent_email, "")}
+  end
+
+  defp apply_onboarding(socket, portal_consent) do
+    apply_onboarding(socket, portal_consent, socket.assigns.pending_attrs)
+  end
+
+  defp apply_onboarding(socket, portal_consent, attrs) do
+    case Onboarding.complete_bootstrap_onboarding(socket.assigns.user, attrs, portal_consent) do
       {:ok, user} ->
         socket
         |> assign(:user, user)
-        |> put_flash(:info, "Password changed successfully")
-        |> push_navigate(to: ~p"/bo/dashboard")
+        |> assign(:show_consent_modal, false)
+        |> assign(:pending_attrs, nil)
+        |> assign(:consent_modal_error, nil)
+        |> assign(:allow_email_override, false)
+        |> assign(:portal_consent_email, "")
+        |> onboarding_success_redirect(portal_consent)
 
-      {:error, changeset} ->
-        assign(socket, :error_message, format_changeset_errors(changeset))
+      {:error, %Ecto.Changeset{} = changeset} ->
+        socket
+        |> assign(:show_consent_modal, false)
+        |> assign(:pending_attrs, nil)
+        |> assign(:consent_modal_error, nil)
+        |> assign(:allow_email_override, false)
+        |> assign(:portal_consent_email, "")
+        |> assign(:error_message, ChangesetErrors.format(changeset))
     end
   end
 
-  defp format_changeset_errors(changeset) do
-    ChangesetErrors.format(changeset)
+  defp onboarding_success_redirect(socket, {:pre_provisioned, _litellm}) do
+    assign(socket, :show_post_accept_modal, true)
+  end
+
+  defp onboarding_success_redirect(socket, :accepted) do
+    assign(socket, :show_post_accept_modal, true)
+  end
+
+  defp onboarding_success_redirect(socket, _portal_consent) do
+    socket
+    |> put_flash(:info, "Password changed successfully")
+    |> push_navigate(to: ~p"/bo/dashboard")
+  end
+
+  defp fetch_portal_metadata do
+    case Zaq.UserPortal.client().fetch_onboarding("free") do
+      {:ok, payload} ->
+        if plan_active?(payload),
+          do: {:ok, get_in(payload, ["metadata"]) || %{}},
+          else: :unavailable
+
+      :unavailable ->
+        :unavailable
+    end
+  end
+
+  defp plan_active?(payload) do
+    Map.get(payload, "plan_status") == "enabled" and
+      Map.get(payload, "available", false) == true
   end
 end

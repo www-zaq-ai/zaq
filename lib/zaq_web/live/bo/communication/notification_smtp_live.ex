@@ -1,6 +1,8 @@
 defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   use ZaqWeb, :live_view
 
+  import Zaq.Helpers, only: [blank?: 1]
+
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Mailer
   alias Zaq.System.EmailConfig
@@ -450,10 +452,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   end
 
   defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
-
-  defp blank?(nil), do: true
-  defp blank?(""), do: true
-  defp blank?(_), do: false
 
   defp blank_to_nil(value) do
     if blank?(value), do: nil, else: value

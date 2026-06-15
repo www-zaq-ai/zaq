@@ -1,5 +1,9 @@
 :logger.add_handler(:e2e_collector, Zaq.E2E.LogHandler, %{})
 
+# The portal client uses the real HTTP path in e2e, pointed at loopback stub
+# endpoints served by this server (see config/test.exs :user_portal_base_url and
+# ZaqWeb.E2EController :portal_*). No req_options override is needed.
+
 alias Zaq.Accounts
 alias Zaq.Agent.PromptTemplate
 alias Zaq.Engine.Conversations

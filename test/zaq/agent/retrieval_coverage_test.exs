@@ -2,6 +2,7 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.{PromptTemplate, Retrieval}
+  alias Zaq.SystemConfigFixtures
   alias Zaq.TestSupport.OpenAIStub
 
   setup do
@@ -110,6 +111,28 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
       assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")
       assert String.contains?(message, "Empty assistant response content")
     end
+
+    test "returns error when LLM returns nil content" do
+      handler = fn _conn, _body ->
+        {200, OpenAIStub.chat_completion(nil)}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert String.contains?(message, "Empty assistant response content")
+    end
+  end
+
+  describe "ask/2 — network exception rescue" do
+    test "returns error tuple when LLM connection raises an exception" do
+      OpenAIStub.seed_llm_config("http://localhost:1")
+
+      assert {:error, reason} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert is_struct(reason)
+    end
   end
 
   describe "ask/2 — exception rescue path" do
@@ -122,8 +145,21 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
       start_supervised!(child_spec)
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:error, message} = Retrieval.ask("Question", system_prompt: "Prompt")
-      assert String.starts_with?(message, "Failed to process question:")
+      assert {:error, reason} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert is_struct(reason)
+    end
+  end
+
+  describe "ask/2 — Generation.generate_text raises exception" do
+    test "returns error tuple when prepare_request raises (e.g., missing API key for anthropic)" do
+      SystemConfigFixtures.seed_llm_config(%{
+        provider: "anthropic",
+        endpoint: "https://api.anthropic.com",
+        api_key: ""
+      })
+
+      assert {:error, reason} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert is_struct(reason)
     end
   end
 

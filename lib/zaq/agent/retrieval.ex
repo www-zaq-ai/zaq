@@ -86,8 +86,7 @@ defmodule Zaq.Agent.Retrieval do
         end
 
       {:error, reason} ->
-        reason = "Failed to process question: #{inspect(reason)}"
-        Logger.error("Retrieval failed: #{reason}")
+        Logger.error("Retrieval failed: #{inspect(reason)}")
         {:error, reason}
     end
   end

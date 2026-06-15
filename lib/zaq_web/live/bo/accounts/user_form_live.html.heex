@@ -31,7 +31,7 @@
       
 <!-- Form -->
       <div class="px-8 py-6">
-        <.form for={@form} phx-submit="save" phx-change="validate" class="space-y-6">
+        <.form for={@form} phx-submit="save" phx-change="validate" class="space-y-6 group">
           
 <!-- Username -->
           <div>
@@ -133,8 +133,27 @@
           <div class="flex items-center gap-3 pt-3">
             <button
               type="submit"
-              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
+              class="inline-flex items-center gap-2 font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all group-[.phx-submit-loading]:opacity-75 group-[.phx-submit-loading]:cursor-wait"
             >
+              <svg
+                class="hidden h-3.5 w-3.5 animate-spin group-[.phx-submit-loading]:block"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                />
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
+              </svg>
               {if @live_action == :new, do: "Create User", else: "Save Changes"}
             </button>
             <button

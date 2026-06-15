@@ -17,9 +17,11 @@ defmodule Zaq.E2E.Reset do
   # same fixtures rather than duplicating payload strings.
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.User
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP.Endpoint, as: MCPEndpoint
   alias Zaq.E2E.DocumentProcessorFake
+  alias Zaq.E2E.PortalState
   alias Zaq.E2E.ProcessorState
   alias Zaq.Engine.Conversations
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob}
@@ -27,6 +29,7 @@ defmodule Zaq.E2E.Reset do
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.Config, as: SystemConfig
   alias Zaq.SystemConfigFixtures
+  alias Zaq.UserPortal.Provisioner
 
   @documents_root "tmp/e2e_documents"
 
@@ -50,16 +53,132 @@ defmodule Zaq.E2E.Reset do
   @doc "Run the full reset. Returns :ok on success, or raises on failure."
   def run do
     ProcessorState.reset()
+    PortalState.reset()
 
     reset_filesystem!()
     reset_ingestion_tables!()
     reset_people_tables!()
     reset_conversations!()
+    reset_users!()
     reset_system_config!()
     reseed_seed_files!()
+    reseed_e2e_admin!()
     reseed_unsupported_source_conversation!()
 
     :ok
+  end
+
+  @doc """
+  Seed the initial "admin" user that satisfies `bootstrap_admin_pending?/1`.
+
+  Uses a single `Repo.insert!` — no subsequent update — so `inserted_at == updated_at`
+  is preserved, which is the condition `GET /bo/bootstrap-login` checks before
+  creating a session without a password.
+
+  This mirrors the real first-run state: one user, username "admin", no email, no
+  password hash, `must_change_password: true`.
+  """
+  def seed_bootstrap_admin! do
+    # bootstrap_admin_pending_onboarding/0 returns nil if there are 2+ users,
+    # so we must ensure "admin" is the only user. Reset.run() clears conversations
+    # and messages first, so FK constraints on users are satisfied by this point.
+    Repo.delete_all(User)
+
+    role = Accounts.get_role_by_name("super_admin")
+
+    Repo.insert!(%User{
+      username: "admin",
+      email: nil,
+      role_id: role.id,
+      must_change_password: true
+    })
+  end
+
+  @doc """
+  Seed (or replace) a user that is pending bootstrap onboarding.
+
+  The user has a known password so it can authenticate at `/bo/login`, no email
+  on file (so the change-password form prompts for one), and
+  `must_change_password: true` so login redirects to `/bo/change-password` —
+  the bootstrap onboarding flow under test. Idempotent: any existing user with
+  the same username is removed first.
+
+  Returns `{user, password}`.
+  """
+  def seed_onboarding_user!(attrs \\ %{}) do
+    username = Map.get(attrs, "username", "e2e_onboard")
+    password = Map.get(attrs, "password", "StrongPass1!")
+
+    case Accounts.get_user_by_username(username) do
+      %{} = existing -> Repo.delete!(existing)
+      nil -> :ok
+    end
+
+    role = Accounts.get_role_by_name("super_admin")
+
+    {:ok, user} =
+      Accounts.create_user_with_password(%{
+        username: username,
+        email: "#{username}@seed.local",
+        role_id: role.id,
+        password: password
+      })
+
+    # create_user_with_password hashes the password but also clears
+    # must_change_password. Force the pending-onboarding state and drop the seed
+    # email so the change-password form prompts for a real one.
+    {:ok, user} =
+      user
+      |> Ecto.Changeset.change(must_change_password: true, email: nil)
+      |> Repo.update()
+
+    {user, password}
+  end
+
+  @doc """
+  Seed a user who has already completed bootstrap with `portal_consent="declined"`.
+  Used for dashboard-retry scenarios (email conflict, etc.).
+
+  Optional attrs:
+    - "username" (default "e2e_declined_portal")
+    - "password" (default "StrongPass1!")
+    - "email"    (default nil — no email on file, triggering the email-input field)
+
+  Returns `{user, password}`.
+  """
+  def seed_declined_portal_user!(attrs \\ %{}) do
+    username = Map.get(attrs, "username", "e2e_declined_portal")
+    password = Map.get(attrs, "password", "StrongPass1!")
+    email = Map.get(attrs, "email")
+
+    case Accounts.get_user_by_username(username) do
+      %{} = existing -> Repo.delete!(existing)
+      nil -> :ok
+    end
+
+    role = Accounts.get_role_by_name("super_admin")
+
+    {:ok, user} =
+      Accounts.create_user_with_password(%{
+        username: username,
+        email: email || "#{username}@seed.local",
+        role_id: role.id,
+        password: password
+      })
+
+    changes = [portal_consent: "declined", must_change_password: false]
+    changes = if is_nil(email), do: [{:email, nil} | changes], else: changes
+
+    {:ok, user} =
+      user
+      |> Ecto.Changeset.change(changes)
+      |> Repo.update()
+
+    # Scaffold the keyless ZAQ Router credential — mirrors what complete_bootstrap_onboarding
+    # does on decline so dashboard-retry specs can assert the credential exists (keyless).
+    Provisioner.ensure_offline_credential()
+
+    {user, password}
   end
 
   @doc "Bump the mtime of a file inside the documents root, so stale detection fires."
@@ -72,6 +191,34 @@ defmodule Zaq.E2E.Reset do
   end
 
   # ── Internals ──────────────────────────────────────────────────────────────
+
+  # Delete all users except the standing E2E admin so bootstrap-created users
+  # (e.g. the "admin" user seeded by seed_bootstrap_admin!) never leak across
+  # describe blocks. Must run after reset_conversations! — messages FK users.
+  defp reset_users! do
+    e2e_admin = System.get_env("E2E_ADMIN_USERNAME", "e2e_admin")
+    Repo.query!("DELETE FROM users WHERE username != $1", [e2e_admin])
+  end
+
+  # Re-create the E2E admin if seed_bootstrap_admin! wiped all users.
+  # Other specs (ingestion, agents, etc.) log in as this user; it must exist
+  # after every reset regardless of what bootstrap scenarios did to the table.
+  defp reseed_e2e_admin! do
+    username = System.get_env("E2E_ADMIN_USERNAME", "e2e_admin")
+    password = System.get_env("E2E_ADMIN_PASSWORD", "StrongPass1!")
+
+    unless Accounts.get_user_by_username(username) do
+      role = Accounts.get_role_by_name("super_admin")
+
+      {:ok, _} =
+        Accounts.create_user_with_password(%{
+          username: username,
+          email: "#{username}@e2e.local",
+          role_id: role.id,
+          password: password
+        })
+    end
+  end
 
   defp reset_filesystem! do
     root = Path.expand(@documents_root)

@@ -187,6 +187,13 @@ defmodule Zaq.AccountsTest do
       assert second_user.username in usernames
       assert Enum.all?(users, fn u -> %Role{} = u.role end)
     end
+
+    test "count_users/0 returns the number of users in the database" do
+      initial = Accounts.count_users()
+      _u1 = user_fixture()
+      _u2 = user_fixture()
+      assert Accounts.count_users() == initial + 2
+    end
   end
 
   describe "change_password/2" do
@@ -264,6 +271,33 @@ defmodule Zaq.AccountsTest do
 
       assert "should be at least 8 character(s)" in errors_on(changeset).new_password
     end
+
+    test "rejects password change when user has no password hash set" do
+      user = user_fixture()
+
+      assert {:error, changeset} =
+               Accounts.change_user_password(user, user, %{
+                 current_password: "anything",
+                 new_password: "NewPass123!",
+                 new_password_confirmation: "NewPass123!"
+               })
+
+      assert "is invalid" in errors_on(changeset).current_password
+    end
+
+    test "preserves non-password field errors in remapped changeset" do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "CurrentPass1!"})
+
+      assert {:error, changeset} =
+               Accounts.change_user_password(user, user, %{
+                 current_password: "CurrentPass1!",
+                 new_password: "NewPass123!",
+                 new_password_confirmation: "DifferentPass123!"
+               })
+
+      assert errors_on(changeset).new_password_confirmation != []
+    end
   end
 
   describe "authenticate_user/2" do
@@ -284,6 +318,25 @@ defmodule Zaq.AccountsTest do
 
     test "returns not_found for unknown username" do
       assert {:error, :not_found} = Accounts.authenticate_user("nobody", "pass")
+    end
+
+    test "authenticates user by email with valid password" do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "Validpass123!"})
+
+      assert {:ok, authed} = Accounts.authenticate_user(user.email, "Validpass123!")
+      assert authed.id == user.id
+    end
+
+    test "rejects invalid password when logging in by email" do
+      user = user_fixture()
+      {:ok, _} = Accounts.change_password(user, %{password: "Validpass123!"})
+
+      assert {:error, :invalid_password} = Accounts.authenticate_user(user.email, "wrong")
+    end
+
+    test "returns not_found for unknown email" do
+      assert {:error, :not_found} = Accounts.authenticate_user("nobody@example.com", "pass")
     end
 
     test "authenticates super admin with env credentials on first login" do
@@ -335,14 +388,14 @@ defmodule Zaq.AccountsTest do
     end
   end
 
-  describe "complete_bootstrap_onboarding/2" do
+  describe "complete_registration/2" do
     test "updates password and email when user email is missing" do
       user = user_fixture()
       Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
       user = Accounts.get_user!(user.id)
 
       assert {:ok, updated} =
-               Accounts.complete_bootstrap_onboarding(user, %{
+               Accounts.complete_registration(user, %{
                  email: "admin@zaq.local",
                  password: "StrongPass1!"
                })
@@ -352,26 +405,24 @@ defmodule Zaq.AccountsTest do
       assert Bcrypt.verify_pass("StrongPass1!", updated.password_hash)
     end
 
-    test "rejects missing email when user email is missing" do
-      user = user_fixture()
+    test "requires email even when the user already has one" do
+      user = user_fixture(%{email: "person@example.com"})
       Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
       user = Accounts.get_user!(user.id)
 
       assert {:error, changeset} =
-               Accounts.complete_bootstrap_onboarding(user, %{
-                 password: "StrongPass1!"
-               })
+               Accounts.complete_registration(user, %{password: "StrongPass1!"})
 
       assert "can't be blank" in errors_on(changeset).email
     end
 
-    test "rejects invalid email when user email is missing" do
+    test "rejects invalid email" do
       user = user_fixture()
       Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: nil])
       user = Accounts.get_user!(user.id)
 
       assert {:error, changeset} =
-               Accounts.complete_bootstrap_onboarding(user, %{
+               Accounts.complete_registration(user, %{
                  email: "not-an-email",
                  password: "StrongPass1!"
                })
@@ -379,16 +430,22 @@ defmodule Zaq.AccountsTest do
       assert "must be a valid email address" in errors_on(changeset).email
     end
 
-    test "allows password update without email when user already has email" do
+    test "keeps the existing email when only the password is supplied" do
       user = user_fixture(%{email: "person@example.com"})
 
       assert {:ok, updated} =
-               Accounts.complete_bootstrap_onboarding(user, %{
-                 password: "StrongPass1!"
-               })
+               Accounts.complete_registration(user, %{password: "StrongPass1!"})
 
       assert updated.email == "person@example.com"
       refute updated.must_change_password
+    end
+
+    test "rejects a blank password" do
+      user = user_fixture(%{email: "person@example.com"})
+
+      assert {:error, changeset} = Accounts.complete_registration(user, %{password: ""})
+
+      assert "can't be blank" in errors_on(changeset).password
     end
   end
 end

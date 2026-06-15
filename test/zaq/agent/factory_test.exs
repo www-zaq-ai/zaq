@@ -368,12 +368,4 @@ defmodule Zaq.Agent.FactoryTest do
     ]
     |> IO.iodata_to_binary()
   end
-
-  defp ignore_callback_errors(fun) when is_function(fun, 0) do
-    fun.()
-  rescue
-    _ -> :ok
-  catch
-    _, _ -> :ok
-  end
 end

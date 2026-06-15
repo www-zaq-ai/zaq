@@ -1,0 +1,9 @@
+processor	: 0
+vendor_id	: GenuineIntel
+model name	: Intel(R) Core(TM) i7-8565U CPU @ 1.80GHz
+cpu cores	: 4
+
+processor	: 1
+vendor_id	: GenuineIntel
+model name	: Intel(R) Core(TM) i7-8565U CPU @ 1.80GHz
+cpu cores	: 4

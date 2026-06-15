@@ -28,6 +28,9 @@ defmodule Zaq.Agent.ProviderSpec do
   have no direct API endpoint managed by ReqLLM and fall back to `:openai` for
   OpenAI-compatible routing. Also falls back for unknown providers.
   """
+  # ZAQ Provider is a LiteLLM gateway — always route through OpenAI-compatible protocol.
+  def reqllm_provider(p) when p in [:zaq_router, "zaq_router"], do: :openai
+
   def reqllm_provider(p) do
     with {:ok, atom} <- LLMDB.Spec.parse_provider(p),
          {:ok, %LLMDB.Provider{catalog_only: false}} <- LLMDB.provider(atom) do

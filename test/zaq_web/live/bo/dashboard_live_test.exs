@@ -4,10 +4,16 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
 
+  import Ecto.Query
+
   alias Zaq.Accounts
+  alias Zaq.Accounts.User
   alias Zaq.Addons.FeatureStore
+  alias Zaq.Repo
 
   setup %{conn: conn} do
+    Zaq.PortalStubs.stub_portal_reachable()
+
     user = user_fixture(%{username: "testadmin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     conn = conn |> init_test_session(%{user_id: user.id})
@@ -110,6 +116,127 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       {:ok, _view, html} = live(conn, ~p"/bo/dashboard")
       assert html =~ "Acme"
       assert html =~ "Days Left"
+    end
+  end
+
+  describe "portal consent email capture" do
+    setup %{conn: conn} do
+      # An "old" account: declined portal consent and has no email on file.
+      user = user_fixture(%{username: "oldadmin"})
+      {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+
+      Repo.update_all(from(u in User, where: u.id == ^user.id),
+        set: [email: nil, portal_consent: "declined"]
+      )
+
+      user = Accounts.get_user!(user.id)
+      conn = conn |> init_test_session(%{user_id: user.id})
+
+      %{conn: conn, user: user}
+    end
+
+    test "omits email input and enables accept when user already has an email", %{conn: conn} do
+      # Override the no-email setup with an account that has an email on file.
+      user = user_fixture(%{username: "hasemail", email: "has@example.com"})
+      {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+      set_portal_consent(user, "declined")
+      conn = conn |> init_test_session(%{user_id: user.id})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      open_portal_consent(view)
+
+      refute has_element?(view, "#portal-consent-email")
+      refute has_element?(view, "button[disabled]", "Accept")
+    end
+
+    test "renders email input and disables accept when user has no email", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      html = open_portal_consent(view)
+
+      assert html =~ "enter it to continue"
+      assert has_element?(view, "#portal-consent-email")
+      assert has_element?(view, "button[disabled]", "Accept")
+    end
+
+    test "enables accept once a non-blank email is entered", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      open_portal_consent(view)
+
+      change_portal_email(view, "new@example.com")
+
+      refute has_element?(view, "button[disabled]", "Accept")
+    end
+
+    test "shows a validation error when the entered email is invalid", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      open_portal_consent(view)
+      change_portal_email(view, "not-an-email")
+
+      html = accept_portal_consent(view)
+
+      assert html =~ "Email must be a valid email address."
+    end
+
+    test "provisions the portal with the entered email for old users", %{conn: conn, user: user} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      open_portal_consent(view)
+      change_portal_email(view, "claimed@example.com")
+
+      view
+      |> element("button[phx-click='accept_portal_consent']")
+      |> render_click()
+
+      view |> element("[phx-click='close_post_accept_modal']") |> render_click()
+
+      flash = assert_redirect(view, ~p"/bo/ingestion")
+      assert flash["info"] =~ "drop your files"
+      assert Accounts.get_user!(user.id).email == "claimed@example.com"
+    end
+
+    test "provisions the portal without changing an existing user email", %{conn: conn} do
+      user = user_fixture(%{username: "portalready", email: "ready@example.com"})
+      {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+      set_portal_consent(user, "declined")
+      conn = conn |> init_test_session(%{user_id: user.id})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      open_portal_consent(view)
+
+      view
+      |> element("button[phx-click='accept_portal_consent']")
+      |> render_click()
+
+      view |> element("[phx-click='close_post_accept_modal']") |> render_click()
+
+      flash = assert_redirect(view, ~p"/bo/ingestion")
+      assert flash["info"] =~ "drop your files"
+      assert Accounts.get_user!(user.id).email == "ready@example.com"
+    end
+
+    test "closes the portal consent modal when close event is fired", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+
+      open_portal_consent(view)
+      assert has_element?(view, "#portal-consent-email")
+
+      close_portal_consent(view)
+      refute has_element?(view, "#portal-consent-email")
+    end
+
+    test "shows network error when portal HTTP call fails", %{conn: conn} do
+      # Portal metadata loads (reachable), but the provisioning POST fails.
+      Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email ->
+        {:error, :econnrefused}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
+      open_portal_consent(view)
+      change_portal_email(view, "retry@example.com")
+
+      html = accept_portal_consent(view)
+
+      assert html =~ "Could not reach the ZAQ portal"
     end
   end
 
@@ -225,6 +352,39 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       {key, value} ->
         Application.put_env(:zaq, key, value)
     end)
+  end
+
+  defp open_portal_consent(view) do
+    # The Activate banner only appears once the async portal fetch resolves.
+    render_async(view)
+
+    view
+    |> element("#portal-consent button", "Activate")
+    |> render_click()
+  end
+
+  defp change_portal_email(view, email) do
+    view
+    |> element("form[phx-change='portal_consent_email_change']")
+    |> render_change(%{"email" => email})
+  end
+
+  defp accept_portal_consent(view) do
+    view
+    |> element("button[phx-click='accept_portal_consent']")
+    |> render_click()
+
+    render(view)
+  end
+
+  defp close_portal_consent(view) do
+    view
+    |> element("button[phx-click='close_portal_consent_modal']")
+    |> render_click()
+  end
+
+  defp set_portal_consent(user, consent) do
+    Repo.update_all(from(u in User, where: u.id == ^user.id), set: [portal_consent: consent])
   end
 end
 

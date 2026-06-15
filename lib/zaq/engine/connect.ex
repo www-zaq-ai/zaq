@@ -2,6 +2,7 @@ defmodule Zaq.Engine.Connect do
   @moduledoc "Engine context for reusable provider credentials and resource-bound grants."
 
   import Ecto.Query
+  import Zaq.Helpers, only: [blank?: 1]
 
   alias Ecto.Changeset
   alias Oban.Job
@@ -327,8 +328,6 @@ defmodule Zaq.Engine.Connect do
 
   defp payload_get(payload, key) when is_map(payload),
     do: Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
-
-  defp blank?(value), do: is_nil(value) or value == ""
 
   defp enrich_grant_attrs(attrs, %Credential{} = credential) do
     auth_kind = Map.get(attrs, :auth_kind) || Map.get(attrs, "auth_kind") || credential.auth_kind

@@ -7,6 +7,8 @@ defmodule ZaqWeb.Live.BO.Accounts.ProfileLiveTest do
   alias Zaq.Accounts
 
   setup %{conn: conn} do
+    Zaq.PortalStubs.stub_portal_reachable()
+
     role = role_fixture(%{name: "profile_role"})
     user = user_fixture(%{username: "profile_user", email: "profile@example.com", role: role})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})

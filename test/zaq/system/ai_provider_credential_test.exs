@@ -73,34 +73,45 @@ defmodule Zaq.System.AIProviderCredentialTest do
   end
 
   test "returns changeset error when api_key encryption key is invalid" do
+    prev = Application.get_env(:zaq, Zaq.System.SecretConfig)
+
     Application.put_env(:zaq, Zaq.System.SecretConfig,
       encryption_key: "invalid",
       key_id: "test-v1"
     )
 
-    assert {:error, %Ecto.Changeset{} = changeset} =
-             System.create_ai_provider_credential(%{
-               name: "Failing",
-               provider: "openai",
-               endpoint: "https://api.openai.com/v1",
-               api_key: "must-fail"
-             })
+    try do
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               System.create_ai_provider_credential(%{
+                 name: "Failing",
+                 provider: "openai",
+                 endpoint: "https://api.openai.com/v1",
+                 api_key: "must-fail"
+               })
 
-    assert hd(errors_on(changeset).api_key) =~ "could not be encrypted"
+      assert hd(errors_on(changeset).api_key) =~ "could not be encrypted"
+    after
+      Application.put_env(:zaq, Zaq.System.SecretConfig, prev)
+    end
   end
 
   test "returns specific changeset error when api_key encryption key is missing" do
+    prev = Application.get_env(:zaq, Zaq.System.SecretConfig)
     Application.put_env(:zaq, Zaq.System.SecretConfig, [])
 
-    assert {:error, %Ecto.Changeset{} = changeset} =
-             System.create_ai_provider_credential(%{
-               name: "Failing Missing Key",
-               provider: "openai",
-               endpoint: "https://api.openai.com/v1",
-               api_key: "must-fail"
-             })
+    try do
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               System.create_ai_provider_credential(%{
+                 name: "Failing Missing Key",
+                 provider: "openai",
+                 endpoint: "https://api.openai.com/v1",
+                 api_key: "must-fail"
+               })
 
-    assert hd(errors_on(changeset).api_key) =~ "missing SYSTEM_CONFIG_ENCRYPTION_KEY"
+      assert hd(errors_on(changeset).api_key) =~ "missing SYSTEM_CONFIG_ENCRYPTION_KEY"
+    after
+      Application.put_env(:zaq, Zaq.System.SecretConfig, prev)
+    end
   end
 
   test "blank api_key update preserves previously stored key" do
