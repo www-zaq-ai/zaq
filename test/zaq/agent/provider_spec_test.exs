@@ -358,11 +358,11 @@ defmodule Zaq.Agent.ProviderSpecTest do
       refute Keyword.has_key?(opts, :api_key)
     end
 
-    test "adds openai_logprobs provider_options when supports_logprobs and openai provider" do
+    test "does not add logprobs provider_options even when supports_logprobs and openai provider" do
       opts =
         ProviderSpec.generation_opts(base_cfg(%{supports_logprobs: true, provider: "openai"}))
 
-      assert opts[:provider_options] == [openai_logprobs: true]
+      refute Keyword.has_key?(opts, :provider_options)
     end
 
     test "omits provider_options when supports_logprobs but non-openai provider" do
