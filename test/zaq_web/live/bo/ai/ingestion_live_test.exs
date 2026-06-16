@@ -132,7 +132,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     refute has_element?(view, "h3", "Delete Selected")
 
     render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
-    assert has_element?(view, "span", "Select all")
+    assert has_element?(view, "th.zaq-ingestion-meta-label", "Select all")
   end
 
   test "opens file preview inside modal", %{conn: conn} do
