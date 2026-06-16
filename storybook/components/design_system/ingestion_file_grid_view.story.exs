@@ -12,8 +12,10 @@ defmodule Storybook.Components.DesignSystem.IngestionFileGridView do
     do: "Ingestion file browser — card grid: empty directory and representative cards."
 
   def render(assigns) do
-    empty = MapSet.new()
-    selected_one = MapSet.new([Path.join(".", "final.pdf")])
+    assigns =
+      assigns
+      |> assign(:empty, MapSet.new())
+      |> assign(:selected_one, MapSet.new([Path.join(".", "final.pdf")]))
 
     ~H"""
     <div
@@ -23,7 +25,7 @@ defmodule Storybook.Components.DesignSystem.IngestionFileGridView do
       <.story_block title="Empty directory" description="No files — empty message only.">
         <.file_grid_view
           entries={[]}
-          selected={empty}
+          selected={@empty}
           current_dir="."
           current_volume="default"
           ingestion_map={%{}}
@@ -36,7 +38,7 @@ defmodule Storybook.Components.DesignSystem.IngestionFileGridView do
       >
         <.file_grid_view
           entries={fixture_entries()}
-          selected={selected_one}
+          selected={@selected_one}
           current_dir="."
           current_volume="default"
           ingestion_map={fixture_ingestion_map()}
