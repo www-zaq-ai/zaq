@@ -154,18 +154,18 @@ defmodule Zaq.Agent.ProviderSpec do
   def generation_opts(cfg) do
     opts = [temperature: cfg.temperature, top_p: cfg.top_p]
 
-    opts =
-      if is_binary(cfg.api_key) and cfg.api_key != "" do
-        Keyword.put(opts, :api_key, cfg.api_key)
-      else
-        opts
-      end
-
-    if cfg.supports_logprobs and reqllm_provider(cfg.provider) == :openai do
-      Keyword.put(opts, :provider_options, openai_logprobs: true)
+    if is_binary(cfg.api_key) and cfg.api_key != "" do
+      Keyword.put(opts, :api_key, cfg.api_key) |> Keyword.put(:stream, false)
     else
       opts
     end
+
+    # This is how we were handleing logprobs before
+    # if cfg.supports_logprobs and reqllm_provider(cfg.provider) == :openai do
+    #   Keyword.put(opts, :provider_options, openai_logprobs: true)
+    # else
+    #   opts
+    # end
   end
 
   @doc """
