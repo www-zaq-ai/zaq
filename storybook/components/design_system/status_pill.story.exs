@@ -4,24 +4,27 @@ defmodule Storybook.Components.DesignSystem.StatusPill do
 
   alias ZaqWeb.Components.DesignSystem.StatusPill, as: StatusPillMod
 
-  def description, do: "Ingestion job status → pill CSS classes (`StatusPill.status_color/1`)."
+  def description,
+    do:
+      "Ingestion job status pills (`StatusPill.status_pill_classes/1` + `.zaq-pill` in `styles.css`)."
 
   def render(assigns) do
-    statuses = ~w(pending processing completed completed_with_errors failed unknown)
+    statuses =
+      ~w(pending processing completed completed_with_errors failed cancelled stale ingested unknown)
 
     assigns = assign(assigns, :statuses, statuses)
 
     ~H"""
     <div style="padding: var(--zaq-scale-32); display: flex; flex-direction: column; gap: var(--zaq-scale-16);">
       <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary);">
-        ZaqWeb.Components.DesignSystem.StatusPill.status_color/1
+        ZaqWeb.Components.DesignSystem.StatusPill.status_pill_classes/1
       </p>
       <div style="display: flex; flex-wrap: wrap; gap: var(--zaq-scale-12); align-items: center;">
-        <span
-          :for={s <- @statuses}
-          class={["font-mono text-[0.65rem] px-2 py-0.5 rounded", StatusPillMod.status_color(s)]}
-        >
+        <span :for={s <- @statuses} class={StatusPillMod.status_pill_classes(s)}>
           {s}
+        </span>
+        <span class={StatusPillMod.status_pill_classes("processing") ++ ["zaq-pill--pulse"]}>
+          processing (pulse)
         </span>
       </div>
     </div>

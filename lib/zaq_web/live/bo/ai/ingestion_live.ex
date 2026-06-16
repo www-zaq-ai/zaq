@@ -950,7 +950,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   # Kept public for backward-compat with tests that call these directly.
   defdelegate format_size(bytes), to: ZaqWeb.Live.BO.AI.IngestionComponents
-  defdelegate status_color(status), to: ZaqWeb.Live.BO.AI.IngestionComponents
+  defdelegate status_pill_classes(status), to: ZaqWeb.Live.BO.AI.IngestionComponents
 
   defp build_share_targets_options do
     people_opts =

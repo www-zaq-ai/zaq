@@ -35,7 +35,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   defdelegate file_icon(assigns), to: IngestionFileIcon
   defdelegate file_icon_color(name), to: IngestionFileIcon
 
-  defdelegate status_color(status), to: StatusPill
+  defdelegate status_pill_classes(status), to: StatusPill
+  defdelegate folder_count_pill_classes(done?), to: StatusPill
 
   attr :volumes, :map, required: true
   attr :current_volume, :string, required: true

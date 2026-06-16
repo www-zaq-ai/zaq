@@ -105,17 +105,22 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
   end
 
   # ---------------------------------------------------------------------------
-  # status_color/1
+  # status_pill_classes/1
   # ---------------------------------------------------------------------------
 
-  describe "status_color/1" do
-    test "returns correct class for each status" do
-      assert IngestionComponents.status_color("pending") =~ "bg-black/5"
-      assert IngestionComponents.status_color("processing") =~ "amber"
-      assert IngestionComponents.status_color("completed") =~ "emerald"
-      assert IngestionComponents.status_color("completed_with_errors") =~ "orange"
-      assert IngestionComponents.status_color("failed") =~ "red"
-      assert IngestionComponents.status_color("unknown") =~ "bg-black/5"
+  describe "status_pill_classes/1" do
+    test "returns correct semantic modifier for each status" do
+      assert "zaq-pill" in IngestionComponents.status_pill_classes("pending")
+      assert "zaq-pill--elevated" in IngestionComponents.status_pill_classes("pending")
+      assert "zaq-pill--accent" in IngestionComponents.status_pill_classes("processing")
+      assert "zaq-pill--success" in IngestionComponents.status_pill_classes("completed")
+
+      assert "zaq-pill--warning" in IngestionComponents.status_pill_classes(
+               "completed_with_errors"
+             )
+
+      assert "zaq-pill--danger" in IngestionComponents.status_pill_classes("failed")
+      assert "zaq-pill--elevated" in IngestionComponents.status_pill_classes("unknown")
     end
   end
 

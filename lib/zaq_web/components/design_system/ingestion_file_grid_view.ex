@@ -10,6 +10,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
 
   import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [file_ingestion_status: 2]
 
+  alias ZaqWeb.Components.DesignSystem.StatusPill
   alias ZaqWeb.Helpers.SizeFormat
 
   attr :entries, :list, required: true
@@ -207,11 +208,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 <span
                   :if={folder_stats && folder_stats.file_count > 0}
                   class={[
-                    "font-mono text-[0.55rem] px-1.5 py-0.5 rounded mt-1",
-                    if(folder_stats.ingested_count == folder_stats.file_count,
-                      do: "bg-emerald-100 text-emerald-700",
-                      else: "bg-amber-100 text-amber-600"
-                    )
+                    StatusPill.folder_count_pill_classes(
+                      folder_stats.ingested_count == folder_stats.file_count
+                    ),
+                    "mt-1"
                   ]}
                 >
                   {folder_stats.ingested_count}/{folder_stats.file_count}
@@ -245,36 +245,39 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 <% status = file_ingestion_status(@ingestion_map, entry.name) %>
                 <%= cond do %>
                   <% status.job_status == "processing" -> %>
-                    <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 mt-1 animate-pulse">
+                    <span class={
+                      StatusPill.status_pill_classes("processing") ++
+                        ["mt-1", "zaq-pill--pulse"]
+                    }>
                       processing
                     </span>
                   <% status.job_status == "pending" -> %>
-                    <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-black/5 text-black/40 mt-1">
+                    <span class={StatusPill.status_pill_classes("pending") ++ ["mt-1"]}>
                       pending
                     </span>
                   <% status.job_status == "failed" -> %>
-                    <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-red-100 text-red-600 mt-1">
+                    <span class={StatusPill.status_pill_classes("failed") ++ ["mt-1"]}>
                       failed
                     </span>
                   <% status.stale? -> %>
-                    <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 mt-1">
+                    <span class={StatusPill.status_pill_classes("stale") ++ ["mt-1"]}>
                       stale
                     </span>
                   <% status.ingested_at != nil -> %>
                     <div class="flex flex-row flex-wrap items-center justify-center gap-1 mt-1">
-                      <span class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                      <span class={StatusPill.status_pill_classes("ingested")}>
                         ingested
                       </span>
                       <span
                         :if={status.permissions_count > 0}
-                        class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent"
+                        class="zaq-pill zaq-pill--shared zaq-text-caption"
                         title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                       >
                         shared
                       </span>
                       <span
                         :if={Map.get(status, :is_public, false)}
-                        class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600"
+                        class="zaq-pill zaq-pill--public zaq-text-caption"
                         title="Public"
                       >
                         public
@@ -284,14 +287,14 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                     <div class="flex flex-row flex-wrap items-center justify-center gap-1 mt-1">
                       <span
                         :if={status.permissions_count > 0}
-                        class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent"
+                        class="zaq-pill zaq-pill--shared zaq-text-caption"
                         title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                       >
                         shared
                       </span>
                       <span
                         :if={Map.get(status, :is_public, false)}
-                        class="font-mono text-[0.55rem] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600"
+                        class="zaq-pill zaq-pill--public zaq-text-caption"
                         title="Public"
                       >
                         public

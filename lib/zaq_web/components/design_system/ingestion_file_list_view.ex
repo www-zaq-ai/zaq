@@ -12,6 +12,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
 
   import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [file_ingestion_status: 2]
 
+  alias ZaqWeb.Components.DesignSystem.StatusPill
   alias ZaqWeb.Helpers.SizeFormat
 
   attr :entries, :list, required: true
@@ -214,20 +215,22 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <% status = file_ingestion_status(@ingestion_map, entry.name) %>
                   <%= cond do %>
                     <% status.job_status == "processing" -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit whitespace-nowrap animate-pulse">
+                      <span class={
+                        StatusPill.status_pill_classes("processing") ++ ["zaq-pill--pulse"]
+                      }>
                         processing
                       </span>
                     <% status.job_status == "pending" -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-black/5 text-black/40 w-fit whitespace-nowrap">
+                      <span class={StatusPill.status_pill_classes("pending")}>
                         pending
                       </span>
                     <% status.job_status == "failed" -> %>
-                      <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-red-100 text-red-600 w-fit whitespace-nowrap">
+                      <span class={StatusPill.status_pill_classes("failed")}>
                         failed
                       </span>
                     <% status.stale? -> %>
                       <div class="flex flex-col gap-0.5">
-                        <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-amber-100 text-amber-600 w-fit whitespace-nowrap">
+                        <span class={StatusPill.status_pill_classes("stale")}>
                           <svg
                             class="w-3 h-3 shrink-0"
                             fill="none"
@@ -249,7 +252,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       </div>
                     <% status.ingested_at != nil -> %>
                       <div class="flex flex-col gap-0.5">
-                        <span class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 whitespace-nowrap">
+                        <span class={StatusPill.status_pill_classes("ingested")}>
                           <svg
                             class="w-3 h-3 shrink-0"
                             fill="none"
@@ -302,7 +305,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <div class="flex items-center gap-1 flex-wrap">
                     <span
                       :if={status.permissions_count > 0}
-                      class="zaq-ingestion-pill--shared zaq-text-caption"
+                      class="zaq-pill zaq-pill--shared zaq-text-caption"
                       title={"Shared with #{status.permissions_count} person(s)/team(s)"}
                     >
                       <svg
@@ -322,7 +325,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     </span>
                     <span
                       :if={Map.get(status, :is_public, false)}
-                      class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-violet-100 text-violet-600 cursor-default whitespace-nowrap"
+                      class="zaq-pill zaq-pill--public zaq-text-caption cursor-default"
                       title="Public — accessible to all authenticated users"
                     >
                       <svg
@@ -344,7 +347,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <% folder_stats = Map.get(@ingestion_map, entry.name) %>
                   <span
                     :if={folder_stats && Map.get(folder_stats, :is_public, false)}
-                    class="inline-flex items-center gap-1 font-mono text-[0.65rem] px-2 py-0.5 rounded bg-violet-100 text-violet-600 cursor-default whitespace-nowrap"
+                    class="zaq-pill zaq-pill--public zaq-text-caption cursor-default"
                     title="Public — all files in this folder are accessible to all authenticated users"
                   >
                     <svg

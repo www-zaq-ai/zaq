@@ -66,10 +66,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
             <p class="zaq-text-body-sm font-medium truncate" title={job.file_path}>
               {Path.basename(job.file_path)}
             </p>
-            <span class={[
-              "zaq-text-caption shrink-0 px-2 py-0.5 rounded",
-              StatusPill.status_color(job.status)
-            ]}>
+            <span class={StatusPill.status_pill_classes(job.status)}>
               {job.status}
             </span>
           </div>

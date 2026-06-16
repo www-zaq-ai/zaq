@@ -177,9 +177,9 @@
   display: flex;
   align-items: center;
   gap: var(--zaq-scale-8);
-  padding: var(--zaq-scale-16) var(--zaq-scale-24);
+  padding: var(--zaq-scale-8) var(--zaq-scale-8);
   border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
-  background: var(--zaq-surface-color-elevated);
+  background: var(--zaq-surface-color-base);
 }
 
 /* First row inside a rounded shell (markdown / text / image); omit on PDF */
@@ -191,7 +191,7 @@
 .zaq-file-preview-type-chip {
   display: inline-flex;
   align-items: center;
-  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  padding: var(--zaq-scale-4) var(--zaq-scale-4);
   border-radius: var(--zaq-scale-8);
 }
 
@@ -210,8 +210,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--zaq-scale-32);
-  background: var(--zaq-surface-color-elevated);
+  padding: var(--zaq-scale-24);
+  background: var(--zaq-surface-color-raised);
   border-bottom-left-radius: var(--zaq-scale-16);
   border-bottom-right-radius: var(--zaq-scale-16);
 }
@@ -474,17 +474,76 @@ pre.zaq-file-preview-body {
   margin-right: auto;
 }
 
-/* Shared-with chip (ingestion file list — access column) */
-.zaq-ingestion-pill--shared {
+/* Pill primitive — layout shell; combine with .zaq-pill--* tone or variant */
+.zaq-pill {
   display: inline-flex;
   align-items: center;
   gap: var(--zaq-scale-4);
+  width: fit-content;
+  max-width: 100%;
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: var(--zaq-scale-4) var(--zaq-scale-8);
   border-radius: var(--zaq-scale-4);
+}
+
+/* Semantic tones (job status, folder counts, …) */
+.zaq-pill--accent {
   background: var(--zaq-surface-color-accent);
   color: var(--zaq-text-color-body-accent);
+}
+
+.zaq-pill--elevated {
+  background: var(--zaq-surface-color-elevated);
+  color: var(--zaq-text-color-body-tertiary);
+}
+
+.zaq-pill--success {
+  background: var(--zaq-surface-color-success);
+  color: var(--zaq-text-color-body-success);
+}
+
+.zaq-pill--warning {
+  background: var(--zaq-surface-color-warning);
+  color: var(--zaq-text-color-body-warning);
+}
+
+.zaq-pill--danger {
+  background: var(--zaq-surface-color-danger);
+  color: var(--zaq-text-color-body-danger);
+}
+
+/* Ingestion metadata chips (access column — use with .zaq-pill) */
+.zaq-pill--shared {
   cursor: default;
-  white-space: nowrap;
+  background: var(--zaq-surface-color-accent);
+  color: var(--zaq-text-color-body-accent);
+}
+
+.zaq-pill--public {
+  cursor: default;
+  padding: var(--zaq-scale-4) var(--zaq-scale-4);
+  background: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-accent);
+  border-color: var(--zaq-border-color-accent);
+}
+
+@keyframes zaq-pill-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.36;
+    transform: scale(0.93);
+  }
+}
+
+.zaq-pill--pulse {
+  transform-origin: center center;
+  animation: zaq-pill-pulse 1s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
 
 /* Jobs panel — <progress> webkit / moz pseudo-elements cannot be set inline */

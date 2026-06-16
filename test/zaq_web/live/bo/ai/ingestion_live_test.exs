@@ -1020,7 +1020,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   # ────────────────────────────────────────────────────────────────
-  # NEW: format_size/1 and status_color/1 helper functions
+  # format_size/1 and status_pill_classes/1 helper functions
   # ────────────────────────────────────────────────────────────────
 
   describe "format_size/1" do
@@ -1039,27 +1039,28 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
   end
 
-  describe "status_color/1" do
+  describe "status_pill_classes/1" do
     alias ZaqWeb.Live.BO.AI.IngestionLive
 
-    test "pending returns muted classes" do
-      assert IngestionLive.status_color("pending") =~ "bg-black"
+    test "pending returns elevated pill classes" do
+      assert "zaq-pill" in IngestionLive.status_pill_classes("pending")
+      assert "zaq-pill--elevated" in IngestionLive.status_pill_classes("pending")
     end
 
-    test "processing returns amber classes" do
-      assert IngestionLive.status_color("processing") =~ "amber"
+    test "processing returns accent pill classes" do
+      assert "zaq-pill--accent" in IngestionLive.status_pill_classes("processing")
     end
 
-    test "completed returns emerald classes" do
-      assert IngestionLive.status_color("completed") =~ "emerald"
+    test "completed returns success pill classes" do
+      assert "zaq-pill--success" in IngestionLive.status_pill_classes("completed")
     end
 
-    test "failed returns red classes" do
-      assert IngestionLive.status_color("failed") =~ "red"
+    test "failed returns danger pill classes" do
+      assert "zaq-pill--danger" in IngestionLive.status_pill_classes("failed")
     end
 
-    test "unknown status returns fallback classes" do
-      assert IngestionLive.status_color("unknown") =~ "bg-black"
+    test "unknown status returns elevated fallback" do
+      assert "zaq-pill--elevated" in IngestionLive.status_pill_classes("unknown")
     end
   end
 
@@ -1109,14 +1110,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   # ────────────────────────────────────────────────────────────────
-  # NEW: status_color for completed_with_errors
+  # status_pill_classes/1 — completed_with_errors
   # ────────────────────────────────────────────────────────────────
 
-  describe "status_color/1 completed_with_errors" do
+  describe "status_pill_classes/1 completed_with_errors" do
     alias ZaqWeb.Live.BO.AI.IngestionLive
 
-    test "completed_with_errors returns orange classes" do
-      assert IngestionLive.status_color("completed_with_errors") =~ "orange"
+    test "completed_with_errors returns warning pill classes" do
+      assert "zaq-pill--warning" in IngestionLive.status_pill_classes("completed_with_errors")
     end
   end
 
