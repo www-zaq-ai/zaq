@@ -2,7 +2,9 @@ defmodule ZaqWeb.Components.BOModal do
   @moduledoc """
   Reusable Back Office modal primitives.
 
-  - `modal_shell/1` is a low-level wrapper.
+  - `modal_shell/1` is a low-level wrapper — defaults use `modal.css` (`zaq-bo-modal-backdrop`,
+    `zaq-modal`). Override `backdrop_class` / `panel_base_class` only for exceptions; use
+    `panel_base_class="zaq-modal zaq-modal--flush"` when inner chrome provides its own padding.
   - `form_dialog/1` is the default for BO add/edit dialogs and enforces viewport-safe
     max height with internal scrolling.
   """
@@ -13,6 +15,9 @@ defmodule ZaqWeb.Components.BOModal do
   attr :cancel_event, :string, required: true
   attr :max_width_class, :string, default: "max-w-sm"
   attr :panel_class, :string, default: ""
+  attr :backdrop_class, :string, default: "zaq-bo-modal-backdrop"
+  attr :panel_base_class, :string, default: "zaq-modal"
+
   attr :rest, :global
   slot :inner_block, required: true
 
@@ -25,9 +30,9 @@ defmodule ZaqWeb.Components.BOModal do
       phx-key="Escape"
       {@rest}
     >
-      <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" phx-click={@cancel_event}></div>
+      <div class={@backdrop_class} phx-click={@cancel_event}></div>
       <div class={[
-        "relative w-full rounded-2xl border border-black/10 bg-white p-8 shadow-2xl",
+        @panel_base_class,
         @max_width_class,
         @panel_class
       ]}>

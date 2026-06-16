@@ -41,6 +41,8 @@ defmodule ZaqWeb.Components.BOModalTest do
     assert html =~ "phx-key=\"Escape\""
     assert html =~ "phx-click=\"close_modal\""
     assert html =~ "max-w-sm"
+    assert html =~ "zaq-bo-modal-backdrop"
+    assert html =~ "zaq-modal"
     assert html =~ "Inner content"
   end
 

@@ -56,7 +56,7 @@ defmodule ZaqWeb.Components.FilePreview do
 
     <div :if={@preview.kind == :markdown} class="zaq-file-preview-shell">
       <div class="zaq-file-preview-bar zaq-file-preview-bar--rounded-top">
-        <span class="zaq-file-preview-type-chip zaq-file-preview-type-chip--accent zaq-text-caption uppercase tracking-wide">
+        <span class="zaq-pill zaq-text-caption zaq-pill--accent uppercase tracking-wide">
           {String.trim_leading(@preview.ext, ".")}
         </span>
         <span
@@ -73,7 +73,7 @@ defmodule ZaqWeb.Components.FilePreview do
 
     <div :if={@preview.kind == :text} class="zaq-file-preview-shell">
       <div class="zaq-file-preview-bar zaq-file-preview-bar--rounded-top">
-        <span class="zaq-file-preview-type-chip zaq-file-preview-type-chip--muted zaq-text-caption uppercase tracking-wide">
+        <span class="zaq-pill zaq-text-caption zaq-pill--elevated uppercase tracking-wide">
           {String.trim_leading(@preview.ext, ".")}
         </span>
         <span
@@ -88,7 +88,7 @@ defmodule ZaqWeb.Components.FilePreview do
 
     <div :if={@preview.kind == :image} class="zaq-file-preview-shell">
       <div class="zaq-file-preview-bar zaq-file-preview-bar--rounded-top">
-        <span class="zaq-file-preview-type-chip zaq-file-preview-type-chip--muted zaq-text-caption uppercase tracking-wide">
+        <span class="zaq-pill zaq-text-caption zaq-pill--elevated uppercase tracking-wide">
           {String.trim_leading(@preview.ext, ".")}
         </span>
         <span
@@ -105,7 +105,7 @@ defmodule ZaqWeb.Components.FilePreview do
 
     <div :if={@preview.kind == :pdf} class="zaq-file-preview-shell overflow-hidden">
       <div class="zaq-file-preview-bar">
-        <span class="zaq-file-preview-type-chip zaq-file-preview-type-chip--accent zaq-text-caption uppercase tracking-wide">
+        <span class="zaq-pill zaq-text-caption zaq-pill--accent uppercase tracking-wide">
           pdf
         </span>
         <span

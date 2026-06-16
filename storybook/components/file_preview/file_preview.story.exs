@@ -6,10 +6,22 @@ defmodule Storybook.Components.FilePreview.FilePreview do
   def description do
     """
     Inline `FilePreview.meta/1` and `FilePreview.panel/1` — same preview map shape as \
-    `ZaqWeb.Live.BO.AI.FilePreviewData.load/2`. In the app, `panel/1` is embedded in \
-    `FilePreviewModal` with body background `#f7f6f3`; sections below use that wrapper only for context. \
+    `ZaqWeb.Live.BO.AI.FilePreviewData.load/2`. Each `panel/1` block sits on \
+    `--zaq-surface-color-base` so the story tracks light/dark theme like the app scroll area. \
     Close / Escape on the real modal require LiveView (`cancel_event`).
     """
+  end
+
+  defp panel_preview_frame_style do
+    Enum.join(
+      [
+        "background: var(--zaq-surface-color-base)",
+        "padding: var(--zaq-scale-24)",
+        "border-radius: var(--zaq-scale-16)",
+        "border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default)"
+      ],
+      "; "
+    ) <> ";"
   end
 
   def render(assigns) do
@@ -36,10 +48,7 @@ defmodule Storybook.Components.FilePreview.FilePreview do
           <code style="font-family: ui-monospace, monospace;">ZaqWeb.Helpers.Markdown.render/1</code>
           (same as ingestion).
         </p>
-        <div
-          class="bg-[#f7f6f3] p-6 rounded-xl"
-          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
-        >
+        <div style={panel_preview_frame_style()}>
           <ZaqWeb.Components.FilePreview.panel preview={FP.markdown()} />
         </div>
       </section>
@@ -48,10 +57,7 @@ defmodule Storybook.Components.FilePreview.FilePreview do
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
           panel/1 — text
         </h2>
-        <div
-          class="bg-[#f7f6f3] p-6 rounded-xl"
-          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
-        >
+        <div style={panel_preview_frame_style()}>
           <ZaqWeb.Components.FilePreview.panel preview={FP.text()} />
         </div>
       </section>
@@ -60,10 +66,7 @@ defmodule Storybook.Components.FilePreview.FilePreview do
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
           panel/1 — image
         </h2>
-        <div
-          class="bg-[#f7f6f3] p-6 rounded-xl"
-          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
-        >
+        <div style={panel_preview_frame_style()}>
           <ZaqWeb.Components.FilePreview.panel preview={FP.image()} />
         </div>
       </section>
@@ -77,10 +80,7 @@ defmodule Storybook.Components.FilePreview.FilePreview do
           is <code style="font-family: ui-monospace, monospace;">80vh</code>
           on <code style="font-family: ui-monospace, monospace;">panel/1</code>; the modal passes <code style="font-family: ui-monospace, monospace;">68vh</code>.
         </p>
-        <div
-          class="bg-[#f7f6f3] p-6 rounded-xl"
-          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
-        >
+        <div style={panel_preview_frame_style()}>
           <ZaqWeb.Components.FilePreview.panel preview={FP.pdf()} pdf_height="min(40vh, 320px)" />
         </div>
       </section>
@@ -89,10 +89,7 @@ defmodule Storybook.Components.FilePreview.FilePreview do
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
           panel/1 — binary (download)
         </h2>
-        <div
-          class="bg-[#f7f6f3] p-6 rounded-xl"
-          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
-        >
+        <div style={panel_preview_frame_style()}>
           <ZaqWeb.Components.FilePreview.panel preview={FP.binary()} />
         </div>
       </section>
@@ -101,10 +98,7 @@ defmodule Storybook.Components.FilePreview.FilePreview do
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 0.5rem;">
           panel/1 — file not found
         </h2>
-        <div
-          class="bg-[#f7f6f3] p-6 rounded-xl"
-          style="border: 1px solid var(--zaq-color-surface-border, #e8e6e1);"
-        >
+        <div style={panel_preview_frame_style()}>
           <ZaqWeb.Components.FilePreview.panel preview={FP.not_found()} />
         </div>
       </section>

@@ -1,0 +1,31 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   BO modal shell — token-backed surfaces (used by FilePreviewModal + future modals)
+   Loaded via @import in styles.css (semantics.css already applied in app.css).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Full-bleed scrim behind modal panel */
+.zaq-bo-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--zaq-text-color-body-default) 40%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+/* Token-backed modal panel — default padding matches legacy `modal_shell` p-8 rhythm */
+.zaq-modal {
+  position: relative;
+  width: 100%;
+  border-radius: var(--zaq-scale-16);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-raised);
+  padding: var(--zaq-scale-32);
+  overflow: hidden;
+  box-shadow:
+    0 var(--zaq-scale-24) var(--zaq-scale-48) calc(var(--zaq-scale-4) * -1)
+      color-mix(in srgb, var(--zaq-text-color-body-default) 22%, transparent);
+}
+
+/* Edge-to-edge layout inside the panel (e.g. file preview toolbar + scroll region) */
+.zaq-modal--flush {
+  padding: 0;
+}

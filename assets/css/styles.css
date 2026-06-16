@@ -3,6 +3,8 @@
    Consumes semantic tokens from semantics.css — no hardcoded values.
    ───────────────────────────────────────────────────────────────────────────── */
 
+@import "./modal.css";
+
 /* ── Card ────────────────────────────────────────────────────────────────── */
 
 .zaq-card-default {
@@ -177,7 +179,7 @@
   display: flex;
   align-items: center;
   gap: var(--zaq-scale-8);
-  padding: var(--zaq-scale-8) var(--zaq-scale-8);
+  padding: var(--zaq-scale-8) var(--zaq-scale-24);
   border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
   background: var(--zaq-surface-color-base);
 }
@@ -186,24 +188,6 @@
 .zaq-file-preview-bar--rounded-top {
   border-top-left-radius: var(--zaq-scale-16);
   border-top-right-radius: var(--zaq-scale-16);
-}
-
-.zaq-file-preview-type-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--zaq-scale-4) var(--zaq-scale-4);
-  border-radius: var(--zaq-scale-8);
-}
-
-.zaq-file-preview-type-chip--accent {
-  background: var(--zaq-surface-color-accent);
-  color: var(--zaq-text-color-body-accent);
-}
-
-.zaq-file-preview-type-chip--muted {
-  /* Raised reads slightly above the elevated toolbar band */
-  background: var(--zaq-surface-color-raised);
-  color: var(--zaq-text-color-body-tertiary);
 }
 
 .zaq-file-preview-media-well {
