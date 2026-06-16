@@ -155,7 +155,7 @@ defmodule Zaq.Agent.ProviderSpec do
     opts = [temperature: cfg.temperature, top_p: cfg.top_p]
 
     if is_binary(cfg.api_key) and cfg.api_key != "" do
-      Keyword.put(opts, :api_key, cfg.api_key) |> Keyword.put(:stream, false)
+      Keyword.put(opts, :api_key, cfg.api_key)
     else
       opts
     end
