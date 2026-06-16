@@ -154,7 +154,7 @@
 }
 
 .zaq-ingestion-file-grid-card:hover:not(.zaq-ingestion-file-grid-card--selected) {
-  border-color: var(--zaq-border-color-strong);
+  border-color: var(--zaq-border-color-accent);
 }
 
 .zaq-ingestion-file-grid-card--selected {
