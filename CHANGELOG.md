@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.12.0](https://github.com/www-zaq-ai/zaq/compare/v0.11.0...v0.12.0) (2026-06-16)
+
+
+### Features
+
+* **accounts:** gate user portal provisioning behind explicit consent modal ([d1c5f6f](https://github.com/www-zaq-ai/zaq/commit/d1c5f6f4582eced542ac803d028a8817e96ec36f))
+* **accounts:** provision ZAQ Provider credential on bootstrap onboarding ([870d9cf](https://github.com/www-zaq-ai/zaq/commit/870d9cf6f3d5efbb23fa1bdb5433a2208ac7734d))
+* **agent:** add Apify MCP endpoint and fix Firecrawl remote URL ([caa4047](https://github.com/www-zaq-ai/zaq/commit/caa4047702f40d95d502302ea2d179e10b6eff91))
+* **agent:** improve error classification with typed errors, budget exceeded message, and stream error suppression ([09d4f5e](https://github.com/www-zaq-ai/zaq/commit/09d4f5e09b7e0ed8fc9ff1ab547bd6fcf8bb4783))
+* **agent:** refresh zaq router default model catalog with new llm, vision, and embedding models ([9b2b10c](https://github.com/www-zaq-ai/zaq/commit/9b2b10c74208d7fde862460c4e224242534b0fbe))
+* **communication, AI agent:** stream llm response with full trace logging and live rendering ([b1efc03](https://github.com/www-zaq-ai/zaq/commit/b1efc03507ca26a7d4eb6b2b87f97e976412a33e))
+* **live:** redirect to ingestion with persistent welcome flash on consent accept ([a5d085e](https://github.com/www-zaq-ai/zaq/commit/a5d085e4d3c42cacb405ca621896f034c5aed1c1))
+* **live:** show spinner in save changes button during form submission ([3f21ea3](https://github.com/www-zaq-ai/zaq/commit/3f21ea361e14ede251beb091a590189537ac2944))
+* **onboarding:** add portal liveness gate, dynamic consent copy, and zaq provider fallback ([13ca5a8](https://github.com/www-zaq-ai/zaq/commit/13ca5a8902fbb49cb86442954286e609f8a36426))
+* **onboarding:** allow email override after 409 conflict in portal activation ([8c1ddec](https://github.com/www-zaq-ai/zaq/commit/8c1ddec346b802dacb8cc039f23c39dc22fe0599))
+* **onboarding:** portal email sync, network payload, and scenario tests ([43d82fc](https://github.com/www-zaq-ai/zaq/commit/43d82fc12481ee5afab729109b2060cec844d21a))
+* **onboarding:** pre-provision portal before account creation, add machine-conflict and email-override ([43c3424](https://github.com/www-zaq-ai/zaq/commit/43c3424cf4c5b5ca032c0e99847bfb78cd826b78))
+* **onboarding:** replace machine_fingerprint with machine_signals payload and fix update_email arity ([23f0e05](https://github.com/www-zaq-ai/zaq/commit/23f0e05f62cffb1f9fd4fba478b51a14642be0a4))
+* **system:** persist machine fingerprint to file for stable identity across restarts ([ad6b026](https://github.com/www-zaq-ai/zaq/commit/ad6b0269c35e5aa2f09ff27ef3d1c9d9c4ceb3ae))
+* **web:** add icons to gear settings dropdown menu items ([4ac1aaa](https://github.com/www-zaq-ai/zaq/commit/4ac1aaaf35808846438bba7f487eb7a9a2c23c9c))
+
+
+### Bug Fixes
+
+* **agent:** default to openai/gpt-oss-120b and disable unavailable models ([945e279](https://github.com/www-zaq-ai/zaq/commit/945e27982aaa3fe1641d8dfe2294676c4181b324))
+* **agent:** surface provider errors instead of empty bubbles and add title fallback ([2637d66](https://github.com/www-zaq-ai/zaq/commit/2637d66ed3b4e2a08f8d74a7d7d597d61afb7514))
+* **AI agent:** correctly collect token usage measurements in messages and in dashboard telemetry ([5fa7373](https://github.com/www-zaq-ai/zaq/commit/5fa737338dbe35243f882347888ceeb69da7ab2f))
+* **BO:** correctly assign trace field type in migration, remove storybook from coverage ([7eb1f40](https://github.com/www-zaq-ai/zaq/commit/7eb1f408ee609e0515f9e49b62ffd0dc76dab6dd))
+* **live:** bypass req.test plug in e2e bootstrap to unblock dashboard moun ([3f57db8](https://github.com/www-zaq-ai/zaq/commit/3f57db815f42639af43a1b5ebd86b7fc04c82b8e))
+* **live:** replace flash redirect with post-accept modal on portal consent ([339e648](https://github.com/www-zaq-ai/zaq/commit/339e648cd9d1bdac4e7a8979836592dcecb7d3d9))
+* **live:** surface error outgoing to replace empty streaming bubble ([bb8d143](https://github.com/www-zaq-ai/zaq/commit/bb8d143e4ca51e254587625f6cf05d7249982a55))
+* **onboarding:** add email to user consent popup ([71be075](https://github.com/www-zaq-ai/zaq/commit/71be07522d1bc2ea678c64ef4fc9a053ebf7762d))
+* **onboarding:** atomic bootstrap provisioning via sage, nil endpoint default ([d10aa4e](https://github.com/www-zaq-ai/zaq/commit/d10aa4ec3948f71667535746fae4f8aef316d4fe))
+* **onboarding:** load portal consent banner async and drop machine fingerprint ([fa12c70](https://github.com/www-zaq-ai/zaq/commit/fa12c70109aa9bffa639e641e92c638cb2a8aef7))
+* **onboarding:** surface portal errors, dedupe requests, offline router ([83cc619](https://github.com/www-zaq-ai/zaq/commit/83cc619e0eda14ab921da9eebf91331fd8fa1348))
+* **People:** no people creation for BO messages ([a611f83](https://github.com/www-zaq-ai/zaq/commit/a611f83be59e97164e57d1d8f9336d8dd8f5898c))
+* **web:** restore tool_calls_popin component dropped in merge ([9ba1534](https://github.com/www-zaq-ai/zaq/commit/9ba15349cf2df2f2c63a8ea1ede6d5546fa86193))
+* **web:** validate email format in portal consent modal ([623b489](https://github.com/www-zaq-ai/zaq/commit/623b489ccfc1c20d58dbbb4ee31cfa25b8971292))
+
+
+### Refactoring
+
+* (BO) design migration for the ingestion list view (table) and fixing grid doc in storybook ([e17c270](https://github.com/www-zaq-ai/zaq/commit/e17c2705ce6fd5b7bd6cd63badb52ff7a9246c23))
+* (BO) design migration grid view - ingestion page ([39a2cbd](https://github.com/www-zaq-ai/zaq/commit/39a2cbda72b0232d69658aa5cf26db126002faf3))
+* (BO) extract all components from Ingestion page ([4cc4416](https://github.com/www-zaq-ai/zaq/commit/4cc4416938c9b803872dc3cb6ef2f07ed49fd249))
+* (BO) hiding button preview from grid in ingestion ([446959f](https://github.com/www-zaq-ai/zaq/commit/446959f25163324973ad3b02bc3c41da31c61cff))
+* (BO) migrate design of component dropzone ([0498f39](https://github.com/www-zaq-ai/zaq/commit/0498f391e37ff489a6dfd199ed7e9f18523dadbe))
+* (BO) Modal file preview UI migration - Ingestion ([db97064](https://github.com/www-zaq-ai/zaq/commit/db97064648a3d341b18ecfcccb7b04e6323a484a))
+* (BO) status pill ui design migration ([21a1058](https://github.com/www-zaq-ai/zaq/commit/21a10585110aabbafaac4b1078e2886b571dc216))
+* **accounts:** move portal provisioning into UserPortal.Onboarding boundary ([e1f5767](https://github.com/www-zaq-ai/zaq/commit/e1f5767b7b2e152aa8987cecd2557a05a40eaae2))
+* **live:** extract portal consent lifecycle and zaq provisioner into dedicated modules ([ae5b876](https://github.com/www-zaq-ai/zaq/commit/ae5b876d8aba0597fc8cd6b7cae8931f69121122))
+* **live:** move portal provisioning to dedicated module and decouple consent modal ([7e2f819](https://github.com/www-zaq-ai/zaq/commit/7e2f819b5157930f2f614c3385ecb049caf7294c))
+* **onboarding:** centralize portal helpers and fetch metadata async ([dc6d7b3](https://github.com/www-zaq-ai/zaq/commit/dc6d7b33b5b248e162cd756a74bd01c67688db58))
+* **onboarding:** unify blank?/1 helper and centralize portal client ([6d024aa](https://github.com/www-zaq-ai/zaq/commit/6d024aadfee59a4c79792f432aa7f1ce221a0a4d))
+* **system:** send clear machine signals to portal without hashing ([3e207e0](https://github.com/www-zaq-ai/zaq/commit/3e207e0649f395b739b931a1a8d31972b1808ad4))
+
 ## [0.11.0](https://github.com/www-zaq-ai/zaq/compare/v0.10.0...v0.11.0) (2026-06-11)
 
 
