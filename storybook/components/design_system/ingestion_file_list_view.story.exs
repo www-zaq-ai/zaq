@@ -12,8 +12,10 @@ defmodule Storybook.Components.DesignSystem.IngestionFileListView do
     do: "Ingestion file browser — table (list) view: empty directory and representative rows."
 
   def render(assigns) do
-    empty = MapSet.new()
-    selected_one = MapSet.new([Path.join(".", "final.pdf")])
+    assigns =
+      assigns
+      |> assign(:empty, MapSet.new())
+      |> assign(:selected_one, MapSet.new([Path.join(".", "final.pdf")]))
 
     ~H"""
     <div
@@ -23,7 +25,7 @@ defmodule Storybook.Components.DesignSystem.IngestionFileListView do
       <.story_block title="Empty directory" description="No files — single placeholder row.">
         <.file_list_view
           entries={[]}
-          selected={empty}
+          selected={@empty}
           current_dir="."
           current_volume="default"
           ingestion_map={%{}}
@@ -36,7 +38,7 @@ defmodule Storybook.Components.DesignSystem.IngestionFileListView do
       >
         <.file_list_view
           entries={fixture_entries()}
-          selected={selected_one}
+          selected={@selected_one}
           current_dir="."
           current_volume="default"
           ingestion_map={fixture_ingestion_map()}
