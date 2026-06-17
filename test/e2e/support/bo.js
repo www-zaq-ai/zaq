@@ -253,6 +253,17 @@ async function createE2EAgent(request, attrs, options = {}) {
   return res.json();
 }
 
+// Seed a conversation for the E2E admin (see POST /e2e/conversations).
+// Required: channel_type. Optional: title, channel_user_id, status ("active" | "archived"), user_id.
+async function createE2EConversation(request, attrs, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/conversations`, { data: attrs });
+  if (!res.ok()) {
+    throw new Error(`/e2e/conversations returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
 // Seed the initial "admin" user that satisfies bootstrap_admin_pending?/1.
 // After this call, navigate to GET /bo/bootstrap-login — the server creates a
 // session without a password and redirects straight to /bo/change-password.
@@ -337,6 +348,7 @@ module.exports = {
   createE2EAiCredential,
   createE2EMcpEndpoint,
   createE2EAgent,
+  createE2EConversation,
   createE2EBootstrapAdmin,
   createE2EOnboardingUser,
   createE2EDeclinedPortalUser,

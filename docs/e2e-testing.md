@@ -153,6 +153,7 @@ These functions are in `test/e2e/support/bo.js` and hit the `/e2e/*` endpoints:
 | `resetE2EState(request)` | Truncates test tables and resets to baseline. Call in `beforeAll`. |
 | `setE2ESystemConfig(request, key, value)` | Sets a system config key directly in DB. |
 | `createE2EAiCredential(request, attrs)` | Inserts an AI provider credential. Returns `{ id, name, provider }`. |
+| `createE2EConversation(request, attrs)` | Inserts a conversation for the E2E admin user. Body: required `channel_type`; optional `title`, `channel_user_id`, `status` (`active` / `archived`), `user_id`. Returns `{ ok, id, title, channel_type, status }`. |
 | `createE2EMcpEndpoint(request, attrs)` | Inserts an MCP endpoint record. Returns the created record. |
 
 ### Pattern: `beforeAll` with reset + seed
@@ -214,6 +215,7 @@ module.exports = {
   resetE2EState,            // POST /e2e/reset
   setE2ESystemConfig,       // POST /e2e/system-config
   createE2EAiCredential,    // POST /e2e/ai-credential
+  createE2EConversation,    // POST /e2e/conversations
   createE2EMcpEndpoint,     // POST /e2e/mcp-endpoint
 }
 ```
@@ -231,6 +233,7 @@ module.exports = {
 | `people.spec.js` | `/bo/people` — User/team management |
 | `system_config.spec.js` | `/bo/system-config` — AI credentials, MCP config, system settings |
 | `knowledge_ops_lead.spec.js` | Knowledge operations lead flow |
+| `history.spec.js` | `/bo/history` — tabs, filters, bulk selection, conversation table |
 | `version_badge.spec.js` | Version badge display |
 
 ---

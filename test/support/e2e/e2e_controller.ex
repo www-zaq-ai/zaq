@@ -3,8 +3,10 @@ defmodule ZaqWeb.E2EController do
 
   use ZaqWeb, :controller
 
+  alias Zaq.Accounts
   alias Zaq.Agent.MCP
   alias Zaq.E2E.{LogCollector, PortalState, ProcessorState, Reset}
+  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry
   alias Zaq.System, as: SystemContext
 
@@ -114,6 +116,93 @@ defmodule ZaqWeb.E2EController do
         |> json(%{error: "invalid_mcp_endpoint", details: inspect(changeset.errors)})
     end
   end
+
+  # POST /e2e/conversations — seed a conversation for the E2E admin (or user_id).
+  # JSON body: title (optional), channel_type (required), channel_user_id (optional),
+  # status (optional "active" | "archived"), user_id (optional integer).
+  def create_conversation(conn, params) do
+    channel_type = Map.get(params, "channel_type")
+
+    if not is_binary(channel_type) or channel_type == "" do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "missing or empty channel_type"})
+      |> halt()
+    else
+      create_conversation_after_channel_ok(conn, channel_type, params)
+    end
+  end
+
+  defp create_conversation_after_channel_ok(conn, channel_type, params) do
+    case resolve_e2e_conversation_user_id(params) do
+      {:error, :no_user} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "e2e_admin_user_not_found"})
+
+      {:ok, user_id} ->
+        insert_e2e_conversation(conn, channel_type, user_id, params)
+    end
+  end
+
+  defp insert_e2e_conversation(conn, channel_type, user_id, params) do
+    attrs =
+      %{
+        "channel_type" => channel_type,
+        "user_id" => user_id,
+        "channel_user_id" => Map.get(params, "channel_user_id") || "e2e_admin"
+      }
+      |> maybe_put_string_attr("title", Map.get(params, "title"))
+      |> maybe_put_string_attr("status", Map.get(params, "status"))
+
+    case Conversations.create_conversation(attrs) do
+      {:ok, conv} ->
+        json(conn, %{
+          ok: true,
+          id: conv.id,
+          title: conv.title,
+          channel_type: conv.channel_type,
+          status: conv.status
+        })
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{
+          error: "invalid_conversation",
+          details: inspect(changeset.errors)
+        })
+    end
+  end
+
+  defp resolve_e2e_conversation_user_id(params) do
+    case Map.get(params, "user_id") do
+      id when is_integer(id) ->
+        {:ok, id}
+
+      id when is_binary(id) and id != "" ->
+        case Integer.parse(id) do
+          {int, _} -> {:ok, int}
+          :error -> {:error, :no_user}
+        end
+
+      _ ->
+        username = System.get_env("E2E_ADMIN_USERNAME", "e2e_admin")
+
+        case Accounts.get_user_by_username(username) do
+          %{id: id} -> {:ok, id}
+          _ -> {:error, :no_user}
+        end
+    end
+  end
+
+  defp maybe_put_string_attr(map, _key, nil), do: map
+
+  defp maybe_put_string_attr(map, key, value) when is_binary(value) and value != "" do
+    Map.put(map, key, value)
+  end
+
+  defp maybe_put_string_attr(map, _key, _value), do: map
 
   # POST /e2e/ingestion/touch_file?path=knowledge/benefits.md
   # Bumps the mtime of a file inside tmp/e2e_documents/ so stale detection
