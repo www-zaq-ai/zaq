@@ -1,9 +1,9 @@
-defmodule Storybook.Components.Chat.ConversationsSidebar do
+defmodule Storybook.Chat.ConversationsSidebar do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Chat.ConversationsSidebar.conversations_sidebar/1
 
-  def description, do: "BO Chat — conversation list and new-chat control."
+  def description, do: "BO Chat — conversation list and new-chat control (`ZaqWeb.Chat`)."
 
   def variations do
     now = ~U[2025-06-01 12:00:00Z]

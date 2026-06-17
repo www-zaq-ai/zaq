@@ -1,9 +1,10 @@
-defmodule Storybook.Components.Chat.Transcript do
+defmodule Storybook.Chat.Transcript do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Chat.Transcript.transcript/1
 
-  def description, do: "BO Chat — transcript area, bubbles, and thinking indicator."
+  def description,
+    do: "BO Chat — transcript area, bubbles, and thinking indicator (`ZaqWeb.Chat`)."
 
   def variations do
     ts = ~U[2025-06-01 12:00:00Z]

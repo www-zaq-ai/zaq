@@ -1,10 +1,11 @@
-defmodule Storybook.Components.ChatMessage.AssistantBubble do
+defmodule Storybook.Chat.AssistantBubble do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.ChatMessage.assistant_bubble/1
 
   def description,
-    do: "Left-aligned ZAQ assistant response bubble with confidence bar and source chips."
+    do:
+      "Left-aligned assistant bubble with confidence and sources (`ZaqWeb.Components.ChatMessage`)."
 
   def variations do
     [

@@ -1,9 +1,9 @@
-defmodule Storybook.Components.Chat.DeleteConfirmModal do
+defmodule Storybook.Chat.DeleteConfirmModal do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Chat.Modals.delete_confirm_modal/1
 
-  def description, do: "BO Chat — delete conversation confirmation."
+  def description, do: "BO Chat — delete conversation confirmation (`ZaqWeb.Chat`)."
 
   def variations do
     [

@@ -1,9 +1,9 @@
-defmodule Storybook.Components.Chat.Composer do
+defmodule Storybook.Chat.Composer do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Chat.Composer.composer/1
 
-  def description, do: "BO Chat — filter chips, textarea, and send button."
+  def description, do: "BO Chat — filter chips, textarea, and send button (`ZaqWeb.Chat`)."
 
   def variations do
     filter = %Zaq.Ingestion.ContentSource{

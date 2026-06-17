@@ -1,11 +1,10 @@
-defmodule Storybook.Components.ChatMessage.FeedbackNegativeButton do
+defmodule Storybook.Chat.FeedbackNegativeButton do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.ChatMessage.feedback_negative_button/1
 
   def description,
-    do:
-      "Thumbs-down on assistant messages. Page layout for BO chat lives under Components → Chat (`ZaqWeb.Chat`)."
+    do: "Thumbs-down on assistant messages (`ZaqWeb.Components.ChatMessage`)."
 
   def variations do
     [

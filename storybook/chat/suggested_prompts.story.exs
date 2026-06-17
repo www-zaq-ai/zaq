@@ -1,9 +1,9 @@
-defmodule Storybook.Components.Chat.SuggestedPrompts do
+defmodule Storybook.Chat.SuggestedPrompts do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Chat.SuggestedPrompts.suggested_prompts/1
 
-  def description, do: "BO Chat — starter question chips."
+  def description, do: "BO Chat — starter question chips (`ZaqWeb.Chat`)."
 
   def variations do
     [

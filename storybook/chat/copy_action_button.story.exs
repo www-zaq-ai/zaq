@@ -1,11 +1,10 @@
-defmodule Storybook.Components.ChatMessage.CopyActionButton do
+defmodule Storybook.Chat.CopyActionButton do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.ChatMessage.copy_action_button/1
 
   def description,
-    do:
-      "Copy-to-clipboard control for message text. Page layout for BO chat lives under Components → Chat (`ZaqWeb.Chat`)."
+    do: "Copy-to-clipboard for message text (`ZaqWeb.Components.ChatMessage`)."
 
   def variations do
     [

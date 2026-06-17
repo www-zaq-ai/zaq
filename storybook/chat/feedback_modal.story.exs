@@ -1,9 +1,9 @@
-defmodule Storybook.Components.Chat.FeedbackModal do
+defmodule Storybook.Chat.FeedbackModal do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Chat.Modals.feedback_modal/1
 
-  def description, do: "BO Chat — negative feedback reasons and comment."
+  def description, do: "BO Chat — negative feedback reasons and comment (`ZaqWeb.Chat`)."
 
   def variations do
     [

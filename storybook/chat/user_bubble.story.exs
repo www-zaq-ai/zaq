@@ -1,8 +1,10 @@
-defmodule Storybook.Components.ChatMessage.UserBubble do
+defmodule Storybook.Chat.UserBubble do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.ChatMessage.user_bubble/1
-  def description, do: "Right-aligned user message bubble in the ZAQ chat interface."
+
+  def description,
+    do: "Right-aligned user message bubble (`ZaqWeb.Components.ChatMessage`)."
 
   def variations do
     [
