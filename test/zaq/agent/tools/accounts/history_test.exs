@@ -329,6 +329,31 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
       assert message =~ "invalid date"
     end
+
+    test "to_date can be provided without from_date" do
+      person = create_person("p_todate@example.com")
+
+      inside = create_conversation(person.id)
+      add_messages(inside, 1)
+      :ok = set_updated_at(inside, ~U[2026-06-03 12:00:00.000000Z])
+
+      outside = create_conversation(person.id)
+      add_messages(outside, 1)
+      :ok = set_updated_at(outside, ~U[2026-06-07 12:00:00.000000Z])
+
+      assert {:ok, result} = History.run(%{to_date: "2026-06-05"}, %{person_id: person.id})
+
+      assert conversation_ids(result) == [inside.id]
+    end
+
+    test "non-string date values return a validation error" do
+      person = create_person("p_badtypedate@example.com")
+
+      assert {:error, message} =
+               History.run(%{from_date: ~D[2026-06-01]}, %{person_id: person.id})
+
+      assert message =~ "invalid date"
+    end
   end
 
   # ── output shape and limits ──────────────────────────────────────────
@@ -389,6 +414,15 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
     test "person with no conversations gets an empty list (not unauthorized)" do
       person = create_person("noconv@example.com")
       assert {:ok, %{conversations: []}} = History.run(%{}, %{person_id: person.id})
+    end
+
+    test "data-layer query failures degrade to an empty result" do
+      person = create_person("badlimit@example.com")
+      conv = create_conversation(person.id)
+      add_messages(conv, 1)
+
+      assert {:ok, %{conversations: []}} =
+               History.run(%{conversation_limit: "not-an-integer"}, %{person_id: person.id})
     end
   end
 end

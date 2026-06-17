@@ -34,7 +34,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
       # => {:ok, %{person_id: 42, row: %{"email" => "jad@zaq.ai", "display_name" => "Jad"}}}
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "ensure_person",
     description: "Find or create a Person from a communication channel identifier.",
     schema: [
@@ -64,8 +64,6 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
         doc: "Input data passed through as string-keyed map for downstream steps."
       ]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   require Logger
 

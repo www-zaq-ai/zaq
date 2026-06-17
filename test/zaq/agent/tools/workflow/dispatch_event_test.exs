@@ -75,7 +75,8 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
                  %{node_router: AsyncNodeRouter}
                )
 
-      assert_received {:dispatched, %Event{}}
+      assert_received {:dispatched, %Event{next_hop: hop}}
+      assert hop.type == :async
     end
   end
 
@@ -111,6 +112,17 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
                )
 
       assert_received {:dispatched, %Event{name: "any_event_name_works"}}
+    end
+
+    test "ignores unknown type values and dispatches with default event options" do
+      assert {:ok, %{dispatched: %{}}} =
+               DispatchEvent.run(
+                 %{input: %{}, destination: "engine", type: "deferred"},
+                 @ctx
+               )
+
+      assert_received {:dispatched, %Event{opts: opts}}
+      refute Keyword.has_key?(opts, :type)
     end
   end
 end

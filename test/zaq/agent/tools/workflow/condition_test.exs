@@ -166,6 +166,22 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
   end
 
   describe "run/2 — atom key in condition map" do
+    test "fetch_value with atom key returns directly from atom-keyed input" do
+      input = %{active: true}
+      conditions = [%{key: :active, value: true}]
+
+      assert {:ok, %{passed: true}} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "fetch_value with atom key falls back to string-keyed input" do
+      input = %{"active" => true}
+      conditions = [%{key: :active, value: true}]
+
+      assert {:ok, %{passed: true}} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
     test "fetch_value with atom key falls back to string key in input" do
       # Condition key is an atom (e.g. from an atom-keyed condition map),
       # input is string-keyed — fetch_value/2 atom clause falls back to Atom.to_string(key).

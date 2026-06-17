@@ -421,7 +421,7 @@ defmodule Zaq.Engine.Api do
     with run when not is_nil(run) <- Workflows.get_run(run_id),
          true <- permission_granted?(person_id, run, opts),
          approval when not is_nil(approval) <- Workflows.get_pending_approval(run.id) do
-      Workflows.approve_run(run, approval, decision, approved_by)
+      Workflows.approve_step(run, approval, decision, approved_by)
     else
       false -> {:error, :unauthorized}
       nil -> {:error, {:invalid_request, %{run_id: run_id}}}
@@ -432,7 +432,7 @@ defmodule Zaq.Engine.Api do
     with run when not is_nil(run) <- Workflows.get_run(run_id),
          true <- permission_granted?(person_id, run, opts),
          approval when not is_nil(approval) <- Workflows.get_pending_approval(run.id) do
-      Workflows.reject_run(run, approval, reason, approved_by)
+      Workflows.reject_step(run, approval, reason, approved_by)
     else
       false -> {:error, :unauthorized}
       nil -> {:error, {:invalid_request, %{run_id: run_id}}}

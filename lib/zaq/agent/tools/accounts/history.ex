@@ -42,7 +42,7 @@ defmodule Zaq.Agent.Tools.Accounts.History do
       # => {:ok, %{conversations: [%{id: ..., title: ..., updated_at: ..., messages: [...]}]}}
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "fetch_history",
     description:
       "Search and recall the requesting person's past conversations by topic and/or time period.",
@@ -96,8 +96,6 @@ defmodule Zaq.Agent.Tools.Accounts.History do
         doc: "Conversations (id, title, updated_at) each with their recent messages."
       ]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   require Logger
 
