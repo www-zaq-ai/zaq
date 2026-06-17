@@ -14,8 +14,10 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
 
   use ZaqWeb, :live_view
 
-  import ZaqWeb.Components.SearchableSelect
-  import ZaqWeb.Helpers.DateFormat, only: [format_datetime: 1]
+  import ZaqWeb.History.ActiveArchivedTabs
+  import ZaqWeb.History.BulkSelectionBar
+  import ZaqWeb.History.ConversationFilters
+  import ZaqWeb.History.ConversationTable
 
   alias Zaq.Accounts.People
   alias Zaq.NodeRouter
