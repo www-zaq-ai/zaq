@@ -459,14 +459,6 @@ defmodule Zaq.Agent.Executor do
     end)
   end
 
-  # Dimension keys arrive as strings from channel metadata — convert only to
-  # atoms that already exist to avoid atom-table exhaustion.
-  defp existing_atom_or_key(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> key
-  end
-
   defp error_type(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_type({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
   defp error_type(%{__struct__: mod}), do: inspect(mod)
