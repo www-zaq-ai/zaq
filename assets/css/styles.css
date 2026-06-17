@@ -631,6 +631,25 @@ pre.zaq-file-preview-body {
   border-radius: var(--zaq-scale-4);
 }
 
+/* BO chat — transcript: date hairline + thinking card (`ZaqWeb.Chat.Transcript`) */
+.zaq-chat-transcript__date-rule {
+  flex: 1;
+  min-width: 0;
+  height: 0;
+  align-self: center;
+  border: 0;
+  border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+/* BO chat — transcript typing dots: semantic neon gradient (same token as progress fill) */
+.zaq-chat-transcript__typing-dot {
+  flex-shrink: 0;
+  width: var(--zaq-scale-8);
+  height: var(--zaq-scale-8);
+  border-radius: var(--zaq-scale-999);
+  background: var(--zaq-bg-loading-default);
+}
+
 /* BO chat — shared header bar (agent column + conversations sidebar first row) */
 .zaq-chat-header-bar {
   box-sizing: border-box;
