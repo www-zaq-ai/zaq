@@ -1,6 +1,6 @@
 ---
 name: design-migrate
-description: Migrate ZAQ web UI (components, LiveViews, layouts) styling to the --zaq-* token system. Accepts a Figma frame URL (design-led), a file path (audit), or --audit-all (full sweep). Always produces a diff proposal before touching any file. Full sweep mode writes a backlog file directly.
+description: Migrate ZAQ web UI (components, LiveViews, layouts) styling to the --zaq-* token system. Accepts a Figma frame URL (design-led), a file path (audit), or --audit-all (full sweep). Always outputs a human-validation table (UI role, existing style, proposed solution) before touching any file. Prefers general semantic classes and inline color vars over new CSS. Full sweep mode writes a backlog file directly.
 trigger: when the user types /design-migrate
 ---
 
@@ -63,35 +63,37 @@ Parse the input after `/design-migrate`:
 
 ## Step 3: Produce Diff Proposal (DO NOT touch any file yet)
 
-Apply the **Invariant Rules** (see bottom of this file) to determine the correct replacement for each style. Use the class-first lookup in Rule 1 before falling back to semantic vars.
+Apply the **Invariant Rules** (see bottom of this file) to determine the correct replacement for each style.
 
-Analyse every style in the target file and produce a complete diff proposal in this exact format:
+**Human-validation table (required):** After analysis, output a **markdown table** so reviewers can judge each row without opening the file. Every row MUST include at least these columns (additional columns like `Location` or `Flags` are allowed):
 
-```
-<file>:<line>  <current-value>              → <proposed-replacement>        (<reason>)
-```
+| Column | Content |
+|--------|---------|
+| **UI role** | What this element *is* in the interface (e.g. "page chrome background", "destructive action label", "table header cell", "chat message timestamp"). Not the HTML tag alone — describe purpose for humans. |
+| **Existing style** | Current classes, Tailwind utilities, inline styles, or hex/legacy values as they appear in code. |
+| **Proposed solution** | Exact replacement: existing **general** class name, feature-scoped class (only if in-scope), or inline `style="..."` with `var(--zaq-*)` per rules. |
 
-Examples:
-```
-bo_layout.ex:142  bg-white                  → --zaq-surface-color-raised    (no class for this role)
-bo_layout.ex:143  text-[0.82rem]            → .zaq-text-body-sm              (class exists, use it)
-bo_layout.ex:198  #03b6d4                   → --zaq-border-color-accent      (BLOCKED: hardcoded hex)
-bo_layout.ex:201  .zaq-bg-ink               → --zaq-surface-color-dark       (app.css class, off-limits)
-bo_layout.ex:220  font-mono text-xs         → .zaq-text-caption              (closest text role)
-bo_layout.ex:310  <.button>                 → .zaq-btn-primary               (replace with btn.css class)
-bo_layout.ex:512  text-red-600             → style="color: var(--zaq-border-color-error)"  ← NEVER DO THIS: border token on a text color property
-bo_layout.ex:512  text-red-600             → (⚠ no token for this role — keep legacy or request new token)  (no --zaq-text-color-error exists)
-bo_layout.ex:424  p-1.5                     → (layout — keep)               (one-off dropdown padding, no semantic role)
-bo_layout.ex:486  w-8 h-8                   → (layout — keep)               (avatar size, no semantic token)
-bo_layout.ex:488  px-[9px] py-[7px]         → (⚠ arbitrary spacing — needs design decision)
-bo_layout.ex:375  gap-2                     → create .zaq-header-controls    (gap: var(--zaq-scale-8); reusable component role)
-```
+Include **`Location`** (`file:line` or `file:line–line`) as the first column whenever possible so approved rows map cleanly to edits.
 
-**Figma scope boundary (design-led mode only):** The diff covers styling only — token and class replacements. If the Figma frame shows different text content, different icons, different component structure, or different layout from the current code, note them as observations below the diff table ("ℹ Figma shows X, current code has Y") but do NOT include them in the diff and do NOT propose code changes for them. Content and structure differences are outside the scope of this skill.
+Example (shape only — adapt rows to the real audit):
 
-Mark ambiguous text scale choices with `(⚠ ambiguous — override if needed)`.
+| Location | UI role | Existing style | Proposed solution |
+|----------|---------|----------------|-------------------|
+| `bo_layout.ex:142` | Main back-office surface behind content | `bg-white` | `style="background-color: var(--zaq-surface-color-raised)"` (color-only → inline var) |
+| `bo_layout.ex:143` | Secondary body copy in sidebar | `text-[0.82rem]` | `.zaq-text-body-sm` |
+| `bo_layout.ex:198` | Accent focus ring on nav | `#03b6d4` | `--zaq-border-color-accent` on appropriate property via token-safe class or inline per property |
+| `bo_layout.ex:220` | Inline monospace snippet | `font-mono text-xs` | `.zaq-text-code` or `.zaq-text-caption` (pick by visual density) |
+| `bo_layout.ex:512` | Error state helper text | `text-red-600` | `(⚠ no --zaq-text-color-error — keep legacy or request token)` — never use `--zaq-border-color-*` for `color` |
 
-Present the full diff. Then ask: "Approve all, or list line numbers to reject/override."
+Optional compact appendix: one-line `file:line  existing → proposed  (reason)` duplicates are fine for grep-friendly logs, but the **table is the source of truth** for approval.
+
+**Class selection discipline (summary — see Invariant Rules):** Prefer existing **general** semantic utilities (e.g. `.zaq-text-*`, `.zaq-select*`, shared cards/surfaces) so you do not mint a new class per element. Use **feature-prefixed** classes (e.g. `.zaq-chat-*`) **only** inside that feature's templates/components. If the migration is **only** text `color` or surface `background-color` / `bg-*`, use **inline** `style="..."` with the correct `--zaq-*` token — do not add a one-off class in `styles.css`.
+
+**Figma scope boundary (design-led mode only):** The proposal covers styling only — token and class replacements. If the Figma frame shows different text content, different icons, different component structure, or different layout from the current code, note them as observations below the table ("ℹ Figma shows X, current code has Y") but do NOT include them in the table and do NOT propose code changes for them. Content and structure differences are outside the scope of this skill.
+
+Mark ambiguous text scale choices with `(⚠ ambiguous — override if needed)` in **Proposed solution** or a **Flags** column.
+
+Present the full validation table (and optional appendix). Then ask: "Approve all, or list line numbers / table rows to reject/override."
 
 **Wait for user response before proceeding. Do not touch any file.**
 
@@ -99,16 +101,16 @@ Present the full diff. Then ask: "Approve all, or list line numbers to reject/ov
 
 ## Step 4: Apply Changes and Verify
 
-Apply only the approved lines. Write to:
+Apply only the approved table rows (or line overrides the user gave). Write to:
 
-- `assets/css/styles.css` — new utility classes only, following this pattern:
+- `assets/css/styles.css` — **only when** the approved solution is a **new reusable class** (multi-property layout, repeated component pattern, or non-trivial bundle that inline would duplicate everywhere). **Do not** add a class when the approved row is a **general existing class** swap or a **color-only** inline `style="color: var(...)"` / `style="background-color: var(...)"`.
   ```css
   /* <description of role> */
   .<class-name> {
     <property>: var(--zaq-<semantic-token>);
   }
   ```
-- `lib/zaq_web/...` — the target file (component, LiveView, layout, etc.)
+- `lib/zaq_web/...` — the target file (component, LiveView, layout, etc.) — prefer **general** classes and **inline color vars** per Step 3 / Invariant Rules.
 
 Then run:
 
@@ -194,20 +196,20 @@ LOW       Tailwind layout classes (no action needed)
 
 Before writing output, check whether `docs/exec-plans/migration-backlog.md` already exists. If it does, ask: "A backlog file already exists. Overwrite it or append a new timestamped section?" Wait for confirmation.
 
-Write (or append) to `docs/exec-plans/migration-backlog.md` in this format:
+Write (or append) to `docs/exec-plans/migration-backlog.md` in this format (each bullet should be scannable; include **UI role**, **Existing style**, and **Proposed** like the Step 3 table when space allows):
 
 ```markdown
 # Design Migration Backlog
 Generated: <date>
 
 ## CRITICAL
-- `bo_layout.ex:198` — #03b6d4 hardcoded → --zaq-border-color-accent
+- `bo_layout.ex:198` — **UI role:** focus ring accent — **Existing:** `#03b6d4` — **Proposed:** `border-color: var(--zaq-border-color-accent)` (inline or class per rules)
 
 ## HIGH
-- `bo_layout.ex:201` — .zaq-bg-ink (app.css) → --zaq-surface-color-dark
+- `bo_layout.ex:201` — **UI role:** dark ink surface — **Existing:** `.zaq-bg-ink` (app.css) — **Proposed:** `var(--zaq-surface-color-dark)` / matching general class
 
 ## MEDIUM
-- `bo_layout.ex:220` — font-mono text-xs → .zaq-text-caption
+- `bo_layout.ex:220` — **UI role:** compact monospace — **Existing:** `font-mono text-xs` — **Proposed:** `.zaq-text-caption`
 
 ## LOW (no action needed)
 - ...
@@ -223,11 +225,19 @@ Apply styles in this exact order:
 
 1. **Use an existing class** from `styles.css`, `semantics.css`, `text-styles.css`, or `btn.css` (read-only look-up sources — only `styles.css` is writable).
    Classes in `app.css` are off-limits — legacy/deprecated.
+
+   **General vs feature-scoped naming:** Prefer **general** utilities whose names describe a **reusable semantic role** across the app (e.g. `.zaq-text-*`, `.zaq-select*`, shared surface/card patterns). Use those before inventing component-local classes. **Feature-prefixed** classes (e.g. `.zaq-chat-*`) apply **only** inside that feature's LiveViews/components — do not use `.zaq-chat-*` outside chat, and do not introduce new `zaq-<feature>-*` classes outside their feature unless the design system already exposes them as shared primitives.
+
 2. **Buttons** → `.zaq-btn-primary` or `.zaq-btn-secondary` only. No new button styles.
+
 3. **Text** → closest `.zaq-text-*` from `text-styles.css`. No `text-sm`, `text-lg`, `text-[*]`, no font vars.
    Text decorations (`uppercase`, `underline`, `tracking-*`) are allowed alongside a `.zaq-text-*` base.
-4. **New class needed** → add to `styles.css` only. Never `app.css`.
-5. **No class fits** → semantic var inline: `--zaq-surface-color-*`, `--zaq-text-color-*`, `--zaq-border-color-*`.
+
+4. **Color-only migrations (text or surface):** If the **only** change needed is `color` or `background-color` / `bg-*` mapping to a semantic `--zaq-*` token, use **inline** `style="color: var(--zaq-...)"` or `style="background-color: var(--zaq-...)"` (property-appropriate token — see table below). **Do not** create a dedicated class in `styles.css` for a one-property color swap.
+
+5. **New class needed** → add to `styles.css` only when no general class fits **and** inline would duplicate a **multi-property** or **repeated** pattern across many nodes. Never `app.css`.
+
+6. **No class fits (non-color-only)** → semantic var inline: `--zaq-surface-color-*`, `--zaq-text-color-*`, `--zaq-border-color-*`.
    Never foundation vars (`--zaq-color-blue-*`, `--zaq-color-neutral-*`, `--zaq-color-black-*`).
 
    **Token role must match CSS property — never cross categories:**
@@ -238,13 +248,13 @@ Apply styles in this exact order:
    | `--zaq-border-color-*` | `border-color` / `border` / `outline` only |
    | `--zaq-text-color-body-*` | `color` (text) only |
 
-   If no token exists for the correct role (e.g. need a text-error color but only `--zaq-border-color-error` exists): **do not use the wrong-category token**. Mark the line in the diff as `(⚠ no token for this role — keep legacy or request new token)` and leave the decision to the human.
+   If no token exists for the correct role (e.g. need a text-error color but only `--zaq-border-color-error` exists): **do not use the wrong-category token**. Mark the table row / appendix line as `(⚠ no token for this role — keep legacy or request new token)` and leave the decision to the human.
 
-6. **Tailwind color and typography** → never use. Layout/spacing Tailwind utilities are allowed only as described in Rule 7 below.
+7. **Tailwind color and typography** → never use. Layout/spacing Tailwind utilities are allowed only as described in Rule 8 below.
 
-7. **Spacing & sizing** — flag all padding, margin, gap, width, height, and border-radius Tailwind utilities in the diff. Propose one of:
-   - **Replace with existing class** if `.zaq-card-default` or similar already covers the role.
-   - **Create new class in `styles.css`** using `var(--zaq-scale-*)` when the spacing is component-specific and reusable (e.g. a consistent inner padding shared across states).
+8. **Spacing & sizing** — flag all padding, margin, gap, width, height, and border-radius Tailwind utilities in the proposal table. Propose one of:
+   - **Replace with existing general class** if `.zaq-card-default` or another shared pattern already covers the role (avoid new `.zaq-<page>-*` classes for one-off wrappers when a general primitive exists).
+   - **Create new class in `styles.css`** using `var(--zaq-scale-*)` only when spacing is **reused** across multiple nodes or states and no general class covers it — not for a single unique gap on one toolbar.
    - **Keep as Tailwind layout utility** (`(layout — keep)`) when the value is one-off sizing with no semantic role (e.g. `w-10 h-10` on an icon button, `p-8` on a page wrapper).
    - **Flag arbitrary values** (`px-[9px]`, `py-[7px]`, `top-[0.5px]`, etc.) as `(⚠ arbitrary spacing — needs design decision)` — do not replace automatically.
 
@@ -284,7 +294,7 @@ When ambiguous between adjacent scales, prefer the smaller one. Map by visual ro
 
 | File | Agent can write? |
 |---|---|
-| `styles.css` | Yes — new semantic utility classes only |
+| `styles.css` | Yes — new semantic utility classes **only when** rules require a reusable multi-property / repeated pattern (not for pure color-only swaps — use inline vars) |
 | `app.css` | No |
 | `semantics.css` | No |
 | `text-styles.css` | No |
