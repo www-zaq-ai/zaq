@@ -5,6 +5,7 @@ defmodule Zaq.Channels.ApiTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
+  alias Zaq.Types.EncryptedString
 
   defmodule StubCommunicationBridge do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
@@ -597,6 +598,40 @@ defmodule Zaq.Channels.ApiTest do
     assert_received {:bridge_sync_config_runtime, ^before_config, ^after_config}
   end
 
+  test "sync_channel_runtime decrypts config tokens before runtime dispatch" do
+    {:ok, before_token} = EncryptedString.encrypt("old-token")
+    {:ok, after_token} = EncryptedString.encrypt("new-token")
+
+    before_config = %ChannelConfig{
+      id: 1,
+      provider: "mattermost",
+      token: before_token,
+      enabled: true
+    }
+
+    after_config = %ChannelConfig{
+      id: 1,
+      provider: "mattermost",
+      token: after_token,
+      enabled: true
+    }
+
+    event =
+      Event.new(%{before_config: before_config, after_config: after_config}, :channels,
+        opts: [
+          action: :sync_channel_runtime,
+          runtime_module: StubCommunicationBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :sync_channel_runtime, nil)
+
+    assert result.response == :ok
+    assert_received {:bridge_sync_config_runtime, synced_before, synced_after}
+    assert synced_before.token == "old-token"
+    assert synced_after.token == "new-token"
+  end
+
   test "handles sync_provider_runtime action" do
     event =
       Event.new(%{provider: :mattermost}, :channels,
@@ -1122,6 +1157,36 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :sync_data_source_runtime, nil)
     assert result.response == :ok
     assert_received {:ds_sync_config_runtime, ^before_config, ^after_config}
+  end
+
+  test "sync_data_source_runtime decrypts config tokens before runtime dispatch" do
+    {:ok, before_token} = EncryptedString.encrypt("old-data-source-token")
+    {:ok, after_token} = EncryptedString.encrypt("new-data-source-token")
+
+    before_config = %{
+      id: 1,
+      provider: "google_drive",
+      token: before_token,
+      enabled: true
+    }
+
+    after_config = %{
+      id: 1,
+      provider: "google_drive",
+      token: after_token,
+      enabled: true
+    }
+
+    event =
+      Event.new(%{before_config: before_config, after_config: after_config}, :channels,
+        opts: [action: :sync_data_source_runtime, runtime_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :sync_data_source_runtime, nil)
+    assert result.response == :ok
+    assert_received {:ds_sync_config_runtime, synced_before, synced_after}
+    assert synced_before.token == "old-data-source-token"
+    assert synced_after.token == "new-data-source-token"
   end
 
   test "handles sync_data_source_provider_runtime action" do

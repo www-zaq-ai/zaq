@@ -45,6 +45,18 @@ defmodule Zaq.Channels.ChannelConfig do
     |> maybe_encrypt_token()
   end
 
+  def to_runtime_config(nil), do: nil
+
+  def to_runtime_config(%__MODULE__{} = config) do
+    %{config | token: runtime_token(config.token)}
+  end
+
+  def to_runtime_config(config) when is_map(config) do
+    config
+    |> maybe_put_runtime_token(:token)
+    |> maybe_put_runtime_token("token")
+  end
+
   defp maybe_require_connection_fields(changeset) do
     kind = get_field(changeset, :kind)
 
@@ -140,6 +152,16 @@ defmodule Zaq.Channels.ChannelConfig do
     |> force_loaded_token_change()
     |> encrypt_token_change()
   end
+
+  defp maybe_put_runtime_token(config, key) do
+    case Map.fetch(config, key) do
+      {:ok, token} -> Map.put(config, key, runtime_token(token))
+      :error -> config
+    end
+  end
+
+  defp runtime_token(token) when is_binary(token), do: EncryptedString.decrypt!(token) || token
+  defp runtime_token(token), do: token
 
   defp force_loaded_token_change(changeset) do
     if changeset.data.__meta__.state == :loaded do
