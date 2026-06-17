@@ -29,7 +29,7 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
       → %{passed: true, input: %{active: true, flagged: false, name: "John"}}
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "condition",
     description: "Checks that all key/value conditions hold on an input map.",
     schema: [
@@ -62,8 +62,6 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
         doc: "Conditions that did not match. Present only when passed: false."
       ]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   alias Zaq.Engine.Workflows.EdgeCondition
 

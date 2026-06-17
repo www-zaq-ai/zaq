@@ -38,85 +38,85 @@ defmodule Zaq.Agent.Tools.Registry do
       key: "data_source.get_document",
       label: "Get document",
       description: "Get a document by id from a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleDrive.GetDocument
+      module: Zaq.Agent.Tools.DataSource.GetDocument
     },
     %{
       key: "data_source.list_documents",
       label: "List documents",
       description: "List document metadata in a specific path for a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleDrive.ListDocuments
+      module: Zaq.Agent.Tools.DataSource.ListDocuments
     },
     %{
       key: "data_source.search_documents",
       label: "Search documents",
       description: "Search document metadata for a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleDrive.SearchDocuments
+      module: Zaq.Agent.Tools.DataSource.SearchDocuments
     },
     %{
       key: "data_source.download_document",
       label: "Download document",
       description: "Download a document and return a normalized record with content",
-      module: Zaq.Agent.Tools.GoogleDrive.DownloadDocument
+      module: Zaq.Agent.Tools.DataSource.DownloadDocument
     },
     %{
       key: "data_source.create_document",
       label: "Create document",
       description: "Create a document on a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleDrive.CreateDocument
+      module: Zaq.Agent.Tools.DataSource.CreateDocument
     },
     %{
       key: "data_source.update_document",
       label: "Update document",
       description: "Update a document by id on a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleDrive.UpdateDocument
+      module: Zaq.Agent.Tools.DataSource.UpdateDocument
     },
     %{
       key: "data_source.get_sheet",
       label: "Get sheet",
       description: "Read spreadsheet data from a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleSheets.GetSheet
+      module: Zaq.Agent.Tools.Sheets.GetSheet
     },
     %{
       key: "data_source.inspect_sheet",
       label: "Inspect sheet",
       description: "Inspect spreadsheet metadata from a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleSheets.InspectSheet
+      module: Zaq.Agent.Tools.Sheets.InspectSheet
     },
     %{
       key: "data_source.create_sheet",
       label: "Create sheet",
       description: "Create a spreadsheet on a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleSheets.CreateSheet
+      module: Zaq.Agent.Tools.Sheets.CreateSheet
     },
     %{
       key: "data_source.add_sheet_tab",
       label: "Add sheet tab",
       description: "Add a tab to a spreadsheet on a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleSheets.AddSheetTab
+      module: Zaq.Agent.Tools.Sheets.AddSheetTab
     },
     %{
       key: "data_source.update_sheet_values",
       label: "Update sheet values",
       description: "Update values in a spreadsheet range on a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleSheets.UpdateSheetValues
+      module: Zaq.Agent.Tools.Sheets.UpdateSheetValues
     },
     %{
       key: "data_source.append_sheet_values",
       label: "Append sheet values",
       description: "Append rows to a spreadsheet range on a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleSheets.AppendSheetValues
+      module: Zaq.Agent.Tools.Sheets.AppendSheetValues
     },
     %{
       key: "data_source.clear_sheet_values",
       label: "Clear sheet values",
       description: "Clear values in a spreadsheet range on a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleSheets.ClearSheetValues
+      module: Zaq.Agent.Tools.Sheets.ClearSheetValues
     },
     %{
       key: "data_source.delete_sheet_tab",
       label: "Delete sheet tab",
       description: "Delete a tab in a spreadsheet on a specific datasource provider",
-      module: Zaq.Agent.Tools.GoogleSheets.DeleteSheetTab
+      module: Zaq.Agent.Tools.Sheets.DeleteSheetTab
     },
     ## Requires permission
     # %{

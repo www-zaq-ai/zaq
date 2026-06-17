@@ -65,6 +65,15 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     end
   end
 
+  test "every registered tool module is loadable and runnable" do
+    for %{key: key, module: module} <- Registry.tools() do
+      assert Code.ensure_loaded?(module),
+             "registered module for #{key} does not exist: #{inspect(module)}"
+
+      assert function_exported?(module, :run, 2), "registered module for #{key} is not runnable"
+    end
+  end
+
   test "fetch_history descriptor resolves to a runnable, self-access-documented module" do
     assert {:ok, [Zaq.Agent.Tools.Accounts.History]} =
              Registry.resolve_modules(["accounts.fetch_history"])

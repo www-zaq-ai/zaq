@@ -473,6 +473,31 @@ defmodule Zaq.Agent.ApiTest do
     refute_received {:pipeline_called, _, _}
   end
 
+  test "passes a custom system_prompt from pipeline_opts to the executor" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: nil}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [system_prompt: "You are a workflow agent.", skip_permissions: true],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{agent_id: "9"}}}
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:executor_called, ^incoming, opts}
+    assert Keyword.get(opts, :system_prompt) == "You are a workflow agent."
+    assert Keyword.get(opts, :skip_permissions) == true
+  end
+
   test "delegates to executor when agent selection map uses atom key" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 

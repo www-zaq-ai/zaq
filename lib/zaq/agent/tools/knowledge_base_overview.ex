@@ -20,6 +20,11 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
   - `:node_router` — override the NodeRouter module (default `Zaq.NodeRouter`).
   """
 
+  # NOTE: intentionally uses `Jido.Action` directly rather than
+  # `Zaq.Engine.Workflows.Action`. This is an answering-only ReAct tool with an
+  # empty input schema (it takes no params), so it cannot satisfy the workflow
+  # action contract's non-empty `schema`/`output_schema` requirement. It is never
+  # used as a workflow step. See Zaq.Engine.Workflows.Action for the contract.
   use Jido.Action,
     name: "knowledge_base_overview",
     description: """

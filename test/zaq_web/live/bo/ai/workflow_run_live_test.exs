@@ -255,8 +255,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
 
-      assert html =~ "phx-click=\"approve_run\""
-      assert html =~ "phx-click=\"reject_run\""
+      assert html =~ "phx-click=\"approve_step\""
+      assert html =~ "phx-click=\"reject_step\""
     end
 
     test "approve button does not render when run is running", %{conn: conn} do
@@ -265,28 +265,28 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
 
-      refute html =~ "phx-click=\"approve_run\""
+      refute html =~ "phx-click=\"approve_step\""
     end
 
-    test "clicking approve_run dispatches approval and updates run status", %{conn: conn} do
+    test "clicking approve_step dispatches approval and updates run status", %{conn: conn} do
       workflow = hitl_workflow_fixture()
       waiting_run = waiting_run_fixture(workflow)
 
       {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{waiting_run.id}")
 
-      view |> element("button[phx-click='approve_run']") |> render_click()
+      view |> element("button[phx-click='approve_step']") |> render_click()
 
       html = render(view)
       assert html =~ "completed"
     end
 
-    test "clicking reject_run dispatches rejection and updates run status", %{conn: conn} do
+    test "clicking reject_step dispatches rejection and updates run status", %{conn: conn} do
       workflow = hitl_workflow_fixture()
       waiting_run = waiting_run_fixture(workflow)
 
       {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{waiting_run.id}")
 
-      view |> element("button[phx-click='reject_run']") |> render_click()
+      view |> element("button[phx-click='reject_step']") |> render_click()
 
       html = render(view)
       assert html =~ "failed"
@@ -571,7 +571,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   end
 
   describe "approve/reject failure cases" do
-    test "approve_run shows error flash when dispatch fails", %{conn: conn} do
+    test "approve_step shows error flash when dispatch fails", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       run = run_fixture(workflow, %{status: "waiting"})
 
@@ -585,11 +585,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
-      html = view |> element("button[phx-click='approve_run']") |> render_click()
+      html = view |> element("button[phx-click='approve_step']") |> render_click()
       assert html =~ "Failed to approve run."
     end
 
-    test "reject_run shows error flash when dispatch fails", %{conn: conn} do
+    test "reject_step shows error flash when dispatch fails", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       run = run_fixture(workflow, %{status: "waiting"})
 
@@ -603,7 +603,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
-      html = view |> element("button[phx-click='reject_run']") |> render_click()
+      html = view |> element("button[phx-click='reject_step']") |> render_click()
       assert html =~ "Failed to reject run."
     end
   end
