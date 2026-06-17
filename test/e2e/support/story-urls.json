@@ -9,6 +9,7 @@
   "/storybook/chat/feedback_modal",
   "/storybook/chat/feedback_negative_button",
   "/storybook/chat/feedback_positive_button",
+  "/storybook/chat/header",
   "/storybook/chat/suggested_prompts",
   "/storybook/chat/transcript",
   "/storybook/chat/user_bubble",

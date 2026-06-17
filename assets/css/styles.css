@@ -4,6 +4,7 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 @import "./modal.css";
+@import "./form.css";
 
 /* ── Card ────────────────────────────────────────────────────────────────── */
 
@@ -628,6 +629,18 @@ pre.zaq-file-preview-body {
 #chat-messages::-webkit-scrollbar-thumb {
   background: var(--zaq-surface-color-elevated);
   border-radius: var(--zaq-scale-4);
+}
+
+/* BO chat — column header (agent + delete); spacing uses --zaq-scale-8 / --zaq-scale-16 only */
+.zaq-chat-header-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--zaq-scale-8);
+  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-raised);
 }
 
 /* Fills viewport under BO header; negative margins cancel #bo-main slot `p-8` bleed to edges */

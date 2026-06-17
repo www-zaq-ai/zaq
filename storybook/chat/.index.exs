@@ -1,6 +1,6 @@
 defmodule Storybook.Chat do
   @moduledoc """
-  BO chat UI: **`ZaqWeb.Chat`** page slices (sidebar, transcript, composer, modals) and
+  BO chat UI: **`ZaqWeb.Chat`** page slices (header, sidebar, transcript, composer, modals) and
   **`ZaqWeb.Components.ChatMessage`** atoms (bubbles, per-message feedback, copy).
   """
   use PhoenixStorybook.Index

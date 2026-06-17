@@ -1,0 +1,61 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   ZAQ shared form controls — native <select>, <input>, labels (BO).
+   Consumes semantic tokens from semantics.css / foundations.css — no hex.
+   Spacing on these primitives uses --zaq-scale-8 and --zaq-scale-16 only.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Row: label + control (e.g. agent picker) */
+.zaq-field-row-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-8);
+}
+
+/* Uppercase meta label (mono); pair with .zaq-text-caption or .zaq-text-body-sm for size */
+.zaq-field-label-uppercase {
+  font-family: var(--zaq-font-family-body);
+  color: var(--zaq-text-color-body-tertiary);
+  font-size:      var(--zaq-scale-10);
+  font-weight:    var(--zaq-font-weight-regular);
+  line-height:    var(--zaq-line-height-relaxed);
+  text-transform: uppercase;
+  letter-spacing: var(--zaq-letter-spacing-relaxed);
+}
+
+/* Native <select> — styled native: UA chrome removed so padding + chevron are predictable.
+   Chevron uses stroke=currentColor (inherits --zaq-text-color-body-default from `color`). */
+.zaq-control-select {
+  box-sizing: border-box;
+  min-height: var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-16);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background-color: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-default);
+  font-family: var(--zaq-font-family-body);
+  padding-block: var(--zaq-scale-8);
+  padding-inline-start: var(--zaq-scale-8);
+  /* icon (scale-16) + inset from edge (scale-8) + text gap (scale-16) — scale-8/16 only */
+  padding-inline-end: calc(var(--zaq-scale-16) + var(--zaq-scale-8) + var(--zaq-scale-16));
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--zaq-scale-8) center;
+  background-size: var(--zaq-scale-16) var(--zaq-scale-16);
+  cursor: pointer;
+}
+
+.zaq-control-select::-ms-expand {
+  display: none;
+}
+
+.zaq-control-select:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.zaq-control-select:focus-visible {
+  outline: var(--zaq-scale-2) solid var(--zaq-border-color-accent);
+  outline-offset: var(--zaq-scale-2);
+  border-color: var(--zaq-border-color-accent);
+}

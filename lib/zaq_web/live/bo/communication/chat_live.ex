@@ -26,6 +26,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   import ZaqWeb.Chat.Modals, only: [delete_confirm_modal: 1, feedback_modal: 1]
   import ZaqWeb.Chat.SuggestedPrompts, only: [suggested_prompts: 1]
   import ZaqWeb.Chat.Transcript, only: [transcript: 1]
+  import ZaqWeb.Chat.Header, only: [chat_header: 1]
 
   require Logger
 
