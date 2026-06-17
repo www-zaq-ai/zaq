@@ -7,7 +7,7 @@ defmodule Zaq.Agent.Tools.Email.SendReply do
 
   # THIS JIDO ACTION IS FOR TESTING PURPOSES
   # IT WILL GET REMOVED IN THE FUTURE
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "send_reply",
     schema: [
       drafts: [type: :any, required: true]
@@ -21,8 +21,6 @@ defmodule Zaq.Agent.Tools.Email.SendReply do
   require Logger
 
   alias Zaq.Engine.Notifications.EmailNotification
-
-  use Zaq.Engine.Workflows.Action
 
   @impl Zaq.Engine.Workflows.Action
   def on_failure(error, _context) do

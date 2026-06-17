@@ -35,7 +35,7 @@ defmodule Zaq.Agent.Tools.Workflow.Iterate do
       }
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "iterate",
     description: "Runs a downstream pipeline once per item in a list, collecting results.",
     schema: [
@@ -72,8 +72,6 @@ defmodule Zaq.Agent.Tools.Workflow.Iterate do
       results: [type: {:list, :any}, required: true, doc: "Successful per-item pipeline results."],
       errors: [type: {:list, :any}, required: true, doc: "Collected errors for failed items."]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   alias Zaq.Agent.Tools.ItemOutcome
   alias Zaq.Agent.Tools.PipelineRunner

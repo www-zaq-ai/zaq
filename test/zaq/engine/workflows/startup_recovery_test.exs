@@ -1,9 +1,13 @@
 defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
+  use Oban.Testing, repo: Zaq.Repo
 
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.RunRecoveryWorker
   alias Zaq.Engine.Workflows.StartupRecovery
   alias Zaq.Test.Stubs
+
+  require Logger
 
   setup do
     Stubs.stub_node_router()
@@ -43,8 +47,8 @@ defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
     end
   end
 
-  describe "run/1" do
-    test "interrupts all stale runs on startup" do
+  describe "run/1 (Oban testing :inline — jobs perform on enqueue)" do
+    test "recovers all stale runs on startup" do
       w = create_workflow()
       running = create_run(w, "running")
       pending = create_run(w, "pending")
@@ -67,55 +71,51 @@ defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
     end
 
     test "exits cleanly when no stale runs exist" do
-      # No runs in DB — should not raise
       assert :ok == StartupRecovery.run([])
     end
 
-    test "continues processing remaining runs when one fails" do
+    test "recovers every stale run independently" do
       w = create_workflow()
       run1 = create_run(w, "running")
       run2 = create_run(w, "running")
 
-      # Both should be interrupted; no run should block the other
       StartupRecovery.run([])
 
       assert Workflows.get_run!(run1.id).status == "interrupted"
       assert Workflows.get_run!(run2.id).status == "interrupted"
     end
 
-    test "logs stale run count at info level when runs exist (lines 33-34)" do
+    test "logs at info level when stale runs exist" do
       Logger.configure(level: :info)
       on_exit(fn -> Logger.configure(level: :warning) end)
 
       w = create_workflow()
       create_run(w, "running")
 
-      # Exercises the Logger.info call in the else-branch with stale runs present
       assert :ok == StartupRecovery.run([])
     end
+  end
 
-    test "logs error and returns :error when interrupt_run fails (line 46)" do
-      Logger.configure(level: :info)
-      on_exit(fn -> Logger.configure(level: :warning) end)
-
+  describe "run/1 enqueues jobs (manual mode)" do
+    test "enqueues one RunRecoveryWorker job per stale run without performing inline" do
       w = create_workflow()
-      run = create_run(w, "running")
+      running = create_run(w, "running")
+      pending = create_run(w, "pending")
 
-      # Stub the workflows module to return {:error, reason} for interrupt_run
-      defmodule FailingWorkflows do
-        alias Zaq.Engine.Workflows
-        def list_stale_runs, do: Workflows.list_stale_runs()
-        def interrupt_run(_run), do: {:error, :forced_test_failure}
-      end
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert :ok == StartupRecovery.run([])
 
-      Application.put_env(:zaq, :startup_recovery_workflows_mod, FailingWorkflows)
-      on_exit(fn -> Application.delete_env(:zaq, :startup_recovery_workflows_mod) end)
+        run_ids =
+          [worker: RunRecoveryWorker]
+          |> all_enqueued()
+          |> Enum.map(& &1.args["run_id"])
 
-      # Should not raise; run should remain in original status (interrupt was skipped)
-      StartupRecovery.run([])
+        assert running.id in run_ids
+        assert pending.id in run_ids
+      end)
 
-      # The run was NOT interrupted because interrupt_run returned {:error, ...}
-      assert Workflows.get_run!(run.id).status == "running"
+      # Nothing performed inline under manual mode
+      assert Workflows.get_run!(running.id).status == "running"
     end
   end
 end
