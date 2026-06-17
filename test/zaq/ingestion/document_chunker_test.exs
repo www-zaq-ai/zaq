@@ -1136,4 +1136,66 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert Enum.all?(chunks, &is_integer(&1.tokens))
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # chunk_sections/2 — unterminated final line (text.txt regression)
+  #
+  # Reproduces the real document where the last line ("IP du load balancer:
+  # `10.0.0.42`") has NO trailing newline. Verifies that content on an
+  # unterminated final line survives parse_layout/2 + chunk_sections/2 and is
+  # not silently dropped.
+  # ---------------------------------------------------------------------------
+
+  describe "chunk_sections/2 unterminated final line" do
+    @lb_lines [
+      "### Cluster Kubernetes",
+      "Je ne vais mettre ici que les informations qui ne sont pas accessible via l'interface d'admin de Scaleway",
+      "",
+      "Nom: k8s-ingestion",
+      "#### PVCs",
+      "- zaq-os-storage - type retain",
+      "",
+      "#### Workloads",
+      "-  zaq-os",
+      "- crawl-ed-deployment (via UI)",
+      "- langfuse, langfuse-worker, chatvote-backend (@adelib ceux-la viennent de toi ? sont-ils exploités ?)",
+      "",
+      "#### Services",
+      "- zaq-os",
+      "- crawl-ed-deployment",
+      "- plusieurs services pour qdrant et langfuse ?",
+      "",
+      "#### Ingress",
+      "",
+      "J'ai installé traefik (nginx-ingress controller a été deprecié en mars 2026)",
+      "IP du load balancer: `10.0.0.42`"
+    ]
+
+    test "preserves the final load-balancer line when the document has no trailing newline" do
+      # Exact reproduction of text.txt: the last line is unterminated (no \n).
+      text = Enum.join(@lb_lines, "\n")
+      refute String.ends_with?(text, "\n")
+
+      sections = DocumentChunker.parse_layout(text)
+      chunks = DocumentChunker.chunk_sections(sections)
+      combined = Enum.map_join(chunks, "\n", & &1.content)
+
+      assert String.contains?(combined, "load balancer"),
+             "expected the load balancer line to survive chunking, got:\n#{combined}"
+
+      assert String.contains?(combined, "10.0.0.42"),
+             "expected the load balancer IP to survive chunking, got:\n#{combined}"
+    end
+
+    test "trailing-newline variant also preserves the final line (control)" do
+      text = Enum.join(@lb_lines, "\n") <> "\n"
+
+      sections = DocumentChunker.parse_layout(text)
+      chunks = DocumentChunker.chunk_sections(sections)
+      combined = Enum.map_join(chunks, "\n", & &1.content)
+
+      assert String.contains?(combined, "load balancer")
+      assert String.contains?(combined, "10.0.0.42")
+    end
+  end
 end

@@ -103,6 +103,23 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     |> stub(:ask, fn _content, _opts -> {:ok, title} end)
   end
 
+  # Stubs the embedding endpoint and forwards the raw request body (which
+  # carries the embedded text) to the test process for assertions.
+  defp stub_embedding_capturing(test_pid) do
+    dim = embedding_dimension()
+
+    Req.Test.stub(Zaq.Embedding.Client, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(test_pid, {:embed_request, body})
+
+      resp = Jason.encode!(%{"data" => [%{"embedding" => List.duplicate(0.1, dim)}]})
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(200, resp)
+    end)
+  end
+
   defp stub_chunk_title_failure do
     Zaq.Agent.ChunkTitleMock
     |> stub(:ask, fn _content, _opts -> {:error, "LLM unavailable"} end)
@@ -565,7 +582,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
              ) == 1
     end
 
-    test "chunk content includes generated title" do
+    test "stores generated title in the title column without touching content or path" do
       stub_embedding_success()
       stub_chunk_title_success("Custom LLM Title")
       doc = create_document()
@@ -580,10 +597,15 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       }
 
       {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
-      assert String.contains?(record.content, "Custom LLM Title")
+
+      # Title lives in its own column; the original heading and path survive.
+      assert record.title == "Custom LLM Title"
+      assert record.content == "## Old Heading\n\nSome chunk content."
+      assert record.section_path == ["Old Heading"]
+      refute String.contains?(record.content, "Custom LLM Title")
     end
 
-    test "keeps original heading and section_path when generated title is empty" do
+    test "stores nil title and keeps original heading/path when generated title is empty" do
       stub_embedding_success()
       stub_chunk_title_success("")
       doc = create_document()
@@ -599,11 +621,33 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
 
+      assert record.title == nil
       assert String.starts_with?(record.content, "## Original Heading")
       assert record.section_path == ["Original Heading"]
     end
 
-    test "prepends generated heading when chunk has no heading" do
+    test "stores nil title and keeps content intact when title generation fails" do
+      stub_embedding_success()
+      stub_chunk_title_failure()
+      doc = create_document()
+
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_0_fail",
+        section_id: "sec1",
+        content: "#### PVCs\n\n- zaq-os-storage - type retain",
+        section_path: ["Cluster Kubernetes", "PVCs"],
+        tokens: 8,
+        metadata: %{section_type: :heading, section_level: 4, position: 0}
+      }
+
+      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
+
+      assert record.title == nil
+      assert record.content == "#### PVCs\n\n- zaq-os-storage - type retain"
+      assert record.section_path == ["Cluster Kubernetes", "PVCs"]
+    end
+
+    test "keeps original content for a chunk that has no heading" do
       stub_embedding_success()
       stub_chunk_title_success("Generated For Plain Chunk")
       doc = create_document()
@@ -619,11 +663,12 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 2)
 
-      assert String.starts_with?(record.content, "## **Generated For Plain Chunk**\n\n")
-      assert record.section_path == ["Generated For Plain Chunk"]
+      assert record.title == "Generated For Plain Chunk"
+      assert record.content == "Plain chunk content without heading."
+      assert record.section_path == ["Original Path"]
     end
 
-    test "replaces markdown heading with generated emphasized heading" do
+    test "preserves an existing emphasized markdown heading verbatim" do
       stub_embedding_success()
       stub_chunk_title_success("Renamed Heading")
       doc = create_document()
@@ -638,25 +683,55 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       }
 
       {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 3)
-      assert String.starts_with?(record.content, "## **Renamed Heading**\n\n")
+
+      assert record.title == "Renamed Heading"
+      assert String.starts_with?(record.content, "### **Legacy Heading**")
     end
 
-    test "replaces non-list section_path with generated single-entry path" do
-      stub_embedding_success()
-      stub_chunk_title_success("Path Normalized")
+    test "embeds the title prepended to the original content" do
+      test_pid = self()
+      stub_embedding_capturing(test_pid)
+      stub_chunk_title_success("Searchable Embedding Title")
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_3",
-        section_id: "sec3",
-        content: "Content without valid section_path list.",
-        section_path: nil,
-        tokens: 6,
-        metadata: %{section_type: :paragraph, section_level: nil, position: 0}
+        id: "chunk_embed_1",
+        section_id: "sec-embed",
+        content: "#### Ingress\n\nTraefik replaces nginx-ingress.",
+        section_path: ["Cluster Kubernetes", "Ingress"],
+        tokens: 7,
+        metadata: %{section_type: :heading, section_level: 4, position: 0}
       }
 
-      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 4)
-      assert record.section_path == ["Path Normalized"]
+      {:ok, _record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
+
+      assert_receive {:embed_request, body}
+      # Embedding input enriches the chunk with the title while still carrying
+      # the original heading + body so vector quality covers both.
+      assert String.contains?(body, "Searchable Embedding Title")
+      assert String.contains?(body, "Ingress")
+      assert String.contains?(body, "Traefik")
+    end
+
+    test "embeds raw content when no title is generated" do
+      test_pid = self()
+      stub_embedding_capturing(test_pid)
+      stub_chunk_title_success("")
+      doc = create_document()
+
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_embed_2",
+        section_id: "sec-embed-2",
+        content: "#### Workloads\n\n- zaq-os",
+        section_path: ["Cluster Kubernetes", "Workloads"],
+        tokens: 5,
+        metadata: %{section_type: :heading, section_level: 4, position: 0}
+      }
+
+      {:ok, _record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
+
+      assert_receive {:embed_request, body}
+      assert String.contains?(body, "Workloads")
     end
 
     test "returns error on dimension mismatch" do
@@ -2383,6 +2458,202 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "only punctuation returns empty string" do
       assert DocumentProcessor.sanitize_fts_query("!!!---???") == ""
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Chunk content fidelity vs source document (text.txt repro)
+  #
+  # Verifies that the content stored across all chunks reproduces the source
+  # document. Exposes whether the LLM title generator (generate_chunk_title ->
+  # replace_heading_with_title / update_section_path_with_title) drops the real
+  # document headings.
+  # ---------------------------------------------------------------------------
+
+  describe "chunk content fidelity vs source document" do
+    @doc_lines [
+      "### Cluster Kubernetes",
+      "Je ne vais mettre ici que les informations qui ne sont pas accessible via l'interface d'admin de Scaleway",
+      "",
+      "Nom: k8s-ingestion",
+      "#### PVCs",
+      "- zaq-os-storage - type retain",
+      "",
+      "#### Workloads",
+      "-  zaq-os",
+      "- crawl-ed-deployment (via UI)",
+      "- langfuse, langfuse-worker, chatvote-backend (@adelib ceux-la viennent de toi ? sont-ils exploités ?)",
+      "",
+      "#### Services",
+      "- zaq-os",
+      "- crawl-ed-deployment",
+      "- plusieurs services pour qdrant et langfuse ?",
+      "",
+      "#### Ingress",
+      "",
+      "J'ai installé traefik (nginx-ingress controller a été deprecié en mars 2026)",
+      "IP du load balancer: `10.0.0.42`"
+    ]
+
+    # The real headings that must survive ingestion to stay searchable.
+    @source_headings ["Cluster Kubernetes", "PVCs", "Workloads", "Services", "Ingress"]
+
+    # Body terms that should always survive regardless of titling.
+    @source_body [
+      "k8s-ingestion",
+      "zaq-os-storage",
+      "crawl-ed-deployment",
+      "qdrant",
+      "traefik",
+      "load balancer",
+      "10.0.0.42"
+    ]
+
+    defp source_text, do: Enum.join(@doc_lines, "\n")
+
+    defp combined_chunk_content(chunks) do
+      Enum.map_join(chunks, "\n", & &1.content)
+    end
+
+    defp missing(combined, needles) do
+      Enum.reject(needles, &String.contains?(combined, &1))
+    end
+
+    test "CONTROL: pure chunker (no title generation) preserves every heading and body line" do
+      chunks =
+        source_text()
+        |> DocumentChunker.parse_layout()
+        |> DocumentChunker.chunk_sections()
+
+      combined = combined_chunk_content(chunks)
+
+      assert missing(combined, @source_headings) == [],
+             "pure chunker dropped headings: #{inspect(missing(combined, @source_headings))}"
+
+      assert missing(combined, @source_body) == [],
+             "pure chunker dropped body: #{inspect(missing(combined, @source_body))}"
+    end
+
+    test "REAL PATH: stored chunks (with title generation) preserve every heading and body line" do
+      stub_embedding_success()
+      # Realistic LLM behaviour: returns a paraphrased title per chunk.
+      Zaq.Agent.ChunkTitleMock
+      |> stub(:ask, fn _content, _opts -> {:ok, "AI Generated Section Title"} end)
+
+      doc = create_document()
+
+      stored =
+        source_text()
+        |> DocumentChunker.parse_layout()
+        |> DocumentChunker.chunk_sections()
+        |> Enum.with_index(1)
+        |> Enum.map(fn {chunk, idx} ->
+          {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, idx)
+          record
+        end)
+
+      combined = combined_chunk_content(stored)
+
+      # Body content should always survive.
+      assert missing(combined, @source_body) == [],
+             "stored chunks dropped body: #{inspect(missing(combined, @source_body))}"
+
+      # Headings must survive too — this is what the title generator overwrites.
+      assert missing(combined, @source_headings) == [],
+             "stored chunks dropped real headings: #{inspect(missing(combined, @source_headings))}"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Upstream retrieval of recovered headings (the feature's real contract)
+  #
+  # Proves that heading terms which the title generator used to destroy are now
+  # retrievable through the real search path on BOTH FTS backends. "PVCs",
+  # "Ingress", etc. appear ONLY in headings of the repro doc — never in body —
+  # so a BM25 hit can only come from the heading surviving in `content`.
+  # ---------------------------------------------------------------------------
+
+  describe "upstream retrieval of recovered headings (regression)" do
+    # Ingests the repro document through the real path
+    # (store_chunk_with_metadata/3) under a paraphrasing title LLM — the exact
+    # condition that previously destroyed the headings.
+    defp ingest_repro_doc(doc) do
+      source_text()
+      |> DocumentChunker.parse_layout()
+      |> DocumentChunker.chunk_sections()
+      |> Enum.with_index(1)
+      |> Enum.each(fn {chunk, idx} ->
+        {:ok, _record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, idx)
+      end)
+    end
+
+    defp paths_for_doc(grouped, doc_id) do
+      grouped
+      |> Map.get(doc_id, %{})
+      |> Map.keys()
+    end
+
+    @tag :integration
+    test "native BM25 retrieves a chunk by a heading-only term (PVCs)" do
+      stub_embedding_success()
+
+      Zaq.Agent.ChunkTitleMock
+      |> stub(:ask, fn _content, _opts -> {:ok, "AI Generated Section Title"} end)
+
+      doc = create_document()
+      ingest_repro_doc(doc)
+
+      {:ok, grouped} = DocumentProcessor.bm25_search_group_by("PVCs", 20, [])
+
+      section_paths = paths_for_doc(grouped, doc.id)
+
+      assert Enum.any?(section_paths, &("PVCs" in &1)),
+             "native BM25 did not retrieve the 'PVCs' heading; got: #{inspect(section_paths)}"
+    end
+
+    @tag :integration
+    test "query_extraction surfaces the original heading (not the title) in content" do
+      stub_embedding_success()
+
+      Zaq.Agent.ChunkTitleMock
+      |> stub(:ask, fn _content, _opts -> {:ok, "AI Generated Section Title"} end)
+
+      doc = create_document()
+      ingest_repro_doc(doc)
+
+      {:ok, results} =
+        DocumentProcessor.query_extraction("Ingress traefik", skip_permissions: true)
+
+      combined = Enum.map_join(results, "\n", & &1["content"])
+
+      # The answering LLM + citations must see the real heading text.
+      assert String.contains?(combined, "Ingress")
+      # The paraphrased title lives only in the `title` column, never in the
+      # retrieved content.
+      refute String.contains?(combined, "AI Generated Section Title")
+    end
+
+    @tag :paradedb
+    test "ParadeDB BM25 retrieves a chunk by a heading-only term (parity with native)" do
+      stub_embedding_success()
+
+      Zaq.Agent.ChunkTitleMock
+      |> stub(:ask, fn _content, _opts -> {:ok, "AI Generated Section Title"} end)
+
+      # Provision the BM25 index and pin the ParadeDB backend for this test.
+      FTSBackend.ParadeDB.setup_bm25_index(Repo, embedding_dimension())
+      :persistent_term.put({FTSBackend, :backend}, FTSBackend.ParadeDB)
+      on_exit(fn -> :persistent_term.put({FTSBackend, :backend}, FTSBackend.Native) end)
+
+      doc = create_document()
+      ingest_repro_doc(doc)
+
+      {:ok, grouped} = DocumentProcessor.bm25_search_group_by("PVCs", 20, [])
+
+      section_paths = paths_for_doc(grouped, doc.id)
+
+      assert Enum.any?(section_paths, &("PVCs" in &1)),
+             "ParadeDB BM25 did not retrieve the 'PVCs' heading; got: #{inspect(section_paths)}"
     end
   end
 end

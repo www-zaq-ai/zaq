@@ -648,9 +648,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   embeds the content, validates dimension, and inserts via Ecto.
   """
   def store_chunk_with_metadata(%DocumentChunker.Chunk{} = chunk, document_id, index) do
-    chunk_with_title = generate_chunk_title(chunk)
+    title = generate_chunk_title(chunk)
 
-    case EmbeddingClient.embed(chunk_with_title.content) do
+    case EmbeddingClient.embed(embedding_input(title, chunk.content)) do
       {:ok, embedding} ->
         expected_dim = EmbeddingClient.dimension()
 
@@ -661,7 +661,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
           {:error, :dimension_mismatch}
         else
-          insert_chunk(chunk_with_title, document_id, index, embedding)
+          insert_chunk(chunk, document_id, index, embedding, title)
         end
 
       {:error, reason} ->
@@ -674,12 +674,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Chunk insertion (Ecto)
   # ---------------------------------------------------------------------------
 
-  defp insert_chunk(%DocumentChunker.Chunk{} = chunk, document_id, index, embedding) do
+  defp insert_chunk(%DocumentChunker.Chunk{} = chunk, document_id, index, embedding, title) do
     language = LanguageDetector.detect(chunk.content)
 
     attrs = %{
       document_id: document_id,
       content: chunk.content,
+      title: title,
       chunk_index: index,
       section_path: chunk.section_path,
       metadata: build_metadata(chunk, document_id, index),
@@ -1093,30 +1094,25 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Chunk title generation
   # ---------------------------------------------------------------------------
 
+  # Generates a descriptive, searchable title for a chunk to enrich its
+  # embedding. Returns the title string, or `nil` when generation fails or
+  # yields an empty result. The chunk's `content` and `section_path` are
+  # deliberately left untouched so the original document headings survive.
   defp generate_chunk_title(%DocumentChunker.Chunk{} = chunk) do
-    # Use ChunkTitle for all chunk types (TitleAgent / Ollama dropped)
-    generate_descriptive_title(chunk)
-  end
-
-  defp generate_descriptive_title(%DocumentChunker.Chunk{} = chunk) do
     content_for_analysis = strip_existing_heading(chunk.content)
 
     case chunk_title_module().ask(content_for_analysis, []) do
       {:ok, generated_title} when generated_title != "" ->
         Logger.info("Generated title for chunk: #{generated_title}")
-
-        updated_content = replace_heading_with_title(chunk.content, generated_title)
-        updated_path = update_section_path_with_title(chunk.section_path, generated_title)
-
-        %{chunk | content: updated_content, section_path: updated_path}
+        generated_title
 
       {:ok, ""} ->
         Logger.warning("ChunkTitle returned empty, keeping original")
-        chunk
+        nil
 
       {:error, reason} ->
         Logger.warning("Failed to generate title, keeping original: #{inspect(reason)}")
-        chunk
+        nil
     end
   end
 
@@ -1130,24 +1126,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> String.trim()
   end
 
-  defp replace_heading_with_title(content, new_title) do
-    if String.match?(content, ~r/^\#{1,6}\s*\*{0,2}[^*\n]+\*{0,2}\s*\n/) do
-      String.replace(
-        content,
-        ~r/^\#{1,6}\s*\*{0,2}[^*\n]+\*{0,2}\s*\n+/,
-        "## **#{new_title}**\n\n"
-      )
-    else
-      "## **#{new_title}**\n\n" <> content
-    end
-  end
-
-  defp update_section_path_with_title(section_path, new_title) when is_list(section_path) do
-    case section_path do
-      [] -> [new_title]
-      path -> List.replace_at(path, -1, new_title)
-    end
-  end
-
-  defp update_section_path_with_title(_, new_title), do: [new_title]
+  # Builds the text fed to the embedding model. The descriptive title is
+  # prepended to enrich thin chunks, while the persisted `content` keeps the
+  # original heading intact.
+  defp embedding_input(nil, content), do: content
+  defp embedding_input("", content), do: content
+  defp embedding_input(title, content), do: "#{title}\n\n#{content}"
 end
