@@ -813,25 +813,25 @@ defmodule ZaqWeb.Components.BOLayout do
     ~H"""
     <span
       :if={@status == :idle}
-      class="font-mono text-[0.7rem] px-2 py-1 rounded bg-black/5 text-black/30"
+      class="zaq-pill zaq-text-caption zaq-pill--elevated"
     >
       idle
     </span>
     <span
       :if={@status == :loading}
-      class="font-mono text-[0.7rem] px-2 py-1 rounded bg-amber-100 text-amber-600"
+      class="zaq-pill zaq-text-caption zaq-pill--accent zaq-pill--pulse"
     >
       testing…
     </span>
     <span
       :if={@status == :ok}
-      class="font-mono text-[0.7rem] px-2 py-1 rounded bg-emerald-100 text-emerald-700"
+      class="zaq-pill zaq-text-caption zaq-pill--success"
     >
       ✓ connected
     </span>
     <span
       :if={is_tuple(@status) and elem(@status, 0) == :error}
-      class="font-mono text-[0.7rem] px-2 py-1 rounded bg-red-100 text-red-600"
+      class="zaq-pill zaq-text-caption zaq-pill--danger"
     >
       ✗ error
     </span>
