@@ -164,7 +164,14 @@ defmodule Zaq.Channels.Api do
         _context
       ) do
     runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
-    %{event | response: runtime_module.sync_config_runtime(before_config, after_config)}
+
+    response =
+      runtime_module.sync_config_runtime(
+        ChannelConfig.to_runtime_config(before_config),
+        ChannelConfig.to_runtime_config(after_config)
+      )
+
+    %{event | response: response}
   end
 
   def handle_event(
@@ -182,7 +189,14 @@ defmodule Zaq.Channels.Api do
         _context
       ) do
     runtime_module = Keyword.get(event.opts, :runtime_module, DataSourceBridge)
-    %{event | response: runtime_module.sync_config_runtime(before_config, after_config)}
+
+    response =
+      runtime_module.sync_config_runtime(
+        ChannelConfig.to_runtime_config(before_config),
+        ChannelConfig.to_runtime_config(after_config)
+      )
+
+    %{event | response: response}
   end
 
   def handle_event(
