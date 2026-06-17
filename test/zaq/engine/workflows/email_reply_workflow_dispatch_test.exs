@@ -520,7 +520,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
   # ---------------------------------------------------------------------------
 
   # Like setup_workflow/2 but uses HumanInTheLoop for review_draft so that
-  # a WorkflowApproval record is created in the DB when the step is reached.
+  # a StepApproval record is created in the DB when the step is reached.
   # The review_draft → ensure_person edge carries a mapping to restore `drafts`
   # from the cascade: after HITL approval the top-level fact is
   # %{approved: true, ...}, so `drafts` must be pulled via "draft.drafts".
@@ -622,7 +622,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
       assert approval != nil
       assert approval.step_name == "review_draft"
 
-      assert {:ok, _} = Workflows.approve_run(run, approval, %{}, nil)
+      assert {:ok, _} = Workflows.approve_step(run, approval, %{}, nil)
 
       # Reload from DB to get JSONB-decoded (string-keyed) log_summary
       completed_run = Workflows.get_run(run.id)
@@ -686,7 +686,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
       assert lt_before["review_draft"]["status"] == "waiting"
 
       approval = Workflows.get_pending_approval(run.id)
-      {:ok, _} = Workflows.approve_run(run, approval, %{}, nil)
+      {:ok, _} = Workflows.approve_step(run, approval, %{}, nil)
 
       # Reload from DB so log_summary has JSONB-decoded string keys
       completed_run = Workflows.get_run(run.id)

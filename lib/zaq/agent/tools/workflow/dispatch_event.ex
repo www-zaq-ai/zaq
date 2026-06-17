@@ -11,7 +11,7 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
       {:ok, %{dispatched: %{"email" => "a@b.com"}}}
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "dispatch_event",
     description: "Build a Zaq.Event from input and dispatch it via NodeRouter.",
     schema: [
@@ -36,8 +36,6 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
     output_schema: [
       dispatched: [type: :map, required: true, doc: "The request map that was dispatched"]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   require Logger
 

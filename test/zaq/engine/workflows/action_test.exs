@@ -278,4 +278,75 @@ defmodule Zaq.Engine.Workflows.ActionTest do
       assert missing == [:on_success, :on_failure, :schema, :output_schema]
     end
   end
+
+  describe "compile-time contract enforcement (full mode)" do
+    test "a conforming module compiles and gets the behaviour + defaults" do
+      defmodule CompileOkAction do
+        use Zaq.Engine.Workflows.Action,
+          name: "compile_ok_action",
+          schema: [input: [type: :any, required: true]],
+          output_schema: [result: [type: :map, required: true]]
+
+        @impl Jido.Action
+        def run(params, _ctx), do: {:ok, %{result: params}}
+      end
+
+      assert :ok = Action.validate(CompileOkAction)
+      assert {:ok, %{result: %{}}} = CompileOkAction.run(%{}, %{})
+      # default lifecycle hooks are injected
+      assert {:ok, %{}} = CompileOkAction.on_success(%{}, %{})
+      assert :ok = CompileOkAction.on_failure(:boom, %{})
+    end
+
+    test "missing output_schema fails to compile with a descriptive error" do
+      code = """
+      defmodule Zaq.Engine.Workflows.ActionTest.MissingOutputSchema do
+        use Zaq.Engine.Workflows.Action,
+          name: "missing_output_schema",
+          schema: [input: [type: :any, required: true]]
+
+        @impl Jido.Action
+        def run(_params, _ctx), do: {:ok, %{}}
+      end
+      """
+
+      error = assert_raise CompileError, fn -> Code.compile_string(code) end
+      assert error.description =~ "output_schema"
+      assert error.description =~ "contract violation"
+    end
+
+    test "empty schema fails to compile with a descriptive error" do
+      code = """
+      defmodule Zaq.Engine.Workflows.ActionTest.EmptySchema do
+        use Zaq.Engine.Workflows.Action,
+          name: "empty_schema",
+          schema: [],
+          output_schema: [result: [type: :map, required: true]]
+
+        @impl Jido.Action
+        def run(_params, _ctx), do: {:ok, %{result: %{}}}
+      end
+      """
+
+      error = assert_raise CompileError, fn -> Code.compile_string(code) end
+      assert error.description =~ "schema"
+      assert error.description =~ "is empty"
+    end
+
+    test "bare `use` (legacy mode) attaches the behaviour without enforcing the contract" do
+      defmodule LegacyBehaviourAction do
+        use Jido.Action, name: "legacy_behaviour_action", schema: []
+
+        use Zaq.Engine.Workflows.Action
+
+        @impl Jido.Action
+        def run(_params, _ctx), do: {:ok, %{}}
+      end
+
+      # Behaviour hooks present, but no compile-time contract failure despite the
+      # empty schema (runtime validate/1 remains the backstop).
+      assert {:ok, %{}} = LegacyBehaviourAction.on_success(%{}, %{})
+      assert :ok = LegacyBehaviourAction.on_failure(:x, %{})
+    end
+  end
 end

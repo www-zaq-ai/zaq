@@ -8,7 +8,7 @@ defmodule Zaq.Agent.Tools.Workflow.Sleep do
       {:ok, %{slept_ms: 500}}
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "sleep",
     description: "Pause workflow execution for a duration in milliseconds.",
     schema: [
@@ -21,8 +21,6 @@ defmodule Zaq.Agent.Tools.Workflow.Sleep do
     output_schema: [
       slept_ms: [type: :non_neg_integer, required: true, doc: "Actual duration slept"]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   @impl Jido.Action
   def run(%{duration_ms: ms}, _ctx) do

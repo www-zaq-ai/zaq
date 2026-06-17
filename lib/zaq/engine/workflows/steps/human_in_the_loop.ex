@@ -2,7 +2,7 @@ defmodule Zaq.Engine.Workflows.Steps.HumanInTheLoop do
   @moduledoc """
   Workflow action that suspends execution pending human or agent approval.
 
-  When reached in a DAG, this action creates a `WorkflowApproval` record and
+  When reached in a DAG, this action creates a `StepApproval` record and
   returns `{:error, {:waiting_for_human, approval_token}}`. `ActionWrapper`
   pattern-matches this to mark the step as `"waiting"` and return
   `{:error, :waiting_for_human}`. `WorkflowAgent` then transitions the run to
@@ -31,7 +31,7 @@ defmodule Zaq.Engine.Workflows.Steps.HumanInTheLoop do
       }
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "human_in_the_loop",
     schema: [message: [type: :string, required: false]],
     output_schema: [
@@ -39,8 +39,6 @@ defmodule Zaq.Engine.Workflows.Steps.HumanInTheLoop do
       decision: [type: :map, required: false],
       approved_by: [type: :string, required: false]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   alias Zaq.Engine.Workflows
 

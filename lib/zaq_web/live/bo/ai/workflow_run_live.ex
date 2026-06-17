@@ -209,7 +209,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     end
   end
 
-  def handle_event("approve_run", _params, socket) do
+  def handle_event("approve_step", _params, socket) do
     run = socket.assigns.run
 
     request = %{action: "run.approve", run_id: run.id, person_id: nil, decision: %{}}
@@ -225,7 +225,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     end
   end
 
-  def handle_event("reject_run", _params, socket) do
+  def handle_event("reject_step", _params, socket) do
     run = socket.assigns.run
 
     request = %{action: "run.reject", run_id: run.id, person_id: nil, reason: "Rejected via BO"}
@@ -342,14 +342,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
             </button>
             <button
               :if={@run.status == "waiting"}
-              phx-click="approve_run"
+              phx-click="approve_step"
               class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-green-200 text-green-700 hover:bg-green-50 transition-colors"
             >
               Approve
             </button>
             <button
               :if={@run.status == "waiting"}
-              phx-click="reject_run"
+              phx-click="reject_step"
               class="font-mono text-[0.82rem] px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
             >
               Reject

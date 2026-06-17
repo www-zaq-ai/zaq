@@ -9,7 +9,7 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
 
   # THIS JIDO ACTION IS FOR TESTING PURPOSES
   # IT WILL GET REMOVED IN THE FUTURE
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "draft_reply",
     schema: [
       emails: [type: :any, required: true],
@@ -25,8 +25,6 @@ defmodule Zaq.Agent.Tools.Email.DraftReply do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Repo
   import Ecto.Query
-
-  use Zaq.Engine.Workflows.Action
 
   @impl Zaq.Engine.Workflows.Action
   def on_failure(error, _context) do

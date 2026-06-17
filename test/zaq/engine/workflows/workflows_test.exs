@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
-  alias Zaq.Engine.Workflows.{Trigger, Workflow, WorkflowApproval, WorkflowRun}
+  alias Zaq.Engine.Workflows.{StepApproval, Trigger, Workflow, WorkflowRun}
   alias Zaq.Test.Stubs
 
   setup do
@@ -807,7 +807,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
           status: "pending"
         })
 
-      assert %WorkflowApproval{} = found = Workflows.get_approval_by_token(token)
+      assert %StepApproval{} = found = Workflows.get_approval_by_token(token)
       assert found.id == approval.id
     end
 
@@ -816,7 +816,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     end
   end
 
-  describe "approve_run/5" do
+  describe "approve_step/5" do
     test "returns {:error, :not_waiting} when run is not in waiting state" do
       wf = hitl_workflow()
       run = create_run(wf)
@@ -830,7 +830,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
         })
 
       assert {:error, :not_waiting} =
-               Workflows.approve_run(run, approval, %{ok: true}, nil)
+               Workflows.approve_step(run, approval, %{ok: true}, nil)
     end
 
     test "returns {:error, :already_decided} when approval is not pending" do
@@ -847,7 +847,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
         })
 
       assert {:error, :already_decided} =
-               Workflows.approve_run(run, approval, %{ok: true}, nil)
+               Workflows.approve_step(run, approval, %{ok: true}, nil)
     end
 
     test "full E2E: suspend → approve → run completes, downstream step executed" do
@@ -861,7 +861,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       assert approval.status == "pending"
 
       {:ok, completed_run} =
-        Workflows.approve_run(waiting_run, approval, %{note: "LGTM"}, "approver-1")
+        Workflows.approve_step(waiting_run, approval, %{note: "LGTM"}, "approver-1")
 
       assert completed_run.status == "completed"
 
@@ -905,7 +905,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
           status: "pending"
         })
 
-      assert {:ok, completed_run} = Workflows.approve_run(waiting_run, approval, %{}, nil)
+      assert {:ok, completed_run} = Workflows.approve_step(waiting_run, approval, %{}, nil)
       assert completed_run.status == "completed"
     end
 
@@ -947,12 +947,12 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
 
       # complete_waiting_step finds step_run at index 0 → rebuild_cascade_before(run.id, 0)
       # queries index < 0 → nil → `_ -> %{}` (line 629)
-      assert {:ok, completed_run} = Workflows.approve_run(waiting_run, approval, %{}, nil)
+      assert {:ok, completed_run} = Workflows.approve_step(waiting_run, approval, %{}, nil)
       assert completed_run.status == "completed"
     end
   end
 
-  describe "reject_run/5" do
+  describe "reject_step/5" do
     test "returns {:error, :not_waiting} when run is not waiting" do
       wf = hitl_workflow()
       run = create_run(wf)
@@ -966,7 +966,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
         })
 
       assert {:error, :not_waiting} =
-               Workflows.reject_run(run, approval, "nope", nil)
+               Workflows.reject_step(run, approval, "nope", nil)
     end
 
     test "full E2E: suspend → reject → run fails, downstream step not executed" do
@@ -978,7 +978,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       approval = Workflows.get_pending_approval(run.id)
 
       {:ok, failed_run} =
-        Workflows.reject_run(waiting_run, approval, "Not approved", "approver-1")
+        Workflows.reject_step(waiting_run, approval, "Not approved", "approver-1")
 
       assert failed_run.status == "failed"
 
@@ -996,7 +996,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       {:ok, waiting_run} = Workflows.start_run(run)
       approval = Workflows.get_pending_approval(run.id)
 
-      {:ok, _} = Workflows.reject_run(waiting_run, approval, "tone is wrong", "reviewer-1")
+      {:ok, _} = Workflows.reject_step(waiting_run, approval, "tone is wrong", "reviewer-1")
 
       reloaded = Workflows.get_run!(run.id)
       assert reloaded.log_summary["rejection_reason"] == "tone is wrong"
@@ -1008,7 +1008,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       {:ok, waiting_run} = Workflows.start_run(run)
       approval = Workflows.get_pending_approval(run.id)
 
-      {:ok, _} = Workflows.reject_run(waiting_run, approval, "nope", nil)
+      {:ok, _} = Workflows.reject_step(waiting_run, approval, "nope", nil)
 
       reloaded = Workflows.get_run!(run.id)
       assert reloaded.log_summary["failed_steps"] == ["hitl"]
@@ -1021,7 +1021,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       {:ok, waiting_run} = Workflows.start_run(run)
       approval = Workflows.get_pending_approval(run.id)
 
-      {:ok, _} = Workflows.reject_run(waiting_run, approval, "nope", nil)
+      {:ok, _} = Workflows.reject_step(waiting_run, approval, "nope", nil)
 
       reloaded = Workflows.get_run!(run.id)
       timeline = reloaded.log_summary["timeline"]
@@ -1038,7 +1038,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       {:ok, waiting_run} = Workflows.start_run(run)
       approval = Workflows.get_pending_approval(run.id)
 
-      {:ok, _} = Workflows.reject_run(waiting_run, approval, "nope", nil)
+      {:ok, _} = Workflows.reject_step(waiting_run, approval, "nope", nil)
 
       reloaded = Workflows.get_run!(run.id)
       step_runs = Workflows.list_step_runs(run.id)
@@ -1075,7 +1075,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
           status: "pending"
         })
 
-      assert {:ok, failed_run} = Workflows.reject_run(waiting_run, approval, "denied", nil)
+      assert {:ok, failed_run} = Workflows.reject_step(waiting_run, approval, "denied", nil)
       assert failed_run.status == "failed"
     end
   end
