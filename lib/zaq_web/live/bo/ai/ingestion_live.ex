@@ -29,6 +29,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        entries: [],
        selected: MapSet.new(),
        jobs: [],
+       # Transient PDF-prep progress, keyed by job id (not persisted)
+       prep_progress: %{},
        status_filter: "all",
        ingest_mode: "async",
        # Volume state
@@ -713,9 +715,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     socket =
       socket
       |> merge_job_update(job)
+      |> clear_prep_progress_when_done(job)
       |> maybe_refresh_entries_after_job(job)
 
     {:noreply, socket}
+  end
+
+  def handle_info({:job_progress, job_id, payload}, socket) when is_map(payload) do
+    prep_progress = Map.put(socket.assigns.prep_progress, job_id, payload)
+    {:noreply, assign(socket, prep_progress: prep_progress)}
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -819,6 +827,24 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp merge_job_update(socket, _), do: socket
+
+  # Once chunk scheduling starts (or the job ends), the prep phase is over —
+  # drop the transient progress entry so the UI falls back to chunk progress.
+  defp clear_prep_progress_when_done(socket, %{id: id, status: "processing", total_chunks: total})
+       when is_integer(total) and total > 0 do
+    drop_prep_progress(socket, id)
+  end
+
+  defp clear_prep_progress_when_done(socket, %{id: id, status: status})
+       when status in ["completed", "completed_with_errors", "failed", "cancelled"] do
+    drop_prep_progress(socket, id)
+  end
+
+  defp clear_prep_progress_when_done(socket, _job), do: socket
+
+  defp drop_prep_progress(socket, id) do
+    assign(socket, prep_progress: Map.delete(socket.assigns.prep_progress, id))
+  end
 
   defp maybe_update_folder_public(_volume, _path, same, same), do: :ok
 

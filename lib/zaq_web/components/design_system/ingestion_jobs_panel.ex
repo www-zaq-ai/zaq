@@ -13,6 +13,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
 
   attr :jobs, :list, required: true
   attr :status_filter, :string, required: true
+  attr :prep_progress, :map, default: %{}
 
   def jobs_panel(assigns) do
     ~H"""
@@ -89,6 +90,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
             </progress>
             <p :if={job.failed_chunks > 0}>Failed chunks: {job.failed_chunks}</p>
             <p :if={job.total_chunks == 0 and job.chunks_count > 0}>Chunks: {job.chunks_count}</p>
+            <.prep_indicator
+              active={job.status == "processing" and job.total_chunks == 0}
+              progress={Map.get(@prep_progress, job.id)}
+            />
             <details :if={job.error} class="mt-1">
               <summary
                 class="zaq-text-caption cursor-pointer transition-opacity hover:opacity-80"
@@ -136,4 +141,43 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
     </div>
     """
   end
+
+  # Transient "Preparing…" indicator shown while a PDF is being converted and
+  # images are described, before any chunks exist. `progress` is the decoded
+  # `ZAQ_PROGRESS` payload (string keys) or nil when none has arrived yet.
+  attr :active, :boolean, default: false
+  attr :progress, :map, default: nil
+
+  defp prep_indicator(assigns) do
+    ~H"""
+    <div
+      :if={@active and is_map(@progress)}
+      class="zaq-text-body-sm space-y-0.5"
+      style="color: var(--zaq-text-color-body-secondary)"
+    >
+      <p>Preparing — {prep_text(@progress)}</p>
+      <progress
+        class="zaq-jobs-panel-progress h-1.5 w-full overflow-hidden rounded-full"
+        value={prep_current(@progress)}
+        max={prep_total(@progress)}
+      >
+        {prep_current(@progress)}/{prep_total(@progress)}
+      </progress>
+    </div>
+    """
+  end
+
+  defp prep_text(%{"status" => "started"}), do: "analysing document…"
+
+  defp prep_text(%{"label" => label, "current" => c, "total" => t}) when is_binary(label),
+    do: "describing images #{c}/#{t} — #{label}"
+
+  defp prep_text(%{"current" => c, "total" => t}), do: "describing images #{c}/#{t}"
+  defp prep_text(_), do: "preparing…"
+
+  defp prep_current(%{"current" => c}) when is_integer(c) and c >= 0, do: c
+  defp prep_current(_), do: 0
+
+  defp prep_total(%{"total" => t}) when is_integer(t) and t > 0, do: t
+  defp prep_total(_), do: 1
 end

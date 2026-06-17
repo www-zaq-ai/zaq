@@ -111,6 +111,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   attr :jobs, :list, required: true
   attr :status_filter, :string, required: true
+  attr :prep_progress, :map, default: %{}
 
   def jobs_panel(assigns) do
     IngestionJobsPanel.jobs_panel(assigns)

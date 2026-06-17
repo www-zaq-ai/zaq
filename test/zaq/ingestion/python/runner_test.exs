@@ -258,6 +258,97 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # run/3 — :on_progress parsing of ZAQ_PROGRESS sentinel lines
+  # ---------------------------------------------------------------------------
+
+  describe "run/3 :on_progress" do
+    setup do
+      python = Runner.python_executable()
+
+      if System.find_executable(python) == nil do
+        :ok
+      else
+        scripts_dir = Runner.scripts_dir()
+        File.mkdir_p!(scripts_dir)
+
+        id = System.unique_integer([:positive])
+        name = "test_progress_#{id}.py"
+        path = Path.join(scripts_dir, name)
+
+        File.write!(path, """
+        print("normal-before")
+        print('ZAQ_PROGRESS {"stage": "image_to_text", "current": 1, "total": 2, "status": "processing", "label": "a.png"}')
+        print("normal-mid")
+        print('ZAQ_PROGRESS {"stage": "image_to_text", "current": 2, "total": 2, "status": "completed"}')
+        print('ZAQ_PROGRESS not-valid-json')
+        print("normal-after")
+        """)
+
+        on_exit(fn -> File.rm(path) end)
+        {:ok, script_name: name}
+      end
+    end
+
+    test "forwards decoded progress payloads in order", context do
+      if Map.has_key?(context, :script_name) do
+        test_pid = self()
+        reporter = fn payload -> send(test_pid, {:progress, payload}) end
+
+        assert {:ok, _output} = Runner.run(context.script_name, [], on_progress: reporter)
+
+        assert_receive {:progress,
+                        %{
+                          "stage" => "image_to_text",
+                          "current" => 1,
+                          "total" => 2,
+                          "status" => "processing",
+                          "label" => "a.png"
+                        }}
+
+        assert_receive {:progress, %{"current" => 2, "status" => "completed"}}
+      end
+    end
+
+    test "consumes well-formed progress lines from the returned output", context do
+      if Map.has_key?(context, :script_name) do
+        assert {:ok, output} = Runner.run(context.script_name, [], on_progress: fn _ -> :ok end)
+
+        refute String.contains?(output, ~s("status": "processing"))
+        refute String.contains?(output, ~s("status": "completed"))
+        assert String.contains?(output, "normal-before")
+        assert String.contains?(output, "normal-mid")
+        assert String.contains?(output, "normal-after")
+      end
+    end
+
+    test "treats malformed progress lines as ordinary output", context do
+      if Map.has_key?(context, :script_name) do
+        test_pid = self()
+        reporter = fn payload -> send(test_pid, {:progress, payload}) end
+
+        assert {:ok, output} = Runner.run(context.script_name, [], on_progress: reporter)
+
+        # The malformed line is not decoded, so it is kept in output.
+        assert String.contains?(output, "ZAQ_PROGRESS not-valid-json")
+
+        # Exactly the two well-formed lines are forwarded — the malformed one
+        # produces no third event.
+        assert_receive {:progress, %{"current" => 1}}
+        assert_receive {:progress, %{"current" => 2}}
+        refute_receive {:progress, _}
+      end
+    end
+
+    test "tolerates a missing/invalid callback (no-op default)", context do
+      if Map.has_key?(context, :script_name) do
+        # No :on_progress option — progress lines are still stripped, no crash.
+        assert {:ok, output} = Runner.run(context.script_name, [])
+        refute String.contains?(output, ~s("status": "completed"))
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Private helpers — exercise the same Port.open mechanics as Runner.run/2
   # ---------------------------------------------------------------------------
 

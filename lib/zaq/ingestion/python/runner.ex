@@ -11,20 +11,33 @@ defmodule Zaq.Ingestion.Python.Runner do
   # 30 minutes — image_to_text can be slow for large PDFs
   @timeout_ms 1_800_000
 
+  # Prefix the Python scripts use to mark machine-readable progress lines. Lines
+  # starting with this token carry a JSON payload and are forwarded to the
+  # `:on_progress` callback instead of being logged as ordinary output.
+  @progress_sentinel "ZAQ_PROGRESS "
+
   @doc """
   Run a Python script by filename with the given args.
   Streams stdout/stderr line-by-line to Logger in real time.
+
+  ## Options
+
+    * `:on_progress` - 1-arity function invoked with the decoded JSON map for
+      every `ZAQ_PROGRESS` line the script emits. Defaults to a no-op.
 
   ## Examples
 
       Runner.run("pipeline.py", ["report.pdf"])
       # => {:ok, output} | {:error, %{exit_code: code, output: output}}
 
+      Runner.run("image_to_text.py", args, on_progress: &handle/1)
+
   """
-  @spec run(String.t(), [String.t()]) :: {:ok, String.t()} | {:error, term()}
-  def run(script_name, args \\ []) do
+  @spec run(String.t(), [String.t()], keyword()) :: {:ok, String.t()} | {:error, term()}
+  def run(script_name, args \\ [], opts \\ []) do
     script_path = scripts_dir() |> Path.join(script_name)
     python = python_executable()
+    on_progress = normalize_on_progress(opts[:on_progress])
 
     Logger.info("[Python.Runner] Starting: #{script_name} #{Enum.join(args, " ")}")
 
@@ -43,19 +56,27 @@ defmodule Zaq.Ingestion.Python.Runner do
             :stderr_to_stdout
           ])
 
-        collect_output(port, _partial = "", _lines = [])
+        collect_output(port, _partial = "", _lines = [], on_progress)
     end
   end
 
-  defp collect_output(port, partial, lines) do
+  defp collect_output(port, partial, lines, on_progress) do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         line = partial <> chunk
-        log_line(line)
-        collect_output(port, "", [line | lines])
+
+        case maybe_emit_progress(line, on_progress) do
+          :progress ->
+            # Progress lines are consumed: kept out of Logger and returned output.
+            collect_output(port, "", lines, on_progress)
+
+          :not_progress ->
+            log_line(line)
+            collect_output(port, "", [line | lines], on_progress)
+        end
 
       {^port, {:data, {:noeol, chunk}}} ->
-        collect_output(port, partial <> chunk, lines)
+        collect_output(port, partial <> chunk, lines, on_progress)
 
       {^port, {:exit_status, 0}} ->
         output = lines |> Enum.reverse() |> Enum.join("\n")
@@ -74,6 +95,24 @@ defmodule Zaq.Ingestion.Python.Runner do
         {:error, %{exit_code: :timeout, output: output}}
     end
   end
+
+  defp normalize_on_progress(fun) when is_function(fun, 1), do: fun
+  defp normalize_on_progress(_), do: fn _payload -> :ok end
+
+  # Decodes and forwards a `ZAQ_PROGRESS {json}` line. A malformed payload is
+  # treated as ordinary output so nothing is silently lost.
+  defp maybe_emit_progress(@progress_sentinel <> json, on_progress) do
+    case Jason.decode(json) do
+      {:ok, payload} when is_map(payload) ->
+        on_progress.(payload)
+        :progress
+
+      _ ->
+        :not_progress
+    end
+  end
+
+  defp maybe_emit_progress(_line, _on_progress), do: :not_progress
 
   defp log_line("✗" <> _ = line), do: Logger.error("[Python] #{line}")
   defp log_line("⚠" <> _ = line), do: Logger.warning("[Python] #{line}")

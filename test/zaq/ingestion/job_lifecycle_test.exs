@@ -111,6 +111,30 @@ defmodule Zaq.Ingestion.JobLifecycleTest do
     end
   end
 
+  describe "broadcast_progress/2" do
+    test "broadcasts a transient job_progress event on the jobs topic" do
+      payload = %{
+        "stage" => "image_to_text",
+        "current" => 2,
+        "total" => 5,
+        "status" => "processing"
+      }
+
+      assert :ok = JobLifecycle.broadcast_progress("job-123", payload)
+      assert_receive {:job_progress, "job-123", ^payload}
+    end
+
+    test "does not persist anything to the database" do
+      job = create_job(%{status: "processing"})
+
+      :ok = JobLifecycle.broadcast_progress(job.id, %{"current" => 1, "total" => 1})
+
+      # The job row is untouched by a progress broadcast.
+      assert Repo.get!(IngestJob, job.id).status == "processing"
+      assert_receive {:job_progress, _, %{"current" => 1}}
+    end
+  end
+
   defp create_job(attrs \\ %{}) do
     %IngestJob{}
     |> IngestJob.changeset(

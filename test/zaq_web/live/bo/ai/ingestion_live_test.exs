@@ -1110,6 +1110,81 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   # ────────────────────────────────────────────────────────────────
+  # handle_info {:job_progress, ...} — PDF prep progress indicator
+  # ────────────────────────────────────────────────────────────────
+
+  describe "handle_info {:job_progress, job_id, payload}" do
+    test "renders a Preparing indicator for a processing job with no chunks yet", %{conn: conn} do
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      send(
+        view.pid,
+        {:job_progress, job.id,
+         %{
+           "stage" => "image_to_text",
+           "current" => 1,
+           "total" => 3,
+           "status" => "processing",
+           "label" => "figure-1.png"
+         }}
+      )
+
+      html = render(view)
+      assert html =~ "Preparing"
+      assert html =~ "describing images 1/3"
+      assert html =~ "figure-1.png"
+    end
+
+    test "clears the prep indicator once chunks are scheduled", %{conn: conn} do
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      send(
+        view.pid,
+        {:job_progress, job.id, %{"current" => 1, "total" => 2, "status" => "processing"}}
+      )
+
+      assert render(view) =~ "Preparing"
+
+      # Chunks scheduled: the job leaves the prep phase.
+      scheduled =
+        Repo.get!(IngestJob, job.id)
+        |> IngestJob.changeset(%{status: "processing", total_chunks: 2})
+        |> Repo.update!()
+
+      send(view.pid, {:job_updated, scheduled})
+
+      refute render(view) =~ "Preparing"
+    end
+
+    test "drops prep progress when the job completes", %{conn: conn} do
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      send(
+        view.pid,
+        {:job_progress, job.id, %{"current" => 2, "total" => 2, "status" => "completed"}}
+      )
+
+      assert render(view) =~ "Preparing"
+
+      completed =
+        Repo.get!(IngestJob, job.id)
+        |> IngestJob.changeset(%{status: "completed", total_chunks: 2, ingested_chunks: 2})
+        |> Repo.update!()
+
+      send(view.pid, {:job_updated, completed})
+
+      state = :sys.get_state(view.pid)
+      refute Map.has_key?(state.socket.assigns.prep_progress, job.id)
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────
   # status_pill_classes/1 — completed_with_errors
   # ────────────────────────────────────────────────────────────────
 

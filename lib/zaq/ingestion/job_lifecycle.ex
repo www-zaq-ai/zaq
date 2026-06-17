@@ -71,6 +71,19 @@ defmodule Zaq.Ingestion.JobLifecycle do
     transition!(job, %{status: "pending", error: error_message})
   end
 
+  @doc """
+  Broadcasts a transient preparation-progress event for a job.
+
+  Used for high-frequency, non-persisted progress (e.g. per-image image-to-text
+  steps during PDF preparation). Rides the same PubSub topic as
+  `{:job_updated, job}` so subscribed LiveViews receive it without extra wiring.
+  Progress is deliberately not written to the database.
+  """
+  @spec broadcast_progress(Ecto.UUID.t(), map()) :: :ok
+  def broadcast_progress(job_id, payload) when is_map(payload) do
+    Phoenix.PubSub.broadcast(@pubsub, @topic, {:job_progress, job_id, payload})
+  end
+
   defp broadcast_update(job) do
     Phoenix.PubSub.broadcast(@pubsub, @topic, {:job_updated, job})
     job

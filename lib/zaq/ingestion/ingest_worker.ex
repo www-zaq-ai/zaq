@@ -36,7 +36,7 @@ defmodule Zaq.Ingestion.IngestWorker do
     if Map.get(args, "retry_failed_chunks", false) do
       requeue_failed_chunk_jobs(updated_job, telemetry_dimensions)
     else
-      case prepare_chunks(file_path) do
+      case prepare_chunks(file_path, updated_job) do
         {:ok, document, :legacy_completed} ->
           finalize_legacy_job(updated_job, document, telemetry_dimensions)
 
@@ -76,11 +76,21 @@ defmodule Zaq.Ingestion.IngestWorker do
     attempt * 5
   end
 
-  defp prepare_chunks(file_path) do
+  # Builds the callback handed to the Python runner. Each decoded progress
+  # payload is fanned out over PubSub so subscribed BO LiveViews can show
+  # preparation progress. Failures here must never break ingestion.
+  defp progress_reporter(job) do
+    fn payload ->
+      _ = JobLifecycle.broadcast_progress(job.id, payload)
+      :ok
+    end
+  end
+
+  defp prepare_chunks(file_path, job) do
     proc = processor()
 
-    if function_exported?(proc, :prepare_file_chunks, 1) do
-      proc.prepare_file_chunks(file_path)
+    if function_exported?(proc, :prepare_file_chunks, 2) do
+      proc.prepare_file_chunks(file_path, on_progress: progress_reporter(job))
     else
       case proc.process_single_file(file_path) do
         {:ok, document} ->

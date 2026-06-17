@@ -139,10 +139,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns `{ :ok, document, indexed_chunk_payloads }` where payloads are
   `{chunk_payload_map, chunk_index}` tuples.
   """
-  def prepare_file_chunks(file_path) do
+  def prepare_file_chunks(file_path, opts \\ []) do
     Logger.info("Preparing file chunks: #{file_path}")
 
-    with {:ok, content} <- read_as_markdown(file_path),
+    with {:ok, content} <- read_as_markdown(file_path, opts),
          {:ok, source} <- extract_source(content, file_path),
          {:ok, sidecar_source} <- extract_sidecar_source(file_path),
          {:ok, document} <-
@@ -170,7 +170,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   def process_single_file_with_report(file_path, opts \\ []) do
     Logger.info("Processing file: #{file_path}")
 
-    with {:ok, content} <- read_as_markdown(file_path),
+    with {:ok, content} <- read_as_markdown(file_path, opts),
          {:ok, source} <- extract_source(content, file_path),
          {:ok, sidecar_source} <- extract_sidecar_source(file_path),
          {:ok, document} <-
@@ -193,11 +193,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   # Reads a file and returns its content as a markdown string,
   # converting non-markdown formats as needed.
-  defp read_as_markdown(file_path) do
+  defp read_as_markdown(file_path, opts) do
     case Path.extname(file_path) |> String.downcase() do
       ".pdf" ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "PDF", fn -> convert_pdf(file_path, md_path) end)
+        read_sidecar_or_convert(md_path, "PDF", fn -> convert_pdf(file_path, md_path, opts) end)
 
       ".docx" ->
         md_path = Path.rootname(file_path) <> ".md"
@@ -232,8 +232,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp convert_pdf(file_path, md_path) do
-    with {:ok, _} <- pdf_pipeline_module().run(file_path),
+  defp convert_pdf(file_path, md_path, opts) do
+    with {:ok, _} <- pdf_pipeline_module().run(file_path, Keyword.take(opts, [:on_progress])),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
       {:ok, FTSBackend.sanitize_utf8_text(raw)}

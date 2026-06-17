@@ -34,7 +34,12 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   def run(pdf_path, opts \\ []) do
     original_pdf_path = pdf_path
     api_key = resolve_api_key(opts)
-    image_to_text_opts = resolve_image_to_text_opts(opts)
+
+    image_to_text_opts =
+      opts
+      |> resolve_image_to_text_opts()
+      |> maybe_put_on_progress(opts[:on_progress])
+
     md_path = opts[:output] || Path.rootname(original_pdf_path) <> ".md"
     base = opts[:base] || resolve_volume_base(original_pdf_path)
 
@@ -108,6 +113,12 @@ defmodule Zaq.Ingestion.Python.Pipeline do
 
     ImageToText.run(images_folder, descriptions_json, opts)
   end
+
+  defp maybe_put_on_progress(io_opts, fun) when is_function(fun, 1) do
+    Keyword.put(io_opts, :on_progress, fun)
+  end
+
+  defp maybe_put_on_progress(io_opts, _fun), do: io_opts
 
   defp resolve_image_to_text_opts(opts) do
     cfg = Zaq.System.get_image_to_text_config()

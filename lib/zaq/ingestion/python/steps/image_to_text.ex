@@ -22,7 +22,8 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToText do
   def run(images_folder, output_json, opts) when is_list(opts) do
     Runner.run(
       "image_to_text.py",
-      ["--folder", images_folder, "--output", output_json] ++ build_args(opts)
+      ["--folder", images_folder, "--output", output_json] ++ build_args(opts),
+      Keyword.take(opts, [:on_progress])
     )
   end
 
