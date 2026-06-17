@@ -16,7 +16,10 @@ defmodule Zaq.Ingestion.FTSBackend.Native do
 
   @impl true
   def sanitize_query(text) do
-    FTSBackend.sanitize_query_text(text)
+    # websearch_to_tsquery is injection-safe and tokenizes the query the same way
+    # to_tsvector tokenized the content, so only minimal sanitization is needed
+    # (preserves IPs/versions/emails). See FTSBackend.sanitize_query_minimal/1.
+    FTSBackend.sanitize_query_minimal(text)
   end
 
   @impl true

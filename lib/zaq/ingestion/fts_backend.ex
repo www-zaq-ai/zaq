@@ -179,14 +179,47 @@ defmodule Zaq.Ingestion.FTSBackend do
   end
 
   @doc """
-  Sanitizes free-form user input for PostgreSQL full-text query functions.
+  Aggressive sanitization that neutralizes query-language operators for the
+  ParadeDB/tantivy backend (`parse_with_field`), which interprets characters such
+  as `:`, `^`, `(`, `)` as syntax. Strips all punctuation except dots that sit
+  between alphanumerics, so dotted literals (IPv4 `10.0.0.42`, versions `1.2.3`,
+  decimals) survive as single tokens.
+
+  The Native (PostgreSQL) backend does NOT use this — `websearch_to_tsquery/2` is
+  injection-safe and tokenizes identically to `to_tsvector`, so it only needs
+  `sanitize_query_minimal/1`.
   """
   def sanitize_query_text(text) do
     text
     |> sanitize_utf8_text()
     |> unicode_normalize()
-    |> String.replace(~r/[^\p{L}\p{N}]+/u, " ")
+    # Collapse runs of disallowed characters to a space, but KEEP dots so dotted
+    # literals (IPv4 like "10.0.0.42", versions like "1.2.3", decimals) are not
+    # shattered into separate tokens — that mismatch is why a raw IP query never
+    # matched the single FTS token produced by to_tsvector for the same string.
+    |> String.replace(~r/[^\p{L}\p{N}.]+/u, " ")
+    # Drop dots that are not flanked by alphanumerics on both sides (leading,
+    # trailing, or standalone), so only intra-token dots survive.
+    |> String.replace(~r/(?<![\p{L}\p{N}])\.+|\.+(?![\p{L}\p{N}])/u, " ")
     |> String.replace(~r/ {2,}/, " ")
+    |> String.trim()
+    |> String.slice(0, 512)
+  end
+
+  @doc """
+  Minimal, security-only sanitization for PostgreSQL `websearch_to_tsquery/2`.
+
+  `websearch_to_tsquery` never errors on user input and applies the same parser
+  as `to_tsvector` at index time, so the query must NOT be pre-tokenized. We only
+  strip invalid/null bytes, normalize unicode, collapse whitespace and cap length
+  — preserving IPs, versions, emails and phrases so the query tokenizes the same
+  way the indexed content did (analyzer symmetry).
+  """
+  def sanitize_query_minimal(text) do
+    text
+    |> sanitize_utf8_text()
+    |> unicode_normalize()
+    |> String.replace(~r/\s+/u, " ")
     |> String.trim()
     |> String.slice(0, 512)
   end

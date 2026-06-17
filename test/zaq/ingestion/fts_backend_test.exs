@@ -237,6 +237,42 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert FTSBackend.sanitize_query_text(raw) == ""
     end
 
+    test "sanitize_query_text preserves intra-token dots (IPs, versions, decimals)" do
+      assert FTSBackend.sanitize_query_text("10.0.0.42") == "10.0.0.42"
+      assert FTSBackend.sanitize_query_text("version 1.2.3") == "version 1.2.3"
+      assert FTSBackend.sanitize_query_text("price 19.99 today") == "price 19.99 today"
+    end
+
+    test "sanitize_query_text drops dots not flanked by alphanumerics" do
+      assert FTSBackend.sanitize_query_text("...load balancer...") == "load balancer"
+      assert FTSBackend.sanitize_query_text("end. Next") == "end Next"
+      assert FTSBackend.sanitize_query_text(".42") == "42"
+    end
+
+    test "sanitize_query_minimal preserves dotted literals, emails, and phrase punctuation" do
+      # Postgres' websearch_to_tsquery tokenizes these the same way to_tsvector
+      # did at index time, so the minimal sanitizer must leave them intact.
+      assert FTSBackend.sanitize_query_minimal("10.0.0.42 v1.2.3 a@b.com") ==
+               "10.0.0.42 v1.2.3 a@b.com"
+
+      assert FTSBackend.sanitize_query_minimal(~s("load balancer")) == ~s("load balancer")
+    end
+
+    test "sanitize_query_minimal strips invalid bytes, collapses whitespace, caps length" do
+      raw = "  hi\xFF\0   there  " <> String.duplicate("x", 600)
+
+      out = FTSBackend.sanitize_query_minimal(raw)
+
+      assert String.starts_with?(out, "hi there")
+      refute String.contains?(out, <<0>>)
+      refute String.contains?(out, <<0xFF>>)
+      assert byte_size(out) <= 512
+    end
+
+    test "Native.sanitize_query keeps dotted literals (websearch_to_tsquery is injection-safe)" do
+      assert FTSBackend.Native.sanitize_query("ip 10.0.0.42") == "ip 10.0.0.42"
+    end
+
     test "maybe_filter_source leaves an unfiltered query unchanged" do
       query = from(c in Chunk, select: c.id)
 

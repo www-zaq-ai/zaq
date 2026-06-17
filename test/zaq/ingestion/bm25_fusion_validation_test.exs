@@ -770,4 +770,73 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
              "section chunks must arrive in document (chunk_index) order"
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # §5 — "load balancer" retrieval regression (text.txt repro)
+  #
+  # Real-world bug: a French infra note whose Ingress section reads
+  # "IP du load balancer: `10.0.0.42`" could not be retrieved by the
+  # question "what is the load balancer". Chunking was already proven innocent
+  # (DocumentChunkerTest). This isolates the BM25 leg: the English term
+  # "load balancer" is literally present in the chunk content, so BM25 — which
+  # indexes to_tsvector('english', content) — must surface it.
+  # ---------------------------------------------------------------------------
+
+  @lb_chunk_content """
+  ## **Traefik Replaces Nginx‑Ingress March 2026**
+
+  J'ai installé traefik (nginx-ingress controller a été deprecié en mars 2026)
+  IP du load balancer: `10.0.0.42`
+  """
+
+  describe "§5 load balancer retrieval regression" do
+    defp insert_lb_chunk do
+      doc = create_doc()
+      insert_chunk(doc.id, @lb_chunk_content, "french", ["Cluster Kubernetes", "Ingress"], 5)
+      doc
+    end
+
+    defp lb_items(results) do
+      results |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten()
+    end
+
+    test "BM25 surfaces the load balancer chunk for an English keyword query" do
+      doc = insert_lb_chunk()
+
+      assert {:ok, results} = DocumentProcessor.bm25_search_group_by("load balancer", 20)
+
+      items = lb_items(results)
+
+      assert Enum.any?(items, &(&1.document_id == doc.id)),
+             "BM25 must surface the chunk containing 'load balancer'; got: #{inspect(items)}"
+    end
+
+    test "BM25 matches the IP literal — sanitize_query_text preserves dotted tokens" do
+      # REGRESSION: previously sanitize_query_text/1 replaced every dot with a
+      # space, so "10.0.0.42" became the four tokens "10 0 0 42" while
+      # to_tsvector('english', content) keeps the IP as one token — they never
+      # matched. The sanitizer now preserves intra-token dots, so a raw IP query
+      # tokenizes the same way as the indexed content and BM25 matches.
+      doc = insert_lb_chunk()
+
+      assert {:ok, results} = DocumentProcessor.bm25_search_group_by("10.0.0.42", 20)
+
+      assert Enum.any?(lb_items(results), &(&1.document_id == doc.id)),
+             "BM25 must surface the chunk when querying the load balancer IP literal"
+    end
+
+    test "query_extraction returns the load balancer content end-to-end" do
+      insert_lb_chunk()
+
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("load balancer", skip_permissions: true)
+
+      combined = Enum.map_join(results, "\n", & &1["content"])
+
+      assert String.contains?(combined, "load balancer"),
+             "query_extraction must return the load balancer content; got: #{combined}"
+
+      assert String.contains?(combined, "10.0.0.42")
+    end
+  end
 end
