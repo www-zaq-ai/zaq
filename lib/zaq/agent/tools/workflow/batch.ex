@@ -46,7 +46,7 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
       }
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "batch",
     description: "Orchestrates a downstream pipeline over a list of items in chunks.",
     schema: [
@@ -98,8 +98,6 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
       ],
       errors: [type: {:list, :any}, required: true, doc: "Collected errors for failed chunks."]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   alias Zaq.Agent.Tools.{ItemOutcome, PipelineRunner}
   alias Zaq.Engine.Workflows

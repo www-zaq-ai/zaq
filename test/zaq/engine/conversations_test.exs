@@ -52,6 +52,23 @@ defmodule Zaq.Engine.ConversationsTest do
     :ok
   end
 
+  defp channel_config_fixture(provider) do
+    {:ok, config} =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Config #{provider}",
+        provider: provider,
+        kind: "retrieval",
+        url: "https://#{provider}.example.com",
+        token: "token",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert()
+
+    config
+  end
+
   # ── create_conversation/1 ───────────────────────────────────────────
 
   describe "create_conversation/1" do
@@ -189,6 +206,25 @@ defmodule Zaq.Engine.ConversationsTest do
 
       assert Enum.map(results, & &1.id) == [middle.id, newest.id]
       refute Enum.any?(results, &(&1.id == oldest.id))
+    end
+
+    test "respects offset and ignores unknown opts" do
+      {:ok, first} = Conversations.create_conversation(conv_attrs(%{title: "Offset First"}))
+      {:ok, second} = Conversations.create_conversation(conv_attrs(%{title: "Offset Second"}))
+
+      :ok = set_updated_at(first, ~U[2026-06-01 00:00:00.000000Z])
+      :ok = set_updated_at(second, ~U[2026-06-02 00:00:00.000000Z])
+
+      ids =
+        Conversations.list_conversations(
+          query: "Offset",
+          limit: 1,
+          offset: 1,
+          unsupported: :ignored
+        )
+        |> Enum.map(& &1.id)
+
+      assert ids == [first.id]
     end
   end
 
@@ -570,6 +606,91 @@ defmodule Zaq.Engine.ConversationsTest do
       assert assistant.metadata["model"] == "openai:gpt-4o-mini"
       assert assistant.metadata["agent"] == %{"id" => 12, "name" => "Answering"}
     end
+
+    test "falls back to normalized email thread id then message id then author" do
+      result = %{
+        answer: "Handled.",
+        confidence_score: 0.9,
+        latency_ms: 50,
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3
+      }
+
+      with_thread_id = %Zaq.Engine.Messages.Incoming{
+        content: "Thread id only",
+        channel_id: "email",
+        author_id: "sender@example.com",
+        provider: :email,
+        thread_id: "<thread-only@example.com>",
+        message_id: "<message-a@example.com>",
+        metadata: %{"email" => "not-a-map"}
+      }
+
+      with_message_id = %Zaq.Engine.Messages.Incoming{
+        content: "Message id only",
+        channel_id: "email",
+        author_id: "sender@example.com",
+        provider: :email,
+        message_id: "<message-only@example.com>",
+        metadata: %{}
+      }
+
+      with_author = %Zaq.Engine.Messages.Incoming{
+        content: "Author only",
+        channel_id: "email",
+        author_id: "fallback-author@example.com",
+        provider: :email,
+        metadata: nil
+      }
+
+      assert {:ok, _} = Conversations.persist_from_incoming(with_thread_id, result)
+      assert {:ok, _} = Conversations.persist_from_incoming(with_message_id, result)
+      assert {:ok, _} = Conversations.persist_from_incoming(with_author, result)
+
+      ids =
+        Conversations.list_conversations(channel_type: "email:imap")
+        |> Enum.map(& &1.channel_user_id)
+
+      assert "thread-only@example.com" in ids
+      assert "message-only@example.com" in ids
+      assert "fallback-author@example.com" in ids
+    end
+
+    test "accepts atom-keyed email metadata and defaults unknown providers to api" do
+      result = %{
+        answer: "Handled.",
+        confidence_score: 0.9,
+        latency_ms: 50,
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3
+      }
+
+      email = %Zaq.Engine.Messages.Incoming{
+        content: "Atom metadata",
+        channel_id: "email",
+        author_id: "sender@example.com",
+        provider: :email,
+        metadata: %{email: %{thread_key: "atom-thread"}}
+      }
+
+      api = %Zaq.Engine.Messages.Incoming{
+        content: "Unknown provider",
+        channel_id: "api",
+        author_id: "api-user",
+        provider: 123
+      }
+
+      assert {:ok, _} = Conversations.persist_from_incoming(email, result)
+      assert {:ok, _} = Conversations.persist_from_incoming(api, result)
+
+      [email_conv] = Conversations.list_conversations(channel_user_id: "atom-thread")
+      [api_conv] = Conversations.list_conversations(channel_user_id: "api-user")
+
+      assert email_conv.channel_type == "email:imap"
+      assert api_conv.channel_type == "api"
+    end
   end
 
   # ── add_message/2 ──────────────────────────────────────────────────
@@ -777,6 +898,14 @@ defmodule Zaq.Engine.ConversationsTest do
                  rating: 3
                })
     end
+
+    test "returns changeset error for invalid rating on an existing message" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "answer"})
+
+      assert {:error, changeset} = Conversations.rate_message_by_id(msg.id, %{rating: 6})
+      assert %{rating: _} = errors_on(changeset)
+    end
   end
 
   # ── list_messages/1 ratings preload ─────────────────────────────────
@@ -958,6 +1087,36 @@ defmodule Zaq.Engine.ConversationsTest do
       assert conv_a.id == conv_a2.id
     end
 
+    test "scopes active lookup by channel_config_id" do
+      config_a = channel_config_fixture("mattermost")
+      config_b = channel_config_fixture("slack")
+      channel_user_id = "scoped_user_#{System.unique_integer([:positive])}"
+
+      {:ok, first} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_a.id
+        )
+
+      {:ok, second} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_b.id
+        )
+
+      {:ok, first_again} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_a.id
+        )
+
+      assert first.id == first_again.id
+      assert second.id != first.id
+    end
+
     test "does not return archived conversation for existing channel user" do
       channel_user_id = "archived_user_#{System.unique_integer([:positive])}"
 
@@ -1016,6 +1175,15 @@ defmodule Zaq.Engine.ConversationsTest do
       {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "reply"})
 
       assert is_nil(Conversations.get_rating(msg, %{user_id: user.id}))
+    end
+
+    test "returns a rating when no rater filter is provided" do
+      user = user_fixture()
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "reply"})
+      {:ok, rating} = Conversations.rate_message(msg, %{user_id: user.id, rating: 4})
+
+      assert Conversations.get_rating(msg, %{}).id == rating.id
     end
   end
 

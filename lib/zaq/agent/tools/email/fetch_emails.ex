@@ -8,7 +8,7 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
 
   # THIS JIDO ACTION IS FOR TESTING PURPOSES
   # IT WILL GET REMOVED IN THE FUTURE
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "fetch_emails",
     schema: [
       imap_config: [type: :any, required: false],
@@ -23,8 +23,6 @@ defmodule Zaq.Agent.Tools.Email.FetchEmails do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge.{ImapAdapter, ImapConfigHelpers}
-
-  use Zaq.Engine.Workflows.Action
 
   @impl Zaq.Engine.Workflows.Action
   def on_failure(error, _context) do

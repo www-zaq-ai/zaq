@@ -15,10 +15,10 @@ defmodule Zaq.Engine.Workflows do
 
   alias Zaq.Engine.Workflows.{
     CronTriggerWorker,
+    StepApproval,
     Trigger,
     Workflow,
     WorkflowAgent,
-    WorkflowApproval,
     WorkflowRun
   }
 
@@ -639,31 +639,31 @@ defmodule Zaq.Engine.Workflows do
 
   # --- Approval lifecycle ---
 
-  @doc "Creates a WorkflowApproval record for a human-in-the-loop step."
+  @doc "Creates a StepApproval record for a human-in-the-loop step."
   @spec create_approval(map(), keyword()) ::
-          {:ok, WorkflowApproval.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, StepApproval.t()} | {:error, Ecto.Changeset.t()}
   def create_approval(attrs, _opts \\ []) do
-    %WorkflowApproval{}
-    |> WorkflowApproval.changeset(attrs)
+    %StepApproval{}
+    |> StepApproval.changeset(attrs)
     |> Repo.insert()
   end
 
-  @doc "Returns a WorkflowApproval by its unique token, or nil."
-  @spec get_approval_by_token(String.t(), keyword()) :: WorkflowApproval.t() | nil
+  @doc "Returns a StepApproval by its unique token, or nil."
+  @spec get_approval_by_token(String.t(), keyword()) :: StepApproval.t() | nil
   def get_approval_by_token(token, _opts \\ []) do
-    Repo.get_by(WorkflowApproval, approval_token: token)
+    Repo.get_by(StepApproval, approval_token: token)
   end
 
-  @doc "Returns the pending WorkflowApproval for a run, or nil."
-  @spec get_pending_approval(binary(), keyword()) :: WorkflowApproval.t() | nil
+  @doc "Returns the pending StepApproval for a run, or nil."
+  @spec get_pending_approval(binary(), keyword()) :: StepApproval.t() | nil
   def get_pending_approval(run_id, _opts \\ []) do
-    Repo.get_by(WorkflowApproval, workflow_run_id: run_id, status: "pending")
+    Repo.get_by(StepApproval, workflow_run_id: run_id, status: "pending")
   end
 
   @doc """
   Approves a waiting workflow run, completing the approval step and resuming execution.
 
-  Looks up the pending `WorkflowApproval` for the run and the `"waiting"` StepRun,
+  Looks up the pending `StepApproval` for the run and the `"waiting"` StepRun,
   marks both as completed/approved in a transaction, transitions the run to `"paused"`,
   then calls `resume_run/2`. The approval data flows to downstream steps via
   ActionWrapper's resume idempotency cache.
@@ -671,11 +671,11 @@ defmodule Zaq.Engine.Workflows do
   Returns `{:error, :not_waiting}` if the run is not in `"waiting"` state.
   Returns `{:error, :already_decided}` if the approval has already been acted on.
   """
-  @spec approve_run(WorkflowRun.t(), WorkflowApproval.t(), map(), String.t() | nil, keyword()) ::
+  @spec approve_step(WorkflowRun.t(), StepApproval.t(), map(), String.t() | nil, keyword()) ::
           {:ok, WorkflowRun.t()} | {:error, :not_waiting | :already_decided | term()}
-  def approve_run(
+  def approve_step(
         %WorkflowRun{} = run,
-        %WorkflowApproval{} = approval,
+        %StepApproval{} = approval,
         decision,
         approved_by,
         _opts \\ []
@@ -687,7 +687,7 @@ defmodule Zaq.Engine.Workflows do
 
         {:ok, _} =
           approval
-          |> WorkflowApproval.changeset(%{
+          |> StepApproval.changeset(%{
             status: "approved",
             decision: decision,
             approved_by: approved_by,
@@ -713,11 +713,11 @@ defmodule Zaq.Engine.Workflows do
   Returns `{:error, :not_waiting}` if the run is not in `"waiting"` state.
   Returns `{:error, :already_decided}` if the approval has already been acted on.
   """
-  @spec reject_run(WorkflowRun.t(), WorkflowApproval.t(), String.t(), String.t() | nil, keyword()) ::
+  @spec reject_step(WorkflowRun.t(), StepApproval.t(), String.t(), String.t() | nil, keyword()) ::
           {:ok, WorkflowRun.t()} | {:error, :not_waiting | :already_decided | term()}
-  def reject_run(
+  def reject_step(
         %WorkflowRun{} = run,
-        %WorkflowApproval{} = approval,
+        %StepApproval{} = approval,
         reason,
         approved_by,
         _opts \\ []
@@ -729,7 +729,7 @@ defmodule Zaq.Engine.Workflows do
 
         {:ok, _} =
           approval
-          |> WorkflowApproval.changeset(%{
+          |> StepApproval.changeset(%{
             status: "rejected",
             approved_by: approved_by,
             approved_at: now
@@ -802,7 +802,7 @@ defmodule Zaq.Engine.Workflows do
   defp validate_run_waiting(%WorkflowRun{status: "waiting"}), do: :ok
   defp validate_run_waiting(_), do: {:error, :not_waiting}
 
-  defp validate_approval_pending(%WorkflowApproval{status: "pending"}), do: :ok
+  defp validate_approval_pending(%StepApproval{status: "pending"}), do: :ok
   defp validate_approval_pending(_), do: {:error, :already_decided}
 
   @doc "Returns the first Step.Run for a run with the given step name, or nil."

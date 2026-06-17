@@ -42,7 +42,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
       # => {:ok, %{notified: true, channel_identifier: "jad@example.com", status: :dispatched}}
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "notify_person",
     description: "Notify a person via a configured channel medium (email, mattermost, slack…).",
     schema: [
@@ -79,8 +79,6 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
       range: [type: :string, required: false],
       values: [type: {:list, {:list, :any}}, required: false]
     ]
-
-  use Zaq.Engine.Workflows.Action
 
   alias Zaq.Accounts.People
   alias Zaq.Engine.Notifications

@@ -24,7 +24,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
       # => {:ok, %{output: "Hi John..."}}
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "run_agent",
     description: "Run a named configured agent with template-variable substitution.",
     schema: [
@@ -39,51 +39,70 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
       output: [type: :string, required: true, doc: "Agent response text."]
     ]
 
-  use Zaq.Engine.Workflows.Action
-
   require Logger
 
   alias Zaq.Agent
-  alias Zaq.Agent.Executor
-  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Event
+  alias Zaq.NodeRouter
 
   @impl Jido.Action
   def run(%{agent_name: agent_name, input: input} = params, context) do
-    executor = Map.get(context, :executor, Executor)
-
     case Agent.get_agent_by_name(agent_name) do
-      {:ok, agent} ->
-        vars = build_vars(params)
-        system_prompt = substitute(agent.job || "", vars)
-        resolved_input = substitute(input, vars)
-
-        run_id = Map.get(context, :run_id) || Map.get(context, "run_id")
-
-        incoming = %Incoming{
-          content: resolved_input,
-          channel_id: "workflow:#{run_id || "anon"}",
-          author_id: "workflow",
-          provider: :workflow
-        }
-
-        outgoing =
-          executor.run(incoming,
-            agent_id: agent.id,
-            system_prompt: system_prompt,
-            scope: "workflow:run:#{run_id || "anon"}",
-            skip_permissions: true
-          )
-
-        if outgoing.metadata[:error] do
-          {:error, "agent_failed:#{outgoing.metadata[:reason] || "unknown"}"}
-        else
-          {:ok, %{output: outgoing.body}}
-        end
-
-      {:error, :agent_not_found} ->
-        {:error, "agent_not_found:#{agent_name}"}
+      {:ok, agent} -> dispatch_agent_run(agent, input, params, context)
+      {:error, :agent_not_found} -> {:error, "agent_not_found:#{agent_name}"}
     end
   end
+
+  defp dispatch_agent_run(agent, input, params, context) do
+    node_router = Map.get(context, :node_router, NodeRouter)
+    vars = build_vars(params)
+    system_prompt = substitute(agent.job || "", vars)
+    resolved_input = substitute(input, vars)
+    run_id = Map.get(context, :run_id) || Map.get(context, "run_id")
+
+    # provider: nil keeps this a node-internal request — the agent node's
+    # `:run_pipeline` handler runs its pre-run verification (identity, prompt
+    # guard, scoping) and returns the %Outgoing{} directly instead of routing it
+    # to a delivery channel.
+    incoming = %Incoming{
+      content: resolved_input,
+      channel_id: "workflow:#{run_id || "anon"}",
+      author_id: "workflow",
+      provider: nil
+    }
+
+    incoming
+    |> build_event(agent.id, system_prompt)
+    |> node_router.dispatch()
+    |> Map.get(:response)
+    |> handle_response()
+  end
+
+  defp build_event(incoming, agent_id, system_prompt) do
+    incoming
+    |> Event.new(:agent,
+      opts: [
+        action: :run_pipeline,
+        pipeline_opts: [system_prompt: system_prompt, skip_permissions: true]
+      ]
+    )
+    |> Map.put(:assigns, %{agent_selection: %{agent_id: agent_id}})
+  end
+
+  defp handle_response(%Outgoing{} = outgoing) do
+    if error_metadata?(outgoing.metadata) do
+      reason = outgoing.metadata[:reason] || "unknown"
+      {:error, "agent_failed:#{reason}"}
+    else
+      {:ok, %{output: outgoing.body}}
+    end
+  end
+
+  defp handle_response({:error, reason}), do: {:error, "agent_failed:#{inspect(reason)}"}
+  defp handle_response(other), do: {:error, "agent_failed:#{inspect(other)}"}
+
+  defp error_metadata?(metadata), do: is_map(metadata) and metadata[:error]
 
   # Build substitution vars from all params except the action-level ones.
   #

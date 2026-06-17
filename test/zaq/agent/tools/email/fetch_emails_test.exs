@@ -1,7 +1,8 @@
 defmodule Zaq.Agent.Tools.Email.FetchEmailsTest do
-  use ExUnit.Case, async: false
+  use Zaq.DataCase, async: false
 
   alias Zaq.Agent.Tools.Email.FetchEmails
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.TestSupport.FakeImapServer
 
   defp with_public_key_stub(source, fun) do
@@ -68,6 +69,71 @@ defmodule Zaq.Agent.Tools.Email.FetchEmailsTest do
           assert {:error, :invalid_imap_url} = FetchEmails.run(%{imap_config: config}, %{})
         end
       )
+    end
+  end
+
+  describe "workflow callbacks" do
+    test "on_failure/2 logs and returns :ok" do
+      assert :ok = FetchEmails.on_failure(:imap_timeout, %{})
+    end
+  end
+
+  describe "run/2 — database-backed IMAP config" do
+    setup do
+      {:ok, _smtp} =
+        ChannelConfig.upsert_by_provider("email:smtp", %{
+          name: "SMTP",
+          provider: "email:smtp",
+          kind: "retrieval",
+          enabled: true,
+          settings: %{"smtp" => %{}}
+        })
+
+      {:ok, server} =
+        start_supervised(
+          {FakeImapServer,
+           [
+             message: %{
+               uid: 43,
+               subject: "DB Config Subject",
+               from_name: "Alice",
+               from_mailbox: "alice",
+               from_host: "example.com",
+               message_id: "<msg-43@example.com>",
+               rfc822: "RAW BODY"
+             },
+             seen: false
+           ]}
+        )
+
+      config = FakeImapServer.config(server)
+
+      {:ok, _imap} =
+        ChannelConfig.upsert_by_provider("email:imap", %{
+          name: "IMAP",
+          provider: "email:imap",
+          kind: "retrieval",
+          url: config.url,
+          token: config.password,
+          enabled: true,
+          settings: %{
+            "imap" => %{
+              "username" => config.username,
+              "ssl" => config.ssl,
+              "timeout" => config.timeout,
+              "selected_mailboxes" => ["INBOX"]
+            }
+          }
+        })
+
+      {:ok, server: server}
+    end
+
+    test "loads and normalizes the enabled email:imap ChannelConfig", %{server: _server} do
+      assert {:ok, %{emails: emails, count: 1}, logs: logs} = FetchEmails.run(%{}, %{})
+
+      assert [%{"subject" => "DB Config Subject"}] = emails
+      assert [%{metadata: %{mailbox: "INBOX", count: 1}}] = logs
     end
   end
 

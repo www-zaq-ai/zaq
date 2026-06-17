@@ -6,7 +6,7 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailbox do
 
   # THIS JIDO ACTION IS FOR TESTING PURPOSES
   # IT WILL GET REMOVED IN THE FUTURE
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "notify_empty_mailbox",
     schema: [
       notify_address: [type: :string, required: true]
@@ -19,8 +19,6 @@ defmodule Zaq.Agent.Tools.Email.NotifyEmptyMailbox do
   require Logger
 
   alias Zaq.Engine.Notifications.EmailNotification
-
-  use Zaq.Engine.Workflows.Action
 
   @impl Zaq.Engine.Workflows.Action
   def on_failure(error, _context) do
