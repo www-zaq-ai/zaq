@@ -21,13 +21,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   alias ZaqWeb.Live.BO.Communication.MessageHelpers
   alias ZaqWeb.Live.BO.PreviewHelpers
 
-  import ZaqWeb.Helpers.DateFormat,
-    only: [
-      format_time: 1,
-      format_date: 1,
-      inject_date_separators: 1,
-      inject_relative_date_separators: 1
-    ]
+  import ZaqWeb.Chat.Composer, only: [composer: 1]
+  import ZaqWeb.Chat.ConversationsSidebar, only: [conversations_sidebar: 1]
+  import ZaqWeb.Chat.Modals, only: [delete_confirm_modal: 1, feedback_modal: 1]
+  import ZaqWeb.Chat.SuggestedPrompts, only: [suggested_prompts: 1]
+  import ZaqWeb.Chat.Transcript, only: [transcript: 1]
 
   require Logger
 
