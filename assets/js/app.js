@@ -363,7 +363,14 @@ const liveSocket = new LiveSocket("/live", Socket, {
       mounted() {
         const el = this.el
 
+        // Only grow from real content. Empty fields otherwise pick up a huge `scrollHeight`
+        // from the wrapped placeholder, which misaligns the send button beside the composer.
         this.resize = () => {
+          if (!el.value) {
+            el.style.height = ""
+            return
+          }
+
           el.style.height = "auto"
           el.style.height = Math.min(el.scrollHeight, 160) + "px"
         }
@@ -381,11 +388,11 @@ const liveSocket = new LiveSocket("/live", Socket, {
           }
         })
 
-        this.resize()
+        if (el.value) this.resize()
       },
       updated() {
         if (this.el.value === "") {
-          this.el.style.height = "auto"
+          this.el.style.height = ""
         } else {
           this.resize()
         }

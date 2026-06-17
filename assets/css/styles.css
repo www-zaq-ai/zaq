@@ -631,6 +631,140 @@ pre.zaq-file-preview-body {
   border-radius: var(--zaq-scale-4);
 }
 
+/* BO chat — composer (`ZaqWeb.Chat.Composer`): footer, chips, @ source autocomplete, input, send */
+.zaq-chat-composer-footer {
+  flex-shrink: 0;
+  border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-raised);
+  padding: var(--zaq-scale-16) var(--zaq-scale-24);
+}
+
+.zaq-chat-composer-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+  padding: var(--zaq-scale-2) var(--zaq-scale-8);
+  border-radius: var(--zaq-scale-999);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-accent);
+  background: var(--zaq-surface-color-accent);
+  color: var(--zaq-text-color-body-accent);
+  transition: opacity 0.15s ease;
+}
+
+.zaq-chat-composer-filter-chip:hover {
+  opacity: 0.8;
+}
+
+/* @-triggered source list (`filter_suggestions`) — not `SuggestedPrompts` starter chips */
+.zaq-chat-composer-filter-autocomplete {
+  background: var(--zaq-surface-color-raised);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  border-radius: var(--zaq-scale-12);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  max-height: 240px;
+  z-index: 20;
+  overflow-y: auto;
+}
+
+.zaq-chat-composer-filter-autocomplete__connector {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+  padding: var(--zaq-scale-8) var(--zaq-scale-12) var(--zaq-scale-4);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--zaq-surface-color-raised);
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-chat-composer-filter-autocomplete [data-suggestion-item] {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-8);
+  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  color: var(--zaq-text-color-body-default);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.zaq-chat-composer-filter-autocomplete [data-suggestion-item]:hover {
+  background: var(--zaq-surface-color-accent);
+}
+
+.zaq-chat-composer-filter-autocomplete [data-suggestion-item][data-type="current_folder"] {
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+/* Hook wrapper + textarea: stretch to the row cross-size so the control is not shorter than the flex item (Chrome). */
+.zaq-chat-composer-field-wrap {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--zaq-scale-40);
+}
+
+.zaq-chat-composer-field-wrap > .zaq-chat-composer-input {
+  flex: 1 1 auto;
+  min-height: var(--zaq-scale-40);
+}
+
+.zaq-chat-composer-filter-autocomplete button[data-select-folder-item] {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+  padding: var(--zaq-scale-2) var(--zaq-scale-8);
+  border: none;
+  border-radius: var(--zaq-scale-8);
+  background: transparent;
+  color: var(--zaq-text-color-body-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.zaq-chat-composer-filter-autocomplete button[data-select-folder-item]:hover {
+  background: var(--zaq-surface-color-accent);
+  color: var(--zaq-text-color-body-accent);
+}
+
+.zaq-chat-composer-input {
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  border-radius: var(--zaq-scale-12);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  background: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-default);
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.zaq-chat-composer-input:focus {
+  outline: none;
+}
+
+.zaq-chat-composer-input:focus-visible {
+  outline: var(--zaq-scale-2) solid var(--zaq-border-color-accent);
+  outline-offset: var(--zaq-scale-2);
+  border-color: var(--zaq-border-color-accent);
+}
+
+.zaq-chat-composer-input:disabled {
+  cursor: not-allowed;
+  background: var(--zaq-surface-color-base);
+  border-color: var(--zaq-border-color-default);
+  color: var(--zaq-text-color-body-tertiary);
+}
+
 /* BO chat — transcript: date hairline + thinking card (`ZaqWeb.Chat.Transcript`) */
 .zaq-chat-transcript__date-rule {
   flex: 1;
