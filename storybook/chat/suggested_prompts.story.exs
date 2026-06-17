@@ -3,7 +3,10 @@ defmodule Storybook.Chat.SuggestedPrompts do
 
   def function, do: &ZaqWeb.Chat.SuggestedPrompts.suggested_prompts/1
 
-  def description, do: "BO Chat — starter question chips (`ZaqWeb.Chat`)."
+  def description,
+    do:
+      "BO Chat — starter question chips (`ZaqWeb.Chat`). " <>
+        "Not the @-source picker in the composer; see the **Composer** story (`with_at_source_autocomplete`)."
 
   def variations do
     [
