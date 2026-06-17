@@ -631,16 +631,26 @@ pre.zaq-file-preview-body {
   border-radius: var(--zaq-scale-4);
 }
 
-/* BO chat — column header (agent + delete); spacing uses --zaq-scale-8 / --zaq-scale-16 only */
+/* BO chat — shared header bar (agent column + conversations sidebar first row) */
 .zaq-chat-header-bar {
+  box-sizing: border-box;
   display: flex;
   flex-shrink: 0;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
   gap: var(--zaq-scale-8);
-  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  min-height: calc(
+    var(--zaq-scale-8) + var(--zaq-scale-8) + var(--zaq-scale-40)
+  );
+  padding: var(--zaq-scale-8) var(--zaq-scale-8);
   border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
   background: var(--zaq-surface-color-raised);
+}
+
+/* Conversations strip: same bar as agent column, different main-axis alignment */
+.zaq-chat-conversations-sidebar > .zaq-chat-header-bar {
+  justify-content: space-between;
 }
 
 /* Fills viewport under BO header; negative margins cancel #bo-main slot `p-8` bleed to edges */
@@ -652,4 +662,59 @@ pre.zaq-file-preview-body {
   margin-right: calc(-1 * var(--zaq-scale-32));
   margin-bottom: calc(-1 * var(--zaq-scale-32));
   margin-left: calc(-1 * var(--zaq-scale-32));
+}
+
+/* BO chat — conversations list column (left rail); token-only — do not reuse .zaq-sidebar* */
+.zaq-chat-conversations-sidebar {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: calc(14 * var(--zaq-scale-16));
+  overflow: hidden;
+  border-right: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-chat-conversations-sidebar__empty {
+  padding: var(--zaq-scale-24) var(--zaq-scale-16);
+  text-align: center;
+}
+
+/* BO chat — conversations list item selector */
+.zaq-chat-conversations-sidebar__row {
+  box-sizing: border-box;
+  width: 100%;
+  text-align: left;
+  display: block;
+  padding: var(--zaq-scale-16) var(--zaq-scale-16);
+  margin: 0;
+  border: none;
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.zaq-chat-conversations-sidebar__row:hover {
+  background: var(--zaq-surface-color-base);
+}
+
+.zaq-chat-conversations-sidebar__row[aria-current="page"] {
+  background: var(--zaq-surface-color-accent);
+}
+
+.zaq-chat-conversations-sidebar__row[aria-current="page"]:hover {
+  background: var(--zaq-surface-color-accent);
+}
+
+.zaq-chat-conversations-sidebar__row > p {
+  color: var(--zaq-text-color-body-default);
+}
+
+.zaq-chat-conversations-sidebar__row:hover > p {
+  color: var(--zaq-text-color-body-accent);
+}
+
+.zaq-chat-conversations-sidebar__row[aria-current="page"] > p {
+  color: var(--zaq-text-color-body-accent);
 }
