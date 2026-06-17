@@ -574,3 +574,69 @@ pre.zaq-file-preview-body {
   background: var(--zaq-bg-loading-default);
   transition: width 150ms ease;
 }
+
+/* BO chat — page shell + transcript scrollbar; message slide-in + msg-actions shared with conversation detail / ChatMessage */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(var(--zaq-scale-16));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--zaq-scale-16)));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.2s ease-out;
+}
+
+.msg-actions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.group:hover .msg-actions {
+  opacity: 1;
+}
+
+#chat-messages::-webkit-scrollbar {
+  width: var(--zaq-scale-4);
+}
+
+#chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#chat-messages::-webkit-scrollbar-thumb {
+  background: var(--zaq-surface-color-elevated);
+  border-radius: var(--zaq-scale-4);
+}
+
+/* Fills viewport under BO header; negative margins cancel #bo-main slot `p-8` bleed to edges */
+.zaq-chat-page-shell {
+  display: flex;
+  overflow: hidden;
+  height: calc(100vh - var(--zaq-scale-56));
+  margin-top: calc(-1 * var(--zaq-scale-32));
+  margin-right: calc(-1 * var(--zaq-scale-32));
+  margin-bottom: calc(-1 * var(--zaq-scale-32));
+  margin-left: calc(-1 * var(--zaq-scale-32));
+}

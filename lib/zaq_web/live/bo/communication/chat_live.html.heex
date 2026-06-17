@@ -13,34 +13,7 @@
     current_path={@current_path}
     features_version={@features_version}
   >
-    <style>
-      @keyframes slide-in-right {
-        from { opacity: 0; transform: translateX(12px); }
-        to   { opacity: 1; transform: translateX(0); }
-      }
-      @keyframes slide-in-left {
-        from { opacity: 0; transform: translateX(-12px); }
-        to   { opacity: 1; transform: translateX(0); }
-      }
-      .animate-slide-in-right { animation: slide-in-right 0.2s ease-out; }
-      .animate-slide-in-left  { animation: slide-in-left  0.2s ease-out; }
-
-      .msg-actions {
-        opacity: 0;
-        transition: opacity 0.15s ease;
-      }
-      .group:hover .msg-actions { opacity: 1; }
-
-      /* Scrollbar */
-      #chat-messages::-webkit-scrollbar { width: 4px; }
-      #chat-messages::-webkit-scrollbar-track { background: transparent; }
-      #chat-messages::-webkit-scrollbar-thumb { background: #d1cfc9; border-radius: 4px; }
-    </style>
-
-    <div
-      class="flex overflow-hidden -mx-8 -mb-8 -mt-8"
-      style="height: calc(100vh - 56px);"
-    >
+    <div class="zaq-chat-page-shell">
       <%!-- ── Conversations sidebar ──────────────────────────────── --%>
       <.conversations_sidebar
         conversations={@conversations}
