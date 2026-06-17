@@ -25,20 +25,20 @@ defmodule ZaqWeb.Chat.Transcript do
       id="chat-messages"
       phx-hook="ScrollBottom"
       class="flex-1 min-h-0 overflow-y-auto"
-      style="background-color: #f7f6f3;"
+      style="background-color: var(--zaq-surface-color-base);"
     >
       <div class="max-w-3xl mx-auto px-6 py-6 space-y-5">
         <%= for item <- inject_date_separators(@messages) do %>
           <%= if Map.get(item, :type) == :date_separator do %>
             <div class="flex items-center gap-3 my-1">
-              <div class="flex-1 h-px" style="background:#e8e6e1;"></div>
+              <div class="zaq-chat-transcript__date-rule"></div>
               <span
-                class="font-mono text-[0.62rem] uppercase tracking-widest"
-                style="color:#b8b5ae;"
+                class="zaq-text-caption uppercase tracking-widest"
+                style="color: var(--zaq-text-color-body-tertiary);"
               >
                 {format_date(item.date)}
               </span>
-              <div class="flex-1 h-px" style="background:#e8e6e1;"></div>
+              <div class="zaq-chat-transcript__date-rule"></div>
             </div>
           <% else %>
             <%= if item.role == :user do %>
@@ -52,7 +52,7 @@ defmodule ZaqWeb.Chat.Transcript do
                     phx-click="copy_message"
                     phx-value-text={item.body}
                     class="p-1 rounded transition-all"
-                    style="color: #b8b5ae;"
+                    style="color: var(--zaq-text-color-body-tertiary);"
                     title="Copy"
                   >
                     <svg
@@ -113,72 +113,62 @@ defmodule ZaqWeb.Chat.Transcript do
                 alt="ZAQ"
                 class="w-7 h-7 rounded-lg object-contain mt-0.5 animate-pulse flex-shrink-0"
               />
-              <div class="bg-white border border-[#e8e6e1] px-4 py-3 rounded-2xl rounded-bl-none shadow-sm">
-                <div class="flex items-center gap-3 mb-2">
-                  <div class={[
-                    "flex items-center gap-1.5 text-[0.68rem] font-mono transition-colors",
-                    if(@status in @busy_statuses,
-                      do: "text-[#03b6d4]",
-                      else: "text-[#c8c5be]"
-                    )
-                  ]}>
-                    <div class={[
-                      "w-1.5 h-1.5 rounded-full",
-                      if(@status in @busy_statuses,
-                        do: "bg-[#03b6d4]",
-                        else: "bg-[#e0ddd8]"
-                      )
-                    ]} /> Validating
+              <div>
+                <div class="mb-2 flex items-center gap-2">
+                  <div class="flex gap-1">
+                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:0ms]">
+                    </span>
+                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:150ms]">
+                    </span>
+                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:300ms]">
+                    </span>
                   </div>
-                  <div class={[
-                    "flex items-center gap-1.5 text-[0.68rem] font-mono transition-colors",
-                    if(@status in [:retrieving, :answering, :thinking, :tool_call, :mcp_call],
-                      do: "text-[#03b6d4]",
-                      else: "text-[#c8c5be]"
-                    )
-                  ]}>
-                    <div class={[
-                      "w-1.5 h-1.5 rounded-full",
-                      if(
-                        @status in [:retrieving, :answering, :thinking, :tool_call, :mcp_call],
-                        do: "bg-[#03b6d4]",
-                        else: "bg-[#e0ddd8]"
-                      )
-                    ]} /> Retrieving
+                  <span
+                    class="zaq-text-body-sm"
+                    style="color: var(--zaq-text-color-body-tertiary);"
+                  >
+                    {@status_message}
+                  </span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <div
+                    class="flex items-center gap-1.5 zaq-text-body-sm transition-colors"
+                    style={
+                      if @status in @busy_statuses,
+                        do: "color: var(--zaq-text-color-body-accent);",
+                        else: "color: var(--zaq-text-color-body-tertiary);"
+                    }
+                  >
+                    <div class="w-1.5 h-1.5 shrink-0 rounded-full bg-current" /> Validating
                   </div>
-                  <div class={[
-                    "flex items-center gap-1.5 text-[0.68rem] font-mono transition-colors",
-                    if(@status in [:answering, :thinking, :tool_call, :mcp_call],
-                      do: "text-[#03b6d4]",
-                      else: "text-[#c8c5be]"
-                    )
-                  ]}>
-                    <div class={[
-                      "w-1.5 h-1.5 rounded-full",
-                      if(@status in [:answering, :thinking, :tool_call, :mcp_call],
-                        do: "bg-[#03b6d4]",
-                        else: "bg-[#e0ddd8]"
-                      )
-                    ]} /> Answering
+                  <div
+                    class="flex items-center gap-1.5 zaq-text-body-sm transition-colors"
+                    style={
+                      if @status in [:retrieving, :answering, :thinking, :tool_call, :mcp_call],
+                        do: "color: var(--zaq-text-color-body-accent);",
+                        else: "color: var(--zaq-text-color-body-tertiary);"
+                    }
+                  >
+                    <div class="w-1.5 h-1.5 shrink-0 rounded-full bg-current" /> Retrieving
+                  </div>
+                  <div
+                    class="flex items-center gap-1.5 zaq-text-body-sm transition-colors"
+                    style={
+                      if @status in [:answering, :thinking, :tool_call, :mcp_call],
+                        do: "color: var(--zaq-text-color-body-accent);",
+                        else: "color: var(--zaq-text-color-body-tertiary);"
+                    }
+                  >
+                    <div class="w-1.5 h-1.5 shrink-0 rounded-full bg-current" /> Answering
                   </div>
                   <div
                     :if={@status in [:tool_call, :mcp_call]}
-                    class="flex items-center gap-1.5 text-[0.68rem] font-mono text-[#03b6d4] transition-colors"
+                    class="flex items-center gap-1.5 zaq-text-body-sm transition-colors"
+                    style="color: var(--zaq-text-color-body-accent);"
                   >
-                    <div class="w-1.5 h-1.5 rounded-full bg-[#03b6d4]" />
+                    <div class="w-1.5 h-1.5 shrink-0 rounded-full bg-current" />
                     {if @status == :mcp_call, do: "MCP", else: "Tool"}
                   </div>
-                </div>
-                <div class="flex items-center gap-2">
-                  <div class="flex gap-1">
-                    <span class="w-1.5 h-1.5 bg-[#03b6d4] rounded-full animate-bounce [animation-delay:0ms]">
-                    </span>
-                    <span class="w-1.5 h-1.5 bg-[#03b6d4] rounded-full animate-bounce [animation-delay:150ms]">
-                    </span>
-                    <span class="w-1.5 h-1.5 bg-[#03b6d4] rounded-full animate-bounce [animation-delay:300ms]">
-                    </span>
-                  </div>
-                  <span class="text-[0.78rem]" style="color:#9e9b94;">{@status_message}</span>
                 </div>
               </div>
             </div>
