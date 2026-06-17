@@ -467,7 +467,7 @@ defmodule Zaq.Agent.ExecutorTest do
         event: event
       )
 
-      assert_received {:coverage_ask, _content, _configured_agent, tool_context, _extra_refs}
+      assert_received {:coverage_ask, _content, _configured_agent, tool_context}
       assert tool_context.actor == actor
     end
 
@@ -484,7 +484,7 @@ defmodule Zaq.Agent.ExecutorTest do
         scope: "coverage"
       )
 
-      assert_received {:coverage_ask, _content, _configured_agent, tool_context, _extra_refs}
+      assert_received {:coverage_ask, _content, _configured_agent, tool_context}
       assert is_nil(tool_context.actor)
     end
 
