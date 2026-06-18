@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.13.0](https://github.com/www-zaq-ai/zaq/compare/v0.12.0...v0.13.0) (2026-06-18)
+
+
+### Features
+
+* **ingestion:** stream PDF image-to-text progress to BO jobs panel ([c83baed](https://github.com/www-zaq-ai/zaq/commit/c83baed5f8bb9fda7f6c12fc868b356303d61916))
+* **onboarding:** record portal_registered consent for 409 email conflict ([604092b](https://github.com/www-zaq-ai/zaq/commit/604092bd9809dad481c2fa356fe0f48914887b43))
+
+
+### Bug Fixes
+
+* **channels:** display capabilities for all available channels (even if disabled or not configured) ([ffc9118](https://github.com/www-zaq-ai/zaq/commit/ffc9118375e6241c0407e4160201c257cbcebf2a))
+* **channels:** normalize configs to ensure tokens are decrypted ([39f45ac](https://github.com/www-zaq-ai/zaq/commit/39f45ac21f7b25a2e4fee16b4a43d367d33577db))
+* do not start the app if the SYSTEM_CONFIG_ENCRYPTION_KEY is not provided ([cc196c7](https://github.com/www-zaq-ai/zaq/commit/cc196c71f5ce791826eeac02c14bc638da3197e4))
+* **ingestion:** keep dotted literals matchable in BM25 search ([30c9512](https://github.com/www-zaq-ai/zaq/commit/30c95125e5498ed6b810e7682c8c3ec21641b483))
+* **ingestion:** preserve document headings by storing chunk title separately ([37ad45e](https://github.com/www-zaq-ai/zaq/commit/37ad45eedd8388b735ffc2454fb9318ac16d3315))
+* **ingestion:** redact malformed progress lines and clamp prep indicator ([1bffa51](https://github.com/www-zaq-ai/zaq/commit/1bffa512cb11e83f6d5164b75932c1b60ef5c069))
+* **ingestion:** volume base_path with default at volume base root ([dfced0e](https://github.com/www-zaq-ai/zaq/commit/dfced0e5cfca6c8b260fa9174efc0a04b2c38dd9))
+* **live:** correct prep progress stage labeling and gate active prep jobs in O(1) ([a9065e1](https://github.com/www-zaq-ai/zaq/commit/a9065e1c93a55069229be925c1397418c8703f5e))
+* **live:** prevent stale ingestion prep indicator on retry, straggler, and orphaned jobs ([f3b4151](https://github.com/www-zaq-ai/zaq/commit/f3b4151ae6255c0c19285845955592566c1ba95f))
+* **onboarding:** scaffold zaq router credential on retry 409 conflict ([b8464e1](https://github.com/www-zaq-ai/zaq/commit/b8464e1eac22bb096bf785047c020723a99b289d))
+
+
+### Refactoring
+
+* (BO) chat shell layout and animation styles into a common css page ([dfd9302](https://github.com/www-zaq-ai/zaq/commit/dfd93024615d184b0445ccd2387f0f40d96e0e21))
+* (BO) design migrate transcript component in chat page ([4fe0790](https://github.com/www-zaq-ai/zaq/commit/4fe0790fa3cc12987e138225d066cb1d9a3edf76))
+* (BO) design migrate user bubble in chat ([602ae00](https://github.com/www-zaq-ai/zaq/commit/602ae009caa1932208378dd9b44a4ff46e56c538))
+* (BO) design migration chat history sidebar ([6b48979](https://github.com/www-zaq-ai/zaq/commit/6b48979e90f00f5a0f12fd85a22345860abbc174))
+* (BO) design migration composer element in chat ([ac9623f](https://github.com/www-zaq-ai/zaq/commit/ac9623f4d64fe393ea116522a41dcdd9c8bdf8a9))
+* (BO) design migration header of chat ([58f4e17](https://github.com/www-zaq-ai/zaq/commit/58f4e1757a5fff813dd7ce791251bd5d50a11418))
+* (BO) design migration of assistant bubble component and use cases ([4546f9d](https://github.com/www-zaq-ai/zaq/commit/4546f9dc1214fc29aca7f4dbeea53e744e7266cb))
+* (BO) design migration of suggested prompts in chat page ([ca8001a](https://github.com/www-zaq-ai/zaq/commit/ca8001a9709d86a9a7e677a1257badbd625ee4f0))
+* (BO) extract components from chat page ([14d6e35](https://github.com/www-zaq-ai/zaq/commit/14d6e35a3c456700e37dc787682f4d93654c0e5b))
+* (BO) extract components from History page ([734345e](https://github.com/www-zaq-ai/zaq/commit/734345ea62c9a8a57b5911c9331afb1891e63a36))
+* (BO) migrate design of status badge used in dashboard ([d987d4c](https://github.com/www-zaq-ai/zaq/commit/d987d4c7e911caf0fb095e8c282ed3b1a5d10692))
+* (Storybook) adjuste stories of thumbs up/down/copy to show on assistant bubble ([f7619d7](https://github.com/www-zaq-ai/zaq/commit/f7619d7401a86cb4fbddff3f222130e64671c3c4))
+* (Storybook) reorganising story documentation ([7ba4ee5](https://github.com/www-zaq-ai/zaq/commit/7ba4ee5e9cddf3c41ed31c779a642f2af7945522))
+* **channels:** restore capabilities granularity and future proofing synthetic config ([2c4a1ea](https://github.com/www-zaq-ai/zaq/commit/2c4a1ea5f24c346aa95b2f51d1c44b29cfcf0f5a))
+* **ingestion:** drop chunk title column and title generation ([ed949b9](https://github.com/www-zaq-ai/zaq/commit/ed949b95ab7643981607c756246f839693aa16ee))
+* **ingestion:** make pdf/docx/xlsx converters injectable for testing ([1924326](https://github.com/www-zaq-ai/zaq/commit/19243261508b336acf9d337633d5ec2d546e3df4))
+* **onboarding:** register in zaq before provisioning portal ([7908c35](https://github.com/www-zaq-ai/zaq/commit/7908c35a032e0f4d32d40caf5bdada3bf1a0b18d))
+
 ## [0.12.0](https://github.com/www-zaq-ai/zaq/compare/v0.11.0...v0.12.0) (2026-06-16)
 
 
