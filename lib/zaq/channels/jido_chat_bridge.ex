@@ -25,7 +25,16 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Jido.Chat.Adapter
   alias Jido.Chat.Capabilities
   alias Jido.Chat.Thread
-  alias Zaq.Channels.{Bridge, ChannelConfig, RetrievalChannel, Supervisor}
+
+  alias Zaq.Channels.{
+    Bridge,
+    ChannelConfig,
+    IngressRuntimeStatus,
+    MattermostAdmin,
+    RetrievalChannel,
+    Supervisor
+  }
+
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
@@ -105,6 +114,8 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   @impl true
   def start_runtime(config) do
+    config = ChannelConfig.to_runtime_config(config)
+
     ensure_runtime_started(config, runtime_bridge_id(config), [])
   end
 
@@ -113,6 +124,9 @@ defmodule Zaq.Channels.JidoChatBridge do
         %{enabled: true} = before_config,
         %{enabled: true} = after_config
       ) do
+    before_config = ChannelConfig.to_runtime_config(before_config)
+    after_config = ChannelConfig.to_runtime_config(after_config)
+
     cond do
       runtime_restart_required?(before_config, after_config) ->
         restart_runtime(after_config)
@@ -129,24 +143,31 @@ defmodule Zaq.Channels.JidoChatBridge do
   def sync_provider_runtime(%{enabled: false} = config), do: stop_runtime(config)
 
   def sync_provider_runtime(%{enabled: true} = config),
-    do: Bridge.restart_runtime(__MODULE__, config)
+    do: Bridge.restart_runtime(__MODULE__, ChannelConfig.to_runtime_config(config))
 
   @impl true
   def sync_runtime(before_config, after_config)
 
   def sync_runtime(nil, %{enabled: true} = after_config) do
+    after_config = ChannelConfig.to_runtime_config(after_config)
+
     with :ok <- start_runtime(after_config) do
       ensure_ingress_on_enabled(after_config)
     end
   end
 
   def sync_runtime(%{enabled: false}, %{enabled: true} = after_config) do
+    after_config = ChannelConfig.to_runtime_config(after_config)
+
     with :ok <- start_runtime(after_config) do
       ensure_ingress_on_enabled(after_config)
     end
   end
 
   def sync_runtime(%{enabled: true} = before_config, %{enabled: false} = after_config) do
+    before_config = ChannelConfig.to_runtime_config(before_config)
+    after_config = ChannelConfig.to_runtime_config(after_config)
+
     stop_result = stop_runtime(after_config)
 
     case teardown_ingress_on_disabled(before_config, after_config) do
@@ -157,6 +178,9 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   def sync_runtime(%{enabled: true} = before_config, %{enabled: true} = after_config) do
+    before_config = ChannelConfig.to_runtime_config(before_config)
+    after_config = ChannelConfig.to_runtime_config(after_config)
+
     cond do
       runtime_restart_required?(before_config, after_config) ->
         restart_runtime(after_config)
@@ -195,6 +219,12 @@ defmodule Zaq.Channels.JidoChatBridge do
         {:ok,
          %{status: :unsupported, mode: to_string(other), summary: "Ingress mode is not supported"}}
     end
+  end
+
+  @doc false
+  def record_ingress_runtime_status(bridge_id, status)
+      when is_binary(bridge_id) and is_map(status) do
+    IngressRuntimeStatus.put(bridge_id, status)
   end
 
   @impl true
@@ -694,6 +724,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp start_runtime_for_bridge_id(config, bridge_id, runtime_opts) do
+    IngressRuntimeStatus.delete(bridge_id)
+
     with {:ok, state_spec} <- state_child_spec(config, bridge_id),
          {:ok, listeners} <- listener_specs(config, bridge_id, runtime_opts),
          {:ok, _runtime} <-
@@ -730,6 +762,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp restart_runtime(config) do
+    config |> runtime_bridge_id() |> IngressRuntimeStatus.delete()
     Bridge.restart_runtime(__MODULE__, config)
   end
 
@@ -789,6 +822,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       bridge_id: bridge_id,
       ingress: ingress,
       sink_mfa: sink_mfa_for(config),
+      status_mfa: {__MODULE__, :record_ingress_runtime_status, []},
       sink_opts: [transport: ingress_mode, bridge_id: bridge_id]
     ]
   end
@@ -812,30 +846,37 @@ defmodule Zaq.Channels.JidoChatBridge do
       {:ok, %{listener_pids: listener_pids, state_pid: state_pid}} ->
         alive_listener_count = Enum.count(listener_pids, &Process.alive?/1)
         state_alive = is_pid(state_pid) and Process.alive?(state_pid)
+        recorded_status = IngressRuntimeStatus.get(bridge_id)
 
-        if state_alive or alive_listener_count > 0 do
-          {:ok,
-           %{
-             status: :ok,
-             mode: Atom.to_string(mode),
-             summary: "Ingress listener runtime is running",
-             details: %{
-               bridge_id: bridge_id,
-               state_pid: inspect(state_pid),
-               state_alive: state_alive,
-               listeners_total: length(listener_pids),
-               listeners_alive: alive_listener_count
-             }
-           }}
-        else
-          {:ok,
-           %{
-             status: :error,
-             mode: Atom.to_string(mode),
-             summary: "Ingress runtime exists but no process is alive",
-             reason: :runtime_not_alive,
-             details: %{bridge_id: bridge_id}
-           }}
+        cond do
+          runtime_status_error?(recorded_status) ->
+            {:ok,
+             recorded_status
+             |> Map.put_new(:mode, Atom.to_string(mode))
+             |> Map.update(:details, %{bridge_id: bridge_id}, fn details ->
+               details
+               |> status_details_map()
+               |> Map.put_new(:bridge_id, bridge_id)
+             end)}
+
+          state_alive or alive_listener_count > 0 ->
+            listener_connection_status(config, mode, %{
+              bridge_id: bridge_id,
+              state_pid: inspect(state_pid),
+              state_alive: state_alive,
+              listeners_total: length(listener_pids),
+              listeners_alive: alive_listener_count
+            })
+
+          true ->
+            {:ok,
+             %{
+               status: :error,
+               mode: Atom.to_string(mode),
+               summary: "Ingress runtime exists but no process is alive",
+               reason: :runtime_not_alive,
+               details: %{bridge_id: bridge_id}
+             }}
         end
 
       {:error, :not_running} ->
@@ -851,6 +892,51 @@ defmodule Zaq.Channels.JidoChatBridge do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp runtime_status_error?(%{status: :error}), do: true
+  defp runtime_status_error?(%{"status" => :error}), do: true
+  defp runtime_status_error?(%{"status" => "error"}), do: true
+  defp runtime_status_error?(_status), do: false
+
+  defp status_details_map(details) when is_map(details), do: details
+  defp status_details_map(details), do: %{details: details}
+
+  defp listener_connection_status(
+         %{provider: "mattermost", url: url, token: token, check_connection: true},
+         mode,
+         details
+       ) do
+    case MattermostAdmin.fetch_bot_user_id(url, token) do
+      {:ok, _user_id} ->
+        {:ok,
+         %{
+           status: :ok,
+           mode: Atom.to_string(mode),
+           summary: "Ingress listener runtime is running",
+           details: details
+         }}
+
+      {:error, reason} ->
+        {:ok,
+         %{
+           status: :error,
+           mode: Atom.to_string(mode),
+           summary: "Mattermost ingress credentials are not accepted",
+           reason: reason,
+           details: details
+         }}
+    end
+  end
+
+  defp listener_connection_status(_config, mode, details) do
+    {:ok,
+     %{
+       status: :ok,
+       mode: Atom.to_string(mode),
+       summary: "Ingress listener runtime is running",
+       details: details
+     }}
   end
 
   defp webhook_ingress_status(config) do
