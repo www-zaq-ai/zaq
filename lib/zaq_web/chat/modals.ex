@@ -88,6 +88,7 @@ defmodule ZaqWeb.Chat.Modals do
                 <button
                   phx-click="toggle_feedback_reason"
                   phx-value-reason={reason}
+                  data-reason-selected={to_string(reason in @feedback_reasons)}
                   class="px-3.5 py-1.5 rounded-full text-sm border transition-all duration-150"
                   style={
                     if reason in @feedback_reasons,

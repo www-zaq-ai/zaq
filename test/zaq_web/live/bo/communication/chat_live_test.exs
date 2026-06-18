@@ -759,7 +759,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     |> element(~s(button[phx-click="feedback"][phx-value-type="positive"]))
     |> render_click()
 
-    assert render(view) =~ "bg-emerald-50 text-emerald-500"
+    assert has_element?(
+             view,
+             ~s(button[phx-click="feedback"][phx-value-type="positive"][data-feedback-active="true"])
+           )
 
     view
     |> element(~s(button[phx-click="feedback"][phx-value-type="negative"]))
@@ -771,20 +774,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     |> element(~s(button[phx-click="toggle_feedback_reason"][phx-value-reason="Too slow"]))
     |> render_click()
 
-    assert render(view) =~ "background:#03b6d4; color:white; border-color:#03b6d4;"
+    assert has_element?(
+             view,
+             ~s(button[phx-click="toggle_feedback_reason"][phx-value-reason="Too slow"][data-reason-selected="true"])
+           )
 
     view
     |> element(~s(button[phx-click="toggle_feedback_reason"][phx-value-reason="Too slow"]))
     |> render_click()
 
-    refute render(view) =~ "background:#03b6d4; color:white; border-color:#03b6d4;"
+    refute has_element?(
+             view,
+             ~s(button[phx-click="toggle_feedback_reason"][phx-value-reason="Too slow"][data-reason-selected="true"])
+           )
 
     render_hook(view, "update_feedback_comment", %{"comment" => "details"})
     assert render(view) =~ "details"
 
     render_hook(view, "submit_feedback", %{})
     refute has_element?(view, "#feedback-modal")
-    assert render(view) =~ "bg-red-50 text-red-400"
+
+    assert has_element?(
+             view,
+             ~s(button[phx-click="feedback"][phx-value-type="negative"][data-feedback-active="true"])
+           )
   end
 
   test "pipeline branch prompt injection is blocked", %{conn: conn} do

@@ -307,6 +307,7 @@ defmodule ZaqWeb.Components.ChatMessage do
       phx-click="feedback"
       phx-value-id={@message_id}
       phx-value-type="positive"
+      data-feedback-active={to_string(@feedback == :positive)}
       class="zaq-chat-message__icon-btn"
       style={
         if @feedback == :positive,
@@ -343,6 +344,7 @@ defmodule ZaqWeb.Components.ChatMessage do
       phx-click="feedback"
       phx-value-id={@message_id}
       phx-value-type="negative"
+      data-feedback-active={to_string(@feedback == :negative)}
       class="zaq-chat-message__icon-btn"
       style={
         if @feedback == :negative,
