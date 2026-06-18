@@ -244,7 +244,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   def capability_snapshot(config) when is_map(config) do
     with {:ok, adapter} <- adapter_for(config.provider) do
       normalized_capabilities = Capabilities.channel_capabilities(adapter)
-      adapter_capabilities = declared_adapter_capabilities(adapter)
+      adapter_capabilities = Adapter.capabilities(adapter)
+      declared_capabilities = declared_adapter_capabilities(adapter)
       ingress_mode = ingress_mode_for(config.provider)
 
       resolved =
@@ -255,6 +256,7 @@ defmodule Zaq.Channels.JidoChatBridge do
             capability,
             normalized_capabilities,
             adapter_capabilities,
+            declared_capabilities,
             ingress_mode,
             adapter
           )
@@ -977,6 +979,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          capability,
          normalized_capabilities,
          adapter_capabilities,
+         declared_capabilities,
          ingress_mode,
          adapter
        ) do
@@ -984,6 +987,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            capability,
            normalized_capabilities,
            adapter_capabilities,
+           declared_capabilities,
            ingress_mode,
            adapter
          ) do
@@ -996,6 +1000,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          :mode,
          _normalized_capabilities,
          _adapter_capabilities,
+         _declared_capabilities,
          ingress_mode,
          _adapter
        ),
@@ -1005,6 +1010,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          :edit_messages,
          _normalized_capabilities,
          adapter_capabilities,
+         declared_capabilities,
          _ingress_mode,
          adapter
        ) do
@@ -1013,7 +1019,8 @@ defmodule Zaq.Channels.JidoChatBridge do
     else
       # `edit_messages` is a ZAQ BO diagnostic capability, not part of
       # `Jido.Chat.Capabilities`; keep this local bridge drift explicit.
-      raw_capability_value(:edit_messages, adapter_capabilities) ||
+      raw_capability_value(:edit_messages, declared_capabilities) ||
+        raw_capability_value(:edit_message, declared_capabilities) ||
         raw_capability_value(:edit_message, adapter_capabilities)
     end
   end
@@ -1021,11 +1028,40 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp capability_value(
          capability,
          normalized_capabilities,
-         _adapter_capabilities,
+         adapter_capabilities,
+         _declared_capabilities,
          _ingress_mode,
          _adapter
        ) do
-    if capability in normalized_capabilities, do: true
+    if capability in normalized_capabilities do
+      public_capability_value(capability, adapter_capabilities) || true
+    end
+  end
+
+  defp public_capability_value(capability, adapter_capabilities) do
+    capability
+    |> public_capability_keys()
+    |> Enum.map(&raw_capability_value(&1, adapter_capabilities))
+    |> best_capability_value()
+  end
+
+  defp public_capability_keys(:file), do: [:file, :send_file, :post_message]
+  defp public_capability_keys(:image), do: [:image, :send_file, :post_message]
+  defp public_capability_keys(:audio), do: [:audio, :send_file, :post_message]
+  defp public_capability_keys(:video), do: [:video, :send_file, :post_message]
+  defp public_capability_keys(:streaming), do: [:streaming, :stream]
+  defp public_capability_keys(:reactions), do: [:reactions, :add_reaction, :remove_reaction]
+  defp public_capability_keys(:threads), do: [:threads, :open_thread, :list_threads]
+  defp public_capability_keys(:typing), do: [:typing, :start_typing]
+  defp public_capability_keys(capability), do: [capability]
+
+  defp best_capability_value(values) do
+    cond do
+      :native in values -> :native
+      :fallback in values -> :fallback
+      true in values -> true
+      true -> nil
+    end
   end
 
   defp raw_capability_value(capability, raw_capabilities) when is_map(raw_capabilities) do
@@ -1036,7 +1072,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp raw_capability_value(_capability, _raw_capabilities), do: nil
 
-  defp normalize_raw_capability_value(value) when value in [true, :native, :fallback], do: true
+  defp normalize_raw_capability_value(value) when value in [true, :native, :fallback], do: value
 
   defp normalize_raw_capability_value(value)
        when value in [false, nil, :unsupported, "unsupported"],
@@ -1045,7 +1081,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp normalize_raw_capability_value(value), do: value
 
   defp declared_adapter_capabilities(adapter) do
-    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :capabilities, 0) do
+    if function_exported?(adapter, :capabilities, 0) do
       adapter.capabilities()
     else
       Adapter.capabilities(adapter)
