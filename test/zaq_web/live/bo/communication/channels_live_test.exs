@@ -88,7 +88,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     def send_message(_channel_id, _message), do: fetch_state(:send_message, {:ok, %{id: "sent"}})
     def clear_channel(_channel_id), do: fetch_state(:clear_channel, :ok)
     def list_teams(_cfg), do: fetch_state(:list_teams, {:ok, []})
-    def list_public_channels(_cfg, _team_id), do: fetch_state(:list_public_channels, {:ok, []})
+
+    def list_accessible_channels(_cfg, _team_id),
+      do: fetch_state(:list_accessible_channels, {:ok, []})
+
+    def fetch_user(_cfg, user_id) do
+      users = fetch_state(:fetch_users, %{})
+      Map.get(users, user_id, {:error, :not_found})
+    end
+
     def fetch_bot_user_id(_url, _token), do: fetch_state(:fetch_bot_user_id, {:ok, "bot-user-1"})
 
     def put(key, value), do: put_state(key, value)
@@ -656,8 +664,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     assert [{nil, created_after}, {edited_before, edited_after}] = BridgeFake.calls(:sync_runtime)
     assert created_after.name == "Mattermost Alpha"
+    assert created_after.token == "token-alpha"
     assert edited_before.name == "Mattermost Alpha"
+    assert edited_before.token == "token-alpha"
     assert edited_after.name == "Mattermost Beta"
+    assert edited_after.token == "token-beta"
   end
 
   test "edit modal shows existing token and blank save preserves it", %{
@@ -803,7 +814,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   end
 
   test "fetch_teams and select_team support success and error paths", %{conn: conn} do
-    config = insert_channel_config(%{})
+    config =
+      insert_channel_config(%{settings: %{"jido_chat" => %{"bot_user_id" => "bot-user-1"}}})
+
     insert_retrieval_channel(config)
 
     MattermostAPIFake.put(
@@ -812,13 +825,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     )
 
     MattermostAPIFake.put(
-      :list_public_channels,
+      :list_accessible_channels,
       {:ok,
        [
          %{id: "channel-1", display_name: "engineering", purpose: "", type: "O"},
-         %{id: "channel-2", display_name: "qa", purpose: "QA", type: "O"}
+         %{id: "channel-2", display_name: "qa", purpose: "QA", type: "P"},
+         %{id: "dm-1", display_name: "", name: "bot-user-1__user-2", purpose: "", type: "D"},
+         %{id: "group-1", display_name: "", name: "Incident room", purpose: "", type: "G"}
        ]}
     )
+
+    MattermostAPIFake.put(:fetch_users, %{
+      "user-2" => {:ok, %{id: "user-2", first_name: "Ada", last_name: "Lovelace"}}
+    })
 
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
@@ -827,17 +846,50 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert render(view) =~ "Platform"
 
     render_hook(view, "select_team", %{"team_id" => "t1", "team_name" => "Platform"})
-    assert render(view) =~ "Public Channels in Platform"
+    assert render(view) =~ "Channels in Platform"
+    assert render(view) =~ "Private channels appear when the bot is a member"
     assert has_element?(view, "button[phx-click='add_channel'][phx-value-channel-id='channel-2']")
+    assert has_element?(view, "#available-channel-channel-2[data-channel-kind='private']")
+    assert has_element?(view, "#available-channel-dm-1[data-channel-kind='dm']")
+    assert has_element?(view, "#available-channel-group-1[data-channel-kind='group_dm']")
+    assert render(view) =~ "Direct message with Ada Lovelace"
+
+    assert has_element?(
+             view,
+             "button[phx-click='add_channel'][phx-value-channel-id='dm-1'][phx-value-channel-name='Direct message with Ada Lovelace']"
+           )
+
+    assert render(view) =~ "Incident room"
     refute has_element?(view, "button[phx-click='add_channel'][phx-value-channel-id='channel-1']")
+
+    MattermostAPIFake.put(
+      :list_accessible_channels,
+      {:ok, [%{id: "channel-3", display_name: "ops", purpose: "Ops", type: "P"}]}
+    )
+
+    render_hook(view, "refresh_channels", %{})
+    assert has_element?(view, "button[phx-click='add_channel'][phx-value-channel-id='channel-3']")
 
     MattermostAPIFake.put(:list_teams, {:error, :unauthorized})
     render_hook(view, "fetch_teams", %{})
     assert render(view) =~ "Failed to load teams"
 
-    MattermostAPIFake.put(:list_public_channels, {:error, :timeout})
+    MattermostAPIFake.put(:list_accessible_channels, {:error, :timeout})
     render_hook(view, "select_team", %{"team_id" => "t1", "team_name" => "Platform"})
     assert render(view) =~ "Failed to load channels"
+  end
+
+  test "fetch_teams keeps browse action visible when bot has no teams", %{conn: conn} do
+    insert_channel_config(%{})
+    MattermostAPIFake.put(:list_teams, {:ok, []})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    render_hook(view, "fetch_teams", %{})
+
+    assert has_element?(view, "#mattermost-empty-teams-notice")
+    assert has_element?(view, "button[phx-click='fetch_teams']", "Browse Channels")
+    assert render(view) =~ "Add the bot to at least one Mattermost team"
   end
 
   test "add_channel handles success and insert error", %{conn: conn} do
@@ -849,7 +901,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     )
 
     MattermostAPIFake.put(
-      :list_public_channels,
+      :list_accessible_channels,
       {:ok, [%{id: "c-2", display_name: "general", purpose: "", type: "O"}]}
     )
 

@@ -622,32 +622,32 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   # -------------------------------------------------------------------------
 
   def handle_event("fetch_teams", _params, socket) do
-    config = first_enabled_config(socket)
+    socket = assign(socket, :teams_status, :loading)
 
-    case config do
+    with %ChannelConfig{} = cfg <- first_enabled_config(socket),
+         {:ok, teams} <- mattermost_api().list_teams(cfg) do
+      teams_status = if teams == [], do: :empty, else: :ok
+
+      {:noreply,
+       socket
+       |> assign(:teams, teams)
+       |> assign(:teams_status, teams_status)
+       |> assign(:available_channels, [])
+       |> assign(:channels_status, :idle)
+       |> assign(:selected_team_id, nil)
+       |> assign(:selected_team_name, nil)}
+    else
       nil ->
-        {:noreply, put_flash(socket, :error, "No enabled Mattermost config found.")}
+        {:noreply,
+         socket
+         |> assign(:teams_status, :idle)
+         |> put_flash(:error, "No enabled Mattermost config found.")}
 
-      %ChannelConfig{} = cfg ->
-        socket = assign(socket, :teams_status, :loading)
-
-        case mattermost_api().list_teams(cfg) do
-          {:ok, teams} ->
-            {:noreply,
-             socket
-             |> assign(:teams, teams)
-             |> assign(:teams_status, :ok)
-             |> assign(:available_channels, [])
-             |> assign(:channels_status, :idle)
-             |> assign(:selected_team_id, nil)
-             |> assign(:selected_team_name, nil)}
-
-          {:error, reason} ->
-            {:noreply,
-             socket
-             |> assign(:teams, [])
-             |> assign(:teams_status, {:error, reason})}
-        end
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:teams, [])
+         |> assign(:teams_status, {:error, reason})}
     end
   end
 
@@ -666,6 +666,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
           |> assign(:channels_status, :loading)
 
         {:noreply, fetch_and_assign_channels(socket, cfg, team_id)}
+    end
+  end
+
+  def handle_event("refresh_channels", _params, socket) do
+    config = first_enabled_config(socket)
+
+    case {config, socket.assigns.selected_team_id} do
+      {nil, _team_id} ->
+        {:noreply, put_flash(socket, :error, "No enabled Mattermost config found.")}
+
+      {%ChannelConfig{} = cfg, team_id} when is_binary(team_id) and team_id != "" ->
+        socket = assign(socket, :channels_status, :loading)
+        {:noreply, fetch_and_assign_channels(socket, cfg, team_id)}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Select a Mattermost team first.")}
     end
   end
 
@@ -899,14 +915,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp fetch_and_assign_channels(socket, cfg, team_id) do
-    case mattermost_api().list_public_channels(cfg, team_id) do
+    case mattermost_api().list_accessible_channels(cfg, team_id) do
       {:ok, channels} ->
         existing_ids =
           socket.assigns.retrieval_channels
           |> Enum.map(& &1.channel_id)
           |> MapSet.new()
 
-        available = Enum.reject(channels, fn ch -> MapSet.member?(existing_ids, ch.id) end)
+        available =
+          channels
+          |> Enum.reject(fn ch -> MapSet.member?(existing_ids, ch.id) end)
+          |> Enum.map(&normalize_available_channel(&1, cfg))
 
         socket
         |> assign(:available_channels, available)
@@ -937,6 +956,88 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         put_flash(socket, :error, "Failed to add channel: #{errors}")
     end
   end
+
+  defp normalize_available_channel(channel, cfg) do
+    type = channel_value(channel, :type)
+
+    channel
+    |> Map.put(:channel_kind, channel_kind(type))
+    |> Map.put(:display_label, channel_display_label(channel, cfg, type))
+  end
+
+  defp channel_kind("P"), do: :private
+  defp channel_kind("D"), do: :dm
+  defp channel_kind("G"), do: :group_dm
+  defp channel_kind("O"), do: :public
+  defp channel_kind(_type), do: :channel
+
+  defp channel_display_label(channel, cfg, "D") do
+    with other_user_id when is_binary(other_user_id) <- dm_other_user_id(channel, cfg),
+         {:ok, user} <- mattermost_api().fetch_user(cfg, other_user_id),
+         label when is_binary(label) <- mattermost_user_label(user) do
+      "Direct message with #{label}"
+    else
+      _ -> channel_display_fallback(channel, "Direct message")
+    end
+  end
+
+  defp channel_display_label(channel, _cfg, "G") do
+    channel_display_fallback(channel, "Group message")
+  end
+
+  defp channel_display_label(channel, _cfg, _type) do
+    channel_display_fallback(channel, "Channel")
+  end
+
+  defp dm_other_user_id(channel, cfg) do
+    bot_user_id = jido_chat_bot_user_id(cfg)
+    name = channel_value(channel, :name)
+
+    if is_binary(bot_user_id) and is_binary(name) do
+      name
+      |> String.split("__", parts: 2)
+      |> Enum.reject(&(&1 == bot_user_id))
+      |> List.first()
+    end
+  end
+
+  defp mattermost_user_label(user) do
+    display_name = user |> channel_value(:display_name) |> blank_to_nil()
+    full_name = user |> channel_value(:full_name) |> blank_to_nil()
+    first_last_name = mattermost_first_last_name(user)
+    username = user |> channel_value(:username) |> blank_to_nil()
+
+    display_name || full_name || first_last_name || username
+  end
+
+  defp mattermost_first_last_name(user) do
+    first_name = user |> channel_value(:first_name) |> blank_to_nil()
+    last_name = user |> channel_value(:last_name) |> blank_to_nil()
+
+    [first_name, last_name]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+    |> blank_to_nil()
+  end
+
+  defp channel_display_fallback(channel, prefix) do
+    display_name = channel |> channel_value(:display_name) |> blank_to_nil()
+    name = channel |> channel_value(:name) |> blank_to_nil()
+    id = channel_value(channel, :id)
+
+    display_name || name || "#{prefix} #{id}"
+  end
+
+  defp channel_value(channel, key) when is_map(channel) do
+    Map.get(channel, key) || Map.get(channel, Atom.to_string(key))
+  end
+
+  defp blank_to_nil(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp blank_to_nil(value), do: value
 
   defp format_errors(%Ecto.Changeset{} = changeset) do
     ChangesetErrors.format(changeset,
@@ -1055,7 +1156,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
     event =
       Event.new(
-        %{before_config: before_config, after_config: after_config},
+        %{
+          before_config: ChannelConfig.to_runtime_config(before_config),
+          after_config: ChannelConfig.to_runtime_config(after_config)
+        },
         :channels,
         opts: [action: action]
       )
@@ -1357,8 +1461,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp ingress_status(%ChannelConfig{} = config) do
+    runtime_config =
+      config
+      |> ChannelConfig.to_runtime_config()
+      |> Map.put(:check_connection, true)
+
     event =
-      Event.new(%{provider: config.provider, config: config}, :channels,
+      Event.new(%{provider: config.provider, config: runtime_config}, :channels,
         opts: [action: :channel_ingress_status]
       )
 
