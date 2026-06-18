@@ -560,10 +560,10 @@ defmodule Zaq.Channels.BridgeTest do
 
       assert {:ok, snapshot} = Bridge.capability_snapshot(:mattermost)
       assert snapshot.kind == :communication
-      assert snapshot.resolved[:typing] == true
-      assert snapshot.resolved[:reactions] == true
-      assert snapshot.resolved[:streaming] == true
-      assert snapshot.resolved[:threads] == true
+      assert snapshot.resolved[:typing] == :native
+      assert snapshot.resolved[:reactions] == :native
+      assert snapshot.resolved[:streaming] == :fallback
+      assert snapshot.resolved[:threads] == :fallback
     end
 
     test "capability_snapshot uses disabled config when present" do
@@ -578,6 +578,8 @@ defmodule Zaq.Channels.BridgeTest do
       insert_config(:sharepoint, %{kind: "data_source", enabled: false})
 
       assert {:ok, snapshot} = Bridge.capability_snapshot(:sharepoint)
+      # A synthetic sharepoint config would normalize as :communication here;
+      # :data_source proves the disabled persisted config was used.
       assert snapshot.kind == :data_source
       assert snapshot.required == [:text, :image, :streaming]
     end

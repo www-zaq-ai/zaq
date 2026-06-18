@@ -372,14 +372,22 @@ defmodule Zaq.Channels.Bridge do
   defp synthetic_capability_config(provider) do
     provider_string = to_string(provider)
 
-    %{provider: provider_string, kind: synthetic_capability_kind(provider_string)}
+    %{
+      id: nil,
+      provider: provider_string,
+      kind: synthetic_capability_kind(provider_string),
+      url: nil,
+      token: nil,
+      enabled: false,
+      settings: %{}
+    }
     |> normalize_channel_config()
   end
 
   defp synthetic_capability_kind(provider) do
     case channel_definition(provider) do
       %{integration: _} -> "data_source"
-      _ -> "retrieval"
+      _ -> "communication"
     end
   end
 
@@ -458,6 +466,8 @@ defmodule Zaq.Channels.Bridge do
 
   defp capability_kind(%{kind: "data_source"}), do: :data_source
   defp capability_kind(%{"kind" => "data_source"}), do: :data_source
+  defp capability_kind(%{kind: "communication"}), do: :communication
+  defp capability_kind(%{"kind" => "communication"}), do: :communication
   defp capability_kind(_), do: :communication
 
   defp capability_resolved?(resolved, key) do

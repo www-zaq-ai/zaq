@@ -2344,13 +2344,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert resolved[:mode] == "gateway"
 
       # :text is always present in the normalized public jido_chat capabilities.
-      assert resolved[:text] == true
+      assert resolved[:text] == :native
 
       # Public capabilities are resolved through Jido.Chat.Capabilities.
-      assert resolved[:reactions] == true
-      assert resolved[:threads] == true
-      assert resolved[:typing] == true
-      assert resolved[:streaming] == true
+      assert resolved[:reactions] == :native
+      assert resolved[:threads] == :fallback
+      assert resolved[:typing] == :native
+      assert resolved[:streaming] == :fallback
 
       # Unsupported adapter statuses are omitted from resolved and reported by Bridge normalization.
       refute Map.has_key?(resolved, :image)
@@ -3851,7 +3851,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert {:ok, %{resolved: resolved}} =
                JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
 
-      assert resolved[:typing] == true
+      assert resolved[:typing] == :native
       refute Map.has_key?(resolved, :file)
       refute Map.has_key?(resolved, :audio)
     end
