@@ -630,6 +630,18 @@ pre.zaq-file-preview-body {
   background-color: var(--zaq-surface-color-elevated);
 }
 
+/* User-authored chat bubble: elevated surface, square bottom-right (speech tail) */
+.zaq-chat-user-bubble {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--zaq-scale-16) var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-16);
+  border-bottom-right-radius: 0;
+  background-color: var(--zaq-surface-color-elevated);
+  color: var(--zaq-text-color-body-default);
+}
+
 /* Flat source reference row (replaces chip cards under assistant messages) */
 .zaq-chat-source-row {
   display: flex;

@@ -4,7 +4,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   Shared chat bubble components used by ChatLive and ConversationDetailLive.
 
   Both views render the same user/assistant message design:
-  - User: right-aligned dark bubble
+  - User: right-aligned bubble on elevated surface (`.zaq-chat-user-bubble`)
   - Assistant: left-aligned column with ZAQ avatar, flat body on transcript surface,
     optional danger feedback for structured errors, source rows, confidence bar
 
@@ -32,7 +32,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   alias ZaqWeb.Live.BO.PreviewHelpers
 
   # ---------------------------------------------------------------------------
-  # User bubble (right-aligned, dark)
+  # User bubble (right-aligned, elevated surface)
   # ---------------------------------------------------------------------------
 
   attr :content, :string, required: true
@@ -47,8 +47,9 @@ defmodule ZaqWeb.Components.ChatMessage do
     ~H"""
     <div class="flex justify-end animate-slide-in-right">
       <div class="max-w-[70%]">
-        <div class="text-white px-4 py-3 rounded-2xl rounded-br-none shadow-sm zaq-bg-user-bubble">
-          <p class="text-[0.85rem] leading-relaxed whitespace-pre-wrap">{@body_html}</p>
+        <div class="zaq-chat-user-bubble">
+          <%!-- Use div (not p): body_html may include buttons from @-filters; p+interactive HTML breaks layout in browsers. --%>
+          <div class="zaq-text-body whitespace-pre-wrap">{@body_html}</div>
         </div>
         <div class="flex items-center justify-end gap-2 mt-1 pr-1">
           <span class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary);">
