@@ -42,6 +42,7 @@ defmodule Storybook.History.ConversationTable do
       assigns
       |> assign(:empty_selected, MapSet.new())
       |> assign(:both_selected, MapSet.new([id1, id2]))
+      |> assign(:first_row_selected, MapSet.new([id1]))
       |> assign(:conversations, conversations)
 
     ~H"""
@@ -68,7 +69,7 @@ defmodule Storybook.History.ConversationTable do
         </h2>
         <.conversation_table
           conversations={@conversations}
-          selected={MapSet.new([id1])}
+          selected={@first_row_selected}
           live_action={:index}
           is_admin={true}
           filter_scope="all"
