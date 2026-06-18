@@ -325,9 +325,10 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       %{
         text: :native,
         image: :unsupported,
-        reactions: :native,
-        threads: :fallback,
-        typing: :native,
+        add_reaction: :native,
+        open_thread: :fallback,
+        start_typing: :native,
+        stream: :fallback,
         file: :unsupported
       }
     end
@@ -347,7 +348,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   defmodule StubAdapterCapabilitiesNativeOnly do
     def capabilities do
-      %{typing: :native}
+      %{start_typing: :native}
     end
   end
 
@@ -2342,20 +2343,17 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       # :mode always returns ingress mode string
       assert resolved[:mode] == "gateway"
 
-      # :text returns :native from default capabilities
-      assert resolved[:text] == :native
+      # :text is always present in the normalized public jido_chat capabilities.
+      assert resolved[:text] == true
 
-      # :reactions returns :native from stub capabilities override
-      assert resolved[:reactions] == :native
+      # Public capabilities are resolved through Jido.Chat.Capabilities.
+      assert resolved[:reactions] == true
+      assert resolved[:threads] == true
+      assert resolved[:typing] == true
+      assert resolved[:streaming] == true
 
-      # :typing returns :native from stub capabilities override
-      assert resolved[:typing] == :native
-
-      # :image returns :unsupported (present, non-boolean)
-      assert resolved[:image] == :unsupported
-
-      # :streaming is absent (not in defaults or stub)
-      refute Map.has_key?(resolved, :streaming)
+      # Unsupported adapter statuses are omitted from resolved and reported by Bridge normalization.
+      refute Map.has_key?(resolved, :image)
 
       # :edit_messages is absent when adapter does not support edit_message/4
       refute Map.has_key?(resolved, :edit_messages)
@@ -2380,7 +2378,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert resolved[:edit_messages] == true
     end
 
-    test "retains unsupported capability values" do
+    test "omits unsupported public capabilities but keeps ZAQ edit_messages drift" do
       previous = Application.get_env(:zaq, :channels, %{})
 
       Application.put_env(:zaq, :channels, %{
@@ -2396,8 +2394,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert {:ok, %{resolved: resolved}} =
                JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
 
-      assert resolved[:edit_messages] == :unsupported
-      assert resolved[:file] == :unsupported
+      assert resolved[:edit_messages] == true
+      refute Map.has_key?(resolved, :file)
     end
   end
 
@@ -3837,7 +3835,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert opts[:target_url] == "https://zaq.example/channels/webhook/conversation/mattermost"
     end
 
-    test "capability_snapshot keeps native values and normalizes unsupported ones" do
+    test "capability_snapshot resolves public capabilities from adapter matrix" do
       previous = Application.get_env(:zaq, :channels, %{})
 
       Application.put_env(:zaq, :channels, %{
@@ -3853,9 +3851,9 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert {:ok, %{resolved: resolved}} =
                JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
 
-      assert resolved[:typing] == :native
-      assert resolved[:file] == :unsupported
-      assert resolved[:audio] == :unsupported
+      assert resolved[:typing] == true
+      refute Map.has_key?(resolved, :file)
+      refute Map.has_key?(resolved, :audio)
     end
   end
 

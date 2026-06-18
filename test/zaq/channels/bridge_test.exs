@@ -186,6 +186,17 @@ defmodule Zaq.Channels.BridgeTest do
     end
   end
 
+  defmodule StubJidoChatAdapter do
+    def capabilities do
+      %{
+        start_typing: :native,
+        add_reaction: :native,
+        stream: :fallback,
+        open_thread: :fallback
+      }
+    end
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -501,6 +512,74 @@ defmodule Zaq.Channels.BridgeTest do
       assert snapshot.unsupported == [:image, :streaming]
       assert snapshot.resolved == %{:text => true, "image" => false}
       assert snapshot.labels[:text] == "Text Support"
+    end
+
+    test "capability_snapshot works for data source provider without config" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :google_drive, %{
+          bridge: CapabilitySnapshotBridge,
+          integration: StubIntegration
+        })
+      )
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:google_drive)
+      assert snapshot.kind == :data_source
+      assert snapshot.required == [:text, :image, :streaming]
+    end
+
+    test "capability_snapshot works for communication provider without config" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :mattermost, %{bridge: CapabilitySnapshotBridge})
+      )
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:mattermost)
+      assert snapshot.kind == :communication
+      assert snapshot.required == [:text, :image, :streaming]
+    end
+
+    test "capability_snapshot normalizes jido_chat communication capabilities without config" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :mattermost, %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubJidoChatAdapter,
+          ingress_mode: :gateway
+        })
+      )
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:mattermost)
+      assert snapshot.kind == :communication
+      assert snapshot.resolved[:typing] == true
+      assert snapshot.resolved[:reactions] == true
+      assert snapshot.resolved[:streaming] == true
+      assert snapshot.resolved[:threads] == true
+    end
+
+    test "capability_snapshot uses disabled config when present" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :sharepoint, %{bridge: CapabilitySnapshotBridge})
+      )
+
+      insert_config(:sharepoint, %{kind: "data_source", enabled: false})
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:sharepoint)
+      assert snapshot.kind == :data_source
+      assert snapshot.required == [:text, :image, :streaming]
     end
 
     test "capability_resolved handles atom and string key fallback" do

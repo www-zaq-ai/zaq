@@ -349,11 +349,46 @@ defmodule Zaq.Channels.Bridge do
   @spec capability_snapshot(atom() | String.t()) :: {:ok, map()} | {:error, term()}
   def capability_snapshot(provider) do
     with {:ok, bridge} <- resolve_bridge(provider),
-         {:ok, config} <- fetch_channel_config(provider),
+         {:ok, config} <- fetch_capability_config(provider),
          true <- bridge_supports?(bridge, :capability_snapshot, 1) || {:error, :unsupported},
          {:ok, raw_snapshot} <- bridge.capability_snapshot(config) do
       {:ok, normalize_capability_snapshot(raw_snapshot, config)}
     end
+  end
+
+  defp fetch_capability_config(provider) do
+    case fetch_any_channel_config(provider) do
+      {:ok, config} ->
+        {:ok, config}
+
+      {:error, {:channel_not_configured, _}} ->
+        {:ok, synthetic_capability_config(provider)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp synthetic_capability_config(provider) do
+    provider_string = to_string(provider)
+
+    %{provider: provider_string, kind: synthetic_capability_kind(provider_string)}
+    |> normalize_channel_config()
+  end
+
+  defp synthetic_capability_kind(provider) do
+    case channel_definition(provider) do
+      %{integration: _} -> "data_source"
+      _ -> "retrieval"
+    end
+  end
+
+  defp channel_definition(provider) do
+    provider_key = provider_to_bridge_key(provider)
+
+    :zaq
+    |> Application.get_env(:channels, %{})
+    |> Map.get(provider_key, %{})
   end
 
   @doc "Synchronizes runtime processes when a channel config changes via centralized Bridge resolution."

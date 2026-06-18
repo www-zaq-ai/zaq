@@ -23,6 +23,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   alias Jido.Chat
   alias Jido.Chat.Adapter
+  alias Jido.Chat.Capabilities
   alias Jido.Chat.Thread
   alias Zaq.Channels.{Bridge, ChannelConfig, RetrievalChannel, Supervisor}
   alias Zaq.Channels.JidoChatBridge.State
@@ -242,13 +243,21 @@ defmodule Zaq.Channels.JidoChatBridge do
   @impl true
   def capability_snapshot(config) when is_map(config) do
     with {:ok, adapter} <- adapter_for(config.provider) do
-      raw_capabilities = Adapter.capabilities(adapter)
+      normalized_capabilities = Capabilities.channel_capabilities(adapter)
+      adapter_capabilities = declared_adapter_capabilities(adapter)
       ingress_mode = ingress_mode_for(config.provider)
 
       resolved =
         Bridge.required_capabilities(:communication)
         |> Enum.reduce(%{}, fn capability, acc ->
-          accumulate_capability(acc, capability, raw_capabilities, ingress_mode, adapter)
+          accumulate_capability(
+            acc,
+            capability,
+            normalized_capabilities,
+            adapter_capabilities,
+            ingress_mode,
+            adapter
+          )
         end)
 
       {:ok, %{resolved: resolved}}
@@ -963,37 +972,83 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp accumulate_capability(acc, capability, raw_capabilities, ingress_mode, adapter) do
-    case capability_value(capability, raw_capabilities, ingress_mode, adapter) do
+  defp accumulate_capability(
+         acc,
+         capability,
+         normalized_capabilities,
+         adapter_capabilities,
+         ingress_mode,
+         adapter
+       ) do
+    case capability_value(
+           capability,
+           normalized_capabilities,
+           adapter_capabilities,
+           ingress_mode,
+           adapter
+         ) do
       nil -> acc
       value -> Map.put(acc, capability, value)
     end
   end
 
-  defp capability_value(:edit_messages, raw_capabilities, _ingress_mode, adapter) do
+  defp capability_value(
+         :mode,
+         _normalized_capabilities,
+         _adapter_capabilities,
+         ingress_mode,
+         _adapter
+       ),
+       do: ingress_mode |> Atom.to_string()
+
+  defp capability_value(
+         :edit_messages,
+         _normalized_capabilities,
+         adapter_capabilities,
+         _ingress_mode,
+         adapter
+       ) do
     if function_exported?(adapter, :edit_message, 4) do
       true
     else
-      capability_value(:edit_messages, raw_capabilities, nil)
+      # `edit_messages` is a ZAQ BO diagnostic capability, not part of
+      # `Jido.Chat.Capabilities`; keep this local bridge drift explicit.
+      raw_capability_value(:edit_messages, adapter_capabilities) ||
+        raw_capability_value(:edit_message, adapter_capabilities)
     end
   end
 
-  defp capability_value(capability, raw_capabilities, ingress_mode, _adapter),
-    do: capability_value(capability, raw_capabilities, ingress_mode)
+  defp capability_value(
+         capability,
+         normalized_capabilities,
+         _adapter_capabilities,
+         _ingress_mode,
+         _adapter
+       ) do
+    if capability in normalized_capabilities, do: true
+  end
 
-  defp capability_value(:mode, _raw_capabilities, ingress_mode),
-    do: ingress_mode |> Atom.to_string()
+  defp raw_capability_value(capability, raw_capabilities) when is_map(raw_capabilities) do
+    raw_capabilities
+    |> Map.get(capability, Map.get(raw_capabilities, to_string(capability)))
+    |> normalize_raw_capability_value()
+  end
 
-  defp capability_value(capability, raw_capabilities, _ingress_mode) do
-    value =
-      Map.get(raw_capabilities, capability) ||
-        Map.get(raw_capabilities, to_string(capability))
+  defp raw_capability_value(_capability, _raw_capabilities), do: nil
 
-    case value do
-      true -> true
-      false -> nil
-      nil -> nil
-      other -> other
+  defp normalize_raw_capability_value(value) when value in [true, :native, :fallback], do: true
+
+  defp normalize_raw_capability_value(value)
+       when value in [false, nil, :unsupported, "unsupported"],
+       do: nil
+
+  defp normalize_raw_capability_value(value), do: value
+
+  defp declared_adapter_capabilities(adapter) do
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :capabilities, 0) do
+      adapter.capabilities()
+    else
+      Adapter.capabilities(adapter)
     end
   end
 
