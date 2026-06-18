@@ -31,7 +31,12 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanelTest do
           jobs: [job],
           status_filter: "all",
           prep_progress: %{
-            job.id => %{"label" => "page-1.png", "current" => 2, "total" => 5}
+            job.id => %{
+              "stage" => "image_to_text",
+              "label" => "page-1.png",
+              "current" => 2,
+              "total" => 5
+            }
           }
         )
 
@@ -48,12 +53,30 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanelTest do
         render_component(&IngestionJobsPanel.jobs_panel/1,
           jobs: [job],
           status_filter: "all",
-          prep_progress: %{job.id => %{"current" => 3, "total" => 4}}
+          prep_progress: %{
+            job.id => %{"stage" => "image_to_text", "current" => 3, "total" => 4}
+          }
         )
 
       assert html =~ "describing images 3/4"
       assert html =~ ~s(value="3")
       assert html =~ ~s(max="4")
+    end
+
+    test "renders generic progress text for a non-image-to-text stage" do
+      job = processing_job("generic.pdf")
+
+      html =
+        render_component(&IngestionJobsPanel.jobs_panel/1,
+          jobs: [job],
+          status_filter: "all",
+          prep_progress: %{job.id => %{"stage" => "pdf_to_md", "current" => 1, "total" => 7}}
+        )
+
+      assert html =~ "processing 1/7"
+      refute html =~ "describing images"
+      assert html =~ ~s(value="1")
+      assert html =~ ~s(max="7")
     end
 
     test "renders fallback prep text and default progress values" do
@@ -78,7 +101,9 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanelTest do
         render_component(&IngestionJobsPanel.jobs_panel/1,
           jobs: [job],
           status_filter: "all",
-          prep_progress: %{job.id => %{"current" => -1, "total" => 0}}
+          prep_progress: %{
+            job.id => %{"stage" => "image_to_text", "current" => -1, "total" => 0}
+          }
         )
 
       assert html =~ "describing images -1/0"
@@ -109,7 +134,9 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanelTest do
         render_component(&IngestionJobsPanel.jobs_panel/1,
           jobs: [job],
           status_filter: "all",
-          prep_progress: %{job.id => %{"current" => 5, "total" => 3}}
+          prep_progress: %{
+            job.id => %{"stage" => "image_to_text", "current" => 5, "total" => 3}
+          }
         )
 
       assert html =~ "describing images 5/3"

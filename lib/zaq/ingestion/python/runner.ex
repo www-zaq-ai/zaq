@@ -126,11 +126,24 @@ defmodule Zaq.Ingestion.Python.Runner do
   defp log_line("⚠" <> _ = line), do: Logger.warning("[Python] #{line}")
   defp log_line(line), do: Logger.info("[Python] #{line}")
 
-  @doc "Absolute path to the scripts directory"
+  @doc """
+  Absolute path to the scripts directory.
+
+  Resolves to the override under `config :zaq, #{inspect(__MODULE__)}, scripts_dir: ...`
+  when set (tests point this at a per-run temp directory to avoid mutating the
+  real `priv/` tree and to keep their suites `async: true`), otherwise falls back
+  to the bundled `priv/python/crawler-ingest`.
+  """
   def scripts_dir do
-    case :code.priv_dir(:zaq) do
-      {:error, _} -> Path.join(File.cwd!(), @scripts_dir)
-      priv -> Path.join(to_string(priv), "python/crawler-ingest")
+    case Application.get_env(:zaq, __MODULE__, [])[:scripts_dir] do
+      dir when is_binary(dir) ->
+        dir
+
+      _ ->
+        case :code.priv_dir(:zaq) do
+          {:error, _} -> Path.join(File.cwd!(), @scripts_dir)
+          priv -> Path.join(to_string(priv), "python/crawler-ingest")
+        end
     end
   end
 

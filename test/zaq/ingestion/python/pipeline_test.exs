@@ -362,27 +362,33 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
       }
       |> Map.merge(overrides)
 
-    backups =
-      for {name, content} <- scripts, into: %{} do
-        path = Path.join(Runner.scripts_dir(), name)
+    scripts_dir = with_temp_scripts_dir()
 
-        backup =
-          case File.read(path) do
-            {:ok, existing} -> {:ok, existing}
-            {:error, :enoent} -> :missing
-          end
+    for {name, content} <- scripts do
+      File.write!(Path.join(scripts_dir, name), content)
+    end
+  end
 
-        File.mkdir_p!(Path.dirname(path))
-        File.write!(path, content)
-        {path, backup}
-      end
+  # Points Runner.scripts_dir/0 at a throwaway temp directory (via the
+  # :scripts_dir config override) so tests never mutate the bundled
+  # priv/python/crawler-ingest tree.
+  defp with_temp_scripts_dir do
+    scripts_dir =
+      Path.join(System.tmp_dir!(), "zaq_scripts_#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(scripts_dir)
+    previous = Application.get_env(:zaq, Runner)
+    Application.put_env(:zaq, Runner, scripts_dir: scripts_dir)
 
     on_exit(fn ->
-      Enum.each(backups, fn
-        {path, {:ok, backup}} -> File.write!(path, backup)
-        {path, :missing} -> File.rm(path)
-      end)
+      if previous,
+        do: Application.put_env(:zaq, Runner, previous),
+        else: Application.delete_env(:zaq, Runner)
+
+      File.rm_rf!(scripts_dir)
     end)
+
+    scripts_dir
   end
 
   defp ensure_image_to_text_prompt!(body) do

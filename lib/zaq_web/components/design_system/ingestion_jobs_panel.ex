@@ -174,10 +174,17 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
 
   defp prep_text(%{"status" => "started"}), do: "analysing document…"
 
-  defp prep_text(%{"label" => label, "current" => c, "total" => t}) when is_binary(label),
-    do: "describing images #{c}/#{t} — #{label}"
+  # Image-to-text stage carries per-image counts; match the stage explicitly so
+  # a future step emitting current/total doesn't get mislabelled as image work.
+  defp prep_text(%{"stage" => "image_to_text", "label" => label, "current" => c, "total" => t})
+       when is_binary(label),
+       do: "describing images #{c}/#{t} — #{label}"
 
-  defp prep_text(%{"current" => c, "total" => t}), do: "describing images #{c}/#{t}"
+  defp prep_text(%{"stage" => "image_to_text", "current" => c, "total" => t}),
+    do: "describing images #{c}/#{t}"
+
+  # Generic fallback for any other Python step reporting current/total progress.
+  defp prep_text(%{"current" => c, "total" => t}), do: "processing #{c}/#{t}"
   defp prep_text(_), do: "preparing…"
 
   # Resolved progress value, clamped to [0, total] so a buggy script emitting

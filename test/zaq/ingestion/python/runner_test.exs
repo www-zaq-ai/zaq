@@ -23,6 +23,11 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
     test "returns an absolute path" do
       assert Path.type(Runner.scripts_dir()) == :absolute
     end
+
+    test "honors the :scripts_dir config override when set" do
+      override = with_temp_scripts_dir()
+      assert Runner.scripts_dir() == override
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -216,31 +221,23 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
       if System.find_executable(python) == nil do
         :ok
       else
-        scripts_dir = Runner.scripts_dir()
-        File.mkdir_p!(scripts_dir)
+        scripts_dir = with_temp_scripts_dir()
 
         id = System.unique_integer([:positive])
 
         prefix_name = "test_log_prefixes_#{id}.py"
-        prefix_path = Path.join(scripts_dir, prefix_name)
 
-        File.write!(prefix_path, """
+        File.write!(Path.join(scripts_dir, prefix_name), """
         print("\\u2717 something failed")
         print("\\u26a0 something warned")
         print("normal info line")
         """)
 
         long_name = "test_long_line_#{id}.py"
-        long_path = Path.join(scripts_dir, long_name)
 
-        File.write!(long_path, """
+        File.write!(Path.join(scripts_dir, long_name), """
         print("x" * 20000)
         """)
-
-        on_exit(fn ->
-          File.rm(prefix_path)
-          File.rm(long_path)
-        end)
 
         {:ok, script_name: prefix_name, long_script_name: long_name}
       end
@@ -294,14 +291,12 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
       if System.find_executable(python) == nil do
         :ok
       else
-        scripts_dir = Runner.scripts_dir()
-        File.mkdir_p!(scripts_dir)
+        scripts_dir = with_temp_scripts_dir()
 
         id = System.unique_integer([:positive])
         name = "test_progress_#{id}.py"
-        path = Path.join(scripts_dir, name)
 
-        File.write!(path, """
+        File.write!(Path.join(scripts_dir, name), """
         print("normal-before")
         print('ZAQ_PROGRESS {"stage": "image_to_text", "current": 1, "total": 2, "status": "processing", "label": "a.png"}')
         print("normal-mid")
@@ -311,7 +306,6 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
         print("normal-after")
         """)
 
-        on_exit(fn -> File.rm(path) end)
         {:ok, script_name: name}
       end
     end
@@ -435,5 +429,27 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
         Port.close(port)
         {:error, %{exit_code: :timeout, output: "timed out"}}
     end
+  end
+
+  # Points Runner.scripts_dir/0 at a throwaway temp directory (via the
+  # :scripts_dir config override) so tests never mutate the bundled
+  # priv/python/crawler-ingest tree.
+  defp with_temp_scripts_dir do
+    scripts_dir =
+      Path.join(System.tmp_dir!(), "zaq_scripts_#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(scripts_dir)
+    previous = Application.get_env(:zaq, Runner)
+    Application.put_env(:zaq, Runner, scripts_dir: scripts_dir)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:zaq, Runner, previous),
+        else: Application.delete_env(:zaq, Runner)
+
+      File.rm_rf!(scripts_dir)
+    end)
+
+    scripts_dir
   end
 end

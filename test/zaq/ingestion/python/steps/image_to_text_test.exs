@@ -128,18 +128,14 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
     {:ok, tmp_dir: tmp_dir}
   end
 
+  # Points Runner.scripts_dir/0 at a throwaway temp directory (via the
+  # :scripts_dir config override) and writes the fake script there, so tests
+  # never mutate the bundled priv/python/crawler-ingest tree.
   defp with_fake_image_to_text_script(opts \\ []) do
-    path = Path.join(Runner.scripts_dir(), "image_to_text.py")
-
-    backup =
-      case File.read(path) do
-        {:ok, existing} -> {:ok, existing}
-        {:error, :enoent} -> :missing
-      end
+    scripts_dir = with_temp_scripts_dir()
+    path = Path.join(scripts_dir, "image_to_text.py")
 
     exit_on_ping = Keyword.get(opts, :exit_on_ping, 0)
-
-    File.mkdir_p!(Path.dirname(path))
 
     File.write!(path, """
     import sys
@@ -150,12 +146,24 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
         sys.exit(#{exit_on_ping})
     sys.exit(0)
     """)
+  end
+
+  defp with_temp_scripts_dir do
+    scripts_dir =
+      Path.join(System.tmp_dir!(), "zaq_scripts_#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(scripts_dir)
+    previous = Application.get_env(:zaq, Runner)
+    Application.put_env(:zaq, Runner, scripts_dir: scripts_dir)
 
     on_exit(fn ->
-      case backup do
-        {:ok, existing} -> File.write!(path, existing)
-        :missing -> File.rm(path)
-      end
+      if previous,
+        do: Application.put_env(:zaq, Runner, previous),
+        else: Application.delete_env(:zaq, Runner)
+
+      File.rm_rf!(scripts_dir)
     end)
+
+    scripts_dir
   end
 end

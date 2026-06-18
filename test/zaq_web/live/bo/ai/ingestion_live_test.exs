@@ -1247,7 +1247,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       send(
         view.pid,
-        {:job_progress, job.id, %{"current" => 2, "total" => 3, "status" => "processing"}}
+        {:job_progress, job.id,
+         %{"stage" => "image_to_text", "current" => 2, "total" => 3, "status" => "processing"}}
       )
 
       assert render(view) =~ "describing images 2/3"
@@ -1269,7 +1270,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       send(
         view.pid,
-        {:job_progress, job.id, %{"current" => 1, "total" => 3, "status" => "processing"}}
+        {:job_progress, job.id,
+         %{"stage" => "image_to_text", "current" => 1, "total" => 3, "status" => "processing"}}
       )
 
       # Default TTL is 30 min, so an immediate sweep must not drop the entry.
