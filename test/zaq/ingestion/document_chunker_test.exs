@@ -1140,7 +1140,7 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
   # ---------------------------------------------------------------------------
   # chunk_sections/2 — unterminated final line (text.txt regression)
   #
-  # Reproduces the real document where the last line ("IP du load balancer:
+  # Reproduces a document where the last line ("Load balancer IP:
   # `10.0.0.42`") has NO trailing newline. Verifies that content on an
   # unterminated final line survives parse_layout/2 + chunk_sections/2 and is
   # not silently dropped.
@@ -1148,27 +1148,27 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
   describe "chunk_sections/2 unterminated final line" do
     @lb_lines [
-      "### Cluster Kubernetes",
-      "Je ne vais mettre ici que les informations qui ne sont pas accessible via l'interface d'admin de Scaleway",
+      "### Sample Cluster",
+      "This section contains placeholder notes used only to exercise the chunker.",
       "",
-      "Nom: k8s-ingestion",
-      "#### PVCs",
-      "- zaq-os-storage - type retain",
+      "Name: example-cluster",
+      "#### Storage",
+      "- example-storage - type retain",
       "",
       "#### Workloads",
-      "-  zaq-os",
-      "- crawl-ed-deployment (via UI)",
-      "- langfuse, langfuse-worker, chatvote-backend (@adelib ceux-la viennent de toi ? sont-ils exploités ?)",
+      "- example-app",
+      "- example-deployment",
+      "- example-worker, example-backend",
       "",
       "#### Services",
-      "- zaq-os",
-      "- crawl-ed-deployment",
-      "- plusieurs services pour qdrant et langfuse ?",
+      "- example-app",
+      "- example-deployment",
+      "- example-queue",
       "",
       "#### Ingress",
       "",
-      "J'ai installé traefik (nginx-ingress controller a été deprecié en mars 2026)",
-      "IP du load balancer: `10.0.0.42`"
+      "Ingress is handled by the example controller.",
+      "Load balancer IP: `10.0.0.42`"
     ]
 
     test "preserves the final load-balancer line when the document has no trailing newline" do
@@ -1180,7 +1180,7 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       chunks = DocumentChunker.chunk_sections(sections)
       combined = Enum.map_join(chunks, "\n", & &1.content)
 
-      assert String.contains?(combined, "load balancer"),
+      assert String.contains?(combined, "Load balancer"),
              "expected the load balancer line to survive chunking, got:\n#{combined}"
 
       assert String.contains?(combined, "10.0.0.42"),
@@ -1194,7 +1194,7 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       chunks = DocumentChunker.chunk_sections(sections)
       combined = Enum.map_join(chunks, "\n", & &1.content)
 
-      assert String.contains?(combined, "load balancer")
+      assert String.contains?(combined, "Load balancer")
       assert String.contains?(combined, "10.0.0.42")
     end
   end
