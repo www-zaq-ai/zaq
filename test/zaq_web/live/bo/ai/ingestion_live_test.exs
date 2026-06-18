@@ -1182,6 +1182,103 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       state = :sys.get_state(view.pid)
       refute Map.has_key?(state.socket.assigns.prep_progress, job.id)
     end
+
+    test "drops prep progress when the job is sent back to pending for retry", %{conn: conn} do
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      send(
+        view.pid,
+        {:job_progress, job.id, %{"current" => 1, "total" => 2, "status" => "processing"}}
+      )
+
+      assert render(view) =~ "Preparing"
+
+      # A retriable failure sends the job back to "pending" during Oban backoff.
+      retried =
+        Repo.get!(IngestJob, job.id)
+        |> IngestJob.changeset(%{status: "pending", total_chunks: 0})
+        |> Repo.update!()
+
+      send(view.pid, {:job_updated, retried})
+
+      state = :sys.get_state(view.pid)
+      refute Map.has_key?(state.socket.assigns.prep_progress, job.id)
+    end
+
+    test "ignores a straggler progress message that arrives after the job finished", %{conn: conn} do
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      send(
+        view.pid,
+        {:job_progress, job.id, %{"current" => 1, "total" => 2, "status" => "processing"}}
+      )
+
+      assert render(view) =~ "Preparing"
+
+      completed =
+        Repo.get!(IngestJob, job.id)
+        |> IngestJob.changeset(%{status: "completed", total_chunks: 2, ingested_chunks: 2})
+        |> Repo.update!()
+
+      send(view.pid, {:job_updated, completed})
+
+      # Out-of-order: a progress line emitted just before exit arrives late.
+      send(
+        view.pid,
+        {:job_progress, job.id, %{"current" => 2, "total" => 2, "status" => "processing"}}
+      )
+
+      state = :sys.get_state(view.pid)
+      refute Map.has_key?(state.socket.assigns.prep_progress, job.id)
+      refute render(view) =~ "Preparing"
+    end
+
+    test "prunes a stale prep entry left by an orphaned job after the TTL", %{conn: conn} do
+      Application.put_env(:zaq, :ingestion_prep_ttl_ms, 0)
+      on_exit(fn -> Application.delete_env(:zaq, :ingestion_prep_ttl_ms) end)
+
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      send(
+        view.pid,
+        {:job_progress, job.id, %{"current" => 2, "total" => 3, "status" => "processing"}}
+      )
+
+      assert render(view) =~ "describing images 2/3"
+
+      # No terminal broadcast ever arrives (orphaned job). With a zero TTL the
+      # sweep expires the numeric entry; the bar falls back to indeterminate.
+      send(view.pid, :prune_prep_progress)
+
+      state = :sys.get_state(view.pid)
+      refute Map.has_key?(state.socket.assigns.prep_progress, job.id)
+      refute Map.has_key?(state.socket.assigns.prep_seen_at, job.id)
+      refute render(view) =~ "describing images 2/3"
+    end
+
+    test "keeps a fresh prep entry that is still within the TTL", %{conn: conn} do
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      send(
+        view.pid,
+        {:job_progress, job.id, %{"current" => 1, "total" => 3, "status" => "processing"}}
+      )
+
+      # Default TTL is 30 min, so an immediate sweep must not drop the entry.
+      send(view.pid, :prune_prep_progress)
+
+      state = :sys.get_state(view.pid)
+      assert Map.has_key?(state.socket.assigns.prep_progress, job.id)
+      assert render(view) =~ "describing images 1/3"
+    end
   end
 
   # ────────────────────────────────────────────────────────────────

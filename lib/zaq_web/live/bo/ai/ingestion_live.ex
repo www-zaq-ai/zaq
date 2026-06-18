@@ -14,6 +14,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
   @ingestion_topic "ingestion:jobs"
 
+  # A "Preparing…" entry normally clears via a terminal job broadcast. If a job
+  # is orphaned (hard VM/node kill emits no Oban telemetry), that broadcast may
+  # never arrive and the bar would linger until Oban's orphan rescue. As a
+  # belt-and-suspenders bound, prune prep entries that have not received a fresh
+  # progress update within the Python runner's own timeout — matching
+  # `Zaq.Ingestion.Python.Runner` (30 min). Overridable in tests via
+  # `:ingestion_prep_ttl_ms`.
+  @prep_ttl_ms_default :timer.minutes(30)
+  @prep_prune_interval_ms :timer.minutes(1)
+
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, @ingestion_topic)
 
@@ -31,6 +41,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        jobs: [],
        # Transient PDF-prep progress, keyed by job id (not persisted)
        prep_progress: %{},
+       # Monotonic ms of the last progress update per prep entry, used to expire
+       # stale bars left behind by an orphaned (never-finalized) job.
+       prep_seen_at: %{},
        status_filter: "all",
        ingest_mode: "async",
        # Volume state
@@ -722,8 +735,31 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_info({:job_progress, job_id, payload}, socket) when is_map(payload) do
-    prep_progress = Map.put(socket.assigns.prep_progress, job_id, payload)
-    {:noreply, assign(socket, prep_progress: prep_progress)}
+    # Only record progress for a job the client still sees in its preparation
+    # phase. This drops stragglers that arrive after the job moved on (PubSub
+    # ordering is not guaranteed), which would otherwise re-show a bar on an
+    # already-finished or chunk-scheduled job.
+    if active_prep_job?(socket, job_id) do
+      {:noreply, record_prep_progress(socket, job_id, payload)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Periodic sweep: drop prep entries with no progress update within the TTL.
+  # Self-reschedules only while entries remain, so an idle panel stops ticking.
+  def handle_info(:prune_prep_progress, socket) do
+    now = :erlang.monotonic_time(:millisecond)
+    ttl = prep_ttl_ms()
+
+    stale =
+      for {id, seen_at} <- socket.assigns.prep_seen_at, now - seen_at >= ttl, do: id
+
+    socket = Enum.reduce(stale, socket, fn id, acc -> drop_prep_progress(acc, id) end)
+
+    if socket.assigns.prep_progress != %{}, do: schedule_prep_prune()
+
+    {:noreply, socket}
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -840,10 +876,54 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     drop_prep_progress(socket, id)
   end
 
+  # A retry sends the job back to "pending" during Oban backoff. No fresh
+  # progress arrives until the next attempt re-enters "processing", so drop the
+  # stale entry now instead of leaving a frozen bar through the backoff window.
+  defp clear_prep_progress_when_done(socket, %{id: id, status: "pending"}) do
+    drop_prep_progress(socket, id)
+  end
+
   defp clear_prep_progress_when_done(socket, _job), do: socket
 
+  # True when the client still holds this job in its preparation phase:
+  # present in the jobs list, "processing", and no chunks scheduled yet.
+  defp active_prep_job?(socket, job_id) do
+    Enum.any?(socket.assigns.jobs, fn job ->
+      job.id == job_id and job.status == "processing" and job.total_chunks == 0
+    end)
+  end
+
+  # Records a fresh progress payload and its timestamp, starting the prune
+  # sweep when this is the first live entry (so the timer only runs while there
+  # is something to expire).
+  defp record_prep_progress(socket, job_id, payload) do
+    was_empty = socket.assigns.prep_progress == %{}
+
+    socket =
+      assign(socket,
+        prep_progress: Map.put(socket.assigns.prep_progress, job_id, payload),
+        prep_seen_at:
+          Map.put(socket.assigns.prep_seen_at, job_id, :erlang.monotonic_time(:millisecond))
+      )
+
+    if was_empty, do: schedule_prep_prune()
+
+    socket
+  end
+
   defp drop_prep_progress(socket, id) do
-    assign(socket, prep_progress: Map.delete(socket.assigns.prep_progress, id))
+    assign(socket,
+      prep_progress: Map.delete(socket.assigns.prep_progress, id),
+      prep_seen_at: Map.delete(socket.assigns.prep_seen_at, id)
+    )
+  end
+
+  defp schedule_prep_prune do
+    Process.send_after(self(), :prune_prep_progress, @prep_prune_interval_ms)
+  end
+
+  defp prep_ttl_ms do
+    Application.get_env(:zaq, :ingestion_prep_ttl_ms, @prep_ttl_ms_default)
   end
 
   defp maybe_update_folder_public(_volume, _path, same, same), do: :ok
