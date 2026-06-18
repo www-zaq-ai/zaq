@@ -56,7 +56,10 @@ defmodule Zaq.Ingestion.FileExplorer do
           resolve_path_against_base(relative_path)
       end
     else
-      resolve_path_against_base(relative_path)
+      case Path.split(relative_path) do
+        ["default" | rest] when rest != [] -> resolve_path_against_base(Path.join(rest))
+        _ -> resolve_path_against_base(relative_path)
+      end
     end
   end
 

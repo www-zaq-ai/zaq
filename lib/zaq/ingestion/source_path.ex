@@ -160,7 +160,12 @@ defmodule Zaq.Ingestion.SourcePath do
 
   defp relative_to_root(path, root) do
     expanded_root = Path.expand(root)
-    prefix = expanded_root <> "/"
+
+    prefix =
+      case expanded_root do
+        "/" -> "/"
+        root -> root <> "/"
+      end
 
     if String.starts_with?(path, prefix) do
       String.replace_prefix(path, prefix, "")

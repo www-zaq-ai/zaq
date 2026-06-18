@@ -129,14 +129,13 @@ Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
 For containerized runs, ZAQ defaults to:
 
-- `INGESTION_VOLUMES=documents`
+- `INGESTION_VOLUMES=`
 - `INGESTION_VOLUMES_BASE=/zaq/volumes`
-- `INGESTION_BASE_PATH=/zaq/volumes/documents`
 
 When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists:
 
 ```bash
-mkdir -p ingestion-volumes/documents
+mkdir -p ingestion-volumes
 ```
 
 If using `./zaq-local.sh`, this folder is created automatically.

@@ -126,13 +126,13 @@ This path uses `docker-compose.yml` with:
 Defaults used by the Docker setup:
 
 - ingestion volume root: `/zaq/volumes`
-- default ingestion folder: `/zaq/volumes/documents`
-- named volume map: `documents -> /zaq/volumes/documents`
+- default ingestion folder: `/zaq/volumes`
+- named volume map: none; unset `INGESTION_VOLUMES` exposes `/zaq/volumes` as the default volume
 
 1. Create the host folder used by the default bind mount:
 
 ```bash
-mkdir -p ingestion-volumes/documents
+mkdir -p ingestion-volumes
 ```
 
 2. Set a production secret key base (required by `runtime.exs`):
@@ -147,9 +147,8 @@ export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 export BASE_URL_SCHEME="http"
 export BASE_URL="http://localhost:4000"
 
-export INGESTION_VOLUMES="documents"
+export INGESTION_VOLUMES=""
 export INGESTION_VOLUMES_BASE="/zaq/volumes"
-export INGESTION_BASE_PATH="/zaq/volumes/documents"
 ```
 
 LLM, embedding, and image-to-text provider/model settings are configured from Back Office at
@@ -199,9 +198,8 @@ docker compose down -v
 | ----------------------------------- | ------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                      | `ecto://postgres:postgres@pgvector:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database                                     |
 | `SECRET_KEY_BASE`                   | none                                              | Yes (prod runtime) | Generate with `openssl rand -hex 64`                                                  |
-| `INGESTION_VOLUMES`                 | `documents`                                       | No                 | Optional override                                                                     |
-| `INGESTION_VOLUMES_BASE`            | `/zaq/volumes`                                    | No                 | Optional override                                                                     |
-| `INGESTION_BASE_PATH`               | `/zaq/volumes/documents`                          | No                 | Fallback path used by file preview and file serving                                   |
+| `INGESTION_VOLUMES`                 | empty                                             | No                 | Optional comma-separated named volumes; empty exposes `INGESTION_VOLUMES_BASE`        |
+| `INGESTION_VOLUMES_BASE`            | `/zaq/volumes`                                    | No                 | Root path for ingestion storage and named volume subdirectories                       |
 | `OBAN_INGESTION_CONCURRENCY`        | `3`                                               | No                 | Number of document-level ingestion jobs processed in parallel                         |
 | `OBAN_INGESTION_CHUNKS_CONCURRENCY` | `6`                                               | No                 | Number of chunk child-jobs processed in parallel by `Zaq.Ingestion.IngestChunkWorker` |
 
