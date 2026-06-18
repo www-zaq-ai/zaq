@@ -60,33 +60,22 @@
           <.link
             href={~p"/bo/addons"}
             class="block text-center font-mono text-[0.75rem] text-[#03b6d4] hover:underline"
+            data-testid="addon-summary-cta"
           >
-            View Details →
+            View Add-ons
           </.link>
         </div>
       <% else %>
-        <div class="bg-white rounded-xl border border-dashed border-black/15 p-5 text-center">
-          <div class="w-9 h-9 rounded-lg bg-black/5 grid place-items-center mx-auto mb-3">
-            <svg
-              class="w-[18px] h-[18px] text-black/30"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              viewBox="0 0 24 24"
-            >
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-          </div>
-          <p class="font-mono text-sm font-bold text-black mb-1">No Add-ons</p>
-          <p class="font-mono text-[0.7rem] text-black/40 mb-3">Running in basic mode</p>
-          <.link
-            href={~p"/bo/addons"}
-            class="inline-block font-mono text-[0.75rem] font-bold px-4 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-colors"
-          >
-            Learn More
-          </.link>
-        </div>
+        <.addon_upsell_card
+          variant={:inline}
+          title="No Add-ons"
+          message="Running in basic mode"
+          link_href={~p"/bo/addons"}
+        >
+          <:icon>
+            <.icon name="hero-exclamation-triangle" class="w-5 h-5" />
+          </:icon>
+        </.addon_upsell_card>
       <% end %>
     </div>
   </div>

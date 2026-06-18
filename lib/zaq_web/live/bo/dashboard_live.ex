@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.DashboardLive do
 
   import ZaqWeb.Dashboard.MetricOverview, only: [metric_overview: 1]
   import ZaqWeb.Dashboard.ServicesStatusTable, only: [services_status_table: 1]
+  import ZaqWeb.Components.DesignSystem.AddonUpsellCard, only: [addon_upsell_card: 1]
 
   alias Zaq.Addons.FeatureStore
   alias Zaq.Engine.Telemetry

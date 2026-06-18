@@ -20,6 +20,7 @@ defmodule Storybook.Layouts.BoLayout do
             current_path="/bo/dashboard"
             flash={%{}}
             update_badge_enabled={true}
+            portal_consent_live_enabled={false}
           >
             <div style="padding: 2rem; color: var(--zaq-color-ink-soft);">
               ← Sidebar visible on the left. Update badge visible in the footer.
@@ -49,6 +50,7 @@ defmodule Storybook.Layouts.BoLayout do
                 flash={%{"info" => "Settings saved successfully."}}
                 auto_dismiss={false}
                 update_badge_enabled={false}
+                portal_consent_live_enabled={false}
               >
                 <div />
               </ZaqWeb.Components.BOLayout.bo_layout>
@@ -66,6 +68,7 @@ defmodule Storybook.Layouts.BoLayout do
                 flash={%{"error" => "An unexpected error occurred. Please try again."}}
                 auto_dismiss={false}
                 update_badge_enabled={false}
+                portal_consent_live_enabled={false}
               >
                 <div />
               </ZaqWeb.Components.BOLayout.bo_layout>
@@ -172,6 +175,13 @@ defmodule Storybook.Layouts.BoLayout do
               default="nil"
               description="Show version update badge. Auto-loaded from DB when nil."
             />
+            <.attr_row
+              name="portal_consent_live_enabled"
+              type="boolean"
+              required={false}
+              default="true"
+              description="Embed PortalConsent LiveComponent in the header. Set false for Storybook or static HTML previews."
+            />
           </tbody>
         </table>
       </section>
@@ -182,13 +192,14 @@ defmodule Storybook.Layouts.BoLayout do
           Sub-components
         </h2>
         <p style="font-size: 0.875rem; color: var(--zaq-color-ink-soft); line-height: 1.6;">
-          <code>BOLayout</code> also exports reusable atomic components — documented individually in their own stories:
+          <code>BOLayout</code>
+          also exports reusable atomic components — documented individually in their own stories:
         </p>
         <ul style="font-size: 0.875rem; color: var(--zaq-color-ink-soft); margin-top: 0.75rem; line-height: 2;">
           <li><code>status_badge</code> → Components / Feedback / Status Badge</li>
           <li><code>config_row</code> → Components / Misc / Config Row</li>
           <li><code>diagnostic_card</code> → Components / Misc / Diagnostic Card</li>
-          <li><code>feature_gate</code> → Patterns / Feature Gate</li>
+          <li><code>feature_gate</code> → Patterns / Add-on Upsell Card (<code>:gate</code>)</li>
         </ul>
       </section>
     </div>
@@ -214,5 +225,4 @@ defmodule Storybook.Layouts.BoLayout do
     </tr>
     """
   end
-
 end

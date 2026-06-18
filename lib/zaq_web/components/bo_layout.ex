@@ -7,6 +7,7 @@ defmodule ZaqWeb.Components.BOLayout do
   use Phoenix.Component
 
   import ZaqWeb.CoreComponents, only: [theme_toggle: 1]
+  import ZaqWeb.Components.DesignSystem.AddonUpsellCard, only: [addon_upsell_card: 1]
 
   alias Zaq.Addons.FeatureStore
   alias Zaq.System
@@ -20,6 +21,12 @@ defmodule ZaqWeb.Components.BOLayout do
   attr :auto_dismiss_duration, :integer, default: 5000
   attr :features_version, :integer, default: 0
   attr :update_badge_enabled, :boolean, default: nil
+
+  attr :portal_consent_live_enabled, :boolean,
+    default: true,
+    doc:
+      "When false, skips embedding `PortalConsentLive` (use in Storybook or other static previews where LiveComponents cannot mount)."
+
   slot :inner_block, required: true
 
   def bo_layout(assigns) do
@@ -369,6 +376,7 @@ defmodule ZaqWeb.Components.BOLayout do
 
           <div class="flex-1 min-w-0">
             <.live_component
+              :if={@portal_consent_live_enabled}
               module={ZaqWeb.Live.BO.PortalConsentLive}
               id="portal-consent"
               current_user={@current_user}
@@ -960,32 +968,16 @@ defmodule ZaqWeb.Components.BOLayout do
 
     ~H"""
     <div class="flex items-center justify-center min-h-[60vh]">
-      <div
-        class="zaq-card-default zaq-border-default flex flex-col items-center text-center max-w-md w-full"
-        style="background: var(--zaq-surface-color-raised)"
+      <.addon_upsell_card
+        variant={:gate}
+        title="Feature Not Enabled"
+        message={@message}
+        link_href={~p"/bo/addons"}
       >
-        <div
-          class="w-10 h-10 rounded-lg grid place-items-center mx-auto"
-          style="background: var(--zaq-surface-color-elevated)"
-        >
-          <ZaqWeb.CoreComponents.icon
-            name="hero-exclamation-triangle"
-            class="w-5 h-5"
-          />
-        </div>
-        <p class="zaq-text-h4" style="color: var(--zaq-text-color-body-default)">
-          Feature Not Enabled
-        </p>
-        <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
-          {@message}
-        </p>
-        <.link
-          href={~p"/bo/addons"}
-          class="zaq-btn zaq-btn-primary zaq-btn-text_label-default"
-        >
-          View Add-ons
-        </.link>
-      </div>
+        <:icon>
+          <ZaqWeb.CoreComponents.icon name="hero-exclamation-triangle" class="w-5 h-5" />
+        </:icon>
+      </.addon_upsell_card>
     </div>
     """
   end

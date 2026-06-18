@@ -86,9 +86,10 @@ test.describe("BO Dashboard", () => {
     await expect(page.getByText("Add-ons", { exact: true })).toBeVisible();
     await expect(page.getByText("No Add-ons")).toBeVisible();
     await expect(page.getByText("Running in basic mode")).toBeVisible();
-    const learnMore = page.getByRole("link", { name: "Learn More" });
-    await expect(learnMore).toBeVisible();
-    await expect(learnMore).toHaveAttribute("href", "/bo/addons");
+    const emptyCta = page.getByTestId("addon-upsell-cta");
+    await expect(emptyCta).toBeVisible();
+    await expect(emptyCta).toHaveText("View Add-ons");
+    await expect(emptyCta).toHaveAttribute("href", "/bo/addons");
   });
 
   test("add-ons loaded state", async ({ page, request }) => {
@@ -108,8 +109,9 @@ test.describe("BO Dashboard", () => {
     await expect(page.getByText("E2E Addon Co")).toBeVisible();
     await expect(page.getByText("lic-e2e-dashboard")).toBeVisible();
 
-    const details = page.getByRole("link", { name: "View Details →" });
-    await expect(details).toBeVisible();
-    await expect(details).toHaveAttribute("href", "/bo/addons");
+    const loadedCta = page.getByTestId("addon-summary-cta");
+    await expect(loadedCta).toBeVisible();
+    await expect(loadedCta).toHaveText("View Add-ons");
+    await expect(loadedCta).toHaveAttribute("href", "/bo/addons");
   });
 });
