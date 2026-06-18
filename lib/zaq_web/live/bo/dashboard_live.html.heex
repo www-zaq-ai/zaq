@@ -6,105 +6,12 @@
   features_version={@features_version}
   auto_dismiss={false}
 >
-  <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-    <div :for={metric <- @metric_cards} class="space-y-2">
-      <.link
-        id={metric.id}
-        navigate={metric.runtime.href || "/bo/dashboard"}
-        class="group block"
-      >
-        <ZaqWeb.Components.BOTelemetryComponents.metric_card
-          id={metric.id <> "-card"}
-          card={metric}
-        />
-      </.link>
-
-      <.link
-        :if={metric.id == "dashboard-metric-documents-ingested"}
-        id="dashboard-knowledge-base-metrics-link"
-        navigate={~p"/bo/dashboard/knowledge-base-metrics"}
-        class="inline-flex items-center gap-2 rounded-lg border border-[#03b6d4]/25 bg-white px-3 py-1.5 font-mono text-[0.68rem] font-semibold text-[#03b6d4] transition-colors hover:bg-[#03b6d4]/10"
-      >
-        View Knowledge base metrics <span class="text-[0.8rem]">-&gt;</span>
-      </.link>
-
-      <.link
-        :if={metric.id == "dashboard-metric-llm-api-calls"}
-        id="dashboard-llm-performance-link"
-        navigate={~p"/bo/dashboard/llm-performance"}
-        class="inline-flex items-center gap-2 rounded-lg border border-[#03b6d4]/25 bg-white px-3 py-1.5 font-mono text-[0.68rem] font-semibold text-[#03b6d4] transition-colors hover:bg-[#03b6d4]/10"
-      >
-        View LLM performance <span class="text-[0.8rem]">-&gt;</span>
-      </.link>
-
-      <.link
-        :if={metric.id == "dashboard-metric-qa-response-time"}
-        id="dashboard-conversations-metrics-link"
-        navigate={~p"/bo/dashboard/conversations-metrics"}
-        class="inline-flex items-center gap-2 rounded-lg border border-[#03b6d4]/25 bg-white px-3 py-1.5 font-mono text-[0.68rem] font-semibold text-[#03b6d4] transition-colors hover:bg-[#03b6d4]/10"
-      >
-        View Conversations metrics <span class="text-[0.8rem]">-&gt;</span>
-      </.link>
-    </div>
-  </div>
+  <.metric_overview metric_cards={@metric_cards} />
 
   <div class="grid grid-cols-3 gap-6">
-    <!-- Services -->
-    <div class="col-span-2">
-      <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">Services</p>
-      <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
-        <table class="w-full">
-          <thead>
-            <tr class="border-b border-black/10">
-              <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-                Service
-              </th>
-              <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-                Description
-              </th>
-              <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-                Node
-              </th>
-              <th class="text-right font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-                Status
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              :for={svc <- @services}
-              class="border-b border-black/5 last:border-0 hover:bg-black/[0.02]"
-            >
-              <td class="font-mono text-sm font-bold text-black px-6 py-4">{svc.name}</td>
-              <td class="font-mono text-[0.75rem] text-black/50 px-6 py-4">{svc.description}</td>
-              <td class="font-mono text-[0.7rem] text-black/40 px-6 py-4">
-                <%= if svc.node do %>
-                  {svc.node}
-                <% else %>
-                  —
-                <% end %>
-              </td>
-              <td class="px-6 py-4 text-right">
-                <span
-                  :if={svc.active}
-                  class="font-mono text-[0.7rem] px-2 py-1 rounded bg-emerald-100 text-emerald-700"
-                >
-                  Running
-                </span>
-                <span
-                  :if={!svc.active}
-                  class="font-mono text-[0.7rem] px-2 py-1 rounded bg-black/5 text-black/30"
-                >
-                  Disabled
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-    
-<!-- Add-ons Card -->
+    <.services_status_table services={@services} />
+
+    <%!-- Add-ons Card --%>
     <div>
       <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">Add-ons</p>
       <%= if @addon_data do %>

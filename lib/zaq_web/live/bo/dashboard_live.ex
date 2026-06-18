@@ -3,6 +3,9 @@
 defmodule ZaqWeb.Live.BO.DashboardLive do
   use ZaqWeb, :live_view
 
+  import ZaqWeb.Dashboard.MetricOverview, only: [metric_overview: 1]
+  import ZaqWeb.Dashboard.ServicesStatusTable, only: [services_status_table: 1]
+
   alias Zaq.Addons.FeatureStore
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart

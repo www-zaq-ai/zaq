@@ -54,6 +54,8 @@
   "/storybook/core_components/header",
   "/storybook/core_components/input",
   "/storybook/core_components/table",
+  "/storybook/dashboard/metric_overview",
+  "/storybook/dashboard/services_status_table",
   "/storybook/foundations/fonts",
   "/storybook/foundations/fonts_deprecated",
   "/storybook/foundations/icons",
