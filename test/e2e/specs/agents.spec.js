@@ -75,6 +75,13 @@ test.describe("Agents", () => {
     await req.dispose()
   })
 
+  test("agents page renders master-detail layout shell", async ({ page }) => {
+    await loginToBackOffice(page)
+    await gotoBackOfficeLive(page, AGENTS_PATH)
+    await expect(page.locator('[data-testid="bo-master-detail-layout"]')).toBeVisible()
+    await expect(page.locator("#agents-master-pane")).toBeVisible()
+  })
+
   // ─── Existing tests (with model-picker fix applied) ───────────────────────
 
   test("create an agent with AI credentials", async ({ page }) => {

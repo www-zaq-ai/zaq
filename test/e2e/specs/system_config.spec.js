@@ -29,6 +29,7 @@ const SEL = {
   tabEmbedding: '[phx-value-tab="embedding"]',
   tabImageToText: '[phx-value-tab="image_to_text"]',
   tabAICredentials: '[phx-value-tab="ai_credentials"]',
+  tabAuthCredentials: '[phx-value-tab="auth_credentials"]',
 
   llmForm: "#llm-config-form",
   embeddingForm: "#embedding-config-form",
@@ -94,6 +95,15 @@ test.describe("System Config", () => {
       await page.locator(SEL.tabImageToText).click()
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
       await expect(page).toHaveURL(/tab=image_to_text/)
+    })
+
+    test("switching to Auth Credentials shows auth credentials panel and updates URL", async ({
+      page,
+    }) => {
+      await page.locator(SEL.tabAuthCredentials).click()
+      await waitForLiveViewSettled(page)
+      await expect(page).toHaveURL(/tab=auth_credentials/)
+      await expect(page.getByRole("heading", { name: "Auth Credentials" })).toBeVisible()
     })
 
     test("switching to AI Credentials shows credentials panel and updates URL", async ({ page }) => {

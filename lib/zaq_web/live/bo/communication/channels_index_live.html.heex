@@ -64,7 +64,10 @@
             </p>
           </div>
           <!-- Mini app logos -->
-          <div class="flex items-center gap-2 mt-auto">
+          <div
+            class="flex items-center gap-2 mt-auto"
+            data-testid="channels-index-retrieval-icons"
+          >
             <div
               :for={provider <- @retrieval_preview}
               class="w-6 h-6 rounded-md bg-black/[0.03] grid place-items-center"
@@ -117,7 +120,10 @@
             </p>
           </div>
           <!-- Mini app logos -->
-          <div class="flex items-center gap-2 mt-auto">
+          <div
+            class="flex items-center gap-2 mt-auto"
+            data-testid="channels-index-data-source-icons"
+          >
             <div
               :for={provider <- @data_source_preview}
               class="w-6 h-6 rounded-md bg-black/[0.03] grid place-items-center"

@@ -20,7 +20,7 @@ defmodule ZaqWeb.Components.MasterDetailLayout do
   @doc "Renders the responsive master/detail container and slots."
   def master_detail(assigns) do
     ~H"""
-    <div class={@container_class}>
+    <div class={@container_class} data-testid="bo-master-detail-layout">
       <div
         id={@master_id}
         class={if @show_detail, do: @master_when_detail_class, else: @master_when_no_detail_class}

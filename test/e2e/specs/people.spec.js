@@ -66,6 +66,11 @@ test.describe("People", () => {
     await expect(page.locator(SEL.newPersonButton)).toBeVisible()
   })
 
+  test("master-detail layout shell is present on people page", async ({ page }) => {
+    await expect(page.locator('[data-testid="bo-master-detail-layout"]')).toBeVisible()
+    await expect(page.locator("#people-master-pane")).toBeVisible()
+  })
+
   test("switching to Teams tab shows New Team button", async ({ page }) => {
     await page.locator(SEL.tabTeams).click()
     await expect(page.locator("#new-team-button")).toBeVisible()

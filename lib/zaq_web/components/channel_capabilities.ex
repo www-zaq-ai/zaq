@@ -15,6 +15,7 @@ defmodule ZaqWeb.Components.ChannelCapabilities do
     <button
       type="button"
       phx-click={@open_event}
+      data-testid="channel-capabilities-trigger"
       class="w-6 h-6 rounded-md border border-black/10 grid place-items-center text-black/35 hover:text-[#03b6d4] hover:border-[#03b6d4]/30 transition-all"
       title="Show capabilities"
     >

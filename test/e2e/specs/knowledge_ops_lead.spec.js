@@ -129,6 +129,9 @@ test.describe("Knowledge Ops Lead journeys", () => {
       "Baseline response generated from the default prompt template.",
       { timeout: 30_000 }
     );
+    await expect(page.locator('[data-testid="chat-assistant-bubble"]').first()).toBeVisible({
+      timeout: 30_000,
+    });
 
     const modal = await openFirstSourcePreviewModal(page);
     await expect(modal).toContainText(queryToken);
@@ -201,6 +204,8 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await row.getByRole("link", { name: "View →" }).click();
 
     await expect(page).toHaveURL(/\/bo\/conversations\//);
+
+    await expect(page.locator('[data-testid="chat-assistant-bubble"]').first()).toBeVisible();
 
     const sourceChip = page.locator('[data-testid="source-chip"]').first();
     await expect(sourceChip).toBeVisible();

@@ -45,7 +45,7 @@ defmodule ZaqWeb.Components.ChatMessage do
     assigns = assign(assigns, :body_html, build_body_html(assigns.content, assigns.filters))
 
     ~H"""
-    <div class="flex justify-end animate-slide-in-right">
+    <div class="flex justify-end animate-slide-in-right" data-testid="chat-user-bubble">
       <div class="max-w-[70%]">
         <div class="zaq-chat-user-bubble">
           <%!-- Use div (not p): body_html may include buttons from @-filters; p+interactive HTML breaks layout in browsers. --%>
@@ -87,7 +87,7 @@ defmodule ZaqWeb.Components.ChatMessage do
       |> assign_error_parts()
 
     ~H"""
-    <div class="flex justify-start min-w-0 animate-slide-in-left">
+    <div class="flex justify-start min-w-0 animate-slide-in-left" data-testid="chat-assistant-bubble">
       <div class="flex min-w-0 max-w-[82%] gap-4">
         <div class="shrink-0 mt-0.5">
           <img
