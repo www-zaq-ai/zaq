@@ -171,9 +171,179 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
+  enrich_release:
+    name: Enrich GitHub release notes
+    needs: release
+    if: ${{ needs.release.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ needs.release.outputs.tag_name }}
+      RELEASE_SUMMARY_MODEL: ${{ vars.RELEASE_SUMMARY_MODEL || 'openrouter/openai/gpt-oss-120b:free' }}
+      OPENROUTER_API_KEY: ${{ secrets.RELEASE_SUMMARY_API_KEY || secrets.OPENROUTER_API_KEY }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Prepare release context
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags
+
+          RELEASE_JSON=$(gh api "repos/${REPO}/releases/tags/${TAG}")
+          RELEASE_ID=$(jq -r '.id' <<<"${RELEASE_JSON}")
+          jq -r '.body // ""' <<<"${RELEASE_JSON}" > release-body.md
+          echo "${RELEASE_ID}" > release-id.txt
+
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          echo "${PREVIOUS_TAG}" > previous-tag.txt
+
+          node <<'NODE'
+          const fs = require('fs');
+          const { execFileSync } = require('child_process');
+
+          const tag = process.env.TAG;
+          const previousTag = fs.readFileSync('previous-tag.txt', 'utf8').trim();
+          const range = previousTag ? `${previousTag}..${tag}` : tag;
+          const raw = execFileSync('git', ['log', range, '--format=%an%x00%ae%x00%s%x00'], {
+            encoding: 'utf8',
+          });
+
+          const counts = new Map();
+          const parts = raw.split('\0');
+          for (let index = 0; index + 2 < parts.length; index += 3) {
+            const name = parts[index].trim();
+            const email = parts[index + 1].trim();
+            const subject = parts[index + 2].trim();
+            if (!name || /^chore\(main\): release\b/i.test(subject)) continue;
+
+            const noreply = email.match(/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i);
+            const display = noreply ? `@${noreply[1]}` : name;
+            counts.set(display, (counts.get(display) || 0) + 1);
+          }
+
+          const rows = [...counts.entries()]
+            .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+            .map(([author, count]) => `* ${author}: ${count} ${count === 1 ? 'commit' : 'commits'}`);
+
+          const contributors = rows.length
+            ? ['---', '', '### Contributors', '', ...rows, ''].join('\n')
+            : '';
+
+          fs.writeFileSync('contributors.md', contributors);
+
+          const body = fs.readFileSync('release-body.md', 'utf8').trim();
+          const prompt = [
+            'Write a concise, user-facing summary for this ZAQ release.',
+            'Use 3-5 short bullets or compact paragraphs in Markdown.',
+            'Do not include a title, contributor list, changelog heading, or release version.',
+            'Do not copy the grouped changelog verbatim; synthesize the user impact.',
+            'Base the summary only on the release notes below.',
+            '',
+            '<release_notes>',
+            body,
+            '</release_notes>',
+          ].join('\n');
+
+          fs.writeFileSync('release-summary-prompt.md', prompt);
+          NODE
+
+      - name: Generate release summary
+        id: release_summary
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+            echo "Release summary API key is not configured; skipping summary generation"
+            : > summary.md
+            exit 0
+          fi
+
+          npm install -g opencode-ai@latest
+
+          opencode run \
+            --model "${RELEASE_SUMMARY_MODEL}" \
+            --agent plan \
+            < release-summary-prompt.md > summary.md
+
+      - name: Patch GitHub release body
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require('fs');
+
+          const summaryStart = '<!-- zaq-release-summary:start -->';
+          const summaryEnd = '<!-- zaq-release-summary:end -->';
+          const contributorsStart = '<!-- zaq-release-contributors:start -->';
+          const contributorsEnd = '<!-- zaq-release-contributors:end -->';
+
+          const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const stripBlock = (body, start, end) => {
+            const pattern = new RegExp(`\\n*${escapeRegExp(start)}[\\s\\S]*?${escapeRegExp(end)}\\n*`, 'g');
+            return body.replace(pattern, '\n\n').trim();
+          };
+
+          const body = stripBlock(
+            stripBlock(fs.readFileSync('release-body.md', 'utf8').trim(), summaryStart, summaryEnd),
+            contributorsStart,
+            contributorsEnd
+          );
+          const summary = fs.existsSync('summary.md') ? fs.readFileSync('summary.md', 'utf8').trim() : '';
+          const contributors = fs.readFileSync('contributors.md', 'utf8').trim();
+
+          let nextBody = body;
+          if (summary) {
+            const lines = body.split('\n');
+            const firstLine = lines.shift() || '';
+            const rest = lines.join('\n').trim();
+            const summaryBlock = [
+              summaryStart,
+              '',
+              '📝 **Summary**',
+              '',
+              summary,
+              '',
+              '---',
+              '',
+              summaryEnd,
+            ].join('\n');
+
+            nextBody = [firstLine, '', summaryBlock, '', rest].filter(Boolean).join('\n');
+          }
+
+          if (contributors) {
+            nextBody = [
+              nextBody.trim(),
+              '',
+              contributorsStart,
+              contributors,
+              contributorsEnd,
+            ].join('\n');
+          }
+
+          fs.writeFileSync('enriched-release-body.md', `${nextBody.trim()}\n`);
+          NODE
+
+          RELEASE_ID=$(cat release-id.txt)
+          gh api \
+            --method PATCH \
+            "repos/${REPO}/releases/${RELEASE_ID}" \
+            --field body=@enriched-release-body.md
+
   notify_discord:
     name: Post release changelog to Discord
-    needs: release
+    needs:
+      - release
+      - enrich_release
     if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -193,33 +363,7 @@ jobs:
 
           BODY=$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq '.body // ""')
           RELEASE_URL="https://github.com/${REPO}/releases/tag/${TAG}"
-
-          # Find the merged release-please PR and look for a 👍-approved bot summary
-          SUMMARY=""
-          PR_NUMBER=$(gh pr list \
-            --repo "${REPO}" \
-            --state merged \
-            --head "release-please--branches--main" \
-            --limit 1 \
-            --json number \
-            --jq '.[0].number // empty')
-
-          if [ -n "${PR_NUMBER}" ]; then
-            RAW_SUMMARY=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-              --jq '[.[] | select(.user.login == "opencode-agent[bot]") | select(.reactions["+1"] > 0)] | last | .body // ""')
-
-            if [ -n "${RAW_SUMMARY}" ]; then
-              # Strip the opencode session badge/footer appended by the bot
-              SUMMARY=$(echo "${RAW_SUMMARY}" | awk '/^<a href="https:\/\/opencode\.ai/{exit} /^\[opencode session\]/{exit} {print}' | sed 's/[[:space:]]*$//')
-            fi
-          fi
-
-          # Prepend summary block if an approved one was found
-          if [ -n "${SUMMARY}" ]; then
-            DESC=$(printf '📝 **Summary**\n%s\n\n---\n\n%s' "${SUMMARY}" "${BODY}")
-          else
-            DESC="${BODY}"
-          fi
+          DESC="${BODY}"
 
           # Trim to Discord embed description limit (4096 chars)
           DESC="${DESC:0:4000}"
