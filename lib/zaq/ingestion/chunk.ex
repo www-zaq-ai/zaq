@@ -25,7 +25,6 @@ defmodule Zaq.Ingestion.Chunk do
   schema "chunks" do
     belongs_to :document, Document
     field :content, :string
-    field :title, :string
     field :chunk_index, :integer
     field :section_path, {:array, :string}, default: []
     field :metadata, :map, default: %{}
@@ -36,7 +35,7 @@ defmodule Zaq.Ingestion.Chunk do
   end
 
   @required_fields ~w(document_id content chunk_index)a
-  @optional_fields ~w(title section_path metadata embedding language)a
+  @optional_fields ~w(section_path metadata embedding language)a
 
   def changeset(chunk, attrs) do
     chunk
@@ -137,7 +136,6 @@ defmodule Zaq.Ingestion.Chunk do
         id bigserial PRIMARY KEY,
         document_id bigint NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
         content text NOT NULL,
-        title text,
         chunk_index integer NOT NULL,
         section_path text[] DEFAULT '{}',
         metadata jsonb DEFAULT '{}',
@@ -146,14 +144,6 @@ defmodule Zaq.Ingestion.Chunk do
         updated_at timestamp(0) NOT NULL
       )
       """,
-      []
-    )
-
-    # Guard for tables created before the `title` column existed: the
-    # CREATE TABLE above is a no-op when chunks already exists.
-    EctoSQL.query!(
-      Repo,
-      "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS title text",
       []
     )
 

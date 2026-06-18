@@ -5,7 +5,7 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
   This worker is the chunk-level execution unit for the async ingestion pipeline:
 
   - reads one `IngestChunkJob` payload,
-  - generates chunk title + embedding + chunk insert via the configured document processor,
+  - generates embedding + chunk insert via the configured document processor,
   - updates chunk-job status/retry state,
   - recomputes and updates parent `IngestJob` progress counters.
 

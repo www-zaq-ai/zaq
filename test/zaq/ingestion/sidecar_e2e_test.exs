@@ -53,7 +53,6 @@ defmodule Zaq.Ingestion.SidecarE2ETest do
     end)
 
     stub_embedding(1536)
-    stub_chunk_title()
 
     {:ok, tmp: tmp}
   end
@@ -471,10 +470,5 @@ defmodule Zaq.Ingestion.SidecarE2ETest do
       |> Plug.Conn.put_resp_content_type("application/json")
       |> Plug.Conn.send_resp(200, body)
     end)
-  end
-
-  defp stub_chunk_title do
-    Zaq.Agent.ChunkTitleMock
-    |> stub(:ask, fn _content, _opts -> {:ok, "Title"} end)
   end
 end

@@ -98,11 +98,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end)
   end
 
-  defp stub_chunk_title_success(title \\ "Generated Title") do
-    Zaq.Agent.ChunkTitleMock
-    |> stub(:ask, fn _content, _opts -> {:ok, title} end)
-  end
-
   # Stubs the embedding endpoint and forwards the raw request body (which
   # carries the embedded text) to the test process for assertions.
   defp stub_embedding_capturing(test_pid) do
@@ -118,11 +113,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       |> Plug.Conn.put_resp_content_type("application/json")
       |> Plug.Conn.send_resp(200, resp)
     end)
-  end
-
-  defp stub_chunk_title_failure do
-    Zaq.Agent.ChunkTitleMock
-    |> stub(:ask, fn _content, _opts -> {:error, "LLM unavailable"} end)
   end
 
   defp stub_embedding_with_concurrency_tracker(counter, sleep_ms) do
@@ -443,7 +433,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "process_and_store_chunks/2" do
     test "chunks content and inserts into database" do
       stub_embedding_success()
-      stub_chunk_title_success()
       doc = create_document()
 
       content = """
@@ -464,20 +453,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert db_chunks != []
     end
 
-    test "stores chunks even when title generation fails" do
-      stub_embedding_success()
-      stub_chunk_title_failure()
-      doc = create_document()
-
-      content = "# Heading\n\nSome content that will get the original title."
-
-      {:ok, results} = DocumentProcessor.process_and_store_chunks(content, doc.id)
-      assert results != []
-    end
-
     test "returns error when embedding fails" do
       stub_embedding_failure()
-      stub_chunk_title_success()
       doc = create_document()
 
       content = "# Heading\n\nSome content that will fail to embed."
@@ -487,7 +464,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns aggregated error when only some chunks fail to store" do
       stub_embedding_fail_on_call(2)
-      stub_chunk_title_failure()
       doc = create_document()
 
       content = """
@@ -508,7 +484,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns ok with empty results when chunker produces no chunks" do
       stub_embedding_success()
-      stub_chunk_title_success()
       doc = create_document()
 
       assert {:ok, []} = DocumentProcessor.process_and_store_chunks("   \n\n", doc.id)
@@ -530,7 +505,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       counter = start_supervised!({Agent, fn -> %{inflight: 0, max: 0} end})
       stub_embedding_with_concurrency_tracker(counter, 80)
-      stub_chunk_title_success()
       doc = create_document()
 
       content =
@@ -556,7 +530,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       )
 
       stub_embedding_success()
-      stub_chunk_title_success()
       doc = create_document()
 
       content = "# Heading\n\n" <> String.duplicate("valid content ", 120)
@@ -566,7 +539,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns chunk progress report with failed chunk indices" do
       stub_embedding_fail_on_call(2)
-      stub_chunk_title_failure()
       doc = create_document()
 
       content =
@@ -595,7 +567,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "store_chunk_with_metadata/3" do
     test "inserts chunk when embedding succeeds" do
       stub_embedding_success()
-      stub_chunk_title_success()
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
@@ -616,74 +587,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
              ) == 1
     end
 
-    test "stores generated title in the title column without touching content or path" do
-      stub_embedding_success()
-      stub_chunk_title_success("Custom LLM Title")
-      doc = create_document()
-
-      chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_0",
-        section_id: "sec1",
-        content: "## Old Heading\n\nSome chunk content.",
-        section_path: ["Old Heading"],
-        tokens: 5,
-        metadata: %{section_type: :heading, section_level: 2, position: 0}
-      }
-
-      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
-
-      # Title lives in its own column; the original heading and path survive.
-      assert record.title == "Custom LLM Title"
-      assert record.content == "## Old Heading\n\nSome chunk content."
-      assert record.section_path == ["Old Heading"]
-      refute String.contains?(record.content, "Custom LLM Title")
-    end
-
-    test "stores nil title and keeps original heading/path when generated title is empty" do
-      stub_embedding_success()
-      stub_chunk_title_success("")
-      doc = create_document()
-
-      chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_1",
-        section_id: "sec1",
-        content: "## Original Heading\n\nSome chunk content.",
-        section_path: ["Original Heading"],
-        tokens: 5,
-        metadata: %{section_type: :heading, section_level: 2, position: 0}
-      }
-
-      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
-
-      assert record.title == nil
-      assert String.starts_with?(record.content, "## Original Heading")
-      assert record.section_path == ["Original Heading"]
-    end
-
-    test "stores nil title and keeps content intact when title generation fails" do
-      stub_embedding_success()
-      stub_chunk_title_failure()
-      doc = create_document()
-
-      chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_fail",
-        section_id: "sec1",
-        content: "#### PVCs\n\n- zaq-os-storage - type retain",
-        section_path: ["Cluster Kubernetes", "PVCs"],
-        tokens: 8,
-        metadata: %{section_type: :heading, section_level: 4, position: 0}
-      }
-
-      {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
-
-      assert record.title == nil
-      assert record.content == "#### PVCs\n\n- zaq-os-storage - type retain"
-      assert record.section_path == ["Cluster Kubernetes", "PVCs"]
-    end
-
     test "keeps original content for a chunk that has no heading" do
       stub_embedding_success()
-      stub_chunk_title_success("Generated For Plain Chunk")
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
@@ -697,14 +602,12 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 2)
 
-      assert record.title == "Generated For Plain Chunk"
       assert record.content == "Plain chunk content without heading."
       assert record.section_path == ["Original Path"]
     end
 
     test "preserves an existing emphasized markdown heading verbatim" do
       stub_embedding_success()
-      stub_chunk_title_success("Renamed Heading")
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
@@ -718,39 +621,12 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       {:ok, record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 3)
 
-      assert record.title == "Renamed Heading"
       assert String.starts_with?(record.content, "### **Legacy Heading**")
     end
 
-    test "embeds the title prepended to the original content" do
+    test "embeds the raw chunk content" do
       test_pid = self()
       stub_embedding_capturing(test_pid)
-      stub_chunk_title_success("Searchable Embedding Title")
-      doc = create_document()
-
-      chunk = %DocumentChunker.Chunk{
-        id: "chunk_embed_1",
-        section_id: "sec-embed",
-        content: "#### Ingress\n\nTraefik replaces nginx-ingress.",
-        section_path: ["Cluster Kubernetes", "Ingress"],
-        tokens: 7,
-        metadata: %{section_type: :heading, section_level: 4, position: 0}
-      }
-
-      {:ok, _record} = DocumentProcessor.store_chunk_with_metadata(chunk, doc.id, 1)
-
-      assert_receive {:embed_request, body}
-      # Embedding input enriches the chunk with the title while still carrying
-      # the original heading + body so vector quality covers both.
-      assert String.contains?(body, "Searchable Embedding Title")
-      assert String.contains?(body, "Ingress")
-      assert String.contains?(body, "Traefik")
-    end
-
-    test "embeds raw content when no title is generated" do
-      test_pid = self()
-      stub_embedding_capturing(test_pid)
-      stub_chunk_title_success("")
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
@@ -770,7 +646,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns error on dimension mismatch" do
       stub_embedding_wrong_dimension()
-      stub_chunk_title_success()
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
@@ -788,7 +663,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns error when embedding call fails" do
       stub_embedding_failure()
-      stub_chunk_title_success()
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
@@ -806,7 +680,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns changeset error when chunk insert fails foreign key" do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       chunk = %DocumentChunker.Chunk{
         id: "chunk_fk_0",
@@ -884,7 +757,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "process_single_file/1" do
     setup do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       tmp_dir =
         Path.join(System.tmp_dir!(), "zaq_test_#{System.unique_integer([:positive])}")
@@ -912,7 +784,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "processes a png file through image-to-text", %{tmp_dir: tmp_dir} do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       with_image_to_text_stub("test-api-key", fn ->
         path = create_test_md_file(tmp_dir, "diagram.png", "not-a-real-png")
@@ -938,7 +809,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       tmp_dir: tmp_dir
     } do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       with_image_to_text_stub("", fn ->
         path = create_test_md_file(tmp_dir, "missing-key.jpg", "not-a-real-jpg")
@@ -956,7 +826,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "processes a jpeg file through image-to-text", %{tmp_dir: tmp_dir} do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       with_image_to_text_stub("test-api-key", fn ->
         path = create_test_md_file(tmp_dir, "photo.jpeg", "not-a-real-jpeg")
@@ -969,7 +838,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "processes an image with an accented filename via ascii alias", %{tmp_dir: tmp_dir} do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       with_image_to_text_stub("test-api-key", fn ->
         path = create_test_md_file(tmp_dir, "résumé.png", "not-a-real-png")
@@ -984,7 +852,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "strips null bytes from image description output", %{tmp_dir: tmp_dir} do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       with_image_to_text_stub("test-api-key", Zaq.Ingestion.NullByteImageToTextStepStub, fn ->
         path = create_test_md_file(tmp_dir, "diagram.png", "bytes")
@@ -1005,7 +872,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns error when image-to-text output is not a map", %{tmp_dir: tmp_dir} do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       with_image_to_text_stub(
         "test-api-key",
@@ -1077,7 +943,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "processes all markdown files in folder", %{tmp_dir: tmp_dir} do
       stub_embedding_success()
-      stub_chunk_title_success()
       create_test_md_file(tmp_dir, "a.md", "# Doc A\n\nContent A.")
       create_test_md_file(tmp_dir, "b.md", "# Doc B\n\nContent B.")
       create_test_md_file(tmp_dir, "readme.txt", "Not a markdown file.")
@@ -1088,7 +953,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "counts failures", %{tmp_dir: tmp_dir} do
       stub_embedding_failure()
-      stub_chunk_title_success()
       create_test_md_file(tmp_dir, "fail.md", "# Will Fail\n\nContent.")
 
       assert {:ok, %{processed: 0, failed: 1}} =
@@ -1102,7 +966,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "includes png and jpg files in folder processing", %{tmp_dir: tmp_dir} do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       with_image_to_text_stub("test-api-key", fn ->
         create_test_md_file(tmp_dir, "photo.png", "png-bytes")
@@ -1142,7 +1005,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "returns token-limited results" do
       stub_embedding_success()
-      stub_chunk_title_success()
       doc = create_document()
 
       dim = embedding_dimension()
@@ -1375,7 +1237,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "additional format and report branches" do
     setup do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       tmp_dir =
         Path.join(System.tmp_dir!(), "zaq_more_paths_#{System.unique_integer([:positive])}")
@@ -1450,7 +1311,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       tmp_dir: tmp_dir
     } do
       stub_embedding_fail_on_call(2)
-      stub_chunk_title_failure()
 
       path =
         create_test_md_file(
@@ -1468,7 +1328,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "process_and_store_chunks_report/5 retries only selected chunk indices when reset is disabled" do
       stub_embedding_fail_on_call(1)
-      stub_chunk_title_failure()
 
       doc = create_document(%{source: "retry-selected.md"})
       dim = embedding_dimension()
@@ -1523,7 +1382,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "process_and_store_chunks_report/5 returns empty report when retry indices select no chunks" do
       stub_embedding_success()
-      stub_chunk_title_success()
       doc = create_document(%{source: "retry-none.md"})
 
       content = "# First\n\n" <> String.duplicate("first ", 120)
@@ -1543,7 +1401,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "process_and_store_chunks_report/5 returns structural errors for dimension mismatch" do
       stub_embedding_wrong_dimension()
-      stub_chunk_title_success()
       doc = create_document(%{source: "dimension-mismatch.md"})
 
       content = "# Heading\n\n" <> String.duplicate("mismatch ", 120)
@@ -1559,7 +1416,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "process_and_store_chunks/2 returns report-level structural errors" do
       stub_embedding_wrong_dimension()
-      stub_chunk_title_success()
       doc = create_document(%{source: "dimension-mismatch-wrapper.md"})
 
       content = "# Heading\n\n" <> String.duplicate("mismatch ", 120)
@@ -1586,7 +1442,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       counter = start_supervised!({Agent, fn -> %{inflight: 0, max: 0} end})
       stub_embedding_with_concurrency_tracker(counter, 50)
-      stub_chunk_title_success()
       doc = create_document(%{source: "timeout-report.md"})
 
       content = "# Slow\n\n" <> String.duplicate("slow chunk ", 120)
@@ -1647,7 +1502,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "query_extraction/2 permission filter" do
     setup do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       doc = create_document(%{source: "perm-filter-doc-#{System.unique_integer([:positive])}.md"})
 
@@ -2379,7 +2233,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "process_and_store_chunks_report/3 empty retry_chunk_indices" do
     test "processes no chunks when retry_chunk_indices is empty list" do
       stub_embedding_success()
-      stub_chunk_title_success()
       doc = create_document()
 
       content = "# Heading\n\n" <> String.duplicate("content ", 120)
@@ -2420,7 +2273,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "CSV markdown table generation edge cases" do
     setup do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       tmp_dir =
         Path.join(System.tmp_dir!(), "zaq_csv_#{System.unique_integer([:positive])}")
@@ -2469,7 +2321,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "build_image_markdown multi-line description" do
     setup do
       stub_embedding_success()
-      stub_chunk_title_success()
 
       tmp_dir =
         Path.join(System.tmp_dir!(), "zaq_imgmd_#{System.unique_integer([:positive])}")
@@ -2595,9 +2446,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # Chunk content fidelity vs source document (text.txt repro)
   #
   # Verifies that the content stored across all chunks reproduces the source
-  # document. Exposes whether the LLM title generator (generate_chunk_title ->
-  # replace_heading_with_title / update_section_path_with_title) drops the real
-  # document headings.
+  # document — every heading and body line survives ingestion unchanged.
   # ---------------------------------------------------------------------------
 
   describe "chunk content fidelity vs source document" do
@@ -2664,12 +2513,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
              "pure chunker dropped body: #{inspect(missing(combined, @source_body))}"
     end
 
-    test "REAL PATH: stored chunks (with title generation) preserve every heading and body line" do
+    test "REAL PATH: stored chunks preserve every heading and body line" do
       stub_embedding_success()
-      # Realistic LLM behaviour: returns a paraphrased title per chunk.
-      Zaq.Agent.ChunkTitleMock
-      |> stub(:ask, fn _content, _opts -> {:ok, "AI Generated Section Title"} end)
-
       doc = create_document()
 
       stored =
@@ -2688,25 +2533,24 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert missing(combined, @source_body) == [],
              "stored chunks dropped body: #{inspect(missing(combined, @source_body))}"
 
-      # Headings must survive too — this is what the title generator overwrites.
+      # Headings must survive too.
       assert missing(combined, @source_headings) == [],
              "stored chunks dropped real headings: #{inspect(missing(combined, @source_headings))}"
     end
   end
 
   # ---------------------------------------------------------------------------
-  # Upstream retrieval of recovered headings (the feature's real contract)
+  # Upstream retrieval of headings
   #
-  # Proves that heading terms which the title generator used to destroy are now
-  # retrievable through the real search path on BOTH FTS backends. "PVCs",
-  # "Ingress", etc. appear ONLY in headings of the repro doc — never in body —
-  # so a BM25 hit can only come from the heading surviving in `content`.
+  # Proves that heading terms are retrievable through the real search path on
+  # BOTH FTS backends. "PVCs", "Ingress", etc. appear ONLY in headings of the
+  # repro doc — never in body — so a BM25 hit can only come from the heading
+  # surviving in `content`.
   # ---------------------------------------------------------------------------
 
-  describe "upstream retrieval of recovered headings (regression)" do
+  describe "upstream retrieval of headings (regression)" do
     # Ingests the repro document through the real path
-    # (store_chunk_with_metadata/3) under a paraphrasing title LLM — the exact
-    # condition that previously destroyed the headings.
+    # (store_chunk_with_metadata/3).
     defp ingest_repro_doc(doc) do
       source_text()
       |> DocumentChunker.parse_layout()
@@ -2727,9 +2571,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "native BM25 retrieves a chunk by a heading-only term (PVCs)" do
       stub_embedding_success()
 
-      Zaq.Agent.ChunkTitleMock
-      |> stub(:ask, fn _content, _opts -> {:ok, "AI Generated Section Title"} end)
-
       doc = create_document()
       ingest_repro_doc(doc)
 
@@ -2745,9 +2586,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "query_extraction surfaces the original heading (not the title) in content" do
       stub_embedding_success()
 
-      Zaq.Agent.ChunkTitleMock
-      |> stub(:ask, fn _content, _opts -> {:ok, "AI Generated Section Title"} end)
-
       doc = create_document()
       ingest_repro_doc(doc)
 
@@ -2758,17 +2596,11 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       # The answering LLM + citations must see the real heading text.
       assert String.contains?(combined, "Ingress")
-      # The paraphrased title lives only in the `title` column, never in the
-      # retrieved content.
-      refute String.contains?(combined, "AI Generated Section Title")
     end
 
     @tag :paradedb
     test "ParadeDB BM25 retrieves a chunk by a heading-only term (parity with native)" do
       stub_embedding_success()
-
-      Zaq.Agent.ChunkTitleMock
-      |> stub(:ask, fn _content, _opts -> {:ok, "AI Generated Section Title"} end)
 
       # Provision the BM25 index and pin the ParadeDB backend for this test.
       FTSBackend.ParadeDB.setup_bm25_index(Repo, embedding_dimension())
