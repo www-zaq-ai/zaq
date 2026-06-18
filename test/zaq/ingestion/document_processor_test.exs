@@ -2372,22 +2372,17 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # sanitize_fts_query/1 — property tests
   # ---------------------------------------------------------------------------
 
+  # sanitize_fts_query/1 delegates to the active FTS backend's sanitizer
+  # (FTSBackend.impl().sanitize_query/1), so its exact output is
+  # backend-specific — ParadeDB strips punctuation to letters/digits/dots while
+  # Native preserves it for websearch_to_tsquery. The per-backend contracts are
+  # tested directly in fts_backend_test.exs; here we only assert the invariants
+  # that must hold regardless of which backend is active.
   describe "sanitize_fts_query/1" do
-    test "original failing case: apostrophe in contraction" do
-      assert DocumentProcessor.sanitize_fts_query("what's happening") == "what s happening"
-    end
-
     property "never raises on any binary input" do
       check all(input <- StreamData.binary()) do
         # Must not raise even on raw non-UTF-8 bytes; the function guards with a Unicode regex
         assert is_binary(DocumentProcessor.sanitize_fts_query(input))
-      end
-    end
-
-    property "output contains only letters, digits, and single spaces" do
-      check all(input <- StreamData.string(:printable)) do
-        result = DocumentProcessor.sanitize_fts_query(input)
-        assert result == "" or String.match?(result, ~r/^[\p{L}\p{N} ]+$/u)
       end
     end
 
@@ -2435,10 +2430,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "empty string returns empty string" do
       assert DocumentProcessor.sanitize_fts_query("") == ""
-    end
-
-    test "only punctuation returns empty string" do
-      assert DocumentProcessor.sanitize_fts_query("!!!---???") == ""
     end
   end
 

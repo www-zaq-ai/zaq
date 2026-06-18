@@ -250,6 +250,11 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert FTSBackend.sanitize_query_text(".42") == "42"
     end
 
+    test "sanitize_query_text reduces punctuation-only input to an empty string" do
+      assert FTSBackend.sanitize_query_text("!!!---???") == ""
+      assert FTSBackend.sanitize_query_text("what's happening") == "what s happening"
+    end
+
     test "sanitize_query_minimal preserves dotted literals, emails, and phrase punctuation" do
       # Postgres' websearch_to_tsquery tokenizes these the same way to_tsvector
       # did at index time, so the minimal sanitizer must leave them intact.
