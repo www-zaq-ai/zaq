@@ -240,7 +240,10 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       view |> element("#portal-consent button", "Activate") |> render_click()
       html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
 
-      assert html =~ "A user with this email is already provisioned."
+      # A 409 now shows fixed guidance to set the existing key on the ZAQ Router
+      # credential (the portal's own body is no longer surfaced).
+      assert html =~ "already registered in the user portal"
+      assert html =~ "ZAQ Router"
       assert Accounts.get_user!(user.id).portal_consent == "declined"
       assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
 
@@ -292,7 +295,9 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       |> render_change(%{"email" => "taken@zaq.local"})
 
       html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
-      assert html =~ "A user with this email is already provisioned."
+      # A 409 now shows fixed guidance to set the existing key on the ZAQ Router.
+      assert html =~ "already registered in the user portal"
+      assert html =~ "ZAQ Router"
 
       # Failed attempt commits nothing: email and consent unchanged
       assert is_nil(Accounts.get_user!(user.id).email)

@@ -41,17 +41,21 @@ defmodule Zaq.UserPortalTest do
   end
 
   describe "provision_error/1" do
-    test "409 with a message returns the portal message plus override hint" do
-      assert {msg, :allow_override} =
+    test "409 returns the fixed 'set your key on the ZAQ Router' guidance (no override)" do
+      # The email already exists on the portal, so re-provisioning cannot help —
+      # the user must fetch their existing key and set it on the ZAQ Router. The
+      # portal's own body is ignored in favour of this actionable message.
+      assert {msg, :none} =
                UserPortal.provision_error({409, %{"message" => "Already registered."}})
 
-      assert msg == "Already registered. Please use a different email address."
+      assert msg =~ "already registered in the user portal"
+      assert msg =~ "ZAQ Router"
     end
 
-    test "409 without a usable message falls back to a default conflict message" do
-      assert {msg, :allow_override} = UserPortal.provision_error({409, %{}})
-      assert msg =~ "already registered with ZAQ Portal"
-      assert msg =~ "Please use a different email address."
+    test "409 with no body returns the same fixed guidance" do
+      assert {msg, :none} = UserPortal.provision_error({409, %{}})
+      assert msg =~ "already registered in the user portal"
+      assert msg =~ "ZAQ Router"
     end
 
     test "non-409 status with a message surfaces it without override" do
