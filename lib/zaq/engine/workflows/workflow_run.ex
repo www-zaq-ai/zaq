@@ -44,6 +44,11 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
     field :finished_at, :utc_datetime
     field :log_summary, :map
 
+    # Assembled `Runic.Workflow` for this run, prepared in-memory by
+    # `Workflows.create_run/4`. Holds closures/function references, so it is
+    # never persisted — the durable artifact remains `steps_snapshot`.
+    field :prepared_dag, :any, virtual: true
+
     timestamps(type: :utc_datetime)
   end
 

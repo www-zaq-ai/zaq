@@ -259,8 +259,15 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end
   end
 
-  @batch_tool_module "Zaq.Agent.Tools.Workflow.Batch"
-  @iterate_tool_module "Zaq.Agent.Tools.Workflow.Iterate"
+  # Maps a node's "module" string to the `Zaq.Engine.Workflows.Node`
+  # implementation that owns its build-time enrichment. Orchestrator nodes
+  # (Batch / Iterate) carry their own `enrich/2`; everything else falls through
+  # untouched. Adding a new orchestrator means adding its module here and the
+  # `enrich/2` callback on the module — not editing this builder.
+  @node_modules %{
+    "Zaq.Agent.Tools.Workflow.Batch" => Zaq.Agent.Tools.Workflow.Batch,
+    "Zaq.Agent.Tools.Workflow.Iterate" => Zaq.Agent.Tools.Workflow.Iterate
+  }
 
   defp scoped_node_names(node) do
     params = Map.get(node, "params") || %{}
@@ -271,65 +278,40 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     |> Enum.filter(&is_binary/1)
   end
 
+  # Data-driven dispatch: a node whose "module" maps to a `Workflows.Node`
+  # implementation is enriched by that module; all other nodes pass through
+  # unchanged.
   defp enrich_node(node, nodes_list) do
-    params = Map.get(node, "params") || %{}
-    module = Map.get(node, "module", "")
-
-    cond do
-      Map.has_key?(params, "process") -> enrich_batch_node(node, params, nodes_list)
-      Map.has_key?(params, "pipeline") -> enrich_iterate_node(node, params, nodes_list)
-      module == @batch_tool_module -> enrich_batch_node(node, params, nodes_list)
-      module == @iterate_tool_module -> enrich_iterate_node(node, params, nodes_list)
-      true -> {:ok, node}
+    case Map.get(@node_modules, Map.get(node, "module")) do
+      nil -> {:ok, node}
+      module -> module.enrich(node, nodes_list)
     end
   end
 
-  defp enrich_batch_node(node, params, nodes_list) do
-    node_name = Map.get(node, "name")
-    process_names = Map.get(params, "process", [])
-    post_process_names = Map.get(params, "post_process", [])
+  @doc """
+  Returns `{:error, tag}` for an empty list, `:ok` otherwise.
 
-    with :ok <- require_non_empty(process_names, {:missing_process_pipeline, node_name}),
-         {:ok, process} <- resolve_pipeline(process_names, nodes_list, :process),
-         {:ok, post_process} <- resolve_pipeline(post_process_names, nodes_list, :post_process),
-         {:ok, {field, mode}} <- first_action_batch_field(process) do
-      enriched =
-        node
-        |> Map.put(:process, process)
-        |> Map.put(:post_process, post_process)
-        |> Map.put(:__batch_field__, field)
-        |> Map.put(:__batch_mode__, mode)
-        |> Map.update("params", %{}, &(&1 |> Map.delete("process") |> Map.delete("post_process")))
+  Public so node modules (`Workflows.Node` implementations) can guard their
+  required inline pipelines during `enrich/2`.
+  """
+  @spec require_non_empty([term()], term()) :: :ok | {:error, term()}
+  def require_non_empty([], tag), do: {:error, tag}
+  def require_non_empty(_, _), do: :ok
 
-      {:ok, enriched}
-    end
-  end
+  @doc """
+  Resolves an orchestrator's inline sub-pipeline into `{module, base_params}`
+  pairs.
 
-  defp enrich_iterate_node(node, params, nodes_list) do
-    node_name = Map.get(node, "name")
-    pipeline_names = Map.get(params, "pipeline", [])
+  Each element of `items` must be an inline node map — string name references are
+  rejected with `{:error, :inline_node_required}`. Nested orchestrators (e.g. an
+  Iterate inside a Batch's `process` list) are resolved recursively.
 
-    with :ok <- require_non_empty(pipeline_names, {:missing_iterate_pipeline, node_name}),
-         {:ok, pipeline} <- resolve_pipeline(pipeline_names, nodes_list, :pipeline),
-         {:ok, {field, mode}} <- first_action_batch_field(pipeline) do
-      enriched =
-        node
-        |> Map.put(:__iterate_pipeline__, pipeline)
-        |> Map.put(:__iterate_field__, field)
-        |> Map.put(:__iterate_mode__, mode)
-        |> Map.update("params", %{}, &Map.delete(&1, "pipeline"))
-
-      {:ok, enriched}
-    end
-  end
-
-  defp require_non_empty([], tag), do: {:error, tag}
-  defp require_non_empty(_, _), do: :ok
-
-  # Each element must be an inline node map — string name references are rejected.
-  # Nested orchestrators (e.g. Iterate inside Batch.process) are resolved
-  # recursively via resolve_pipeline_node → enrich_node.
-  defp resolve_pipeline(items, nodes_list, _kind) do
+  Public so node modules (`Workflows.Node` implementations) can resolve their own
+  pipelines during `enrich/2`.
+  """
+  @spec resolve_pipeline([term()], [map()], atom()) ::
+          {:ok, [{module(), map()}]} | {:error, term()}
+  def resolve_pipeline(items, nodes_list, _kind) do
     result =
       Enum.reduce_while(items, {:ok, []}, fn
         node, {:ok, acc} when is_map(node) ->
@@ -363,8 +345,17 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end
   end
 
-  defp first_action_batch_field([{first_mod, _} | _]), do: Action.batch_field(first_mod)
-  defp first_action_batch_field([]), do: {:error, {:missing_process_pipeline, :unknown}}
+  @doc """
+  Returns the chunk-delivery `{field, mode}` for a resolved pipeline, derived
+  from the first action's input schema via `Action.batch_field/1`.
+
+  Public so node modules (`Workflows.Node` implementations) can determine their
+  delivery shape during `enrich/2`.
+  """
+  @spec first_action_batch_field([{module(), map()}]) ::
+          {:ok, {atom(), :list | :item}} | {:error, term()}
+  def first_action_batch_field([{first_mod, _} | _]), do: Action.batch_field(first_mod)
+  def first_action_batch_field([]), do: {:error, {:missing_process_pipeline, :unknown}}
 
   defp assemble(node_map, edges, run_id, batch_scoped) do
     workflow =

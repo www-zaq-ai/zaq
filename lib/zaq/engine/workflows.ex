@@ -15,6 +15,7 @@ defmodule Zaq.Engine.Workflows do
 
   alias Zaq.Engine.Workflows.{
     CronTriggerWorker,
+    DagBuilder,
     StepApproval,
     Trigger,
     Workflow,
@@ -376,6 +377,13 @@ defmodule Zaq.Engine.Workflows do
   This function does not execute the run. Call `start_run/2` to transition the
   pending run into execution.
 
+  On success the returned run carries its assembled DAG on the `prepared_dag`
+  virtual field (built from the snapshot with the run id so action nodes are
+  instrumented). The DAG holds closures and is never persisted — it lives only
+  on the in-memory struct. Preparation is best-effort: if the snapshot cannot be
+  built (e.g. an invalid workflow) `prepared_dag` stays `nil` and the run is
+  still created pending, surfacing the build error when it is started.
+
   `source_event` must be a map representation of `%Zaq.Event{}`.
   """
   @spec create_run(Workflow.t(), map(), map(), keyword()) ::
@@ -394,13 +402,23 @@ defmodule Zaq.Engine.Workflows do
 
     case result do
       {:ok, run} ->
+        run = %{run | prepared_dag: prepare_dag(run)}
         Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow:#{run.workflow_id}", {:run_created, run})
+        {:ok, run}
 
       _ ->
-        :noop
+        result
     end
+  end
 
-    result
+  # Assembles the run's DAG in-memory (closures — never persisted). Best-effort:
+  # returns nil when the snapshot cannot be built so a pending run is still
+  # created and the build error surfaces at start time.
+  defp prepare_dag(%WorkflowRun{} = run) do
+    case DagBuilder.build(run.steps_snapshot, run_id: run.id) do
+      {:ok, dag} -> dag
+      {:error, _reason} -> nil
+    end
   end
 
   defp serialize_steps(%Workflow{nodes: nodes, edges: edges}) do
@@ -796,23 +814,29 @@ defmodule Zaq.Engine.Workflows do
   end
 
   # Reads the most recent completed step before `step_index` and returns its
-  # accumulated cascade. Each completed step stores its full cascade, so the
-  # most recent one holds all prior step data.
+  # accumulated cascade. Each completed action step stores its full cumulative
+  # cascade, so the most recent one holds all prior step data.
+  #
+  # Edge guard steps share their source action's `step_index` but complete with
+  # empty results (no `__cascade__`). Selecting strictly by `step_index` would
+  # tie an action with its outgoing edge and pick non-deterministically, dropping
+  # the cascade when the edge wins. Instead, scan completed steps newest-first
+  # and take the first that actually carries a cascade.
   defp rebuild_cascade_before(run_id, step_index) do
-    case Repo.one(
-           from sr in StepRun,
-             where:
-               sr.workflow_run_id == ^run_id and sr.step_index < ^step_index and
-                 sr.status == "completed",
-             order_by: [desc: sr.step_index],
-             limit: 1
-         ) do
+    from(sr in StepRun,
+      where:
+        sr.workflow_run_id == ^run_id and sr.step_index < ^step_index and
+          sr.status == "completed",
+      order_by: [desc: sr.step_index, desc: sr.inserted_at]
+    )
+    |> Repo.all()
+    |> Enum.find_value(%{}, fn
       %StepRun{results: r} when is_map(r) ->
-        Map.get(r, "__cascade__", Map.get(r, :__cascade__, %{}))
+        Map.get(r, "__cascade__", Map.get(r, :__cascade__))
 
       _ ->
-        %{}
-    end
+        nil
+    end)
   end
 
   defp fail_waiting_step(run_id, step_name, reason) do

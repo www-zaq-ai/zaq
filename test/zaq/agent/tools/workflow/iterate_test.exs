@@ -35,6 +35,51 @@ defmodule Zaq.Agent.Tools.Workflow.IterateTest do
     )
   end
 
+  # ── enrich/2 (Workflows.Node behaviour) ───────────────────────────────────────
+
+  describe "enrich/2" do
+    @process_contact_module "Zaq.Engine.Workflows.Test.ProcessContact"
+
+    defp iterate_node(params) do
+      %{
+        "name" => "iterate",
+        "type" => "action",
+        "module" => "Zaq.Agent.Tools.Workflow.Iterate",
+        "params" => params
+      }
+    end
+
+    test "resolves the pipeline and injects iterate fields" do
+      node =
+        iterate_node(%{
+          "pipeline" => [
+            %{
+              "name" => "process",
+              "type" => "action",
+              "module" => @process_contact_module,
+              "params" => %{}
+            }
+          ]
+        })
+
+      assert {:ok, enriched} = Iterate.enrich(node, [])
+      assert [{ProcessContact, %{}}] = enriched.__iterate_pipeline__
+      assert enriched.__iterate_field__ == :contact
+      assert enriched.__iterate_mode__ == :item
+      refute Map.has_key?(enriched["params"], "pipeline")
+    end
+
+    test "returns {:error, {:missing_iterate_pipeline, name}} when pipeline is absent" do
+      assert {:error, {:missing_iterate_pipeline, "iterate"}} =
+               Iterate.enrich(iterate_node(%{}), [])
+    end
+
+    test "rejects string name references in the pipeline" do
+      node = iterate_node(%{"pipeline" => ["some_string"]})
+      assert {:error, :inline_node_required} = Iterate.enrich(node, [])
+    end
+  end
+
   # ── :item mode ───────────────────────────────────────────────────────────────
 
   describe "run/2 — :item mode" do
