@@ -54,17 +54,40 @@ defmodule Zaq.Engine.Workflows do
   # --- Run execution ---
 
   @doc """
-  Executes a `WorkflowRun` by delegating to `WorkflowAgent`.
+  Starts a pending `WorkflowRun` by delegating execution to `WorkflowAgent`.
 
   Builds the instrumented DAG from `run.steps_snapshot`, drives each step
   synchronously, writes `StepRun` rows per step, and updates
   `WorkflowRun.status` to `"completed"` or `"failed"`.
 
-  Returns `{:ok, updated_run}` on success or `{:error, reason}` on failure.
+  Returns `{:ok, updated_run}` on success, `{:error, reason}` on execution
+  failure, or `{:error, {:invalid_run_status, status}}` when the run is not
+  pending.
   """
   @spec start_run(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
-  def start_run(%WorkflowRun{} = run, opts \\ []) do
+  def start_run(%WorkflowRun{status: "pending"} = run, opts) do
     WorkflowAgent.execute(run, opts)
+  end
+
+  def start_run(%WorkflowRun{status: status}, _opts) do
+    {:error, {:invalid_run_status, status}}
+  end
+
+  def start_run(%WorkflowRun{} = run), do: start_run(run, [])
+
+  @doc """
+  Creates a pending workflow run and immediately starts it.
+
+  Use this for synchronous trigger paths that do not need to inspect or persist
+  the pending run before execution. Use `create_run/4` and `start_run/2`
+  separately when callers need a durable pending run boundary.
+  """
+  @spec create_and_start_run(Workflow.t(), map(), map(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, term()}
+  def create_and_start_run(%Workflow{} = workflow, source_event, context \\ %{}, opts \\ []) do
+    with {:ok, run} <- create_run(workflow, source_event, context, opts) do
+      start_run(run, opts)
+    end
   end
 
   @doc """
@@ -345,10 +368,13 @@ defmodule Zaq.Engine.Workflows do
   # --- Runs ---
 
   @doc """
-  Creates a workflow run, snapshotting steps and settings at creation time.
+  Creates a pending workflow run, snapshotting steps and settings at creation time.
 
   The `WorkflowAgent` reads exclusively from these snapshots — editing the
   workflow after a run starts never affects the in-progress run.
+
+  This function does not execute the run. Call `start_run/2` to transition the
+  pending run into execution.
 
   `source_event` must be a map representation of `%Zaq.Event{}`.
   """
@@ -368,7 +394,7 @@ defmodule Zaq.Engine.Workflows do
 
     case result do
       {:ok, run} ->
-        Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow:#{run.workflow_id}", {:run_started, run})
+        Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow:#{run.workflow_id}", {:run_created, run})
 
       _ ->
         :noop
@@ -1212,6 +1238,25 @@ defmodule Zaq.Engine.Workflows do
   end
 
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
+
+  @doc """
+  Re-broadcasts the current state of a run to its `workflow_run:<run_id>`
+  subscribers as `{:run_updated, run}`.
+
+  Loads the run by id and owns the workflow-run topic/message convention so
+  callers (e.g. the engine boundary on lifecycle status events) need not reach
+  into PubSub or the `WorkflowRun` struct themselves. No-ops when the run is
+  missing.
+  """
+  def broadcast_run_update(run_id) do
+    case get_run(run_id) do
+      %WorkflowRun{} = run ->
+        Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow_run:#{run_id}", {:run_updated, run})
+
+      _ ->
+        :ok
+    end
+  end
 
   defp broadcast_run({:ok, run} = result) do
     Phoenix.PubSub.broadcast(

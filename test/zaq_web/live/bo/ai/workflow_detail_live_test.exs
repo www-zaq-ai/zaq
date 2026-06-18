@@ -661,12 +661,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
     end
   end
 
-  describe "PubSub handle_info — run_started" do
-    test "receiving {:run_started, run} refreshes runs and does not crash", %{conn: conn} do
+  describe "PubSub handle_info — run_created" do
+    test "receiving {:run_created, run} refreshes runs and does not crash", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}")
 
-      Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow:#{workflow.id}", {:run_started, %{}})
+      Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow:#{workflow.id}", {:run_created, %{}})
 
       assert render(view) =~ workflow.name
     end
