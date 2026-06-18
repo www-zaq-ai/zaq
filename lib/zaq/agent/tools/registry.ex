@@ -101,6 +101,12 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Sheets.UpdateSheetValues
     },
     %{
+      key: "data_source.build_single_cell_update",
+      label: "Build single-cell update",
+      description: "Build range and values for updating one spreadsheet cell",
+      module: Zaq.Agent.Tools.Sheets.BuildSingleCellUpdate
+    },
+    %{
       key: "data_source.append_sheet_values",
       label: "Append sheet values",
       description: "Append rows to a spreadsheet range on a specific datasource provider",

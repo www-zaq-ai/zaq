@@ -41,10 +41,10 @@ defmodule Zaq.Engine.TriggerNode do
   defp run_workflow(workflow, incoming_event) do
     source_event = build_source_event(workflow, incoming_event)
 
-    with {:ok, run} <- Workflows.create_run(workflow, source_event),
-         {:ok, _completed_run} <- Workflows.start_run(run) do
-      :ok
-    else
+    case Workflows.create_and_start_run(workflow, source_event) do
+      {:ok, _completed_run} ->
+        :ok
+
       {:error, reason} ->
         Logger.error("TriggerNode: failed to run workflow #{workflow.id}: #{inspect(reason)}")
         {:error, reason}

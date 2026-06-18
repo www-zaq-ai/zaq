@@ -29,6 +29,13 @@ defmodule Zaq.Engine.ApiTest do
     def redirect_uri_for(provider), do: "https://example.test/oauth/#{provider}/callback"
   end
 
+  defmodule StubNotifications do
+    def notify_person(person_id, attrs) do
+      send(self(), {:notify_person_called, person_id, attrs})
+      {:ok, :dispatched}
+    end
+  end
+
   test "handles persist_from_incoming action" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
     metadata = %{answer: "ok"}
@@ -67,6 +74,28 @@ defmodule Zaq.Engine.ApiTest do
     result = Api.handle_event(event, :people_command, nil)
 
     assert result.response == {:error, {:invalid_request, %{op: "bad", params: %{}}}}
+  end
+
+  test "handles notify_person action" do
+    event =
+      Event.new(
+        %{person_id: 123, subject: "Hello", message: "Body"},
+        :engine,
+        opts: [action: :notify_person, notifications_module: StubNotifications]
+      )
+
+    result = Api.handle_event(event, :notify_person, nil)
+
+    assert result.response == {:ok, :dispatched}
+    assert_received {:notify_person_called, 123, %{subject: "Hello", message: "Body"}}
+  end
+
+  test "returns invalid request for malformed notify_person payload" do
+    event = Event.new(%{person_id: 123, subject: "Hello"}, :engine)
+    result = Api.handle_event(event, :notify_person, nil)
+
+    assert result.response ==
+             {:error, {:invalid_request, %{person_id: 123, subject: "Hello"}}}
   end
 
   test "delegates invoke to shared helper" do

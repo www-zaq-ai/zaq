@@ -11,8 +11,9 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
             "module" => "Zaq.Agent.Tools.Email.FetchEmails",
             "params" => %{}, "index" => 0},
           %{"name" => "draft", "type" => "action",
-            "module" => "Zaq.Agent.Tools.Email.DraftReply",
-            "params" => %{}, "index" => 1}
+            "module" => "Zaq.Agent.Tools.Workflow.RunAgent",
+            "params" => %{"agent_name" => "MailResponder", "input" => "Draft a reply"},
+            "index" => 1}
         ],
         "edges" => [
           %{"from" => "fetch", "to" => "draft"},

@@ -12,6 +12,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
       → draft_email       ← RunAgent("DraftEmail") — body returned as `output`
       → review_email      (human-in-the-loop)
       → send_email
+      → build_sheet_update
       → update_sheet_row
 
   Row shape expected from the sheet (flat fields flow through the whole DAG):
@@ -39,6 +40,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   @draft_email_module "Zaq.Agent.Tools.Workflow.RunAgent"
   @human_in_the_loop_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
   @send_email_module "Zaq.Agent.Tools.People.NotifyPerson"
+  @build_sheet_update_module "Zaq.Agent.Tools.Sheets.BuildSingleCellUpdate"
   @update_sheet_module "Zaq.Agent.Tools.Sheets.UpdateSheetValues"
 
   @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
@@ -113,11 +115,19 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           type: "action",
           module: @send_email_module,
           params: %{
-            "medium" => "email",
-            "subject" => "Your team's AI-powered company brain",
-            "email_state_column" => email_state_column
+            "subject" => "Your team's AI-powered company brain"
           },
           index: 4
+        },
+        %{
+          name: "build_sheet_update",
+          type: "action",
+          module: @build_sheet_update_module,
+          params: %{
+            "column" => email_state_column,
+            "increment_by" => 1
+          },
+          index: 5
         },
         %{
           name: "update_sheet_row",
@@ -128,7 +138,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
             "provider" => provider,
             "value_input_option" => "USER_ENTERED"
           },
-          index: 5
+          index: 6
         }
       ],
       edges: [
@@ -149,15 +159,25 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           condition: %{"field" => "approved", "op" => "eq", "value" => true},
           mapping: %{
             "message" => "draft_email.output",
-            "person_id" => "ensure_person.person_id",
-            "row_index" => "ensure_person.row.row_index",
-            "email_state" => "ensure_person.row.email_state"
+            "person_id" => "ensure_person.person_id"
           }
         },
         %{
           from: "send_email",
+          to: "build_sheet_update",
+          condition: %{"field" => "notified", "op" => "eq", "value" => true},
+          mapping: %{
+            "row_index" => "ensure_person.row.row_index",
+            "value" => "ensure_person.row.email_state"
+          }
+        },
+        %{
+          from: "build_sheet_update",
           to: "update_sheet_row",
-          condition: %{"field" => "notified", "op" => "eq", "value" => true}
+          mapping: %{
+            "range" => "build_sheet_update.range",
+            "values" => "build_sheet_update.values"
+          }
         }
       ]
     }

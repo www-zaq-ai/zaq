@@ -132,9 +132,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
                       "type" => "action",
                       "module" => @dispatch_event_module,
                       "params" => %{
-                        "destination" => "engine",
-                        "name" => to_string(@lead_identified_event),
-                        "type" => "async"
+                        "event_name" => to_string(@lead_identified_event)
                       }
                     }
                   ]
@@ -181,7 +179,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
   #
   #   def run(%{input: row}, _ctx) do
   #     string_row = Map.new(row, fn {k, v} -> {to_string(k), v} end)
-  #     event = Zaq.Event.new(string_row, :engine, name: :lead_identified)
+  #     event = Zaq.Event.new(string_row, :engine, type: :async, name: "lead_identified")
   #
   #     case Zaq.NodeRouter.dispatch(event).response do
   #       {:ok, _} -> {:ok, %{dispatched: string_row}}
