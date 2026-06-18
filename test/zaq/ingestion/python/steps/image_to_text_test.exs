@@ -130,8 +130,16 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
 
   defp with_fake_image_to_text_script(opts \\ []) do
     path = Path.join(Runner.scripts_dir(), "image_to_text.py")
-    backup = File.read!(path)
+
+    backup =
+      case File.read(path) do
+        {:ok, existing} -> {:ok, existing}
+        {:error, :enoent} -> :missing
+      end
+
     exit_on_ping = Keyword.get(opts, :exit_on_ping, 0)
+
+    File.mkdir_p!(Path.dirname(path))
 
     File.write!(path, """
     import sys
@@ -143,6 +151,11 @@ defmodule Zaq.Ingestion.Python.Steps.ImageToTextTest do
     sys.exit(0)
     """)
 
-    on_exit(fn -> File.write!(path, backup) end)
+    on_exit(fn ->
+      case backup do
+        {:ok, existing} -> File.write!(path, existing)
+        :missing -> File.rm(path)
+      end
+    end)
   end
 end

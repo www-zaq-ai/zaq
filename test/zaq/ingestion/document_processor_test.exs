@@ -208,7 +208,14 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     backups =
       for {script_name, content} <- scripts, into: %{} do
         path = Path.join(Runner.scripts_dir(), script_name)
-        backup = File.read!(path)
+
+        backup =
+          case File.read(path) do
+            {:ok, existing} -> {:ok, existing}
+            {:error, :enoent} -> :missing
+          end
+
+        File.mkdir_p!(Path.dirname(path))
         File.write!(path, content)
         {path, backup}
       end
@@ -216,7 +223,10 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     try do
       fun.()
     after
-      Enum.each(backups, fn {path, backup} -> File.write!(path, backup) end)
+      Enum.each(backups, fn
+        {path, {:ok, backup}} -> File.write!(path, backup)
+        {path, :missing} -> File.rm(path)
+      end)
     end
   end
 
