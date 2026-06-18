@@ -236,6 +236,26 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       assert volumes["default"] == Path.expand(@test_base)
     end
 
+    test "empty volumes expose base_path as the default volume root" do
+      base = Path.join(@test_base, "volume_base")
+      File.mkdir_p!(base)
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: base, volumes: %{})
+
+      assert FileExplorer.list_volumes() == %{"default" => Path.expand(base)}
+      assert {:ok, path} = FileExplorer.resolve_path("docs/readme.md")
+      assert path == Path.join(Path.expand(base), "docs/readme.md")
+    end
+
+    test "default-prefixed paths resolve against base_path when no volumes are configured" do
+      base = Path.join(@test_base, "default_volume_base")
+      File.mkdir_p!(base)
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: base, volumes: %{})
+
+      assert {:ok, path} = FileExplorer.resolve_path("default/docs/readme.md")
+      assert path == Path.join(Path.expand(base), "docs/readme.md")
+      assert {:error, :path_traversal} = FileExplorer.resolve_path("default/../../escape")
+    end
+
     test "returns named volumes when volumes map is configured" do
       vol_a = Path.join(@test_base, "vol_a")
       vol_b = Path.join(@test_base, "vol_b")

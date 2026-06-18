@@ -345,18 +345,17 @@ Back Office System Config (`/bo/system-config`) now owns model-related settings:
 
 For containerized runs, ZAQ defaults to:
 
-- `INGESTION_VOLUMES=documents`
+- `INGESTION_VOLUMES=`
 - `INGESTION_VOLUMES_BASE=/zaq/volumes`
-- `INGESTION_BASE_PATH=/zaq/volumes/documents`
 
 When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists before startup.
 If you use `./zaq-local.sh`, this folder is created automatically.
 
 ```bash
-mkdir -p ingestion-volumes/documents
+mkdir -p ingestion-volumes
 ```
 
-All variables above are optional overrides; only change them if your deployment uses a different filesystem layout.
+Unset or empty `INGESTION_VOLUMES` exposes `INGESTION_VOLUMES_BASE` as the default volume. Set `INGESTION_VOLUMES=documents` only when you want named volume sources rooted at `/zaq/volumes/documents`.
 
 ---
 

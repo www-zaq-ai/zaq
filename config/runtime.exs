@@ -110,7 +110,9 @@ if config_env() == :prod do
       %{}
     end
 
-  config :zaq, Zaq.Ingestion, volumes: ingestion_volumes
+  config :zaq, Zaq.Ingestion,
+    base_path: ingestion_volumes_base,
+    volumes: ingestion_volumes
 
   # -- Oban --
   config :zaq, Oban,

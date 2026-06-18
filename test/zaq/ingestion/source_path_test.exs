@@ -66,6 +66,13 @@ defmodule Zaq.Ingestion.SourcePathTest do
   end
 
   describe "absolute_to_source/1 in single-volume mode" do
+    test "returns path relative to root base_path" do
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: "/")
+
+      assert {:ok, source} = SourcePath.absolute_to_source("/tmp/root-file.md")
+      assert source == "tmp/root-file.md"
+    end
+
     test "falls back to basename when path is outside the configured base" do
       # line 104: relative_to_root returns nil
       tmp = System.tmp_dir!()
