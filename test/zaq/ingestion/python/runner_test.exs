@@ -348,16 +348,23 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
       end
     end
 
-    test "treats malformed progress lines as ordinary output", context do
+    test "drops malformed progress lines without logging their raw contents", context do
       if Map.has_key?(context, :script_name) do
         test_pid = self()
         reporter = fn payload -> send(test_pid, {:progress, payload}) end
 
-        assert {:ok, output} = Runner.run(context.script_name, [], on_progress: reporter)
+        {output, log} =
+          with_log(fn ->
+            assert {:ok, output} = Runner.run(context.script_name, [], on_progress: reporter)
+            output
+          end)
 
-        # The malformed line is not decoded, so it is kept in output.
-        assert String.contains?(output, "ZAQ_PROGRESS not-valid-json")
-        assert String.contains?(output, ~s(ZAQ_PROGRESS ["valid", "but", "not", "map"]))
+        # A line carrying the sentinel but failing to decode is never kept in
+        # output nor logged verbatim — it may carry secrets.
+        refute String.contains?(output, "ZAQ_PROGRESS not-valid-json")
+        refute String.contains?(output, ~s(ZAQ_PROGRESS ["valid", "but", "not", "map"]))
+        refute String.contains?(log, "not-valid-json")
+        assert String.contains?(log, "discarded malformed ZAQ_PROGRESS line")
 
         # Exactly the two well-formed lines are forwarded — the malformed one
         # and non-map JSON produce no third event.

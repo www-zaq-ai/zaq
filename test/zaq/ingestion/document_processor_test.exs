@@ -1596,14 +1596,17 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   end
 
   defp fake_converter_script(markdown) do
-    escaped = inspect(markdown)
+    # Base64-encode the payload so arbitrary bytes (backslashes, quotes,
+    # newlines) survive into the generated Python verbatim — no escaping.
+    encoded = Base.encode64(markdown)
 
     """
     import sys
+    import base64
 
     output = sys.argv[sys.argv.index("--output") + 1]
     with open(output, "w", encoding="utf-8") as f:
-        f.write(#{escaped})
+        f.write(base64.b64decode("#{encoded}").decode("utf-8"))
 
     print("converted")
     """

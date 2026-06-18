@@ -151,18 +151,23 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
   defp prep_indicator(assigns) do
     ~H"""
     <div
-      :if={@active and is_map(@progress)}
+      :if={@active}
       class="zaq-text-body-sm space-y-0.5"
       style="color: var(--zaq-text-color-body-secondary)"
     >
-      <p>Preparing — {prep_text(@progress)}</p>
-      <progress
-        class="zaq-jobs-panel-progress h-1.5 w-full overflow-hidden rounded-full"
-        value={prep_current(@progress)}
-        max={prep_total(@progress)}
-      >
-        {prep_current(@progress)}/{prep_total(@progress)}
-      </progress>
+      <%= if is_map(@progress) do %>
+        <p>Preparing — {prep_text(@progress)}</p>
+        <progress
+          class="zaq-jobs-panel-progress h-1.5 w-full overflow-hidden rounded-full"
+          value={prep_value(@progress)}
+          max={prep_total(@progress)}
+        >
+          {prep_value(@progress)}/{prep_total(@progress)}
+        </progress>
+      <% else %>
+        <p>Preparing — starting…</p>
+        <progress class="zaq-jobs-panel-progress h-1.5 w-full overflow-hidden rounded-full" />
+      <% end %>
     </div>
     """
   end
@@ -174,6 +179,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
 
   defp prep_text(%{"current" => c, "total" => t}), do: "describing images #{c}/#{t}"
   defp prep_text(_), do: "preparing…"
+
+  # Resolved progress value, clamped to [0, total] so a buggy script emitting
+  # `current > total` never renders an overflowed bar.
+  defp prep_value(progress), do: min(prep_current(progress), prep_total(progress))
 
   defp prep_current(%{"current" => c}) when is_integer(c) and c >= 0, do: c
   defp prep_current(_), do: 0

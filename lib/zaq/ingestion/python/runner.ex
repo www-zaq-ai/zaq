@@ -70,6 +70,12 @@ defmodule Zaq.Ingestion.Python.Runner do
             # Progress lines are consumed: kept out of Logger and returned output.
             collect_output(port, "", lines, on_progress)
 
+          :malformed_progress ->
+            # A line carried the progress sentinel but failed to decode. We never
+            # log its raw contents (it may carry secrets) nor keep it in output.
+            Logger.warning("[Python] discarded malformed ZAQ_PROGRESS line")
+            collect_output(port, "", lines, on_progress)
+
           :not_progress ->
             log_line(line)
             collect_output(port, "", [line | lines], on_progress)
@@ -99,8 +105,10 @@ defmodule Zaq.Ingestion.Python.Runner do
   defp normalize_on_progress(fun) when is_function(fun, 1), do: fun
   defp normalize_on_progress(_), do: fn _payload -> :ok end
 
-  # Decodes and forwards a `ZAQ_PROGRESS {json}` line. A malformed payload is
-  # treated as ordinary output so nothing is silently lost.
+  # Decodes and forwards a `ZAQ_PROGRESS {json}` line. A line carrying the
+  # sentinel but failing to decode to a map is reported as `:malformed_progress`
+  # so the caller can drop it without logging its raw contents (it may carry
+  # secrets) — see `collect_output/4`.
   defp maybe_emit_progress(@progress_sentinel <> json, on_progress) do
     case Jason.decode(json) do
       {:ok, payload} when is_map(payload) ->
@@ -108,7 +116,7 @@ defmodule Zaq.Ingestion.Python.Runner do
         :progress
 
       _ ->
-        :not_progress
+        :malformed_progress
     end
   end
 

@@ -85,6 +85,37 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanelTest do
       assert html =~ ~s(value="0")
       assert html =~ ~s(max="1")
     end
+
+    test "renders a starting placeholder when no progress has arrived yet" do
+      job = processing_job("starting.pdf")
+
+      html =
+        render_component(&IngestionJobsPanel.jobs_panel/1,
+          jobs: [job],
+          status_filter: "all",
+          prep_progress: %{}
+        )
+
+      assert html =~ "Preparing"
+      assert html =~ "starting"
+      # An indeterminate progress bar carries neither value nor max.
+      refute html =~ ~s(value=)
+    end
+
+    test "clamps current to total so an overflowing bar never renders" do
+      job = processing_job("overflow.pdf")
+
+      html =
+        render_component(&IngestionJobsPanel.jobs_panel/1,
+          jobs: [job],
+          status_filter: "all",
+          prep_progress: %{job.id => %{"current" => 5, "total" => 3}}
+        )
+
+      assert html =~ "describing images 5/3"
+      assert html =~ ~s(value="3")
+      assert html =~ ~s(max="3")
+    end
   end
 
   describe "jobs_panel/1 job details" do
