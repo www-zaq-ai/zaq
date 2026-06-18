@@ -193,6 +193,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   # Reads a file and returns its content as a markdown string,
   # converting non-markdown formats as needed.
+  #
+  # `opts` (e.g. `:on_progress`) is forwarded only to the PDF branch: the PDF
+  # pipeline is the sole converter that offloads to a long-running Python step
+  # (image-to-text) and therefore the only one that emits progress. The other
+  # converters are synchronous, single-shot calls with no progress to report, so
+  # they intentionally ignore `opts`.
   defp read_as_markdown(file_path, opts) do
     case Path.extname(file_path) |> String.downcase() do
       ".pdf" ->

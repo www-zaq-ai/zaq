@@ -39,6 +39,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        entries: [],
        selected: MapSet.new(),
        jobs: [],
+       # Set of job ids currently in their preparation phase, derived from the
+       # jobs list on every change so the high-frequency :job_progress handler
+       # can gate on an O(1) lookup instead of scanning the full jobs list.
+       active_prep_ids: MapSet.new(),
        # Transient PDF-prep progress, keyed by job id (not persisted)
        prep_progress: %{},
        # Monotonic ms of the last progress update per prep entry, used to expire
@@ -843,7 +847,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         _ -> []
       end
 
-    assign(socket, jobs: jobs)
+    assign_jobs(socket, jobs)
   end
 
   defp merge_job_update(socket, %{id: id} = job) do
@@ -885,12 +889,25 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp clear_prep_progress_when_done(socket, _job), do: socket
 
-  # True when the client still holds this job in its preparation phase:
-  # present in the jobs list, "processing", and no chunks scheduled yet.
+  # True when the client still holds this job in its preparation phase. The set
+  # is kept in sync with the jobs list (see assign_jobs/2), so this is an O(1)
+  # membership test even when :job_progress fires per-image at high frequency.
   defp active_prep_job?(socket, job_id) do
-    Enum.any?(socket.assigns.jobs, fn job ->
-      job.id == job_id and job.status == "processing" and job.total_chunks == 0
-    end)
+    MapSet.member?(socket.assigns.active_prep_ids, job_id)
+  end
+
+  # Assigns the jobs list and recomputes the active-prep id set in one place, so
+  # every jobs mutation keeps active_prep_ids consistent. A job is in its prep
+  # phase when it is "processing", has no chunks scheduled yet, and is not yet
+  # finished (the completed_at guard rejects a stale/duplicate entry).
+  defp assign_jobs(socket, jobs) do
+    active_prep_ids =
+      for job <- jobs,
+          job.status == "processing" and job.total_chunks == 0 and is_nil(job.completed_at),
+          into: MapSet.new(),
+          do: job.id
+
+    assign(socket, jobs: jobs, active_prep_ids: active_prep_ids)
   end
 
   # Records a fresh progress payload and its timestamp, starting the prune
@@ -950,7 +967,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp status_match?(status_filter, job_status), do: status_filter == job_status
 
   defp handle_filtered_job(socket, jobs, existing_index) when is_integer(existing_index) do
-    assign(socket, jobs: List.delete_at(jobs, existing_index))
+    assign_jobs(socket, List.delete_at(jobs, existing_index))
   end
 
   defp handle_filtered_job(socket, _jobs, _existing_index), do: socket
@@ -961,7 +978,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       |> List.replace_at(existing_index, job)
       |> sort_jobs_desc()
 
-    assign(socket, jobs: updated_jobs)
+    assign_jobs(socket, updated_jobs)
   end
 
   defp add_new_job(socket, jobs, job) do
@@ -970,7 +987,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       |> sort_jobs_desc()
       |> Enum.take(20)
 
-    assign(socket, jobs: updated_jobs)
+    assign_jobs(socket, updated_jobs)
   end
 
   defp sort_jobs_desc(jobs), do: Enum.sort_by(jobs, & &1.inserted_at, {:desc, DateTime})
