@@ -3,7 +3,7 @@ defmodule Storybook.Playground.ButtonPlayground do
 
   def description,
     do:
-      "Playground for .zaq-btn-primary, .zaq-btn-secondary, .zaq-btn-ghost, and .zaq-btn-tertiary — all states, both themes."
+      "Playground for .zaq-btn variants and .zaq-btn-pill + .zaq-btn-secondary (pill) — all states, both themes."
 
   def render(assigns) do
     ~H"""
@@ -60,6 +60,25 @@ defmodule Storybook.Playground.ButtonPlayground do
         </.row>
         <.hint>
           `.zaq-btn` supplies layout; `.zaq-btn-tertiary*` neutral chrome; `.zaq-btn-danger` destructive; `.zaq-btn-text_label-default` for button label type (per `text-styles.css`).
+        </.hint>
+      </section>
+
+      <section>
+        <.section_label>Secondary (pill)</.section_label>
+        <.row>
+          <button type="button" class="zaq-btn-pill zaq-btn-secondary zaq-btn-text_label-default">
+            Resting
+          </button>
+          <button
+            type="button"
+            class="zaq-btn-pill zaq-btn-secondary zaq-btn-text_label-default"
+            disabled
+          >
+            Disabled
+          </button>
+        </.row>
+        <.hint>
+          Supported pill pairing: `.zaq-btn-pill` + `.zaq-btn-secondary` + `.zaq-btn-text_label-default` — radius `--zaq-btn-all-radius-pill`.
         </.hint>
       </section>
 

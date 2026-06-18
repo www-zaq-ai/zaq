@@ -12,6 +12,7 @@
 :root {
   /* btn/all */
   --zaq-btn-all-radius-default: var(--zaq-scale-8);
+  --zaq-btn-all-radius-pill: var(--zaq-scale-999);
 
   /* btn/primary*/
   /* btn/primary/color/bg */
@@ -116,6 +117,8 @@
 
 /* ── Base — layout & shape only, no color ────────────────────────────────── */
 /* Always combine with .zaq-btn-text_label-default for typography */
+
+/* Zaq-btn is the default button style */
 .zaq-btn {
   display:         inline-flex;
   align-items:     center;
@@ -128,8 +131,23 @@
   transition:      background 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
+/* Zaq-btn-pill — pill shape for secondary outline chips only; compose with .zaq-btn-secondary */
+.zaq-btn-pill {
+  display:         inline-flex;
+  align-items:     center;
+  justify-content: center;
+  gap:             var(--zaq-scale-8);
+  padding:         var(--zaq-scale-8) var(--zaq-scale-16);
+  border-radius:   var(--zaq-btn-all-radius-pill);
+  border:          var(--zaq-scale-1) solid transparent;
+  cursor:          pointer;
+  transition:      background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
 .zaq-btn:disabled,
-.zaq-btn[aria-disabled="true"] {
+.zaq-btn[aria-disabled="true"],
+.zaq-btn-pill:disabled,
+.zaq-btn-pill[aria-disabled="true"] {
   cursor:         not-allowed;
   pointer-events: none;
 }
