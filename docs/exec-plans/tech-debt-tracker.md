@@ -54,6 +54,7 @@ Sourced from service docs `What's Left` sections. Updated continuously.
 - [ ] Google Drive ingestion adapter (`Zaq.Channels.Ingestion.GoogleDrive`)
 - [ ] SharePoint ingestion adapter (`Zaq.Channels.Ingestion.SharePoint`)
 - [ ] Reload retrieval supervisor when config changes in BO (currently requires restart)
+- [ ] Standardize channel runtime config maps on one token key format, then remove dual `:token` / `"token"` handling in `ChannelConfig.to_runtime_config/1`
 
 ### Nice to Have
 - [ ] Teams adapter

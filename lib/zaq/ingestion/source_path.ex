@@ -164,7 +164,7 @@ defmodule Zaq.Ingestion.SourcePath do
     prefix =
       case expanded_root do
         "/" -> "/"
-        root -> root <> "/"
+        other -> other <> "/"
       end
 
     if String.starts_with?(path, prefix) do

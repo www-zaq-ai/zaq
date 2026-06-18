@@ -56,6 +56,7 @@ defmodule Zaq.Ingestion.FileExplorer do
           resolve_path_against_base(relative_path)
       end
     else
+      # list_volumes() synthesizes "default" when no volumes are configured; strip it here so paths resolve correctly.
       case Path.split(relative_path) do
         ["default" | rest] when rest != [] -> resolve_path_against_base(Path.join(rest))
         _ -> resolve_path_against_base(relative_path)

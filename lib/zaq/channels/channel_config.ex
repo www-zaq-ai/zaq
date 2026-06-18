@@ -11,6 +11,7 @@ defmodule Zaq.Channels.ChannelConfig do
   use Ecto.Schema
   import Ecto.Changeset
   import Ecto.Query
+  require Logger
 
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
@@ -160,7 +161,20 @@ defmodule Zaq.Channels.ChannelConfig do
     end
   end
 
-  defp runtime_token(token) when is_binary(token), do: EncryptedString.decrypt!(token) || token
+  defp runtime_token(token) when is_binary(token) do
+    case EncryptedString.decrypt(token) do
+      {:ok, decrypted} ->
+        decrypted
+
+      {:error, reason} ->
+        if EncryptedString.encrypted?(token) do
+          Logger.warning("Channel config token decryption failed: #{inspect(reason)}")
+        end
+
+        token
+    end
+  end
+
   defp runtime_token(token), do: token
 
   defp force_loaded_token_change(changeset) do

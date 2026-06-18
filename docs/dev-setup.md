@@ -157,7 +157,8 @@ If using `./zaq-local.sh`, this folder is created automatically.
 Generate an encryption key:
 
 ```bash
-openssl rand -base64 32
+export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
 ```
 
 See `docs/services/system-config.md` for full secret configuration details.

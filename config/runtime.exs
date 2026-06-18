@@ -35,11 +35,23 @@ if config_env() == :prod do
   # - key must represent exactly 32 bytes (raw 32-byte, base64-32-byte, or 64-char hex)
   # - SYSTEM_CONFIG_ENCRYPTION_KEY_ID is metadata for key rotation (default: v1)
   system_config_encryption_key =
-    System.get_env("SYSTEM_CONFIG_ENCRYPTION_KEY") ||
-      raise """
-      environment variable SYSTEM_CONFIG_ENCRYPTION_KEY is missing.
-      must represent exactly 32 bytes (raw 32-byte, base64-32-byte, or 64-char hex)
-      """
+    case System.get_env("SYSTEM_CONFIG_ENCRYPTION_KEY") do
+      nil ->
+        raise """
+        environment variable SYSTEM_CONFIG_ENCRYPTION_KEY is missing.
+        must represent exactly 32 bytes (raw 32-byte, base64-32-byte, or 64-char hex)
+        """
+
+      key ->
+        if String.trim(key) == "" do
+          raise """
+          environment variable SYSTEM_CONFIG_ENCRYPTION_KEY is missing.
+          must represent exactly 32 bytes (raw 32-byte, base64-32-byte, or 64-char hex)
+          """
+        else
+          key
+        end
+    end
 
   config :zaq, Zaq.System.SecretConfig,
     encryption_key: system_config_encryption_key,

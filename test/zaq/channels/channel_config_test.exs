@@ -93,6 +93,17 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert ChannelConfig.to_runtime_config(%{"token" => nil}) == %{"token" => nil}
   end
 
+  test "to_runtime_config/1 logs encrypted token decryption failures" do
+    invalid_token = "enc:v1:not-base64:not-base64:not-base64"
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert ChannelConfig.to_runtime_config(%{token: invalid_token}) == %{token: invalid_token}
+      end)
+
+    assert log =~ "Channel config token decryption failed"
+  end
+
   test "insert returns changeset error when token encryption key is invalid" do
     previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
 
