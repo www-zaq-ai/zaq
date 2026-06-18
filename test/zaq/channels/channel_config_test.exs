@@ -25,6 +25,25 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert loaded.token == "my-secret"
   end
 
+  test "updating loaded smtp config without token leaves token unchanged" do
+    {:ok, smtp} =
+      ChannelConfig.upsert_by_provider("email:smtp", %{
+        name: "Email SMTP",
+        kind: "retrieval",
+        enabled: true,
+        settings: %{"relay" => "smtp.example.com", "port" => "587"}
+      })
+
+    loaded = Repo.get!(ChannelConfig, smtp.id) |> Map.put(:token, nil)
+
+    assert loaded.token == nil
+
+    assert {:ok, updated} =
+             loaded |> ChannelConfig.changeset(%{name: "Email SMTP Updated"}) |> Repo.update()
+
+    assert updated.token == nil
+  end
+
   test "update re-encrypts legacy plaintext token in DB" do
     # Write a plaintext token directly to simulate a legacy row
     {:ok, config} =
@@ -67,6 +86,11 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert SecretConfig.encrypted?(raw_token)
     reloaded = Repo.get!(ChannelConfig, config.id)
     assert reloaded.token == "new-token"
+  end
+
+  test "to_runtime_config/1 preserves non-binary token values in maps" do
+    assert ChannelConfig.to_runtime_config(%{token: nil}) == %{token: nil}
+    assert ChannelConfig.to_runtime_config(%{"token" => nil}) == %{"token" => nil}
   end
 
   test "insert returns changeset error when token encryption key is invalid" do
@@ -158,6 +182,21 @@ defmodule Zaq.Channels.ChannelConfigTest do
     refute changeset.valid?
 
     assert "imap.selected_mailboxes must contain at least one mailbox" in errors_on(changeset).settings
+  end
+
+  test "email:imap rejects nil settings before mailbox normalization" do
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        name: "Email IMAP Nil Settings",
+        provider: "email:imap",
+        kind: "retrieval",
+        token: "imap-secret",
+        enabled: false,
+        settings: nil
+      })
+
+    refute changeset.valid?
+    assert "imap.selected_mailboxes is required" in errors_on(changeset).settings
   end
 
   test "email:imap rejects missing or malformed selected_mailboxes" do
@@ -371,6 +410,11 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert %{} == ChannelConfig.jido_chat_settings(%{})
   end
 
+  test "helper accessors normalize non-map nested payloads for plain maps" do
+    assert ChannelConfig.jido_chat_settings(%{settings: %{"jido_chat" => "bad"}}) == %{}
+    assert ChannelConfig.imap_settings(%{settings: %{"imap" => "bad"}}) == %{}
+  end
+
   test "set_provider_default_agent_id/2 persists provider default agent id in settings" do
     config = insert_channel_config(%{provider: "mattermost", settings: %{}})
     agent = insert_configured_agent()
@@ -400,6 +444,10 @@ defmodule Zaq.Channels.ChannelConfigTest do
       })
 
     assert ChannelConfig.get_provider_default_agent_id(config) == nil
+  end
+
+  test "get_provider_default_agent_id/1 returns nil when settings is not a map" do
+    assert ChannelConfig.get_provider_default_agent_id(%{settings: "bad"}) == nil
   end
 
   test "set_provider_default_agent_id/2 removes routing map when clearing last field" do
