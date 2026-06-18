@@ -37,4 +37,37 @@ defmodule Zaq.System.SecretConfigTest do
       assert {:error, :missing_encryption_key} = SecretConfig.encrypt("smtp-secret")
     end
   end
+
+  describe "validate_encryption_key/1 (boot validation)" do
+    test "accepts a base64 key decoding to 32 bytes" do
+      assert :ok =
+               SecretConfig.validate_encryption_key(Base.encode64(:crypto.strong_rand_bytes(32)))
+    end
+
+    test "accepts a raw 32-byte key" do
+      assert :ok = SecretConfig.validate_encryption_key(:crypto.strong_rand_bytes(32))
+    end
+
+    test "accepts a 64-char hex key" do
+      assert :ok =
+               SecretConfig.validate_encryption_key(Base.encode16(:crypto.strong_rand_bytes(32)))
+    end
+
+    test "rejects nil and empty as missing" do
+      assert {:error, :missing_encryption_key} = SecretConfig.validate_encryption_key(nil)
+      assert {:error, :missing_encryption_key} = SecretConfig.validate_encryption_key("")
+    end
+
+    test "rejects a key that does not represent 32 bytes" do
+      assert {:error, :invalid_encryption_key} =
+               SecretConfig.validate_encryption_key(Base.encode64(:crypto.strong_rand_bytes(16)))
+    end
+
+    test "does not read application config" do
+      Application.put_env(:zaq, Zaq.System.SecretConfig, [])
+
+      assert :ok =
+               SecretConfig.validate_encryption_key(Base.encode64(:crypto.strong_rand_bytes(32)))
+    end
+  end
 end

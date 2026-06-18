@@ -26,9 +26,6 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
      |> assign(:portal_metadata, nil)
      |> assign(:portal_loading, false)
      |> assign(:pending_attrs, nil)
-     |> assign(:consent_modal_error, nil)
-     |> assign(:portal_consent_email, "")
-     |> assign(:allow_email_override, false)
      |> assign(:current_year, Date.utc_today().year)}
   end
 
@@ -81,7 +78,6 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
          socket
          |> assign(:pending_attrs, attrs)
          |> assign(:error_message, nil)
-         |> assign(:portal_consent_email, merged_form_params["email"] || "")
          |> assign(:portal_loading, true)
          |> start_async(:fetch_portal_metadata, fn ->
            UserPortal.client().fetch_onboarding("free")
@@ -89,41 +85,15 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     end
   end
 
-  # Accept: try portal provisioning first, create account only on success.
+  # Accept: register the ZAQ account first, then provision the portal. A portal
+  # failure never blocks registration — the user keeps access and can retry
+  # activation from the dashboard (see apply_onboarding/3).
   def handle_event("accept_portal_consent", _params, socket) do
-    email =
-      if socket.assigns.allow_email_override and
-           String.trim(socket.assigns.portal_consent_email || "") != "" do
-        socket.assigns.portal_consent_email
-      else
-        socket.assigns.pending_attrs["email"]
-      end
-
-    case Onboarding.try_provision(email) do
-      {:ok, litellm} ->
-        attrs = Map.put(socket.assigns.pending_attrs, "email", email)
-        {:noreply, apply_onboarding(socket, {:pre_provisioned, litellm}, attrs)}
-
-      {:error, reason} ->
-        {msg, mode} = UserPortal.provision_error(reason)
-
-        socket = assign(socket, :consent_modal_error, msg)
-
-        socket =
-          if mode == :allow_override,
-            do: assign(socket, allow_email_override: true, portal_consent_email: ""),
-            else: socket
-
-        {:noreply, socket}
-    end
+    {:noreply, apply_onboarding(socket, :accepted)}
   end
 
   def handle_event("decline_portal_consent", _params, socket) do
     {:noreply, apply_onboarding(socket, :declined)}
-  end
-
-  def handle_event("portal_consent_email_change", %{"email" => email}, socket) do
-    {:noreply, assign(socket, portal_consent_email: email, consent_modal_error: nil)}
   end
 
   def handle_event("close_post_accept_modal", _params, socket) do
@@ -140,10 +110,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     {:noreply,
      socket
      |> assign(:show_consent_modal, false)
-     |> assign(:pending_attrs, nil)
-     |> assign(:consent_modal_error, nil)
-     |> assign(:allow_email_override, false)
-     |> assign(:portal_consent_email, "")}
+     |> assign(:pending_attrs, nil)}
   end
 
   def handle_async(:fetch_portal_metadata, {:ok, result}, socket) do
@@ -189,16 +156,20 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> reset_consent_assigns()
         |> assign(:error_message, ChangesetErrors.format(changeset))
 
-      # Reachable only if a future caller routes raw `:accepted` consent through
-      # here (the current submit flow always sends `:pre_provisioned`). Surface
-      # the error instead of crashing with a CaseClauseError.
-      {:error, {:provisioning_failed, _reason}} ->
+      # The account is already registered; only portal provisioning failed. Keep
+      # the user moving — record nothing further here (the orchestrator already
+      # recorded declined consent) and route them into the app with a message so
+      # they can retry activation from the dashboard banner.
+      {:error, {:provisioning_failed, reason}} ->
+        {msg, _mode} = UserPortal.provision_error(reason)
+
         socket
         |> reset_consent_assigns()
-        |> assign(
-          :error_message,
-          "Portal activation failed — you can retry from the dashboard."
+        |> put_flash(
+          :info,
+          "Your account is ready. #{msg} You can activate the ZAQ portal anytime from your dashboard."
         )
+        |> push_navigate(to: ~p"/bo/dashboard")
     end
   end
 
@@ -206,13 +177,6 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
     socket
     |> assign(:show_consent_modal, false)
     |> assign(:pending_attrs, nil)
-    |> assign(:consent_modal_error, nil)
-    |> assign(:allow_email_override, false)
-    |> assign(:portal_consent_email, "")
-  end
-
-  defp onboarding_success_redirect(socket, {:pre_provisioned, _litellm}) do
-    assign(socket, :show_post_accept_modal, true)
   end
 
   defp onboarding_success_redirect(socket, :accepted) do

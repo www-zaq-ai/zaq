@@ -260,8 +260,12 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert is_nil(credential.api_key)
   end
 
-  test "shows portal provisioning failure and redirects after decline", %{conn: conn} do
-    # Registration succeeds, but the portal provisioning call fails.
+  test "registers the account and redirects to the dashboard when portal provisioning fails", %{
+    conn: conn
+  } do
+    # ZAQ-first: registration is committed before the portal is contacted, so a
+    # provisioning failure never blocks access — the user lands on the dashboard
+    # already registered and can retry activation from the banner there.
     Mox.stub(Zaq.UserPortal.ClientMock, :onboard_user, fn _email -> {:error, :econnrefused} end)
 
     user = user_fixture(%{username: "must_change_password_provision_fail"})
@@ -277,23 +281,28 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     |> render_submit()
 
     render_async(view)
+    render_click(view, "accept_portal_consent")
 
-    html = render_click(view, "accept_portal_consent")
-
-    assert html =~ "Could not reach the ZAQ portal"
-    assert has_element?(view, "[phx-click='decline_portal_consent']")
-
-    render_click(view, "decline_portal_consent")
-    assert_redirect(view, ~p"/bo/dashboard")
+    flash = assert_redirect(view, ~p"/bo/dashboard")
+    assert flash["info"] =~ "Your account is ready."
+    assert flash["info"] =~ "Could not reach the ZAQ portal"
 
     updated_user = Accounts.get_user!(user.id)
-    # Password changed (registration persisted), consent reverted so the dashboard
-    # retry flow remains valid.
+    # Registration persisted; consent recorded declined so the dashboard retry is valid.
     refute updated_user.must_change_password
     assert updated_user.portal_consent == "declined"
+
+    # The keyless ZAQ Router provider is scaffolded so it is still listed.
+    credential = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
+    assert credential.provider == "zaq_router"
+    assert is_nil(credential.api_key)
   end
 
-  test "allows email override after portal reports the original email is taken", %{conn: conn} do
+  test "registers the account and defers activation when the email is already on the portal", %{
+    conn: conn
+  } do
+    # ZAQ-first: a 409 no longer blocks signup. The account is created with the
+    # entered email; the email-override correction moves to the dashboard retry.
     user =
       user_fixture(%{username: "must_change_password_email_conflict", email: "taken@zaq.local"})
 
@@ -301,10 +310,6 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
 
     Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn "taken@zaq.local" ->
       {:error, {409, %{"message" => "This email already has a portal account."}}}
-    end)
-
-    Mox.expect(Zaq.UserPortal.ClientMock, :onboard_user, fn "fresh@zaq.local" ->
-      {:ok, %{litellm_api_key: "sk-fresh-email-key"}}
     end)
 
     {:ok, view, _html} = live(conn, ~p"/bo/change-password")
@@ -317,24 +322,16 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     |> render_submit()
 
     assert render_async(view) =~ "To create your ZAQ account..."
-    html = render_click(view, "accept_portal_consent")
-
-    assert html =~ "This email already has a portal account."
-    assert html =~ "Please use a different email address."
-    assert has_element?(view, "#portal-consent-email")
-
-    view
-    |> element("form[phx-change='portal_consent_email_change']")
-    |> render_change(%{"email" => "fresh@zaq.local"})
-
-    refute render(view) =~ "Please use a different email address."
-
     render_click(view, "accept_portal_consent")
+
+    flash = assert_redirect(view, ~p"/bo/dashboard")
+    assert flash["info"] =~ "This email already has a portal account."
+    assert flash["info"] =~ "Please use a different email address."
 
     updated_user = Accounts.get_user!(user.id)
     refute updated_user.must_change_password
-    assert updated_user.email == "fresh@zaq.local"
-    assert updated_user.portal_consent == "accepted"
+    assert updated_user.email == "taken@zaq.local"
+    assert updated_user.portal_consent == "declined"
   end
 
   test "close consent modal clears pending modal state without changing the password", %{

@@ -103,6 +103,27 @@ defmodule Zaq.System.SecretConfig do
   defp ensure_key_id(key_id, key_id), do: :ok
   defp ensure_key_id(payload_key_id, _), do: {:error, {:unknown_key_id, payload_key_id}}
 
+  @doc """
+  Validates a candidate encryption key without touching application config.
+
+  Returns `:ok` when `key` represents exactly 32 bytes (raw 32-byte, 64-char hex,
+  or base64 decoding to 32 bytes), otherwise `{:error, :invalid_encryption_key}`.
+
+  Intended for fail-fast boot validation in `config/runtime.exs` so a missing or
+  malformed `SYSTEM_CONFIG_ENCRYPTION_KEY` aborts startup instead of surfacing as
+  a runtime "could not be encrypted" error later.
+  """
+  @spec validate_encryption_key(term()) ::
+          :ok | {:error, :missing_encryption_key | :invalid_encryption_key}
+  def validate_encryption_key(key) when is_binary(key) and key != "" do
+    case normalize_key(key, @default_key_id) do
+      {:ok, _key, _key_id} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def validate_encryption_key(_), do: {:error, :missing_encryption_key}
+
   defp fetch_key_material do
     config = Application.get_env(:zaq, __MODULE__, [])
     key_id = Keyword.get(config, :key_id, @default_key_id)

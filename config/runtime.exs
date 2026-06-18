@@ -30,8 +30,10 @@ if config_env() == :prod do
     user_portal_base_url: System.get_env("USER_PORTAL_BASE_URL", "https://portal.zaq.ai"),
     litellm_base_url: System.get_env("LITELLM_BASE_URL", "https://llm.zaq.ai")
 
-  # SMTP password encryption (used by BO System Configuration page)
-  # - SYSTEM_CONFIG_ENCRYPTION_KEY is required to save non-empty SMTP passwords
+  # Secret-at-rest encryption (SMTP passwords, AI provider keys, MCP secrets — any
+  # Zaq.Types.EncryptedString field). Required and validated at boot so a missing
+  # or malformed key aborts startup instead of failing later when a secret is saved
+  # (e.g. orphaning a user-portal account during onboarding).
   # - key must represent exactly 32 bytes (raw 32-byte, base64-32-byte, or 64-char hex)
   # - SYSTEM_CONFIG_ENCRYPTION_KEY_ID is metadata for key rotation (default: v1)
   system_config_encryption_key =
@@ -108,11 +110,11 @@ if config_env() == :prod do
   # LLM, Embedding, Image-to-Text, and Ingestion settings are managed via the
   # back-office UI at /bo/system-config and persisted in the database.
   # Only volume mounts (infrastructure-level) are configured here.
-  ingestion_volumes_env = System.get_env("INGESTION_VOLUMES", "")
+  ingestion_volumes_env = System.get_env("INGESTION_VOLUMES", "/")
   ingestion_volumes_base = System.get_env("INGESTION_VOLUMES_BASE", "/zaq/volumes")
 
   ingestion_volumes =
-    if ingestion_volumes_env != "" do
+    if ingestion_volumes_env != "/" do
       ingestion_volumes_env
       |> String.split(",")
       |> Enum.map(&String.trim/1)

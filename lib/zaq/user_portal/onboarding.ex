@@ -8,10 +8,16 @@ defmodule Zaq.UserPortal.Onboarding do
   provisioning live here so success/failure of provisioning can drive the recorded
   consent value.
 
-  On acceptance, provisioning runs synchronously. If it fails, consent is recorded
-  as `"declined"` so the dashboard retry flow (`activate_portal/2`) remains valid,
-  and `{:error, {:provisioning_failed, reason}}` is returned so the caller can
-  surface a message.
+  Registration is committed **before** the portal is contacted, so a portal
+  failure never blocks account creation — the admin always ends up with a usable
+  ZAQ account and can complete portal activation later from the dashboard retry
+  flow (`activate_portal/2`).
+
+  On acceptance, provisioning runs synchronously after the account is written. If
+  it fails, consent is recorded as `"declined"`, the keyless ZAQ Router credential
+  is scaffolded so the provider stays listed, and `{:error, {:provisioning_failed,
+  reason}}` is returned so the caller can surface a message while keeping the
+  already-registered account.
 
   The `:unavailable` consent (portal unreachable at onboarding time) records
   consent as `"declined"` and additionally scaffolds the keyless ZAQ Router
@@ -29,62 +35,24 @@ defmodule Zaq.UserPortal.Onboarding do
   require Logger
 
   @type consent :: :accepted | :declined | :unavailable
-  @type pre_provisioned :: {:pre_provisioned, %{litellm_api_key: String.t()}}
-
-  @doc """
-  Claims a portal API key for `email` without touching the account.
-
-  Use this during the consent modal flow to validate the email against the portal
-  before committing any account changes — it performs the portal HTTP call only,
-  with no local writes. On `{:ok, litellm}`, pass `{:pre_provisioned, litellm}` to
-  `complete_bootstrap_onboarding/3`, which persists the credential and the account
-  registration in a single transaction.
-  """
-  @spec try_provision(String.t()) :: {:ok, %{litellm_api_key: String.t()}} | {:error, term()}
-  def try_provision(email) when is_binary(email) do
-    Provisioner.claim_key(email)
-  end
 
   @doc """
   Completes bootstrap onboarding for `user` with `attrs` (email + password) and the
   given portal `consent`.
 
-  Returns `{:ok, user}` on success or `{:error, %Ecto.Changeset{}}` when the
-  registration (or credential) write fails.
+  The account registration (email + password) is committed first via
+  `Zaq.Accounts.complete_registration/2`. Only then is provisioning attempted, so
+  a portal failure leaves the account intact rather than blocking access.
 
-  Pass `{:pre_provisioned, litellm}` with the key claimed via `try_provision/1`:
-  the registration write, credential write, and accepted-consent record run as a
-  Sage saga inside a single DB transaction, so a failure in any step rolls the
-  whole thing back rather than orphaning a credential.
-
-  With raw `:accepted` consent, provisioning runs synchronously; if it fails the
-  consent is recorded as `"declined"` and `{:error, {:provisioning_failed, reason}}`
-  is returned so the caller can surface a message.
+  Returns `{:ok, user}` on success, `{:error, %Ecto.Changeset{}}` when the
+  registration write itself fails, or — for `:accepted` consent whose provisioning
+  fails — `{:error, {:provisioning_failed, reason}}` with the account already
+  registered and consent recorded as `"declined"`.
   """
-  @spec complete_bootstrap_onboarding(User.t(), map(), consent() | pre_provisioned()) ::
+  @spec complete_bootstrap_onboarding(User.t(), map(), consent()) ::
           {:ok, User.t()}
           | {:error, Ecto.Changeset.t()}
           | {:error, {:provisioning_failed, term()}}
-  def complete_bootstrap_onboarding(user, attrs, {:pre_provisioned, litellm}) do
-    Sage.new()
-    |> Sage.run(:registration, fn _effects, _opts ->
-      Accounts.complete_registration(user, attrs)
-    end)
-    |> Sage.run(:credential, fn _effects, _opts ->
-      Provisioner.provision_with_key(litellm)
-    end)
-    |> Sage.run(:consent, fn %{registration: registered}, _opts ->
-      registered
-      |> User.portal_consent_changeset("accepted")
-      |> Repo.update()
-    end)
-    |> Sage.transaction(Repo)
-    |> case do
-      {:ok, user, _effects} -> {:ok, user}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   def complete_bootstrap_onboarding(user, attrs, consent)
       when consent in [:accepted, :declined, :unavailable] do
     with {:ok, registered_user} <- Accounts.complete_registration(user, attrs) do
@@ -160,11 +128,10 @@ defmodule Zaq.UserPortal.Onboarding do
         |> Repo.update()
 
       {:error, reason} ->
-        {:ok, _user} =
-          user
-          |> User.portal_consent_changeset("declined")
-          |> Repo.update()
-
+        # The account is already registered; keep it usable by recording declined
+        # consent and scaffolding the keyless offline router (so the provider is
+        # listed for the dashboard retry), then surface the provisioning failure.
+        {:ok, _user} = apply_consent(user, :declined)
         {:error, {:provisioning_failed, reason}}
     end
   end

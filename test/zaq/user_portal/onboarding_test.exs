@@ -37,7 +37,7 @@ defmodule Zaq.UserPortal.OnboardingTest do
                System.get_ai_provider_credential_by_name("ZAQ Router")
     end
 
-    test "reverts consent to declined and returns an error when the portal fails" do
+    test "keeps the registered account, records declined consent, and scaffolds the keyless credential when the portal fails" do
       expect(ClientMock, :onboard_user, fn _email -> {:error, :econnrefused} end)
 
       user = user_fixture(%{email: "offline@zaq.local"})
@@ -50,13 +50,22 @@ defmodule Zaq.UserPortal.OnboardingTest do
                )
 
       reloaded = Accounts.get_user!(user.id)
-      # Registration still persisted, consent reverted so the dashboard retry is valid.
+      # Registration is committed first, so the account stays usable; consent is
+      # recorded declined so the dashboard retry is valid, and the keyless ZAQ
+      # Router credential is scaffolded so the provider stays listed.
       assert reloaded.portal_consent == "declined"
       refute reloaded.must_change_password
-      refute System.get_ai_provider_credential_by_name("ZAQ Router")
+
+      credential = System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert credential
+      assert is_nil(credential.api_key)
     end
 
-    test "reverts consent when credential creation fails after portal onboarding" do
+    test "keeps the registered account when credential encryption fails (missing SYSTEM_CONFIG_ENCRYPTION_KEY)" do
+      # Reproduces the production failure: the portal claim succeeds, but writing
+      # the credential fails because the api_key cannot be encrypted. Registration
+      # is committed *before* provisioning and is NOT wrapped in the same
+      # transaction, so the account must stay registered and usable.
       prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
       Application.put_env(:zaq, Zaq.System.SecretConfig, encryption_key: nil, key_id: "v1")
       on_exit(fn -> Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret) end)
@@ -66,6 +75,7 @@ defmodule Zaq.UserPortal.OnboardingTest do
       end)
 
       user = user_fixture(%{email: "admin@zaq.local"})
+      assert user.must_change_password
 
       assert {:error, {:provisioning_failed, %Ecto.Changeset{}}} =
                Onboarding.complete_bootstrap_onboarding(
@@ -74,7 +84,12 @@ defmodule Zaq.UserPortal.OnboardingTest do
                  :accepted
                )
 
-      assert Accounts.get_user!(user.id).portal_consent == "declined"
+      reloaded = Accounts.get_user!(user.id)
+      # Registration committed despite the provisioning failure — the user has access.
+      refute reloaded.must_change_password
+      assert is_binary(reloaded.password_hash)
+      # Consent recorded declined so the dashboard retry remains valid.
+      assert reloaded.portal_consent == "declined"
     end
   end
 
@@ -138,57 +153,6 @@ defmodule Zaq.UserPortal.OnboardingTest do
                  %{password: "StrongPass1!"},
                  :accepted
                )
-    end
-  end
-
-  describe "complete_bootstrap_onboarding/3 — pre-provisioned" do
-    test "persists registration, the keyed credential, and accepted consent in one transaction" do
-      # No ClientMock expectation: the key was already claimed via try_provision/1,
-      # so the portal must not be called again on this path.
-      user = user_fixture(%{email: "pre@zaq.local"})
-
-      assert {:ok, updated} =
-               Onboarding.complete_bootstrap_onboarding(
-                 user,
-                 %{email: "pre@zaq.local", password: "StrongPass1!"},
-                 {:pre_provisioned, %{litellm_api_key: "sk-pre-claimed"}}
-               )
-
-      assert updated.portal_consent == "accepted"
-      refute updated.must_change_password
-
-      credential = System.get_ai_provider_credential_by_name("ZAQ Router")
-      assert credential.provider == "zaq_router"
-      refute is_nil(credential.api_key)
-    end
-
-    test "rolls back the registration and credential when persistence fails" do
-      # Force provision_with_key/1 to fail by leaving the LiteLLM endpoint unset:
-      # the credential changeset is rejected on the required :endpoint, so the whole
-      # transaction must roll back — no accepted consent, no orphaned credential.
-      prev_url = Application.get_env(:zaq, :litellm_base_url)
-      Application.put_env(:zaq, :litellm_base_url, nil)
-      on_exit(fn -> Application.put_env(:zaq, :litellm_base_url, prev_url) end)
-
-      # Fresh bootstrap user still requires a password change; complete_registration
-      # would flip this to false, so it doubles as a marker for whether the
-      # registration write committed.
-      user = user_fixture(%{email: "rollback@zaq.local"})
-      assert user.must_change_password
-
-      assert {:error, %Ecto.Changeset{}} =
-               Onboarding.complete_bootstrap_onboarding(
-                 user,
-                 %{email: "rollback@zaq.local", password: "StrongPass1!"},
-                 {:pre_provisioned, %{litellm_api_key: "sk-rollback"}}
-               )
-
-      reloaded = Accounts.get_user!(user.id)
-      # Registration runs before the failing credential write — the whole saga
-      # transaction must roll back, leaving the account un-registered.
-      assert reloaded.must_change_password
-      refute reloaded.portal_consent == "accepted"
-      refute System.get_ai_provider_credential_by_name("ZAQ Router")
     end
   end
 

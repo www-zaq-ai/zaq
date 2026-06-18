@@ -51,26 +51,29 @@ Entry point: an admin whose account is still in the pending state.
    portal metadata (`fetch_onboarding("free")`):
    - **Plan active & reachable** → show the consent modal.
    - **Unavailable** → skip the modal and onboard with consent `:unavailable`.
-3. **Accept** (`accept_portal_consent`) calls
-   `Onboarding.try_provision/1` *before* writing the account, so a bad email
-   never commits anything:
-   - `{:ok, _}` → `complete_bootstrap_onboarding(user, attrs, :pre_provisioned)`
-     records consent `"accepted"` (provisioning already done) and shows the
-     post-accept modal.
-   - `{:error, {409, …}}` → email already registered; the modal reveals an
-     email-override input so the user can try a different address.
-   - other `{:error, _}` → message advising decline + dashboard retry.
+3. **Accept** (`accept_portal_consent`) → `complete_bootstrap_onboarding(user,
+   attrs, :accepted)`. **Registration is committed first** (`ZAQ-first`), then
+   the portal is provisioned — a portal failure never blocks account creation:
+   - **Provisioning succeeds** → consent `"accepted"`, credential + model configs
+     wired, post-accept modal shown.
+   - **Provisioning fails** (unreachable, 5xx, or a `409` "email already on the
+     portal") → the account stays registered, consent is recorded `"declined"`,
+     the keyless "ZAQ Router" credential is scaffolded, and the user is routed to
+     `/bo/dashboard` with an info flash. The 409 email-override correction now
+     happens on the **dashboard retry** (`activate_portal/2`), not in the
+     bootstrap modal.
 4. **Decline** (`decline_portal_consent`) → consent `:declined`.
 5. **`complete_bootstrap_onboarding/3`** writes registration via
-   `Accounts.complete_registration/2`, then `apply_consent/2` persists the
-   recorded consent and (for declined/unavailable) scaffolds the keyless
-   "ZAQ Router" credential.
+   `Accounts.complete_registration/2`, then `apply_consent/2` provisions and
+   persists the recorded consent. For declined/unavailable — and for an
+   `:accepted` provisioning failure — it scaffolds the keyless "ZAQ Router"
+   credential so the provider is listed for the dashboard retry.
 
 ### Post-accept
 
-On `:accepted` / `:pre_provisioned`, a "you're all set" modal is shown;
-`close_post_accept_modal` navigates to `/bo/ingestion`. Declined/unavailable
-onboarding redirects to `/bo/dashboard`.
+On a successful `:accepted` provisioning, a "you're all set" modal is shown;
+`close_post_accept_modal` navigates to `/bo/ingestion`. Declined, unavailable,
+and `:accepted`-with-failed-provisioning onboarding redirect to `/bo/dashboard`.
 
 ## Dashboard Retry Flow (`activate_portal/2`)
 
