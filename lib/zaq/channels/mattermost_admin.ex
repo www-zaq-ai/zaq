@@ -52,6 +52,26 @@ defmodule Zaq.Channels.MattermostAdmin do
     end
   end
 
+  def list_accessible_channels(config, team_id) do
+    config
+    |> to_opts()
+    |> get("/api/v4/users/me/teams/#{team_id}/channels", per_page: 200)
+    |> case do
+      {:ok, channels} -> {:ok, Enum.map(channels, &atomize/1)}
+      error -> error
+    end
+  end
+
+  def fetch_user(config, user_id) do
+    config
+    |> to_opts()
+    |> get("/api/v4/users/#{user_id}", [])
+    |> case do
+      {:ok, user} when is_map(user) -> {:ok, atomize(user)}
+      error -> error
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Destructive admin
   # ---------------------------------------------------------------------------
@@ -88,6 +108,17 @@ defmodule Zaq.Channels.MattermostAdmin do
   end
 
   defp to_opts(config), do: [url: config.url, token: config.token]
+
+  defp get(opts, path, params) do
+    url = Keyword.fetch!(opts, :url) <> path
+    token = Keyword.fetch!(opts, :token)
+
+    case Req.get(url, params: params, headers: [{"Authorization", "Bearer #{token}"}]) do
+      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, body}
+      {:ok, %{status: status, body: body}} -> {:error, {status, body}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp atomize(map) when is_map(map) do
     Map.new(map, fn {k, v} -> {String.to_atom(k), v} end)

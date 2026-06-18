@@ -351,8 +351,8 @@
       </div>
     </div>
     
-<!-- Fetch Teams Button (initial state) -->
-    <div :if={@teams == [] and @teams_status == :idle}>
+<!-- Fetch Teams Button (initial and empty states) -->
+    <div :if={@teams == [] and @teams_status in [:idle, :empty]} class="space-y-3">
       <button
         phx-click="fetch_teams"
         class="font-mono text-[0.75rem] tracking-wide px-4 py-2.5 rounded-lg border border-[#0058CC]/20 text-[#0058CC] hover:bg-[#0058CC]/5 transition-all flex items-center gap-2"
@@ -368,6 +368,29 @@
         </svg>
         Browse Channels
       </button>
+      <div
+        :if={@teams_status == :empty}
+        id="mattermost-empty-teams-notice"
+        class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-2"
+      >
+        <svg
+          class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+        </svg>
+        <div>
+          <p class="font-mono text-[0.7rem] font-bold text-amber-700">
+            No Mattermost teams found
+          </p>
+          <p class="font-mono text-[0.62rem] text-amber-700/75 mt-0.5">
+            Add the bot to at least one Mattermost team, then browse channels again.
+          </p>
+        </div>
+      </div>
     </div>
     
 <!-- Loading Teams -->
@@ -517,30 +540,59 @@
         class="rounded-xl bg-black/3 border border-black/8 px-4 py-5 text-center"
       >
         <p class="font-mono text-[0.75rem] text-black/40">
-          No available public channels in this team, or all channels are already added.
+          No available channels in this team, or all channels are already added.
         </p>
+        <button
+          type="button"
+          phx-click="refresh_channels"
+          class="mt-3 font-mono text-[0.65rem] text-[#0058CC] hover:underline"
+        >
+          Refresh channels
+        </button>
       </div>
 
       <div
         :if={@available_channels != []}
         class="bg-white rounded-xl border border-black/10 overflow-hidden"
       >
-        <div class="px-5 py-3 border-b border-black/5">
-          <p class="font-mono text-[0.7rem] font-bold text-black/60">
-            Public Channels in {@selected_team_name}
-          </p>
-          <p class="font-mono text-[0.6rem] text-black/30 mt-0.5">
-            {length(@available_channels)} channel{if length(@available_channels) != 1, do: "s"} available
-          </p>
+        <div class="px-5 py-3 border-b border-black/5 flex items-start justify-between gap-3">
+          <div>
+            <p class="font-mono text-[0.7rem] font-bold text-black/60">
+              Channels in {@selected_team_name}
+            </p>
+            <p class="font-mono text-[0.6rem] text-black/30 mt-0.5">
+              {length(@available_channels)} channel{if length(@available_channels) != 1, do: "s"} available. Private channels appear when the bot is a member.
+            </p>
+          </div>
+          <button
+            type="button"
+            phx-click="refresh_channels"
+            class="font-mono text-[0.6rem] text-black/30 hover:text-black/50 transition-colors"
+            title="Refresh channels"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M23 4v6h-6M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+            </svg>
+          </button>
         </div>
         <div class="divide-y divide-black/5 max-h-[320px] overflow-y-auto">
           <div
             :for={ch <- @available_channels}
+            id={"available-channel-#{ch.id}"}
+            data-channel-kind={ch.channel_kind}
             class="px-5 py-3 flex items-center justify-between hover:bg-black/[0.02] transition-colors"
           >
             <div class="flex items-center gap-3 min-w-0">
               <div class="w-7 h-7 rounded-lg bg-black/5 grid place-items-center shrink-0">
                 <svg
+                  :if={ch.channel_kind in [:public, :channel]}
                   class="w-3.5 h-3.5 text-black/30"
                   fill="none"
                   stroke="currentColor"
@@ -549,10 +601,45 @@
                 >
                   <path d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
                 </svg>
+                <svg
+                  :if={ch.channel_kind == :private}
+                  class="w-3.5 h-3.5 text-black/30"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <rect x="5" y="11" width="14" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+                <svg
+                  :if={ch.channel_kind == :dm}
+                  class="w-3.5 h-3.5 text-black/30"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+                <svg
+                  :if={ch.channel_kind == :group_dm}
+                  class="w-3.5 h-3.5 text-black/30"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
               </div>
               <div class="min-w-0">
                 <p class="font-mono text-[0.75rem] font-bold text-black truncate">
-                  {ch.display_name}
+                  {ch.display_label}
                 </p>
                 <p
                   :if={ch.purpose && ch.purpose != ""}
@@ -565,7 +652,7 @@
             <button
               phx-click="add_channel"
               phx-value-channel-id={ch.id}
-              phx-value-channel-name={ch.display_name}
+              phx-value-channel-name={ch.display_label}
               class="font-mono text-[0.65rem] font-bold px-3 py-1.5 rounded-lg bg-[#0058CC] text-white hover:bg-[#0058CC]/90 transition-all shrink-0 flex items-center gap-1.5"
             >
               <svg

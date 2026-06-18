@@ -145,6 +145,84 @@ defmodule Zaq.Channels.MattermostAdminTest do
     end
   end
 
+  describe "list_accessible_channels/2" do
+    test "atomizes public and private channel maps visible to the bot" do
+      {child_spec, url} =
+        OpenAIStub.server(
+          fn conn, _body ->
+            assert conn.request_path == "/v1/api/v4/users/me/teams/team-1/channels"
+
+            {200,
+             [
+               %{"id" => "public-1", "name" => "general", "type" => "O"},
+               %{"id" => "private-1", "name" => "security", "type" => "P"}
+             ]}
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      assert {:ok, [public, private]} =
+               MattermostAdmin.list_accessible_channels(%{url: url, token: "token-1"}, "team-1")
+
+      assert public.id == "public-1"
+      assert public.type == "O"
+      assert private.id == "private-1"
+      assert private.type == "P"
+    end
+
+    test "passes through ReqClient errors" do
+      {child_spec, url} =
+        OpenAIStub.server(
+          fn _conn, _body ->
+            {403, %{"error" => "forbidden"}}
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      assert {:error, {403, %{"error" => "forbidden"}}} =
+               MattermostAdmin.list_accessible_channels(%{url: url, token: "token-1"}, "team-1")
+    end
+  end
+
+  describe "fetch_user/2" do
+    test "atomizes user map on success" do
+      {child_spec, url} =
+        OpenAIStub.server(
+          fn conn, _body ->
+            assert conn.request_path == "/v1/api/v4/users/user-1"
+            {200, %{"id" => "user-1", "username" => "ada", "first_name" => "Ada"}}
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      assert {:ok, user} = MattermostAdmin.fetch_user(%{url: url, token: "token-1"}, "user-1")
+      assert user.id == "user-1"
+      assert user.username == "ada"
+      refute Map.has_key?(user, "id")
+    end
+
+    test "passes through HTTP errors" do
+      {child_spec, url} =
+        OpenAIStub.server(
+          fn _conn, _body ->
+            {404, %{"error" => "not found"}}
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      assert {:error, {404, %{"error" => "not found"}}} =
+               MattermostAdmin.fetch_user(%{url: url, token: "token-1"}, "user-1")
+    end
+  end
+
   describe "clear_channel/1" do
     test "returns config-missing error when mattermost is not configured" do
       assert {:error, :mattermost_not_configured} = MattermostAdmin.clear_channel("chan-1")
