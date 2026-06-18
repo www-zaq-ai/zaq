@@ -1,4 +1,4 @@
-defmodule Storybook.CoreComponents.Table do
+defmodule Storybook.Components.CoreComponentsDeprecated.Table do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.CoreComponents.table/1

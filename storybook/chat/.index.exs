@@ -6,7 +6,7 @@ defmodule Storybook.Chat do
   use PhoenixStorybook.Index
 
   def folder_name, do: "Chat"
-  def folder_index, do: 2
+  def folder_index, do: 8
 
   def entry("feedback_modal"),
     do: [name: "Negative feedback (modal)", index: 20]

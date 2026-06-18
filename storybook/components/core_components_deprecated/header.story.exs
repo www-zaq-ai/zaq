@@ -1,4 +1,4 @@
-defmodule Storybook.CoreComponents.Header do
+defmodule Storybook.Components.CoreComponentsDeprecated.Header do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.CoreComponents.header/1

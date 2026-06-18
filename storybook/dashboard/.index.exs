@@ -5,5 +5,5 @@ defmodule Storybook.Dashboard do
   use PhoenixStorybook.Index
 
   def folder_name, do: "Dashboard"
-  def folder_index, do: 13
+  def folder_index, do: 7
 end

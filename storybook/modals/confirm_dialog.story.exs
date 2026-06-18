@@ -1,4 +1,4 @@
-defmodule Storybook.BoModal.ConfirmDialog do
+defmodule Storybook.Modals.ConfirmDialog do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.BOModal.confirm_dialog/1
@@ -21,7 +21,8 @@ defmodule Storybook.BoModal.ConfirmDialog do
         description: "Delete document — custom labels",
         attributes: %{
           title: "Remove this document?",
-          message: "It will be removed from the knowledge base and all associated chunks will be deleted.",
+          message:
+            "It will be removed from the knowledge base and all associated chunks will be deleted.",
           cancel_event: "cancel_delete",
           confirm_event: "confirm_delete",
           confirm_label: "Remove",
