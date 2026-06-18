@@ -237,7 +237,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp convert_pdf(file_path, md_path) do
-    with {:ok, _} <- Pipeline.run(file_path),
+    with {:ok, _} <- pdf_pipeline_module().run(file_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] PDF converted to markdown: #{md_path}")
       {:ok, FTSBackend.sanitize_utf8_text(raw)}
@@ -245,7 +245,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp convert_docx(file_path, md_path) do
-    with {:ok, _} <- DocxToMd.run(file_path, md_path),
+    with {:ok, _} <- docx_to_md_module().run(file_path, md_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] DOCX converted to markdown: #{md_path}")
       {:ok, FTSBackend.sanitize_utf8_text(raw)}
@@ -265,11 +265,23 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp convert_xlsx(file_path, md_path) do
-    with {:ok, _} <- XlsxToMd.run(file_path, md_path),
+    with {:ok, _} <- xlsx_to_md_module().run(file_path, md_path),
          {:ok, raw} <- File.read(md_path) do
       Logger.info("[DocumentProcessor] XLSX converted to markdown: #{md_path}")
       {:ok, FTSBackend.sanitize_utf8_text(raw)}
     end
+  end
+
+  defp pdf_pipeline_module do
+    Application.get_env(:zaq, :pdf_pipeline_module, Pipeline)
+  end
+
+  defp docx_to_md_module do
+    Application.get_env(:zaq, :docx_to_md_module, DocxToMd)
+  end
+
+  defp xlsx_to_md_module do
+    Application.get_env(:zaq, :xlsx_to_md_module, XlsxToMd)
   end
 
   defp convert_image(file_path, md_path) do
