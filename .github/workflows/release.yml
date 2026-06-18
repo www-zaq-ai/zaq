@@ -209,24 +209,57 @@ jobs:
           const fs = require('fs');
           const { execFileSync } = require('child_process');
 
+          const repo = process.env.REPO;
           const tag = process.env.TAG;
           const previousTag = fs.readFileSync('previous-tag.txt', 'utf8').trim();
           const range = previousTag ? `${previousTag}..${tag}` : tag;
-          const raw = execFileSync('git', ['log', range, '--format=%an%x00%ae%x00%s%x00'], {
-            encoding: 'utf8',
-          });
 
           const counts = new Map();
-          const parts = raw.split('\0');
-          for (let index = 0; index + 2 < parts.length; index += 3) {
-            const name = parts[index].trim();
-            const email = parts[index + 1].trim();
-            const subject = parts[index + 2].trim();
-            if (!name || /^chore\(main\): release\b/i.test(subject)) continue;
 
-            const noreply = email.match(/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i);
-            const display = noreply ? `@${noreply[1]}` : name;
+          const addContributor = (display, subject) => {
+            if (!display || /^chore\(main\): release\b/i.test(subject)) return;
             counts.set(display, (counts.get(display) || 0) + 1);
+          };
+
+          const fallbackDisplay = (name, email) => {
+            const noreply = email.match(/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i);
+            return noreply ? `@${noreply[1]}` : name;
+          };
+
+          if (previousTag) {
+            const compare = execFileSync(
+              'gh',
+              ['api', '--paginate', `repos/${repo}/compare/${previousTag}...${tag}`, '--jq', '.commits[] | @base64'],
+              { encoding: 'utf8' }
+            );
+
+            for (const line of compare.split('\n')) {
+              if (!line.trim()) continue;
+              const commit = JSON.parse(Buffer.from(line, 'base64').toString('utf8'));
+              const login = commit.author && commit.author.login;
+              const name = commit.commit && commit.commit.author && commit.commit.author.name;
+              const email = commit.commit && commit.commit.author && commit.commit.author.email || '';
+              const subject = (commit.commit && commit.commit.message || '').split('\n')[0].trim();
+              const display = login ? `@${login}` : fallbackDisplay(name, email);
+
+              addContributor(display, subject);
+            }
+          }
+
+          if (!counts.size) {
+            const raw = execFileSync('git', ['log', range, '--format=%an%x00%ae%x00%s%x00'], {
+              encoding: 'utf8',
+            });
+
+            const parts = raw.split('\0');
+            for (let index = 0; index + 2 < parts.length; index += 3) {
+              const name = parts[index].trim();
+              const email = parts[index + 1].trim();
+              const subject = parts[index + 2].trim();
+              const display = fallbackDisplay(name, email);
+
+              addContributor(display, subject);
+            }
           }
 
           const rows = [...counts.entries()]
