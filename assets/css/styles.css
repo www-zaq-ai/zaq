@@ -871,3 +871,11 @@ pre.zaq-file-preview-body {
 .zaq-chat-conversations-sidebar__row[aria-current="page"] > p {
   color: var(--zaq-text-color-body-accent);
 }
+
+/* BO chat — suggested prompts strip (above composer, welcome thread only) */
+.zaq-chat-suggested-prompts-shell {
+  flex-shrink: 0;
+  padding: var(--zaq-scale-16) var(--zaq-scale-24);
+  border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background-color: var(--zaq-surface-color-raised);
+}

@@ -9,11 +9,11 @@ defmodule ZaqWeb.Chat.SuggestedPrompts do
 
   def suggested_prompts(assigns) do
     ~H"""
-    <div class="flex-shrink-0 px-6 py-3 border-t border-[#e8e6e1] bg-white">
+    <div class="zaq-chat-suggested-prompts-shell">
       <div class="max-w-3xl mx-auto">
         <p
-          class="text-[0.65rem] font-mono uppercase tracking-widest mb-2.5"
-          style="color:#b8b5ae;"
+          class="zaq-text-caption uppercase tracking-widest mb-2.5"
+          style="color: var(--zaq-text-color-body-tertiary);"
         >
           Try asking
         </p>
@@ -23,7 +23,7 @@ defmodule ZaqWeb.Chat.SuggestedPrompts do
               id={"suggestion-#{index}"}
               phx-click="use_suggestion"
               phx-value-prompt={question}
-              class="text-[0.78rem] rounded-full px-3.5 py-1.5 border transition-all text-[#5c5a55] border-[#e0ddd8] bg-[#faf9f7] hover:text-[#03b6d4] hover:border-[#03b6d4] hover:bg-[#f0f9fb]"
+              class="zaq-btn-pill zaq-btn-secondary zaq-btn-text_label-default zaq-focus-visible"
             >
               {question}
             </button>
