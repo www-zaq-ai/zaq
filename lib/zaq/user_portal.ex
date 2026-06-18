@@ -49,25 +49,22 @@ defmodule Zaq.UserPortal do
   def plan_active?(payload), do: plan_enabled?(payload) and plan_available?(payload)
 
   @doc """
-  Maps a provisioning error to `{user_message, mode}`.
+  Maps a provisioning error to a user-facing message.
 
-  `mode` is always `:none` (show the message only). A 409 means the email already
-  exists on the portal, so re-provisioning cannot help — the user must fetch the
-  existing key and set it on the ZAQ Router credential, which the message states.
-  The `:allow_override` mode is retained in the type for backward compatibility
-  with `PortalConsentLive`, but is no longer produced.
+  A 409 means the email already exists on the portal, so re-provisioning cannot
+  help — the user must fetch the existing key and set it on the ZAQ Router
+  credential, which the message states. Other portal errors surface the portal's
+  own message; transport failures fall back to a generic message.
   """
-  @spec provision_error(term()) :: {String.t(), :allow_override | :none}
-  def provision_error({409, _body}) do
-    {"Your email is already registered in the user portal — get your key and set it in the ZAQ Router credential.",
-     :none}
-  end
+  @spec provision_error(term()) :: String.t()
+  def provision_error({409, _body}),
+    do:
+      "Your email is already registered in the user portal — get your key and set it in the ZAQ Router credential."
 
   def provision_error({_status, %{"message" => message}})
-      when is_binary(message) and message != "" do
-    {message, :none}
-  end
+      when is_binary(message) and message != "",
+      do: message
 
   def provision_error(_reason),
-    do: {"Could not reach the ZAQ portal. Please try again later.", :none}
+    do: "Could not reach the ZAQ portal. Please try again later."
 end

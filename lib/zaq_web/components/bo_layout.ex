@@ -692,6 +692,11 @@ defmodule ZaqWeb.Components.BOLayout do
   # to the configured portal. The message is HTML-escaped first, so interpolated
   # values (folder names, agent names, …) can never inject markup — only the
   # trusted anchor is added afterwards.
+  #
+  # This is a deliberate heuristic coupled to the wording of
+  # `Zaq.UserPortal.provision_error/1` (which emits "… user portal …"). Flashes
+  # that rephrase the term ("ZAQ portal", "the portal") are intentionally left
+  # un-linkified — the split simply finds no match and returns the escaped text.
   defp flash_body(nil), do: nil
 
   defp flash_body(message) when is_binary(message) do

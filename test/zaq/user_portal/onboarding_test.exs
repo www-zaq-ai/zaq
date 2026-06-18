@@ -254,6 +254,27 @@ defmodule Zaq.UserPortal.OnboardingTest do
       assert reloaded.portal_consent == "declined"
     end
 
+    test "scaffolds the keyless ZAQ Router credential on a 409 and surfaces the conflict" do
+      # The retry message tells the user to set their key on the ZAQ Router
+      # credential, so that credential must exist even if it was never scaffolded
+      # (or was deleted) before the retry.
+      expect(ClientMock, :onboard_user, fn _email ->
+        {:error, {409, %{"message" => "exists"}}}
+      end)
+
+      user = declined_user(%{email: "taken@zaq.local"})
+
+      assert {:error, {409, _body}} = Onboarding.activate_portal(user, nil)
+
+      # A failed retry commits nothing: consent stays declined.
+      assert Accounts.get_user!(user.id).portal_consent == "declined"
+
+      # Keyless router is scaffolded so the user can paste their existing key.
+      credential = System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert credential
+      assert is_nil(credential.api_key)
+    end
+
     test "rejects an invalid email without calling the portal" do
       # No ClientMock expectation: reaching the portal would raise.
       user = declined_user_without_email()

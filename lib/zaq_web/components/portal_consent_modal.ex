@@ -13,10 +13,6 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   a non-blank email is provided. Track the value in the parent LiveView via the
   `on_email_change` event and feed it back through the `email` assign.
 
-  When `allow_email_override` is `true` (e.g. the email on file was already
-  registered in the portal), the email input is also shown so the user can
-  enter a different address without leaving the modal.
-
   ## Metadata
 
   This is a pure presentational component: it performs no portal calls. The
@@ -55,14 +51,13 @@ defmodule ZaqWeb.Components.PortalConsentModal do
   attr :on_decline, :string, required: true
   attr :error, :string, default: nil
   attr :require_email, :boolean, default: false
-  attr :allow_email_override, :boolean, default: false
   attr :email, :string, default: nil
   attr :on_email_change, :string, default: "portal_consent_email_change"
   attr :available, :boolean, default: true
   attr :target, :any, default: nil
 
   def portal_consent_modal(assigns) do
-    show_email_input = assigns.require_email or assigns.allow_email_override
+    show_email_input = assigns.require_email
 
     assigns =
       assigns
@@ -73,14 +68,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
         not assigns.available or
           (show_email_input and not email_entered?(assigns.email))
       )
-      |> assign(
-        :email_label,
-        if assigns.allow_email_override do
-          "That email is already registered — enter a different one"
-        else
-          "We don't have your email on file — enter it to continue"
-        end
-      )
+      |> assign(:email_label, "We don't have your email on file — enter it to continue")
 
     ~H"""
     <div

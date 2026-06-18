@@ -294,7 +294,9 @@ test.describe("Dashboard retry", () => {
     await page.locator(SEL.acceptConsent).click()
     await waitForLiveViewSettled(page)
 
-    await expect(page.getByText("A user with this email is already provisioned.")).toBeVisible()
+    // A 409 shows fixed guidance to set the existing key on the ZAQ Router
+    // credential (the portal's own body is no longer surfaced).
+    await expect(page.getByText("already registered in the user portal")).toBeVisible()
     // Consent unchanged — modal stays open with error.
     await expect(page.locator(SEL.acceptConsent)).toBeVisible()
 
@@ -347,7 +349,8 @@ test.describe("Dashboard retry", () => {
     await page.locator(SEL.acceptConsent).click()
     await waitForLiveViewSettled(page)
 
-    await expect(page.getByText("A user with this email is already provisioned.")).toBeVisible()
+    // A 409 shows fixed guidance to set the existing key on the ZAQ Router.
+    await expect(page.getByText("already registered in the user portal")).toBeVisible()
 
     // Correct the email in the same modal — no page navigation needed.
     await page.locator(SEL.modalEmailInput).fill(CORRECTED_EMAIL)
@@ -368,12 +371,14 @@ test.describe("Dashboard retry", () => {
   })
 
   // ─── Scenario 9 ────────────────────────────────────────────────────────────
-  test("Scenario 9 — email conflict for user with existing email: modal reveals inline email input on 409", async ({
+  test("Scenario 9 — email conflict for user with existing email: 409 shows get-your-key guidance, no inline input", async ({
     page,
   }) => {
-    // User already has an email on file — the modal normally hides the email
-    // input. A 409 from the portal must reveal it inline so the user can correct
-    // the address without leaving the modal or navigating to Settings.
+    // User already has an email on file — the modal hides the email input. A 409
+    // means that email is already provisioned in the portal, so re-provisioning a
+    // different email here cannot help: the modal surfaces fixed guidance to fetch
+    // the existing key and set it on the ZAQ Router credential. No inline email
+    // input is revealed, and consent stays declined.
     const user = await createE2EDeclinedPortalUser(req, { email: CONFLICT_EMAIL })
     await registerE2EPortalConflict(req, { email: CONFLICT_EMAIL })
 
@@ -386,27 +391,15 @@ test.describe("Dashboard retry", () => {
     await expect(page.locator(SEL.acceptConsent)).toBeVisible()
     await expect(page.locator(SEL.modalEmailInput)).toHaveCount(0)
 
-    // First accept → portal returns 409 → email input is revealed inline.
+    // First accept → portal returns 409 → fixed guidance is shown.
     await page.locator(SEL.acceptConsent).click()
     await waitForLiveViewSettled(page)
 
-    await expect(page.getByText("A user with this email is already provisioned.")).toBeVisible()
-    await expect(page.locator(SEL.modalEmailInput)).toBeVisible()
+    await expect(page.getByText("already registered in the user portal")).toBeVisible()
 
-    // Correct the email in the same modal and retry — provisioning succeeds.
-    await page.locator(SEL.modalEmailInput).fill(CORRECTED_EMAIL)
-    await waitForLiveViewSettled(page)
-    await page.locator(SEL.acceptConsent).click()
-    await waitForLiveViewSettled(page)
-
-    // Post-accept modal appears — verify content and dismiss.
-    await verifyPostAcceptModal(page)
-    await page.locator(SEL.gotItButton).click()
-    await waitForLiveViewSettled(page)
-
-    await expect(page.locator(SEL.activateButton)).toHaveCount(0)
-
-    // ZAQ Router credential must have an API key.
-    await verifyZAQRouter(req, { hasApiKey: true })
+    // No inline email input is revealed — re-provisioning cannot resolve a 409.
+    await expect(page.locator(SEL.modalEmailInput)).toHaveCount(0)
+    // Modal stays open with the guidance; the banner/activate path is unchanged.
+    await expect(page.locator(SEL.acceptConsent)).toBeVisible()
   })
 })

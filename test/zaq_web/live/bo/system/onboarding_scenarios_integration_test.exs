@@ -245,7 +245,11 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
       assert html =~ "already registered in the user portal"
       assert html =~ "ZAQ Router"
       assert Accounts.get_user!(user.id).portal_consent == "declined"
-      assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
+      # The keyless ZAQ Router credential is scaffolded on the 409 so the
+      # guidance's target exists for the user to paste their existing key into.
+      keyless = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert keyless
+      assert is_nil(keyless.api_key)
 
       # Admin corrects the email externally
       Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: @alt_email])

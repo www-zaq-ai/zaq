@@ -34,7 +34,7 @@ services:
       SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
       # LLM, Embedding, Image-to-Text, and Ingestion settings are configured
       # via the back-office UI at /bo/system-config (persisted in the database).
-      INGESTION_VOLUMES: "${INGESTION_VOLUMES:-}"
+      INGESTION_VOLUMES: "${INGESTION_VOLUMES:-/}"
       INGESTION_VOLUMES_BASE: "${INGESTION_VOLUMES_BASE:-/zaq/volumes}"
       SYSTEM_CONFIG_ENCRYPTION_KEY: "${SYSTEM_CONFIG_ENCRYPTION_KEY}"
     volumes:

@@ -223,11 +223,16 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       view |> element("#portal-consent button", "Activate") |> render_click()
       html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
 
-      assert html =~ "A user with this email is already provisioned."
+      # A 409 shows fixed guidance to set the existing key on the ZAQ Router
+      # credential (the portal's own body is no longer surfaced).
+      assert html =~ "already registered in the user portal"
 
-      # DB unchanged after failed attempt
+      # Consent unchanged after the failed attempt, but the keyless ZAQ Router
+      # credential is scaffolded so the guidance's target exists.
       assert Accounts.get_user!(user.id).portal_consent == "declined"
-      assert is_nil(Zaq.System.get_ai_provider_credential_by_name("ZAQ Router"))
+      keyless = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert keyless
+      assert is_nil(keyless.api_key)
 
       # Admin corrects the email via user management (external to the current session)
       Repo.update_all(from(u in User, where: u.id == ^user.id), set: [email: @alt_email])
@@ -293,7 +298,9 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
 
       html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
 
-      assert html =~ "A user with this email is already provisioned."
+      # A 409 shows fixed guidance to set the existing key on the ZAQ Router
+      # credential (the portal's own body is no longer surfaced).
+      assert html =~ "already registered in the user portal"
 
       # Modal stays open; user's email and consent unchanged (failed attempt commits nothing)
       assert is_nil(Accounts.get_user!(user.id).email)

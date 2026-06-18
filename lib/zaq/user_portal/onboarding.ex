@@ -80,8 +80,26 @@ defmodule Zaq.UserPortal.Onboarding do
     changeset = portal_activation_changeset(user, entered_email)
 
     with {:ok, email} <- fetch_valid_email(changeset),
-         {:ok, _credential} <- Provisioner.provision_for_user(email) do
+         {:ok, _credential} <- provision_or_scaffold_on_conflict(email) do
       Repo.update(changeset)
+    end
+  end
+
+  # A 409 means the email is already provisioned in the portal. Re-provisioning
+  # cannot help, so guarantee the keyless ZAQ Router credential exists (the call
+  # is idempotent) for the user to paste their existing key into, then surface
+  # the conflict. No consent is written — a failed retry commits nothing.
+  defp provision_or_scaffold_on_conflict(email) do
+    case Provisioner.provision_for_user(email) do
+      {:ok, _credential} = ok ->
+        ok
+
+      {:error, {409, _body}} = err ->
+        ensure_offline_router_credential()
+        err
+
+      {:error, _reason} = err ->
+        err
     end
   end
 

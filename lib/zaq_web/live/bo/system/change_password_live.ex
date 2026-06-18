@@ -160,7 +160,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
       # orchestrator recorded "portal_registered" (no activation banner). Surface
       # the bare guidance to fetch the key and set it on the ZAQ Router credential.
       {:error, {:provisioning_failed, {409, _body} = reason}} ->
-        {msg, _mode} = UserPortal.provision_error(reason)
+        msg = UserPortal.provision_error(reason)
 
         socket
         |> reset_consent_assigns()
@@ -172,7 +172,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
       # recorded declined consent) and route them into the app with a message so
       # they can retry activation from the dashboard banner.
       {:error, {:provisioning_failed, reason}} ->
-        {msg, _mode} = UserPortal.provision_error(reason)
+        msg = UserPortal.provision_error(reason)
 
         socket
         |> reset_consent_assigns()

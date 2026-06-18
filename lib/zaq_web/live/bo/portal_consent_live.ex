@@ -33,8 +33,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
        show_portal_consent_modal: false,
        show_post_accept_modal: false,
        portal_consent_accepted: false,
-       portal_provision_error: nil,
-       allow_email_override: false
+       portal_provision_error: nil
      )}
   end
 
@@ -174,7 +173,6 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
         target={@myself}
         on_decline="close_portal_consent_modal"
         require_email={@require_portal_email}
-        allow_email_override={@allow_email_override}
         email={@portal_consent_email}
         on_email_change="portal_consent_email_change"
         available={@plan_available}
@@ -201,8 +199,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
     {:noreply,
      assign(socket,
        show_portal_consent_modal: false,
-       portal_provision_error: nil,
-       allow_email_override: false
+       portal_provision_error: nil
      )}
   end
 
@@ -237,7 +234,6 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
          |> assign(:show_portal_consent_modal, false)
          |> assign(:show_post_accept_modal, true)
          |> assign(:require_portal_email, false)
-         |> assign(:allow_email_override, false)
          |> assign(:portal_consent_email, updated_user.email)
          |> assign(:portal_provision_error, nil)}
 
@@ -252,7 +248,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
         # A 409 here means the email is already on the portal; provision_error/1
         # returns guidance to set the existing key on the ZAQ Router credential
         # (no email-override input — re-provisioning the same email cannot help).
-        {error_msg, _mode} = Zaq.UserPortal.provision_error(reason)
+        error_msg = Zaq.UserPortal.provision_error(reason)
 
         {:noreply,
          socket
