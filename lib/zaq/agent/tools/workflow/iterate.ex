@@ -73,11 +73,42 @@ defmodule Zaq.Agent.Tools.Workflow.Iterate do
       errors: [type: {:list, :any}, required: true, doc: "Collected errors for failed items."]
     ]
 
+  @behaviour Zaq.Engine.Workflows.Node
+
   alias Zaq.Agent.Tools.ItemOutcome
   alias Zaq.Agent.Tools.PipelineRunner
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.DagBuilder
 
   require Logger
+
+  @doc """
+  Enriches an Iterate node for the DAG: resolves the inline `pipeline` into
+  `{module, base_params}` pairs, detects the per-item delivery `field`/`mode`
+  from the first pipeline action, and injects them as the `:__iterate_pipeline__`,
+  `:__iterate_field__`, and `:__iterate_mode__` fields the runtime `run/2` reads.
+  The now-resolved `pipeline` key is dropped from the string-keyed `params`.
+  """
+  @impl Zaq.Engine.Workflows.Node
+  def enrich(node, nodes_list) do
+    params = Map.get(node, "params") || %{}
+    node_name = Map.get(node, "name")
+    pipeline_names = Map.get(params, "pipeline", [])
+
+    with :ok <-
+           DagBuilder.require_non_empty(pipeline_names, {:missing_iterate_pipeline, node_name}),
+         {:ok, pipeline} <- DagBuilder.resolve_pipeline(pipeline_names, nodes_list, :pipeline),
+         {:ok, {field, mode}} <- DagBuilder.first_action_batch_field(pipeline) do
+      enriched =
+        node
+        |> Map.put(:__iterate_pipeline__, pipeline)
+        |> Map.put(:__iterate_field__, field)
+        |> Map.put(:__iterate_mode__, mode)
+        |> Map.update("params", %{}, &Map.delete(&1, "pipeline"))
+
+      {:ok, enriched}
+    end
+  end
 
   @impl Jido.Action
   def run(params, context) do

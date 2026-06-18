@@ -99,12 +99,48 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
       errors: [type: {:list, :any}, required: true, doc: "Collected errors for failed chunks."]
     ]
 
+  @behaviour Zaq.Engine.Workflows.Node
+
   alias Zaq.Agent.Tools.{ItemOutcome, PipelineRunner}
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.DagBuilder
 
   require Logger
 
   @max_retries 3
+
+  @doc """
+  Enriches a Batch node for the DAG: resolves the inline `process` /
+  `post_process` pipelines into `{module, base_params}` pairs, detects the
+  chunk-delivery `field`/`mode` from the first process action, and injects them
+  as the `:process`, `:post_process`, `:__batch_field__`, and `:__batch_mode__`
+  fields the runtime `run/2` reads. The now-resolved `process`/`post_process`
+  keys are dropped from the string-keyed `params`.
+  """
+  @impl Zaq.Engine.Workflows.Node
+  def enrich(node, nodes_list) do
+    params = Map.get(node, "params") || %{}
+    node_name = Map.get(node, "name")
+    process_names = Map.get(params, "process", [])
+    post_process_names = Map.get(params, "post_process", [])
+
+    with :ok <-
+           DagBuilder.require_non_empty(process_names, {:missing_process_pipeline, node_name}),
+         {:ok, process} <- DagBuilder.resolve_pipeline(process_names, nodes_list, :process),
+         {:ok, post_process} <-
+           DagBuilder.resolve_pipeline(post_process_names, nodes_list, :post_process),
+         {:ok, {field, mode}} <- DagBuilder.first_action_batch_field(process) do
+      enriched =
+        node
+        |> Map.put(:process, process)
+        |> Map.put(:post_process, post_process)
+        |> Map.put(:__batch_field__, field)
+        |> Map.put(:__batch_mode__, mode)
+        |> Map.update("params", %{}, &(&1 |> Map.delete("process") |> Map.delete("post_process")))
+
+      {:ok, enriched}
+    end
+  end
 
   @impl Jido.Action
   def run(params, context) do
