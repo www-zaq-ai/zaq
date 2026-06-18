@@ -1,4 +1,4 @@
-defmodule Storybook.Components.Modals.BoModal do
+defmodule Storybook.Modals.BoModal do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.BOModal.confirm_dialog/1
@@ -26,7 +26,8 @@ defmodule Storybook.Components.Modals.BoModal do
             description: "Custom labels",
             attributes: %{
               title: "Archive workspace",
-              message: "Archiving will hide this workspace from all members. You can restore it later.",
+              message:
+                "Archiving will hide this workspace from all members. You can restore it later.",
               confirm_label: "Archive",
               cancel_label: "Keep active",
               cancel_event: "close_modal"

@@ -5,5 +5,5 @@ defmodule Storybook.History do
   use PhoenixStorybook.Index
 
   def folder_name, do: "History"
-  def folder_index, do: 12
+  def folder_index, do: 6
 end

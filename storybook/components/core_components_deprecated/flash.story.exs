@@ -1,4 +1,4 @@
-defmodule Storybook.CoreComponents.Flash do
+defmodule Storybook.Components.CoreComponentsDeprecated.Flash do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.CoreComponents.flash/1
