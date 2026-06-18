@@ -1720,6 +1720,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
   test "save works without global base URL for providers without webhook capabilities" do
     :ok = ZaqSystem.set_global_base_url(nil)
+    use_data_source_bridge(:google_drive, BridgeStubs.NoWebhookCapabilities)
 
     socket =
       socket_with(%{
@@ -1761,8 +1762,9 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert Repo.get_by(ChannelConfig, name: name) != nil
   end
 
-  test "google_drive validate without global base URL does not add webhook error" do
+  test "validate without global base URL does not add webhook error for provider without webhook capabilities" do
     :ok = ZaqSystem.set_global_base_url(nil)
+    use_data_source_bridge(:google_drive, BridgeStubs.NoWebhookCapabilities)
 
     socket =
       socket_with(%{
@@ -1796,6 +1798,43 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
     assert validated.assigns.modal == :new
     refute Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "Global base URL"))
+  end
+
+  test "validate without global base URL adds webhook error for provider with webhook capabilities" do
+    :ok = ZaqSystem.set_global_base_url(nil)
+    use_data_source_bridge(:google_drive, BridgeStubs.WebhookCapabilities)
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        changeset:
+          ChannelConfig.changeset(%ChannelConfig{}, %{
+            "provider" => "google_drive",
+            "kind" => "data_source",
+            "enabled" => true,
+            "settings" => %{}
+          }),
+        modal: :new,
+        form: nil,
+        modal_errors: []
+      })
+
+    assert {:noreply, validated} =
+             ProviderLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "name" => "webhook-test-#{System.unique_integer([:positive])}",
+                   "provider" => "google_drive",
+                   "kind" => "data_source",
+                   "enabled" => true,
+                   "settings" => %{}
+                 }
+               },
+               socket
+             )
+
+    assert Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "Global base URL"))
   end
 
   # --- New coverage tests for uncovered lines ---
@@ -2126,6 +2165,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
     test "validate without global base URL for non-webhook provider does not add webhook error" do
       :ok = ZaqSystem.set_global_base_url(nil)
+      use_data_source_bridge(:google_drive, BridgeStubs.NoWebhookCapabilities)
 
       socket =
         socket_with(%{

@@ -33,6 +33,36 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.UnexpectedResponse do
   def list_files(_config, _params), do: :unexpected
 end
 
+defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NoWebhookCapabilities do
+  @moduledoc false
+
+  alias Zaq.Channels.DataSourceBridge
+
+  def capability_snapshot(_config) do
+    {:ok,
+     %{
+       required: DataSourceBridge.required_capabilities(),
+       resolved: %{list_items: true},
+       labels: DataSourceBridge.capability_meta()
+     }}
+  end
+end
+
+defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.WebhookCapabilities do
+  @moduledoc false
+
+  alias Zaq.Channels.DataSourceBridge
+
+  def capability_snapshot(_config) do
+    {:ok,
+     %{
+       required: DataSourceBridge.required_capabilities(),
+       resolved: %{watch_changes_webhook: true},
+       labels: DataSourceBridge.capability_meta()
+     }}
+  end
+end
+
 defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.ContinuationThenHalt do
   @moduledoc false
 
