@@ -1,5 +1,6 @@
 defmodule Zaq.Ingestion.FTSBackendTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   import Ecto.Query
   import ExUnit.CaptureLog
@@ -303,6 +304,97 @@ defmodule Zaq.Ingestion.FTSBackendTest do
                1 => %{["A"] => [%{bm25_score: 2.0}, %{bm25_score: 1.0}]},
                2 => %{["B"] => [%{bm25_score: 3.0}]}
              } = FTSBackend.group_results(results)
+    end
+  end
+
+  describe "sanitize_query_text properties" do
+    # Generates adversarial query text: alphanumeric runs interleaved with dots,
+    # tantivy operators, whitespace, null/invalid bytes, and non-ASCII letters.
+    defp messy_query_text do
+      fragment =
+        StreamData.one_of([
+          StreamData.string(:alphanumeric, min_length: 1, max_length: 5),
+          StreamData.constant("."),
+          StreamData.constant(".."),
+          StreamData.member_of([
+            ":",
+            "^",
+            "(",
+            ")",
+            "\"",
+            "[",
+            "]",
+            "{",
+            "}",
+            "\\",
+            "*",
+            "?",
+            "~",
+            "+",
+            "-",
+            "/",
+            "|",
+            "&",
+            "!",
+            "@",
+            "#",
+            "'",
+            "=",
+            "<",
+            ">"
+          ]),
+          StreamData.member_of([" ", "\t", "\n", <<0>>, <<0xFF>>]),
+          StreamData.string([?é, ?ü, ?ñ, ?ç, ?東, ?京], min_length: 1, max_length: 2)
+        ])
+
+      fragment
+      |> StreamData.list_of(max_length: 60)
+      |> StreamData.map(&Enum.join/1)
+    end
+
+    # Dotted literals: 2–4 digit groups joined by single dots (IPv4, versions).
+    defp dotted_literal do
+      ?0..?9
+      |> StreamData.string(min_length: 1, max_length: 4)
+      |> StreamData.list_of(min_length: 2, max_length: 4)
+      |> StreamData.map(&Enum.join(&1, "."))
+    end
+
+    property "output is valid, null-free, bounded, and uses only safe characters" do
+      check all(raw <- messy_query_text()) do
+        out = FTSBackend.sanitize_query_text(raw)
+
+        assert String.valid?(out), "output must be valid UTF-8"
+        refute String.contains?(out, <<0>>), "null bytes must be stripped"
+        assert String.length(out) <= 512, "output must be length-capped"
+        # Only letters, numbers, intra-token dots, and single spaces survive —
+        # every tantivy query operator is neutralized.
+        assert out =~ ~r/\A[\p{L}\p{N}. ]*\z/u
+        assert out == String.trim(out), "no leading/trailing whitespace"
+        refute out =~ ~r/  /, "whitespace runs must be collapsed"
+      end
+    end
+
+    property "every surviving dot is flanked by alphanumerics on both sides" do
+      check all(raw <- messy_query_text()) do
+        out = FTSBackend.sanitize_query_text(raw)
+
+        refute out =~ ~r/(?<![\p{L}\p{N}])\.|\.(?![\p{L}\p{N}])/u,
+               "leading/trailing/standalone dots must be dropped: #{inspect(out)}"
+      end
+    end
+
+    property "is idempotent" do
+      check all(raw <- messy_query_text()) do
+        once = FTSBackend.sanitize_query_text(raw)
+        assert FTSBackend.sanitize_query_text(once) == once
+      end
+    end
+
+    property "preserves dotted literals (IPv4 / versions) as single tokens" do
+      check all(literal <- dotted_literal()) do
+        assert FTSBackend.sanitize_query_text(literal) == literal
+      end
     end
   end
 

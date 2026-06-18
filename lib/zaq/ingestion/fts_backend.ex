@@ -193,14 +193,7 @@ defmodule Zaq.Ingestion.FTSBackend do
     text
     |> sanitize_utf8_text()
     |> unicode_normalize()
-    # Collapse runs of disallowed characters to a space, but KEEP dots so dotted
-    # literals (IPv4 like "10.0.0.42", versions like "1.2.3", decimals) are not
-    # shattered into separate tokens — that mismatch is why a raw IP query never
-    # matched the single FTS token produced by to_tsvector for the same string.
-    |> String.replace(~r/[^\p{L}\p{N}.]+/u, " ")
-    # Drop dots that are not flanked by alphanumerics on both sides (leading,
-    # trailing, or standalone), so only intra-token dots survive.
-    |> String.replace(~r/(?<![\p{L}\p{N}])\.+|\.+(?![\p{L}\p{N}])/u, " ")
+    |> strip_punctuation_keep_dotted_literals()
     |> String.replace(~r/ {2,}/, " ")
     |> String.trim()
     |> String.slice(0, 512)
@@ -249,6 +242,20 @@ defmodule Zaq.Ingestion.FTSBackend do
     |> Map.new(fn {doc_id, items} ->
       {doc_id, Enum.group_by(items, & &1.section_path)}
     end)
+  end
+
+  # Strips query-language punctuation while keeping dots that sit between
+  # alphanumerics, so dotted literals (IPv4 "10.0.0.42", versions "1.2.3",
+  # decimals) survive as single tokens.
+  defp strip_punctuation_keep_dotted_literals(text) do
+    text
+    # Collapse runs of disallowed characters to a space, but KEEP dots so dotted
+    # literals are not shattered into separate tokens — that mismatch is why a raw
+    # IP query never matched the single FTS token produced by to_tsvector.
+    |> String.replace(~r/[^\p{L}\p{N}.]+/u, " ")
+    # Drop dots that are not flanked by alphanumerics on both sides (leading,
+    # trailing, or standalone), so only intra-token dots survive.
+    |> String.replace(~r/(?<![\p{L}\p{N}])\.+|\.+(?![\p{L}\p{N}])/u, " ")
   end
 
   defp unicode_normalize(text) do
