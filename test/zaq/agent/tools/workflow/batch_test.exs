@@ -51,6 +51,51 @@ defmodule Zaq.Agent.Tools.Workflow.BatchTest do
     )
   end
 
+  # ── enrich/2 (Workflows.Node behaviour) ───────────────────────────────────────
+
+  describe "enrich/2" do
+    @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
+
+    defp batch_node(params) do
+      %{
+        "name" => "batch",
+        "type" => "action",
+        "module" => "Zaq.Agent.Tools.Workflow.Batch",
+        "params" => params
+      }
+    end
+
+    test "resolves the process pipeline and injects batch fields" do
+      node =
+        batch_node(%{
+          "process" => [
+            %{
+              "name" => "categorize",
+              "type" => "action",
+              "module" => @categorize_module,
+              "params" => %{}
+            }
+          ]
+        })
+
+      assert {:ok, enriched} = Batch.enrich(node, [])
+      assert [{CategorizeBySize, %{}}] = enriched.process
+      assert enriched.post_process == []
+      assert enriched.__batch_field__ == :items
+      assert enriched.__batch_mode__ == :list
+      refute Map.has_key?(enriched["params"], "process")
+    end
+
+    test "returns {:error, {:missing_process_pipeline, name}} when process is absent" do
+      assert {:error, {:missing_process_pipeline, "batch"}} = Batch.enrich(batch_node(%{}), [])
+    end
+
+    test "rejects string name references in the pipeline" do
+      node = batch_node(%{"process" => ["some_string"]})
+      assert {:error, :inline_node_required} = Batch.enrich(node, [])
+    end
+  end
+
   # ── :list mode ───────────────────────────────────────────────────────────────
 
   describe "run/2 — :list mode" do

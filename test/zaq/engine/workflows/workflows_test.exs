@@ -197,6 +197,35 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       reloaded_run = Workflows.get_run!(run.id)
       assert reloaded_run.steps_snapshot == original_snapshot
     end
+
+    test "prepares the run DAG in-memory on the prepared_dag virtual field" do
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Prepared DAG #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "step", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      assert {:ok, %WorkflowRun{} = run} = Workflows.create_run(workflow, @valid_source_event)
+      assert %Runic.Workflow{} = run.prepared_dag
+    end
+
+    test "leaves prepared_dag nil when the snapshot cannot be built" do
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Unbuildable #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "bad", type: "action", module: "Does.Not.Exist", params: %{}, index: 0}
+          ],
+          edges: []
+        })
+
+      assert {:ok, %WorkflowRun{} = run} = Workflows.create_run(workflow, @valid_source_event)
+      assert run.status == "pending"
+      assert run.prepared_dag == nil
+    end
   end
 
   describe "broadcast_run_update/1" do
