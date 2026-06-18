@@ -10,6 +10,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Notifications
   alias Zaq.Engine.PeopleGateway
   alias Zaq.Engine.Workflows
   alias Zaq.Event
@@ -49,6 +50,23 @@ defmodule Zaq.Engine.Api do
     case event.request do
       %{op: op, params: params} when is_atom(op) and is_map(params) ->
         %{event | response: PeopleGateway.dispatch(op, params)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :notify_person, _context) do
+    case event.request do
+      %{person_id: person_id, subject: subject, message: message} ->
+        notifications_module = Keyword.get(event.opts, :notifications_module, Notifications)
+
+        attrs =
+          event.request
+          |> Map.take([:subject, :message, :sender, :html_body, :metadata])
+          |> Map.merge(%{subject: subject, message: message})
+
+        %{event | response: notifications_module.notify_person(person_id, attrs)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}
@@ -365,7 +383,7 @@ defmodule Zaq.Engine.Api do
              "run.waiting",
              "run.cancelled"
            ] ->
-        broadcast_run_update(run_id)
+        Workflows.broadcast_run_update(run_id)
         event
 
       _other ->
@@ -445,15 +463,5 @@ defmodule Zaq.Engine.Api do
     workflow = Workflows.get_workflow!(run.workflow_id)
     person = People.get_person(person_id)
     person != nil and Permissions.can?(person, :run, workflow)
-  end
-
-  defp broadcast_run_update(run_id) do
-    case Workflows.get_run(run_id) do
-      %Zaq.Engine.Workflows.WorkflowRun{} = run ->
-        Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow_run:#{run_id}", {:run_updated, run})
-
-      _ ->
-        :ok
-    end
   end
 end

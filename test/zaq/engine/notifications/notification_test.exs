@@ -6,6 +6,8 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
   @moduletag capture_log: true
 
+  alias Zaq.Accounts.People
+  alias Zaq.Accounts.PersonChannel
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Notifications
   alias Zaq.Engine.Notifications.{DispatchWorker, Notification, NotificationLog}
@@ -213,6 +215,68 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
         # credo:disable-for-next-line Credo.Check.Refactor.Apply
         apply(Notifications, :notify, [%{subject: "S", body: "B", recipient_channels: []}])
       end
+    end
+  end
+
+  describe "notify_person/3" do
+    setup do
+      from(c in ChannelConfig, where: c.provider == "email:smtp")
+      |> Repo.delete_all()
+
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Email",
+        provider: "email:smtp",
+        kind: "retrieval",
+        url: "smtp://localhost",
+        token: "test-token",
+        enabled: true
+      })
+      |> Repo.insert!()
+
+      :ok
+    end
+
+    test "returns an error when the person does not exist" do
+      assert {:error, "person_not_found:" <> _} =
+               Notifications.notify_person(999_999, %{subject: "Hello", message: "Body"})
+    end
+
+    test "skips when the person has no channels" do
+      {:ok, person} = People.create_person(%{full_name: "No Channels"})
+
+      assert {:ok, :skipped} =
+               Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"})
+    end
+
+    test "resolves person channels in preferred fallback order" do
+      {:ok, person} = People.create_person(%{full_name: "Multi Email"})
+
+      Repo.insert!(%PersonChannel{
+        person_id: person.id,
+        platform: "email",
+        channel_identifier: "second@example.com",
+        weight: 20
+      })
+
+      Repo.insert!(%PersonChannel{
+        person_id: person.id,
+        platform: "email",
+        channel_identifier: "first@example.com",
+        weight: 10
+      })
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, :dispatched} =
+                 Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"})
+
+        [job] = all_enqueued(worker: DispatchWorker)
+
+        assert [
+                 %{"platform" => "email:smtp", "identifier" => "first@example.com"},
+                 %{"platform" => "email:smtp", "identifier" => "second@example.com"}
+               ] = job.args["channels"]
+      end)
     end
   end
 end

@@ -56,28 +56,30 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   # ── PubSub ──────────────────────────────────────────────────────
 
   @impl true
+  def handle_info({:run_created, _run}, socket) do
+    refresh_runs(socket)
+  end
+
   def handle_info({:run_started, _run}, socket) do
-    workflow_id = socket.assigns.workflow.id
-    runs = fetch_runs(workflow_id, socket.assigns.page, socket.assigns.per_page, socket)
-    total = count_runs(workflow_id, socket)
-    {:noreply, assign(socket, runs: runs, runs_total: total)}
+    refresh_runs(socket)
   end
 
   def handle_info({:run_finished, _run}, socket) do
-    workflow_id = socket.assigns.workflow.id
-    runs = fetch_runs(workflow_id, socket.assigns.page, socket.assigns.per_page, socket)
-    total = count_runs(workflow_id, socket)
-    {:noreply, assign(socket, runs: runs, runs_total: total)}
+    refresh_runs(socket)
   end
 
   def handle_info(:refresh_runs, socket) do
+    refresh_runs(socket)
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp refresh_runs(socket) do
     workflow_id = socket.assigns.workflow.id
     runs = fetch_runs(workflow_id, socket.assigns.page, socket.assigns.per_page, socket)
     total = count_runs(workflow_id, socket)
     {:noreply, assign(socket, runs: runs, runs_total: total)}
   end
-
-  def handle_info(_msg, socket), do: {:noreply, socket}
 
   # ── Events ──────────────────────────────────────────────────────
 

@@ -5,7 +5,6 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
   alias Zaq.Engine.Workflows.DagBuilder
 
   @fetch_module "Zaq.Agent.Tools.Email.FetchEmails"
-  @draft_module "Zaq.Agent.Tools.Email.DraftReply"
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
   @noop_module "Zaq.Engine.Workflows.Test.Noop"
   @emit_person_module "Zaq.Engine.Workflows.Test.EmitPerson"
@@ -25,7 +24,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         %{
           "name" => "draft",
           "type" => "action",
-          "module" => @draft_module,
+          "module" => @ok_module,
           "params" => %{},
           "index" => 1
         }
