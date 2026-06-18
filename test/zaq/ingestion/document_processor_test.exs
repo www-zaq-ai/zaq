@@ -159,20 +159,54 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     path
   end
 
-  defp with_pptx_to_md_stub(fun, stub_module \\ Zaq.Ingestion.PptxToMdStub)
-       when is_function(fun, 0) do
-    original = Application.get_env(:zaq, :pptx_to_md_module)
+  defmodule PdfPipelineStub do
+    @moduledoc false
+
+    def run(pdf_path) do
+      pdf_path
+      |> Path.rootname()
+      |> then(&File.write!(&1 <> ".md", "# PDF\n\nConverted PDF content."))
+
+      {:ok, "ok"}
+    end
+  end
+
+  defmodule DocxToMdStub do
+    @moduledoc false
+
+    def run(_docx_path, md_path) do
+      File.write!(md_path, "# DOCX\n\nConverted DOCX content.")
+      {:ok, "ok"}
+    end
+  end
+
+  defmodule XlsxToMdStub do
+    @moduledoc false
+
+    def run(_xlsx_path, md_path) do
+      File.write!(md_path, "# XLSX\n\nConverted XLSX content.")
+      {:ok, "ok"}
+    end
+  end
+
+  defp with_converter_stub(app_key, stub_module, fun) when is_function(fun, 0) do
+    original = Application.get_env(:zaq, app_key)
 
     try do
-      Application.put_env(:zaq, :pptx_to_md_module, stub_module)
+      Application.put_env(:zaq, app_key, stub_module)
       fun.()
     after
       if is_nil(original) do
-        Application.delete_env(:zaq, :pptx_to_md_module)
+        Application.delete_env(:zaq, app_key)
       else
-        Application.put_env(:zaq, :pptx_to_md_module, original)
+        Application.put_env(:zaq, app_key, original)
       end
     end
+  end
+
+  defp with_pptx_to_md_stub(fun, stub_module \\ Zaq.Ingestion.PptxToMdStub)
+       when is_function(fun, 0) do
+    with_converter_stub(:pptx_to_md_module, stub_module, fun)
   end
 
   defp with_image_to_text_stub(api_key, fun) when is_function(fun, 0),
@@ -1208,6 +1242,47 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert {:ok, results} = DocumentProcessor.similarity_search("search test")
       assert is_list(results)
     end
+
+    test "query extraction applies source filters to the vector leg" do
+      stub_embedding_success()
+
+      matching_doc =
+        create_document(%{
+          source: "volume-a/matching.md",
+          content: "Filtered vector content"
+        })
+
+      other_doc =
+        create_document(%{
+          source: "volume-b/other.md",
+          content: "Filtered vector content"
+        })
+
+      dim = embedding_dimension()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
+
+      for {doc, index} <- [{matching_doc, 1}, {other_doc, 2}] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          content: "Filtered vector content #{index}",
+          chunk_index: index,
+          section_path: ["Filtered"],
+          metadata: %{},
+          embedding: embedding
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("filtered vector",
+                 skip_permissions: true,
+                 source_filter: ["volume-a"]
+               )
+
+      assert Enum.any?(results, &(&1["source"] == "volume-a/matching.md"))
+      refute Enum.any?(results, &(&1["source"] == "volume-b/other.md"))
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -1334,6 +1409,27 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       end
     end
 
+    test "converts office and pdf files when no markdown sidecar exists", %{tmp_dir: tmp_dir} do
+      cases = [
+        {:pdf_pipeline_module, PdfPipelineStub, "report.pdf", "Converted PDF content."},
+        {:docx_to_md_module, DocxToMdStub, "brief.docx", "Converted DOCX content."},
+        {:pptx_to_md_module, Zaq.Ingestion.PptxToMdStub, "deck.pptx", "Converted PPTX content."},
+        {:xlsx_to_md_module, XlsxToMdStub, "sheet.xlsx", "Converted XLSX content."}
+      ]
+
+      for {app_key, stub_module, filename, expected_content} <- cases do
+        with_converter_stub(app_key, stub_module, fn ->
+          source_path = create_test_md_file(tmp_dir, filename, "#{filename}-bytes")
+          sidecar_path = Path.rootname(source_path) <> ".md"
+
+          assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(source_path)
+          assert doc.source == filename
+          assert doc.content =~ expected_content
+          assert File.read!(sidecar_path) =~ expected_content
+        end)
+      end
+    end
+
     test "converts csv content to markdown table", %{tmp_dir: tmp_dir} do
       csv_path =
         create_test_md_file(
@@ -1423,6 +1519,26 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Enum.sort()
 
       assert remaining_indices == [1]
+    end
+
+    test "process_and_store_chunks_report/5 returns empty report when retry indices select no chunks" do
+      stub_embedding_success()
+      stub_chunk_title_success()
+      doc = create_document(%{source: "retry-none.md"})
+
+      content = "# First\n\n" <> String.duplicate("first ", 120)
+
+      assert {:ok, report} =
+               DocumentProcessor.process_and_store_chunks_report(content, doc.id,
+                 reset_chunks: false,
+                 retry_chunk_indices: [999]
+               )
+
+      assert report.results == []
+      assert report.total_chunks == 1
+      assert report.ingested_chunks == 0
+      assert report.failed_chunks == 0
+      assert report.failed_chunk_indices == []
     end
 
     test "process_and_store_chunks_report/5 returns structural errors for dimension mismatch" do
@@ -1882,6 +1998,20 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "both legs empty returns empty map" do
       assert {:ok, %{}} = DocumentProcessor.rrf_merge(%{}, %{})
+    end
+
+    test "empty section result lists are ignored during ranking" do
+      bm25 = %{1 => %{["Empty"] => []}}
+
+      vector = %{
+        2 => %{
+          ["Vector"] => [%{document_id: 2, section_path: ["Vector"], vector_distance: 0.2}]
+        }
+      }
+
+      assert {:ok, merged} = DocumentProcessor.rrf_merge(bm25, vector)
+      refute Map.has_key?(merged, 1)
+      assert Map.has_key?(merged, 2)
     end
 
     test "section present in both legs scores higher than section in one leg only" do
