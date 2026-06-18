@@ -1,0 +1,36 @@
+{
+  "name": "@zaq/ai-sdk",
+  "version": "0.0.1",
+  "description": "Vercel AI SDK adapter for ZAQ's AG-UI transport — turns a ZAQ /ag-ui event stream into a useChat-compatible UIMessage stream.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ag-ui/client": "0.0.57",
+    "@ag-ui/core": "0.0.57",
+    "zod": "^3.24.0"
+  },
+  "peerDependencies": {
+    "ai": ">=6"
+  },
+  "devDependencies": {
+    "ai": "6.0.191",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}
