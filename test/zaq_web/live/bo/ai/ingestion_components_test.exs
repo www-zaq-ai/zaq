@@ -124,6 +124,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
     end
   end
 
+  describe "delegated helpers" do
+    test "file_icon_color/1 returns semantic classes by extension" do
+      assert IngestionComponents.file_icon_color("report.pdf") == "text-red-400"
+      assert IngestionComponents.file_icon_color("notes.md") == "zaq-text-accent"
+      assert IngestionComponents.file_icon_color("archive.zip") == "text-black/30"
+    end
+
+    test "folder_count_pill_classes/1 returns success and warning variants" do
+      assert "zaq-pill--success" in IngestionComponents.folder_count_pill_classes(true)
+      assert "zaq-pill--warning" in IngestionComponents.folder_count_pill_classes(false)
+    end
+
+    test "renders embedding configuration warning banner" do
+      html = render_component(&IngestionComponents.ingestion_embedding_banner/1, %{})
+
+      assert html =~ "embedding-warning-title"
+      assert html =~ "Embedding not configured"
+      assert html =~ "/bo/system-config?tab=embedding"
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # upload_section/1 — folder_drop_skipped rendering
   # ---------------------------------------------------------------------------

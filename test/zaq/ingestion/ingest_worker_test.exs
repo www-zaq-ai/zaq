@@ -150,6 +150,87 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       assert_receive {:job_updated, %{id: ^job_id, status: "failed"}}
     end
 
+    test "cancels immediately for structural string errors" do
+      job = create_job()
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:error, "Structural error while storing chunks: :dimension_mismatch"}
+      end)
+
+      assert {:cancel, "Structural error while storing chunks: :dimension_mismatch"} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "failed"
+      assert updated.error =~ "Structural error (not retriable)"
+      assert updated.completed_at != nil
+    end
+
+    test "cancels immediately for dimension mismatch atom errors" do
+      job = create_job()
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:error, :dimension_mismatch}
+      end)
+
+      assert {:cancel, :dimension_mismatch} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "failed"
+      assert updated.error =~ "Structural error (not retriable): dimension_mismatch"
+    end
+
+    test "formats changeset-style error maps for pending retries" do
+      job = create_job()
+      reason = %{errors: [source: {"can't be blank", [validation: :required]}]}
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:error, reason}
+      end)
+
+      assert {:error, ^reason} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "pending"
+      assert updated.error =~ "source"
+      assert updated.error =~ "can't be blank"
+    end
+
+    test "formats generic error terms for final failures" do
+      job = create_job()
+      reason = {:unexpected, %{stage: :prepare}}
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:error, reason}
+      end)
+
+      assert {:cancel, ^reason} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 3,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "failed"
+      assert updated.error =~ "unexpected"
+      assert updated.error =~ "prepare"
+    end
+
     test "uses chunk child-job pipeline when processor supports prepare_file_chunks/2" do
       original_processor = Application.get_env(:zaq, :document_processor)
 
@@ -293,6 +374,95 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
                })
     end
 
+    test "uses unresolved relative path when volume resolution fails" do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:zaq, Zaq.Ingestion)
+        else
+          Application.put_env(:zaq, Zaq.Ingestion, original)
+        end
+      end)
+
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{})
+
+      job = create_job(%{file_path: "orphan.md", volume_name: "missing-volume"})
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+        assert path == "orphan.md"
+        {:ok, create_document()}
+      end)
+
+      assert :ok =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+    end
+
+    test "requeues failed final chunk jobs" do
+      original_processor = Application.get_env(:zaq, :document_processor)
+
+      on_exit(fn ->
+        if is_nil(original_processor) do
+          Application.delete_env(:zaq, :document_processor)
+        else
+          Application.put_env(:zaq, :document_processor, original_processor)
+        end
+      end)
+
+      Application.put_env(:zaq, :document_processor, ChunkPipelineProcessor)
+
+      document = create_document()
+
+      job =
+        create_job(%{
+          status: "completed_with_errors",
+          document_id: document.id,
+          total_chunks: 1,
+          failed_chunks: 1,
+          failed_chunk_indices: [1],
+          completed_at: DateTime.utc_now(),
+          error: "1 chunks failed"
+        })
+
+      chunk_job =
+        %IngestChunkJob{}
+        |> IngestChunkJob.changeset(%{
+          ingest_job_id: job.id,
+          document_id: document.id,
+          chunk_index: 1,
+          chunk_payload: %{
+            "id" => "chunk-1",
+            "content" => "retry me",
+            "metadata" => %{}
+          },
+          status: "failed_final",
+          attempts: 5,
+          error: "boom"
+        })
+        |> Repo.insert!()
+
+      assert :ok =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id, "retry_failed_chunks" => true},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated_chunk_job = Repo.get!(IngestChunkJob, chunk_job.id)
+      assert updated_chunk_job.status == "completed"
+      assert updated_chunk_job.attempts == 1
+      assert updated_chunk_job.error == nil
+
+      updated_job = Repo.get!(IngestJob, job.id)
+      assert updated_job.status == "completed"
+      assert updated_job.completed_at != nil
+      assert updated_job.error == nil
+    end
+
     test "converts crashes to retries" do
       job = create_job()
 
@@ -310,6 +480,25 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       updated = Repo.get!(IngestJob, job.id)
       assert updated.status == "pending"
       assert updated.error == "Attempt 1 failed: boom"
+    end
+
+    test "converts thrown values to retries" do
+      job = create_job()
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        throw({:halted, :from_test})
+      end)
+
+      assert {:error, "{:halted, :from_test}"} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "pending"
+      assert updated.error == "Attempt 1 failed: {:halted, :from_test}"
     end
 
     test "backoff scales linearly by attempt" do

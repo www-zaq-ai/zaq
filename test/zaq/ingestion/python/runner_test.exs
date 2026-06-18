@@ -1,5 +1,5 @@
 defmodule Zaq.Ingestion.Python.RunnerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
@@ -125,6 +125,32 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
       if System.find_executable(Runner.python_executable()) == nil do
         result = Runner.run("nonexistent.py", [])
         assert {:error, %{exit_code: :enoent}} = result
+      end
+    end
+
+    test "Runner.run/2 returns {:error, enoent} when PATH cannot resolve python3", %{
+      tmp_dir: tmp_dir
+    } do
+      empty_path = Path.join(tmp_dir, "empty-path")
+      File.mkdir_p!(empty_path)
+
+      original_path = System.get_env("PATH")
+
+      try do
+        System.put_env("PATH", empty_path)
+
+        File.cd!(tmp_dir, fn ->
+          assert {:error, %{exit_code: :enoent, output: output}} =
+                   Runner.run("__not_run_when_python_missing__.py", [])
+
+          assert output =~ "python executable not found: python3"
+        end)
+      after
+        if is_nil(original_path) do
+          System.delete_env("PATH")
+        else
+          System.put_env("PATH", original_path)
+        end
       end
     end
 
@@ -281,6 +307,7 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
         print("normal-mid")
         print('ZAQ_PROGRESS {"stage": "image_to_text", "current": 2, "total": 2, "status": "completed"}')
         print('ZAQ_PROGRESS not-valid-json')
+        print('ZAQ_PROGRESS ["valid", "but", "not", "map"]')
         print("normal-after")
         """)
 
@@ -330,9 +357,10 @@ defmodule Zaq.Ingestion.Python.RunnerTest do
 
         # The malformed line is not decoded, so it is kept in output.
         assert String.contains?(output, "ZAQ_PROGRESS not-valid-json")
+        assert String.contains?(output, ~s(ZAQ_PROGRESS ["valid", "but", "not", "map"]))
 
         # Exactly the two well-formed lines are forwarded — the malformed one
-        # produces no third event.
+        # and non-map JSON produce no third event.
         assert_receive {:progress, %{"current" => 1}}
         assert_receive {:progress, %{"current" => 2}}
         refute_receive {:progress, _}

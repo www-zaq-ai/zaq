@@ -8,6 +8,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor, FTSBackend}
+  alias Zaq.Ingestion.Python.Runner
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -152,7 +153,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   defmodule PdfPipelineStub do
     @moduledoc false
 
-    def run(pdf_path) do
+    def run(pdf_path, _opts \\ []) do
       pdf_path
       |> Path.rootname()
       |> then(&File.write!(&1 <> ".md", "# PDF\n\nConverted PDF content."))
@@ -197,6 +198,26 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   defp with_pptx_to_md_stub(fun, stub_module \\ Zaq.Ingestion.PptxToMdStub)
        when is_function(fun, 0) do
     with_converter_stub(:pptx_to_md_module, stub_module, fun)
+  end
+
+  defp with_fake_python_script(script_name, content, fun) when is_function(fun, 0) do
+    with_fake_python_scripts(%{script_name => content}, fun)
+  end
+
+  defp with_fake_python_scripts(scripts, fun) when is_map(scripts) and is_function(fun, 0) do
+    backups =
+      for {script_name, content} <- scripts, into: %{} do
+        path = Path.join(Runner.scripts_dir(), script_name)
+        backup = File.read!(path)
+        File.write!(path, content)
+        {path, backup}
+      end
+
+    try do
+      fun.()
+    after
+      Enum.each(backups, fn {path, backup} -> File.write!(path, backup) end)
+    end
   end
 
   defp with_image_to_text_stub(api_key, fun) when is_function(fun, 0),
@@ -1470,6 +1491,75 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       end)
     end
 
+    test "converts pdf to markdown when no sidecar exists", %{tmp_dir: tmp_dir} do
+      scripts = %{
+        "pdf_to_md.py" => """
+        import os
+        import sys
+
+        pdf_path = sys.argv[1]
+        md_path = sys.argv[2]
+        images_dir = sys.argv[sys.argv.index("--images-dir") + 1]
+        pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
+        os.makedirs(os.path.join(images_dir, pdf_name), exist_ok=True)
+
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write("# PDF\\n\\nConverted PDF content.")
+
+        print("pdf converted")
+        """,
+        "image_dedup.py" => """
+        import sys
+        print("dedup " + sys.argv[1])
+        """,
+        "clean_md.py" => """
+        import sys
+        print("clean " + sys.argv[1])
+        """
+      }
+
+      with_fake_python_scripts(scripts, fn ->
+        stub_embedding_success()
+
+        pdf_path = Path.join(tmp_dir, "report.pdf")
+        File.write!(pdf_path, "%PDF-1.4")
+
+        assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(pdf_path)
+        assert doc.source == "report.pdf"
+        assert doc.content =~ "Converted PDF content"
+      end)
+    end
+
+    test "converts docx to markdown when no sidecar exists", %{tmp_dir: tmp_dir} do
+      with_fake_python_script(
+        "docx_to_md.py",
+        fake_converter_script("# Docx\n\nConverted DOCX."),
+        fn ->
+          docx_path = Path.join(tmp_dir, "brief.docx")
+          File.write!(docx_path, "fake-docx-bytes")
+
+          assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(docx_path)
+          assert doc.source == "brief.docx"
+          assert doc.content =~ "Converted DOCX"
+        end
+      )
+    end
+
+    test "converts xlsx to markdown when no sidecar exists", %{tmp_dir: tmp_dir} do
+      with_fake_python_script(
+        "xlsx_to_md.py",
+        fake_converter_script("# Sheet\n\nConverted XLSX."),
+        fn ->
+          xlsx_path = Path.join(tmp_dir, "budget.xlsx")
+          File.write!(xlsx_path, "fake-xlsx-bytes")
+
+          assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(xlsx_path)
+          assert doc.source == "budget.xlsx"
+          assert doc.content =~ "Converted XLSX"
+        end
+      )
+    end
+
     test "returns error when pptx conversion fails and no sidecar exists", %{tmp_dir: tmp_dir} do
       failing_stub = Module.concat(__MODULE__, FailingPptxStub)
 
@@ -1493,6 +1583,20 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         failing_stub
       )
     end
+  end
+
+  defp fake_converter_script(markdown) do
+    escaped = inspect(markdown)
+
+    """
+    import sys
+
+    output = sys.argv[sys.argv.index("--output") + 1]
+    with open(output, "w", encoding="utf-8") as f:
+        f.write(#{escaped})
+
+    print("converted")
+    """
   end
 
   # ---------------------------------------------------------------------------
@@ -1866,6 +1970,20 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert {:ok, merged} = DocumentProcessor.rrf_merge(bm25, vector)
       refute Map.has_key?(merged, 1)
       assert Map.has_key?(merged, 2)
+    end
+
+    test "empty section result lists are ignored" do
+      bm25 = %{
+        1 => %{
+          ["Empty"] => [],
+          ["Present"] => [%{document_id: 1, section_path: ["Present"], bm25_score: 1.0}]
+        }
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, %{})
+
+      assert Map.has_key?(merged[1], ["Present"])
+      refute Map.has_key?(merged[1], ["Empty"])
     end
 
     test "section present in both legs scores higher than section in one leg only" do
