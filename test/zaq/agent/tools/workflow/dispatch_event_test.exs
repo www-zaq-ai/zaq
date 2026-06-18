@@ -14,7 +14,6 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
   defmodule AsyncNodeRouter do
     def dispatch(%Event{} = event) do
       send(self(), {:dispatched, event})
-      # async dispatch returns event with nil response
       event
     end
   end
@@ -27,102 +26,66 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
 
   @ctx %{node_router: StubNodeRouter}
 
-  describe "run/2 — successful dispatch" do
-    test "dispatches event to the given destination" do
+  describe "run/2" do
+    test "dispatches an allowlisted event to the engine asynchronously" do
       input = %{"email" => "a@b.com"}
 
       assert {:ok, %{dispatched: %{"email" => "a@b.com"}}} =
-               DispatchEvent.run(%{input: input, destination: "engine"}, @ctx)
+               DispatchEvent.run(%{input: input, event_name: "lead_identified"}, @ctx)
 
-      assert_received {:dispatched, %Event{next_hop: hop}}
-      assert hop.destination == :engine
-    end
-
-    test "sets event name when provided" do
-      input = %{"email" => "a@b.com"}
-
-      DispatchEvent.run(
-        %{input: input, destination: "engine", name: "lead_identified"},
-        @ctx
-      )
-
-      assert_received {:dispatched, %Event{name: "lead_identified"}}
+      assert_received {:dispatched, %Event{} = event}
+      assert event.next_hop.destination == :engine
+      assert event.next_hop.type == :async
+      assert event.name == "lead_identified"
     end
 
     test "stringifies atom-keyed input" do
       input = %{email: "a@b.com", active: true}
 
       assert {:ok, %{dispatched: dispatched}} =
-               DispatchEvent.run(%{input: input, destination: "engine"}, @ctx)
+               DispatchEvent.run(%{input: input, event_name: "lead_identified"}, @ctx)
 
       assert Map.has_key?(dispatched, "email")
       assert Map.has_key?(dispatched, "active")
       refute Map.has_key?(dispatched, :email)
     end
 
-    test "uses Zaq.NodeRouter by default when not in context" do
-      # Just verify it doesn't crash on context lookup — actual dispatch
-      # would fail without a running node, so we only test the path here.
-      assert is_function(&DispatchEvent.run/2)
-    end
-  end
-
-  describe "run/2 — async dispatch" do
-    test "returns ok when node_router response is nil (async enqueued)" do
+    test "returns ok when async dispatch has no response" do
       assert {:ok, %{dispatched: %{"email" => "a@b.com"}}} =
                DispatchEvent.run(
-                 %{input: %{"email" => "a@b.com"}, destination: "engine", type: "async"},
+                 %{input: %{"email" => "a@b.com"}, event_name: "lead_identified"},
                  %{node_router: AsyncNodeRouter}
                )
-
-      assert_received {:dispatched, %Event{next_hop: hop}}
-      assert hop.type == :async
     end
-  end
 
-  describe "run/2 — failed dispatch" do
     test "returns error when node_router response is {:error, reason}" do
-      input = %{"email" => "a@b.com"}
-
       assert {:error, reason} =
                DispatchEvent.run(
-                 %{input: input, destination: "engine"},
+                 %{input: %{"email" => "a@b.com"}, event_name: "lead_identified"},
                  %{node_router: FailingNodeRouter}
                )
 
       assert String.contains?(reason, "something_went_wrong")
     end
 
-    test "returns error for unknown destination" do
+    test "rejects non-allowlisted event names" do
       assert {:error, reason} =
-               DispatchEvent.run(
-                 %{input: %{}, destination: "nowhere"},
-                 @ctx
-               )
+               DispatchEvent.run(%{input: %{}, event_name: "any_event_name_works"}, @ctx)
 
-      assert String.contains?(reason, "unknown destination")
-      assert String.contains?(reason, "nowhere")
+      assert reason =~ "unsupported event_name"
+      assert reason =~ "lead_identified"
     end
+  end
 
-    test "accepts any string event name without atom interning" do
-      assert {:ok, %{dispatched: _}} =
-               DispatchEvent.run(
-                 %{input: %{}, destination: "engine", name: "any_event_name_works"},
-                 @ctx
-               )
+  describe "schema/0" do
+    test "does not expose arbitrary destination or hop type controls" do
+      keys = Keyword.keys(DispatchEvent.schema())
 
-      assert_received {:dispatched, %Event{name: "any_event_name_works"}}
-    end
-
-    test "ignores unknown type values and dispatches with default event options" do
-      assert {:ok, %{dispatched: %{}}} =
-               DispatchEvent.run(
-                 %{input: %{}, destination: "engine", type: "deferred"},
-                 @ctx
-               )
-
-      assert_received {:dispatched, %Event{opts: opts}}
-      refute Keyword.has_key?(opts, :type)
+      assert :input in keys
+      assert :event_name in keys
+      refute :destination in keys
+      refute :name in keys
+      refute :type in keys
     end
   end
 end

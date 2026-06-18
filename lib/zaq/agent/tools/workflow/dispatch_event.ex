@@ -1,11 +1,11 @@
 defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   @moduledoc """
-  Workflow action: builds a `Zaq.Event` and dispatches it via `NodeRouter`.
+  Workflow action: dispatches an allowlisted Engine event.
 
   ## Example
 
       iex> Zaq.Agent.Tools.Workflow.DispatchEvent.run(
-      ...>   %{input: %{"email" => "a@b.com"}, destination: "engine", name: "lead_identified"},
+      ...>   %{input: %{"email" => "a@b.com"}, event_name: "lead_identified"},
       ...>   %{}
       ...> )
       {:ok, %{dispatched: %{"email" => "a@b.com"}}}
@@ -13,24 +13,13 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
 
   use Zaq.Engine.Workflows.Action,
     name: "dispatch_event",
-    description: "Build a Zaq.Event from input and dispatch it via NodeRouter.",
+    description: "Dispatch an allowlisted workflow event to the Engine node.",
     schema: [
       input: [type: :map, required: true, doc: "Request payload — passed as event request"],
-      destination: [
+      event_name: [
         type: :string,
         required: true,
-        doc: "NodeRouter destination atom, e.g. \"engine\""
-      ],
-      name: [
-        type: :string,
-        required: false,
-        doc: "Optional event name atom, e.g. \"lead_identified\""
-      ],
-      type: [
-        type: :string,
-        required: false,
-        default: "sync",
-        doc: "Hop type: \"sync\" or \"async\""
+        doc: "Allowlisted Engine event name, e.g. \"lead_identified\""
       ]
     ],
     output_schema: [
@@ -41,84 +30,58 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
 
   alias Zaq.NodeRouter
 
-  @destinations %{
-    "engine" => :engine,
-    "channels" => :channels,
-    "ingestion" => :ingestion,
-    "agent" => :agent
-  }
-
-  @hop_types %{"sync" => :sync, "async" => :async}
+  @allowed_event_names ~w(lead_identified)
 
   @impl Jido.Action
-  def run(%{input: input, destination: destination} = params, ctx) do
+  def run(%{input: input, event_name: event_name}, ctx) do
     Logger.debug(
-      "[dispatch_event] run called destination=#{inspect(destination)} name=#{inspect(Map.get(params, :name))} input_keys=#{inspect(Map.keys(input))}"
+      "[dispatch_event] run called event_name=#{inspect(event_name)} input_keys=#{inspect(Map.keys(input))}"
     )
 
-    with {:ok, dest_atom} <- resolve(:destination, destination),
-         {:ok, opts} <- build_opts(params) do
-      # Stringify all keys — iterate pipeline may atom-normalize keys via try_to_atom,
-      # leaving a mixed map that the engine rejects as {:invalid_request, ...}.
-      request = Map.new(input, fn {k, v} -> {to_string(k), v} end)
-      event = Zaq.Event.new(request, dest_atom, opts)
-      node_router = Map.get(ctx, :node_router, NodeRouter)
+    case validate_event_name(event_name) do
+      :ok ->
+        dispatch_event(input, event_name, ctx)
 
-      Logger.debug(
-        "[dispatch_event] dispatching event_name=#{inspect(event.name)} destination=#{inspect(dest_atom)}"
-      )
-
-      case node_router.dispatch(event).response do
-        {:ok, _} ->
-          Logger.debug("[dispatch_event] dispatch succeeded")
-          {:ok, %{dispatched: request}}
-
-        nil ->
-          # async dispatch — event was published, no sync response expected
-          Logger.debug("[dispatch_event] async dispatch enqueued")
-          {:ok, %{dispatched: request}}
-
-        {:error, reason} ->
-          Logger.warning("[dispatch_event] dispatch failed reason=#{inspect(reason)}")
-          {:error, inspect(reason)}
-      end
-    else
       {:error, reason} ->
         Logger.warning("[dispatch_event] aborted before dispatch reason=#{inspect(reason)}")
         {:error, reason}
     end
   end
 
-  defp build_opts(params) do
-    with {:ok, opts} <- resolve_name([], Map.get(params, :name)) do
-      {:ok, put_type(opts, Map.get(params, :type, "sync"))}
+  defp dispatch_event(input, event_name, ctx) do
+    # Stringify all keys — iterate pipeline may atom-normalize keys via try_to_atom,
+    # leaving a mixed map that the engine rejects as {:invalid_request, ...}.
+    request = Map.new(input, fn {k, v} -> {to_string(k), v} end)
+    event = Zaq.Event.new(request, :engine, type: :async, name: event_name)
+    node_router = Map.get(ctx, :node_router, NodeRouter)
+
+    Logger.debug(
+      "[dispatch_event] dispatching event_name=#{inspect(event.name)} destination=:engine"
+    )
+
+    case node_router.dispatch(event).response do
+      {:ok, _} ->
+        Logger.debug("[dispatch_event] dispatch succeeded")
+        {:ok, %{dispatched: request}}
+
+      nil ->
+        # async dispatch — event was published, no sync response expected
+        Logger.debug("[dispatch_event] async dispatch enqueued")
+        {:ok, %{dispatched: request}}
+
+      {:error, reason} ->
+        Logger.warning("[dispatch_event] dispatch failed reason=#{inspect(reason)}")
+        {:error, inspect(reason)}
     end
   end
 
-  defp resolve_name(opts, nil), do: {:ok, opts}
+  defp validate_event_name(event_name) when event_name in @allowed_event_names, do: :ok
 
-  # EventRegistry.derive_base_name/1 accepts both atom and binary event names.
-  # Storing the name as a string avoids any atom-interning requirement and
-  # satisfies the iron law — no String.to_atom/1 or String.to_existing_atom/1 needed.
-  defp resolve_name(opts, name) when is_binary(name) do
-    {:ok, Keyword.put(opts, :name, name)}
+  defp validate_event_name(event_name) do
+    {:error,
+     "unsupported event_name #{inspect(event_name)}, allowed: #{Enum.join(@allowed_event_names, ", ")}"}
   end
 
-  defp resolve(:destination, v) do
-    case Map.fetch(@destinations, v) do
-      {:ok, atom} ->
-        {:ok, atom}
-
-      :error ->
-        {:error,
-         "unknown destination #{inspect(v)}, allowed: #{Map.keys(@destinations) |> Enum.join(", ")}"}
-    end
-  end
-
-  defp put_type(opts, type) do
-    case Map.fetch(@hop_types, type) do
-      {:ok, atom} -> Keyword.put(opts, :type, atom)
-      :error -> opts
-    end
-  end
+  @doc false
+  def allowed_event_names, do: @allowed_event_names
 end

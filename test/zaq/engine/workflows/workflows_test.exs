@@ -7,6 +7,8 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
   alias Zaq.Engine.Workflows.{StepApproval, Trigger, Workflow, WorkflowRun}
   alias Zaq.Test.Stubs
 
+  @ok_module "Zaq.Engine.Workflows.Test.OkAction"
+
   setup do
     Stubs.stub_node_router()
     :ok
@@ -159,6 +161,31 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       assert run.source_event.trace_id == @valid_source_event["trace_id"]
     end
 
+    test "broadcasts run_created for a pending run" do
+      {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
+      Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow:#{workflow.id}")
+
+      assert {:ok, %WorkflowRun{} = run} = Workflows.create_run(workflow, @valid_source_event)
+
+      assert_receive {:run_created, ^run}
+      refute_received {:run_started, ^run}
+    end
+
+    test "does not execute steps" do
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Pending Run #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "step", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      assert {:ok, %WorkflowRun{} = run} = Workflows.create_run(workflow, @valid_source_event)
+
+      assert run.status == "pending"
+      assert Workflows.list_step_runs(run.id) == []
+    end
+
     test "snapshot isolation: editing workflow after run start does not mutate the snapshot" do
       {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
       run = create_run(workflow)
@@ -169,6 +196,74 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
 
       reloaded_run = Workflows.get_run!(run.id)
       assert reloaded_run.steps_snapshot == original_snapshot
+    end
+  end
+
+  describe "broadcast_run_update/1" do
+    test "re-broadcasts the current run to its workflow_run topic" do
+      {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
+      run = create_run(workflow)
+      Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{run.id}")
+
+      assert :ok = Workflows.broadcast_run_update(run.id)
+      assert_receive {:run_updated, %WorkflowRun{id: run_id}}
+      assert run_id == run.id
+    end
+
+    test "no-ops when the run does not exist" do
+      missing_id = Ecto.UUID.generate()
+      Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{missing_id}")
+
+      assert :ok = Workflows.broadcast_run_update(missing_id)
+      refute_receive {:run_updated, _}
+    end
+  end
+
+  describe "start_run/2" do
+    test "executes a pending run and writes step rows" do
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Start Run #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "step", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+
+      assert {:ok, %WorkflowRun{} = finished} = Workflows.start_run(run)
+      assert finished.status == "completed"
+
+      assert [%StepRun{step_name: "step", status: "completed"}] =
+               Workflows.list_step_runs(run.id)
+    end
+
+    test "rejects non-pending runs" do
+      {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+      {:ok, running} = Workflows.update_run(run, %{status: "running"})
+
+      assert {:error, {:invalid_run_status, "running"}} = Workflows.start_run(running)
+    end
+  end
+
+  describe "create_and_start_run/4" do
+    test "creates and executes a run" do
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Create And Start #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "step", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      assert {:ok, %WorkflowRun{} = finished} =
+               Workflows.create_and_start_run(workflow, @valid_source_event)
+
+      assert finished.status == "completed"
+
+      assert [%StepRun{step_name: "step", status: "completed"}] =
+               Workflows.list_step_runs(finished.id)
     end
   end
 

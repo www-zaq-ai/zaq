@@ -34,12 +34,17 @@ defmodule Zaq.Engine.Notifications do
 
   import Ecto.Query
 
+  alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Notifications.DispatchWorker
   alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Event
   alias Zaq.Repo
+
+  @person_channel_platforms %{
+    "email" => "email:smtp"
+  }
 
   @doc """
   Returns true if a bridge is configured for the given platform string.
@@ -59,6 +64,21 @@ defmodule Zaq.Engine.Notifications do
   # ---------------------------------------------------------------------------
   # Public API
   # ---------------------------------------------------------------------------
+
+  @doc """
+  Builds and dispatches a notification for a person.
+
+  The person's configured channels define preferred/fallback delivery order via
+  `PersonChannel.weight`; unavailable channels are filtered by `notify/1`.
+  """
+  @spec notify_person(term(), map(), keyword()) ::
+          {:ok, :dispatched | :skipped} | {:error, term()}
+  def notify_person(person_id, attrs, opts \\ []) when is_map(attrs) do
+    with {:ok, person} <- fetch_person(person_id, opts),
+         {:ok, notification} <- build_person_notification(person, attrs) do
+      notify(notification)
+    end
+  end
 
   @doc """
   Dispatches a validated `%Notification{}` struct.
@@ -146,6 +166,42 @@ defmodule Zaq.Engine.Notifications do
     |> Repo.all()
     |> MapSet.new()
   end
+
+  defp fetch_person(person_id, opts) do
+    people_module = Keyword.get(opts, :people_module, People)
+
+    case people_module.get_person_with_channels(person_id) do
+      nil -> {:error, "person_not_found:#{person_id}"}
+      person -> {:ok, person}
+    end
+  end
+
+  defp build_person_notification(person, attrs) do
+    Notification.build(%{
+      recipient_name: person.full_name,
+      recipient_ref: {:person, person.id},
+      recipient_channels: person_channels(person),
+      sender: get_attr(attrs, :sender, "system"),
+      subject: get_attr(attrs, :subject),
+      body: get_attr(attrs, :message) || get_attr(attrs, :body),
+      html_body: get_attr(attrs, :html_body),
+      metadata: get_attr(attrs, :metadata, %{})
+    })
+  end
+
+  defp person_channels(person) do
+    person.channels
+    |> Enum.sort_by(& &1.weight)
+    |> Enum.map(fn channel ->
+      %{
+        platform: Map.get(@person_channel_platforms, channel.platform, channel.platform),
+        identifier: channel.channel_identifier
+      }
+    end)
+  end
+
+  defp get_attr(attrs, key, default \\ nil),
+    do: Map.get(attrs, key, Map.get(attrs, to_string(key), default))
 
   defp node_router_module,
     do: Application.get_env(:zaq, :notifications_node_router_module, Zaq.NodeRouter)
