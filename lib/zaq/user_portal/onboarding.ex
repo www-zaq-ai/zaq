@@ -127,12 +127,40 @@ defmodule Zaq.UserPortal.Onboarding do
         |> User.portal_consent_changeset("accepted")
         |> Repo.update()
 
+      {:error, {409, _body} = reason} ->
+        # The email is already registered on the portal — re-provisioning cannot
+        # help, so record the distinct "portal_registered" consent (which keeps the
+        # activation banner hidden) and scaffold the keyless router so the provider
+        # is listed for the user to paste their existing key into.
+        ensure_offline_router_credential()
+        {:ok, _user} = user |> User.portal_consent_changeset("portal_registered") |> Repo.update()
+        {:error, {:provisioning_failed, reason}}
+
       {:error, reason} ->
         # The account is already registered; keep it usable by recording declined
         # consent and scaffolding the keyless offline router (so the provider is
         # listed for the dashboard retry), then surface the provisioning failure.
         {:ok, _user} = apply_consent(user, :declined)
         {:error, {:provisioning_failed, reason}}
+    end
+  end
+
+  @doc """
+  Re-shows the portal activation banner after a user changes their email.
+
+  A new email may need (re)provisioning, so consent is reset to `"declined"` to
+  surface the banner — but only when the ZAQ Router has no API key yet. A fully
+  provisioned user (working key) is left untouched.
+  """
+  @spec refresh_portal_banner_after_email_change(User.t()) ::
+          {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def refresh_portal_banner_after_email_change(%User{} = user) do
+    if Provisioner.router_key_set?() do
+      {:ok, user}
+    else
+      user
+      |> User.portal_consent_changeset("declined")
+      |> Repo.update()
     end
   end
 

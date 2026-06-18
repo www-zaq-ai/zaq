@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
   alias Zaq.Accounts.PasswordPolicy
   alias Zaq.Engine.Notifications.WelcomeEmail
   alias Zaq.UserPortal.AccountSync
+  alias Zaq.UserPortal.Onboarding
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Live.BO.Accounts.FormFlow
 
@@ -136,6 +137,9 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLive do
     with {:ok, updated_user} <- result,
          true <- updated_user.email != old_email do
       AccountSync.sync_email(updated_user)
+      # A new email may need (re)provisioning — re-show the activation banner
+      # unless the ZAQ Router already has a working key.
+      Onboarding.refresh_portal_banner_after_email_change(updated_user)
     end
 
     FormFlow.handle_save_result(socket, result,

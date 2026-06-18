@@ -24,6 +24,21 @@ defmodule Zaq.UserPortal.Provisioner do
   def credential_name, do: @credential_name
 
   @doc """
+  Returns `true` when the ZAQ Router credential exists with a non-empty API key.
+
+  Used to decide whether the portal activation banner is still needed: a user
+  with a working key is fully provisioned, while a keyless (scaffolded) or absent
+  credential means provisioning is still pending.
+  """
+  @spec router_key_set?() :: boolean()
+  def router_key_set? do
+    case System.get_ai_provider_credential_by_name(@credential_name) do
+      %AIProviderCredential{api_key: key} when is_binary(key) -> key != ""
+      _ -> false
+    end
+  end
+
+  @doc """
   Claims a LiteLLM API key from the portal for `email` **without** writing
   anything locally. Returns `{:ok, %{litellm_api_key: key}}` or `{:error, reason}`.
 

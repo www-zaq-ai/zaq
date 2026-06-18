@@ -17,6 +17,10 @@ defmodule Zaq.UserPortal do
   @spec client() :: module()
   def client, do: Application.get_env(:zaq, :user_portal_client, Zaq.UserPortal.Client)
 
+  @doc "Returns the configured user-portal base URL (e.g. for building links)."
+  @spec base_url() :: String.t()
+  def base_url, do: Application.fetch_env!(:zaq, :user_portal_base_url)
+
   @doc """
   True when the portal payload reports the plan as enabled.
 
@@ -47,19 +51,16 @@ defmodule Zaq.UserPortal do
   @doc """
   Maps a provisioning error to `{user_message, mode}`.
 
-  `mode` is `:allow_override` for an email conflict (409 — the caller should
-  reveal the email-correction input) or `:none` for a generic error (show the
-  message only). Shared by both consent flows so the 409 wording stays in sync.
+  `mode` is always `:none` (show the message only). A 409 means the email already
+  exists on the portal, so re-provisioning cannot help — the user must fetch the
+  existing key and set it on the ZAQ Router credential, which the message states.
+  The `:allow_override` mode is retained in the type for backward compatibility
+  with `PortalConsentLive`, but is no longer produced.
   """
   @spec provision_error(term()) :: {String.t(), :allow_override | :none}
-  def provision_error({409, body}) do
-    msg =
-      case body do
-        %{"message" => m} when is_binary(m) and m != "" -> m
-        _ -> "This email is already registered with ZAQ Portal."
-      end
-
-    {msg <> " Please use a different email address.", :allow_override}
+  def provision_error({409, _body}) do
+    {"Your email is already registered in the user portal — get your key and set it in the ZAQ Router credential.",
+     :none}
   end
 
   def provision_error({_status, %{"message" => message}})

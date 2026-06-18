@@ -36,6 +36,24 @@ defmodule ZaqWeb.Live.BO.DashboardLiveTest do
       assert html =~ "Back Office"
     end
 
+    test "renders the 'user portal' phrase in an info flash as a link to the portal", %{
+      conn: conn
+    } do
+      conn =
+        conn
+        |> Phoenix.Controller.fetch_flash([])
+        |> Phoenix.Controller.put_flash(
+          :info,
+          "Your email is already registered in the user portal — get your key and set it in the ZAQ Router credential."
+        )
+
+      {:ok, _view, html} = live(conn, ~p"/bo/dashboard")
+
+      assert html =~ ~r{<a href="[^"]+" target="_blank"[^>]*>user portal</a>}
+      assert html =~ "already registered in the"
+      assert html =~ "ZAQ Router credential"
+    end
+
     test "renders KPI metric cards with expected labels and routes", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 

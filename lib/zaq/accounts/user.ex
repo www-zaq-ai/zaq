@@ -66,8 +66,11 @@ defmodule Zaq.Accounts.User do
     |> unique_constraint(:email)
   end
 
+  # "portal_registered" — the email is already registered on the user portal
+  # (a 409 during provisioning). Distinct from "declined" so the activation banner
+  # stays hidden (re-provisioning the same email cannot succeed).
   def portal_consent_changeset(user, consent)
-      when consent in ["accepted", "declined"] do
+      when consent in ["accepted", "declined", "portal_registered"] do
     change(user, portal_consent: consent)
   end
 

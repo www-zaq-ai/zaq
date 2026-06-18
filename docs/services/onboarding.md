@@ -56,12 +56,15 @@ Entry point: an admin whose account is still in the pending state.
    the portal is provisioned — a portal failure never blocks account creation:
    - **Provisioning succeeds** → consent `"accepted"`, credential + model configs
      wired, post-accept modal shown.
-   - **Provisioning fails** (unreachable, 5xx, or a `409` "email already on the
-     portal") → the account stays registered, consent is recorded `"declined"`,
-     the keyless "ZAQ Router" credential is scaffolded, and the user is routed to
-     `/bo/dashboard` with an info flash. The 409 email-override correction now
-     happens on the **dashboard retry** (`activate_portal/2`), not in the
-     bootstrap modal.
+   - **Provisioning fails** (unreachable or 5xx) → the account stays registered,
+     consent is recorded `"declined"`, the keyless "ZAQ Router" credential is
+     scaffolded, and the user is routed to `/bo/dashboard` with an info flash so
+     they can retry from the dashboard banner.
+   - **Email already on the portal (`409`)** → re-provisioning cannot help, so
+     consent is recorded **`"portal_registered"`** (a distinct state that keeps
+     the activation banner hidden), the keyless "ZAQ Router" credential is
+     scaffolded, and the flash tells the user to fetch their existing key and set
+     it on the ZAQ Router credential.
 4. **Decline** (`decline_portal_consent`) → consent `:declined`.
 5. **`complete_bootstrap_onboarding/3`** writes registration via
    `Accounts.complete_registration/2`, then `apply_consent/2` provisions and
@@ -97,6 +100,7 @@ Persisted on `users.portal_consent`:
 | ----- | ------- |
 | `"accepted"` | Provisioned successfully; eligible for `AccountSync` email sync. |
 | `"declined"` | User declined, **or** portal was unreachable (`:unavailable`). Dashboard retry banner remains available. Keyless "ZAQ Router" credential scaffolded. |
+| `"portal_registered"` | Email already exists on the portal (`409`). Banner **hidden** (re-provisioning can't help); user must paste their existing key into the ZAQ Router credential. Changing email later re-shows the banner (via `refresh_portal_banner_after_email_change/1`) unless the router already has a key. |
 
 ## Provisioning Details (`Provisioner`)
 

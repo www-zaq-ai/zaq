@@ -91,6 +91,60 @@ defmodule Zaq.UserPortal.OnboardingTest do
       # Consent recorded declined so the dashboard retry remains valid.
       assert reloaded.portal_consent == "declined"
     end
+
+    test "records portal_registered consent (banner suppressed) when the email is already on the portal (409)" do
+      expect(ClientMock, :onboard_user, fn _email ->
+        {:error, {409, %{"message" => "exists"}}}
+      end)
+
+      user = user_fixture(%{email: "taken@zaq.local"})
+
+      assert {:error, {:provisioning_failed, {409, _body}}} =
+               Onboarding.complete_bootstrap_onboarding(
+                 user,
+                 %{password: "StrongPass1!"},
+                 :accepted
+               )
+
+      reloaded = Accounts.get_user!(user.id)
+      # Distinct from "declined" so the dashboard activation banner stays hidden —
+      # re-provisioning the same email cannot succeed.
+      assert reloaded.portal_consent == "portal_registered"
+      refute reloaded.must_change_password
+
+      # Keyless router is still scaffolded so the user can paste their existing key.
+      credential = System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert credential
+      assert is_nil(credential.api_key)
+    end
+  end
+
+  describe "refresh_portal_banner_after_email_change/1" do
+    test "re-shows the banner (consent declined) when the ZAQ Router has no key" do
+      user = user_fixture(%{email: "fresh@zaq.local"})
+      {:ok, user} = user |> Accounts.User.portal_consent_changeset("accepted") |> Repo.update()
+
+      assert {:ok, updated} = Onboarding.refresh_portal_banner_after_email_change(user)
+      assert updated.portal_consent == "declined"
+      assert Accounts.get_user!(user.id).portal_consent == "declined"
+    end
+
+    test "leaves consent untouched when the ZAQ Router already has a key" do
+      {:ok, _credential} =
+        System.create_ai_provider_credential(%{
+          name: "ZAQ Router",
+          provider: "zaq_router",
+          endpoint: "http://localhost:4020",
+          api_key: "sk-existing-key"
+        })
+
+      user = user_fixture(%{email: "fresh@zaq.local"})
+      {:ok, user} = user |> Accounts.User.portal_consent_changeset("accepted") |> Repo.update()
+
+      assert {:ok, updated} = Onboarding.refresh_portal_banner_after_email_change(user)
+      assert updated.portal_consent == "accepted"
+      assert Accounts.get_user!(user.id).portal_consent == "accepted"
+    end
   end
 
   describe "complete_bootstrap_onboarding/3 — declined" do

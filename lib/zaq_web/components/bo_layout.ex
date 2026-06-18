@@ -641,7 +641,7 @@ defmodule ZaqWeb.Components.BOLayout do
                 <path d="M5 13l4 4L19 7" />
               </svg>
             </span>
-            <span class="zaq-feedback-body">{Phoenix.Flash.get(@flash, :info)}</span>
+            <span class="zaq-feedback-body">{flash_body(Phoenix.Flash.get(@flash, :info))}</span>
             <button
               type="button"
               phx-click="lv:clear-flash"
@@ -667,7 +667,7 @@ defmodule ZaqWeb.Components.BOLayout do
                 <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
               </svg>
             </span>
-            <span class="zaq-feedback-body">{Phoenix.Flash.get(@flash, :error)}</span>
+            <span class="zaq-feedback-body">{flash_body(Phoenix.Flash.get(@flash, :error))}</span>
             <button
               type="button"
               phx-click="lv:clear-flash"
@@ -686,6 +686,31 @@ defmodule ZaqWeb.Components.BOLayout do
       </main>
     </div>
     """
+  end
+
+  # Renders a flash message, turning the literal phrase "user portal" into a link
+  # to the configured portal. The message is HTML-escaped first, so interpolated
+  # values (folder names, agent names, …) can never inject markup — only the
+  # trusted anchor is added afterwards.
+  defp flash_body(nil), do: nil
+
+  defp flash_body(message) when is_binary(message) do
+    escaped = message |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+    case String.split(escaped, "user portal", parts: 2) do
+      [before, rest] ->
+        href =
+          Zaq.UserPortal.base_url() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+        Phoenix.HTML.raw(
+          before <>
+            ~s(<a href="#{href}" target="_blank" rel="noopener noreferrer" class="underline">user portal</a>) <>
+            rest
+        )
+
+      _ ->
+        Phoenix.HTML.raw(escaped)
+    end
   end
 
   # ── Nav Section with dropdown ────────────────────────────────────────

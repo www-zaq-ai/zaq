@@ -249,6 +249,56 @@ defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
       assert_redirect(view, ~p"/bo/users")
     end
 
+    test "re-shows the activation banner (consent declined) on email change when the ZAQ Router has no key",
+         %{conn: conn} do
+      role = role_fixture(%{name: "lane6_banner_role"})
+      user = user_fixture(%{username: "lane6_banner", email: "old@example.com", role: role})
+      {:ok, user} = Repo.update(User.portal_consent_changeset(user, "accepted"))
+
+      stub(Zaq.UserPortal.ClientMock, :update_email, fn _email, _api_key -> :ok end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/users/#{user.id}/edit")
+
+      view
+      |> form("form[phx-submit='save']",
+        user: %{username: "lane6_banner", email: "changed@example.com", role_id: role.id}
+      )
+      |> render_submit()
+
+      assert_redirect(view, ~p"/bo/users")
+      # No ZAQ Router key is set, so a new email re-activates the banner.
+      assert Accounts.get_user!(user.id).portal_consent == "declined"
+    end
+
+    test "leaves consent untouched on email change when the ZAQ Router already has a key", %{
+      conn: conn
+    } do
+      {:ok, _credential} =
+        Zaq.System.create_ai_provider_credential(%{
+          name: "ZAQ Router",
+          provider: "zaq_router",
+          endpoint: "http://localhost:4020",
+          api_key: "sk-existing-key"
+        })
+
+      role = role_fixture(%{name: "lane6_keyset_role"})
+      user = user_fixture(%{username: "lane6_keyset", email: "old@example.com", role: role})
+      {:ok, user} = Repo.update(User.portal_consent_changeset(user, "accepted"))
+
+      stub(Zaq.UserPortal.ClientMock, :update_email, fn _email, _api_key -> :ok end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/users/#{user.id}/edit")
+
+      view
+      |> form("form[phx-submit='save']",
+        user: %{username: "lane6_keyset", email: "changed@example.com", role_id: role.id}
+      )
+      |> render_submit()
+
+      assert_redirect(view, ~p"/bo/users")
+      assert Accounts.get_user!(user.id).portal_consent == "accepted"
+    end
+
     test "does not call portal when user has not accepted consent", %{conn: conn} do
       role = role_fixture(%{name: "lane6_no_consent_role"})
 

@@ -156,6 +156,17 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLive do
         |> reset_consent_assigns()
         |> assign(:error_message, ChangesetErrors.format(changeset))
 
+      # Email already on the portal (409): re-provisioning cannot help, so the
+      # orchestrator recorded "portal_registered" (no activation banner). Surface
+      # the bare guidance to fetch the key and set it on the ZAQ Router credential.
+      {:error, {:provisioning_failed, {409, _body} = reason}} ->
+        {msg, _mode} = UserPortal.provision_error(reason)
+
+        socket
+        |> reset_consent_assigns()
+        |> put_flash(:info, msg)
+        |> push_navigate(to: ~p"/bo/dashboard")
+
       # The account is already registered; only portal provisioning failed. Keep
       # the user moving — record nothing further here (the orchestrator already
       # recorded declined consent) and route them into the app with a message so

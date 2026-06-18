@@ -82,8 +82,11 @@ defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
 
   describe "accept_portal_consent error messaging" do
     test "surfaces the portal's own message on a non-200 response", %{conn: conn} do
-      Zaq.PortalStubs.stub_portal_onboard_error(409, %{
-        "error" => "user_already_exists",
+      # Use a non-409 status: a 409 is special-cased to the fixed "set your key on
+      # the ZAQ Router credential" guidance, while other statuses surface the
+      # portal's own message.
+      Zaq.PortalStubs.stub_portal_onboard_error(422, %{
+        "error" => "unprocessable",
         "message" => "A user with this email is already provisioned."
       })
 

@@ -249,18 +249,15 @@ defmodule ZaqWeb.Live.BO.PortalConsentLive do
          )}
 
       {:error, reason} ->
-        {error_msg, mode} = Zaq.UserPortal.provision_error(reason)
+        # A 409 here means the email is already on the portal; provision_error/1
+        # returns guidance to set the existing key on the ZAQ Router credential
+        # (no email-override input — re-provisioning the same email cannot help).
+        {error_msg, _mode} = Zaq.UserPortal.provision_error(reason)
 
         {:noreply,
          socket
          |> assign(:portal_provision_error, error_msg)
-         |> assign(:show_portal_consent_modal, true)
-         |> assign(:allow_email_override, mode == :allow_override)
-         |> then(fn s ->
-           if mode == :allow_override and not socket.assigns.require_portal_email,
-             do: assign(s, :portal_consent_email, ""),
-             else: s
-         end)}
+         |> assign(:show_portal_consent_modal, true)}
     end
   end
 

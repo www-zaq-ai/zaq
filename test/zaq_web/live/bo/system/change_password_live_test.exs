@@ -298,11 +298,13 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     assert is_nil(credential.api_key)
   end
 
-  test "registers the account and defers activation when the email is already on the portal", %{
-    conn: conn
-  } do
+  test "registers the account and records portal_registered when the email is already on the portal",
+       %{
+         conn: conn
+       } do
     # ZAQ-first: a 409 no longer blocks signup. The account is created with the
-    # entered email; the email-override correction moves to the dashboard retry.
+    # entered email; consent is recorded "portal_registered" (banner suppressed)
+    # and the user is told to set their existing key on the ZAQ Router credential.
     user =
       user_fixture(%{username: "must_change_password_email_conflict", email: "taken@zaq.local"})
 
@@ -325,13 +327,13 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     render_click(view, "accept_portal_consent")
 
     flash = assert_redirect(view, ~p"/bo/dashboard")
-    assert flash["info"] =~ "This email already has a portal account."
-    assert flash["info"] =~ "Please use a different email address."
+    assert flash["info"] =~ "already registered in the user portal"
+    assert flash["info"] =~ "ZAQ Router"
 
     updated_user = Accounts.get_user!(user.id)
     refute updated_user.must_change_password
     assert updated_user.email == "taken@zaq.local"
-    assert updated_user.portal_consent == "declined"
+    assert updated_user.portal_consent == "portal_registered"
   end
 
   test "close consent modal clears pending modal state without changing the password", %{
