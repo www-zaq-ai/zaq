@@ -7,7 +7,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Agent.{MCP, ServerManager}
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Channels.{ChannelConfig, IngressRuntimeStatus, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
@@ -3593,6 +3593,57 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert details.state_alive == true
       assert details.listeners_alive == 0
+    end
+
+    test "listener mode surfaces recorded websocket disconnect error" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRuntimeLookup)
+
+      config = %{
+        id: 42,
+        provider: "mattermost",
+        url: "https://mattermost.example.com",
+        token: "plain-token"
+      }
+
+      bridge_id = "mattermost_42"
+
+      Process.put(
+        :stub_lookup_runtime_result,
+        {:ok, %{listener_pids: [self()], state_pid: self()}}
+      )
+
+      JidoChatBridge.record_ingress_runtime_status(bridge_id, %{
+        status: :error,
+        summary: "Mattermost WebSocket disconnected and is reconnecting",
+        reason: :unauthorized
+      })
+
+      on_exit(fn ->
+        IngressRuntimeStatus.delete(bridge_id)
+        Application.put_env(:zaq, :channels, previous_channels)
+
+        if previous_supervisor do
+          Application.put_env(:zaq, :chat_bridge_supervisor_module, previous_supervisor)
+        else
+          Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+        end
+
+        Process.delete(:stub_lookup_runtime_result)
+      end)
+
+      assert {:ok, %{status: :error, reason: :unauthorized, details: %{bridge_id: ^bridge_id}}} =
+               JidoChatBridge.channel_ingress_status(config)
     end
 
     test "webhook status returns warning when no subscriptions" do
