@@ -127,8 +127,24 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
     checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
 
     try do
+      # Run-driver mode (D-A2): SEQUENTIAL today. `react_until_satisfied/3` also
+      # accepts `async: true, max_concurrency:, timeout:` to fan map forks out
+      # across processes, but we intentionally do NOT thread them yet — sequential
+      # execution keeps the D-A4 summary order deterministic (forks resolve in
+      # index order). The async opt-in is unblocked once its prerequisites hold:
+      # collision-free per-fork names (Part 1 Step 5, done) and `FanIn` `mergeable`
+      # accumulation. When enabling, pass the opts here and re-confirm ordering.
       Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
-      finalize(run, started_ms)
+      result = finalize(run, started_ms)
+
+      # D-A8 guard: a `map` node whose collection exceeded its `max_items` cap
+      # writes a failed StepRun (so `finalize/2` already marked the run "failed")
+      # and skips its downstream fan-out via Runic. Surface the precise reason to
+      # the caller rather than a generic failed run.
+      case DagBuilder.map_over_limit(run.id) do
+        {node, count, cap} -> {:error, {:map_over_limit, node, count, cap}}
+        nil -> result
+      end
     catch
       :throw, :pause_requested ->
         Logger.info("[workflow] run paused", run_id: run.id)
@@ -163,6 +179,10 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
       # A row stuck at "running" after execution means the action raised and
       # never updated itself — treat it as a failure (crash cursor).
+      # `failed_fatal` rows (isolated per-fork `map` failures under
+      # :skip_and_continue/:retry) are recorded for visibility but never fail the
+      # run — they are not in this list, so the aggregate map row carries the
+      # run-relevant status.
       Enum.any?(step_runs, &(&1.status in ["failed", "running"])) ->
         failed_steps =
           step_runs
