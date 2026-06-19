@@ -1,5 +1,6 @@
 defmodule Zaq.Channels.SupervisorTest do
   use Zaq.DataCase, async: false
+  import ExUnit.CaptureLog
 
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Channels.ChannelConfig
@@ -68,6 +69,55 @@ defmodule Zaq.Channels.SupervisorTest do
     end
   end
 
+  defmodule BootstrapSyncBridge do
+    def sync_runtime(nil, config) do
+      if pid = Process.whereis(:supervisor_bootstrap_observer) do
+        send(pid, {:bootstrap_sync, config.kind, config.provider, config.id})
+      end
+
+      :ok
+    end
+  end
+
+  defmodule StartFunctionStateProc do
+    use GenServer
+
+    def start(name), do: GenServer.start_link(__MODULE__, :ok, name: {:global, name})
+
+    @impl GenServer
+    def init(:ok), do: {:ok, %{}}
+
+    def monitor_listeners(state_pid, listener_pids) do
+      if pid = Process.whereis(:supervisor_bootstrap_observer) do
+        send(pid, {:start_function_state_proc_monitor, state_pid, listener_pids})
+      end
+
+      :ok
+    end
+  end
+
+  defmodule RaisingMonitorStateProc do
+    use GenServer
+
+    def start_link(name), do: GenServer.start_link(__MODULE__, :ok, name: {:global, name})
+
+    @impl GenServer
+    def init(:ok), do: {:ok, %{}}
+
+    def monitor_listeners(_state_pid, _listener_pids), do: raise("monitor failed")
+  end
+
+  defmodule ExitingMonitorStateProc do
+    use GenServer
+
+    def start_link(name), do: GenServer.start_link(__MODULE__, :ok, name: {:global, name})
+
+    @impl GenServer
+    def init(:ok), do: {:ok, %{}}
+
+    def monitor_listeners(_state_pid, _listener_pids), do: exit(:monitor_failed)
+  end
+
   defmodule StubAdapter do
     def listener_child_specs(bridge_id, _opts) do
       {:ok,
@@ -100,6 +150,28 @@ defmodule Zaq.Channels.SupervisorTest do
       end
 
       :ok
+    end
+  end
+
+  defp with_stopped_channel_supervisor(fun) do
+    _ = Elixir.Supervisor.terminate_child(Zaq.Supervisor, Zaq.Channels.Supervisor)
+
+    try do
+      fun.()
+    after
+      if pid = Process.whereis(Zaq.Channels.Supervisor) do
+        ref = Process.monitor(pid)
+        Process.unlink(pid)
+        Process.exit(pid, :shutdown)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+        after
+          1_000 -> :ok
+        end
+      end
+
+      _ = Elixir.Supervisor.restart_child(Zaq.Supervisor, Zaq.Channels.Supervisor)
     end
   end
 
@@ -252,9 +324,227 @@ defmodule Zaq.Channels.SupervisorTest do
     assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
   end
 
+  test "start_link/1 logs empty bootstrap when no enabled channel configs exist" do
+    previous_logger_level = Logger.level()
+
+    on_exit(fn ->
+      Logger.configure(level: previous_logger_level)
+    end)
+
+    Logger.configure(level: :info)
+
+    Application.put_env(:zaq, :channels, %{
+      slack: %{bridge: BootstrapSyncBridge, adapter: StubAdapter}
+    })
+
+    log =
+      capture_log([level: :info], fn ->
+        with_stopped_channel_supervisor(fn ->
+          assert {:ok, _pid} = Supervisor.start_link([])
+        end)
+      end)
+
+    assert log =~ "No enabled retrieval channel configs found, starting empty."
+    assert log =~ "No enabled data_source channel configs found, starting empty."
+    refute_received {:bootstrap_sync, _, _, _}
+  end
+
+  test "start_link/1 syncs each enabled retrieval and data_source config on bootstrap" do
+    Process.register(self(), :supervisor_bootstrap_observer)
+
+    on_exit(fn ->
+      if Process.whereis(:supervisor_bootstrap_observer) do
+        Process.unregister(:supervisor_bootstrap_observer)
+      end
+    end)
+
+    {:ok, retrieval_config} =
+      ChannelConfig.upsert_by_provider("mattermost", %{
+        name: "Retrieval Bootstrap",
+        kind: "retrieval",
+        provider: "mattermost",
+        enabled: true,
+        url: "https://mm.example.com",
+        token: "tok",
+        settings: %{"jido_chat" => %{"bot_name" => "zaq", "bot_user_id" => "bot-1"}}
+      })
+
+    {:ok, ds_config} =
+      ChannelConfig.upsert_by_provider("google_drive", %{
+        name: "DataSource Bootstrap",
+        kind: "data_source",
+        provider: "google_drive",
+        enabled: true,
+        url: "https://drive.google.com",
+        token: "tok",
+        settings: %{}
+      })
+
+    retrieval_id = retrieval_config.id
+    ds_id = ds_config.id
+
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: BootstrapSyncBridge, adapter: StubAdapter},
+      google_drive: %{bridge: BootstrapSyncBridge, adapter: StubAdapter}
+    })
+
+    with_stopped_channel_supervisor(fn ->
+      assert {:ok, _pid} = Supervisor.start_link([])
+    end)
+
+    assert_receive {:bootstrap_sync, "retrieval", "mattermost", ^retrieval_id}
+    assert_receive {:bootstrap_sync, "data_source", "google_drive", ^ds_id}
+    refute_received {:bootstrap_sync, _, "slack", _}
+    refute_received {:bootstrap_sync, _, "discord", _}
+  end
+
   test "stop_bridge_runtime/2 returns not_running when missing", %{config: config} do
     assert {:error, :not_running} =
              Supervisor.stop_bridge_runtime(config, "missing_bridge_runtime")
+  end
+
+  test "start_runtime/3 rescues exceptions raised while starting listener children" do
+    bridge_id = "bridge_runtime_invalid_listener_spec"
+    state_name = {:state_proc_invalid_listener_spec, bridge_id}
+
+    state_spec = %{
+      id: {:state_proc_invalid_listener_spec, bridge_id},
+      start: {StateProc, :start_link, [state_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    bad_listener_spec = :bad
+
+    log =
+      capture_log(fn ->
+        assert {:error, message} =
+                 Supervisor.start_runtime(bridge_id, state_spec, [bad_listener_spec])
+
+        assert is_binary(message)
+      end)
+
+    assert log =~ "Exception starting runtime bridge_id=bridge_runtime_invalid_listener_spec"
+    assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+
+    if pid = :global.whereis_name(state_name) do
+      if is_pid(pid) and Process.alive?(pid) do
+        Process.unlink(pid)
+        Process.exit(pid, :kill)
+      end
+    end
+  end
+
+  test "start_runtime/3 skips monitor_listeners when state spec does not expose a start_link module" do
+    bridge_id = "bridge_state_start_function"
+    state_name = {:state_start_function, bridge_id}
+
+    Process.register(self(), :supervisor_bootstrap_observer)
+
+    on_exit(fn ->
+      if Process.whereis(:supervisor_bootstrap_observer) do
+        Process.unregister(:supervisor_bootstrap_observer)
+      end
+    end)
+
+    state_spec = %{
+      id: {:state_start_function, bridge_id},
+      start: {StartFunctionStateProc, :start, [state_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    listener_spec = %{
+      id: {:listener_state_start_function, bridge_id},
+      start: {ListenerProc, :start_link, [[]]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec, [listener_spec])
+    assert is_pid(runtime.state_pid)
+    assert Process.alive?(runtime.state_pid)
+    assert length(runtime.listener_pids) == 1
+    assert Enum.all?(runtime.listener_pids, &Process.alive?/1)
+    refute_received {:start_function_state_proc_monitor, _, _}
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+  end
+
+  test "start_runtime/3 ignores exceptions from monitor_listeners callback" do
+    bridge_id = "bridge_monitor_raises"
+    state_name = {:state_monitor_raises, bridge_id}
+
+    state_spec = %{
+      id: {:state_monitor_raises, bridge_id},
+      start: {RaisingMonitorStateProc, :start_link, [state_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    listener_spec = %{
+      id: {:listener_monitor_raises, bridge_id},
+      start: {ListenerProc, :start_link, [[]]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec, [listener_spec])
+    assert is_pid(runtime.state_pid)
+    assert Process.alive?(runtime.state_pid)
+    assert length(runtime.listener_pids) == 1
+    assert Enum.all?(runtime.listener_pids, &Process.alive?/1)
+    assert {:ok, _} = Supervisor.lookup_runtime(bridge_id)
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+  end
+
+  test "start_runtime/3 ignores exits from monitor_listeners callback" do
+    bridge_id = "bridge_monitor_exits"
+    state_name = {:state_monitor_exits, bridge_id}
+
+    state_spec = %{
+      id: {:state_monitor_exits, bridge_id},
+      start: {ExitingMonitorStateProc, :start_link, [state_name]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    listener_spec = %{
+      id: {:listener_monitor_exits, bridge_id},
+      start: {ListenerProc, :start_link, [[]]},
+      restart: :temporary,
+      type: :worker
+    }
+
+    assert {:ok, runtime} = Supervisor.start_runtime(bridge_id, state_spec, [listener_spec])
+    assert is_pid(runtime.state_pid)
+    assert Process.alive?(runtime.state_pid)
+    assert length(runtime.listener_pids) == 1
+    assert Enum.all?(runtime.listener_pids, &Process.alive?/1)
+    assert {:ok, _} = Supervisor.lookup_runtime(bridge_id)
+
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+  end
+
+  test "stop_bridge_runtime/2 removes ETS entry when child termination exits" do
+    bridge_id = "bridge_stop_runtime_missing_supervisor"
+    state_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+    :ets.insert(
+      :zaq_channels_listeners,
+      {bridge_id, %{listener_pids: [state_pid], state_pid: nil}}
+    )
+
+    with_stopped_channel_supervisor(fn ->
+      assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+    end)
+
+    assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+
+    if Process.alive?(state_pid) do
+      Process.exit(state_pid, :kill)
+    end
   end
 
   test "lookup_runtime/1 and lookup_state_pid/1 return not_running for unknown bridge id" do

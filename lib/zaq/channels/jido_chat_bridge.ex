@@ -29,12 +29,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.{
     Bridge,
     ChannelConfig,
-    IngressRuntimeStatus,
-    MattermostAdmin,
     RetrievalChannel,
     Supervisor
   }
 
+  alias Zaq.Channels.JidoChatBridge.ListenerStatus
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
@@ -219,12 +218,6 @@ defmodule Zaq.Channels.JidoChatBridge do
         {:ok,
          %{status: :unsupported, mode: to_string(other), summary: "Ingress mode is not supported"}}
     end
-  end
-
-  @doc false
-  def record_ingress_runtime_status(bridge_id, status)
-      when is_binary(bridge_id) and is_map(status) do
-    IngressRuntimeStatus.put(bridge_id, status)
   end
 
   @impl true
@@ -724,8 +717,6 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp start_runtime_for_bridge_id(config, bridge_id, runtime_opts) do
-    IngressRuntimeStatus.delete(bridge_id)
-
     with {:ok, state_spec} <- state_child_spec(config, bridge_id),
          {:ok, listeners} <- listener_specs(config, bridge_id, runtime_opts),
          {:ok, _runtime} <-
@@ -762,7 +753,6 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp restart_runtime(config) do
-    config |> runtime_bridge_id() |> IngressRuntimeStatus.delete()
     Bridge.restart_runtime(__MODULE__, config)
   end
 
@@ -792,7 +782,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          true <- ingress_starts_listener?(ingress_mode_for(config.provider)),
          {:ok, specs} <-
            adapter.listener_child_specs(bridge_id, listener_opts(config, bridge_id, runtime_opts)) do
-      {:ok, specs}
+      {:ok, Enum.map(specs, &Map.put(&1, :restart, :temporary))}
     else
       false -> {:ok, []}
       {:error, reason} -> {:error, reason}
@@ -822,7 +812,6 @@ defmodule Zaq.Channels.JidoChatBridge do
       bridge_id: bridge_id,
       ingress: ingress,
       sink_mfa: sink_mfa_for(config),
-      status_mfa: {__MODULE__, :record_ingress_runtime_status, []},
       sink_opts: [transport: ingress_mode, bridge_id: bridge_id]
     ]
   end
@@ -846,38 +835,17 @@ defmodule Zaq.Channels.JidoChatBridge do
       {:ok, %{listener_pids: listener_pids, state_pid: state_pid}} ->
         alive_listener_count = Enum.count(listener_pids, &Process.alive?/1)
         state_alive = is_pid(state_pid) and Process.alive?(state_pid)
-        recorded_status = IngressRuntimeStatus.get(bridge_id)
+        recorded_status = listener_recorded_status(state_pid)
+        auth_status = ListenerStatus.query_listener_pids(listener_pids)
 
-        cond do
-          runtime_status_error?(recorded_status) ->
-            {:ok,
-             recorded_status
-             |> Map.put_new(:mode, Atom.to_string(mode))
-             |> Map.update(:details, %{bridge_id: bridge_id}, fn details ->
-               details
-               |> status_details_map()
-               |> Map.put_new(:bridge_id, bridge_id)
-             end)}
-
-          state_alive or alive_listener_count > 0 ->
-            listener_connection_status(config, mode, %{
-              bridge_id: bridge_id,
-              state_pid: inspect(state_pid),
-              state_alive: state_alive,
-              listeners_total: length(listener_pids),
-              listeners_alive: alive_listener_count
-            })
-
-          true ->
-            {:ok,
-             %{
-               status: :error,
-               mode: Atom.to_string(mode),
-               summary: "Ingress runtime exists but no process is alive",
-               reason: :runtime_not_alive,
-               details: %{bridge_id: bridge_id}
-             }}
-        end
+        {:ok,
+         listener_status_payload(recorded_status, auth_status, mode, %{
+           bridge_id: bridge_id,
+           state_pid: inspect(state_pid),
+           state_alive: state_alive,
+           listeners_total: length(listener_pids),
+           listeners_alive: alive_listener_count
+         })}
 
       {:error, :not_running} ->
         {:ok,
@@ -894,50 +862,89 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp runtime_status_error?(%{status: :error}), do: true
-  defp runtime_status_error?(%{"status" => :error}), do: true
-  defp runtime_status_error?(%{"status" => "error"}), do: true
-  defp runtime_status_error?(_status), do: false
+  defp listener_status_payload(%{status: status} = recorded_status, _auth_status, mode, details)
+       when status in [:error, "error"] do
+    recorded_status
+    |> Map.put_new(:mode, Atom.to_string(mode))
+    |> Map.update(:details, Map.take(details, [:bridge_id]), fn recorded_details ->
+      recorded_details
+      |> status_details_map()
+      |> Map.put_new(:bridge_id, details.bridge_id)
+    end)
+  end
+
+  defp listener_status_payload(
+         %{"status" => status} = recorded_status,
+         _auth_status,
+         mode,
+         details
+       )
+       when status in [:error, "error"] do
+    recorded_status
+    |> Map.put_new(:mode, Atom.to_string(mode))
+    |> Map.update(:details, Map.take(details, [:bridge_id]), fn recorded_details ->
+      recorded_details
+      |> status_details_map()
+      |> Map.put_new(:bridge_id, details.bridge_id)
+    end)
+  end
+
+  defp listener_status_payload(_recorded_status, auth_status, mode, details)
+       when is_map(auth_status) do
+    auth_status
+    |> Map.put_new(:mode, Atom.to_string(mode))
+    |> Map.update(:details, Map.take(details, [:bridge_id]), fn recorded_details ->
+      recorded_details
+      |> status_details_map()
+      |> Map.put_new(:bridge_id, details.bridge_id)
+    end)
+  end
+
+  defp listener_status_payload(recorded_status, _auth_status, mode, details)
+       when is_map(recorded_status) do
+    recorded_status
+    |> Map.put_new(:mode, Atom.to_string(mode))
+    |> Map.update(:details, Map.take(details, [:bridge_id]), fn recorded_details ->
+      recorded_details
+      |> status_details_map()
+      |> Map.put_new(:bridge_id, details.bridge_id)
+    end)
+  end
+
+  defp listener_status_payload(
+         _recorded_status,
+         _auth_status,
+         mode,
+         %{state_alive: false, listeners_alive: 0} = details
+       ) do
+    %{
+      status: :error,
+      mode: Atom.to_string(mode),
+      summary: "Ingress runtime exists but no process is alive",
+      reason: :runtime_not_alive,
+      details: Map.take(details, [:bridge_id])
+    }
+  end
+
+  defp listener_status_payload(_recorded_status, _auth_status, mode, details) do
+    %{
+      status: :pending,
+      mode: Atom.to_string(mode),
+      summary: "Ingress listener is connecting and authenticating",
+      details: details
+    }
+  end
+
+  defp listener_recorded_status(state_pid) when is_pid(state_pid) do
+    state_module().ingress_status(state_pid)
+  catch
+    :exit, _ -> nil
+  end
+
+  defp listener_recorded_status(_state_pid), do: nil
 
   defp status_details_map(details) when is_map(details), do: details
   defp status_details_map(details), do: %{details: details}
-
-  defp listener_connection_status(
-         %{provider: "mattermost", url: url, token: token, check_connection: true},
-         mode,
-         details
-       ) do
-    case MattermostAdmin.fetch_bot_user_id(url, token) do
-      {:ok, _user_id} ->
-        {:ok,
-         %{
-           status: :ok,
-           mode: Atom.to_string(mode),
-           summary: "Ingress listener runtime is running",
-           details: details
-         }}
-
-      {:error, reason} ->
-        {:ok,
-         %{
-           status: :error,
-           mode: Atom.to_string(mode),
-           summary: "Mattermost ingress credentials are not accepted",
-           reason: reason,
-           details: details
-         }}
-    end
-  end
-
-  defp listener_connection_status(_config, mode, details) do
-    {:ok,
-     %{
-       status: :ok,
-       mode: Atom.to_string(mode),
-       summary: "Ingress listener runtime is running",
-       details: details
-     }}
-  end
 
   defp webhook_ingress_status(config) do
     case list_ingress_subscriptions(config, %{}) do

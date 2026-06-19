@@ -12,6 +12,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   import Ecto.Query
 
+  @pending_ingress_status_retry_ms 200
+  @pending_ingress_status_max_attempts 25
+
   @retrieval_providers ~w(slack teams mattermost discord telegram webhook email)
   @data_source_providers ~w(zaq_local google_drive sharepoint)
   @notification_providers ~w(email:smtp)
@@ -118,13 +121,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
      |> assign(:configured_ingress_providers, configured_providers)
      |> assign(:ingress_statuses, %{})
      |> assign(:ingress_status_loading, ingress_status_loading(configured_providers))
+     |> assign(:ingress_status_refresh_attempts, 0)
      |> assign(:ingress_status_modal, nil)
      |> schedule_ingress_status_refresh(configured_providers)}
   end
 
   @impl true
   def handle_async(:ingress_statuses, result, socket) do
-    {:noreply, IngressStatusUI.apply_async_result(socket, result)}
+    {:noreply,
+     socket
+     |> IngressStatusUI.apply_async_result(result)
+     |> maybe_schedule_pending_ingress_status_refresh()}
+  end
+
+  @impl true
+  def handle_info(:refresh_pending_ingress_statuses, socket) do
+    {:noreply, retry_ingress_status_refresh(socket)}
   end
 
   @impl true
@@ -249,7 +261,25 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     socket
     |> assign(:ingress_statuses, %{})
     |> assign(:ingress_status_loading, ingress_status_loading(configured_providers))
+    |> assign(:ingress_status_refresh_attempts, 0)
     |> start_async(:ingress_statuses, fn -> compute_ingress_statuses(configured_providers) end)
+  end
+
+  defp retry_ingress_status_refresh(socket) do
+    configured_providers = socket.assigns.configured_ingress_providers
+
+    start_async(socket, :ingress_statuses, fn ->
+      compute_ingress_statuses(configured_providers)
+    end)
+  end
+
+  defp maybe_schedule_pending_ingress_status_refresh(socket) do
+    IngressStatusUI.maybe_schedule_pending_refresh(
+      socket,
+      :refresh_pending_ingress_statuses,
+      @pending_ingress_status_retry_ms,
+      @pending_ingress_status_max_attempts
+    )
   end
 
   defp configured_retrieval_providers do

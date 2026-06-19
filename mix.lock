@@ -59,7 +59,7 @@
   "jido_ai": {:git, "https://github.com/www-zaq-ai/jido_ai.git", "f362485d7823b973569695fe1e512a5ea2d792c0", [branch: "main"]},
   "jido_chat": {:git, "https://github.com/agentjido/jido_chat.git", "1ecabde270da195b5a899210855901db15455e06", [branch: "main"]},
   "jido_chat_discord": {:hex, :jido_chat_discord, "1.0.0", "311d9e8fdc76a00eae99c19c0451a98105c6ec192738fa27f961c42a2f76460b", [:mix], [{:jido_chat, "~> 1.0", [hex: :jido_chat, repo: "hexpm", optional: false]}, {:nostrum, "~> 0.10", [hex: :nostrum, repo: "hexpm", optional: false]}], "hexpm", "160b6a43ded75e9625fe7f03237623b895b66366bdabcd53ab69533d1d32a642"},
-  "jido_chat_mattermost": {:git, "https://github.com/www-zaq-ai/jido_chat_mattermost.git", "b8239ff6d7453fab7efe47b0df9abd828c50d5ce", [branch: "main"]},
+  "jido_chat_mattermost": {:git, "https://github.com/www-zaq-ai/jido_chat_mattermost.git", "c29213764942fc0ed1e515441b0fbd15bb3e9457", [branch: "main"]},
   "jido_chat_telegram": {:git, "https://github.com/agentjido/jido_chat_telegram.git", "bb6dc2c2b70121f999b720dccf7f9b0dabadc689", [branch: "main"]},
   "jido_connect": {:git, "https://github.com/agentjido/jido_connect.git", "e0cd469c8621a654119e3e6d2cad41ea880210b3", [branch: "main", sparse: "apps/jido_connect"]},
   "jido_connect_google": {:git, "https://github.com/agentjido/jido_connect.git", "e0cd469c8621a654119e3e6d2cad41ea880210b3", [branch: "main", sparse: "apps/jido_connect_google"]},

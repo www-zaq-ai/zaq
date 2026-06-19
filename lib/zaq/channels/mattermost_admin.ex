@@ -27,11 +27,9 @@ defmodule Zaq.Channels.MattermostAdmin do
 
   @doc "Fetches the bot's Mattermost user ID by calling /api/v4/users/me."
   def fetch_bot_user_id(url, token) do
-    case Req.get("#{url}/api/v4/users/me",
-           headers: [{"Authorization", "Bearer #{token}"}]
-         ) do
-      {:ok, %{status: 200, body: %{"id" => id}}} -> {:ok, id}
-      {:ok, %{status: status}} -> {:error, "HTTP #{status}"}
+    case get([url: url, token: token], "/api/v4/users/me", []) do
+      {:ok, %{"id" => id}} -> {:ok, id}
+      {:error, {status, _body}} -> {:error, "HTTP #{status}"}
       {:error, reason} -> {:error, inspect(reason)}
     end
   end
@@ -44,14 +42,7 @@ defmodule Zaq.Channels.MattermostAdmin do
     end
   end
 
-  @doc "Lists public channels for a given team."
-  def list_public_channels(config, team_id) do
-    case ReqClient.list_public_channels(team_id, to_opts(config)) do
-      {:ok, channels} -> {:ok, Enum.map(channels, &atomize/1)}
-      error -> error
-    end
-  end
-
+  @doc "Lists channels in a team that the bot can access, including private channels it belongs to."
   def list_accessible_channels(config, team_id) do
     config
     |> to_opts()
@@ -62,6 +53,7 @@ defmodule Zaq.Channels.MattermostAdmin do
     end
   end
 
+  @doc "Fetches a Mattermost user for BO display labels such as direct-message channel names."
   def fetch_user(config, user_id) do
     config
     |> to_opts()

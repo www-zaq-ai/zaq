@@ -23,6 +23,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   import Ecto.Query
 
+  @pending_ingress_status_retry_ms 200
+  @pending_ingress_status_max_attempts 25
+
   @provider_labels %{
     # Retrieval
     "slack" => "Slack",
@@ -78,6 +81,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:configs, configs)
      |> assign(:ingress_statuses, %{})
      |> assign(:ingress_status_loading, ingress_status_loading(configs))
+     |> assign(:ingress_status_refresh_attempts, 0)
      |> assign(:ingress_status_modal, nil)
      |> assign(:agent_options, agent_options())
      |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
@@ -130,7 +134,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   @impl true
   def handle_async(:ingress_statuses, result, socket) do
-    {:noreply, IngressStatusUI.apply_async_result(socket, result)}
+    {:noreply,
+     socket
+     |> IngressStatusUI.apply_async_result(result)
+     |> maybe_schedule_pending_ingress_status_refresh()}
+  end
+
+  @impl true
+  def handle_info(:refresh_pending_ingress_statuses, socket) do
+    {:noreply, retry_ingress_status_refresh(socket)}
   end
 
   # -------------------------------------------------------------------------
@@ -1457,14 +1469,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     socket
     |> assign(:ingress_statuses, %{})
     |> assign(:ingress_status_loading, ingress_status_loading(configs))
+    |> assign(:ingress_status_refresh_attempts, 0)
     |> start_async(:ingress_statuses, fn -> ingress_statuses(configs) end)
+  end
+
+  defp retry_ingress_status_refresh(socket) do
+    configs = socket.assigns.configs
+    start_async(socket, :ingress_statuses, fn -> ingress_statuses(configs) end)
+  end
+
+  defp maybe_schedule_pending_ingress_status_refresh(socket) do
+    IngressStatusUI.maybe_schedule_pending_refresh(
+      socket,
+      :refresh_pending_ingress_statuses,
+      @pending_ingress_status_retry_ms,
+      @pending_ingress_status_max_attempts
+    )
   end
 
   defp ingress_status(%ChannelConfig{} = config) do
     runtime_config =
       config
       |> ChannelConfig.to_runtime_config()
-      |> Map.put(:check_connection, true)
 
     event =
       Event.new(%{provider: config.provider, config: runtime_config}, :channels,

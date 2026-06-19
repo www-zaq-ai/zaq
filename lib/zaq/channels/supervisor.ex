@@ -144,11 +144,13 @@ defmodule Zaq.Channels.Supervisor do
         case start_listener_children(listener_specs, bridge_id) do
           {:ok, listener_pids} ->
             runtime = %{listener_pids: listener_pids, state_pid: state_pid}
+            maybe_monitor_listeners(state_spec, state_pid, listener_pids)
             :ets.insert(@table, {bridge_id, runtime})
             {:ok, runtime}
 
           {:error, reason} = error ->
             maybe_stop_state(state_pid)
+            :ets.delete(@table, bridge_id)
 
             Logger.warning(
               "[Channels.Supervisor] Could not start runtime for bridge_id=#{bridge_id}: #{inspect(reason)}"
@@ -214,6 +216,27 @@ defmodule Zaq.Channels.Supervisor do
   defp maybe_stop_state(pid) when is_pid(pid), do: safe_terminate_child(pid)
 
   defp maybe_stop_state(_), do: :ok
+
+  defp maybe_monitor_listeners(state_spec, state_pid, listener_pids) when is_pid(state_pid) do
+    case state_module_from_spec(state_spec) do
+      module when is_atom(module) ->
+        if function_exported?(module, :monitor_listeners, 2),
+          do: module.monitor_listeners(state_pid, listener_pids),
+          else: :ok
+
+      nil ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp maybe_monitor_listeners(_state_spec, _state_pid, _listener_pids), do: :ok
+
+  defp state_module_from_spec(%{start: {module, :start_link, _args}}), do: module
+  defp state_module_from_spec(_state_spec), do: nil
 
   defp safe_terminate_child(pid) when is_pid(pid) do
     DynamicSupervisor.terminate_child(__MODULE__, pid)

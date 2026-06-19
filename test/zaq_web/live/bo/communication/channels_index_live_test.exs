@@ -54,12 +54,57 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
   test "opens ingress status modal from retrieval provider card", %{conn: conn} do
     insert_channel_config(%{provider: "mattermost", name: "MM Config"})
 
+    stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+      %{event | response: {:ok, %{status: :ok, summary: "Healthy"}}}
+    end)
+
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval")
 
     view |> element("#ingress-status-dot-mattermost") |> render_click()
 
     assert has_element?(view, "#ingress-status-modal")
     assert render(view) =~ "Ingress Status"
+  end
+
+  test "closes ingress status modal from the UI", %{conn: conn} do
+    insert_channel_config(%{provider: "mattermost", name: "MM Config"})
+
+    stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+      %{event | response: {:ok, %{status: :ok, summary: "Healthy"}}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval")
+
+    view |> element("#ingress-status-dot-mattermost") |> render_click()
+
+    assert has_element?(view, "#ingress-status-modal")
+
+    view
+    |> element("button[phx-click='close_ingress_status']", "Close")
+    |> render_click()
+
+    refute has_element?(view, "#ingress-status-modal")
+    refute render(view) =~ "Ingress Status"
+  end
+
+  describe "pending ingress status refresh" do
+    test "retries pending ingress status refresh when refresh message is received", %{
+      conn: conn
+    } do
+      insert_channel_config(%{provider: "mattermost", name: "MM Config"})
+
+      test_pid = self()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(test_pid, {:ingress_dispatch, event.request.provider, event.opts})
+        %{event | response: {:ok, %{status: :ok, summary: "Healthy"}}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval")
+
+      send(view.pid, :refresh_pending_ingress_statuses)
+      assert has_element?(view, "#channel-card-mattermost")
+    end
   end
 
   test "renders provider cards on data_source sub-page", %{conn: conn} do
