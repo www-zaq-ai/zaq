@@ -4,6 +4,7 @@ const {
   loginToBackOffice,
   resetE2EState,
   createE2EAddonPackage,
+  waitForLiveViewSettled,
 } = require("../support/bo");
 
 test.describe("BO Dashboard", () => {
@@ -82,11 +83,13 @@ test.describe("BO Dashboard", () => {
     await resetE2EState(request);
     await loginToBackOffice(page);
     await gotoBackOfficeLive(page, "/bo/dashboard");
+    await waitForLiveViewSettled(page);
 
-    await expect(page.getByText("Add-ons", { exact: true })).toBeVisible();
-    await expect(page.getByText("No Add-ons")).toBeVisible();
-    await expect(page.getByText("Running in basic mode")).toBeVisible();
-    const emptyCta = page.getByTestId("addon-upsell-cta");
+    const addons = page.getByTestId("dashboard-addons-section");
+    await expect(addons.getByText("Add-ons", { exact: true })).toBeVisible();
+    await expect(addons.getByText("No Add-ons")).toBeVisible();
+    await expect(addons.getByText("Running in basic mode")).toBeVisible();
+    const emptyCta = addons.getByTestId("addon-upsell-cta");
     await expect(emptyCta).toBeVisible();
     await expect(emptyCta).toHaveText("View Add-ons");
     await expect(emptyCta).toHaveAttribute("href", "/bo/addons");

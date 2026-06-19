@@ -22,11 +22,12 @@ test.describe("Channels index & provider UI", () => {
 
     const retrievalIcons = page.locator('[data-testid="channels-index-retrieval-icons"]')
     await expect(retrievalIcons).toBeVisible()
-    await expect(retrievalIcons.locator("svg")).toHaveCount(6)
+    // One preview wrapper div per provider (icons may be svg or svg <image>; counting SVGs is brittle).
+    await expect(retrievalIcons.locator(":scope > div")).toHaveCount(5)
 
     const dataSourceIcons = page.locator('[data-testid="channels-index-data-source-icons"]')
     await expect(dataSourceIcons).toBeVisible()
-    await expect(dataSourceIcons.locator("svg, img")).toHaveCount(3)
+    await expect(dataSourceIcons.locator(":scope > div")).toHaveCount(3)
   })
 
   test("provider page opens capabilities form_dialog and closes", async ({ page }) => {
@@ -41,7 +42,14 @@ test.describe("Channels index & provider UI", () => {
     await expect(modal).toBeVisible()
     await expect(modal.getByRole("heading", { name: "Capabilities" })).toBeVisible()
 
-    await modal.getByRole("button", { name: "Close" }).click()
+    await modal.getByTestId("channel-capabilities-close").click()
+    await waitForLiveViewSettled(page)
+    await expect(modal).toBeHidden()
+
+    await page.locator('[data-testid="channel-capabilities-trigger"]').click()
+    await waitForLiveViewSettled(page)
+    await expect(modal).toBeVisible()
+    await page.keyboard.press("Escape")
     await waitForLiveViewSettled(page)
     await expect(modal).toBeHidden()
   })

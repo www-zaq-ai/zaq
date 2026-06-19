@@ -50,6 +50,7 @@ defmodule ZaqWeb.Components.ChannelCapabilities do
           <button
             type="button"
             phx-click={@close_event}
+            data-testid="channel-capabilities-close"
             class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/10 text-black/50 hover:text-black"
           >
             Close
