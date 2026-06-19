@@ -7,6 +7,9 @@ defmodule Zaq.Channels.Api do
   - Handle channels-scoped event actions (`:deliver_outgoing`, `:send_typing`,
     `:fetch_profile`, `:open_dm_channel`, runtime sync, bridge availability,
     connection testing, and generic `:invoke`).
+  - Re-broadcast `{:broadcast, topic, message}` events over `Zaq.PubSub` (the
+    `:broadcast` action) so engine-side producers (e.g. workflow run/step
+    updates) reach BO LiveView subscribers without owning PubSub directly.
   - Resolve provider bridge modules through `Zaq.Channels.Bridge`.
   - Delegate transport-specific behavior to bridge callbacks.
 
@@ -559,6 +562,12 @@ defmodule Zaq.Channels.Api do
     else
       {:error, reason} -> %{event | response: {:error, reason}}
     end
+  end
+
+  def handle_event(%Event{request: {:broadcast, topic, message}} = event, :broadcast, _context)
+      when is_binary(topic) do
+    Phoenix.PubSub.broadcast(Zaq.PubSub, topic, message)
+    %{event | response: :ok}
   end
 
   def handle_event(%Event{} = event, :incoming_async_hop, _context),

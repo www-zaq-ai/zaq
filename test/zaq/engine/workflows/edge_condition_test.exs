@@ -19,6 +19,51 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
     end
   end
 
+  describe "changeset/1" do
+    test "accepts string-keyed condition maps" do
+      changeset = EdgeCondition.changeset(%{"field" => "count", "op" => "gt", "value" => 0})
+
+      assert changeset.valid?
+      assert changeset.changes.field == "count"
+      assert changeset.changes.op == "gt"
+      assert changeset.changes.value == 0
+    end
+
+    test "accepts atom-keyed maps and atom operators" do
+      changeset = EdgeCondition.changeset(%{field: "count", op: :eq, value: 1})
+
+      assert changeset.valid?
+      assert changeset.changes.field == "count"
+      assert changeset.changes.op == "eq"
+      assert changeset.changes.value == 1
+    end
+
+    test "rejects missing required fields" do
+      changeset = EdgeCondition.changeset(%{})
+
+      refute changeset.valid?
+      assert {:field, {"can't be blank", [validation: :required]}} in changeset.errors
+      assert {:op, {"can't be blank", [validation: :required]}} in changeset.errors
+    end
+
+    test "rejects blank fields and unknown operators" do
+      changeset = EdgeCondition.changeset(%{"field" => "", "op" => "bogus"})
+
+      refute changeset.valid?
+      assert {:field, {"can't be blank", [validation: :required]}} in changeset.errors
+      assert {:op, {"is invalid", _}} = List.keyfind(changeset.errors, :op, 0)
+    end
+
+    test "requires a list value for in conditions" do
+      assert EdgeCondition.changeset(%{"field" => "status", "op" => "in", "value" => ["open"]}).valid?
+
+      changeset = EdgeCondition.changeset(%{"field" => "status", "op" => "in", "value" => "open"})
+
+      refute changeset.valid?
+      assert {:value, {"must be a list when op is in", []}} in changeset.errors
+    end
+  end
+
   describe "evaluate/3 — :eq" do
     test "returns true when equal" do
       assert EdgeCondition.evaluate(:eq, "male", "male")
@@ -73,6 +118,7 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
     test ":empty returns true for nil, empty string, empty list, empty map" do
       assert EdgeCondition.evaluate(:empty, nil, nil)
       assert EdgeCondition.evaluate(:empty, "", nil)
+      assert EdgeCondition.evaluate(:empty, "   ", nil)
       assert EdgeCondition.evaluate(:empty, [], nil)
       assert EdgeCondition.evaluate(:empty, %{}, nil)
     end
@@ -89,6 +135,7 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
       assert EdgeCondition.evaluate(:not_empty, [1], nil)
       refute EdgeCondition.evaluate(:not_empty, nil, nil)
       refute EdgeCondition.evaluate(:not_empty, "", nil)
+      refute EdgeCondition.evaluate(:not_empty, "   ", nil)
     end
   end
 
@@ -103,7 +150,7 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
     end
 
     test "raises ArgumentError when expected is not a list" do
-      assert_raise ArgumentError, ~r/requires a list/, fn ->
+      assert_raise ArgumentError, ~r/invalid edge condition/, fn ->
         EdgeCondition.evaluate(:in, "x", "not_a_list")
       end
     end
@@ -111,7 +158,7 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
 
   describe "evaluate/3 — unknown op" do
     test "raises ArgumentError" do
-      assert_raise ArgumentError, ~r/unknown edge condition op/, fn ->
+      assert_raise ArgumentError, ~r/invalid edge condition/, fn ->
         EdgeCondition.evaluate(:bogus_op, "x", "y")
       end
     end

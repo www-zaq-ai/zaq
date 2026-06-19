@@ -1517,4 +1517,31 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == :ok
   end
+
+  describe "broadcast re-broadcaster" do
+    test "re-broadcasts {:broadcast, topic, message} over Zaq.PubSub" do
+      topic = "workflow_run:#{Ecto.UUID.generate()}"
+      Phoenix.PubSub.subscribe(Zaq.PubSub, topic)
+
+      message = {:run_updated, %{id: "run-1"}}
+
+      event =
+        Event.new({:broadcast, topic, message}, :channels,
+          type: :async,
+          opts: [action: :broadcast]
+        )
+
+      result = Api.handle_event(event, :broadcast, nil)
+
+      assert result.response == :ok
+      assert_receive ^message
+    end
+
+    test "returns unsupported_action for a malformed broadcast request" do
+      event = Event.new(%{not: :a_broadcast}, :channels, opts: [action: :broadcast])
+
+      assert Api.handle_event(event, :broadcast, nil).response ==
+               {:error, {:unsupported_action, :broadcast}}
+    end
+  end
 end

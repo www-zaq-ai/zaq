@@ -1,5 +1,27 @@
 defmodule Zaq.Agent.Tools.PipelineRunner do
-  @moduledoc false
+  @moduledoc """
+  Runs the inline action pipelines embedded inside workflow orchestration tools.
+
+  `Batch` and `Iterate` are not ordinary single-step actions: each receives a
+  resolved list of `{module, base_params}` tuples from `DagBuilder` and must run
+  that list for a chunk or item while preserving the workflow action contract.
+  This module owns that shared inner loop so both tools apply the same behavior:
+
+  - merge the current delivery payload into each step's base params before
+    calling `run/2`;
+  - pass through the workflow context unchanged;
+  - stop at the first `{:error, reason}`;
+  - treat `{:ok, result}` and `{:ok, result, logs: logs}` as successful steps;
+  - optionally retry the whole inline pipeline for `:retry` strategy;
+  - call an optional `on_step` callback so callers can broadcast per-step
+    progress; and
+  - normalize accumulated batch/iterate results through `finalize_result/1`.
+
+  It is intentionally narrower than the main workflow DAG executor. It does not
+  build DAGs, evaluate edge conditions, persist step runs, or dispatch events.
+  It only executes already-resolved linear sub-pipelines used inside
+  orchestration actions.
+  """
 
   @max_retries 3
 

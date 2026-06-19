@@ -3,6 +3,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
   import Ecto.Query
 
+  alias Zaq.Accounts.People
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.{ParamCapture, PauseSignal}
   alias Zaq.Engine.Workflows.{WorkflowAgent, WorkflowRun}
@@ -14,6 +15,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
   @error_module "Zaq.Engine.Workflows.Test.ErrorAction"
+  @history_module "Zaq.Agent.Tools.Accounts.History"
   @probe_module "Zaq.Engine.Workflows.Test.ParamProbe"
   @pause_module "Zaq.Engine.Workflows.Test.PauseAction"
   @noop_module "Zaq.Engine.Workflows.Test.Noop"
@@ -134,6 +136,46 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
       assert ar.status == "failed"
       assert ar.errors["reason"] =~ "test_failure"
+    end
+
+    test "history tool data-layer errors fail the step and workflow run" do
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "History Failure",
+          email: "history-failure@example.com"
+        })
+
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA History Failure #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{
+              name: "history",
+              type: "action",
+              module: @history_module,
+              params: %{"conversation_limit" => "not-an-integer"},
+              index: 0
+            }
+          ],
+          edges: []
+        })
+
+      source_event = %{
+        "request" => nil,
+        "assigns" => %{"trigger_type" => "manual"},
+        "trace_id" => Ecto.UUID.generate(),
+        "actor" => %{"id" => "u1", "person_id" => person.id}
+      }
+
+      {:ok, run} = Workflows.create_run(wf, source_event)
+
+      assert {:ok, updated} = WorkflowAgent.execute(run)
+      assert updated.status == "failed"
+
+      [step_run] = Workflows.list_step_runs(updated.id)
+      assert step_run.status == "failed"
+      assert step_run.errors["reason"] =~ "cannot be cast to type :integer"
     end
   end
 
@@ -511,7 +553,13 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       test_pid = self()
 
       stub(Zaq.NodeRouterMock, :dispatch, fn event ->
-        send(test_pid, {:dispatched, event})
+        # Ignore UI re-broadcasts ({:broadcast, topic, message} → :channels); this
+        # block asserts only the lifecycle events (run.started/completed/failed).
+        case event.request do
+          {:broadcast, _topic, _message} -> :ok
+          _ -> send(test_pid, {:dispatched, event})
+        end
+
         event
       end)
 
@@ -689,7 +737,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
             %{
               name: "n",
               type: "action",
-              module: "Zaq.Agent.Tools.Email.FetchEmails",
+              module: "Zaq.Engine.Workflows.Test.InboxWithResults",
               params: %{},
               index: 0
             }
@@ -766,7 +814,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
           %{
             "name" => "start",
             "type" => "action",
-            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "module" => "Zaq.Engine.Workflows.Test.InboxWithResults",
             "params" => %{},
             "index" => 0
           }
@@ -784,14 +832,14 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
           %{
             "name" => "a",
             "type" => "action",
-            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "module" => "Zaq.Engine.Workflows.Test.InboxWithResults",
             "params" => %{},
             "index" => 0
           },
           %{
             "name" => "b",
             "type" => "action",
-            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+            "module" => "Zaq.Engine.Workflows.Test.InboxWithResults",
             "params" => %{},
             "index" => 1
           }

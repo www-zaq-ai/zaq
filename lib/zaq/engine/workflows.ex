@@ -14,6 +14,7 @@ defmodule Zaq.Engine.Workflows do
   alias Zaq.Engine.EventRegistry
 
   alias Zaq.Engine.Workflows.{
+    Composition,
     CronTriggerWorker,
     DagBuilder,
     StepApproval,
@@ -61,12 +62,17 @@ defmodule Zaq.Engine.Workflows do
   synchronously, writes `StepRun` rows per step, and updates
   `WorkflowRun.status` to `"completed"` or `"failed"`.
 
+  Emits the `{:run_started, run}` UI broadcast on `"workflow:<workflow_id>"`
+  (via the Channels role) — the counterpart to `create_run/4`'s `:run_created`.
+  Bare `create_run/4` never signals a start; only `start_run/2` does.
+
   Returns `{:ok, updated_run}` on success, `{:error, reason}` on execution
   failure, or `{:error, {:invalid_run_status, status}}` when the run is not
   pending.
   """
   @spec start_run(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
   def start_run(%WorkflowRun{status: "pending"} = run, opts) do
+    dispatch_async("workflow:#{run.workflow_id}", {:run_started, run})
     WorkflowAgent.execute(run, opts)
   end
 
@@ -136,7 +142,7 @@ defmodule Zaq.Engine.Workflows do
   at once, then in a single transaction marks the run `"paused"` and any
   in-flight `StepRun` rows `"paused"`.
 
-  On resume, `ActionWrapper` sees the `"paused"` step_run as non-terminal
+  On resume, `StepRunner` sees the `"paused"` step_run as non-terminal
   (not in `completed/failed/skipped/waiting`) and re-executes it from the
   beginning.
 
@@ -188,7 +194,7 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Resumes a paused workflow run from where it stopped.
 
-  Delegates to `WorkflowAgent.execute/2`. `ActionWrapper` skips any step whose
+  Delegates to `WorkflowAgent.execute/2`. `StepRunner` skips any step whose
   `StepRun` is already `"completed"`, so the run continues from the first
   incomplete step. Returns `{:error, :not_paused}` if the run is not paused.
   """
@@ -280,7 +286,7 @@ defmodule Zaq.Engine.Workflows do
   """
   @spec create_workflow(map(), keyword()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
   def create_workflow(attrs, _opts \\ []) do
-    case %Workflow{} |> Workflow.changeset(attrs) |> Repo.insert() do
+    case %Workflow{} |> Workflow.changeset(attrs) |> validate_composition() |> Repo.insert() do
       {:ok, workflow} = result ->
         node_router().dispatch(
           Zaq.Event.new(%{action: "workflow.created", workflow_id: workflow.id}, :engine,
@@ -301,6 +307,7 @@ defmodule Zaq.Engine.Workflows do
   def update_workflow(%Workflow{} = workflow, attrs, _opts \\ []) do
     workflow
     |> Workflow.changeset(attrs)
+    |> validate_composition()
     |> Repo.update()
   end
 
@@ -393,7 +400,7 @@ defmodule Zaq.Engine.Workflows do
       %WorkflowRun{}
       |> WorkflowRun.changeset(%{
         workflow_id: workflow.id,
-        steps_snapshot: serialize_steps(workflow),
+        steps_snapshot: build_run_snapshot(workflow),
         settings_snapshot: workflow.settings,
         source_event: source_event,
         status: "pending"
@@ -403,11 +410,60 @@ defmodule Zaq.Engine.Workflows do
     case result do
       {:ok, run} ->
         run = %{run | prepared_dag: prepare_dag(run)}
-        Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow:#{run.workflow_id}", {:run_created, run})
+        dispatch_async("workflow:#{run.workflow_id}", {:run_created, run})
         {:ok, run}
 
       _ ->
         result
+    end
+  end
+
+  # Snapshots the workflow's steps and splices any `"workflow"` reference nodes
+  # inline (D1/D2: resolved fresh per run, frozen into this snapshot for the run's
+  # lifetime). Best-effort: on a composition error the raw snapshot is kept so the
+  # build error surfaces at start time rather than blocking run creation.
+  defp build_run_snapshot(%Workflow{} = workflow) do
+    raw = serialize_steps(workflow)
+
+    case Composition.expand(raw, &resolve_workflow_ref/1) do
+      {:ok, flat} -> flat
+      {:error, _reason} -> raw
+    end
+  end
+
+  defp resolve_workflow_ref(id) do
+    case Repo.get(Workflow, id) do
+      nil -> {:error, {:workflow_ref_not_found, id}}
+      %Workflow{} = workflow -> {:ok, serialize_steps(workflow)}
+    end
+  end
+
+  # Save-time composition validation (D5): rejects dangling references, single
+  # root/leaf violations, reference cycles, and any composition whose flattened
+  # graph is not acyclic. The resolver is self-aware — it returns the workflow's
+  # own *pending* snapshot for its id, so a cycle introduced by the edit being
+  # saved (e.g. B -> A -> B) is detected before it persists.
+  defp validate_composition(%Ecto.Changeset{valid?: false} = changeset), do: changeset
+
+  defp validate_composition(%Ecto.Changeset{} = changeset) do
+    applied = Ecto.Changeset.apply_changes(changeset)
+    snapshot = serialize_steps(applied)
+
+    case Composition.validate(snapshot, composition_resolver(applied.id, snapshot)) do
+      :ok ->
+        changeset
+
+      {:error, reason} ->
+        Ecto.Changeset.add_error(changeset, :nodes, "invalid workflow composition",
+          reason: reason
+        )
+    end
+  end
+
+  defp composition_resolver(self_id, self_snapshot) do
+    fn
+      ^self_id when not is_nil(self_id) -> {:ok, self_snapshot}
+      id -> resolve_workflow_ref(id)
     end
   end
 
@@ -463,7 +519,7 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Snapshots the current step state into `log_summary` on the run.
 
-  Called by `ActionWrapper` after every terminal step transition so the summary
+  Called by `StepRunner` after every terminal step transition so the summary
   reflects live progress rather than only the final outcome.
   """
   @spec tick_log_summary(binary()) :: :ok
@@ -710,7 +766,7 @@ defmodule Zaq.Engine.Workflows do
   Looks up the pending `StepApproval` for the run and the `"waiting"` StepRun,
   marks both as completed/approved in a transaction, transitions the run to `"paused"`,
   then calls `resume_run/2`. The approval data flows to downstream steps via
-  ActionWrapper's resume idempotency cache.
+  StepRunner's resume idempotency cache.
 
   Returns `{:error, :not_waiting}` if the run is not in `"waiting"` state.
   Returns `{:error, :already_decided}` if the approval has already been acted on.
@@ -1234,11 +1290,7 @@ defmodule Zaq.Engine.Workflows do
   def broadcast_batch_progress(nil, _step_name, _progress), do: :ok
 
   def broadcast_batch_progress(run_id, step_name, progress) do
-    Phoenix.PubSub.broadcast(
-      Zaq.PubSub,
-      "workflow_run:#{run_id}",
-      {:batch_progress, step_name, progress}
-    )
+    dispatch_async("workflow_run:#{run_id}", {:batch_progress, step_name, progress})
   end
 
   @doc """
@@ -1254,14 +1306,25 @@ defmodule Zaq.Engine.Workflows do
   def broadcast_iterate_progress(nil, _step_name, _progress), do: :ok
 
   def broadcast_iterate_progress(run_id, step_name, progress) do
-    Phoenix.PubSub.broadcast(
-      Zaq.PubSub,
-      "workflow_run:#{run_id}",
-      {:iterate_progress, step_name, progress}
-    )
+    dispatch_async("workflow_run:#{run_id}", {:iterate_progress, step_name, progress})
   end
 
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
+
+  # Fans a workflow UI broadcast out through the Channels role instead of touching
+  # `Phoenix.PubSub` from the engine context. Channels owns the real re-broadcast
+  # (see `Zaq.Channels.Api` `:broadcast`), so BO LiveView subscribers receive the
+  # same topic/message. Dispatched async — broadcasting is fire-and-forget and must
+  # never block or fail the run lifecycle.
+  defp dispatch_async(topic, message) when is_binary(topic) do
+    Zaq.Event.new({:broadcast, topic, message}, :channels,
+      type: :async,
+      opts: [action: :broadcast]
+    )
+    |> node_router().dispatch()
+
+    :ok
+  end
 
   @doc """
   Re-broadcasts the current state of a run to its `workflow_run:<run_id>`
@@ -1275,7 +1338,7 @@ defmodule Zaq.Engine.Workflows do
   def broadcast_run_update(run_id) do
     case get_run(run_id) do
       %WorkflowRun{} = run ->
-        Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow_run:#{run_id}", {:run_updated, run})
+        dispatch_async("workflow_run:#{run_id}", {:run_updated, run})
 
       _ ->
         :ok
@@ -1283,18 +1346,10 @@ defmodule Zaq.Engine.Workflows do
   end
 
   defp broadcast_run({:ok, run} = result) do
-    Phoenix.PubSub.broadcast(
-      Zaq.PubSub,
-      "workflow_run:#{run.id}",
-      {:run_updated, run}
-    )
+    dispatch_async("workflow_run:#{run.id}", {:run_updated, run})
 
     if run.status in ["completed", "failed", "cancelled"] do
-      Phoenix.PubSub.broadcast(
-        Zaq.PubSub,
-        "workflow:#{run.workflow_id}",
-        {:run_finished, run}
-      )
+      dispatch_async("workflow:#{run.workflow_id}", {:run_finished, run})
     end
 
     result
@@ -1304,13 +1359,7 @@ defmodule Zaq.Engine.Workflows do
 
   defp broadcast_step({:ok, step_run} = result) do
     normalized = %{step_run | logs: stringify_log_keys(step_run.logs)}
-
-    Phoenix.PubSub.broadcast(
-      Zaq.PubSub,
-      "workflow_run:#{step_run.workflow_run_id}",
-      {:step_updated, normalized}
-    )
-
+    dispatch_async("workflow_run:#{step_run.workflow_run_id}", {:step_updated, normalized})
     result
   end
 

@@ -1,7 +1,9 @@
-defmodule Zaq.Engine.Workflows.ActionWrapper do
+defmodule Zaq.Engine.Workflows.StepRunner do
   @moduledoc """
-  Transparent Jido.Action wrapper injected by DagBuilder when a `run_id` option
-  is provided. Writes one `StepRun` row per step execution using the
+  Jido.Action runner injected by DagBuilder when a `run_id` option is provided.
+
+  It runs the real workflow step module and writes one `StepRun` row per
+  execution using the
   write-before / update-after crash-safe cursor pattern:
 
     1. `create_step_run` with `status: "running"` — written before the call.
@@ -45,7 +47,7 @@ defmodule Zaq.Engine.Workflows.ActionWrapper do
 
   require Logger
 
-  use Jido.Action, name: "workflow_action_wrapper", schema: []
+  use Jido.Action, name: "workflow_step_runner", schema: []
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Action
