@@ -137,6 +137,16 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
       refute EdgeCondition.evaluate(:not_empty, "", nil)
       refute EdgeCondition.evaluate(:not_empty, "   ", nil)
     end
+
+    test "a struct (e.g. %Record{}) is treated as present, not an empty collection" do
+      # Regression: a struct passes `is_map/1` but does not implement Enumerable, so
+      # `Enum.empty?/1` raised — silently failing the (hidden) edge step and pruning
+      # the rest of the DAG. A struct is a present value: not_empty ⇒ true.
+      record = struct!(Zaq.Contracts.Record, %{id: "1", kind: :spreadsheet})
+
+      assert EdgeCondition.evaluate(:not_empty, record, nil)
+      refute EdgeCondition.evaluate(:empty, record, nil)
+    end
   end
 
   describe "evaluate/3 — :in" do

@@ -6,10 +6,9 @@ defmodule Zaq.Engine.ApiTest do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Workflows
   alias Zaq.Event
-  alias Zaq.Test.Stubs
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 

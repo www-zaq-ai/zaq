@@ -196,11 +196,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
              is_hitl: is_hitl,
              is_batch: is_batch,
              is_iterate: is_iterate,
+             is_map: is_map,
              inner: inner,
              separator_y: separator_y
            } ->
           sr = Map.get(run_idx, name)
-          {fill, stroke, tc} = dag_node_colors(sr, is_hitl, is_batch, is_iterate)
+          # A `map` node shares the iterate visual treatment (teal, dashed, vertical
+          # body-step stack) since it is the iteration primitive.
+          {fill, stroke, tc} = dag_node_colors(sr, is_hitl, is_batch, is_iterate or is_map)
           label = if String.length(name) > 17, do: String.slice(name, 0, 14) <> "…", else: name
 
           %{
@@ -216,6 +219,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             is_hitl: is_hitl,
             is_batch: is_batch,
             is_iterate: is_iterate,
+            is_map: is_map,
             inner: inner,
             separator_y: separator_y
           }
@@ -322,14 +326,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             stroke-dasharray={
               cond do
                 n.is_hitl -> "4 2"
-                n.is_iterate -> "6 2"
+                n.is_iterate or n.is_map -> "6 2"
                 true -> "none"
               end
             }
           />
-          <%!-- Type badge text for batch / iterate --%>
+          <%!-- Type badge text for batch / iterate / map --%>
           <text
-            :if={n.is_batch or n.is_iterate}
+            :if={n.is_batch or n.is_iterate or n.is_map}
             x={n.x + n.w - 6}
             y={n.y + 11}
             text-anchor="end"
@@ -338,7 +342,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             fill={n.stroke}
             opacity="0.7"
           >
-            {if n.is_batch, do: "BATCH", else: "ITERATE"}
+            {cond do
+              n.is_batch -> "BATCH"
+              n.is_map -> "MAP"
+              true -> "ITERATE"
+            end}
           </text>
           <%!-- Node label (centred in header band) --%>
           <text
@@ -1169,6 +1177,126 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     """
   end
 
+  @doc """
+  Renders the aggregate card for a `map` node run (Part 3, Step 9 / D-A1).
+
+  The aggregate `StepRun` (named after the map node) carries the
+  `%{"results", "errors", "count"}` summary written by `MapCollect`. This card
+  surfaces the ok/failed counts and, where they exist, the per-fork failure rows
+  (`<node>/<step>[i]` StepRuns with a `failed`/`failed_fatal` status) drawn from
+  `step_runs`, so a user sees exactly which item failed and why.
+  """
+  attr :step, :map, required: true
+  attr :step_runs, :list, default: []
+  attr :node_params, :map, default: %{}
+  attr :now, :any, default: nil
+
+  def map_step_card(assigns) do
+    results = assigns.step.results || %{}
+    ok_count = results |> Map.get("results", []) |> length()
+    errors = Map.get(results, "errors", [])
+
+    failed_forks =
+      Enum.filter(assigns.step_runs, fn sr ->
+        String.starts_with?(sr.step_name, assigns.step.step_name <> "/") and
+          sr.status in ["failed", "failed_fatal"]
+      end)
+
+    assigns =
+      assign(assigns,
+        ok_count: ok_count,
+        failed_count: length(errors),
+        errors: errors,
+        failed_forks: failed_forks,
+        body_names: get_inner_step_names(assigns.node_params, "body"),
+        post_names: get_inner_step_names(assigns.node_params, "post_process")
+      )
+
+    ~H"""
+    <div class="bg-white rounded-xl border border-sky-200 overflow-hidden shadow-[0_0_0_1px_rgb(186,230,253,0.5)]">
+      <%!-- Header --%>
+      <div class="flex items-center justify-between px-5 py-3 bg-sky-50 border-b border-sky-100">
+        <div class="flex items-center gap-3">
+          <span class="font-mono text-[0.72rem] text-black/40 w-5 text-right tabular-nums">
+            {@step.step_index + 1}
+          </span>
+          <span class="font-mono text-[0.85rem] font-semibold text-black">{@step.step_name}</span>
+          <span class="font-mono text-[0.6rem] font-bold uppercase tracking-wider text-sky-600">
+            map
+          </span>
+        </div>
+        <div class="flex items-center gap-3">
+          <.run_duration run={@step} now={@now} />
+          <.run_status_badge status={@step.status} />
+        </div>
+      </div>
+
+      <%!-- Per-item body pipeline (run once per item) --%>
+      <div :if={@body_names != []} class="px-5 py-3 border-b border-sky-100 space-y-2">
+        <p class="font-mono text-[0.6rem] font-bold uppercase tracking-wider text-sky-500">
+          Per item
+        </p>
+        <div class="flex items-center flex-wrap gap-1.5">
+          <%= for {name, i} <- Enum.with_index(@body_names) do %>
+            <span
+              :if={i > 0}
+              class="font-mono text-[0.7rem] text-black/30"
+            >
+              →
+            </span>
+            <span class="font-mono text-[0.72rem] px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
+              {name}
+            </span>
+          <% end %>
+        </div>
+        <div :if={@post_names != []} class="flex items-center flex-wrap gap-1.5">
+          <span class="font-mono text-[0.6rem] font-bold uppercase tracking-wider text-black/30 mr-1">
+            then
+          </span>
+          <%= for name <- @post_names do %>
+            <span class="font-mono text-[0.72rem] px-2 py-0.5 rounded bg-black/[0.03] text-black/60 border border-black/10">
+              {name}
+            </span>
+          <% end %>
+        </div>
+      </div>
+
+      <%!-- Aggregate ok / failed counts --%>
+      <div class="flex items-center gap-4 px-5 py-3 border-b border-sky-100">
+        <span class="font-mono text-[0.78rem] text-emerald-600" data-role="map-ok-count">
+          ✓ {@ok_count} ok
+        </span>
+        <span class="font-mono text-[0.78rem] text-red-600" data-role="map-failed-count">
+          ✗ {@failed_count} failed
+        </span>
+      </div>
+
+      <%!-- Per-fork failure rows --%>
+      <div :if={@failed_forks != []} class="px-5 py-3 space-y-1.5 bg-red-50/40">
+        <p class="font-mono text-[0.65rem] font-semibold text-red-500 uppercase tracking-wider mb-1">
+          Failed items
+        </p>
+        <div
+          :for={fork <- @failed_forks}
+          class="flex items-center justify-between gap-3"
+          data-role="map-failed-fork"
+        >
+          <span class="font-mono text-[0.78rem] font-semibold text-black/80">{fork.step_name}</span>
+          <span class="font-mono text-[0.72rem] text-red-700 truncate">
+            {map_fork_reason(fork)}
+          </span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # Pulls a short failure reason out of a per-fork StepRun's `errors` map.
+  defp map_fork_reason(%{errors: %{} = errors}),
+    do: Map.get(errors, "reason") || Map.get(errors, :reason) || "failed"
+
+  defp map_fork_reason(_), do: "failed"
+
   # ── Public detection helpers (used by WorkflowRunLive for node_info) ──────────
 
   @doc "Returns true if the module string is the Batch action."
@@ -1445,6 +1573,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
           is_hitl: hitl_module?(mod),
           is_batch: batch_module?(mod),
           is_iterate: iterate_module?(mod),
+          is_map: nf(n, "type") == "map",
           params: nf(n, "params") || %{}
         }
       end)
@@ -1484,7 +1613,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               idx * (@dag_node_w + @dag_h_gap)
 
           y = @dag_pad_y + level * (@dag_node_h + @dag_v_gap)
-          inner = compute_node_inner(node.params, node.is_batch, node.is_iterate)
+          inner = compute_node_inner(node.params, node.is_batch, node.is_iterate, node.is_map)
 
           %{
             name: node.name,
@@ -1495,6 +1624,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             is_hitl: node.is_hitl,
             is_batch: node.is_batch,
             is_iterate: node.is_iterate,
+            is_map: node.is_map,
             inner: inner,
             separator_y: @dag_node_h
           }
@@ -1576,32 +1706,41 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   @empty_inner %{type: :none, sub_nodes: [], mini_nodes: [], h_extra: 0, post_section_y: nil}
 
-  defp compute_node_inner(_params, false, false), do: @empty_inner
+  defp compute_node_inner(_params, false, false, false), do: @empty_inner
 
-  defp compute_node_inner(params, true, _is_iterate) when is_map(params),
+  defp compute_node_inner(params, true, _is_iterate, _is_map) when is_map(params),
     do: compute_batch_node_inner(params)
 
-  defp compute_node_inner(params, _is_batch, true) when is_map(params) do
+  defp compute_node_inner(params, _is_batch, true, _is_map) when is_map(params) do
     pipeline = Map.get(params, "pipeline") || Map.get(params, :pipeline) || []
     names = Enum.map(pipeline, &(Map.get(&1, "name") || Map.get(&1, :name) || "?"))
-
-    if names == [] do
-      @empty_inner
-    else
-      full_nodes = compute_iter_full_nodes(names)
-      h_extra = 4 + full_nodes_h(full_nodes)
-
-      %{
-        type: :iterate,
-        sub_nodes: [],
-        mini_nodes: full_nodes,
-        h_extra: h_extra,
-        post_section_y: nil
-      }
-    end
+    iterate_inner(names)
   end
 
-  defp compute_node_inner(_params, _is_batch, _is_iterate), do: @empty_inner
+  # A `map` node shows its `body` pipeline (and any `post_process` tail) as the same
+  # vertical full-node stack an `Iterate` node uses — it is the iteration primitive.
+  defp compute_node_inner(params, _is_batch, _is_iterate, true) when is_map(params) do
+    body = Map.get(params, "body") || Map.get(params, :body) || []
+    post = Map.get(params, "post_process") || Map.get(params, :post_process) || []
+    names = Enum.map(body ++ post, &(Map.get(&1, "name") || Map.get(&1, :name) || "?"))
+    iterate_inner(names)
+  end
+
+  defp compute_node_inner(_params, _is_batch, _is_iterate, _is_map), do: @empty_inner
+
+  defp iterate_inner([]), do: @empty_inner
+
+  defp iterate_inner(names) do
+    full_nodes = compute_iter_full_nodes(names)
+
+    %{
+      type: :iterate,
+      sub_nodes: [],
+      mini_nodes: full_nodes,
+      h_extra: 4 + full_nodes_h(full_nodes),
+      post_section_y: nil
+    }
+  end
 
   defp compute_batch_node_inner(params) do
     process_steps = Map.get(params, "process") || Map.get(params, :process) || []

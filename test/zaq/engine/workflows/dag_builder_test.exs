@@ -583,7 +583,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Batch node — process / post_process resolution
+  # ---------------------------------------------------------------------------
+  # Batch translator — rewrites a Batch node into a `map` node (no runtime loop)
   # ---------------------------------------------------------------------------
 
   @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
@@ -592,6 +593,10 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
   @process_contact_module "Zaq.Engine.Workflows.Test.ProcessContact"
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
   @iterate_module "Zaq.Agent.Tools.Workflow.Iterate"
+
+  # A Batch map lowers a body pipeline that runs StepRunner-wrapped per fork; that
+  # needs a run_id (without one, raw adjacent modules can have incompatible ports).
+  defp build_batch(steps), do: DagBuilder.build(steps, run_id: Ecto.UUID.generate())
 
   defp batch_steps(extra_params \\ %{}) do
     %{
@@ -636,311 +641,20 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     }
   end
 
-  defp iterate_steps(extra_params \\ %{}) do
-    %{
-      "nodes" => [
-        %{
-          "name" => "get_data",
-          "type" => "action",
-          "module" => @ok_module,
-          "params" => %{},
-          "index" => 0
-        },
-        %{
-          "name" => "iterate",
-          "type" => "action",
-          "module" => @iterate_module,
-          "params" =>
-            Map.merge(
-              %{
-                "pipeline" => [
-                  %{
-                    "name" => "process_contact",
-                    "type" => "action",
-                    "module" => @process_contact_module,
-                    "params" => %{}
-                  }
-                ]
-              },
-              extra_params
-            ),
-          "index" => 1
-        }
-      ],
-      "edges" => [%{"from" => "get_data", "to" => "iterate"}]
-    }
-  end
-
-  describe "build/1 — Batch node: process/post_process resolution" do
+  describe "build — Batch translator (plain process)" do
     test "valid process + post_process → builds successfully" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(batch_steps())
+      assert {:ok, %Runic.Workflow{}} = build_batch(batch_steps())
     end
 
-    test "post_process absent → builds successfully with empty post_process" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{
-              "process" => [
-                %{
-                  "name" => "categorize",
-                  "type" => "action",
-                  "module" => @categorize_module,
-                  "params" => %{}
-                }
-              ]
-            },
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
-    end
-
-    test "process and post_process nodes excluded from main DAG" do
-      # Categorize and sleep are scoped; only get_data + batch appear as main nodes
-      assert {:ok, wf} = DagBuilder.build(batch_steps())
+    test "process / post_process body nodes are not top-level DAG nodes" do
+      assert {:ok, wf} = build_batch(batch_steps())
       node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
       refute "categorize" in node_names
       refute "sleep" in node_names
     end
-
-    test ":__batch_field__ and :__batch_mode__ derived from first process module schema" do
-      # CategorizeBySize has items: [type: :list, required: true] → :list, :items
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(batch_steps())
-      # Build success implies batch_field/1 resolved correctly (list mode for CategorizeBySize)
-    end
   end
 
-  describe "build/1 — Batch node: build-time errors" do
-    test "process absent → {:error, {:missing_process_pipeline, node_name}}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:missing_process_pipeline, "batch"}} = DagBuilder.build(steps)
-    end
-
-    test "process empty list → {:error, {:missing_process_pipeline, node_name}}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{"process" => []},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:missing_process_pipeline, "batch"}} = DagBuilder.build(steps)
-    end
-
-    test "non-conforming process module → {:error, {:contract_violation, module, missing}}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{
-              "process" => [
-                %{
-                  "name" => "bad",
-                  "type" => "action",
-                  "module" => @non_conforming_module,
-                  "params" => %{}
-                }
-              ]
-            },
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:contract_violation, _, _}} = DagBuilder.build(steps)
-    end
-
-    test "batch_scope (legacy) no longer accepted → missing_process_pipeline error" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "categorize",
-            "type" => "action",
-            "module" => @categorize_module,
-            "params" => %{},
-            "index" => 0
-          },
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{"batch_scope" => ["categorize"]},
-            "index" => 1
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:missing_process_pipeline, "batch"}} = DagBuilder.build(steps)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Iterate node — pipeline resolution
-  # ---------------------------------------------------------------------------
-
-  describe "build/1 — Iterate node: pipeline resolution" do
-    test "valid pipeline → builds successfully" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(iterate_steps())
-    end
-
-    test "pipeline nodes excluded from main DAG" do
-      assert {:ok, wf} = DagBuilder.build(iterate_steps())
-      node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
-      refute "process_contact" in node_names
-    end
-
-    test ":__iterate_field__ and :__iterate_mode__ derived from first pipeline module schema" do
-      # ProcessContact has contact: [type: :map, required: true] → :item, :contact
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(iterate_steps())
-    end
-  end
-
-  describe "build/1 — Iterate node: build-time errors" do
-    test "pipeline absent → {:error, {:missing_iterate_pipeline, node_name}}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "iterate",
-            "type" => "action",
-            "module" => @iterate_module,
-            "params" => %{},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:missing_iterate_pipeline, "iterate"}} = DagBuilder.build(steps)
-    end
-
-    test "non-conforming pipeline module → {:error, {:contract_violation, module, missing}}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "iterate",
-            "type" => "action",
-            "module" => @iterate_module,
-            "params" => %{
-              "pipeline" => [
-                %{
-                  "name" => "bad",
-                  "type" => "action",
-                  "module" => @non_conforming_module,
-                  "params" => %{}
-                }
-              ]
-            },
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, {:contract_violation, _, _}} = DagBuilder.build(steps)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # String refs rejected (clean break)
-  # ---------------------------------------------------------------------------
-
-  describe "build/1 — string refs rejected in process/post_process/pipeline" do
-    test "string in process → {:error, :inline_node_required}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{"process" => ["some_string"]},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, :inline_node_required} = DagBuilder.build(steps)
-    end
-
-    test "string in post_process → {:error, :inline_node_required}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "batch",
-            "type" => "action",
-            "module" => @batch_module,
-            "params" => %{
-              "process" => [
-                %{
-                  "name" => "categorize",
-                  "type" => "action",
-                  "module" => @categorize_module,
-                  "params" => %{}
-                }
-              ],
-              "post_process" => ["some_string"]
-            },
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, :inline_node_required} = DagBuilder.build(steps)
-    end
-
-    test "string in pipeline → {:error, :inline_node_required}" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "iterate",
-            "type" => "action",
-            "module" => @iterate_module,
-            "params" => %{"pipeline" => ["some_string"]},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:error, :inline_node_required} = DagBuilder.build(steps)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Nested Batch → Iterate inline
-  # ---------------------------------------------------------------------------
-
-  describe "build/1 — nested Batch → Iterate inline" do
+  describe "build — Batch translator (nested Iterate marker)" do
     defp batch_iterate_inline_steps do
       %{
         "nodes" => [
@@ -974,15 +688,77 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       }
     end
 
-    test "Iterate inside Batch.process → builds successfully" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(batch_iterate_inline_steps())
+    test "nested Iterate is unwrapped → builds successfully" do
+      assert {:ok, %Runic.Workflow{}} = build_batch(batch_iterate_inline_steps())
     end
 
-    test "neither iterate nor process_contact appear in the main DAG" do
-      {:ok, wf} = DagBuilder.build(batch_iterate_inline_steps())
+    test "neither the iterate marker nor its pipeline are top-level nodes" do
+      {:ok, wf} = build_batch(batch_iterate_inline_steps())
       node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
       refute "iterate" in node_names
       refute "process_contact" in node_names
+    end
+  end
+
+  describe "build — Batch translator errors" do
+    test "process absent → missing_process_pipeline" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, :missing_process_pipeline} = build_batch(steps)
+    end
+
+    test "process empty list → missing_process_pipeline" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"process" => []},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, :missing_process_pipeline} = build_batch(steps)
+    end
+
+    test "non-conforming process body module → build error" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{
+              "process" => [
+                %{
+                  "name" => "bad",
+                  "type" => "action",
+                  "module" => @non_conforming_module,
+                  "params" => %{}
+                }
+              ]
+            },
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, _} = build_batch(steps)
     end
   end
 end

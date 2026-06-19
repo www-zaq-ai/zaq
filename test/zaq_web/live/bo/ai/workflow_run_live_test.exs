@@ -468,6 +468,87 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
   end
 
+  describe "map aggregate rendering (Part 3, Step 9)" do
+    @map_node %{
+      name: "m",
+      type: "map",
+      params: %{
+        "over" => "items",
+        "body" => [
+          %{
+            "name" => "ok",
+            "type" => "action",
+            "module" => "Zaq.Engine.Workflows.Test.OkAction",
+            "params" => %{}
+          }
+        ]
+      },
+      index: 0
+    }
+
+    defp map_run_with_rows(conn, workflow) do
+      run = run_fixture(workflow)
+
+      # Aggregate row (MapCollect output): 2 ok, 1 failed.
+      step_run_fixture(run, %{
+        step_name: "m",
+        step_index: 0,
+        status: "completed",
+        results: %{
+          "results" => [%{"index" => 0}, %{"index" => 2}],
+          "errors" => [%{"index" => 1, "reason" => "boom"}],
+          "count" => 3
+        }
+      })
+
+      # The per-fork failure row for item 1.
+      step_run_fixture(run, %{
+        step_name: "m/ok[1]",
+        step_index: 0,
+        status: "failed_fatal",
+        errors: %{"reason" => "boom"}
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "m"})
+    end
+
+    test "renders the aggregate node with ok/failed counts", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@map_node]})
+      html = map_run_with_rows(conn, workflow)
+
+      assert html =~ "2 ok"
+      assert html =~ "1 failed"
+    end
+
+    test "renders a visible failed fork row with its reason", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@map_node]})
+      html = map_run_with_rows(conn, workflow)
+
+      assert html =~ "Failed items"
+      assert html =~ "m/ok[1]"
+      assert html =~ "boom"
+    end
+
+    test "the aggregate card lists the per-item body pipeline", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@map_node]})
+      html = map_run_with_rows(conn, workflow)
+
+      # the body step name is shown as a per-item pipeline chip
+      assert html =~ "Per item"
+      assert html =~ "ok"
+    end
+
+    test "the DAG renders the map node with a MAP badge", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@map_node]})
+      run = run_fixture(workflow)
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      # map nodes get the iteration treatment in the run-graph (MAP badge)
+      assert html =~ "MAP"
+    end
+  end
+
   describe "cancel_run event" do
     test "cancel_run succeeds for a running run and updates status", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
