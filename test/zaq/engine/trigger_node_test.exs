@@ -13,7 +13,7 @@ defmodule Zaq.Engine.TriggerNodeTest do
   @valid_node %{
     name: "fetch",
     type: "action",
-    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    module: "Zaq.Engine.Workflows.Test.InboxWithResults",
     params: %{},
     index: 0
   }

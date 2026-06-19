@@ -340,10 +340,10 @@ end
 # Email reply workflow test doubles
 # ---------------------------------------------------------------------------
 
-defmodule Zaq.Engine.Workflows.Test.FetchEmailsWithResults do
+defmodule Zaq.Engine.Workflows.Test.InboxWithResults do
   @moduledoc false
   use Jido.Action,
-    name: "test_fetch_emails_with_results",
+    name: "test_inbox_with_results",
     schema: [mailbox: [type: :string, default: "INBOX"]],
     output_schema: [
       emails: [type: {:list, :map}, required: true],
@@ -369,10 +369,10 @@ defmodule Zaq.Engine.Workflows.Test.FetchEmailsWithResults do
   end
 end
 
-defmodule Zaq.Engine.Workflows.Test.FetchEmailsEmpty do
+defmodule Zaq.Engine.Workflows.Test.InboxEmpty do
   @moduledoc false
   use Jido.Action,
-    name: "test_fetch_emails_empty",
+    name: "test_inbox_empty",
     schema: [mailbox: [type: :string, default: "INBOX"]],
     output_schema: [
       emails: [type: {:list, :map}, required: true],
@@ -443,10 +443,10 @@ defmodule Zaq.Engine.Workflows.Test.DraftReplyErrorStub do
   def run(_params, _context), do: {:error, :internal_server_error}
 end
 
-defmodule Zaq.Engine.Workflows.Test.NotifyEmptyMailboxStub do
+defmodule Zaq.Engine.Workflows.Test.EmptyInboxNotificationStub do
   @moduledoc false
   use Jido.Action,
-    name: "test_notify_empty_mailbox_stub",
+    name: "test_empty_inbox_notification_stub",
     schema: [notify_address: [type: :string, required: true]],
     output_schema: [
       status: [type: :atom, required: true],
@@ -480,7 +480,7 @@ defmodule Zaq.Engine.Workflows.Test.EnsurePersonStub do
   def run(%{drafts: drafts}, _context) do
     enriched =
       Enum.map(drafts, fn draft ->
-        # Strict atom access — ActionWrapper must normalize keys before this runs
+        # Strict atom access — StepRunner must normalize keys before this runs
         _verified = draft.to_address
         Map.put(draft, :person_id, "test-person-id")
       end)
@@ -510,7 +510,7 @@ defmodule Zaq.Engine.Workflows.Test.SendReplyStub do
   def run(%{drafts: drafts}, _context) do
     results =
       Enum.map(drafts, fn d ->
-        # Strict atom access — ActionWrapper must normalize keys before this runs
+        # Strict atom access — StepRunner must normalize keys before this runs
         %{to: d.to_address, status: :sent}
       end)
 

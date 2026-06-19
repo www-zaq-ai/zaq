@@ -26,11 +26,25 @@ defmodule Zaq.Agent.Tools.Sheets.GetSheet do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ],
     output_schema: [
-      record: [type: :any, required: true, doc: "Normalized spreadsheet record."]
+      record: [
+        type: {:struct, Zaq.Contracts.Record},
+        required: true,
+        doc: "Normalized spreadsheet record."
+      ]
     ]
 
   alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Contracts.Record
 
+  @spec run(
+          %{
+            required(:provider) => String.t(),
+            required(:spreadsheet_id) => String.t(),
+            optional(:range) => String.t(),
+            optional(:config_id) => String.t()
+          },
+          map()
+        ) :: {:ok, %{record: Record.t()}} | {:error, String.t()}
   @impl Jido.Action
   def run(%{provider: provider, spreadsheet_id: spreadsheet_id} = params, context) do
     request =
@@ -42,7 +56,14 @@ defmodule Zaq.Agent.Tools.Sheets.GetSheet do
       :data_source_sheet_get,
       request,
       context,
-      "Data source sheet read failed"
+      "Data source sheet read failed",
+      &validate_sheet_response/1
     )
+  end
+
+  defp validate_sheet_response(%{record: %Record{}} = payload), do: {:ok, payload}
+
+  defp validate_sheet_response(_payload) do
+    {:error, "Data source sheet read failed: expected record to be %Zaq.Contracts.Record{}"}
   end
 end

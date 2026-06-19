@@ -2,7 +2,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
   @moduledoc """
   Step 6 — End-to-end integration test for the user's exact conditional edge + mapping
   scenario, running through real WorkflowAgent.execute/2 → DagBuilder → Runic →
-  ActionWrapper → StepRun rows.
+  StepRunner → StepRun rows.
 
   Scenario (verbatim from requirement):
     A → B → C  condition {gender==male}  mapping {person_name←name}  → D
@@ -94,7 +94,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
       assert by_name["D"].status == "completed"
     end
 
-    test "F has no StepRun (pruned, ActionWrapper never called)" do
+    test "F has no StepRun (pruned, StepRunner never called)" do
       run = create_run("male")
       {:ok, _finished} = WorkflowAgent.execute(run)
       step_runs = Workflows.list_step_runs(run.id)

@@ -72,7 +72,7 @@ skip_permissions = Map.get(context, :skip_permissions, false)
 For person-scoped tools the identity must come from the **trusted execution context**,
 never from LLM-supplied parameters: `ctx[:person_id]` on the chat path (set by the
 pipeline from the channel-resolved author) or `ctx[:actor]` on the workflow path (set by
-`ActionWrapper` from the run's `source_event`). An LLM-facing `person_id` parameter may
+`StepRunner` from the run's `source_event`). An LLM-facing `person_id` parameter may
 be honored only under `ctx[:skip_permissions] == true` (see
 `Zaq.Agent.Tools.Accounts.History` for the reference implementation). Blank/empty-string
 IDs never resolve to an identity.
