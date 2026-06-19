@@ -1,8 +1,10 @@
-defmodule Storybook.Components.Misc.ChannelCapabilities do
+defmodule Storybook.Modals.ChannelCapabilities do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.ChannelCapabilities.icon_with_modal/1
-  def description, do: "Clickable info icon that opens a modal showing the capability snapshot for a channel."
+
+  def description,
+    do: "Clickable info icon that opens a modal showing the capability snapshot for a channel."
 
   def variations do
     [

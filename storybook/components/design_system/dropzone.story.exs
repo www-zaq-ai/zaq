@@ -64,13 +64,19 @@ defmodule Storybook.Components.DesignSystem.Dropzone do
     ~H"""
     <div style="padding: var(--zaq-scale-32); display: flex; flex-direction: column; gap: var(--zaq-scale-40);">
       <section>
-        <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);">
+        <p
+          class="zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);"
+        >
           Empty queue, embedding ready
         </p>
         <.upload_section uploads={empty_uploads()} embedding_ready={true} folder_drop_skipped={[]} />
       </section>
       <section>
-        <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);">
+        <p
+          class="zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);"
+        >
           With entry + skipped files
         </p>
         <.upload_section
@@ -82,10 +88,17 @@ defmodule Storybook.Components.DesignSystem.Dropzone do
         />
       </section>
       <section>
-        <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);">
+        <p
+          class="zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);"
+        >
           Upload disabled (embedding not ready)
         </p>
-        <.upload_section uploads={uploads_with_entry()} embedding_ready={false} folder_drop_skipped={[]} />
+        <.upload_section
+          uploads={uploads_with_entry()}
+          embedding_ready={false}
+          folder_drop_skipped={[]}
+        />
       </section>
     </div>
     """

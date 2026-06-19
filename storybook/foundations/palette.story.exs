@@ -32,7 +32,11 @@ defmodule Storybook.Foundations.Palette do
           Neon
         </h2>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-          <.swatch name="gradient-neon" var="--zaq-gradient-neon" usage="→ brand identity / logo gradient" />
+          <.swatch
+            name="gradient-neon"
+            var="--zaq-gradient-neon"
+            usage="→ brand identity / logo gradient"
+          />
         </div>
       </section>
 
@@ -54,9 +58,18 @@ defmodule Storybook.Foundations.Palette do
         </h2>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
           <.swatch name="neutral-400" var="--zaq-color-neutral-400" usage="→ border/strong" />
-          <.swatch name="neutral-300" var="--zaq-color-neutral-300" usage="→ border/default, surface/elevated" />
+          <.swatch
+            name="neutral-300"
+            var="--zaq-color-neutral-300"
+            usage="→ border/default, surface/elevated"
+          />
           <.swatch name="neutral-200" var="--zaq-color-neutral-200" usage="→ surface/base" />
-          <.swatch name="neutral-100" var="--zaq-color-neutral-100" border usage="→ surface/raised, text/body/invert" />
+          <.swatch
+            name="neutral-100"
+            var="--zaq-color-neutral-100"
+            border
+            usage="→ surface/raised, text/body/invert"
+          />
         </div>
       </section>
 

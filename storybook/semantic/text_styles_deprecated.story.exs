@@ -10,11 +10,13 @@ defmodule Storybook.Semantic.TextStylesDeprecated do
       <div style="background: rgba(234, 0, 62, 0.06); border: 1px solid rgba(234, 0, 62, 0.25); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.75rem; line-height: 1.5; color: inherit;">
         <strong style="font-weight: 600;">⚠ Deprecated.</strong>
         These styles are no longer the source of truth.
-        Use the <code style="font-family: ui-monospace, monospace; font-size: 0.8em;">.zaq-text-*</code>
-        CSS classes defined in <strong style="font-weight: 600;">Semantics / Text Styles</strong> instead.
+        Use the
+        <code style="font-family: ui-monospace, monospace; font-size: 0.8em;">.zaq-text-*</code>
+        CSS classes defined in <strong style="font-weight: 600;">Semantics / Text Styles</strong>
+        instead.
       </div>
-
-      <!-- Heading scale -->
+      
+    <!-- Heading scale -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
           Heading Scale
@@ -52,8 +54,8 @@ defmodule Storybook.Semantic.TextStylesDeprecated do
           />
         </div>
       </section>
-
-      <!-- Body scale -->
+      
+    <!-- Body scale -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
           Body Scale
@@ -85,8 +87,8 @@ defmodule Storybook.Semantic.TextStylesDeprecated do
           />
         </div>
       </section>
-
-      <!-- Code & Monospace -->
+      
+    <!-- Code & Monospace -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
           Code &amp; Monospace

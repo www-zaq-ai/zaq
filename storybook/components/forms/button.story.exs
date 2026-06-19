@@ -2,7 +2,9 @@ defmodule Storybook.Components.Forms.Button do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.CoreComponents.button/1
-  def description, do: "Primary action button. Renders as `<button>` or `<.link>` depending on props."
+
+  def description,
+    do: "Primary action button. Renders as `<button>` or `<.link>` depending on props."
 
   def variations do
     [

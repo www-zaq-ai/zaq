@@ -1,4 +1,4 @@
-defmodule Storybook.Components.Pickers.SearchableSelect do
+defmodule Storybook.Components.Forms.SearchableSelect do
   use PhoenixStorybook.Story, :page
 
   def description, do: "Dropdown with search filtering. Supports static options and allow-create."
@@ -6,7 +6,6 @@ defmodule Storybook.Components.Pickers.SearchableSelect do
   def render(assigns) do
     ~H"""
     <div style="font-family: var(--zaq-font-primary, sans-serif); padding: 2rem; display: flex; flex-direction: column; gap: 2rem; max-width: 360px;">
-
       <.variation label="No selection">
         <ZaqWeb.Components.SearchableSelect.searchable_select
           id="select-empty"
@@ -44,7 +43,6 @@ defmodule Storybook.Components.Pickers.SearchableSelect do
           options={[{"Elixir", "elixir"}, {"Phoenix", "phoenix"}]}
         />
       </.variation>
-
     </div>
     """
   end
@@ -52,8 +50,10 @@ defmodule Storybook.Components.Pickers.SearchableSelect do
   defp variation(assigns) do
     ~H"""
     <div style="display: flex; flex-direction: column; gap: 0.4rem;">
-      <span style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.4;"><%= @label %></span>
-      <%= render_slot(@inner_block) %>
+      <span style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.4;">
+        {@label}
+      </span>
+      {render_slot(@inner_block)}
     </div>
     """
   end

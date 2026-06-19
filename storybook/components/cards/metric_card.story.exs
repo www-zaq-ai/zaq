@@ -1,4 +1,4 @@
-defmodule Storybook.Components.Telemetry.MetricCard do
+defmodule Storybook.Components.Cards.MetricCard do
   use PhoenixStorybook.Story, :page
 
   def description, do: "KPI tile with value, unit, trend indicator, and optional hint tooltip."

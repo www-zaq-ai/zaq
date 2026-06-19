@@ -2,7 +2,9 @@ defmodule Storybook.Components.Forms.Input do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.CoreComponents.input/1
-  def description, do: "Labelled input. Supports text, email, password, select, textarea, checkbox."
+
+  def description,
+    do: "Labelled input. Supports text, email, password, select, textarea, checkbox."
 
   def variations do
     [
@@ -13,7 +15,12 @@ defmodule Storybook.Components.Forms.Input do
           %Variation{
             id: :text,
             description: "Text",
-            attributes: %{name: "username", label: "Username", value: "", placeholder: "e.g. jana"}
+            attributes: %{
+              name: "username",
+              label: "Username",
+              value: "",
+              placeholder: "e.g. jana"
+            }
           },
           %Variation{
             id: :email,
@@ -34,12 +41,23 @@ defmodule Storybook.Components.Forms.Input do
           %Variation{
             id: :secret_empty,
             description: "Empty — use secret_input/1 for sensitive fields",
-            attributes: %{name: "api_key", type: "password", label: "API Key", value: "", placeholder: "sk-…"}
+            attributes: %{
+              name: "api_key",
+              type: "password",
+              label: "API Key",
+              value: "",
+              placeholder: "sk-…"
+            }
           },
           %Variation{
             id: :secret_filled,
             description: "Filled",
-            attributes: %{name: "api_key", type: "password", label: "API Key", value: "sk-live-xxxxxxxxxxxx"}
+            attributes: %{
+              name: "api_key",
+              type: "password",
+              label: "API Key",
+              value: "sk-live-xxxxxxxxxxxx"
+            }
           }
         ]
       },
@@ -85,12 +103,22 @@ defmodule Storybook.Components.Forms.Input do
           %Variation{
             id: :checkbox_off,
             description: "Unchecked",
-            attributes: %{name: "notify", type: "checkbox", label: "Email notifications", value: false}
+            attributes: %{
+              name: "notify",
+              type: "checkbox",
+              label: "Email notifications",
+              value: false
+            }
           },
           %Variation{
             id: :checkbox_on,
             description: "Checked",
-            attributes: %{name: "notify", type: "checkbox", label: "Email notifications", value: true}
+            attributes: %{
+              name: "notify",
+              type: "checkbox",
+              label: "Email notifications",
+              value: true
+            }
           }
         ]
       },
@@ -113,12 +141,19 @@ defmodule Storybook.Components.Forms.Input do
       },
       %VariationGroup{
         id: :password_requirements,
-        description: "Password with requirements checker — see Components / Forms / Password Requirements",
+        description:
+          "Password with requirements checker — see Components / Forms / Password Requirements",
         variations: [
           %Variation{
             id: :with_requirements,
-            description: "Use password_requirements/1 below the input for live validation feedback",
-            attributes: %{name: "new_password", type: "password", label: "New password", value: ""}
+            description:
+              "Use password_requirements/1 below the input for live validation feedback",
+            attributes: %{
+              name: "new_password",
+              type: "password",
+              label: "New password",
+              value: ""
+            }
           }
         ]
       }

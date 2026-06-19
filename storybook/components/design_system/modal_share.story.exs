@@ -4,7 +4,8 @@ defmodule Storybook.Components.DesignSystem.ModalShare do
 
   import ZaqWeb.Components.DesignSystem.ModalShare
 
-  def description, do: "Share modal: public toggle, permissions, pending grants, searchable target picker."
+  def description,
+    do: "Share modal: public toggle, permissions, pending grants, searchable target picker."
 
   def render(assigns) do
     perm = %{
@@ -24,7 +25,10 @@ defmodule Storybook.Components.DesignSystem.ModalShare do
       |> assign(:share_modal_is_public, false)
       |> assign(:share_modal_original_is_public, false)
       |> assign(:share_modal_permissions, [perm])
-      |> assign(:share_modal_targets_options, [{"Alex Example", "person:1"}, {"Team Alpha", "team:1"}])
+      |> assign(:share_modal_targets_options, [
+        {"Alex Example", "person:1"},
+        {"Team Alpha", "team:1"}
+      ])
       |> assign(:share_modal_pending, pending)
 
     ~H"""

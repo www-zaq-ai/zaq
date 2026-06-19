@@ -13,7 +13,7 @@ defmodule Storybook.Foundations.Fonts do
         Use <strong style="font-weight: 600;">semantic tokens</strong>
         in all UI code.
       </div>
-
+      
     <!-- Font Families -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
@@ -40,7 +40,7 @@ defmodule Storybook.Foundations.Fonts do
           />
         </div>
       </section>
-
+      
     <!-- Font Weights -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
@@ -61,7 +61,7 @@ defmodule Storybook.Foundations.Fonts do
           />
         </div>
       </section>
-
+      
     <!-- Line Heights -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">
@@ -88,7 +88,7 @@ defmodule Storybook.Foundations.Fonts do
           />
         </div>
       </section>
-
+      
     <!-- Letter Spacing -->
       <section>
         <h2 style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.45; margin-bottom: 1.5rem;">

@@ -40,10 +40,10 @@ defmodule Storybook.Semantic.Borders do
       <div style={"width: 64px; height: 64px; background: var(--zaq-color-accent-soft, rgba(3,182,212,0.1)); border: 1.5px solid var(--zaq-color-accent, #03b6d4); border-radius: #{@radius};"}>
       </div>
       <span style="font-family: ui-monospace, monospace; font-size: 0.65rem; opacity: 0.5; text-align: center;">
-        <%= @label %>
+        {@label}
       </span>
       <span style="font-family: ui-monospace, monospace; font-size: 0.6rem; opacity: 0.3; text-align: center;">
-        <%= @token %>
+        {@token}
       </span>
     </div>
     """
@@ -55,7 +55,7 @@ defmodule Storybook.Semantic.Borders do
       <div style={"height: 0; border-top: #{@width} solid var(--zaq-color-ink, #2c3a50); width: 100%;"}>
       </div>
       <span style="font-family: ui-monospace, monospace; font-size: 0.65rem; opacity: 0.5;">
-        <%= @label %>
+        {@label}
       </span>
     </div>
     """
