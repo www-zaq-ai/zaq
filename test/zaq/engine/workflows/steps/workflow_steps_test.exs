@@ -400,6 +400,36 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
 
       refute changeset.valid?
     end
+
+    test "accepts a map node with a positive integer max_items (D-A8)" do
+      node = %{@map_node | params: Map.put(@map_node.params, "max_items", 100)}
+
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [@valid_node, node],
+          edges: [%{from: "fetch", to: "enrich_each"}]
+        })
+
+      assert changeset.valid?
+    end
+
+    test "rejects a map node with a non-positive max_items" do
+      for bad <- [0, -5, "10", 1.5] do
+        node = %{@map_node | params: Map.put(@map_node.params, "max_items", bad)}
+
+        changeset =
+          Workflow.changeset(%Workflow{}, %{
+            name: "W",
+            status: "active",
+            nodes: [@valid_node, node],
+            edges: [%{from: "fetch", to: "enrich_each"}]
+          })
+
+        refute changeset.valid?, "expected max_items #{inspect(bad)} to be rejected"
+      end
+    end
   end
 
   describe "Node.types/0" do

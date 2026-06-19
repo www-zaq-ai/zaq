@@ -17,10 +17,8 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
     WaitingAction
   }
 
-  alias Zaq.Test.Stubs
-
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 

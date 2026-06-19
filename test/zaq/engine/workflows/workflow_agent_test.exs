@@ -9,8 +9,6 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   alias Zaq.Engine.Workflows.{WorkflowAgent, WorkflowRun}
   alias Zaq.Event
   alias Zaq.Repo
-  alias Zaq.Test.Stubs
-
   @waiting_module "Zaq.Engine.Workflows.Test.WaitingAction"
 
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
@@ -22,7 +20,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   @emit_gender_module "Zaq.Engine.Workflows.Test.EmitGender"
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     start_supervised!(ParamCapture)
     start_supervised!(PauseSignal)
     ParamCapture.reset()

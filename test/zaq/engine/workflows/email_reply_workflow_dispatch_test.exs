@@ -34,10 +34,8 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     WaitingAction
   }
 
-  alias Zaq.Test.Stubs
-
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 
@@ -175,11 +173,24 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
   describe "emails found — fast response" do
     test "creates a run and suspends at review_draft (HITL)" do
       {workflow, _trigger} = setup_workflow(InboxWithResults, 0)
+      test_pid = self()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn %Event{} = event ->
+        send(test_pid, {:dispatched, event})
+        event
+      end)
 
       assert :ok = fire()
 
       run = latest_run(workflow)
       assert run.status == "waiting"
+
+      assert_received {:dispatched,
+                       %Event{name: :workflow, request: %{action: "run.started"}} = event}
+
+      assert event.request[:run_id] == run.id
+      assert event.request[:workflow_id] == workflow.id
+      assert event.next_hop.destination == :engine
 
       by_name = step_runs(run)
 
