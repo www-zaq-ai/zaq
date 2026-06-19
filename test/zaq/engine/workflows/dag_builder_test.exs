@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
 
   alias Zaq.Engine.Workflows.DagBuilder
 
-  @fetch_module "Zaq.Agent.Tools.Email.FetchEmails"
+  @fetch_module "Zaq.Engine.Workflows.Test.InboxWithResults"
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
   @noop_module "Zaq.Engine.Workflows.Test.Noop"
   @emit_person_module "Zaq.Engine.Workflows.Test.EmitPerson"
@@ -154,12 +154,12 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
   # ---------------------------------------------------------------------------
 
   describe "build/2 — run_id instrumentation" do
-    test "action nodes are wrapped in ActionWrapper when run_id is provided" do
+    test "action nodes are wrapped in StepRunner when run_id is provided" do
       {:ok, workflow} = DagBuilder.build(single_action_steps(), run_id: "some-uuid")
       assert %Runic.Workflow{} = workflow
     end
 
-    test "build/1 with no opts preserves existing behaviour (no ActionWrapper)" do
+    test "build/1 with no opts preserves existing behaviour (no StepRunner)" do
       assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps())
     end
 

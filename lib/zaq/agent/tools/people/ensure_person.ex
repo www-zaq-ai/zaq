@@ -14,8 +14,9 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   On miss: creates a partial Person entry with `incomplete: true` and links
   the channel.
 
-  Returns `person_id` and passes all input data through as a string-keyed
-  `row` map so downstream workflow steps receive the original payload.
+  Returns the resolved `%Zaq.Accounts.Person{}` and passes all input data through
+  as a string-keyed `row` map so downstream workflow steps receive the original
+  payload. Downstream steps should read the id from `person.id` when needed.
 
   ## Schema
 
@@ -31,7 +32,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   ## Example
 
       EnsurePerson.run(%{platform: "email", email: "jad@zaq.ai", display_name: "Jad"}, %{})
-      # => {:ok, %{person_id: 42, row: %{"email" => "jad@zaq.ai", "display_name" => "Jad"}}}
+      # => {:ok, %{person: %Zaq.Accounts.Person{}, row: %{"email" => "jad@zaq.ai", "display_name" => "Jad"}}}
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -57,7 +58,11 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
       phone: [type: :string, required: false, doc: "Phone number for matching."]
     ],
     output_schema: [
-      person_id: [type: :integer, required: false, doc: "ID of the found or created Person."],
+      person: [
+        type: {:struct, Zaq.Accounts.Person},
+        required: true,
+        doc: "Found or created Person struct."
+      ],
       row: [
         type: :map,
         required: true,
@@ -68,7 +73,10 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   require Logger
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.Person
 
+  @spec run(map(), map()) ::
+          {:ok, %{person: Person.t(), row: map()}} | {:error, String.t()}
   @impl Jido.Action
   def run(%{platform: platform} = params, _ctx) do
     email = params[:email] || Map.get(params, "email")
@@ -90,7 +98,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
     case People.find_or_create_from_channel(platform, attrs) do
       {:ok, person} ->
         Logger.info("[EnsurePerson] resolved person_id=#{person.id} platform=#{platform}")
-        {:ok, %{person_id: person.id, row: row}}
+        {:ok, %{person: person, row: row}}
 
       {:error, reason} ->
         Logger.warning("[EnsurePerson] failed platform=#{platform} reason=#{inspect(reason)}")

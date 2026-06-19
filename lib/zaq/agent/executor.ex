@@ -465,7 +465,7 @@ defmodule Zaq.Agent.Executor do
   defp error_type(_), do: "unknown"
 
   # The actor travels on the dispatching %Zaq.Event{}; expose it to tools so
-  # they see the same identity shape as workflow steps (ActionWrapper).
+  # they see the same identity shape as workflow steps (StepRunner).
   defp event_actor(opts) do
     case Keyword.get(opts, :event) do
       %Event{actor: actor} -> actor

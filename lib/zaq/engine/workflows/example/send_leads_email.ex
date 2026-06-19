@@ -145,7 +145,8 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
         %{
           from: "ensure_person",
           to: "build_history",
-          condition: %{"field" => "person_id", "op" => "not_empty"}
+          condition: %{"field" => "person", "op" => "not_empty"},
+          mapping: %{"person_id" => "ensure_person.person.id"}
         },
         %{from: "build_history", to: "draft_email", mapping: %{"row" => "ensure_person.row"}},
         %{
@@ -159,7 +160,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           condition: %{"field" => "approved", "op" => "eq", "value" => true},
           mapping: %{
             "message" => "draft_email.output",
-            "person_id" => "ensure_person.person_id"
+            "person" => "ensure_person.person"
           }
         },
         %{

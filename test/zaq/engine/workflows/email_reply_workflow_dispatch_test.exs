@@ -26,10 +26,10 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
   alias Zaq.Engine.Workflows.Test.{
     DraftReplyErrorStub,
     DraftReplyStub,
+    EmptyInboxNotificationStub,
     EnsurePersonStub,
-    FetchEmailsEmpty,
-    FetchEmailsWithResults,
-    NotifyEmptyMailboxStub,
+    InboxEmpty,
+    InboxWithResults,
     SendReplyStub,
     WaitingAction
   }
@@ -45,7 +45,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
   @notify_address "test@example.com"
   @draft_timeout_ms 200
 
-  # Expected data matching the hardcoded outputs of FetchEmailsWithResults
+  # Expected data matching the hardcoded outputs of InboxWithResults
   # and DraftReplyStub. All keys are strings (JSONB round-trip).
   @alice_email %{
     "message_id" => "test-001@example.com",
@@ -93,7 +93,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
       %{
         name: "notify",
         type: "action",
-        module: inspect(NotifyEmptyMailboxStub),
+        module: inspect(EmptyInboxNotificationStub),
         params: %{"notify_address" => @notify_address},
         index: 1
       },
@@ -174,7 +174,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
   describe "emails found — fast response" do
     test "creates a run and suspends at review_draft (HITL)" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsWithResults, 0)
+      {workflow, _trigger} = setup_workflow(InboxWithResults, 0)
 
       assert :ok = fire()
 
@@ -219,7 +219,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     end
 
     test "fetch and draft complete before HITL suspension" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsWithResults, 0)
+      {workflow, _trigger} = setup_workflow(InboxWithResults, 0)
 
       :ok = fire()
 
@@ -253,7 +253,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     end
 
     test "notify branch is not executed when emails are present" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsWithResults, 0)
+      {workflow, _trigger} = setup_workflow(InboxWithResults, 0)
 
       :ok = fire()
 
@@ -283,7 +283,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
   describe "no emails — notify branch" do
     test "creates a run and completes after notifying" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsEmpty, 0)
+      {workflow, _trigger} = setup_workflow(InboxEmpty, 0)
 
       assert :ok = fire()
 
@@ -328,7 +328,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     end
 
     test "only fetch and notify steps run" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsEmpty, 0)
+      {workflow, _trigger} = setup_workflow(InboxEmpty, 0)
 
       :ok = fire()
 
@@ -366,7 +366,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
   describe "emails found — draft times out (> 200ms)" do
     test "creates a run and marks it failed" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsWithResults, 250)
+      {workflow, _trigger} = setup_workflow(InboxWithResults, 250)
 
       assert :ok = fire()
 
@@ -400,7 +400,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     end
 
     test "fetch completes, draft is marked failed with reason 'timeout'" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsWithResults, 250)
+      {workflow, _trigger} = setup_workflow(InboxWithResults, 250)
 
       :ok = fire()
 
@@ -425,7 +425,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     end
 
     test "run is never left in 'running' state after timeout" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsWithResults, 250)
+      {workflow, _trigger} = setup_workflow(InboxWithResults, 250)
 
       :ok = fire()
 
@@ -450,7 +450,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
   describe "emails found — draft returns 500 error" do
     test "run fails immediately and draft error is recorded" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsWithResults, 0, DraftReplyErrorStub)
+      {workflow, _trigger} = setup_workflow(InboxWithResults, 0, DraftReplyErrorStub)
 
       assert :ok = fire()
 
@@ -494,7 +494,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     end
 
     test "fetch cascade intact when draft errors out" do
-      {workflow, _trigger} = setup_workflow(FetchEmailsWithResults, 0, DraftReplyErrorStub)
+      {workflow, _trigger} = setup_workflow(InboxWithResults, 0, DraftReplyErrorStub)
 
       :ok = fire()
 
@@ -543,7 +543,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
       %{
         name: "notify",
         type: "action",
-        module: inspect(NotifyEmptyMailboxStub),
+        module: inspect(EmptyInboxNotificationStub),
         params: %{"notify_address" => @notify_address},
         index: 1
       },
@@ -600,7 +600,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
   describe "emails found — HITL approved" do
     test "run completes after approval" do
-      {workflow, _trigger} = setup_workflow_with_hitl(FetchEmailsWithResults, 0)
+      {workflow, _trigger} = setup_workflow_with_hitl(InboxWithResults, 0)
 
       :ok = fire()
 
@@ -674,7 +674,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     end
 
     test "all five steps complete with full cascade after approval" do
-      {workflow, _trigger} = setup_workflow_with_hitl(FetchEmailsWithResults, 0)
+      {workflow, _trigger} = setup_workflow_with_hitl(InboxWithResults, 0)
 
       :ok = fire()
 

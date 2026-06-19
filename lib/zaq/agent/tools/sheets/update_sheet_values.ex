@@ -39,11 +39,27 @@ defmodule Zaq.Agent.Tools.Sheets.UpdateSheetValues do
     ],
     output_schema: [
       status: [type: :string, required: true, doc: "Result status, e.g. \"updated\"."],
-      record: [type: :any, required: false, doc: "Datasource record returned by the provider."]
+      record: [
+        type: {:struct, Zaq.Contracts.Record},
+        required: false,
+        doc: "Datasource record returned by the provider."
+      ]
     ]
 
   alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Contracts.Record
 
+  @spec run(
+          %{
+            required(:provider) => String.t(),
+            required(:spreadsheet_id) => String.t(),
+            required(:range) => String.t(),
+            required(:values) => [[term()]],
+            optional(:value_input_option) => String.t(),
+            optional(:config_id) => String.t()
+          },
+          map()
+        ) :: {:ok, map()} | {:error, String.t()}
   @impl Jido.Action
   def run(%{provider: provider} = params, context) do
     request =
@@ -59,7 +75,17 @@ defmodule Zaq.Agent.Tools.Sheets.UpdateSheetValues do
       :data_source_sheet_update_values,
       request,
       context,
-      "Data source sheet update failed"
+      "Data source sheet update failed",
+      &validate_sheet_response/1
     )
+  end
+
+  defp validate_sheet_response(%{record: %Record{}} = payload), do: {:ok, payload}
+
+  defp validate_sheet_response(%{} = payload) when not is_map_key(payload, :record),
+    do: {:ok, payload}
+
+  defp validate_sheet_response(_payload) do
+    {:error, "Data source sheet update failed: expected record to be %Zaq.Contracts.Record{}"}
   end
 end

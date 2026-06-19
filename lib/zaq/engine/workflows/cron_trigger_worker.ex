@@ -8,7 +8,7 @@ defmodule Zaq.Engine.Workflows.CronTriggerWorker do
   so the existing `EventRegistry → TriggerNode` path starts workflow runs
   identically to any other event trigger.
 
-  Safe discards (`:ok` with no dispatch):
+  Safe cancellations (`{:cancel, reason}` with no dispatch):
   - Trigger not found in DB (deleted between registration and fire).
   - Trigger is disabled.
   - Trigger has `trigger_type` other than `"cron"` (defensive guard).
@@ -23,13 +23,13 @@ defmodule Zaq.Engine.Workflows.CronTriggerWorker do
   def perform(%Oban.Job{args: %{"trigger_id" => trigger_id}}) do
     case Workflows.get_trigger(trigger_id) do
       nil ->
-        :ok
+        {:cancel, :trigger_not_found}
 
       %{enabled: false} ->
-        :ok
+        {:cancel, :trigger_disabled}
 
       %{trigger_type: type} when type != "cron" ->
-        :ok
+        {:cancel, :not_cron_trigger}
 
       trigger ->
         # machine: true is the explicit marker TriggerNode translates into
