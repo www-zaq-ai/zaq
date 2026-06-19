@@ -69,7 +69,7 @@ defmodule Zaq.Engine.Workflows.Action do
 
   Both helpers are imported automatically by `use Zaq.Engine.Workflows.Action`
   and are also available as `Action.log_start/0` / `Action.log_entry/3` for
-  modules that only `alias` this module (e.g. `ActionWrapper`).
+  modules that only `alias` this module (e.g. `StepRunner`).
   """
 
   @doc """

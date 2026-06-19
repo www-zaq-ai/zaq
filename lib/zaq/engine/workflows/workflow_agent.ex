@@ -7,7 +7,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
   1. Transitions the run to `"running"`.
   2. Builds the DAG from `run.steps_snapshot` with `DagBuilder.build/2`, passing
-     `run_id:` so every action node is wrapped in `ActionWrapper`. ActionWrapper
+     `run_id:` so every action node is wrapped in `StepRunner`. StepRunner
      writes one `StepRun` row per step (running → completed/failed).
   3. Extracts the initial fact from `run.source_event.assigns[:input]` (or string
      key equivalent after a JSONB round-trip), defaulting to `%{}` if absent. The
@@ -25,12 +25,12 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   A `:checkpoint` function is passed to `react_until_satisfied/3`. After each
   react cycle it re-reads the `WorkflowRun` row; if the status is `"paused"` it
   throws `:pause_requested`, which is caught and returned as `{:ok, paused_run}`.
-  To resume, call `Workflows.resume_run/2` — `ActionWrapper` skips completed steps
+  To resume, call `Workflows.resume_run/2` — `StepRunner` skips completed steps
   so execution continues from the first incomplete step.
 
   ## Crash safety
 
-  If a step raises, `ActionWrapper` marks its `StepRun` row as `"failed"` before
+  If a step raises, `StepRunner` marks its `StepRun` row as `"failed"` before
   re-raising. `finalize/2` treats any `"running"` or `"failed"` rows as failures and
   marks the run accordingly. Unexpected crashes in Runic itself propagate naturally
   to the caller — they are not silently swallowed.
@@ -149,7 +149,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
     cond do
       # A "waiting" StepRun means a HumanInTheLoop step suspended execution.
-      # ActionWrapper already marked the StepRun; we transition the run here.
+      # StepRunner already marked the StepRun; we transition the run here.
       Enum.any?(step_runs, &(&1.status == "waiting")) ->
         Logger.info("[workflow] run waiting for human approval",
           workflow_id: run.workflow_id,

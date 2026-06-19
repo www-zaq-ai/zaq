@@ -7,8 +7,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
       %{
         "nodes" => [
-          %{"name" => "fetch", "type" => "action",
-            "module" => "Zaq.Agent.Tools.Email.FetchEmails",
+          %{"name" => "load_items", "type" => "action",
+            "module" => "Zaq.Agent.Tools.LoadItems",
             "params" => %{}, "index" => 0},
           %{"name" => "draft", "type" => "action",
             "module" => "Zaq.Agent.Tools.Workflow.RunAgent",
@@ -16,8 +16,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
             "index" => 1}
         ],
         "edges" => [
-          %{"from" => "fetch", "to" => "draft"},
-          %{"from" => "fetch", "to" => "notify",
+          %{"from" => "load_items", "to" => "draft"},
+          %{"from" => "load_items", "to" => "notify",
             "condition" => %{"field" => "count", "op" => "gt", "value" => 0},
             "mapping"   => %{"email_count" => "count"}}
         ]
@@ -53,9 +53,9 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
                 "strategy" => "skip_and_continue",
                 "pipeline" => [
                   %{"name" => "check_status", "type" => "action",
-                    "module" => "MyApp.CheckStatus", "params" => %{}},
+                    "module" => "Zaq.Agent.Tools.CheckStatus", "params" => %{}},
                   %{"name" => "dispatch",     "type" => "action",
-                    "module" => "MyApp.Dispatch",    "params" => %{}}
+                    "module" => "Zaq.Agent.Tools.Dispatch",    "params" => %{}}
                 ]
               }
             }
@@ -97,9 +97,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   alias Jido.Runic.ActionNode
   alias Zaq.Engine.Workflows.Action
-  alias Zaq.Engine.Workflows.ActionWrapper
   alias Zaq.Engine.Workflows.EdgeCondition
-  alias Zaq.Engine.Workflows.Steps.EdgeStep
+  alias Zaq.Engine.Workflows.StepRunner
 
   @type steps :: map()
   @type build_result :: {:ok, Runic.Workflow.t()} | {:error, term()}
@@ -197,7 +196,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
         step_index: step_index
       })
 
-    ActionNode.new(ActionWrapper, wrapper_params, name: node_atom(name), max_retries: 0)
+    ActionNode.new(StepRunner, wrapper_params, name: node_atom(name), max_retries: 0)
   end
 
   defp build_action_node(mod, params, name, _step_index, _run_id) do
@@ -416,7 +415,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       }
       |> then(fn p -> if run_id, do: Map.put(p, :run_id, run_id), else: p end)
 
-    ActionNode.new(EdgeStep, params, name: node_atom(name))
+    ActionNode.new(Zaq.Engine.Workflows.Steps.EdgeStep, params, name: node_atom(name))
   end
 
   # Node names come from workflow definitions — a bounded, designer-controlled

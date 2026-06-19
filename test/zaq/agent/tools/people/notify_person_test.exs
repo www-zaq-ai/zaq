@@ -1,6 +1,9 @@
 defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Accounts.People
+  alias Zaq.Accounts.Person
+  alias Zaq.Agent.Tools.People.EnsurePerson
   alias Zaq.Agent.Tools.People.NotifyPerson
 
   defmodule OkRouter do
@@ -22,9 +25,10 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
     test "does not expose channel or sheet-specific fields" do
       keys = Keyword.keys(NotifyPerson.schema())
 
-      assert :person_id in keys
+      assert :person in keys
       assert :subject in keys
       assert :message in keys
+      refute :person_id in keys
       refute :medium in keys
       refute :row_index in keys
       refute :email_state in keys
@@ -34,32 +38,66 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
 
   describe "run/2" do
     test "dispatches a notify_person event to the engine" do
+      person = person_fixture()
+
       assert {:ok, %{notified: true, status: :dispatched}} =
                NotifyPerson.run(
-                 %{person_id: 123, subject: "Hello", message: "Body"},
+                 %{person: person, subject: "Hello", message: "Body"},
                  %{node_router: OkRouter}
                )
 
       assert_received {:dispatched, event}
       assert event.next_hop.destination == :engine
       assert event.opts[:action] == :notify_person
-      assert event.request == %{person_id: 123, subject: "Hello", message: "Body"}
+      assert event.request == %{person_id: person.id, subject: "Hello", message: "Body"}
     end
 
     test "treats skipped notifications as successful no-op dispatches" do
+      person = person_fixture()
+
       assert {:ok, %{notified: true, status: :skipped}} =
                NotifyPerson.run(
-                 %{person_id: 123, subject: "Hello", message: "Body"},
+                 %{person: person, subject: "Hello", message: "Body"},
                  %{node_router: SkippedRouter}
                )
     end
 
     test "returns engine notification errors" do
+      person = person_fixture()
+
       assert {:error, "person_not_found:123"} =
                NotifyPerson.run(
-                 %{person_id: 123, subject: "Hello", message: "Body"},
+                 %{person: person, subject: "Hello", message: "Body"},
                  %{node_router: ErrorRouter}
                )
     end
+
+    test "consumes the Person struct returned by EnsurePerson" do
+      assert {:ok, %{person: %Person{} = person}} =
+               EnsurePerson.run(
+                 %{platform: "email", email: "handoff@example.com", display_name: "Handoff"},
+                 %{}
+               )
+
+      assert {:ok, %{notified: true, status: :dispatched}} =
+               NotifyPerson.run(
+                 %{person: person, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter}
+               )
+
+      assert_received {:dispatched, event}
+      assert event.request.person_id == person.id
+    end
+  end
+
+  defp person_fixture do
+    {:ok, %Person{} = person} =
+      People.create_person(%{
+        full_name: "Notify Person",
+        email: "notify-person@example.com",
+        phone: "+15550123"
+      })
+
+    person
   end
 end

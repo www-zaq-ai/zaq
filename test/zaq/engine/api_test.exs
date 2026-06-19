@@ -493,7 +493,7 @@ defmodule Zaq.Engine.ApiTest do
   @valid_node %{
     name: "step",
     type: "action",
-    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    module: "Zaq.Engine.Workflows.Test.InboxWithResults",
     params: %{},
     index: 0
   }
