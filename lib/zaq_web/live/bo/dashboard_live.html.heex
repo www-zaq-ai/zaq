@@ -12,7 +12,7 @@
     <.services_status_table services={@services} />
 
     <%!-- Add-ons Card --%>
-    <div>
+    <div data-testid="dashboard-addons-section">
       <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">Add-ons</p>
       <%= if @addon_data do %>
         <div class="bg-white rounded-xl border border-black/10 p-5 space-y-4">

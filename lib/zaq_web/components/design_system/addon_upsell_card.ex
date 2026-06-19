@@ -42,7 +42,7 @@ defmodule ZaqWeb.Components.DesignSystem.AddonUpsellCard do
         {@message}
       </p>
       <.link
-        href={@link_href}
+        navigate={@link_href}
         class={link_class(@variant)}
         data-testid="addon-upsell-cta"
       >
