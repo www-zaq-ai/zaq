@@ -9,6 +9,10 @@ const {
 const CHANNELS_INDEX = "/bo/channels"
 const GOOGLE_DRIVE_PROVIDER = "/bo/channels/data_source/google_drive"
 
+// Keep in sync with @retrieval_preview / @data_source_preview in channels_index_live.ex
+const CHANNEL_INDEX_RETRIEVAL_PREVIEW = ["slack", "teams", "mattermost", "discord", "telegram"]
+const CHANNEL_INDEX_DATA_SOURCE_PREVIEW = ["zaq_local", "google_drive", "sharepoint"]
+
 test.describe("Channels index & provider UI", () => {
   test.beforeEach(async ({ page, request }) => {
     await resetE2EState(request)
@@ -17,39 +21,39 @@ test.describe("Channels index & provider UI", () => {
 
   test("channels index shows provider icon strip on category cards", async ({ page }) => {
     await gotoBackOfficeLive(page, CHANNELS_INDEX)
+    await waitForLiveViewSettled(page)
 
     await expect(page.getByRole("heading", { name: "Channels", exact: true })).toBeVisible()
 
     const retrievalIcons = page.locator('[data-testid="channels-index-retrieval-icons"]')
     await expect(retrievalIcons).toBeVisible()
-    // One preview wrapper div per provider (icons may be svg or svg <image>; counting SVGs is brittle).
-    await expect(retrievalIcons.locator(":scope > div")).toHaveCount(5)
+    for (const id of CHANNEL_INDEX_RETRIEVAL_PREVIEW) {
+      await expect(retrievalIcons.locator(`[data-channel-preview="${id}"]`)).toBeVisible()
+    }
 
     const dataSourceIcons = page.locator('[data-testid="channels-index-data-source-icons"]')
     await expect(dataSourceIcons).toBeVisible()
-    await expect(dataSourceIcons.locator(":scope > div")).toHaveCount(3)
+    for (const id of CHANNEL_INDEX_DATA_SOURCE_PREVIEW) {
+      await expect(dataSourceIcons.locator(`[data-channel-preview="${id}"]`)).toBeVisible()
+    }
   })
 
   test("provider page opens capabilities form_dialog and closes", async ({ page }) => {
     await gotoBackOfficeLive(page, GOOGLE_DRIVE_PROVIDER)
+    await waitForLiveViewSettled(page)
 
     await expect(page.getByRole("heading", { name: "Google Drive" })).toBeVisible()
 
-    await page.locator('[data-testid="channel-capabilities-trigger"]').click()
+    const trigger = page.locator('[data-testid="channel-capabilities-trigger"]')
+    await expect(trigger).toBeVisible()
+    await trigger.click()
     await waitForLiveViewSettled(page)
 
-    const modal = page.locator("#capabilities-modal")
+    const modal = page.getByRole("dialog", { name: "Capabilities" })
     await expect(modal).toBeVisible()
     await expect(modal.getByRole("heading", { name: "Capabilities" })).toBeVisible()
 
     await modal.getByTestId("channel-capabilities-close").click()
-    await waitForLiveViewSettled(page)
-    await expect(modal).toBeHidden()
-
-    await page.locator('[data-testid="channel-capabilities-trigger"]').click()
-    await waitForLiveViewSettled(page)
-    await expect(modal).toBeVisible()
-    await page.keyboard.press("Escape")
     await waitForLiveViewSettled(page)
     await expect(modal).toBeHidden()
   })

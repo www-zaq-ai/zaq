@@ -105,6 +105,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   ]
 
   # Provider IDs shown as mini-logos inside category cards on the index page
+  # (E2E: CHANNEL_INDEX_* in test/e2e/specs/channels.spec.js — keep in sync)
   @retrieval_preview ~w(slack teams mattermost discord telegram)
   @data_source_preview ~w(zaq_local google_drive sharepoint)
 

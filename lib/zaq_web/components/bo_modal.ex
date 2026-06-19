@@ -97,9 +97,15 @@ defmodule ZaqWeb.Components.BOModal do
   slot :actions
 
   def form_dialog(assigns) do
+    assigns = assign(assigns, :form_dialog_title_id, form_dialog_title_id(assigns.id))
+
     ~H"""
     <div
       id={@id}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={@form_dialog_title_id}
+      aria-label={if(@form_dialog_title_id, do: nil, else: @title)}
       class="fixed inset-0 z-50 flex items-center justify-center p-4"
       phx-window-keydown={@cancel_event}
       phx-key="Escape"
@@ -112,7 +118,9 @@ defmodule ZaqWeb.Components.BOModal do
         @panel_class
       ]}>
         <div class="shrink-0 border-b border-black/[0.08] px-6 py-5">
-          <h3 class="font-mono text-[0.95rem] font-bold text-black">{@title}</h3>
+          <h3 id={@form_dialog_title_id} class="font-mono text-[0.95rem] font-bold text-black">
+            {@title}
+          </h3>
           <button
             type="button"
             phx-click={@cancel_event}
@@ -162,4 +170,7 @@ defmodule ZaqWeb.Components.BOModal do
     </.modal_shell>
     """
   end
+
+  defp form_dialog_title_id(nil), do: nil
+  defp form_dialog_title_id(id) when is_binary(id), do: "#{id}-title"
 end
