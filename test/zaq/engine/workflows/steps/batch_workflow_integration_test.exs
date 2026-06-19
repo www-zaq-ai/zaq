@@ -1,12 +1,9 @@
 defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Agent.Tools.Workflow.Batch
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.Test.{CategorizeBySize, ListClients, Sleep}
+  alias Zaq.Engine.Workflows.Test.{CategorizeBySize, ListClients}
   alias Zaq.Engine.Workflows.WorkflowAgent
-  alias Zaq.Test.Stubs
-
   @list_clients_module "Zaq.Engine.Workflows.Test.ListClients"
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
   @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
@@ -20,7 +17,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
   }
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 
@@ -65,80 +62,6 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
                CategorizeBySize.run(%{items: [%{name: "Big", size: 501}]}, %{})
 
       assert result.category == "enterprise"
-    end
-  end
-
-  # ── Direct action chain (no DAG) ──────────────────────────────────────────
-  #
-  # Batch receives a pre-built pipeline (as DagBuilder would inject via batch_scope).
-  # Each chunk [c1, c2] flows through CategorizeBySize then Sleep.
-
-  describe "direct action chain" do
-    test "batch_size 2 produces exactly 5 pipeline invocations for 10 clients" do
-      pid = self()
-      {:ok, %{clients: clients}} = ListClients.run(%{}, %{})
-
-      between_calls = :counters.new(1, [])
-
-      # CategorizeBySize takes `items` (list) → :list mode delivery
-      process = [
-        {CategorizeBySize, %{}},
-        {Sleep, %{duration_ms: 0}}
-      ]
-
-      {:ok, %{results: batch_results, errors: []}, _} =
-        Batch.run(
-          %{
-            items: clients,
-            batch_size: 2,
-            strategy: :skip_and_continue,
-            process: process,
-            __batch_field__: :items,
-            __batch_mode__: :list
-          },
-          %{
-            on_between: fn idx, result ->
-              :counters.add(between_calls, 1, 1)
-              send(pid, {:batch_done, idx, result})
-            end
-          }
-        )
-
-      assert :counters.get(between_calls, 1) == 4
-      assert_received {:batch_done, 0, {:ok, _}}
-      assert_received {:batch_done, 1, {:ok, _}}
-      assert_received {:batch_done, 2, {:ok, _}}
-      assert_received {:batch_done, 3, {:ok, _}}
-      refute_received {:batch_done, 4, _}
-      assert length(batch_results) == 5
-    end
-
-    test "category distribution: 3 small_business, 3 medium, 4 enterprise" do
-      {:ok, %{clients: clients}} = ListClients.run(%{}, %{})
-
-      process = [{CategorizeBySize, %{}}]
-
-      {:ok, %{results: batch_results}, _} =
-        Batch.run(
-          %{
-            items: clients,
-            batch_size: 2,
-            strategy: :skip_and_continue,
-            process: process,
-            __batch_field__: :items,
-            __batch_mode__: :list
-          },
-          %{}
-        )
-
-      counts =
-        batch_results
-        |> Enum.flat_map(& &1.results)
-        |> Enum.frequencies_by(& &1.category)
-
-      assert counts["small_business"] == 3
-      assert counts["medium"] == 3
-      assert counts["enterprise"] == 4
     end
   end
 

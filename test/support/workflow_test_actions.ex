@@ -710,10 +710,120 @@ defmodule Zaq.Engine.Workflows.Test.FlattenClients do
   @impl Jido.Action
   def run(%{results: chunk_results}, _context) do
     clients =
-      Enum.flat_map(chunk_results, fn chunk ->
-        Map.get(chunk, :results) || Map.get(chunk, "results") || []
+      Enum.flat_map(chunk_results, fn entry ->
+        # A `map` node summarizes each fork as %{"index","status","result" => <output>};
+        # the chunk's categorized list lives under that result. Fall back to the raw
+        # shape for non-map callers.
+        inner = Map.get(entry, "result") || Map.get(entry, :result) || entry
+        Map.get(inner, :results) || Map.get(inner, "results") || []
       end)
 
     {:ok, %{clients: clients}}
   end
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitItems do
+  @moduledoc "Emits a fixed `items` list — a source for `map` node tests."
+
+  use Jido.Action,
+    name: "test_emit_items",
+    schema: [input: [type: :any]],
+    output_schema: [items: [type: :list, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context) do
+    {:ok, %{items: [%{n: 1}, %{n: 2}, %{n: 3}]}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.FailEvenN do
+  @moduledoc "Map body step: succeeds on odd `n`, fails on even `n` — for strategy tests."
+
+  use Jido.Action,
+    name: "test_fail_even_n",
+    schema: [n: [type: :any, required: true]],
+    output_schema: [doubled: [type: :integer, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(%{n: n}, _context) do
+    if rem(n, 2) == 0 do
+      {:error, "even_n:#{n}"}
+    else
+      {:ok, %{doubled: n * 2}}
+    end
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.FlakyTwice do
+  @moduledoc """
+  Map body step that fails its first two attempts per item, then succeeds — proves
+  the `:retry` strategy actually re-runs a fork. Attempts are counted per-`n` in the
+  process dictionary; map forks run sequentially in one process, so the counter is
+  stable across a fork's retries while staying isolated between items.
+  """
+
+  use Jido.Action,
+    name: "test_flaky_twice",
+    schema: [n: [type: :any, required: true]],
+    output_schema: [doubled: [type: :integer, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(%{n: n}, _context) do
+    attempts = Process.get({:flaky, n}, 0) + 1
+    Process.put({:flaky, n}, attempts)
+
+    if attempts < 3 do
+      {:error, "flaky:#{n}:attempt#{attempts}"}
+    else
+      {:ok, %{doubled: n * 2}}
+    end
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitNumbers do
+  @moduledoc "Emits a fixed list of plain integers — a source for delivery/chunking map tests."
+
+  use Jido.Action,
+    name: "test_emit_numbers",
+    schema: [input: [type: :any]],
+    output_schema: [nums: [type: :list, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{nums: [1, 2, 3, 4, 5]}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.CaptureValue do
+  @moduledoc "Map body that echoes whatever was delivered under `value` — for delivery/chunking tests."
+
+  use Jido.Action,
+    name: "test_capture_value",
+    schema: [value: [type: :any, required: true]],
+    output_schema: [captured: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(%{value: v}, _context), do: {:ok, %{captured: v}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.MarkDone do
+  @moduledoc "Map post_process tail that accepts any cascade input and marks the fork done."
+
+  use Jido.Action,
+    name: "test_mark_done",
+    schema: [input: [type: :any]],
+    output_schema: [done: [type: :boolean, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{done: true}}
 end

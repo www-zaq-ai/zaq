@@ -10,12 +10,19 @@ defmodule Zaq.Engine.Workflows.Step.Run do
   by `step_index` to rebuild `previous_results` and locate the resume cursor.
 
   Statuses:
-  - `running`   — action is executing (or was mid-flight when the node crashed)
-  - `paused`    — action was in-flight when run pause was requested
-  - `waiting`   — action suspended pending human approval (human-in-the-loop)
-  - `completed` — action returned `{:ok, result}`
-  - `failed`    — action returned `{:error, reason}` or exceeded max retries
-  - `skipped`   — condition evaluated to false; downstream nodes were not executed
+  - `running`      — action is executing (or was mid-flight when the node crashed)
+  - `paused`       — action was in-flight when run pause was requested
+  - `waiting`      — action suspended pending human approval (human-in-the-loop)
+  - `completed`    — action returned `{:ok, result}`
+  - `failed`       — action returned `{:error, reason}` or exceeded max retries;
+                     **fails the whole run** (`finalize/2`)
+  - `failed_fatal` — an *isolated* per-fork `map` failure under `:skip_and_continue`/
+                     `:retry`. The item genuinely failed (recorded for visibility,
+                     errors recovered by `MapCollect`) but does **not** fail the run —
+                     `finalize/2` only fails on `failed`/`running`. NOTE: despite the
+                     name, this is the *non*-run-failing failure; the run-failing one is
+                     plain `failed`.
+  - `skipped`      — condition evaluated to false; downstream nodes were not executed
   """
 
   use Ecto.Schema
@@ -26,7 +33,7 @@ defmodule Zaq.Engine.Workflows.Step.Run do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(running paused waiting completed failed skipped)
+  @statuses ~w(running paused waiting completed failed failed_fatal skipped)
 
   @type t :: %__MODULE__{}
 

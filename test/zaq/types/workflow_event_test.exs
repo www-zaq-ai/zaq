@@ -2,11 +2,10 @@ defmodule Zaq.Types.WorkflowEventTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Event
-  alias Zaq.Test.Stubs
   alias Zaq.Types.WorkflowEvent
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 

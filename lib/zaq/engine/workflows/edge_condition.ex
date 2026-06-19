@@ -119,6 +119,10 @@ defmodule Zaq.Engine.Workflows.EdgeCondition do
   @doc false
   @spec runtime_empty?(term()) :: boolean()
   def runtime_empty?(nil), do: true
+  # A struct (e.g. %Zaq.Contracts.Record{}) is a present domain value, not a
+  # collection — and it does not implement `Enumerable`, so `Enum.empty?/1` would
+  # raise. Treat any struct as non-empty before the generic map/list check.
+  def runtime_empty?(value) when is_struct(value), do: false
   def runtime_empty?(value) when is_list(value) or is_map(value), do: Enum.empty?(value)
 
   def runtime_empty?(value) do

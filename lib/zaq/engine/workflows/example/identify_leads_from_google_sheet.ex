@@ -3,10 +3,17 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
   Workflow use case: fetch leads from a Google Sheet and dispatch qualifying rows.
 
   DAG:
-    get_sheet ──> extract_rows ──(rows not empty)──> batch_rows
-      batch_rows.process:      [iterate_rows (inline)]
-      batch_rows.post_process: [sleep_between (inline)]
-        iterate_rows.pipeline: [check_active, check_email_state, dispatch_lead]
+    get_sheet ──> extract_rows ──(rows not empty)──> process_rows
+      process_rows (a `map` node, per-row fan-out over `items`):
+        body:         [check_active, check_email_state, dispatch_lead]
+        post_process: [sleep_between]
+
+  `process_rows` is the general `map` iteration primitive (it replaces the former
+  `Batch` + `Iterate` pairing). Each row is delivered to the body under `input`
+  (`field: "input"`, `delivery: "item"`) so the `Condition` steps read the row.
+  Every row becomes its own per-fork `StepRun` (`process_rows/<step>[i]`) plus one
+  aggregate row, so failures are visible per item; `strategy: "skip_and_continue"`
+  isolates a failing row without aborting the run.
 
   A lead qualifies when: active == true AND email_state < 4.
   Qualifying rows are dispatched as Zaq.Event payloads to :engine with name :lead_identified.
@@ -20,8 +27,6 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
 
   @get_sheet_module "Zaq.Agent.Tools.Sheets.GetSheet"
   @extract_rows_module "Zaq.Agent.Tools.Sheets.ExtractRows"
-  @batch_module "Zaq.Agent.Tools.Workflow.Batch"
-  @iterate_module "Zaq.Agent.Tools.Workflow.Iterate"
   @condition_module "Zaq.Agent.Tools.Workflow.Condition"
   @dispatch_event_module "Zaq.Agent.Tools.Workflow.DispatchEvent"
   @sleep_module "Zaq.Agent.Tools.Workflow.Sleep"
@@ -95,47 +100,43 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
           index: 1
         },
         %{
-          name: "batch_rows",
-          type: "action",
-          module: @batch_module,
+          name: "process_rows",
+          type: "map",
           params: %{
-            "batch_size" => 50,
+            "over" => "items",
+            # Each row is delivered to the body under `input` so the `Condition`
+            # steps (which evaluate their `conditions` against `input`) see the row.
+            "field" => "input",
+            "delivery" => "item",
+            # Throughput hint carried over from the former batch_size: 50. With
+            # per-item delivery each row fans out individually.
+            "chunk_size" => 50,
             "strategy" => "skip_and_continue",
-            "process" => [
+            "body" => [
               %{
-                "name" => "iterate_rows",
+                "name" => "check_active",
                 "type" => "action",
-                "module" => @iterate_module,
+                "module" => @condition_module,
                 "params" => %{
-                  "strategy" => "skip_and_continue",
-                  "pipeline" => [
-                    %{
-                      "name" => "check_active",
-                      "type" => "action",
-                      "module" => @condition_module,
-                      "params" => %{
-                        "conditions" => [%{"key" => "active", "value" => true}]
-                      }
-                    },
-                    %{
-                      "name" => "check_email_state",
-                      "type" => "action",
-                      "module" => @condition_module,
-                      "params" => %{
-                        "conditions" => [
-                          %{"key" => "email_state", "op" => "lt", "value" => 4, "default" => 0}
-                        ]
-                      }
-                    },
-                    %{
-                      "name" => "dispatch_lead",
-                      "type" => "action",
-                      "module" => @dispatch_event_module,
-                      "params" => %{
-                        "event_name" => to_string(@lead_identified_event)
-                      }
-                    }
+                  "conditions" => [%{"key" => "active", "value" => true}]
+                }
+              },
+              %{
+                "name" => "check_email_state",
+                "type" => "action",
+                "module" => @condition_module,
+                "params" => %{
+                  "conditions" => [
+                    %{"key" => "email_state", "op" => "lt", "value" => 4, "default" => 0}
                   ]
+                }
+              },
+              %{
+                "name" => "dispatch_lead",
+                "type" => "action",
+                "module" => @dispatch_event_module,
+                "params" => %{
+                  "event_name" => to_string(@lead_identified_event)
                 }
               }
             ],
@@ -159,7 +160,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
         },
         %{
           from: "extract_rows",
-          to: "batch_rows",
+          to: "process_rows",
           condition: %{"field" => "rows", "op" => "not_empty"},
           mapping: %{"items" => "rows"}
         }

@@ -4,10 +4,9 @@ defmodule Zaq.Engine.Workflows.RunRecoveryWorkerTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.RunRecoveryWorker
-  alias Zaq.Test.Stubs
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 
