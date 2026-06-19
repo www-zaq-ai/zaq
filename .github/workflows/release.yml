@@ -398,28 +398,56 @@ jobs:
             exit 0
           fi
 
-          BODY=$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq '.body // ""')
-          RELEASE_URL="https://github.com/${REPO}/releases/tag/${TAG}"
-          DESC="${BODY}"
+          gh api "repos/${REPO}/releases/tags/${TAG}" --jq '.body // ""' > release-body.md
 
-          # Trim to Discord embed description limit (4096 chars)
-          DESC="${DESC:0:4000}"
+          node <<'NODE'
+          const fs = require('fs');
 
-          PAYLOAD=$(jq -n \
-            --arg title "🚀 ZAQ ${TAG} is out!" \
-            --arg desc "${DESC}" \
-            --arg url "${RELEASE_URL}" \
-            '{
-              username: "Release Bot",
-              embeds: [{
-                title: $title,
-                url: $url,
-                description: $desc,
-                color: 5814783,
-                footer: { text: "See the full release on GitHub" }
-              }]
-            }')
+          const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+          const tag = process.env.TAG;
+          const repo = process.env.REPO;
+          const releaseUrl = `https://github.com/${repo}/releases/tag/${tag}`;
+          const body = fs.readFileSync('release-body.md', 'utf8').trim();
+          const maxDescriptionLength = 3900;
 
-          curl -fsSL -X POST "${DISCORD_WEBHOOK_URL}" \
-            -H "Content-Type: application/json" \
-            -d "${PAYLOAD}"
+          const chunks = [];
+          for (let index = 0; index < body.length; index += maxDescriptionLength) {
+            chunks.push(body.slice(index, index + maxDescriptionLength));
+          }
+
+          if (!chunks.length) chunks.push('See the full release on GitHub.');
+
+          const post = async (payload) => {
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+              throw new Error(`Discord webhook failed with ${response.status}: ${await response.text()}`);
+            }
+          };
+
+          (async () => {
+            for (const [index, chunk] of chunks.entries()) {
+              await post({
+                username: 'Release Bot',
+                embeds: [{
+                  title: index === 0 ? `🚀 ZAQ ${tag} is out!` : `ZAQ ${tag} release notes, continued`,
+                  url: releaseUrl,
+                  description: chunk,
+                  color: 5814783,
+                  footer: {
+                    text: chunks.length === 1
+                      ? 'See the full release on GitHub'
+                      : `Part ${index + 1}/${chunks.length} · See the full release on GitHub`,
+                  },
+                }],
+              });
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
