@@ -68,6 +68,10 @@ defmodule ZaqWeb.Components.BOModalTest do
     assert html =~ "form-modal"
     assert html =~ "Edit Config"
     assert html =~ "cancel_form"
+    assert html =~ ~s(role="dialog")
+    assert html =~ ~s(aria-modal="true")
+    assert html =~ ~s(aria-labelledby="form-modal-title")
+    assert html =~ ~s(id="form-modal-title")
     assert html =~ "aria-label=\"Close dialog\""
     assert html =~ "max-h-[90vh]"
     assert html =~ "custom-body"
@@ -87,6 +91,9 @@ defmodule ZaqWeb.Components.BOModalTest do
 
     assert html =~ "Body only"
     refute html =~ "justify-end"
+    assert html =~ ~s(role="dialog")
+    assert html =~ ~s(aria-modal="true")
+    assert html =~ ~s(aria-label="No Actions")
   end
 
   test "iframe_dialog renders iframe and close controls" do

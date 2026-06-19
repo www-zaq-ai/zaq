@@ -71,6 +71,7 @@
             <div
               :for={provider <- @retrieval_preview}
               class="w-6 h-6 rounded-md bg-black/[0.03] grid place-items-center"
+              data-channel-preview={provider}
               title={provider}
             >
               <ZaqWeb.Components.ChannelIcons.icon provider={provider} class="w-3.5 h-3.5" />
@@ -127,6 +128,7 @@
             <div
               :for={provider <- @data_source_preview}
               class="w-6 h-6 rounded-md bg-black/[0.03] grid place-items-center"
+              data-channel-preview={provider}
               title={provider}
             >
               <ZaqWeb.Components.ChannelIcons.icon provider={provider} class="w-3.5 h-3.5" />
