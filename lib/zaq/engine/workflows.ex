@@ -700,10 +700,10 @@ defmodule Zaq.Engine.Workflows do
   @doc "Marks a step run as failed, recording the error map, optional logs, and finished_at."
   @spec fail_step_run(StepRun.t(), map(), [map()], keyword()) ::
           {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
-  def fail_step_run(%StepRun{} = step_run, errors, logs \\ [], _opts \\ []) do
+  def fail_step_run(%StepRun{} = step_run, errors, logs \\ [], opts \\ []) do
     step_run
     |> StepRun.changeset(%{
-      status: "failed",
+      status: Keyword.get(opts, :status, "failed"),
       errors: errors,
       logs: logs,
       finished_at: DateTime.utc_now(:second)
@@ -1271,43 +1271,12 @@ defmodule Zaq.Engine.Workflows do
     end
   end
 
-  @doc """
-  Broadcasts batch chunk progress to subscribers of the workflow_run PubSub channel.
-
-  Called by `Zaq.Agent.Tools.Workflow.Batch` after each chunk completes so the run UI can
-  update in real-time.  Silently no-ops when `run_id` is `nil` (e.g. test pipelines
-  without a persisted run).
-
-  Subscribers receive `{:batch_progress, step_name, progress}` where `progress` is:
-
-      %{
-        current_chunk:      non_neg_integer(),
-        total_chunks:       pos_integer(),
-        successful_chunks:  non_neg_integer(),
-        failed_chunks:      non_neg_integer()
-      }
-  """
-  def broadcast_batch_progress(nil, _step_name, _progress), do: :ok
-
-  def broadcast_batch_progress(run_id, step_name, progress) do
-    dispatch_async("workflow_run:#{run_id}", {:batch_progress, step_name, progress})
-  end
-
-  @doc """
-  Broadcasts iterate item progress to subscribers of the workflow_run PubSub channel.
-
-  Called by `Zaq.Agent.Tools.Workflow.Iterate` after each item completes.  Silently no-ops
-  when `run_id` is `nil`.
-
-  Subscribers receive `{:iterate_progress, step_name, progress}` where `progress` is:
-
-      %{current_item: non_neg_integer(), total_items: pos_integer()}
-  """
-  def broadcast_iterate_progress(nil, _step_name, _progress), do: :ok
-
-  def broadcast_iterate_progress(run_id, step_name, progress) do
-    dispatch_async("workflow_run:#{run_id}", {:iterate_progress, step_name, progress})
-  end
+  # NOTE (Part 3, Step 7): the legacy `broadcast_batch_progress/3` and
+  # `broadcast_iterate_progress/3` helpers were removed. The `map` model writes a
+  # real per-fork `StepRun` per item, each broadcast live as `{:step_updated, _}`
+  # via `broadcast_step/1`, with the aggregate map row as the final "all done"
+  # event. That is strictly more visibility than the old per-chunk progress
+  # tuples, which only existed because Batch/Iterate ran as one opaque step.
 
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 

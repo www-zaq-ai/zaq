@@ -30,13 +30,18 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     a non-conforming module fails the build with
     `{:error, {:contract_violation, module, missing}}`.
 
-  ## Batch and Iterate nodes
+  ## Batch nodes (translated to `map`)
 
-  `Zaq.Agent.Tools.Workflow.Batch` and `Zaq.Agent.Tools.Workflow.Iterate` are orchestrator nodes.
-  Their sub-pipelines are declared as **inline node maps** directly inside `params` —
-  not as string name references to top-level nodes.
+  `Zaq.Agent.Tools.Workflow.Batch` is a build-time **translator**, not a runtime
+  orchestrator: `enrich_nodes/1` calls `Batch.enrich/2`, which rewrites the Batch
+  node into a general `"map"` node before the node map is built. Iteration,
+  chunking, per-fork visibility, strategies, and error isolation all live in the
+  `map` lowering (see "map node lowering" below). `Iterate` no longer exists as a
+  runtime module — it survives only as an inline `process` marker that
+  `Batch.enrich/2` unwraps into the map body.
 
-      # Batch with nested Iterate
+  A Batch node declares its sub-pipeline as **inline node maps** inside `params`:
+
       %{
         "name" => "batch_contacts",
         "type" => "action",
@@ -45,39 +50,18 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
           "batch_size" => 4,
           "strategy"   => "skip_and_continue",
           "process" => [
-            %{
-              "name"   => "iterate_contacts",
-              "type"   => "action",
+            %{"name" => "iterate_contacts", "type" => "action",
               "module" => "Zaq.Agent.Tools.Workflow.Iterate",
-              "params" => %{
-                "strategy" => "skip_and_continue",
-                "pipeline" => [
-                  %{"name" => "check_status", "type" => "action",
-                    "module" => "Zaq.Agent.Tools.CheckStatus", "params" => %{}},
-                  %{"name" => "dispatch",     "type" => "action",
-                    "module" => "Zaq.Agent.Tools.Dispatch",    "params" => %{}}
-                ]
-              }
-            }
+              "params" => %{"pipeline" => [ ...inline body nodes... ]}}
           ],
-          "post_process" => [
-            %{"name" => "sleep", "type" => "action",
-              "module" => "Zaq.Engine.Workflows.Test.SleepMs",
-              "params" => %{"duration_ms" => 0}}
-          ]
+          "post_process" => [ ...inline tail nodes... ]
         },
         "index" => 1
       }
 
-  Inline nodes are validated against the `Workflows.Action` contract at build time.
-  String name references in `process`, `post_process`, or `pipeline` are rejected
-  with `{:error, :inline_node_required}`.
-
-  Nested orchestrators are supported: an `Iterate` node may appear inside a `Batch`
-  node's `process` list, carrying its own inline `pipeline`.
-
-  Only top-level `nodes` appear in the built `Runic.Workflow` DAG — inline nodes
-  are injected as params into their parent orchestrator and excluded from the graph.
+  Body nodes are validated against the `Workflows.Action` contract when the `map`
+  body is lowered. Only top-level `nodes` appear in the built `Runic.Workflow` DAG —
+  the inline body/post_process nodes become the map's per-fork body chain.
 
   ## Edge attributes (both optional)
 
@@ -96,12 +80,21 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   """
 
   alias Jido.Runic.ActionNode
+  alias Runic.Workflow.Step
+  alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.EdgeCondition
   alias Zaq.Engine.Workflows.StepRunner
+  alias Zaq.Engine.Workflows.Steps
+  alias Zaq.Engine.Workflows.WorkflowRun
 
   @type steps :: map()
   @type build_result :: {:ok, Runic.Workflow.t()} | {:error, term()}
+
+  # D-A8 backstop: the global `max_items` cap for a `map` fan-out when a node
+  # declares no `params["max_items"]`. Overridable via
+  # `config :zaq, Zaq.Engine.Workflows, map_max_items: N`.
+  @default_map_max_items 10_000
 
   @spec build(steps(), keyword()) :: build_result()
   def build(steps, opts \\ [])
@@ -113,10 +106,10 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
     with :ok <- validate_keys(steps),
          :ok <- validate_non_empty(nodes_list),
-         {:ok, {enriched_nodes, batch_scoped}} <- prepare_batch_nodes(nodes_list),
+         {:ok, enriched_nodes} <- enrich_nodes(nodes_list),
          {:ok, node_map} <- build_node_map(enriched_nodes, run_id),
          :ok <- validate_edges(edges_list, node_map) do
-      assemble(node_map, edges_list, run_id, batch_scoped)
+      assemble(node_map, edges_list, run_id)
     end
   end
 
@@ -135,16 +128,6 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   defp validate_non_empty([]), do: {:error, :empty_dag}
   defp validate_non_empty(_), do: :ok
 
-  @injected_keys [
-    :process,
-    :post_process,
-    :__batch_field__,
-    :__batch_mode__,
-    :__iterate_pipeline__,
-    :__iterate_field__,
-    :__iterate_mode__
-  ]
-
   defp build_node_map(nodes_list, run_id) do
     Enum.reduce_while(nodes_list, {:ok, %{}}, fn node, {:ok, acc} ->
       name = Map.get(node, "name")
@@ -152,11 +135,10 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       module = Map.get(node, "module")
       params = Map.get(node, "params") || %{}
       index = Map.get(node, "index", 0)
-      injected = Map.take(node, @injected_keys)
 
-      case build_node(type, module, params, name, index, run_id, injected) do
-        {:ok, runic_node} ->
-          {:cont, {:ok, Map.put(acc, name, %{node: runic_node, index: index})}}
+      case build_node(type, module, params, name, index, run_id) do
+        {:ok, entry} ->
+          {:cont, {:ok, Map.put(acc, name, Map.put(entry, :index, index))}}
 
         {:error, _} = err ->
           {:halt, err}
@@ -164,16 +146,21 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end)
   end
 
-  defp build_node(type, module, params, name, index, run_id, injected)
+  defp build_node(type, module, params, name, index, run_id)
        when type in ["action", "agent"] do
     with {:ok, mod} <- resolve_module(module),
          :ok <- Action.validate(mod) do
-      base = Map.merge(atomize_keys(params), injected)
-      {:ok, build_action_node(mod, base, name, index, run_id)}
+      {:ok, %{node: build_action_node(mod, atomize_keys(params), name, index, run_id)}}
     end
   end
 
-  defp build_node(type, _module, _params, _name, _index, _run_id, _injected),
+  defp build_node("map", _module, params, name, index, run_id) do
+    with {:ok, spec} <- build_map_spec(name, params, index, run_id) do
+      {:ok, %{map: spec}}
+    end
+  end
+
+  defp build_node(type, _module, _params, _name, _index, _run_id),
     do: {:error, {:unknown_node_type, type}}
 
   defp resolve_module(nil), do: {:error, {:unknown_module, nil}}
@@ -201,6 +188,270 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp build_action_node(mod, params, name, _step_index, _run_id) do
     ActionNode.new(mod, params, name: node_atom(name))
+  end
+
+  # --- map node lowering (general iteration primitive) ---
+  #
+  # A `"map"` node fans an inline `body` pipeline over the `over` collection of the
+  # incoming fact and collects the results. It is lowered into a self-contained
+  # Runic chain (no Batch coupling):
+  #
+  #   MapExtract(over) -> %Map{FanOut -> body steps} -> %Reduce{collect} -> MapCollect
+  #
+  # `MapExtract`/`MapCollect` live in `Steps.*`. Body steps are `StepRunner`-wrapped
+  # and named `"<map>/<step>"`; their per-fork StepRun becomes `"<map>/<step>[i]"`
+  # via `__map_index__`. `MapCollect` is wrapped under the map node's own name, so it
+  # writes the single aggregate StepRun and is the chain's tail for outgoing edges.
+  defp build_map_spec(name, params, index, run_id) do
+    over = Map.get(params, "over")
+    body = Map.get(params, "body") || []
+    post = Map.get(params, "post_process") || []
+    strategy = Map.get(params, "strategy", "skip_and_continue")
+
+    with :ok <- require_non_empty(body, {:map_body_required, name}),
+         {:ok, body_steps} <- build_map_body(body, name, strategy, run_id),
+         {:ok, post_steps} <- build_map_body(post, name, strategy, run_id) do
+      # `post_process` runs as a per-fork tail: its steps are appended to the body
+      # pipeline so they execute inside each fork after the body (Batch parity).
+      steps = body_steps ++ post_steps
+      extract_atom = node_atom("#{name}__map_extract")
+      fan_out_hash = :erlang.phash2({:map_fan_out, name})
+      map_component = node_atom("#{name}__map")
+
+      pipeline = build_map_pipeline(map_component, fan_out_hash, steps)
+
+      map_struct = %Runic.Workflow.Map{
+        name: map_component,
+        hash: :erlang.phash2({:map, name}),
+        pipeline: pipeline
+      }
+
+      {:ok,
+       %{
+         extract:
+           build_extract_node(extract_atom, name, index, over, delivery_opts(params), run_id),
+         extract_atom: extract_atom,
+         map: map_struct,
+         last_body: List.last(steps),
+         reduce: build_map_reduce(name, map_component),
+         collect:
+           build_action_node(Steps.MapCollect, %{__map_prefix__: "#{name}/"}, name, index, run_id)
+       }}
+    end
+  end
+
+  defp build_map_body(body, map_name, strategy, run_id) do
+    result =
+      Enum.reduce_while(body, {:ok, []}, fn bnode, {:ok, acc} ->
+        case build_map_body_node(bnode, map_name, strategy, run_id) do
+          {:ok, step} -> {:cont, {:ok, [step | acc]}}
+          {:error, _} = err -> {:halt, err}
+        end
+      end)
+
+    case result do
+      {:ok, rev} -> {:ok, Enum.reverse(rev)}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp build_map_body_node(bnode, map_name, strategy, run_id) do
+    type = Map.get(bnode, "type")
+    bname = Map.get(bnode, "name")
+    bparams = Map.get(bnode, "params") || %{}
+
+    if type in ["action", "agent"] do
+      with {:ok, mod} <- resolve_module(Map.get(bnode, "module")),
+           :ok <- Action.validate(mod) do
+        base = bparams |> atomize_keys() |> Map.put(:__map_strategy__, strategy)
+        {:ok, build_action_node(mod, base, "#{map_name}/#{bname}", 0, run_id)}
+      end
+    else
+      {:error, {:unsupported_map_body_node_type, type}}
+    end
+  end
+
+  defp build_map_pipeline(map_component, fan_out_hash, [first | rest]) do
+    pipeline =
+      map_component
+      |> Runic.Workflow.new()
+      |> Runic.Workflow.add_step(%Runic.Workflow.FanOut{hash: fan_out_hash, name: map_component})
+      |> Runic.Workflow.add(first, to: fan_out_hash)
+
+    {pipeline, _last} =
+      Enum.reduce(rest, {pipeline, first}, fn step, {wf, prev} ->
+        {Runic.Workflow.add(wf, step, to: prev), step}
+      end)
+
+    pipeline
+  end
+
+  defp build_map_reduce(name, map_component) do
+    reduce_name = node_atom("#{name}__map_reduce")
+
+    %Runic.Workflow.Reduce{
+      name: reduce_name,
+      hash: :erlang.phash2({:map_reduce, name}),
+      fan_in: %Runic.Workflow.FanIn{
+        map: map_component,
+        init: fn -> [] end,
+        reducer: fn item, acc ->
+          # A non-fatal failed fork emits an `__map_error__` sentinel purely to keep the
+          # FanIn cardinality intact (so it fires); it is excluded from the results list.
+          # The failure itself is recovered from the fork's `StepRun` row by `MapCollect`.
+          if map_error_item?(item), do: acc, else: acc ++ [summarize_map_item(item)]
+        end,
+        hash: :erlang.phash2({:map_fan_in, name}),
+        name: reduce_name
+      }
+    }
+  end
+
+  defp map_error_item?(item) when is_map(item),
+    do: Map.get(item, "__map_error__") == true or Map.get(item, :__map_error__) == true
+
+  defp map_error_item?(_item), do: false
+
+  defp summarize_map_item(item) when is_map(item) do
+    idx = Map.get(item, "__map_index__") || Map.get(item, :__map_index__)
+    clean = Map.drop(item, ["__map_index__", :__map_index__, :__cascade__, "__cascade__"])
+    %{"index" => idx, "status" => "completed", "result" => clean}
+  end
+
+  defp summarize_map_item(item), do: %{"index" => nil, "status" => "completed", "result" => item}
+
+  # Delivery/throughput knobs read off the map node's params (the Batch superset).
+  # `delivery`/`field` nil ⇒ the legacy per-item merge shape (item map merged into
+  # body params). With `delivery`, each unit is wrapped under `field`:
+  #   - "list" ⇒ fan out over chunks of `chunk_size` (nil ⇒ 1); body gets %{field => chunk}
+  #   - "item" ⇒ fan out over individual items; body gets %{field => item}
+  defp delivery_opts(params) do
+    %{
+      delivery: Map.get(params, "delivery"),
+      field: Map.get(params, "field"),
+      chunk_size: Map.get(params, "chunk_size"),
+      max_items: Map.get(params, "max_items") || map_max_items()
+    }
+  end
+
+  # Effective `map` fan-out cap: per-node `max_items` wins (resolved into the opts
+  # above); this is the global backstop when a node declares none.
+  defp map_max_items do
+    :zaq
+    |> Application.get_env(Zaq.Engine.Workflows, [])
+    |> Keyword.get(:map_max_items, @default_map_max_items)
+  end
+
+  # The extract node must emit a plain *list* so the Runic `FanOut` can split it.
+  # A Jido `ActionNode` can't (Jido validates action output as a map), so this is a
+  # plain Runic `Step` whose work reads the `over` collection out of the upstream
+  # fact, groups/wraps per the delivery opts, and stamps each unit with
+  # `__map_index__` for per-fork identity.
+  defp build_extract_node(extract_atom, name, index, over, opts, run_id) do
+    Step.new(%{
+      name: extract_atom,
+      work: fn input -> extract_items(input, name, index, over, opts, run_id) end
+    })
+  end
+
+  defp extract_items(input, name, index, over, opts, run_id) when is_map(input) do
+    items = input |> fetch_over(over) |> List.wrap()
+    enforce_max_items!(name, index, length(items), opts, run_id)
+
+    items
+    |> group_units(opts)
+    |> Enum.with_index()
+    |> Enum.map(fn {unit, i} -> stamp_unit(unit, i, opts) end)
+  end
+
+  defp extract_items(_input, _name, _index, _over, _opts, _run_id), do: []
+
+  # D-A8 run-time guard: a runtime collection larger than the effective cap must
+  # not fan out unbounded. Runic swallows step exceptions and only logs them, so a
+  # bare raise would silently complete the run; instead we record a failed aggregate
+  # StepRun for the map node (so `finalize/2` fails the run and BO renders the
+  # failure) and then raise to abort this fork + skip the downstream fan-out.
+  # `WorkflowAgent` reads the violation back from the row via `map_over_limit/1`.
+  defp enforce_max_items!(name, index, count, %{max_items: cap}, run_id)
+       when is_integer(cap) and count > cap do
+    message =
+      "map node #{inspect(name)} would fan out over #{count} items, " <>
+        "exceeding the max_items cap of #{cap}"
+
+    record_over_limit(run_id, name, index, count, cap, message)
+    raise message
+  end
+
+  defp enforce_max_items!(_name, _index, _count, _opts, _run_id), do: :ok
+
+  defp record_over_limit(nil, _name, _index, _count, _cap, _message), do: :ok
+
+  defp record_over_limit(run_id, name, index, count, cap, message) do
+    {:ok, step_run} =
+      Workflows.create_step_run(%WorkflowRun{id: run_id}, %{
+        step_name: name,
+        step_index: index,
+        status: "running"
+      })
+
+    Workflows.fail_step_run(
+      step_run,
+      %{"reason" => message, "code" => "map_over_limit", "count" => count, "cap" => cap},
+      []
+    )
+
+    Workflows.tick_log_summary(run_id)
+    :ok
+  end
+
+  @doc """
+  Returns `{node, count, cap}` if the run failed because a `map` node tripped the
+  D-A8 `max_items` cap, else `nil`. Reads the failed aggregate StepRun written by
+  the map extract guard. Used by `WorkflowAgent` to surface
+  `{:error, {:map_over_limit, …}}` to the run caller.
+  """
+  @spec map_over_limit(binary()) :: {String.t(), non_neg_integer(), pos_integer()} | nil
+  def map_over_limit(run_id) do
+    run_id
+    |> Workflows.list_step_runs()
+    |> Enum.find_value(fn sr ->
+      with %{} = errors <- sr.errors,
+           "map_over_limit" <- Map.get(errors, "code") do
+        {sr.step_name, Map.get(errors, "count"), Map.get(errors, "cap")}
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  # "list" delivery fans out over chunks; everything else fans out over items.
+  defp group_units(items, %{delivery: "list", chunk_size: size}),
+    do: Enum.chunk_every(items, size || 1)
+
+  defp group_units(items, _opts), do: items
+
+  defp fetch_over(input, over) when is_binary(over) do
+    Map.get(input, over) || Map.get(input, safe_existing_atom(over))
+  end
+
+  defp fetch_over(_input, _over), do: nil
+
+  # With a delivery `field`, wrap the unit under it (atom key, to satisfy the body
+  # action's schema). Without one, fall back to the legacy merge shape.
+  defp stamp_unit(unit, i, %{delivery: d, field: field})
+       when d in ["item", "list"] and field != nil do
+    %{safe_existing_atom(field) => unit, "__map_index__" => i}
+  end
+
+  defp stamp_unit(unit, i, _opts), do: stamp_item(unit, i)
+
+  defp stamp_item(item, i) when is_map(item), do: Map.put(item, "__map_index__", i)
+  defp stamp_item(item, i), do: %{"__map_item__" => item, "__map_index__" => i}
+
+  defp safe_existing_atom(str) do
+    String.to_existing_atom(str)
+  rescue
+    ArgumentError -> nil
   end
 
   defp validate_edges(edges, node_map) do
@@ -231,19 +482,11 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp validate_edge_condition(_), do: :ok
 
-  # Scans top-level nodes for Batch / Iterate orchestrators.
-  # For each, resolves the inline pipeline maps, validates modules against the
-  # Workflows.Action contract, detects the chunk-delivery field via
-  # Action.batch_field/1, and injects resolved pipelines as atom-keyed fields.
-  # `batch_scoped` is built from any remaining string names (legacy path, now
-  # always empty since inline maps replaced string refs); it is kept to exclude
-  # any stray top-level names from the DAG assembly without breaking the pipeline.
-  defp prepare_batch_nodes(nodes_list) do
-    batch_scoped =
-      nodes_list
-      |> Enum.flat_map(&scoped_node_names/1)
-      |> MapSet.new()
-
+  # Runs each node through its `Workflows.Node.enrich/2` (data-driven dispatch via
+  # `@node_modules`); nodes with no registered module pass through untouched. The
+  # `Batch` translator rewrites its node into a `map` node here, before the node map
+  # is built — so no Batch/Iterate runtime node ever reaches the DAG.
+  defp enrich_nodes(nodes_list) do
     result =
       Enum.reduce_while(nodes_list, {:ok, []}, fn node, {:ok, acc} ->
         case enrich_node(node, nodes_list) do
@@ -253,33 +496,20 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       end)
 
     case result do
-      {:ok, reversed} -> {:ok, {Enum.reverse(reversed), batch_scoped}}
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
       {:error, _} = err -> err
     end
   end
 
   # Maps a node's "module" string to the `Zaq.Engine.Workflows.Node`
-  # implementation that owns its build-time enrichment. Orchestrator nodes
-  # (Batch / Iterate) carry their own `enrich/2`; everything else falls through
-  # untouched. Adding a new orchestrator means adding its module here and the
+  # implementation that owns its build-time enrichment. `Batch` is the only
+  # orchestrator now — it translates itself (and any nested `Iterate` marker) into
+  # a `map` node. Adding a new translator means adding its module here and the
   # `enrich/2` callback on the module — not editing this builder.
   @node_modules %{
-    "Zaq.Agent.Tools.Workflow.Batch" => Zaq.Agent.Tools.Workflow.Batch,
-    "Zaq.Agent.Tools.Workflow.Iterate" => Zaq.Agent.Tools.Workflow.Iterate
+    "Zaq.Agent.Tools.Workflow.Batch" => Zaq.Agent.Tools.Workflow.Batch
   }
 
-  defp scoped_node_names(node) do
-    params = Map.get(node, "params") || %{}
-
-    (Map.get(params, "process", []) ++
-       Map.get(params, "post_process", []) ++
-       Map.get(params, "pipeline", []))
-    |> Enum.filter(&is_binary/1)
-  end
-
-  # Data-driven dispatch: a node whose "module" maps to a `Workflows.Node`
-  # implementation is enriched by that module; all other nodes pass through
-  # unchanged.
   defp enrich_node(node, nodes_list) do
     case Map.get(@node_modules, Map.get(node, "module")) do
       nil -> {:ok, node}
@@ -290,83 +520,47 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   @doc """
   Returns `{:error, tag}` for an empty list, `:ok` otherwise.
 
-  Public so node modules (`Workflows.Node` implementations) can guard their
-  required inline pipelines during `enrich/2`.
+  Public so node modules (`Workflows.Node` implementations) and the `map` lowering
+  can guard required inline pipelines.
   """
   @spec require_non_empty([term()], term()) :: :ok | {:error, term()}
   def require_non_empty([], tag), do: {:error, tag}
   def require_non_empty(_, _), do: :ok
 
-  @doc """
-  Resolves an orchestrator's inline sub-pipeline into `{module, base_params}`
-  pairs.
-
-  Each element of `items` must be an inline node map — string name references are
-  rejected with `{:error, :inline_node_required}`. Nested orchestrators (e.g. an
-  Iterate inside a Batch's `process` list) are resolved recursively.
-
-  Public so node modules (`Workflows.Node` implementations) can resolve their own
-  pipelines during `enrich/2`.
-  """
-  @spec resolve_pipeline([term()], [map()], atom()) ::
-          {:ok, [{module(), map()}]} | {:error, term()}
-  def resolve_pipeline(items, nodes_list, _kind) do
-    result =
-      Enum.reduce_while(items, {:ok, []}, fn
-        node, {:ok, acc} when is_map(node) ->
-          resolve_pipeline_node(node, nodes_list, acc)
-
-        _string, {:ok, _acc} ->
-          {:halt, {:error, :inline_node_required}}
-      end)
-
-    case result do
-      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
-      {:error, _} = err -> err
-    end
-  end
-
-  # Enrich the pipeline node first so nested orchestrators (e.g. Iterate inside
-  # Batch's process list) carry their resolved sub-pipelines.
-  defp resolve_pipeline_node(pipeline_node, nodes_list, acc) do
-    with {:ok, enriched} <- enrich_node(pipeline_node, nodes_list),
-         {:ok, mod} <- resolve_module(Map.get(enriched, "module")),
-         :ok <- Action.validate(mod) do
-      node_params =
-        Map.merge(
-          atomize_keys(Map.get(enriched, "params") || %{}),
-          Map.take(enriched, @injected_keys)
-        )
-
-      {:cont, {:ok, [{mod, node_params} | acc]}}
-    else
-      {:error, _} = err -> {:halt, err}
-    end
-  end
-
-  @doc """
-  Returns the chunk-delivery `{field, mode}` for a resolved pipeline, derived
-  from the first action's input schema via `Action.batch_field/1`.
-
-  Public so node modules (`Workflows.Node` implementations) can determine their
-  delivery shape during `enrich/2`.
-  """
-  @spec first_action_batch_field([{module(), map()}]) ::
-          {:ok, {atom(), :list | :item}} | {:error, term()}
-  def first_action_batch_field([{first_mod, _} | _]), do: Action.batch_field(first_mod)
-  def first_action_batch_field([]), do: {:error, {:missing_process_pipeline, :unknown}}
-
-  defp assemble(node_map, edges, run_id, batch_scoped) do
+  defp assemble(node_map, edges, run_id) do
     workflow =
       node_map
-      |> Enum.reject(fn {name, _} -> MapSet.member?(batch_scoped, name) end)
       |> Enum.sort_by(fn {_name, %{index: i}} -> i end)
-      |> Enum.reduce(Runic.Workflow.new(:workflow), fn {name, %{node: runic_node}}, wf ->
+      |> Enum.reduce(Runic.Workflow.new(:workflow), fn {name, entry}, wf ->
         incoming = Enum.filter(edges, &(Map.get(&1, "to") == name))
-        add_node(wf, runic_node, name, incoming, node_map, run_id)
+
+        case entry do
+          %{node: runic_node} -> add_node(wf, runic_node, name, incoming, node_map, run_id)
+          %{map: spec} -> add_map_chain(wf, spec, name, incoming, node_map, run_id)
+        end
       end)
 
     {:ok, workflow}
+  end
+
+  # Adds a lowered `map` node: the extract head is wired to incoming edges exactly
+  # like a normal node; the Map/Reduce/Collect chain is appended internally. The
+  # Collect node carries the map node's own name, so downstream `from`-edges resolve
+  # to it via `node_atom(name)` with no special casing.
+  defp add_map_chain(wf, spec, name, incoming, node_map, run_id) do
+    wf
+    |> add_node(spec.extract, name, incoming, node_map, run_id)
+    |> Runic.Workflow.add(spec.map, to: spec.extract_atom)
+    # Runic's Map.connect only marks a `:leaf` for `%Runic.Workflow.Step{}` pipeline
+    # nodes; our body steps are `ActionNode`s, so register the leaf explicitly so
+    # `Reduce.connect` can fan them in.
+    |> Runic.Workflow.draw_connection(spec.map, spec.last_body, :component_of,
+      properties: %{kind: :leaf}
+    )
+    |> Runic.Workflow.add(spec.reduce, to: spec.map)
+    # The collected fact is produced by the reduce's `fan_in` node — attach the
+    # aggregate collect step there so it fires once with the gathered summary.
+    |> Runic.Workflow.add(spec.collect, to: spec.reduce.fan_in)
   end
 
   defp add_node(workflow, runic_node, _to_name, [], _node_map, _run_id) do

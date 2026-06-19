@@ -12,10 +12,9 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.WorkflowAgent
-  alias Zaq.Test.Stubs
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 
