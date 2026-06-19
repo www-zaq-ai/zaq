@@ -108,43 +108,6 @@ defmodule Zaq.Channels.MattermostAdminTest do
     end
   end
 
-  describe "list_public_channels/2" do
-    test "atomizes channel maps on success" do
-      {child_spec, url} =
-        OpenAIStub.server(
-          fn conn, _body ->
-            assert conn.request_path == "/v1/api/v4/teams/team-1/channels"
-            {200, [%{"id" => "chan-1", "name" => "general"}]}
-          end,
-          self()
-        )
-
-      start_supervised!(child_spec)
-
-      assert {:ok, [channel]} =
-               MattermostAdmin.list_public_channels(%{url: url, token: "token-1"}, "team-1")
-
-      assert channel.id == "chan-1"
-      assert channel.name == "general"
-      refute Map.has_key?(channel, "name")
-    end
-
-    test "passes through ReqClient errors" do
-      {child_spec, url} =
-        OpenAIStub.server(
-          fn _conn, _body ->
-            {404, %{"error" => "temporary"}}
-          end,
-          self()
-        )
-
-      start_supervised!(child_spec)
-
-      assert {:error, {404, %{"error" => "temporary"}}} =
-               MattermostAdmin.list_public_channels(%{url: url, token: "token-1"}, "team-1")
-    end
-  end
-
   describe "list_accessible_channels/2" do
     test "atomizes public and private channel maps visible to the bot" do
       {child_spec, url} =

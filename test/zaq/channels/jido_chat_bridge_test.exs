@@ -7,7 +7,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Agent.{MCP, ServerManager}
-  alias Zaq.Channels.{ChannelConfig, IngressRuntimeStatus, RetrievalChannel}
+  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
@@ -380,6 +380,16 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       send(self(), {:lookup_runtime_called, bridge_id})
       Process.get(:stub_lookup_runtime_result, {:error, :not_running})
     end
+
+    def lookup_state_pid(bridge_id) do
+      send(self(), {:lookup_state_pid_called, bridge_id})
+      Process.get(:stub_lookup_state_pid_result, {:error, :not_running})
+    end
+  end
+
+  defmodule StubStateStatus do
+    def record_ingress_status(_pid, status), do: Process.put(:stub_ingress_status, status)
+    def ingress_status(_pid), do: Process.get(:stub_ingress_status)
   end
 
   defmodule StubWebhookStateError do
@@ -3543,7 +3553,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                })
     end
 
-    test "listener mode reports running when state pid alive but listeners dead" do
+    test "listener mode reports pending when runtime is alive without success signal" do
       previous_channels = Application.get_env(:zaq, :channels, %{})
       previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
 
@@ -3584,7 +3594,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         Process.delete(:stub_lookup_runtime_result)
       end)
 
-      assert {:ok, %{status: :ok, details: details}} =
+      assert {:ok, %{status: :pending, details: details}} =
                JidoChatBridge.channel_ingress_status(%{
                  provider: "mattermost",
                  url: "https://mattermost.example.com",
@@ -3595,7 +3605,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert details.listeners_alive == 0
     end
 
-    test "listener mode surfaces recorded websocket disconnect error" do
+    test "listener mode reports ok when listener authentication is ok" do
       previous_channels = Application.get_env(:zaq, :channels, %{})
       previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
 
@@ -3608,6 +3618,55 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       })
 
       Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRuntimeLookup)
+
+      listener =
+        spawn(fn ->
+          receive do
+            {:auth_status, from, ref} -> send(from, {ref, :ok})
+          end
+        end)
+
+      Process.put(
+        :stub_lookup_runtime_result,
+        {:ok, %{listener_pids: [listener], state_pid: self()}}
+      )
+
+      on_exit(fn ->
+        if Process.alive?(listener), do: Process.exit(listener, :kill)
+        Application.put_env(:zaq, :channels, previous_channels)
+
+        if previous_supervisor do
+          Application.put_env(:zaq, :chat_bridge_supervisor_module, previous_supervisor)
+        else
+          Application.delete_env(:zaq, :chat_bridge_supervisor_module)
+        end
+
+        Process.delete(:stub_lookup_runtime_result)
+      end)
+
+      assert {:ok, %{status: :ok, summary: "Ingress listener authenticated"}} =
+               JidoChatBridge.channel_ingress_status(%{
+                 provider: "mattermost",
+                 url: "https://mattermost.example.com",
+                 token: "plain-token"
+               })
+    end
+
+    test "listener mode surfaces recorded listener crash error" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+      previous_bridge_env = Application.get_env(:zaq, Zaq.Channels.JidoChatBridge)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRuntimeLookup)
+      Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, state_module: StubStateStatus)
 
       config = %{
         id: 42,
@@ -3623,15 +3682,22 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         {:ok, %{listener_pids: [self()], state_pid: self()}}
       )
 
-      JidoChatBridge.record_ingress_runtime_status(bridge_id, %{
+      Process.put(:stub_lookup_state_pid_result, {:ok, self()})
+
+      Process.put(:stub_ingress_status, %{
         status: :error,
-        summary: "Mattermost WebSocket disconnected and is reconnecting",
+        summary: "Ingress listener connection failed",
         reason: :unauthorized
       })
 
       on_exit(fn ->
-        IngressRuntimeStatus.delete(bridge_id)
         Application.put_env(:zaq, :channels, previous_channels)
+
+        if previous_bridge_env do
+          Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, previous_bridge_env)
+        else
+          Application.delete_env(:zaq, Zaq.Channels.JidoChatBridge)
+        end
 
         if previous_supervisor do
           Application.put_env(:zaq, :chat_bridge_supervisor_module, previous_supervisor)
@@ -3640,6 +3706,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         end
 
         Process.delete(:stub_lookup_runtime_result)
+        Process.delete(:stub_lookup_state_pid_result)
+        Process.delete(:stub_ingress_status)
       end)
 
       assert {:ok, %{status: :error, reason: :unauthorized, details: %{bridge_id: ^bridge_id}}} =

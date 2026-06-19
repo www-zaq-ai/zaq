@@ -227,22 +227,26 @@ jobs:
           };
 
           if (previousTag) {
-            const compare = execFileSync(
-              'gh',
-              ['api', '--paginate', `repos/${repo}/compare/${previousTag}...${tag}`, '--jq', '.commits[] | @base64'],
-              { encoding: 'utf8' }
-            );
+            try {
+              const compare = execFileSync(
+                'gh',
+                ['api', '--paginate', `repos/${repo}/compare/${previousTag}...${tag}`, '--jq', '.commits[] | @base64'],
+                { encoding: 'utf8' }
+              );
 
-            for (const line of compare.split('\n')) {
-              if (!line.trim()) continue;
-              const commit = JSON.parse(Buffer.from(line, 'base64').toString('utf8'));
-              const login = commit.author && commit.author.login;
-              const name = commit.commit && commit.commit.author && commit.commit.author.name;
-              const email = commit.commit && commit.commit.author && commit.commit.author.email || '';
-              const subject = (commit.commit && commit.commit.message || '').split('\n')[0].trim();
-              const display = login ? `@${login}` : fallbackDisplay(name, email);
+              for (const line of compare.split('\n')) {
+                if (!line.trim()) continue;
+                const commit = JSON.parse(Buffer.from(line, 'base64').toString('utf8'));
+                const login = commit.author && commit.author.login;
+                const name = commit.commit && commit.commit.author && commit.commit.author.name;
+                const email = commit.commit && commit.commit.author && commit.commit.author.email || '';
+                const subject = (commit.commit && commit.commit.message || '').split('\n')[0].trim();
+                const display = login ? `@${login}` : fallbackDisplay(name, email);
 
-              addContributor(display, subject);
+                addContributor(display, subject);
+              }
+            } catch (error) {
+              console.warn(`Falling back to git log contributors: ${error.message}`);
             }
           }
 

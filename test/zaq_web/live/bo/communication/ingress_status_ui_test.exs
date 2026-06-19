@@ -13,10 +13,69 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUITest do
       assert IngressStatusUI.color(%{"status" => "error"}) == "status-error"
     end
 
+    test "returns warning class for pending status" do
+      assert IngressStatusUI.color(%{"status" => "pending"}) == "status-warning"
+      assert IngressStatusUI.color(%{status: :pending}) == "status-warning"
+    end
+
     test "returns neutral class for unknown or missing status" do
       assert IngressStatusUI.color(%{"status" => "degraded"}) == "status-neutral"
       assert IngressStatusUI.color(%{}) == "status-neutral"
       assert IngressStatusUI.color(nil) == "status-neutral"
+    end
+  end
+
+  describe "pending?/1" do
+    test "detects pending atom and string statuses" do
+      assert IngressStatusUI.pending?(%{status: :pending})
+      assert IngressStatusUI.pending?(%{"status" => "pending"})
+    end
+
+    test "returns false for non-pending statuses" do
+      refute IngressStatusUI.pending?(%{status: :ok})
+      refute IngressStatusUI.pending?(%{"status" => "error"})
+      refute IngressStatusUI.pending?(nil)
+    end
+  end
+
+  describe "any_pending?/1" do
+    test "detects pending statuses in a status map" do
+      assert IngressStatusUI.any_pending?(%{mattermost: %{status: :pending}})
+
+      refute IngressStatusUI.any_pending?(%{
+               mattermost: %{status: :ok},
+               slack: %{status: :error}
+             })
+    end
+  end
+
+  describe "maybe_schedule_pending_refresh/4" do
+    test "schedules bounded refreshes while statuses are pending" do
+      socket =
+        %Phoenix.LiveView.Socket{}
+        |> Phoenix.Component.assign(:ingress_statuses, %{mattermost: %{status: :pending}})
+        |> Phoenix.Component.assign(:ingress_status_refresh_attempts, 0)
+
+      updated = IngressStatusUI.maybe_schedule_pending_refresh(socket, :retry_ingress, 1, 1)
+
+      assert updated.assigns.ingress_status_refresh_attempts == 1
+      assert_receive :retry_ingress
+
+      updated = IngressStatusUI.maybe_schedule_pending_refresh(updated, :retry_ingress, 1, 1)
+      assert updated.assigns.ingress_status_refresh_attempts == 1
+      refute_receive :retry_ingress
+    end
+
+    test "does not schedule refreshes for terminal statuses" do
+      socket =
+        %Phoenix.LiveView.Socket{}
+        |> Phoenix.Component.assign(:ingress_statuses, %{mattermost: %{status: :ok}})
+        |> Phoenix.Component.assign(:ingress_status_refresh_attempts, 0)
+
+      updated = IngressStatusUI.maybe_schedule_pending_refresh(socket, :retry_ingress, 1, 1)
+
+      assert updated.assigns.ingress_status_refresh_attempts == 0
+      refute_receive :retry_ingress
     end
   end
 

@@ -29,11 +29,14 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   alias Jido.Chat.Adapter
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoChatBridge
+  alias Zaq.Channels.JidoChatBridge.ListenerStatus
 
   @type state :: %{
           bridge_id: String.t(),
           config: map(),
-          chat: Chat.t()
+          chat: Chat.t(),
+          ingress_status: map() | nil,
+          listener_monitors: %{reference() => pid()}
         }
 
   def start_link(opts) do
@@ -66,6 +69,18 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     GenServer.call(pid, {:refresh_config, config})
   end
 
+  def record_ingress_status(pid, status) when is_map(status) do
+    GenServer.cast(pid, {:record_ingress_status, status})
+  end
+
+  def ingress_status(pid) do
+    GenServer.call(pid, :ingress_status)
+  end
+
+  def monitor_listeners(pid, listener_pids) when is_list(listener_pids) do
+    GenServer.cast(pid, {:monitor_listeners, listener_pids})
+  end
+
   def send_typing(pid, provider, channel_id, connection_details) do
     GenServer.call(pid, {:send_typing, provider, channel_id, connection_details}, :infinity)
   end
@@ -94,7 +109,16 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     handler_opts = Keyword.get(opts, :handler_opts, %{})
 
     {:ok,
-     %{bridge_id: bridge_id, config: config, chat: build_chat(config, provider, handler_opts)}}
+     %{
+       bridge_id: bridge_id,
+       config: config,
+       chat: build_chat(config, provider, handler_opts),
+       ingress_status: nil,
+       # Most jido_chat adapters have a single listener today. Keep the monitor
+       # map because the adapter contract returns a list of listener child specs;
+       # this can be collapsed to one monitor if that contract is narrowed later.
+       listener_monitors: %{}
+     }}
   end
 
   @impl GenServer
@@ -117,9 +141,16 @@ defmodule Zaq.Channels.JidoChatBridge.State do
         incoming,
         []
       )
-    end
 
-    {:reply, :ok, state}
+      {:reply, :ok, %{state | ingress_status: ok_ingress_status()}}
+    else
+      _ ->
+        {:reply, :ok, state}
+    end
+  end
+
+  def handle_call(:ingress_status, _from, state) do
+    {:reply, state.ingress_status, state}
   end
 
   def handle_call({:subscribe_thread, provider, channel_id, thread_id}, _from, state) do
@@ -206,12 +237,54 @@ defmodule Zaq.Channels.JidoChatBridge.State do
             channel_state: state.chat.channel_state
         }
 
-        {:reply, :ok, %{state | config: config, chat: chat}}
+        {:reply, :ok, %{state | config: config, chat: chat, ingress_status: nil}}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
   end
+
+  @impl GenServer
+  def handle_cast({:record_ingress_status, status}, state) when is_map(status) do
+    {:noreply, %{state | ingress_status: put_status_timestamp(status)}}
+  end
+
+  def handle_cast({:monitor_listeners, listener_pids}, state) when is_list(listener_pids) do
+    already_monitored = MapSet.new(Map.values(state.listener_monitors))
+
+    listener_monitors =
+      Enum.reduce(listener_pids, state.listener_monitors, fn listener_pid, monitors ->
+        cond do
+          not is_pid(listener_pid) -> monitors
+          MapSet.member?(already_monitored, listener_pid) -> monitors
+          true -> Map.put(monitors, Process.monitor(listener_pid), listener_pid)
+        end
+      end)
+
+    {:noreply, %{state | listener_monitors: listener_monitors}}
+  end
+
+  @impl GenServer
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    case Map.pop(state.listener_monitors, ref) do
+      {nil, _monitors} ->
+        {:noreply, state}
+
+      {_listener_pid, monitors} ->
+        next_state = %{state | listener_monitors: monitors}
+
+        case ListenerStatus.from_exit_reason(reason) do
+          nil -> {:noreply, next_state}
+          status -> {:noreply, %{next_state | ingress_status: put_status_timestamp(status)}}
+        end
+    end
+  end
+
+  defp ok_ingress_status do
+    %{status: :ok, summary: "Ingress listener received a usable Mattermost event"}
+  end
+
+  defp put_status_timestamp(status), do: Map.put(status, :updated_at, DateTime.utc_now())
 
   defp with_transport(incoming, transport) do
     metadata = Map.put(incoming.metadata || %{}, :transport, transport)

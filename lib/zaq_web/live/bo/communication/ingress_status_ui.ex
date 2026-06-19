@@ -2,12 +2,38 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUI do
   @moduledoc false
 
   def color(status) do
-    case status && (status[:status] || status["status"]) do
-      :ok -> "status-success"
-      "ok" -> "status-success"
-      :error -> "status-error"
-      "error" -> "status-error"
-      _ -> "status-neutral"
+    status
+    |> status_value()
+    |> status_color()
+  end
+
+  defp status_value(nil), do: nil
+  defp status_value(status), do: status[:status] || status["status"]
+
+  defp status_color(status) when status in [:ok, "ok"], do: "status-success"
+  defp status_color(status) when status in [:error, "error"], do: "status-error"
+  defp status_color(status) when status in [:pending, "pending"], do: "status-warning"
+  defp status_color(_status), do: "status-neutral"
+
+  def pending?(status) when is_map(status) do
+    status_value(status) in [:pending, "pending"]
+  end
+
+  def pending?(_status), do: false
+
+  def any_pending?(statuses) when is_map(statuses),
+    do: Enum.any?(statuses, fn {_key, status} -> pending?(status) end)
+
+  def any_pending?(_statuses), do: false
+
+  def maybe_schedule_pending_refresh(socket, message, retry_ms, max_attempts) do
+    attempts = socket.assigns[:ingress_status_refresh_attempts] || 0
+
+    if any_pending?(socket.assigns.ingress_statuses) and attempts < max_attempts do
+      Process.send_after(self(), message, retry_ms)
+      Phoenix.Component.assign(socket, :ingress_status_refresh_attempts, attempts + 1)
+    else
+      socket
     end
   end
 
