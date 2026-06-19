@@ -1,6 +1,6 @@
 defmodule Zaq.Engine.Workflows.EdgeCondition do
   @moduledoc """
-  Single home for the edge-condition operator vocabulary and pure evaluation.
+  Embedded value object for edge-condition validation and pure evaluation.
 
   Used by `Step.Edge` for schema validation and by `Steps.EdgeStep`
   for runtime evaluation.
@@ -22,25 +22,36 @@ defmodule Zaq.Engine.Workflows.EdgeCondition do
 
   @ops [:eq, :neq, :gt, :lt, :gte, :lte, :not_empty, :empty, :in]
 
+  use Ecto.Schema
   import Ecto.Changeset
+
+  @primary_key false
+
+  embedded_schema do
+    field :field, :string
+    field :op, :string
+    field :value, :any, virtual: true
+  end
 
   @doc "Returns the list of supported operator atoms."
   @spec ops() :: [atom()]
   def ops, do: @ops
 
   @doc """
-  Validates a raw condition map (string or atom keys) using a schemaless Ecto
-  changeset. Returns a changeset — inspect `.valid?` and `.errors` as needed.
+  Validates a raw condition map (string or atom keys).
+
+  Returns a changeset so callers can reuse standard Ecto error handling. The
+  runtime representation is still the original map stored in workflow JSONB;
+  this embedded schema is only the validation contract for that map.
   """
   @spec changeset(map()) :: Ecto.Changeset.t()
   def changeset(attrs) do
-    types = %{field: :string, op: :string}
-
-    {%{field: nil, op: nil}, types}
-    |> cast(normalize_attrs(attrs), [:field, :op])
+    %__MODULE__{}
+    |> cast(normalize_attrs(attrs), [:field, :op, :value])
     |> validate_required([:field, :op])
     |> validate_length(:field, min: 1)
     |> validate_inclusion(:op, Enum.map(@ops, &to_string/1))
+    |> validate_value()
   end
 
   # Ecto's string type cast rejects atoms. Normalize keys to strings and
@@ -54,35 +65,67 @@ defmodule Zaq.Engine.Workflows.EdgeCondition do
     end)
   end
 
+  defp validate_value(changeset) do
+    case get_field(changeset, :op) do
+      "in" ->
+        value = get_field(changeset, :value)
+
+        if is_list(value),
+          do: changeset,
+          else: add_error(changeset, :value, "must be a list when op is in")
+
+      _ ->
+        changeset
+    end
+  end
+
   @doc """
   Evaluates `actual` against `expected` using `op`.
 
-  Returns `true` or `false`. Raises `ArgumentError` for unknown ops.
-  `:in` requires `expected` to be a list; raises `ArgumentError` otherwise.
+  Returns `true` or `false`. Operator and operand validity is checked through
+  `changeset/1`; invalid conditions raise `ArgumentError`.
   """
-  @spec evaluate(atom(), term(), term(), keyword()) :: boolean()
-  def evaluate(op, actual, expected, opts \\ [])
+  @spec evaluate(atom() | String.t(), term(), term()) :: boolean()
+  def evaluate(op, actual, expected) do
+    op = validate_for_evaluation!(op, expected)
+    operator_evaluators() |> Map.fetch!(op) |> then(& &1.(actual, expected))
+  end
 
-  def evaluate(:eq, actual, expected, _opts), do: actual == expected
-  def evaluate(:neq, actual, expected, _opts), do: actual != expected
-  def evaluate(:gt, actual, expected, _opts), do: actual > expected
-  def evaluate(:lt, actual, expected, _opts), do: actual < expected
-  def evaluate(:gte, actual, expected, _opts), do: actual >= expected
-  def evaluate(:lte, actual, expected, _opts), do: actual <= expected
-  def evaluate(:not_empty, actual, _expected, _opts), do: not empty?(actual)
-  def evaluate(:empty, actual, _expected, _opts), do: empty?(actual)
+  defp operator_evaluators do
+    %{
+      "eq" => &Kernel.==/2,
+      "neq" => &Kernel.!=/2,
+      "gt" => &Kernel.>/2,
+      "lt" => &Kernel.</2,
+      "gte" => &Kernel.>=/2,
+      "lte" => &Kernel.<=/2,
+      "not_empty" => fn actual, _expected -> not runtime_empty?(actual) end,
+      "empty" => fn actual, _expected -> runtime_empty?(actual) end,
+      "in" => fn actual, expected -> actual in expected end
+    }
+  end
 
-  def evaluate(:in, actual, expected, _opts) when is_list(expected), do: actual in expected
+  defp validate_for_evaluation!(op, expected) do
+    changeset(%{field: "__runtime__", op: op, value: expected})
+    |> case do
+      %{valid?: true} = changeset ->
+        get_field(changeset, :op)
 
-  def evaluate(:in, _actual, expected, _opts),
-    do: raise(ArgumentError, "op :in requires a list expected value, got: #{inspect(expected)}")
+      changeset ->
+        raise ArgumentError, "invalid edge condition: #{inspect(changeset.errors)}"
+    end
+  end
 
-  def evaluate(op, _actual, _expected, _opts),
-    do: raise(ArgumentError, "unknown edge condition op: #{inspect(op)}")
+  @doc false
+  @spec runtime_empty?(term()) :: boolean()
+  def runtime_empty?(nil), do: true
+  def runtime_empty?(value) when is_list(value) or is_map(value), do: Enum.empty?(value)
 
-  defp empty?(nil), do: true
-  defp empty?(""), do: true
-  defp empty?([]), do: true
-  defp empty?(%{} = m) when map_size(m) == 0, do: true
-  defp empty?(_), do: false
+  def runtime_empty?(value) do
+    Enum.any?(Ecto.Changeset.empty_values(), fn
+      empty_value when is_function(empty_value, 1) -> empty_value.(value)
+      empty_value when is_function(empty_value, 2) -> empty_value.(value, :string)
+      empty_value -> empty_value == value
+    end)
+  end
 end

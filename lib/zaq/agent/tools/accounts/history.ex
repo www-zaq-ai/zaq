@@ -12,7 +12,7 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   The person whose history is fetched is resolved from the **trusted execution
   context**, never from LLM-supplied parameters:
 
-  - workflow path: `ctx[:actor]["person_id"]` — set by `ActionWrapper` from
+  - workflow path: `ctx[:actor]["person_id"]` — set by `StepRunner` from
     `run.source_event.actor`, which channels populate from the message author
   - chat path: `ctx[:person_id]` — set by the agent pipeline from the
     channel-resolved author
@@ -216,15 +216,15 @@ defmodule Zaq.Agent.Tools.Accounts.History do
 
     {:ok, %{conversations: conversations}}
   rescue
-    # Expected data-layer failures degrade to an empty result; anything else
-    # (including bugs in identity resolution, which runs before this) must
-    # propagate rather than masquerade as "no history".
+    # Expected data-layer failures must fail the action. Returning an empty
+    # success would make "the person has no history" indistinguishable from
+    # "history could not be fetched".
     error in [Ecto.QueryError, Ecto.Query.CastError, DBConnection.ConnectionError] ->
       Logger.warning(
         "[History] fetch failed person_id=#{inspect(person_id)} error=#{Exception.message(error)}"
       )
 
-      {:ok, %{conversations: []}}
+      {:error, Exception.message(error)}
   end
 
   defp maybe_put(opts, _key, nil), do: opts

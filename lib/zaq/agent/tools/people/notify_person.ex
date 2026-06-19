@@ -11,7 +11,11 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
     name: "notify_person",
     description: "Notify a person through the notification center.",
     schema: [
-      person_id: [type: :any, required: true, doc: "Person ID (integer or string)."],
+      person: [
+        type: {:struct, Zaq.Accounts.Person},
+        required: true,
+        doc: "Person to notify, usually returned by EnsurePerson."
+      ],
       subject: [type: :string, required: true, doc: "Notification subject / title."],
       message: [type: :string, required: true, doc: "Notification body text."]
     ],
@@ -20,11 +24,14 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
       status: [type: :atom, required: true]
     ]
 
+  alias Zaq.Accounts.Person
   alias Zaq.Event
   alias Zaq.NodeRouter
 
+  @spec run(%{person: Person.t(), subject: String.t(), message: String.t()}, map()) ::
+          {:ok, %{notified: boolean(), status: atom()}} | {:error, String.t()}
   @impl Jido.Action
-  def run(%{person_id: person_id, subject: subject, message: message}, context) do
+  def run(%{person: %Person{id: person_id}, subject: subject, message: message}, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
 
     %{person_id: person_id, subject: subject, message: message}

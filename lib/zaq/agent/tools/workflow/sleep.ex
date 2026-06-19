@@ -1,11 +1,16 @@
 defmodule Zaq.Agent.Tools.Workflow.Sleep do
   @moduledoc """
-  Workflow action: pauses execution for a given duration.
+  Workflow-contract adapter around Jido's built-in sleep action.
+
+  The agent tool registry uses Jido's built-in sleep action directly. Workflow DAG
+  nodes additionally require the `Zaq.Engine.Workflows.Action` callbacks and a
+  non-empty output schema, so this module keeps only that contract shim and
+  delegates execution to Jido's built-in action.
 
   ## Example
 
       iex> Zaq.Agent.Tools.Workflow.Sleep.run(%{duration_ms: 500}, %{})
-      {:ok, %{slept_ms: 500}}
+      {:ok, %{duration_ms: 500}}
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -19,12 +24,9 @@ defmodule Zaq.Agent.Tools.Workflow.Sleep do
       ]
     ],
     output_schema: [
-      slept_ms: [type: :non_neg_integer, required: true, doc: "Actual duration slept"]
+      duration_ms: [type: :non_neg_integer, required: true, doc: "Duration slept"]
     ]
 
   @impl Jido.Action
-  def run(%{duration_ms: ms}, _ctx) do
-    Process.sleep(ms)
-    {:ok, %{slept_ms: ms}}
-  end
+  defdelegate run(params, context), to: Jido.Tools.Basic.Sleep
 end

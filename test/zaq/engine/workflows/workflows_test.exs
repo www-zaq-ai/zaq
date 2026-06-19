@@ -17,7 +17,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
   @valid_node %{
     name: "fetch",
     type: "action",
-    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    module: "Zaq.Engine.Workflows.Test.InboxWithResults",
     params: %{},
     index: 0
   }
@@ -101,6 +101,87 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     end
   end
 
+  describe "create_workflow/2 — composition validation (D5)" do
+    test "rejects a workflow referencing a non-existent workflow" do
+      missing = Ecto.UUID.generate()
+
+      assert {:error, changeset} =
+               Workflows.create_workflow(%{
+                 name: "Bad Ref #{System.unique_integer()}",
+                 status: "active",
+                 nodes: [
+                   %{
+                     name: "call",
+                     type: "workflow",
+                     params: %{"workflow_ref" => missing},
+                     index: 0
+                   }
+                 ],
+                 edges: []
+               })
+
+      assert changeset.errors[:nodes]
+    end
+
+    test "accepts a workflow referencing an existing acyclic workflow" do
+      {:ok, sub} =
+        Workflows.create_workflow(%{
+          name: "Sub #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "D", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      assert {:ok, _parent} =
+               Workflows.create_workflow(%{
+                 name: "Parent #{System.unique_integer()}",
+                 status: "active",
+                 nodes: [
+                   %{name: "A", type: "action", module: @ok_module, params: %{}, index: 0},
+                   %{
+                     name: "call",
+                     type: "workflow",
+                     params: %{"workflow_ref" => sub.id},
+                     index: 1
+                   }
+                 ],
+                 edges: [%{from: "A", to: "call"}]
+               })
+    end
+  end
+
+  describe "update_workflow/3 — composition validation (D5)" do
+    test "rejects an edit that introduces a reference cycle (B -> A -> B)" do
+      {:ok, a} =
+        Workflows.create_workflow(%{
+          name: "A #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "x", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      # B references A (acyclic so far)
+      {:ok, b} =
+        Workflows.create_workflow(%{
+          name: "B #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "callA", type: "workflow", params: %{"workflow_ref" => a.id}, index: 0}],
+          edges: []
+        })
+
+      # now make A reference B → A -> B -> A
+      assert {:error, changeset} =
+               Workflows.update_workflow(a, %{
+                 nodes: [
+                   %{name: "callB", type: "workflow", params: %{"workflow_ref" => b.id}, index: 0}
+                 ],
+                 edges: []
+               })
+
+      assert changeset.errors[:nodes]
+    end
+  end
+
   describe "list_workflows/1" do
     test "returns all workflows ordered by name" do
       create_workflow(%{name: "Zeta"})
@@ -161,14 +242,25 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       assert run.source_event.trace_id == @valid_source_event["trace_id"]
     end
 
-    test "broadcasts run_created for a pending run" do
+    test "dispatches run_created via async Channels broadcast for a pending run" do
       {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow:#{workflow.id}")
+      test_pid = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(test_pid, {:dispatched, event})
+        event
+      end)
 
       assert {:ok, %WorkflowRun{} = run} = Workflows.create_run(workflow, @valid_source_event)
 
-      assert_receive {:run_created, ^run}
-      refute_received {:run_started, ^run}
+      assert_received {:dispatched, event}
+      assert event.next_hop.destination == :channels
+      assert event.next_hop.type == :async
+      assert event.opts == [action: :broadcast]
+      assert event.request == {:broadcast, "workflow:#{workflow.id}", {:run_created, run}}
+
+      # Bare create never signals a start — only start_run/2 does.
+      refute_received {:dispatched, %{request: {:broadcast, _, {:run_started, _}}}}
     end
 
     test "does not execute steps" do
@@ -228,23 +320,150 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     end
   end
 
+  describe "create_run/4 — workflow-in-workflow composition" do
+    # sub-workflow #1: D -> E -> F (single root D, single leaf F)
+    defp create_sub_workflow do
+      {:ok, sub} =
+        Workflows.create_workflow(%{
+          name: "Sub #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "D", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "E", type: "action", module: @ok_module, params: %{}, index: 1},
+            %{name: "F", type: "action", module: @ok_module, params: %{}, index: 2}
+          ],
+          edges: [%{from: "D", to: "E"}, %{from: "E", to: "F"}]
+        })
+
+      sub
+    end
+
+    # parent #2: A -> B -> (ref sub) -> C
+    defp create_parent_workflow(sub_id) do
+      {:ok, parent} =
+        Workflows.create_workflow(%{
+          name: "Parent #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "A", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "B", type: "action", module: @ok_module, params: %{}, index: 1},
+            %{name: "call1", type: "workflow", params: %{"workflow_ref" => sub_id}, index: 2},
+            %{name: "C", type: "action", module: @ok_module, params: %{}, index: 3}
+          ],
+          edges: [
+            %{from: "A", to: "B"},
+            %{from: "B", to: "call1"},
+            %{from: "call1", to: "C"}
+          ]
+        })
+
+      parent
+    end
+
+    test "flattens the referenced workflow inline into the run snapshot" do
+      sub = create_sub_workflow()
+      parent = create_parent_workflow(sub.id)
+
+      assert {:ok, run} = Workflows.create_run(parent, @valid_source_event)
+
+      names = Enum.map(run.steps_snapshot["nodes"], & &1["name"])
+      assert names == ["A", "B", "call1/D", "call1/E", "call1/F", "C"]
+      refute "call1" in names
+
+      assert %{"from" => "B", "to" => "call1/D"} in run.steps_snapshot["edges"]
+      assert %{"from" => "call1/F", "to" => "C"} in run.steps_snapshot["edges"]
+
+      # the flattened composition assembles into a runnable DAG
+      assert %Runic.Workflow{} = run.prepared_dag
+    end
+
+    test "frozen once started: editing #1 does not change an existing run of #2" do
+      sub = create_sub_workflow()
+      parent = create_parent_workflow(sub.id)
+
+      run = create_run(parent)
+      original_snapshot = run.steps_snapshot
+
+      # change #1 after #2's run was created
+      {:ok, _} =
+        Workflows.update_workflow(sub, %{
+          nodes: [%{name: "D", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      assert Workflows.get_run!(run.id).steps_snapshot == original_snapshot
+    end
+
+    test "fresh per run: a new run of #2 picks up an edit to #1" do
+      sub = create_sub_workflow()
+      parent = create_parent_workflow(sub.id)
+
+      _first = create_run(parent)
+
+      # #1 now D -> E only (drop F)
+      {:ok, _} =
+        Workflows.update_workflow(sub, %{
+          nodes: [
+            %{name: "D", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "E", type: "action", module: @ok_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "D", to: "E"}]
+        })
+
+      assert {:ok, second} = Workflows.create_run(parent, @valid_source_event)
+      names = Enum.map(second.steps_snapshot["nodes"], & &1["name"])
+      assert names == ["A", "B", "call1/D", "call1/E", "C"]
+    end
+
+    test "end-to-end: executing the composed run writes one StepRun per flattened node" do
+      sub = create_sub_workflow()
+      parent = create_parent_workflow(sub.id)
+
+      assert {:ok, %WorkflowRun{} = finished} =
+               Workflows.create_and_start_run(parent, @valid_source_event)
+
+      assert finished.status == "completed"
+
+      step_runs = Workflows.list_step_runs(finished.id)
+
+      assert Enum.map(step_runs, & &1.step_name) ==
+               ["A", "B", "call1/D", "call1/E", "call1/F", "C"]
+
+      assert Enum.all?(step_runs, &(&1.status == "completed"))
+      # no leftover reference node — the splice consumed it
+      refute "call1" in Enum.map(step_runs, & &1.step_name)
+    end
+  end
+
   describe "broadcast_run_update/1" do
-    test "re-broadcasts the current run to its workflow_run topic" do
+    test "dispatches a run_updated re-broadcast to its workflow_run topic" do
       {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
       run = create_run(workflow)
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{run.id}")
+      test_pid = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(test_pid, {:dispatched, event})
+        event
+      end)
 
       assert :ok = Workflows.broadcast_run_update(run.id)
-      assert_receive {:run_updated, %WorkflowRun{id: run_id}}
+
+      assert_received {:dispatched, event}
+      assert event.next_hop.destination == :channels
+      assert event.next_hop.type == :async
+      assert {:broadcast, topic, {:run_updated, %WorkflowRun{id: run_id}}} = event.request
+      assert topic == "workflow_run:#{run.id}"
       assert run_id == run.id
     end
 
-    test "no-ops when the run does not exist" do
+    test "no-ops without dispatch when the run does not exist" do
       missing_id = Ecto.UUID.generate()
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{missing_id}")
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn _event ->
+        flunk("broadcast_run_update/1 should not dispatch for a missing run")
+      end)
 
       assert :ok = Workflows.broadcast_run_update(missing_id)
-      refute_receive {:run_updated, _}
     end
   end
 
@@ -271,6 +490,46 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
       {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
       {:ok, running} = Workflows.update_run(run, %{status: "running"})
+
+      assert {:error, {:invalid_run_status, "running"}} = Workflows.start_run(running)
+    end
+
+    test "dispatches run_started via async Channels broadcast when starting" do
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Start Run Broadcast #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "step", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+      test_pid = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(test_pid, {:dispatched, event})
+        event
+      end)
+
+      assert {:ok, %WorkflowRun{}} = Workflows.start_run(run)
+
+      assert_received {:dispatched,
+                       %{request: {:broadcast, topic, {:run_started, started}}} = event}
+
+      assert topic == "workflow:#{workflow.id}"
+      assert started.id == run.id
+      assert event.next_hop.destination == :channels
+      assert event.next_hop.type == :async
+    end
+
+    test "does not dispatch run_started for a non-pending run" do
+      {:ok, workflow} = Workflows.create_workflow(@valid_active_attrs)
+      {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
+      {:ok, running} = Workflows.update_run(run, %{status: "running"})
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn _event ->
+        flunk("start_run/2 should not broadcast for a non-pending run")
+      end)
 
       assert {:error, {:invalid_run_status, "running"}} = Workflows.start_run(running)
     end

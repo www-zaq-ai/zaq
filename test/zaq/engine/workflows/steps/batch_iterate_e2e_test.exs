@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
 
   Full stack exercised:
     DagBuilder (node resolution, edge conditions, batch/iterate injection)
-    → ActionWrapper (step_run persistence)
+    → StepRunner (step_run persistence)
     → Batch (chunk orchestration)
     → Iterate (per-item pipeline)
     → Contact pipeline actions (status filter, sequence filter, dispatcher)

@@ -60,36 +60,37 @@ defmodule Zaq.Engine.Workflows.CronTriggerWorkerTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Safe discards
+  # Safe cancellations
   # ---------------------------------------------------------------------------
 
-  describe "perform/1 — safe discards" do
-    test "returns :ok without dispatch when trigger is not found" do
+  describe "perform/1 — safe cancellations" do
+    test "returns cancel reason without dispatch when trigger is not found" do
       stub(Zaq.NodeRouterMock, :dispatch, fn _event ->
         flunk("dispatch should not be called for missing trigger")
       end)
 
-      assert :ok = CronTriggerWorker.perform(build_job(Ecto.UUID.generate()))
+      assert {:cancel, :trigger_not_found} =
+               CronTriggerWorker.perform(build_job(Ecto.UUID.generate()))
     end
 
-    test "returns :ok without dispatch when trigger is disabled" do
+    test "returns cancel reason without dispatch when trigger is disabled" do
       trigger = create_cron_trigger(%{enabled: false})
 
       stub(Zaq.NodeRouterMock, :dispatch, fn _event ->
         flunk("dispatch should not be called for disabled trigger")
       end)
 
-      assert :ok = CronTriggerWorker.perform(build_job(trigger.id))
+      assert {:cancel, :trigger_disabled} = CronTriggerWorker.perform(build_job(trigger.id))
     end
 
-    test "returns :ok without dispatch when trigger_type is 'event'" do
+    test "returns cancel reason without dispatch when trigger_type is 'event'" do
       trigger = create_event_trigger()
 
       stub(Zaq.NodeRouterMock, :dispatch, fn _event ->
         flunk("dispatch should not be called for event trigger")
       end)
 
-      assert :ok = CronTriggerWorker.perform(build_job(trigger.id))
+      assert {:cancel, :not_cron_trigger} = CronTriggerWorker.perform(build_job(trigger.id))
     end
   end
 

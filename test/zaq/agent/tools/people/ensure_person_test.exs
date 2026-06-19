@@ -10,14 +10,16 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
   @ctx %{}
 
   describe "run/2 — email platform, existing person" do
-    test "returns existing person_id matched by email" do
+    test "returns existing person matched by email" do
       {:ok, person} =
         People.create_person(%{full_name: "Alice Smith", email: "alice@example.com"})
 
       person_id = person.id
 
-      assert {:ok, %{person_id: ^person_id, row: _}} =
+      assert {:ok, %{person: %Person{id: ^person_id}, row: _} = result} =
                EnsurePerson.run(%{platform: "email", email: "alice@example.com"}, @ctx)
+
+      refute Map.has_key?(result, :person_id)
     end
 
     test "does not create a duplicate person" do
@@ -34,11 +36,13 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
     test "creates person when email is not found" do
       refute Repo.get_by(Person, email: "new@example.com")
 
-      assert {:ok, %{person_id: person_id, row: _}} =
+      assert {:ok, %{person: %Person{id: person_id}, row: _} = result} =
                EnsurePerson.run(
                  %{platform: "email", email: "new@example.com", display_name: "New Person"},
                  @ctx
                )
+
+      refute Map.has_key?(result, :person_id)
 
       person = Repo.get!(Person, person_id)
       assert person.email == "new@example.com"
@@ -46,7 +50,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
     end
 
     test "uses email as full_name when display_name is absent" do
-      assert {:ok, %{person_id: person_id}} =
+      assert {:ok, %{person: %Person{id: person_id}}} =
                EnsurePerson.run(%{platform: "email", email: "noname@example.com"}, @ctx)
 
       person = Repo.get!(Person, person_id)
@@ -58,14 +62,15 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
       params =
         Map.merge(%{platform: "email", email: "named@example.com"}, %{"name" => "Named Person"})
 
-      assert {:ok, %{person_id: person_id}} = EnsurePerson.run(params, @ctx)
+      assert {:ok, %{person: %Person{id: person_id}}} =
+               EnsurePerson.run(params, @ctx)
 
       person = Repo.get!(Person, person_id)
       assert person.full_name == "Named Person"
     end
 
     test "links an email PersonChannel on creation" do
-      assert {:ok, %{person_id: person_id}} =
+      assert {:ok, %{person: %Person{id: person_id}}} =
                EnsurePerson.run(%{platform: "email", email: "linked@example.com"}, @ctx)
 
       channels = Repo.all(from c in PersonChannel, where: c.person_id == ^person_id)
@@ -79,7 +84,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
 
   describe "run/2 — channel_id as primary identifier" do
     test "uses channel_id when provided explicitly" do
-      assert {:ok, %{person_id: _}} =
+      assert {:ok, %{person: %Person{} = person} = result} =
                EnsurePerson.run(
                  %{
                    platform: "mattermost",
@@ -89,13 +94,16 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
                  @ctx
                )
 
+      assert is_integer(person.id)
+      refute Map.has_key?(result, :person_id)
+
       channels = Repo.all(from c in PersonChannel, where: c.channel_identifier == "user123")
       assert length(channels) == 1
       assert hd(channels).platform == "mattermost"
     end
 
     test "defaults channel_id to email when platform is email and channel_id is absent" do
-      assert {:ok, %{person_id: person_id}} =
+      assert {:ok, %{person: %Person{id: person_id}}} =
                EnsurePerson.run(%{platform: "email", email: "implicit@example.com"}, @ctx)
 
       channels = Repo.all(from c in PersonChannel, where: c.person_id == ^person_id)

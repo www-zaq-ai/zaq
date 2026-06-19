@@ -7,7 +7,7 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
   @valid_node %{
     name: "fetch",
     type: "action",
-    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    module: "Zaq.Engine.Workflows.Test.InboxWithResults",
     params: %{},
     index: 0
   }
@@ -308,9 +308,103 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
     end
   end
 
+  describe "nodes validation — workflow reference nodes" do
+    @workflow_ref_node %{
+      name: "call_sub",
+      type: "workflow",
+      params: %{"workflow_ref" => "00000000-0000-0000-0000-000000000001"},
+      index: 1
+    }
+
+    test "accepts a workflow node carrying a workflow_ref (no module needed)" do
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [@valid_node, @workflow_ref_node],
+          edges: [%{from: "fetch", to: "call_sub"}]
+        })
+
+      assert changeset.valid?
+    end
+
+    test "rejects a workflow node missing workflow_ref" do
+      bad_node = %{@workflow_ref_node | params: %{}}
+
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [@valid_node, bad_node],
+          edges: [%{from: "fetch", to: "call_sub"}]
+        })
+
+      refute changeset.valid?
+    end
+  end
+
+  describe "nodes validation — map nodes" do
+    @map_node %{
+      name: "enrich_each",
+      type: "map",
+      params: %{
+        "over" => "leads",
+        "body" => [
+          %{
+            "name" => "lookup",
+            "type" => "action",
+            "module" => "Zaq.Engine.Workflows.Test.InboxWithResults",
+            "params" => %{}
+          }
+        ]
+      },
+      index: 1
+    }
+
+    test "accepts a map node carrying over + body (no module needed)" do
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [@valid_node, @map_node],
+          edges: [%{from: "fetch", to: "enrich_each"}]
+        })
+
+      assert changeset.valid?
+    end
+
+    test "rejects a map node missing the over field" do
+      bad_node = %{@map_node | params: Map.delete(@map_node.params, "over")}
+
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [@valid_node, bad_node],
+          edges: [%{from: "fetch", to: "enrich_each"}]
+        })
+
+      refute changeset.valid?
+    end
+
+    test "rejects a map node with an empty body" do
+      bad_node = %{@map_node | params: Map.put(@map_node.params, "body", [])}
+
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [@valid_node, bad_node],
+          edges: [%{from: "fetch", to: "enrich_each"}]
+        })
+
+      refute changeset.valid?
+    end
+  end
+
   describe "Node.types/0" do
     test "returns the valid node type list" do
-      assert Node.types() == ["action", "agent"]
+      assert Node.types() == ["action", "agent", "workflow", "map"]
     end
   end
 
