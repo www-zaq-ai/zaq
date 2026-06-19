@@ -28,7 +28,6 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
   alias Zaq.Engine.TriggerNode
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.WorkflowAgent
-  alias Zaq.Test.Stubs
 
   # ── Module names (used in workflow definition JSON) ───────────────────────────
 
@@ -180,7 +179,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
   end
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 
@@ -224,28 +223,27 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       assert finished.status == "completed"
     end
 
-    test "batch produces 3 chunk results (batch_size: 4 over 12 contacts)" do
+    test "aggregate map row summarizes 12 items: 6 successful + 6 errors" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
       batch_run = batch_step_run(run)
 
-      # 3 chunks, 0 chunk-level errors (skip_and_continue collects item errors inside Iterate)
-      assert length(batch_run.results["results"]) == 3
-      assert batch_run.results["errors"] == []
+      # per-item fan-out: 6 contacts complete the pipeline, 6 isolated failures
+      assert length(batch_run.results["results"]) == 6
+      assert length(batch_run.results["errors"]) == 6
+      assert batch_run.results["count"] == 12
     end
 
-    test "each chunk result is an Iterate output with per-item results and errors" do
+    test "each error entry carries the item index and failed-condition reason" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
-      chunk_results = batch_step_run(run).results["results"]
-
-      for chunk <- chunk_results do
-        assert Map.has_key?(chunk, "results")
-        assert Map.has_key?(chunk, "errors")
+      for err <- batch_step_run(run).results["errors"] do
+        assert is_integer(err["index"])
+        assert err["reason"] =~ "condition_failed"
       end
     end
 
@@ -438,124 +436,73 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     end
   end
 
-  # ── Log trail ─────────────────────────────────────────────────────────────────
+  # ── Per-fork visibility (replaces the old opaque chunk/item log trail) ─────────
 
-  describe "log trail: batch and iterate" do
-    # Helpers — filter by event name (logs are read back from DB with string keys)
-    defp chunk_logs(run),
-      do: Enum.filter(batch_step_run(run).logs, &(Map.get(&1, "event") == "chunk_completed"))
-
-    defp item_logs(run),
-      do: run |> chunk_logs() |> Enum.flat_map(&Map.get(&1, "iteration_logs", []))
-
-    test "first entry in step_run.logs is step_completed with timing" do
-      wf = contact_batch_workflow()
-      {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
-
-      [first | _rest] = batch_step_run(run).logs
-      assert Map.get(first, "event") == "step_completed"
-      assert is_integer(Map.get(first, "duration_ms"))
-      assert Map.get(first, "duration_ms") >= 0
-      assert Map.get(first, "at") != nil
+  describe "per-fork visibility: one StepRun per item" do
+    # All fork rows for a given body step, e.g. "batch_contacts/dispatch[3]".
+    defp fork_rows(run, step) do
+      run
+      |> step_runs()
+      |> Enum.filter(&String.starts_with?(&1.step_name, "batch_contacts/#{step}["))
     end
 
-    test "batch_contacts step_run logs has 3 chunk_completed events" do
+    test "every contact is its own dispatch fork row (12 contacts)" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
-      assert length(chunk_logs(run)) == 3
+      # 6 contacts reach dispatch and complete; the other 6 short-circuit at a
+      # failed condition, so their dispatch fork never runs.
+      dispatched = fork_rows(run, "dispatch")
+      assert length(dispatched) == 6
+      assert Enum.all?(dispatched, &(&1.status == "completed"))
     end
 
-    test "chunk log events are indexed 0, 1, 2" do
+    test "isolated failures are recorded as failed_fatal condition fork rows" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, _} = WorkflowAgent.execute(run)
 
-      indices = run |> chunk_logs() |> Enum.map(&Map.get(&1, "index")) |> Enum.sort()
-      assert indices == [0, 1, 2]
-    end
-
-    test "chunk logs have at and duration_ms timestamps" do
-      wf = contact_batch_workflow()
-      {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
-
-      for log <- chunk_logs(run) do
-        assert Map.get(log, "at") != nil
-        assert is_integer(Map.get(log, "duration_ms"))
-        assert Map.get(log, "duration_ms") >= 0
-      end
-    end
-
-    test "each chunk log records 2 results and 2 errors" do
-      wf = contact_batch_workflow()
-      {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
-
-      for log <- chunk_logs(run) do
-        assert Map.get(log, "results") == 2
-        assert Map.get(log, "errors") == 2
-      end
-    end
-
-    test "iteration_logs nested per chunk have 4 item-level events (2 ok + 2 error)" do
-      wf = contact_batch_workflow()
-      {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
-
-      for log <- chunk_logs(run) do
-        iteration_logs = Map.get(log, "iteration_logs", [])
-        assert length(iteration_logs) == 4
-
-        events = Enum.map(iteration_logs, &Map.get(&1, "event"))
-        assert Enum.count(events, &(&1 == "item_ok")) == 2
-        assert Enum.count(events, &(&1 == "item_error")) == 2
-      end
-    end
-
-    test "item logs have at and duration_ms timestamps" do
-      wf = contact_batch_workflow()
-      {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
-
-      assert length(item_logs(run)) == 12
-
-      for log <- item_logs(run) do
-        assert Map.get(log, "at") != nil
-        assert is_integer(Map.get(log, "duration_ms"))
-        assert Map.get(log, "duration_ms") >= 0
-      end
-    end
-
-    test "item error log reasons reference the failed condition key" do
-      wf = contact_batch_workflow()
-      {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
-
-      error_reasons =
+      failed =
         run
-        |> item_logs()
-        |> Enum.filter(&(Map.get(&1, "event") == "item_error"))
-        |> Enum.map(&to_string(Map.get(&1, "reason")))
+        |> step_runs()
+        |> Enum.filter(
+          &(String.starts_with?(&1.step_name, "batch_contacts/condition_") and
+              &1.status == "failed_fatal")
+        )
 
-      assert Enum.count(error_reasons, &String.contains?(&1, "active")) == 3
-      assert Enum.count(error_reasons, &String.contains?(&1, "in_sequence")) == 3
+      # 3 fail the active check + 3 fail the in_sequence check
+      assert length(failed) == 6
     end
 
-    test "log trail is visible in finished run's log_summary timeline" do
+    test "per-fork failures do not fail the run (skip_and_continue)" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, finished} = WorkflowAgent.execute(run)
 
-      batch_entry =
-        finished.log_summary.timeline
-        |> Enum.find(&(&1.step_name == "batch_contacts"))
+      assert finished.status == "completed"
+    end
 
-      assert batch_entry != nil
-      # 1 step_completed + 3 chunk_completed
-      assert length(batch_entry.logs) == 4
+    test "post_process tail runs once per successful fork" do
+      wf = contact_batch_workflow()
+      {:ok, run} = Workflows.create_run(wf, source_event())
+      {:ok, _} = WorkflowAgent.execute(run)
+
+      sleeps = fork_rows(run, "sleep_between")
+      assert length(sleeps) == 6
+      assert Enum.all?(sleeps, &(&1.status == "completed"))
+    end
+
+    test "aggregate batch_contacts row is present with its first log a step_completed" do
+      wf = contact_batch_workflow()
+      {:ok, run} = Workflows.create_run(wf, source_event())
+      {:ok, finished} = WorkflowAgent.execute(run)
+
+      [first | _] = batch_step_run(run).logs
+      assert Map.get(first, "event") == "step_completed"
+
+      assert finished.log_summary.timeline
+             |> Enum.any?(&(&1.step_name == "batch_contacts"))
     end
   end
 
@@ -718,28 +665,27 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     run |> step_runs() |> Enum.find(&(&1.step_name == "batch_contacts"))
   end
 
-  # Collects all dispatched contacts across all 3 batches.
-  # Structure: batch.results = [chunk1, chunk2, chunk3]
-  # chunk = %{"results" => [%{"dispatched" => contact}, ...], "errors" => [...]}
+  # Per-fork visibility model: each contact is its own `batch_contacts/dispatch[i]`
+  # StepRun. Dispatched contacts are read from those rows (the dispatch step's
+  # `dispatched` output), not from the aggregate — the aggregate's per-fork result is
+  # the post_process (`sleep_between`) tail.
   defp total_dispatched(run) do
     run
-    |> batch_step_run()
-    |> Map.get(:results, %{})
-    |> Map.get("results", [])
-    |> Enum.flat_map(fn chunk ->
-      chunk
-      |> Map.get("results", [])
-      |> Enum.map(&(Map.get(&1, "dispatched") || Map.get(&1, :dispatched)))
-      |> Enum.reject(&is_nil/1)
-    end)
+    |> step_runs()
+    |> Enum.filter(
+      &(String.starts_with?(&1.step_name, "batch_contacts/dispatch[") and
+          &1.status == "completed")
+    )
+    |> Enum.map(&(&1.results && &1.results["dispatched"]))
+    |> Enum.reject(&is_nil/1)
   end
 
-  # Collects all per-item errors from the Iterate output across all batches.
+  # Per-item errors come from the aggregate map row's flat `errors` list
+  # (`%{index, item, reason}` per isolated `failed_fatal` fork).
   defp total_iterate_errors(run) do
     run
     |> batch_step_run()
     |> Map.get(:results, %{})
-    |> Map.get("results", [])
-    |> Enum.flat_map(&(Map.get(&1, "errors") || []))
+    |> Map.get("errors", [])
   end
 end

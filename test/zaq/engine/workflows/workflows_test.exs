@@ -5,12 +5,10 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
   alias Zaq.Engine.Workflows.{StepApproval, Trigger, Workflow, WorkflowRun}
-  alias Zaq.Test.Stubs
-
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 
@@ -836,7 +834,8 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
 
   describe "StepRun.statuses/0" do
     test "returns the expected status list" do
-      assert StepRun.statuses() == ~w(running paused waiting completed failed skipped)
+      assert StepRun.statuses() ==
+               ~w(running paused waiting completed failed failed_fatal skipped)
     end
   end
 

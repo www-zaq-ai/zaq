@@ -74,17 +74,21 @@ defmodule Zaq.Engine.Workflows.Step.Node do
   end
 
   # A `"map"` node iterates an inline `body` pipeline over the upstream collection
-  # named by `over` (see `DagBuilder`/`Composition`). Both are required, and `body`
-  # must list at least one inline node to run per item.
+  # named by `over` (see `DagBuilder`/`Composition`). `over` + `body` are required.
+  # Optional throughput/delivery knobs (the Batch superset):
+  #   - `chunk_size` — positive integer; nil ⇒ per-item fan-out
+  #   - `delivery`   — "item" | "list" (how each unit reaches the body via `field`)
+  #   - `field`      — the param key under which the unit is delivered
   defp validate_map_params(changeset) do
     if get_field(changeset, :type) == "map" do
       params = changeset |> get_field(:params) |> Kernel.||(%{})
-      over = Map.get(params, "over")
-      body = Map.get(params, "body")
 
       changeset
-      |> validate_map_over(over)
-      |> validate_map_body(body)
+      |> validate_map_over(Map.get(params, "over"))
+      |> validate_map_body(Map.get(params, "body"))
+      |> validate_map_delivery(Map.get(params, "delivery"))
+      |> validate_map_chunk_size(Map.get(params, "chunk_size"))
+      |> validate_map_max_items(Map.get(params, "max_items"))
     else
       changeset
     end
@@ -99,4 +103,24 @@ defmodule Zaq.Engine.Workflows.Step.Node do
 
   defp validate_map_body(changeset, _body),
     do: add_error(changeset, :params, "body must list at least one node for map nodes")
+
+  defp validate_map_delivery(changeset, nil), do: changeset
+  defp validate_map_delivery(changeset, d) when d in ["item", "list"], do: changeset
+
+  defp validate_map_delivery(changeset, _d),
+    do: add_error(changeset, :params, ~s(delivery must be "item" or "list"))
+
+  defp validate_map_chunk_size(changeset, nil), do: changeset
+  defp validate_map_chunk_size(changeset, n) when is_integer(n) and n > 0, do: changeset
+
+  defp validate_map_chunk_size(changeset, _n),
+    do: add_error(changeset, :params, "chunk_size must be a positive integer")
+
+  # `max_items` (D-A8) caps the fan-out cardinality. Optional at save; when present
+  # it must be a positive integer. The run-time backstop lives in `DagBuilder`.
+  defp validate_map_max_items(changeset, nil), do: changeset
+  defp validate_map_max_items(changeset, n) when is_integer(n) and n > 0, do: changeset
+
+  defp validate_map_max_items(changeset, _n),
+    do: add_error(changeset, :params, "max_items must be a positive integer")
 end

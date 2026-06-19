@@ -271,6 +271,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
        %{
          is_batch: batch_module?(mod),
          is_iterate: iterate_module?(mod),
+         is_map: n["type"] == "map",
          params: n["params"] || %{}
        }}
     end)
@@ -531,6 +532,13 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                   <.iterate_step_card
                     step={step}
                     iterate_progress={Map.get(@iterate_progress, step.step_name)}
+                    node_params={Map.get(info, :params, %{})}
+                    now={@now}
+                  />
+                <% Map.get(info, :is_map) -> %>
+                  <.map_step_card
+                    step={step}
+                    step_runs={@step_runs}
                     node_params={Map.get(info, :params, %{})}
                     now={@now}
                   />

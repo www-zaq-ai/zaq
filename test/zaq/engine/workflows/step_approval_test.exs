@@ -4,10 +4,9 @@ defmodule Zaq.Engine.Workflows.StepApprovalTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.StepApproval
   alias Zaq.Repo
-  alias Zaq.Test.Stubs
 
   setup do
-    Stubs.stub_node_router()
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
   end
 
