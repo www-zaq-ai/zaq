@@ -11,7 +11,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
   # Identity is resolved from the trusted execution context:
   # - chat path:     ctx[:person_id] (set by the pipeline from the channel author)
-  # - workflow path: ctx[:actor][:person_id] (set by ActionWrapper from source_event)
+  # - workflow path: ctx[:actor][:person_id] (set by StepRunner from source_event)
   # - machine path:  ctx[:skip_permissions] == true honors params[:person_id]
   # The LLM-facing person_id param is ignored on non-machine paths.
 
@@ -416,13 +416,15 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       assert {:ok, %{conversations: []}} = History.run(%{}, %{person_id: person.id})
     end
 
-    test "data-layer query failures degrade to an empty result" do
+    test "data-layer query failures return an action error" do
       person = create_person("badlimit@example.com")
       conv = create_conversation(person.id)
       add_messages(conv, 1)
 
-      assert {:ok, %{conversations: []}} =
+      assert {:error, reason} =
                History.run(%{conversation_limit: "not-an-integer"}, %{person_id: person.id})
+
+      assert reason =~ "cannot be cast to type :integer"
     end
   end
 end

@@ -10,14 +10,14 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     `__edge_name__`) by Runic's ActionNode execution.
   - **Condition present and false**: raises `ConditionNotMet` — Runic marks this
     step `:failed` and prunes the downstream subgraph via `skip_downstream_subgraph`.
-    The downstream action node's `ActionWrapper` never runs → no failed `StepRun`
+    The downstream action node's `StepRunner` never runs → no failed `StepRun`
     row → `finalize/2` sees the run as `"completed"`.
   - **Mapping**: source keys listed as mapping values are consumed (removed from the
     output); all other keys are passed through unchanged; target keys are added.
-  - **Output**: `{:ok, transformed_fact}` — the downstream node's `ActionWrapper`
+  - **Output**: `{:ok, transformed_fact}` — the downstream node's `StepRunner`
     receives this as its input fact.
 
-  This module is NOT wrapped by `ActionWrapper` (see D-3). It is infrastructure;
+  This module is NOT wrapped by `StepRunner` (see D-3). It is infrastructure;
   it never appears in `StepRun` rows.
   """
 

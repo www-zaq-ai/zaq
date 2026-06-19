@@ -25,6 +25,8 @@ config :req_llm,
     name: ReqLLM.Finch,
     pools: %{
       :default => [
+        # ReqLLM recommends HTTP/1-only pools for broad provider compatibility and
+        # to avoid Finch mixed-protocol ALPN issues with large LLM request bodies.
         protocols: [:http1],
         size: 1,
         count: String.to_integer(System.get_env("REQ_LLM_POOL_COUNT", "20"))

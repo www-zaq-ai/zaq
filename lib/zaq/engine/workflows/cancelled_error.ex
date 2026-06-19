@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Workflows.CancelledError do
-  @moduledoc "Raised by ActionWrapper when a run has been cancelled between steps."
+  @moduledoc "Raised by StepRunner when a run has been cancelled between steps."
 
   defexception [:run_id, message: "workflow run cancelled"]
 
