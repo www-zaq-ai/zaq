@@ -1,6 +1,8 @@
 defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   use ZaqWeb, :live_view
 
+  import ZaqWeb.Components.DesignSystem.DiagnosticCard, only: [diagnostic_card: 1]
+
   alias Zaq.Agent.{PromptTemplate, Retrieval, TokenEstimator}
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document}

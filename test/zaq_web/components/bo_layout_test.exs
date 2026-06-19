@@ -28,13 +28,6 @@ defmodule ZaqWeb.Components.BOLayoutTest do
     assert html =~ "id=\"header-user-trigger\""
   end
 
-  test "status_badge/1 renders expected states" do
-    assert render_component(&BOLayout.status_badge/1, status: :idle) =~ "idle"
-    assert render_component(&BOLayout.status_badge/1, status: :loading) =~ "testing"
-    assert render_component(&BOLayout.status_badge/1, status: :ok) =~ "connected"
-    assert render_component(&BOLayout.status_badge/1, status: {:error, :boom}) =~ "error"
-  end
-
   test "config_row/1 renders hint and truncate class" do
     html =
       render_component(&BOLayout.config_row/1,

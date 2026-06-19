@@ -42,7 +42,7 @@
 
   <div class="grid grid-cols-3 gap-6">
     <!-- LLM -->
-    <ZaqWeb.Components.BOLayout.diagnostic_card
+    <.diagnostic_card
       label="LLM"
       status={@llm_status}
       event="test_llm"
@@ -88,10 +88,10 @@
         value={to_string(@llm_config.distance_threshold)}
         hint="System Config → LLM"
       />
-    </ZaqWeb.Components.BOLayout.diagnostic_card>
+    </.diagnostic_card>
     
 <!-- Embedding -->
-    <ZaqWeb.Components.BOLayout.diagnostic_card
+    <.diagnostic_card
       label="Embedding"
       status={@embedding_status}
       event="test_embedding"
@@ -146,10 +146,10 @@
         value={to_string(@embedding_config.chunk_max_tokens)}
         hint="System Config → Embedding"
       />
-    </ZaqWeb.Components.BOLayout.diagnostic_card>
+    </.diagnostic_card>
     
 <!-- Image to Text -->
-    <ZaqWeb.Components.BOLayout.diagnostic_card
+    <.diagnostic_card
       label="Image to Text"
       status={@image_to_text_status}
       event="test_image_to_text"
@@ -186,7 +186,7 @@
         }
         hint="mix zaq.python.fetch"
       />
-    </ZaqWeb.Components.BOLayout.diagnostic_card>
+    </.diagnostic_card>
   </div>
   
 <!-- Prompt Templates Summary -->

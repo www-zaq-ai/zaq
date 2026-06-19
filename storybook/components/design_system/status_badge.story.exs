@@ -1,5 +1,8 @@
-defmodule Storybook.Components.Feedback.StatusBadge do
+defmodule Storybook.Components.DesignSystem.StatusBadge do
   use PhoenixStorybook.Story, :page
+  use Phoenix.Component
+
+  import ZaqWeb.Components.DesignSystem.StatusBadge
 
   def description do
     "Diagnostic connection status chip (BO). Styling uses the design-system pill primitive: " <>
@@ -12,22 +15,22 @@ defmodule Storybook.Components.Feedback.StatusBadge do
     <div style="font-family: var(--zaq-font-family-body, system-ui); padding: 2rem; display: flex; flex-direction: column; gap: 2rem;">
       <p style="font-size: 0.75rem; opacity: 0.6;">
         <code style="font-family: var(--zaq-font-family-code, ui-monospace, monospace);">
-          &lt;ZaqWeb.Components.BOLayout.status_badge status={:ok} /&gt;
+          &lt;ZaqWeb.Components.DesignSystem.StatusBadge.status_badge status={:ok} /&gt;
         </code>
       </p>
 
       <div style="display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center;">
         <.demo label=":idle">
-          <ZaqWeb.Components.BOLayout.status_badge status={:idle} />
+          <.status_badge status={:idle} />
         </.demo>
         <.demo label=":loading">
-          <ZaqWeb.Components.BOLayout.status_badge status={:loading} />
+          <.status_badge status={:loading} />
         </.demo>
         <.demo label=":ok">
-          <ZaqWeb.Components.BOLayout.status_badge status={:ok} />
+          <.status_badge status={:ok} />
         </.demo>
         <.demo label="{:error, msg}">
-          <ZaqWeb.Components.BOLayout.status_badge status={{:error, "Connection refused"}} />
+          <.status_badge status={{:error, "Connection refused"}} />
         </.demo>
       </div>
     </div>
