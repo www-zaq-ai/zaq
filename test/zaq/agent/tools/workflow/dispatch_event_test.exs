@@ -68,6 +68,39 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
       assert String.contains?(reason, "something_went_wrong")
     end
 
+    test "marks the request as a machine run when machine: true" do
+      assert {:ok, %{dispatched: dispatched}} =
+               DispatchEvent.run(
+                 %{input: %{"email" => "a@b.com"}, event_name: "lead_identified", machine: true},
+                 @ctx
+               )
+
+      assert dispatched["machine"] == true
+
+      assert_received {:dispatched, %Event{} = event}
+      assert event.request["machine"] == true
+    end
+
+    test "omits the machine marker by default" do
+      assert {:ok, %{dispatched: dispatched}} =
+               DispatchEvent.run(
+                 %{input: %{"email" => "a@b.com"}, event_name: "lead_identified"},
+                 @ctx
+               )
+
+      refute Map.has_key?(dispatched, "machine")
+    end
+
+    test "omits the machine marker when machine: false" do
+      assert {:ok, %{dispatched: dispatched}} =
+               DispatchEvent.run(
+                 %{input: %{"email" => "a@b.com"}, event_name: "lead_identified", machine: false},
+                 @ctx
+               )
+
+      refute Map.has_key?(dispatched, "machine")
+    end
+
     test "rejects non-allowlisted event names" do
       assert {:error, reason} =
                DispatchEvent.run(%{input: %{}, event_name: "any_event_name_works"}, @ctx)
@@ -83,6 +116,7 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
 
       assert :input in keys
       assert :event_name in keys
+      assert :machine in keys
       refute :destination in keys
       refute :name in keys
       refute :type in keys

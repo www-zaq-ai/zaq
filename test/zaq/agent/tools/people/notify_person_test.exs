@@ -100,8 +100,8 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
                )
     end
 
-    test "consumes the Person struct returned by EnsurePerson" do
-      assert {:ok, %{person: %Person{} = person}} =
+    test "consumes the person payload returned by EnsurePerson" do
+      assert {:ok, %{person: %{id: person_id} = person}} =
                EnsurePerson.run(
                  %{platform: "email", email: "handoff@example.com", display_name: "Handoff"},
                  %{}
@@ -110,6 +110,19 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
       assert {:ok, %{notified: true, status: :dispatched}} =
                NotifyPerson.run(
                  %{person: person, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter}
+               )
+
+      assert_received {:dispatched, event}
+      assert event.request.person_id == person_id
+    end
+
+    test "consumes a string-keyed person payload after JSONB round-trip" do
+      person = person_fixture()
+
+      assert {:ok, %{notified: true, status: :dispatched}} =
+               NotifyPerson.run(
+                 %{person: %{"id" => person.id}, subject: "Hello", message: "Body"},
                  %{node_router: OkRouter}
                )
 
