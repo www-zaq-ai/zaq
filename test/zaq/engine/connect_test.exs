@@ -12,6 +12,10 @@ defmodule Zaq.Engine.ConnectTest do
     def oauth_refresh_token(_config, _params), do: :unexpected
   end
 
+  defmodule StubOAuthInvalidResponseConfig do
+    def get(:zaq, :channels, _default), do: %{google_drive: %{bridge: StubOAuthInvalidResponse}}
+  end
+
   defmodule StubOAuthNoScopes do
     def oauth_refresh_token(_config, _params) do
       {:ok,
@@ -24,6 +28,10 @@ defmodule Zaq.Engine.ConnectTest do
     end
   end
 
+  defmodule StubOAuthNoScopesConfig do
+    def get(:zaq, :channels, _default), do: %{google_drive: %{bridge: StubOAuthNoScopes}}
+  end
+
   defmodule StubOAuthMissingRefreshToken do
     def oauth_refresh_token(_config, _params) do
       {:ok,
@@ -34,6 +42,11 @@ defmodule Zaq.Engine.ConnectTest do
          scopes: ["scope.from.refresh"]
        }}
     end
+  end
+
+  defmodule StubOAuthMissingRefreshTokenConfig do
+    def get(:zaq, :channels, _default),
+      do: %{google_drive: %{bridge: StubOAuthMissingRefreshToken}}
   end
 
   setup do
@@ -964,20 +977,6 @@ defmodule Zaq.Engine.ConnectTest do
       })
       |> Repo.insert!()
 
-      original_channels = Application.get_env(:zaq, :channels)
-
-      Application.put_env(:zaq, :channels, %{
-        google_drive: %{bridge: StubOAuthInvalidResponse}
-      })
-
-      on_exit(fn ->
-        if original_channels do
-          Application.put_env(:zaq, :channels, original_channels)
-        else
-          Application.delete_env(:zaq, :channels)
-        end
-      end)
-
       {:ok, credential} =
         Connect.create_credential(%{
           name: "Invalid refresh payload credential",
@@ -1003,7 +1002,8 @@ defmodule Zaq.Engine.ConnectTest do
           scopes: ["scope.old"]
         })
 
-      assert {:error, {:invalid_refresh_response, :unexpected}} = Connect.refresh_grant(grant)
+      assert {:error, {:invalid_refresh_response, :unexpected}} =
+               Connect.refresh_grant(grant, config: StubOAuthInvalidResponseConfig)
     end
 
     test "refresh_grant falls back to existing scopes when payload omits scopes" do
@@ -1016,20 +1016,6 @@ defmodule Zaq.Engine.ConnectTest do
         settings: %{}
       })
       |> Repo.insert!()
-
-      original_channels = Application.get_env(:zaq, :channels)
-
-      Application.put_env(:zaq, :channels, %{
-        google_drive: %{bridge: StubOAuthNoScopes}
-      })
-
-      on_exit(fn ->
-        if original_channels do
-          Application.put_env(:zaq, :channels, original_channels)
-        else
-          Application.delete_env(:zaq, :channels)
-        end
-      end)
 
       {:ok, credential} =
         Connect.create_credential(%{
@@ -1056,7 +1042,7 @@ defmodule Zaq.Engine.ConnectTest do
           scopes: ["scope.from.grant"]
         })
 
-      assert {:ok, refreshed} = Connect.refresh_grant(grant)
+      assert {:ok, refreshed} = Connect.refresh_grant(grant, config: StubOAuthNoScopesConfig)
       assert refreshed.access_token != "old-access"
       assert refreshed.refresh_token == "new-refresh"
       assert refreshed.scopes == ["scope.from.grant"]
@@ -1072,20 +1058,6 @@ defmodule Zaq.Engine.ConnectTest do
         settings: %{}
       })
       |> Repo.insert!()
-
-      original_channels = Application.get_env(:zaq, :channels)
-
-      Application.put_env(:zaq, :channels, %{
-        google_drive: %{bridge: StubOAuthMissingRefreshToken}
-      })
-
-      on_exit(fn ->
-        if original_channels do
-          Application.put_env(:zaq, :channels, original_channels)
-        else
-          Application.delete_env(:zaq, :channels)
-        end
-      end)
 
       {:ok, credential} =
         Connect.create_credential(%{
@@ -1112,7 +1084,9 @@ defmodule Zaq.Engine.ConnectTest do
           scopes: ["scope.from.grant"]
         })
 
-      assert {:ok, refreshed} = Connect.refresh_grant(grant)
+      assert {:ok, refreshed} =
+               Connect.refresh_grant(grant, config: StubOAuthMissingRefreshTokenConfig)
+
       assert refreshed.access_token == "new-access"
       assert refreshed.refresh_token == "old-refresh"
       assert refreshed.scopes == ["scope.from.refresh"]

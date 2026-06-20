@@ -145,6 +145,26 @@
 - When a module calls a cross-node service or external integration, make the dependency injectable via `Application.get_env(:zaq, :module_key, DefaultModule)`.
 - This allows test overrides without mocking internals.
 - Example: `JidoChatBridge` injects `:chat_bridge_pipeline_module`, `:chat_bridge_router_module`, etc.
+- When production code needs runtime application config that may need per-call test overrides, use `Zaq.Config.get/4` with an `opts` keyword list instead of calling `Application.get_env/3` directly.
+- Public functions that read runtime config should accept `opts \\ []`, pass those opts through the call chain, and read config with `Zaq.Config.get(:zaq, :key, default, opts)`.
+- `Zaq.Config` remains the production default and delegates to `Application.get_env/3`; tests can pass `config: TestConfig` where `TestConfig` implements `get/3` or `get/4`.
+- For routed calls, carry the override in `%Zaq.Event{opts: [config: TestConfig]}` so the role boundary and downstream modules use the same config source.
+- Example:
+
+  ```elixir
+  def bridge_for(provider, opts \\ []) do
+    channels = Zaq.Config.get(:zaq, :channels, %{}, opts)
+    # ...
+  end
+  ```
+
+  ```elixir
+  defmodule TestConfig do
+    def get(:zaq, :channels, _default), do: %{web: %{bridge: StubBridge}}
+  end
+
+  assert {:ok, StubBridge} = MyContext.bridge_for(:web, config: TestConfig)
+  ```
 
 ### Stateless routers
 

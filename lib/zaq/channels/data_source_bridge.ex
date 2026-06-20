@@ -215,9 +215,10 @@ defmodule Zaq.Channels.DataSourceBridge do
   end
 
   @doc "Refreshes OAuth token through the configured DataSource bridge."
-  @spec oauth_refresh_token(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def oauth_refresh_token(provider, params) when is_map(params) do
-    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+  @spec oauth_refresh_token(atom() | String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def oauth_refresh_token(provider, params, opts \\ []) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- supports_callback?(bridge, :oauth_refresh_token, 2) || {:error, :unsupported} do
       bridge.oauth_refresh_token(config, params)

@@ -9,6 +9,7 @@ defmodule Zaq.Channels.ApiTest do
 
   defmodule StubCommunicationBridge do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
+    def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
 
@@ -38,6 +39,7 @@ defmodule Zaq.Channels.ApiTest do
 
   defmodule StubCommunicationBridgeConfigError do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
+    def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
     def fetch_channel_config(_provider), do: {:error, :channel_not_configured}
   end
@@ -112,12 +114,14 @@ defmodule Zaq.Channels.ApiTest do
 
   defmodule StubCommunicationBridgeNoCallbacks do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeNoCallbacks
+    def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
   end
 
   defmodule StubCommunicationBridgeNoBridge do
     def bridge_for(_provider), do: nil
+    def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
   end

@@ -200,10 +200,10 @@ defmodule Zaq.Engine.Connect do
     end
   end
 
-  @spec refresh_grant(Grant.t()) :: {:ok, Grant.t()} | {:error, term()}
-  def refresh_grant(%Grant{} = grant) do
+  @spec refresh_grant(Grant.t(), keyword()) :: {:ok, Grant.t()} | {:error, term()}
+  def refresh_grant(%Grant{} = grant, opts \\ []) do
     with {:ok, credential} <- fetch_credential(grant.credential_id),
-         {:ok, token_payload} <- dispatch_refresh(grant, credential) do
+         {:ok, token_payload} <- dispatch_refresh(grant, credential, opts) do
       update_grant_tokens(grant, token_payload)
     end
   end
@@ -238,7 +238,7 @@ defmodule Zaq.Engine.Connect do
 
   defp normalize_credential_id(_), do: nil
 
-  defp dispatch_refresh(%Grant{} = grant, %Credential{} = credential) do
+  defp dispatch_refresh(%Grant{} = grant, %Credential{} = credential, opts) do
     params = %{
       "credential_id" => credential.id,
       "client_id" => credential.client_id,
@@ -251,7 +251,9 @@ defmodule Zaq.Engine.Connect do
       Event.new(
         %{provider: grant.provider, params: params},
         :channels,
-        opts: [action: :data_source_oauth_refresh_token]
+        opts:
+          [action: :data_source_oauth_refresh_token]
+          |> maybe_put_config(opts)
       )
 
     case NodeRouter.dispatch(event).response do
@@ -259,6 +261,12 @@ defmodule Zaq.Engine.Connect do
       {:error, _} = error -> error
       other -> {:error, {:invalid_refresh_response, other}}
     end
+  end
+
+  defp maybe_put_config(event_opts, opts) do
+    if Keyword.has_key?(opts, :config),
+      do: Keyword.put(event_opts, :config, Keyword.fetch!(opts, :config)),
+      else: event_opts
   end
 
   defp update_grant_tokens(%Grant{} = grant, token_payload) do

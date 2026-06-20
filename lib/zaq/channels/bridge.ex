@@ -265,36 +265,31 @@ defmodule Zaq.Channels.Bridge do
 
   @doc "Returns the configured bridge module for provider."
   @spec bridge_for(atom() | String.t()) :: module() | nil
-  def bridge_for(provider) when is_binary(provider) do
-    provider
-    |> provider_to_bridge_key()
-    |> case do
+  def bridge_for(provider, opts \\ []) do
+    case provider_to_bridge_key(provider) do
       nil -> nil
-      key -> bridge_for(key)
+      key -> Zaq.Config.get(:zaq, :channels, %{}, opts) |> get_in([key, :bridge])
     end
-  end
-
-  def bridge_for(provider) when is_atom(provider) do
-    :zaq
-    |> Application.get_env(:channels, %{})
-    |> get_in([provider, :bridge])
   end
 
   @doc "Maps provider string keys to configured bridge keys."
   @spec provider_to_bridge_key(String.t()) :: atom() | nil
   def provider_to_bridge_key(@smtp_provider), do: :email
   def provider_to_bridge_key(@imap_provider), do: :email
+  def provider_to_bridge_key(provider) when is_atom(provider), do: provider
 
-  def provider_to_bridge_key(provider) do
+  def provider_to_bridge_key(provider) when is_binary(provider) do
     String.to_existing_atom(provider)
   rescue
     ArgumentError -> nil
   end
 
+  def provider_to_bridge_key(_provider), do: nil
+
   @doc "Resolves configured bridge for provider."
   @spec resolve_bridge(atom() | String.t()) :: {:ok, module()} | {:error, term()}
-  def resolve_bridge(provider) do
-    case bridge_for(provider) do
+  def resolve_bridge(provider, opts \\ []) do
+    case bridge_for(provider, opts) do
       nil -> {:error, {:no_bridge, provider}}
       bridge -> {:ok, bridge}
     end

@@ -80,6 +80,7 @@ Rules:
 - Start from `docs/testing-approach.md` for policy (test pyramid + property-testing requirements).
 - Use `ExUnitProperties`/`StreamData` when testing invariants, broad input spaces, or normalization/safety rules.
 - For invariant-heavy changes, add at least one property test in addition to example-based tests.
+- Do not use global application env mutation as a seam in `async: true` tests. Prefer `opts[:config]` plus `Zaq.Config.get/4`, and thread opts into events or spawned runtime processes that need the same override.
 
 - **Never use `Ecto.Adapters.SQL.Sandbox` in production code.** It is a test-only module. Do not alias or call it from any module outside `test/`. To allow a GenServer started in a test to access the DB, call `Ecto.Adapters.SQL.Sandbox.allow(Repo, owner_pid, genserver_pid)` from test setup **after** starting the process — never from inside `init/1`. With `async: false` tests and a shared sandbox (`shared: true`), all processes share the DB connection automatically and no explicit `allow` is needed.
 - **Always use `start_supervised!/1`** to start processes in tests — guarantees cleanup between tests.

@@ -44,9 +44,12 @@ defmodule Zaq.Engine.Notifications do
   @doc """
   Returns true if a bridge is configured for the given platform string.
   """
-  @spec bridge_available?(String.t()) :: boolean()
-  def bridge_available?(platform) when is_binary(platform) do
-    event = Event.new(%{platform: platform}, :channels, opts: [action: :bridge_available])
+  @spec bridge_available?(String.t(), keyword()) :: boolean()
+  def bridge_available?(platform, opts \\ []) when is_binary(platform) do
+    event =
+      Event.new(%{platform: platform}, :channels,
+        opts: [action: :bridge_available] |> maybe_put_config(opts)
+      )
 
     node_router_module().dispatch(event)
     |> Map.get(:response, false)
@@ -66,8 +69,10 @@ defmodule Zaq.Engine.Notifications do
   Only accepts a `%Notification{}` struct — pass a plain map to
   `Notification.build/1` first.
   """
-  @spec notify(Notification.t()) :: {:ok, :dispatched} | {:ok, :skipped}
-  def notify(%Notification{recipient_channels: []} = notification) do
+  @spec notify(Notification.t(), keyword()) :: {:ok, :dispatched} | {:ok, :skipped}
+  def notify(notification, opts \\ [])
+
+  def notify(%Notification{recipient_channels: []} = notification, _opts) do
     Logger.info(
       "[Notifications] skipped — no recipient_channels (sender=#{notification.sender}, recipient=#{notification.recipient_name})"
     )
@@ -75,7 +80,7 @@ defmodule Zaq.Engine.Notifications do
     {:ok, :skipped}
   end
 
-  def notify(%Notification{} = notification) do
+  def notify(%Notification{} = notification, opts) do
     configured_platforms = configured_platforms()
 
     {channels, skipped_platforms} =
@@ -83,7 +88,7 @@ defmodule Zaq.Engine.Notifications do
         platform = Map.get(ch, :platform)
         identifier = Map.get(ch, :identifier)
 
-        if platform in configured_platforms and bridge_available?(platform) do
+        if platform in configured_platforms and bridge_available?(platform, opts) do
           entry = %{"platform" => platform, "identifier" => identifier}
           {configured ++ [entry], skipped}
         else
@@ -142,4 +147,10 @@ defmodule Zaq.Engine.Notifications do
 
   defp node_router_module,
     do: Application.get_env(:zaq, :notifications_node_router_module, Zaq.NodeRouter)
+
+  defp maybe_put_config(event_opts, opts) do
+    if Keyword.has_key?(opts, :config),
+      do: Keyword.put(event_opts, :config, Keyword.fetch!(opts, :config)),
+      else: event_opts
+  end
 end
