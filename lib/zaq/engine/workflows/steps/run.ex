@@ -2,7 +2,7 @@ defmodule Zaq.Engine.Workflows.Step.Run do
   @moduledoc """
   Ecto schema for a single step execution within a workflow run.
 
-  One row is written per step execution. The `WorkflowAgent` writes a row
+  One row is written per step execution. The `WorkflowRunAgent` writes a row
   with `status: :running` before executing each step (crash-safe cursor),
   then updates it to `completed` or `failed` after the action returns.
 

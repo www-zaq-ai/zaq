@@ -120,7 +120,89 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
 
       assert changeset.errors[:nodes]
     end
+  end
 
+  describe "create_workflow/2 — save-time module contract (Task 13)" do
+    test "rejects (and does not insert) a node naming a module that does not resolve" do
+      before = Repo.aggregate(Workflow, :count)
+
+      assert {:error, changeset} =
+               Workflows.create_workflow(%{
+                 name: "Bad Module #{System.unique_integer()}",
+                 status: "active",
+                 nodes: [%{name: "x", type: "action", module: "Zaq.Nope", index: 0}],
+                 edges: []
+               })
+
+      assert changeset.changes.nodes |> hd() |> Map.fetch!(:errors) |> Keyword.has_key?(:module)
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+
+    test "rejects a node naming a module that does not satisfy the Action contract" do
+      assert {:error, _changeset} =
+               Workflows.create_workflow(%{
+                 name: "Non-conforming #{System.unique_integer()}",
+                 status: "active",
+                 nodes: [
+                   %{
+                     name: "x",
+                     type: "action",
+                     module: "Zaq.Engine.Workflows.Test.NonConformingAction",
+                     index: 0
+                   }
+                 ],
+                 edges: []
+               })
+    end
+
+    test "reports an invalid node and an invalid edge together (part delegation + aggregation)" do
+      assert {:error, changeset} =
+               Workflows.create_workflow(%{
+                 name: "Both Bad #{System.unique_integer()}",
+                 status: "active",
+                 nodes: [%{name: "x", type: "action", module: "Zaq.Nope", index: 0}],
+                 edges: [%{from: "x", to: "x", condition: %{"field" => "f", "op" => "bogus_op"}}]
+               })
+
+      assert changeset.changes.nodes |> hd() |> Map.fetch!(:errors) |> Keyword.has_key?(:module)
+
+      assert changeset.changes.edges
+             |> hd()
+             |> Map.fetch!(:errors)
+             |> Keyword.has_key?(:condition)
+    end
+
+    test "accepts a workflow whose nodes all resolve and conform" do
+      assert {:ok, _wf} =
+               Workflows.create_workflow(%{
+                 name: "Good #{System.unique_integer()}",
+                 status: "active",
+                 nodes: [%{name: "x", type: "action", module: @ok_module, index: 0}],
+                 edges: []
+               })
+    end
+  end
+
+  describe "update_workflow/3 — save-time module contract (Task 13)" do
+    test "rejects an edit that swaps in an unresolvable module" do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "Editable #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "x", type: "action", module: @ok_module, index: 0}],
+          edges: []
+        })
+
+      assert {:error, changeset} =
+               Workflows.update_workflow(wf, %{
+                 nodes: [%{name: "x", type: "action", module: "Zaq.Nope", index: 0}]
+               })
+
+      assert Enum.any?(changeset.changes.nodes, &Keyword.has_key?(&1.errors, :module))
+    end
+  end
+
+  describe "create_workflow/2 — composition validation (D5): acyclic reference" do
     test "accepts a workflow referencing an existing acyclic workflow" do
       {:ok, sub} =
         Workflows.create_workflow(%{
@@ -301,18 +383,24 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       assert %Runic.Workflow{} = run.prepared_dag
     end
 
-    test "leaves prepared_dag nil when the snapshot cannot be built" do
+    test "leaves prepared_dag nil when the snapshot cannot be built (code drift)" do
+      # Save-time validation (Task 13) makes it impossible to *persist* a workflow
+      # whose node names an unresolvable module — so the only way a run's snapshot
+      # becomes unbuildable is code drift: a module that existed at save time is
+      # later removed. Simulate that with a real (FK-satisfying) workflow whose
+      # in-memory node is then pointed at a now-missing module; `create_run/2`
+      # serializes the passed struct directly and does not re-validate.
       {:ok, workflow} =
         Workflows.create_workflow(%{
-          name: "Unbuildable #{System.unique_integer()}",
+          name: "Drifted #{System.unique_integer()}",
           status: "active",
-          nodes: [
-            %{name: "bad", type: "action", module: "Does.Not.Exist", params: %{}, index: 0}
-          ],
+          nodes: [%{name: "bad", type: "action", module: @ok_module, params: %{}, index: 0}],
           edges: []
         })
 
-      assert {:ok, %WorkflowRun{} = run} = Workflows.create_run(workflow, @valid_source_event)
+      drifted = %{workflow | nodes: [%{hd(workflow.nodes) | module: "Does.Not.Exist"}]}
+
+      assert {:ok, %WorkflowRun{} = run} = Workflows.create_run(drifted, @valid_source_event)
       assert run.status == "pending"
       assert run.prepared_dag == nil
     end

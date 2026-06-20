@@ -203,8 +203,7 @@ defmodule Zaq.Agent.Tools.Accounts.History do
       |> Enum.map(fn conv ->
         messages =
           conv
-          |> Conversations.list_messages()
-          |> Enum.take(msg_limit)
+          |> Conversations.list_messages(limit: msg_limit)
           |> Enum.map(&%{role: &1.role, content: &1.content, inserted_at: &1.inserted_at})
 
         %{id: conv.id, title: conv.title, updated_at: conv.updated_at, messages: messages}

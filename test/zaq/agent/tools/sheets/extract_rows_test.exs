@@ -78,6 +78,14 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
       assert {:ok, %{rows: rows}} = ExtractRows.run(%{record: rec}, @ctx)
       assert Enum.map(rows, & &1["row_index"]) == [2, 3]
     end
+
+    test "raises when map-style content contains a scalar data row" do
+      rec = record([%{"header" => "row"}, "raw value"])
+
+      assert_raise Protocol.UndefinedError, fn ->
+        ExtractRows.run(%{record: rec}, @ctx)
+      end
+    end
   end
 
   describe "run/2 — header_row: false" do
@@ -95,6 +103,17 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
       assert {:ok, %{rows: rows}} = ExtractRows.run(%{record: rec, header_row: false}, @ctx)
       assert Enum.map(rows, & &1["name"]) == ["Alice", "Bob"]
       assert Enum.map(rows, & &1["row_index"]) == [1, 2]
+    end
+
+    test "preserves already typed scalar values" do
+      rec = record([%{active: false, archived: "false", score: 7, ratio: 1.5}])
+
+      assert {:ok, %{rows: [row]}} = ExtractRows.run(%{record: rec, header_row: false}, @ctx)
+      assert row["active"] == false
+      assert row["archived"] == false
+      assert row["score"] == 7
+      assert row["ratio"] == 1.5
+      assert row["row_index"] == 1
     end
   end
 

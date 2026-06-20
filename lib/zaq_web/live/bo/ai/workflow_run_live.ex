@@ -3,7 +3,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   BO page — full log trail for a single workflow run.
 
   Subscribes to `"workflow_run:<run_id>"` on mount and receives live updates
-  from WorkflowAgent as steps execute.
+  from WorkflowRunAgent as steps execute.
 
   In addition to the standard `:step_updated` / `:run_updated` messages,
   handles real-time progress from Batch and Iterate nodes:

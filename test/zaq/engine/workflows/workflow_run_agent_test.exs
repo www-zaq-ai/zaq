@@ -1,4 +1,4 @@
-defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
+defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
   use Zaq.DataCase, async: false
 
   import Ecto.Query
@@ -6,7 +6,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
   alias Zaq.Accounts.People
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.{ParamCapture, PauseSignal}
-  alias Zaq.Engine.Workflows.{WorkflowAgent, WorkflowRun}
+  alias Zaq.Engine.Workflows.{WorkflowRun, WorkflowRunAgent}
   alias Zaq.Event
   alias Zaq.Repo
   @waiting_module "Zaq.Engine.Workflows.Test.WaitingAction"
@@ -89,7 +89,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
     test "transitions WorkflowRun to completed" do
       run = create_run()
 
-      assert {:ok, updated} = WorkflowAgent.execute(run)
+      assert {:ok, updated} = WorkflowRunAgent.execute(run)
       assert updated.status == "completed"
       assert updated.started_at != nil
       assert updated.finished_at != nil
@@ -98,7 +98,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
     test "writes a completed ActionResult row for the step" do
       run = create_run()
 
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
       results = Workflows.list_step_runs(updated.id)
 
       assert length(results) == 1
@@ -112,7 +112,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       run = create_run()
       assert run.status == "pending"
 
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
       assert updated.status == "completed"
     end
   end
@@ -121,7 +121,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
     test "transitions WorkflowRun to failed when a step errors" do
       run = create_run(@error_module)
 
-      assert {:ok, updated} = WorkflowAgent.execute(run)
+      assert {:ok, updated} = WorkflowRunAgent.execute(run)
       assert updated.status == "failed"
       assert updated.finished_at != nil
     end
@@ -129,7 +129,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
     test "ActionResult row for failing step is marked failed" do
       run = create_run(@error_module)
 
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
       [ar] = Workflows.list_step_runs(updated.id)
 
       assert ar.status == "failed"
@@ -168,7 +168,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
       {:ok, run} = Workflows.create_run(wf, source_event)
 
-      assert {:ok, updated} = WorkflowAgent.execute(run)
+      assert {:ok, updated} = WorkflowRunAgent.execute(run)
       assert updated.status == "failed"
 
       [step_run] = Workflows.list_step_runs(updated.id)
@@ -177,8 +177,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
     end
   end
 
-  describe "execute/1 — DagBuilder failure" do
-    test "transitions WorkflowRun to failed when steps snapshot is invalid" do
+  describe "start_run/2 — DAG build failure" do
+    test "marks the run failed and returns the error when the snapshot can't be built" do
+      # Build failure is now the run module's responsibility (ensure_prepared_dag);
+      # the agent never builds. An empty-DAG snapshot reaches build via a run whose
+      # prepared_dag is nil.
       {:ok, wf} =
         Workflows.create_workflow(%{
           name: "WA Bad Steps #{System.unique_integer()}",
@@ -189,10 +192,48 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      assert {:error, _} = WorkflowAgent.execute(run)
+      assert {:error, :empty_dag} = Workflows.start_run(run)
 
       reloaded = Workflows.get_run!(run.id)
       assert reloaded.status == "failed"
+    end
+  end
+
+  describe "execute/2 — executes the prepared DAG only (Task 15)" do
+    test "runs run.prepared_dag and ignores steps_snapshot entirely" do
+      run = create_run()
+      # Garbage snapshot: if the agent rebuilt from it, the run would fail. It must
+      # run the prepared DAG carried on the struct instead.
+      assert {:ok, updated} = WorkflowRunAgent.execute(%{run | steps_snapshot: %{"junk" => true}})
+      assert updated.status == "completed"
+    end
+
+    test "returns {:error, :missing_prepared_dag} when the run carries no DAG" do
+      run = create_run()
+
+      assert {:error, :missing_prepared_dag} =
+               WorkflowRunAgent.execute(%{run | prepared_dag: nil})
+    end
+  end
+
+  describe "start_run/2 and resume_run/2 — prepare the DAG for reloaded runs" do
+    test "start_run builds the DAG for a reloaded pending run lacking prepared_dag" do
+      run = create_run()
+      reloaded = Workflows.get_run!(run.id)
+      assert reloaded.prepared_dag == nil
+
+      assert {:ok, updated} = Workflows.start_run(reloaded)
+      assert updated.status == "completed"
+    end
+
+    test "resume_run rebuilds the DAG for a reloaded paused run" do
+      run = create_run()
+      {:ok, _paused} = Workflows.update_run(run, %{status: "paused"})
+      reloaded = Workflows.get_run!(run.id)
+      assert reloaded.prepared_dag == nil
+
+      assert {:ok, updated} = Workflows.resume_run(reloaded)
+      assert updated.status == "completed"
     end
   end
 
@@ -211,7 +252,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
       assert updated.status == "completed"
 
       results = Workflows.list_step_runs(updated.id)
@@ -226,7 +267,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       wf = probe_workflow()
 
       {:ok, run} = Workflows.create_run(wf, event_source(payload))
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
 
       assert updated.status == "completed"
       params = ParamCapture.get_params()
@@ -241,7 +282,9 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       # Reloading from the DB forces the JSONB round-trip → deeply string-keyed
       # assigns. This is the critical regression path from the plan.
       reloaded = Workflows.get_run!(run.id)
-      {:ok, updated} = WorkflowAgent.execute(reloaded)
+      # A reloaded run has no prepared_dag; start_run rebuilds it before the agent
+      # runs. The agent's JSONB-key normalization is what this test exercises.
+      {:ok, updated} = Workflows.start_run(reloaded)
 
       assert updated.status == "completed"
       params = ParamCapture.get_params()
@@ -256,7 +299,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
       # @source_event has trigger_type but no :input key
       {:ok, run} = Workflows.create_run(wf, @source_event)
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
 
       assert updated.status == "completed"
       params = ParamCapture.get_params()
@@ -270,7 +313,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
       source_event = event_source(payload, %{internal_flag: "should_not_leak"})
       {:ok, run} = Workflows.create_run(wf, source_event)
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
 
       assert updated.status == "completed"
       params = ParamCapture.get_params()
@@ -286,7 +329,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       wf = probe_workflow()
 
       {:ok, run} = Workflows.create_run(wf, event_source(payload))
-      {:ok, _updated} = WorkflowAgent.execute(run)
+      {:ok, _updated} = WorkflowRunAgent.execute(run)
 
       params = ParamCapture.get_params()
       assert params[:event][:name] == :email_received
@@ -307,7 +350,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       wf = probe_workflow()
 
       {:ok, run} = Workflows.create_run(wf, event_source(payload))
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
 
       assert updated.status == "completed"
     end
@@ -324,7 +367,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       }
 
       {:ok, run} = Workflows.create_run(wf, source_event)
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
 
       assert updated.status == "completed"
     end
@@ -365,7 +408,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
     test "female: D runs, E is pruned" do
       run = cascade_workflow("female")
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
 
       step_runs = Workflows.list_step_runs(run.id)
@@ -380,7 +423,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
     test "male: E runs, D is pruned" do
       run = cascade_workflow("male")
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
 
       step_runs = Workflows.list_step_runs(run.id)
@@ -408,7 +451,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
         })
 
       {:ok, run} = Workflows.create_run(wf, @source_event)
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
 
       step_runs = Workflows.list_step_runs(run.id)
@@ -438,7 +481,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       {:ok, run} = Workflows.create_run(wf, @source_event)
       PauseSignal.put_run_id(run.id)
 
-      assert {:ok, updated} = WorkflowAgent.execute(run)
+      assert {:ok, updated} = WorkflowRunAgent.execute(run)
       assert updated.status == "paused"
 
       step_runs = Workflows.list_step_runs(run.id)
@@ -454,7 +497,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       wf = two_step_workflow(@ok_module, @ok_module)
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      assert {:ok, updated} = WorkflowAgent.execute(run)
+      assert {:ok, updated} = WorkflowRunAgent.execute(run)
       assert updated.status == "completed"
 
       step_runs = Workflows.list_step_runs(run.id)
@@ -467,7 +510,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       {:ok, run} = Workflows.create_run(wf, @source_event)
       PauseSignal.put_run_id(run.id)
 
-      {:ok, paused_run} = WorkflowAgent.execute(run)
+      {:ok, paused_run} = WorkflowRunAgent.execute(run)
       assert paused_run.status == "paused"
 
       PauseSignal.reset()
@@ -519,7 +562,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       wf = hitl_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      {:ok, waiting_run} = WorkflowRunAgent.execute(run)
       assert waiting_run.status == "waiting"
     end
 
@@ -527,7 +570,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       wf = hitl_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      {:ok, _waiting_run} = WorkflowAgent.execute(run)
+      {:ok, _waiting_run} = WorkflowRunAgent.execute(run)
 
       step_runs = Workflows.list_step_runs(run.id)
       by_name = Map.new(step_runs, &{&1.step_name, &1})
@@ -537,11 +580,11 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       refute Map.has_key?(by_name, "step2")
     end
 
-    test "WaitingAction suspends the run and WorkflowAgent transitions it to waiting" do
+    test "WaitingAction suspends the run and WorkflowRunAgent transitions it to waiting" do
       wf = hitl_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      result = WorkflowAgent.execute(run)
+      result = WorkflowRunAgent.execute(run)
       assert {:ok, %{status: "waiting"}} = result
     end
   end
@@ -577,7 +620,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       run = create_run()
       flush_dispatched()
 
-      assert {:ok, _} = WorkflowAgent.execute(run)
+      assert {:ok, _} = WorkflowRunAgent.execute(run)
 
       assert_received {:dispatched, started}
       assert started.request[:action] == "run.started"
@@ -594,7 +637,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       run = create_run(@error_module)
       flush_dispatched()
 
-      assert {:ok, _} = WorkflowAgent.execute(run)
+      assert {:ok, _} = WorkflowRunAgent.execute(run)
 
       assert_received {:dispatched, started}
       assert started.request[:action] == "run.started"
@@ -605,7 +648,9 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       assert failed.request[:run_id] == run.id
     end
 
-    test "DAG build failure dispatches run.started then run.failed" do
+    test "DAG build failure dispatches run.failed and never run.started" do
+      # Task 15: the DAG is prepared before the run transitions to running, so a
+      # build failure never emits run.started — the run never actually started.
       {:ok, wf} =
         Workflows.create_workflow(%{
           name: "WA Dag Fail #{System.unique_integer()}",
@@ -617,15 +662,13 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       {:ok, run} = Workflows.create_run(wf, @source_event)
       flush_dispatched()
 
-      assert {:error, _} = WorkflowAgent.execute(run)
-
-      assert_received {:dispatched, started}
-      assert started.request[:action] == "run.started"
-      assert started.request[:run_id] == run.id
+      assert {:error, _} = Workflows.start_run(run)
 
       assert_received {:dispatched, failed}
       assert failed.request[:action] == "run.failed"
       assert failed.request[:run_id] == run.id
+
+      refute_received {:dispatched, %{request: %{action: "run.started"}}}
     end
 
     test "paused run dispatches only run.started" do
@@ -646,7 +689,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       PauseSignal.put_run_id(run.id)
       flush_dispatched()
 
-      assert {:ok, paused} = WorkflowAgent.execute(run)
+      assert {:ok, paused} = WorkflowRunAgent.execute(run)
       assert paused.status == "paused"
 
       assert_received {:dispatched, started}
@@ -669,10 +712,10 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
         def list_step_runs(id), do: Workflows.list_step_runs(id)
       end
 
-      Application.put_env(:zaq, :workflow_agent_workflows_mod, FailingStartWorkflows)
-      on_exit(fn -> Application.delete_env(:zaq, :workflow_agent_workflows_mod) end)
+      Application.put_env(:zaq, :workflow_run_agent_workflows_mod, FailingStartWorkflows)
+      on_exit(fn -> Application.delete_env(:zaq, :workflow_run_agent_workflows_mod) end)
 
-      assert {:error, :start_blocked} = WorkflowAgent.execute(run)
+      assert {:error, :start_blocked} = WorkflowRunAgent.execute(run)
     end
   end
 
@@ -693,7 +736,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       }
 
       {:ok, run} = Workflows.create_run(wf, source_event_no_input)
-      {:ok, updated} = WorkflowAgent.execute(run)
+      {:ok, updated} = WorkflowRunAgent.execute(run)
 
       assert updated.status == "completed"
       params = ParamCapture.get_params()
@@ -718,12 +761,12 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
         })
 
       {:ok, run} = Workflows.create_run(wf, @source_event)
-      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      {:ok, waiting_run} = WorkflowRunAgent.execute(run)
       assert waiting_run.status == "waiting"
     end
   end
 
-  describe "execute/1 — format_build_error variants" do
+  describe "start_run/2 — build error surfaced (format_build_error variants)" do
     # Helper to create a run and forcefully set its steps_snapshot via raw DB update,
     # then reload and execute to trigger format_build_error with specific error atoms.
     defp run_with_snapshot(snapshot) do
@@ -755,7 +798,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
 
     test "format_build_error(:invalid_steps) — missing nodes key (line 229)" do
       run = run_with_snapshot(%{"edges" => []})
-      assert {:error, :invalid_steps} = WorkflowAgent.execute(run)
+      assert {:error, :invalid_steps} = Workflows.start_run(run)
     end
 
     test "format_build_error({:unknown_node_type, type}) — condition node type (line 236)" do
@@ -773,7 +816,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       }
 
       run = run_with_snapshot(snapshot)
-      assert {:error, {:unknown_node_type, "condition"}} = WorkflowAgent.execute(run)
+      assert {:error, {:unknown_node_type, "condition"}} = Workflows.start_run(run)
     end
 
     test "format_build_error({:unknown_module, nil}) — node with nil module (line 238)" do
@@ -785,7 +828,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       }
 
       run = run_with_snapshot(snapshot)
-      assert {:error, {:unknown_module, nil}} = WorkflowAgent.execute(run)
+      assert {:error, {:unknown_module, nil}} = Workflows.start_run(run)
     end
 
     test "format_build_error({:unknown_module, mod}) — non-existent module (line 241)" do
@@ -803,7 +846,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       }
 
       run = run_with_snapshot(snapshot)
-      assert {:error, {:unknown_module, "Does.Not.Exist.Anywhere"}} = WorkflowAgent.execute(run)
+      assert {:error, {:unknown_module, "Does.Not.Exist.Anywhere"}} = Workflows.start_run(run)
     end
 
     test "format_build_error({:unknown_node, name}) — edge referencing missing node (line 245)" do
@@ -821,7 +864,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       }
 
       run = run_with_snapshot(snapshot)
-      assert {:error, {:unknown_node, "ghost_node"}} = WorkflowAgent.execute(run)
+      assert {:error, {:unknown_node, "ghost_node"}} = Workflows.start_run(run)
     end
 
     test "format_build_error({:invalid_edge_condition, _}) — edge with bad condition (line 247)" do
@@ -852,7 +895,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgentTest do
       }
 
       run = run_with_snapshot(snapshot)
-      assert {:error, {:invalid_edge_condition, _}} = WorkflowAgent.execute(run)
+      assert {:error, {:invalid_edge_condition, _}} = Workflows.start_run(run)
     end
   end
 end

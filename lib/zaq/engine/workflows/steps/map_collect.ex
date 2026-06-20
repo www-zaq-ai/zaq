@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Workflows.Steps.MapCollect do
 
   Runs once, after the map's `reduce`/`FanIn` has collected every **successful**
   per-item result. Wrapped by `StepRunner` under the **map node's own name**, so it
-  writes the single **aggregate `StepRun`** for the map (D-A1 hybrid).
+  writes the single **aggregate `StepRun`** for the map.
 
   Output (`%{"results" => [...], "errors" => [...], "count" => n}`):
 

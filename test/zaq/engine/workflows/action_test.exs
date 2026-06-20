@@ -279,6 +279,28 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     end
   end
 
+  describe "validate_ref/1" do
+    test "returns :ok for a module string that resolves to a conforming action" do
+      assert :ok = Action.validate_ref("Zaq.Engine.Workflows.Test.OkAction")
+    end
+
+    test "returns {:unknown_module, str} for a string that resolves to no module" do
+      assert {:error, {:unknown_module, "Zaq.Does.Not.Exist"}} =
+               Action.validate_ref("Zaq.Does.Not.Exist")
+    end
+
+    test "returns {:unknown_module, nil} for nil" do
+      assert {:error, {:unknown_module, nil}} = Action.validate_ref(nil)
+    end
+
+    test "returns contract_violation for a resolvable but non-conforming module" do
+      assert {:error, {:contract_violation, NonConformingAction, missing}} =
+               Action.validate_ref("Zaq.Engine.Workflows.Test.NonConformingAction")
+
+      assert :schema in missing
+    end
+  end
+
   describe "compile-time contract enforcement (full mode)" do
     test "a conforming module compiles and gets the behaviour + defaults" do
       defmodule CompileOkAction do

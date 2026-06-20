@@ -803,6 +803,39 @@ defmodule Zaq.Engine.ConversationsTest do
     end
   end
 
+  # ── list_messages/2 :limit (Comment 56 — push LIMIT into SQL) ────────
+
+  describe "list_messages/2 :limit" do
+    test "limits the number of messages returned via SQL" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      for i <- 1..8 do
+        {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "m#{i}"})
+      end
+
+      assert length(Conversations.list_messages(conv, limit: 3)) == 3
+    end
+
+    test "without :limit returns all messages (back-compat with /1)" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      for i <- 1..4 do
+        {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "m#{i}"})
+      end
+
+      assert length(Conversations.list_messages(conv)) == 4
+      assert length(Conversations.list_messages(conv, [])) == 4
+    end
+
+    test "keeps ascending inserted_at order under the limit" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "first"})
+      {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "second"})
+
+      assert [%{content: "first"}] = Conversations.list_messages(conv, limit: 1)
+    end
+  end
+
   # ── rate_message/2 ──────────────────────────────────────────────────
 
   describe "rate_message/2" do

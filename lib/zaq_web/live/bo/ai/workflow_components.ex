@@ -1178,7 +1178,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   end
 
   @doc """
-  Renders the aggregate card for a `map` node run (Part 3, Step 9 / D-A1).
+  Renders the aggregate card for a `map` node run.
 
   The aggregate `StepRun` (named after the map node) carries the
   `%{"results", "errors", "count"}` summary written by `MapCollect`. This card

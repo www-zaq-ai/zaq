@@ -9,7 +9,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   alias Zaq.Engine.Api
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
-  alias Zaq.Engine.Workflows.WorkflowAgent
+  alias Zaq.Engine.Workflows.WorkflowRunAgent
   alias Zaq.Repo
 
   setup :verify_on_exit!
@@ -243,7 +243,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
   defp waiting_run_fixture(workflow) do
     {:ok, run} = Workflows.create_run(workflow, @valid_source_event)
-    {:ok, waiting_run} = WorkflowAgent.execute(run)
+    {:ok, waiting_run} = WorkflowRunAgent.execute(run)
     assert waiting_run.status == "waiting"
     waiting_run
   end
@@ -328,18 +328,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     test "broadcasting {:iterate_progress, step_name, progress} updates view without crashing", %{
       conn: conn
     } do
-      workflow =
-        workflow_fixture(%{
-          nodes: [
-            %{
-              name: "iterate_step",
-              type: "action",
-              module: "Zaq.Agent.Tools.Workflow.Iterate",
-              params: %{},
-              index: 0
-            }
-          ]
-        })
+      # The node module is incidental — this test only needs a viewable run to
+      # prove the LiveView tolerates a legacy `{:iterate_progress, …}` broadcast
+      # without crashing. (Iterate was deleted in Task 8; the `map` model no longer
+      # emits iterate_progress at all.)
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
 
       run = run_fixture(workflow)
       step_run_fixture(run, %{step_name: "iterate_step", step_index: 0, status: "running"})
