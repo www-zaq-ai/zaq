@@ -73,9 +73,10 @@ defmodule Zaq.Engine.Notifications do
   def notify(notification, opts \\ [])
 
   def notify(%Notification{recipient_channels: []} = notification, _opts) do
-    Logger.info(
+    message =
       "[Notifications] skipped — no recipient_channels (sender=#{notification.sender}, recipient=#{notification.recipient_name})"
-    )
+
+    Logger.info(message)
 
     {:ok, :skipped}
   end
@@ -122,9 +123,10 @@ defmodule Zaq.Engine.Notifications do
     if channels == [] do
       NotificationLog.transition_status(log, "skipped")
 
-      Logger.info(
+      message =
         "[Notifications] skipped — no configured channels (sender=#{notification.sender}, log_id=#{log.id})"
-      )
+
+      Logger.info(message)
 
       {:ok, :skipped}
     else

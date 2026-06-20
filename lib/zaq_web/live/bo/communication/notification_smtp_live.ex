@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   import Zaq.Helpers, only: [blank?: 1]
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Config
   alias Zaq.Mailer
   alias Zaq.System.EmailConfig
   alias Zaq.Types.EncryptedString
@@ -394,7 +395,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
       end
 
     opts = [
-      adapter: Swoosh.Adapters.SMTP,
+      adapter: mailer_adapter(),
       relay: String.trim(cfg.relay),
       port: cfg.port,
       ssl: ssl,
@@ -404,6 +405,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
     ]
 
     if blank?(cfg.username), do: opts, else: opts ++ [username: cfg.username, password: password]
+  end
+
+  defp mailer_adapter do
+    :zaq
+    |> Config.get(Mailer, [])
+    |> Keyword.get(:adapter, Swoosh.Adapters.SMTP)
   end
 
   defp transport_settings(%EmailConfig{transport_mode: "ssl"}), do: {true, :never}
