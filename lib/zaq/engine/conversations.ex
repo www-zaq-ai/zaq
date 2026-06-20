@@ -440,15 +440,26 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  @doc "Returns all messages for a conversation in insertion order."
-  def list_messages(%Conversation{} = conversation) do
+  @doc """
+  Returns messages for a conversation in insertion order.
+
+  Options:
+  - `:limit` — cap the number of rows at the database level (`LIMIT`). With the
+    ascending `inserted_at` order this returns the oldest `n` messages — pushing
+    the truncation into SQL instead of fetching every row and trimming in memory.
+  """
+  def list_messages(%Conversation{} = conversation, opts \\ []) do
     from(m in Message,
       where: m.conversation_id == ^conversation.id,
       order_by: [asc: m.inserted_at],
       preload: [:ratings]
     )
+    |> maybe_limit(opts[:limit])
     |> Repo.all()
   end
+
+  defp maybe_limit(query, nil), do: query
+  defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)
 
   # ── Ratings ────────────────────────────────────────────────────────
 

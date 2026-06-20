@@ -91,7 +91,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   @type steps :: map()
   @type build_result :: {:ok, Runic.Workflow.t()} | {:error, term()}
 
-  # D-A8 backstop: the global `max_items` cap for a `map` fan-out when a node
+  # Backstop: the global `max_items` cap for a `map` fan-out when a node
   # declares no `params["max_items"]`. Overridable via
   # `config :zaq, Zaq.Engine.Workflows, map_max_items: N`.
   @default_map_max_items 10_000
@@ -163,16 +163,13 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   defp build_node(type, _module, _params, _name, _index, _run_id),
     do: {:error, {:unknown_node_type, type}}
 
-  defp resolve_module(nil), do: {:error, {:unknown_module, nil}}
-
-  defp resolve_module(module_string) when is_binary(module_string) do
-    mod = module_string |> String.split(".") |> Module.concat()
-
-    case Code.ensure_loaded(mod) do
-      {:module, _} -> {:ok, mod}
-      {:error, _} -> {:error, {:unknown_module, module_string}}
-    end
-  end
+  # Module resolution is shared with save-time validation (`Step.Node.changeset`)
+  # via `Action.resolve/1` — one source of truth. For a *persisted* workflow the
+  # module is guaranteed to resolve and satisfy the contract at save time, so
+  # the resolution + `Action.validate/1` calls in `build_node/6` are now defensive
+  # backstops that only fire on **code drift** (a module removed or made
+  # non-conforming after the workflow was saved).
+  defp resolve_module(module_string), do: Action.resolve(module_string)
 
   defp build_action_node(mod, params, name, step_index, run_id) when is_binary(run_id) do
     wrapper_params =
@@ -366,12 +363,12 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   defp extract_items(_input, _name, _index, _over, _opts, _run_id), do: []
 
-  # D-A8 run-time guard: a runtime collection larger than the effective cap must
+  # Run-time guard: a runtime collection larger than the effective cap must
   # not fan out unbounded. Runic swallows step exceptions and only logs them, so a
   # bare raise would silently complete the run; instead we record a failed aggregate
   # StepRun for the map node (so `finalize/2` fails the run and BO renders the
   # failure) and then raise to abort this fork + skip the downstream fan-out.
-  # `WorkflowAgent` reads the violation back from the row via `map_over_limit/1`.
+  # The agent reads the violation back from the row via `Workflows.map_over_limit/1`.
   defp enforce_max_items!(name, index, count, %{max_items: cap}, run_id)
        when is_integer(cap) and count > cap do
     message =
@@ -402,26 +399,6 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
     Workflows.tick_log_summary(run_id)
     :ok
-  end
-
-  @doc """
-  Returns `{node, count, cap}` if the run failed because a `map` node tripped the
-  D-A8 `max_items` cap, else `nil`. Reads the failed aggregate StepRun written by
-  the map extract guard. Used by `WorkflowAgent` to surface
-  `{:error, {:map_over_limit, …}}` to the run caller.
-  """
-  @spec map_over_limit(binary()) :: {String.t(), non_neg_integer(), pos_integer()} | nil
-  def map_over_limit(run_id) do
-    run_id
-    |> Workflows.list_step_runs()
-    |> Enum.find_value(fn sr ->
-      with %{} = errors <- sr.errors,
-           "map_over_limit" <- Map.get(errors, "code") do
-        {sr.step_name, Map.get(errors, "count"), Map.get(errors, "cap")}
-      else
-        _ -> nil
-      end
-    end)
   end
 
   # "list" delivery fans out over chunks; everything else fans out over items.

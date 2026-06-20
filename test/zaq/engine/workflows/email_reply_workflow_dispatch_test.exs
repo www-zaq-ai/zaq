@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
   Flow:
     create_workflow → create_trigger → assign_trigger → TriggerNode.fire
-    → Workflows.create_run → Workflows.start_run → WorkflowAgent.execute
+    → Workflows.create_run → Workflows.start_run → WorkflowRunAgent.execute
 
   Four scenarios, one per describe block:
     1. Emails found, fast draft  → run suspends at review_draft ("waiting")

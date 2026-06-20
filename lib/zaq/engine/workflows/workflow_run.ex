@@ -3,7 +3,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
   Ecto schema for a single workflow execution.
 
   Created by a trigger. The workflow's `steps` and `settings` are snapshotted
-  into this row at creation time — the `WorkflowAgent` never re-reads the live
+  into this row at creation time — the `WorkflowRunAgent` never re-reads the live
   `Workflow` row. Edits to a workflow cannot affect a run already in progress.
 
   `source_event` stores the triggering `%Zaq.Event{}` as JSONB via

@@ -51,8 +51,8 @@ defmodule Zaq.Engine.Workflows.Workflow do
     |> validate_inclusion(:status, @statuses)
     |> validate_active_has_nodes()
 
-    # Status transition enforcement (draft→active, active→archived, archived→active;
-    # reverting to draft disallowed) is tracked in zaq-0lc.
+    # Status transition enforcement (draft→active, active→archived,
+    # archived→active; reverting to draft disallowed) is not yet implemented.
   end
 
   # Active workflows must have at least one node — draft/archived may be empty.

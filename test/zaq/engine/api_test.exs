@@ -288,7 +288,7 @@ defmodule Zaq.Engine.ApiTest do
 
   describe "handle_event/3 — :workflow events" do
     alias Zaq.Accounts.People
-    alias Zaq.Engine.Workflows.WorkflowAgent
+    alias Zaq.Engine.Workflows.WorkflowRunAgent
     alias Zaq.Permissions
 
     @source_event %{
@@ -317,7 +317,7 @@ defmodule Zaq.Engine.ApiTest do
     defp create_waiting_run do
       wf = api_hitl_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
-      {:ok, waiting_run} = WorkflowAgent.execute(run)
+      {:ok, waiting_run} = WorkflowRunAgent.execute(run)
       assert waiting_run.status == "waiting"
       approval = Workflows.get_pending_approval(waiting_run.id)
       %{run: waiting_run, wf: wf, approval: approval}
