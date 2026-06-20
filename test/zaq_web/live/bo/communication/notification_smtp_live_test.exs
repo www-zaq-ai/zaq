@@ -328,6 +328,98 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert html =~ "value=\"  invalid  \""
   end
 
+  test "test_connection surfaces binary mailer error directly", %{conn: conn} do
+    insert_enabled_smtp_channel()
+    put_failing_mailer("plain smtp failure")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert {:error, "plain smtp failure"} = current_test_status(view)
+    assert render(view) =~ "plain smtp failure"
+  end
+
+  test "test_connection formats retry exhaustion reasons", %{conn: conn} do
+    for {reason, expected, detail} <- [
+          {{:retries_exceeded, {:missing_requirement, "smtp.example.com", :auth}},
+           "SMTP authentication is unavailable.",
+           "Details: {:missing_requirement, \"smtp.example.com\", :auth}"},
+          {{:retries_exceeded, {:missing_requirement, "smtp.example.com", :tls}},
+           "SMTP server requires TLS but TLS could not be established.",
+           "Details: {:missing_requirement, \"smtp.example.com\", :tls}"},
+          {{:retries_exceeded, nil}, "Could not reach the SMTP server.", nil},
+          {{:retries_exceeded, "timeout"}, "Could not reach the SMTP server.",
+           "Details: timeout"},
+          {{:retries_exceeded, :closed}, "Could not reach the SMTP server.", "Details: closed"}
+        ] do
+      insert_enabled_smtp_channel()
+      put_failing_mailer(reason)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+      send(view.pid, {:send_test, "user@example.com"})
+      _ = :sys.get_state(view.pid)
+
+      assert {:error, message} = current_test_status(view)
+      assert message =~ expected
+
+      if detail do
+        assert message =~ detail
+      else
+        refute message =~ "Details:"
+      end
+    end
+  end
+
+  test "test_connection formats known smtp delivery errors", %{conn: conn} do
+    for {reason, expected} <- [
+          {{:network_failure, :econnrefused}, "Network error while contacting the SMTP server."},
+          {{:temporary_failure, :tls_failed},
+           "TLS handshake failed. Check TLS verification mode or CA certificate path."},
+          {{:error, :missing_encryption_key},
+           "Missing SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."},
+          {{:error, :invalid_encryption_key},
+           "Invalid SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."},
+          {{:error, :invalid_ciphertext},
+           "Stored SMTP password cannot be decrypted. Please re-save the password with a valid encryption key."},
+          {:invalid_ciphertext,
+           "Stored SMTP password cannot be decrypted. Please re-save the password with a valid encryption key."},
+          {:missing_encryption_key,
+           "Missing SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."},
+          {:invalid_encryption_key,
+           "Invalid SYSTEM_CONFIG_ENCRYPTION_KEY; cannot decrypt SMTP password."},
+          {{:unexpected, :boom}, "{:unexpected, :boom}"}
+        ] do
+      insert_enabled_smtp_channel()
+      put_failing_mailer(reason)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+      send(view.pid, {:send_test, "user@example.com"})
+      _ = :sys.get_state(view.pid)
+
+      assert {:error, ^expected} = current_test_status(view)
+    end
+  end
+
+  test "test_connection uses enabled tls fallback mode", %{conn: conn} do
+    insert_enabled_smtp_channel(%{
+      "tls" => "enabled",
+      "tls_verify" => "verify_none",
+      "username" => "",
+      "password" => nil
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert :ok = current_test_status(view)
+  end
+
   test "test_connection reports missing encryption key while decrypting password", %{conn: conn} do
     insert_smtp_channel(%{
       enabled: true,
@@ -586,6 +678,44 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     Map.fetch!(assigns, :test_status)
   end
 
+  defp put_failing_mailer(reason) do
+    previous_error = Application.get_env(:zaq, :smtp_live_test_error)
+
+    Application.put_env(:zaq, Zaq.Mailer, adapter: ZaqWeb.NotificationSmtpLiveTest.ErrorAdapter)
+
+    Application.put_env(:zaq, :smtp_live_test_error, reason)
+
+    on_exit(fn ->
+      if previous_error == nil do
+        Application.delete_env(:zaq, :smtp_live_test_error)
+      else
+        Application.put_env(:zaq, :smtp_live_test_error, previous_error)
+      end
+    end)
+  end
+
+  defp insert_enabled_smtp_channel(attrs \\ %{}) do
+    insert_smtp_channel(%{
+      enabled: true,
+      settings:
+        Map.merge(
+          %{
+            "relay" => "smtp.example.com",
+            "port" => "587",
+            "transport_mode" => "starttls",
+            "tls" => "enabled",
+            "tls_verify" => "verify_peer",
+            "ca_cert_path" => nil,
+            "username" => "mailer@example.com",
+            "password" => "",
+            "from_email" => "sender@example.com",
+            "from_name" => "Sender"
+          },
+          attrs
+        )
+    })
+  end
+
   defp insert_smtp_channel(attrs) do
     defaults = %{
       name: "Email SMTP",
@@ -612,4 +742,17 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
 
     channel
   end
+end
+
+defmodule ZaqWeb.NotificationSmtpLiveTest.ErrorAdapter do
+  @behaviour Swoosh.Adapter
+
+  @impl true
+  def deliver(_email, _config), do: {:error, Application.fetch_env!(:zaq, :smtp_live_test_error)}
+
+  @impl true
+  def deliver_many(emails, config), do: Enum.map(emails, &deliver(&1, config))
+
+  @impl true
+  def validate_config(_config), do: :ok
 end
