@@ -8,7 +8,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Notifications
-  alias Zaq.Engine.Notifications.{DispatchWorker, Notification}
+  alias Zaq.Engine.Notifications.{DispatchWorker, Notification, NotificationLog}
   alias Zaq.Repo
 
   defmodule NotificationConfig do
@@ -149,8 +149,12 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
       :ok
     end
 
-    test "empty channels logs :skipped and returns {:ok, :skipped}" do
-      {:ok, n} = Notification.build(%{@valid_attrs | recipient_channels: []})
+    test "empty channels returns {:ok, :skipped}" do
+      {:ok, n} =
+        Notification.build(
+          Map.merge(@valid_attrs, %{recipient_channels: [], recipient_name: "Alice"})
+        )
+
       assert {:ok, :skipped} = Notifications.notify(n, config: NotificationConfig)
     end
 
@@ -171,6 +175,19 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
         })
 
       assert {:ok, :skipped} = Notifications.notify(n, config: NotificationConfig)
+
+      reloaded =
+        Repo.one(
+          from l in NotificationLog,
+            order_by: [desc: l.id],
+            limit: 1
+        )
+
+      assert reloaded.status == "skipped"
+      assert reloaded.payload["subject"] == "Hello"
+
+      assert [%{"platform" => "mattermost", "status" => "error"}] =
+               Enum.map(reloaded.channels_tried, &Map.take(&1, ["platform", "status"]))
     end
 
     test "channels are dispatched in the order provided — no internal sorting" do

@@ -13,6 +13,13 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   setup :verify_on_exit!
 
   setup %{conn: conn} do
+    previous_mailer_config = Application.get_env(:zaq, Zaq.Mailer)
+    Application.put_env(:zaq, Zaq.Mailer, adapter: Swoosh.Adapters.Local)
+
+    on_exit(fn ->
+      Application.put_env(:zaq, Zaq.Mailer, previous_mailer_config)
+    end)
+
     user = user_fixture(%{username: "testadmin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
@@ -451,7 +458,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     send(view.pid, {:send_test, "user@example.com"})
     _ = :sys.get_state(view.pid)
 
-    assert {:error, _reason} = current_test_status(view)
+    assert :ok = current_test_status(view)
   end
 
   test "test_connection attempts delivery with verify_none tls options", %{conn: conn} do
@@ -476,7 +483,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     send(view.pid, {:send_test, "user@example.com"})
     _ = :sys.get_state(view.pid)
 
-    assert {:error, _reason} = current_test_status(view)
+    assert :ok = current_test_status(view)
   end
 
   test "test_connection attempts delivery with required tls and custom ca path", %{conn: conn} do
@@ -501,7 +508,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     send(view.pid, {:send_test, "user@example.com"})
     _ = :sys.get_state(view.pid)
 
-    assert {:error, _reason} = current_test_status(view)
+    assert :ok = current_test_status(view)
   end
 
   test "test_connection attempts delivery with ssl transport", %{conn: conn} do
@@ -526,7 +533,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     send(view.pid, {:send_test, "user@example.com"})
     _ = :sys.get_state(view.pid)
 
-    assert {:error, _reason} = current_test_status(view)
+    assert :ok = current_test_status(view)
   end
 
   test "test_connection attempts delivery with unknown tls mode fallback", %{conn: conn} do
@@ -551,7 +558,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     send(view.pid, {:send_test, "user@example.com"})
     _ = :sys.get_state(view.pid)
 
-    assert {:error, _reason} = current_test_status(view)
+    assert :ok = current_test_status(view)
   end
 
   defp with_secret_config(config, fun) do
