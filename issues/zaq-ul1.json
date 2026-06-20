@@ -2,13 +2,15 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-06-20T15:03:08Z",
+  "close_reason": "Implemented record-based local ingestion dispatch and verified with mix q.",
   "created": "2026-06-20T14:49:39Z",
   "description": "Migrate ZAQ local ingestion selection to Record structs and dispatch selected records through NodeRouter to the ingestion role.",
   "id": "zaq-ul1",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[phase-1] Record-based local ingestion dispatch",
   "type": "task",
-  "updated_at": "2026-06-20T14:49:43Z"
+  "updated_at": "2026-06-20T15:03:08Z"
 }
