@@ -191,6 +191,39 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "timeout"
     end
 
+    test "renders failed-run summary with failed step messages", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "failed"})
+
+      step_run_fixture(run, %{
+        step_name: "fetch",
+        step_index: 0,
+        status: "failed",
+        errors: %{"message" => "provider unavailable"}
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "1 step failed"
+      assert html =~ "fetch"
+      assert html =~ "provider unavailable"
+    end
+
+    test "renders build failure summary when no step ran", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+
+      run =
+        run_fixture(workflow, %{
+          status: "failed",
+          log_summary: %{"error" => "unknown module Zaq.Missing"}
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "Run failed before any step executed"
+      assert html =~ "unknown module Zaq.Missing"
+    end
+
     test "redirects to workflow detail if run_id is invalid", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       fake_run_id = Ecto.UUID.generate()
@@ -587,6 +620,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     test "pause_run succeeds for a running run and updates status", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       run = run_fixture(workflow)
+      step_run_fixture(run, %{step_name: "fetch", step_index: 0, status: "running"})
+      step_run_fixture(run, %{step_name: "done", step_index: 1, status: "completed"})
 
       stub(Zaq.NodeRouterMock, :dispatch, fn event ->
         case event.request do
@@ -628,6 +663,29 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
       html = render_click(view, "pause_run", %{})
       assert html =~ "Run"
+    end
+  end
+
+  describe "retry_run event" do
+    test "retry_run navigates to the new run when retry succeeds", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "failed"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert {:error, {:live_redirect, %{to: path}}} = render_click(view, "retry_run", %{})
+      assert path =~ "/bo/workflows/#{workflow.id}/runs/"
+      refute path == "/bo/workflows/#{workflow.id}/runs/#{run.id}"
+    end
+
+    test "retry_run shows an error when the run is not retryable", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "completed"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      html = render_click(view, "retry_run", %{})
+      assert html =~ "Run cannot be retried."
     end
   end
 

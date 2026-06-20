@@ -1,8 +1,10 @@
 defmodule Zaq.Engine.TriggerNodeTest do
   use Zaq.DataCase, async: true
 
+  alias Ecto.Adapters.SQL
   alias Zaq.Engine.{TriggerNode, Workflows}
   alias Zaq.Event
+  alias Zaq.Repo
 
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
@@ -221,25 +223,29 @@ defmodule Zaq.Engine.TriggerNodeTest do
     test "logs and does not propagate when a workflow run fails to start" do
       trigger = create_trigger("failing_event")
 
-      # Active workflow whose node references a non-existent module. It passes
-      # creation (module is non-empty) and is returned by
-      # list_workflows_for_trigger, but DagBuilder fails to resolve the module,
-      # so start_run returns {:error, _} → exercises run_workflow's error branch.
-      {:ok, bad_workflow} =
-        Workflows.create_workflow(%{
-          name: "BadModuleWorkflow",
-          status: "active",
-          nodes: [
-            %{
-              name: "boom",
-              type: "action",
-              module: "Zaq.Engine.Workflows.Test.DoesNotExist",
-              params: %{},
-              index: 0
-            }
-          ],
-          edges: []
-        })
+      bad_workflow = create_active_workflow("BadModuleWorkflow")
+
+      # Save-time validation rejects unknown action modules. This bypasses the
+      # changeset to simulate code drift after a workflow has already been saved:
+      # list_workflows_for_trigger still returns it, but DagBuilder fails to
+      # resolve the module when the run starts.
+      nodes = [
+        %{
+          "name" => "boom",
+          "type" => "action",
+          "module" => "Zaq.Engine.Workflows.Test.DoesNotExist",
+          "params" => %{},
+          "index" => 0
+        }
+      ]
+
+      nodes_json = Jason.encode!(nodes)
+
+      SQL.query!(
+        Repo,
+        "UPDATE workflows SET nodes = '#{nodes_json}'::jsonb WHERE id::text = $1",
+        [bad_workflow.id]
+      )
 
       Workflows.assign_workflow_to_trigger(trigger, bad_workflow)
 
