@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-20T14:49:39Z",
+  "description": "Migrate ZAQ local ingestion selection to Record structs and dispatch selected records through NodeRouter to the ingestion role.",
+  "id": "zaq-ul1",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[phase-1] Record-based local ingestion dispatch",
+  "type": "task",
+  "updated_at": "2026-06-20T14:49:39Z"
+}
