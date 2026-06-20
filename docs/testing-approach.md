@@ -66,6 +66,16 @@ If property tests are not added for an applicable change, document why in the PR
 
 ---
 
+## Async Test Stability
+
+- `Application.put_env/3` and `Application.delete_env/2` mutate VM-global state. Do not use them as a test seam in `async: true` tests when concurrently running code could read the same app/key.
+- Prefer injecting config modules through `config: TestConfig` and reading production config through `Zaq.Config.get/4`.
+- For direct calls, pass the override in the opts keyword list: `MyContext.call(args, config: TestConfig)`.
+- For routed calls, pass the override through `%Zaq.Event{opts: [config: TestConfig]}` or the event helper's opts argument.
+- Only mutate application env in tests when the module is `async: false`, or when the key is guaranteed not to be read by concurrently running tests or processes.
+
+---
+
 ## CI and Review Expectations
 
 - `mix precommit` must pass.

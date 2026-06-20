@@ -71,7 +71,8 @@ use this format instead:
 When detailing the implementation for a module:
 
 - Public function signatures represent boundaries between modules and should be treated with high care, their modifications should be avoided when possible.
-- When creating new public functions account for `opt \\ []` keyword list as a last future proofing param.
+- When creating new public functions account for an `opts \\ []` keyword list as a last future-proofing param.
+- If new feature code reads application/runtime config, route it through `Zaq.Config.get/4` with that `opts` list instead of calling `Application.get_env/3` directly. This keeps production behavior unchanged while allowing async-safe test overrides with `config: TestConfig`.
 
 ---
 

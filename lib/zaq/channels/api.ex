@@ -465,7 +465,7 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.oauth_refresh_token(provider, params)}
+    %{event | response: data_source_module.oauth_refresh_token(provider, params, event.opts)}
   end
 
   def handle_event(
@@ -497,7 +497,7 @@ defmodule Zaq.Channels.Api do
   def handle_event(%Event{request: %{platform: platform}} = event, :bridge_available, _context)
       when is_binary(platform) do
     bridge_module = bridge_module(event)
-    %{event | response: not is_nil(bridge_module.bridge_for(platform))}
+    %{event | response: not is_nil(bridge_module.bridge_for(platform, event.opts))}
   end
 
   def handle_event(

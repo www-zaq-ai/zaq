@@ -201,11 +201,11 @@ Authentication and signature verification are provider-specific and handled insi
 | `unsubscribe_thread_reply/3` | Unsubscribes from thread replies via provider bridge         |
 | `sync_config_runtime/2`      | Synchronizes runtime processes when a channel config changes |
 | `test_connection/2`          | Runs bridge-specific connection test                         |
-| `bridge_for/1`               | Returns the configured bridge module for a provider          |
+| `bridge_for/2`               | Returns the configured bridge module for a provider          |
 
 ### Bridge resolution
 
-Bridges are resolved from `Application.get_env(:zaq, :channels)` by provider atom key:
+Bridges are resolved from `Zaq.Config.get(:zaq, :channels, %{}, opts)` by provider atom key. Production uses the default `Zaq.Config` module, which delegates to `Application.get_env/3`; tests can pass `config: TestConfig` through opts or `%Zaq.Event.opts` for async-safe overrides.
 
 ```elixir
 # Example config shape

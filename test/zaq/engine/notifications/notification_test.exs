@@ -11,6 +11,15 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
   alias Zaq.Engine.Notifications.{DispatchWorker, Notification}
   alias Zaq.Repo
 
+  defmodule NotificationConfig do
+    def get(:zaq, :channels, _default) do
+      %{
+        :"email:imap" => %{bridge: Zaq.Channels.EmailBridge},
+        email: %{bridge: Zaq.Channels.EmailBridge}
+      }
+    end
+  end
+
   @valid_attrs %{
     recipient_channels: [%{platform: "email:smtp", identifier: "test@example.com"}],
     sender: "system",
@@ -123,17 +132,6 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
   describe "notify/1" do
     setup do
-      previous_channels = Application.get_env(:zaq, :channels, %{})
-
-      Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{bridge: Zaq.Channels.EmailBridge},
-        email: %{bridge: Zaq.Channels.EmailBridge}
-      })
-
-      on_exit(fn ->
-        Application.put_env(:zaq, :channels, previous_channels)
-      end)
-
       from(c in ChannelConfig, where: c.provider == "email:smtp")
       |> Repo.delete_all()
 
@@ -153,14 +151,14 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
     test "empty channels logs :skipped and returns {:ok, :skipped}" do
       {:ok, n} = Notification.build(%{@valid_attrs | recipient_channels: []})
-      assert {:ok, :skipped} = Notifications.notify(n)
+      assert {:ok, :skipped} = Notifications.notify(n, config: NotificationConfig)
     end
 
     test "non-empty channels with configured platform returns {:ok, :dispatched}" do
       {:ok, n} = Notification.build(@valid_attrs)
 
       Oban.Testing.with_testing_mode(:manual, fn ->
-        assert {:ok, :dispatched} = Notifications.notify(n)
+        assert {:ok, :dispatched} = Notifications.notify(n, config: NotificationConfig)
         assert_enqueued(worker: DispatchWorker)
       end)
     end
@@ -172,7 +170,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
           | recipient_channels: [%{platform: "mattermost", identifier: "U123"}]
         })
 
-      assert {:ok, :skipped} = Notifications.notify(n)
+      assert {:ok, :skipped} = Notifications.notify(n, config: NotificationConfig)
     end
 
     test "channels are dispatched in the order provided — no internal sorting" do
@@ -186,7 +184,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
         })
 
       Oban.Testing.with_testing_mode(:manual, fn ->
-        assert {:ok, :dispatched} = Notifications.notify(n)
+        assert {:ok, :dispatched} = Notifications.notify(n, config: NotificationConfig)
         [job] = all_enqueued(worker: DispatchWorker)
         channels = job.args["channels"]
         assert hd(channels)["identifier"] == "first@example.com"
