@@ -1,14 +1,21 @@
-defmodule Zaq.Engine.Workflows.WorkflowAgent do
+defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   @moduledoc """
-  Executes a `WorkflowRun` by building its instrumented Runic DAG and running it
+  Executes a `WorkflowRun` by running its pre-built instrumented Runic DAG
   synchronously to completion.
+
+  This module **only runs** a DAG — it never builds one. The run module
+  (`Workflows.ensure_prepared_dag/1`) attaches an executable DAG to
+  `run.prepared_dag` before `start_run/2` / `resume_run/2` hand the run here;
+  `execute/2` returns `{:error, :missing_prepared_dag}` if it ever receives a run
+  without one. Build failures (and the operator-facing error rendering) are the
+  run module's responsibility, not this module's.
 
   ## Execution flow
 
-  1. Transitions the run to `"running"`.
-  2. Builds the DAG from `run.steps_snapshot` with `DagBuilder.build/2`, passing
-     `run_id:` so every action node is wrapped in `StepRunner`. StepRunner
-     writes one `StepRun` row per step (running → completed/failed).
+  1. Reads the prepared DAG from `run.prepared_dag` (each action node is already
+     wrapped in `StepRunner`, which writes one `StepRun` row per step:
+     running → completed/failed).
+  2. Transitions the run to `"running"`.
   3. Extracts the initial fact from `run.source_event.assigns[:input]` (or string
      key equivalent after a JSONB round-trip), defaulting to `%{}` if absent. The
      event-envelope structural keys (`:event`, and within it `:name`, `:trace_id`,
@@ -43,7 +50,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   |---|---|
   | `"run.started"` | After run is transitioned to `"running"` |
   | `"run.completed"` | After `finalize/2` marks the run `"completed"` |
-  | `"run.failed"` | After `finalize/2` marks the run `"failed"`, or after a DAG build failure |
+  | `"run.failed"` | After `finalize/2` marks the run `"failed"` (a *build* failure emits `run.failed` from the run module, before this module runs) |
 
   All events carry `%{action: action, run_id: id, workflow_id: wid}` in `request`.
   Dispatch is fire-and-forget — failures do not affect run state.
@@ -57,11 +64,18 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
 
   alias Runic.Workflow
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.{DagBuilder, WorkflowRun}
+  alias Zaq.Engine.Workflows.WorkflowRun
   alias Zaq.Event
 
   @spec execute(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
-  def execute(%WorkflowRun{} = run, _opts \\ []) do
+  def execute(run, opts \\ [])
+
+  # The run must already carry an executable DAG — the run module
+  # (`Workflows.ensure_prepared_dag/1`) builds it before start/resume. This
+  # defensive clause should never fire on the start/resume paths.
+  def execute(%WorkflowRun{prepared_dag: nil}, _opts), do: {:error, :missing_prepared_dag}
+
+  def execute(%WorkflowRun{prepared_dag: dag} = run, _opts) do
     Registry.register(Zaq.Engine.Workflows.RunRegistry, run.id, self())
 
     now = DateTime.utc_now(:second)
@@ -79,32 +93,7 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
     case workflows_mod().update_run(run, start_attrs) do
       {:ok, run} ->
         dispatch_workflow_event("run.started", %{run_id: run.id, workflow_id: run.workflow_id})
-
-        case DagBuilder.build(run.steps_snapshot, run_id: run.id) do
-          {:ok, dag} ->
-            execute_dag_with_pause(dag, run, started_ms)
-
-          {:error, reason} ->
-            Logger.error("[workflow] run failed to start",
-              workflow_id: run.workflow_id,
-              run_id: run.id,
-              error: inspect(reason)
-            )
-
-            Workflows.update_run(run, %{
-              status: "failed",
-              finished_at: DateTime.utc_now(:second),
-              log_summary: %{
-                error: format_build_error(reason),
-                failed_step_count: 0,
-                failed_steps: [],
-                step_count: 0
-              }
-            })
-
-            dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
-            {:error, reason}
-        end
+        execute_dag_with_pause(dag, run, started_ms)
 
       {:error, reason} ->
         Logger.error("[workflow] run failed to start",
@@ -127,21 +116,21 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
     checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
 
     try do
-      # Run-driver mode (D-A2): SEQUENTIAL today. `react_until_satisfied/3` also
-      # accepts `async: true, max_concurrency:, timeout:` to fan map forks out
-      # across processes, but we intentionally do NOT thread them yet — sequential
-      # execution keeps the D-A4 summary order deterministic (forks resolve in
-      # index order). The async opt-in is unblocked once its prerequisites hold:
-      # collision-free per-fork names (Part 1 Step 5, done) and `FanIn` `mergeable`
-      # accumulation. When enabling, pass the opts here and re-confirm ordering.
+      # Run-driver mode: SEQUENTIAL today. `react_until_satisfied/3` also accepts
+      # `async: true, max_concurrency:, timeout:` to fan map forks out across
+      # processes, but we intentionally do NOT thread them yet — sequential
+      # execution keeps the map summary order deterministic (forks resolve in
+      # index order). Enabling async additionally requires per-fork names that
+      # cannot collide and `FanIn` `mergeable` accumulation; when enabling, pass
+      # the opts here and re-confirm ordering.
       Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
       result = finalize(run, started_ms)
 
-      # D-A8 guard: a `map` node whose collection exceeded its `max_items` cap
+      # Guard: a `map` node whose collection exceeded its `max_items` cap
       # writes a failed StepRun (so `finalize/2` already marked the run "failed")
       # and skips its downstream fan-out via Runic. Surface the precise reason to
       # the caller rather than a generic failed run.
-      case DagBuilder.map_over_limit(run.id) do
+      case Workflows.map_over_limit(run.id) do
         {node, count, cap} -> {:error, {:map_over_limit, node, count, cap}}
         nil -> result
       end
@@ -250,40 +239,6 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
     }
   end
 
-  defp format_build_error(:invalid_steps),
-    do: "Workflow steps configuration is invalid or missing."
-
-  defp format_build_error(:empty_dag),
-    do: "Workflow has no nodes configured."
-
-  defp format_build_error({:unknown_node_type, type}),
-    do: "Unknown node type \"#{type}\". Expected \"action\" or \"agent\"."
-
-  defp format_build_error({:unknown_module, nil}),
-    do: "A node is missing its module configuration."
-
-  defp format_build_error({:unknown_module, mod}),
-    do: "Module not found: \"#{mod}\". Check that the module name is spelled correctly."
-
-  defp format_build_error({:unknown_node, name}),
-    do: "An edge references node \"#{name}\" which does not exist."
-
-  defp format_build_error({:invalid_edge_condition, _}),
-    do: "An edge has an invalid condition configuration."
-
-  defp format_build_error(:inline_node_required),
-    do: "A Batch or Iterate node is missing its required inline nodes."
-
-  defp format_build_error({:missing_process_pipeline, _}),
-    do: "A Batch node is missing its process pipeline."
-
-  defp format_build_error({:contract_violation, mod, missing}),
-    do:
-      "Module #{inspect(mod)} does not satisfy the Action contract. Missing: #{inspect(missing)}."
-
-  defp format_build_error(reason),
-    do: inspect(reason)
-
   # Safely fetch the input from assigns, handling both atom and string keys
   # (JSONB round-trip converts atom keys to strings). The resolved input is
   # normalized to atom keys at this single point so action authors always see
@@ -338,5 +293,5 @@ defmodule Zaq.Engine.Workflows.WorkflowAgent do
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 
   defp workflows_mod,
-    do: Application.get_env(:zaq, :workflow_agent_workflows_mod, Workflows)
+    do: Application.get_env(:zaq, :workflow_run_agent_workflows_mod, Workflows)
 end

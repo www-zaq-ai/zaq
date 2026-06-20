@@ -21,8 +21,8 @@ defmodule Zaq.Engine.Workflows.Node do
 
   ## `validate/1`
 
-  Called at workflow save time (Task 13) so the persisted representation is
-  always runnable. Returns `:ok` or `{:error, reason}` for a single node.
+  Called at workflow save time so the persisted representation is always
+  runnable. Returns `:ok` or `{:error, reason}` for a single node.
 
   Both callbacks are optional; a node module implements only what it needs.
   """

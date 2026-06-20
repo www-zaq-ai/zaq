@@ -110,6 +110,78 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
     end
   end
 
+  describe "nodes validation — module contract (Task 13)" do
+    test "rejects an action node whose module does not resolve" do
+      bad_node = %{@valid_node | module: "Zaq.Does.Not.Exist"}
+
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [bad_node],
+          edges: []
+        })
+
+      refute changeset.valid?
+      assert changeset.changes.nodes |> hd() |> Map.fetch!(:errors) |> Keyword.has_key?(:module)
+    end
+
+    test "rejects an action node whose module does not satisfy the Action contract" do
+      bad_node = %{@valid_node | module: "Zaq.Engine.Workflows.Test.NonConformingAction"}
+
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [bad_node],
+          edges: []
+        })
+
+      refute changeset.valid?
+      assert changeset.changes.nodes |> hd() |> Map.fetch!(:errors) |> Keyword.has_key?(:module)
+    end
+
+    test "accepts an action node whose module resolves and conforms" do
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [@valid_node],
+          edges: []
+        })
+
+      assert changeset.valid?
+    end
+
+    test "rejects a map node whose body contains a non-conforming module" do
+      bad_body = [
+        %{
+          "name" => "lookup",
+          "type" => "action",
+          "module" => "Zaq.Engine.Workflows.Test.NonConformingAction",
+          "params" => %{}
+        }
+      ]
+
+      bad_node = %{
+        name: "enrich_each",
+        type: "map",
+        params: %{"over" => "leads", "body" => bad_body},
+        index: 1
+      }
+
+      changeset =
+        Workflow.changeset(%Workflow{}, %{
+          name: "W",
+          status: "active",
+          nodes: [@valid_node, bad_node],
+          edges: [%{from: "fetch", to: "enrich_each"}]
+        })
+
+      refute changeset.valid?
+    end
+  end
+
   describe "edges validation" do
     test "rejects edge missing from field" do
       bad_edge = Map.delete(@valid_edge, :from)
