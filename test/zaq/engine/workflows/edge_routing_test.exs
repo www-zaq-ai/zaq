@@ -1,7 +1,7 @@
 defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
   @moduledoc """
   Step 6 — End-to-end integration test for the user's exact conditional edge + mapping
-  scenario, running through real WorkflowAgent.execute/2 → DagBuilder → Runic →
+  scenario, running through real WorkflowRunAgent.execute/2 → DagBuilder → Runic →
   StepRunner → StepRun rows.
 
   Scenario (verbatim from requirement):
@@ -11,7 +11,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.WorkflowAgent
+  alias Zaq.Engine.Workflows.WorkflowRunAgent
 
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
@@ -78,13 +78,13 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
   describe "gender = male — C branch taken, F pruned" do
     test "run completes with status 'completed'" do
       run = create_run("male")
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
     end
 
     test "B, C, D have 'completed' StepRuns" do
       run = create_run("male")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
       step_runs = Workflows.list_step_runs(run.id)
       by_name = Map.new(step_runs, &{&1.step_name, &1})
 
@@ -95,7 +95,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
     test "F has no StepRun (pruned, StepRunner never called)" do
       run = create_run("male")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
       step_runs = Workflows.list_step_runs(run.id)
       names = Enum.map(step_runs, & &1.step_name)
 
@@ -104,7 +104,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
     test "C received person_name (mapping correctness)" do
       run = create_run("male")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
       step_runs = Workflows.list_step_runs(run.id)
       c_run = Enum.find(step_runs, &(&1.step_name == "C"))
 
@@ -117,13 +117,13 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
   describe "gender = female — F branch taken, C pruned" do
     test "run completes with status 'completed'" do
       run = create_run("female")
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
     end
 
     test "B, F have 'completed' StepRuns" do
       run = create_run("female")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
       step_runs = Workflows.list_step_runs(run.id)
       by_name = Map.new(step_runs, &{&1.step_name, &1})
 
@@ -133,7 +133,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
     test "C and D have no StepRuns (pruned)" do
       run = create_run("female")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
       step_runs = Workflows.list_step_runs(run.id)
       names = Enum.map(step_runs, & &1.step_name)
 
@@ -143,7 +143,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
     test "F received first_name (mapping correctness)" do
       run = create_run("female")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
       step_runs = Workflows.list_step_runs(run.id)
       f_run = Enum.find(step_runs, &(&1.step_name == "F"))
 
@@ -156,13 +156,13 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
   describe "gender = other — neither branch taken" do
     test "run completes with status 'completed' (pruned branches never fail the run)" do
       run = create_run("other")
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
     end
 
     test "only B has a StepRun" do
       run = create_run("other")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
       step_runs = Workflows.list_step_runs(run.id)
       names = Enum.map(step_runs, & &1.step_name) |> Enum.sort()
 
@@ -178,7 +178,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
     test "get_run_trace includes skipped EdgeStep guard rows for failed conditions" do
       run = create_run("other")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
 
       trace = Workflows.get_run_trace(run.id)
 
@@ -188,7 +188,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
     test "EdgeStep guard nodes write a skipped Step.Run row on condition failure" do
       run = create_run("other")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
 
       step_runs = Workflows.list_step_runs(run.id)
       names = Enum.map(step_runs, & &1.step_name)
@@ -203,7 +203,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
     test "condition metadata (field, op, actual, expected) is present in guard row results" do
       run = create_run("other")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
 
       trace = Workflows.get_run_trace(run.id)
 
@@ -217,7 +217,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
 
     test "pruned downstream action nodes still have no Step.Run row" do
       run = create_run("other")
-      {:ok, _finished} = WorkflowAgent.execute(run)
+      {:ok, _finished} = WorkflowRunAgent.execute(run)
 
       step_runs = Workflows.list_step_runs(run.id)
       names = Enum.map(step_runs, & &1.step_name)
@@ -232,13 +232,13 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
     test "C never receives the raw :name key from B's output" do
       # RequirePersonName.run/2 raises if it receives :name — so test passing proves isolation.
       run = create_run("male")
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
     end
 
     test "F never receives the raw :name key from B's output" do
       run = create_run("female")
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
     end
   end

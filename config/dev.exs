@@ -20,7 +20,8 @@ config :zaq, Zaq.Repo,
   database: dev_db_name,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: 10,
+  port: 5436
 
 config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
 # config :zaq, roles: [:bo]

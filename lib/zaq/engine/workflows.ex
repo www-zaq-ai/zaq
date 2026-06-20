@@ -11,6 +11,8 @@ defmodule Zaq.Engine.Workflows do
 
   import Ecto.Query
 
+  require Logger
+
   alias Zaq.Engine.EventRegistry
 
   alias Zaq.Engine.Workflows.{
@@ -20,8 +22,8 @@ defmodule Zaq.Engine.Workflows do
     StepApproval,
     Trigger,
     Workflow,
-    WorkflowAgent,
-    WorkflowRun
+    WorkflowRun,
+    WorkflowRunAgent
   }
 
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
@@ -56,24 +58,29 @@ defmodule Zaq.Engine.Workflows do
   # --- Run execution ---
 
   @doc """
-  Starts a pending `WorkflowRun` by delegating execution to `WorkflowAgent`.
+  Starts a pending `WorkflowRun` by delegating execution to `WorkflowRunAgent`.
 
-  Builds the instrumented DAG from `run.steps_snapshot`, drives each step
+  Guarantees the run carries an executable DAG (`ensure_prepared_dag/1`) before
+  handing it to the agent, which then only *runs* it. Drives each step
   synchronously, writes `StepRun` rows per step, and updates
   `WorkflowRun.status` to `"completed"` or `"failed"`.
 
   Emits the `{:run_started, run}` UI broadcast on `"workflow:<workflow_id>"`
   (via the Channels role) — the counterpart to `create_run/4`'s `:run_created`.
-  Bare `create_run/4` never signals a start; only `start_run/2` does.
+  Bare `create_run/4` never signals a start; only `start_run/2` does. A run whose
+  DAG cannot be prepared is failed (no `:run_started` is emitted) and the build
+  error is returned.
 
-  Returns `{:ok, updated_run}` on success, `{:error, reason}` on execution
-  failure, or `{:error, {:invalid_run_status, status}}` when the run is not
-  pending.
+  Returns `{:ok, updated_run}` on success, `{:error, reason}` on a build or
+  execution failure, or `{:error, {:invalid_run_status, status}}` when the run is
+  not pending.
   """
   @spec start_run(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
   def start_run(%WorkflowRun{status: "pending"} = run, opts) do
-    dispatch_async("workflow:#{run.workflow_id}", {:run_started, run})
-    WorkflowAgent.execute(run, opts)
+    with {:ok, run} <- ensure_prepared_dag(run) do
+      dispatch_async("workflow:#{run.workflow_id}", {:run_started, run})
+      WorkflowRunAgent.execute(run, opts)
+    end
   end
 
   def start_run(%WorkflowRun{status: status}, _opts) do
@@ -98,6 +105,49 @@ defmodule Zaq.Engine.Workflows do
   end
 
   @doc """
+  Guarantees the run carries an executable `prepared_dag`, so the agent only has
+  to *run* it (it never builds a DAG).
+
+  Reuses an already-prepared DAG when present (e.g. the in-memory DAG
+  `create_run/4` attaches); otherwise builds it from `steps_snapshot`. A reload
+  from the DB drops the virtual `prepared_dag`, so the resume/start paths rebuild
+  here. On a build failure — only reachable via **code drift**, since save-time
+  validation rejects unrunnable workflows — the run is marked `failed`, a
+  `run.failed` lifecycle event is dispatched, and `{:error, reason}` is returned.
+  """
+  @spec ensure_prepared_dag(WorkflowRun.t()) :: {:ok, WorkflowRun.t()} | {:error, term()}
+  def ensure_prepared_dag(%WorkflowRun{prepared_dag: dag} = run) when not is_nil(dag),
+    do: {:ok, run}
+
+  def ensure_prepared_dag(%WorkflowRun{} = run) do
+    case DagBuilder.build(run.steps_snapshot, run_id: run.id) do
+      {:ok, dag} ->
+        {:ok, %{run | prepared_dag: dag}}
+
+      {:error, reason} ->
+        Logger.error("[workflow] run failed to start",
+          workflow_id: run.workflow_id,
+          run_id: run.id,
+          error: inspect(reason)
+        )
+
+        update_run(run, %{
+          status: "failed",
+          finished_at: DateTime.utc_now(:second),
+          log_summary: %{
+            error: format_build_error(reason),
+            failed_step_count: 0,
+            failed_steps: [],
+            step_count: 0
+          }
+        })
+
+        dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Cancels a workflow run that is still in progress.
 
   Accepts runs in `"pending"`, `"running"`, or `"waiting"` status. Marks the
@@ -109,7 +159,7 @@ defmodule Zaq.Engine.Workflows do
           {:ok, WorkflowRun.t()} | {:error, :already_finished | Ecto.Changeset.t()}
   def cancel_run(%WorkflowRun{} = run, _opts \\ []) do
     if run.status in ["pending", "running", "waiting", "paused"] do
-      # Hard-kill any executing WorkflowAgent process for this run
+      # Hard-kill any executing WorkflowRunAgent process for this run
       Registry.lookup(Zaq.Engine.Workflows.RunRegistry, run.id)
       |> Enum.each(fn {pid, _} -> Process.exit(pid, :kill) end)
 
@@ -138,7 +188,7 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Pauses a running workflow run immediately.
 
-  Hard-kills the executing `WorkflowAgent` process so the current step stops
+  Hard-kills the executing `WorkflowRunAgent` process so the current step stops
   at once, then in a single transaction marks the run `"paused"` and any
   in-flight `StepRun` rows `"paused"`.
 
@@ -194,7 +244,7 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Resumes a paused workflow run from where it stopped.
 
-  Delegates to `WorkflowAgent.execute/2`. `StepRunner` skips any step whose
+  Delegates to `WorkflowRunAgent.execute/2`. `StepRunner` skips any step whose
   `StepRun` is already `"completed"`, so the run continues from the first
   incomplete step. Returns `{:error, :not_paused}` if the run is not paused.
   """
@@ -202,8 +252,13 @@ defmodule Zaq.Engine.Workflows do
           {:ok, WorkflowRun.t()} | {:error, :not_paused | term()}
   def resume_run(%WorkflowRun{} = run, opts \\ []) do
     case run.status do
-      "paused" -> WorkflowAgent.execute(run, opts)
-      _ -> {:error, :not_paused}
+      "paused" ->
+        with {:ok, run} <- ensure_prepared_dag(run) do
+          WorkflowRunAgent.execute(run, opts)
+        end
+
+      _ ->
+        {:error, :not_paused}
     end
   end
 
@@ -378,7 +433,7 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Creates a pending workflow run, snapshotting steps and settings at creation time.
 
-  The `WorkflowAgent` reads exclusively from these snapshots — editing the
+  The `WorkflowRunAgent` reads exclusively from these snapshots — editing the
   workflow after a run starts never affects the in-progress run.
 
   This function does not execute the run. Call `start_run/2` to transition the
@@ -939,7 +994,7 @@ defmodule Zaq.Engine.Workflows do
   @doc """
   Returns all step runs for a workflow run, ordered by step_index ascending.
 
-  Used by `WorkflowAgent` on boot to rehydrate:
+  Used by `WorkflowRunAgent` on boot to rehydrate:
   - All `completed` rows → rebuild `previous_results` map
   - Last `running` row → the step to resume (was mid-flight on crash)
   """
@@ -950,6 +1005,29 @@ defmodule Zaq.Engine.Workflows do
         where: sr.workflow_run_id == ^run_id,
         order_by: [asc: sr.step_index]
     )
+  end
+
+  @doc """
+  Returns `{node, count, cap}` if the run failed because a `map` node tripped its
+  D-A8 `max_items` cap, else `nil`.
+
+  Reads the failed aggregate `StepRun` written by the map extract guard
+  (`DagBuilder` records it). Used by the agent to surface
+  `{:error, {:map_over_limit, …}}` to the run caller. Lives here (not in
+  `DagBuilder`) because it is a run-introspection query, not DAG construction.
+  """
+  @spec map_over_limit(binary()) :: {String.t(), non_neg_integer(), pos_integer()} | nil
+  def map_over_limit(run_id) do
+    run_id
+    |> list_step_runs()
+    |> Enum.find_value(fn sr ->
+      with %{} = errors <- sr.errors,
+           "map_over_limit" <- Map.get(errors, "code") do
+        {sr.step_name, Map.get(errors, "count"), Map.get(errors, "cap")}
+      else
+        _ -> nil
+      end
+    end)
   end
 
   # --- Trace ---
@@ -1279,6 +1357,46 @@ defmodule Zaq.Engine.Workflows do
   # tuples, which only existed because Batch/Iterate ran as one opaque step.
 
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
+
+  # Dispatches a `:workflow` lifecycle event (e.g. `run.failed`) via NodeRouter.
+  # Mirrors the agent's lifecycle dispatch; used here for the build-failure path
+  # in `ensure_prepared_dag/1`, which the agent no longer owns.
+  defp dispatch_workflow_event(action, body) do
+    Map.put(body, :action, action)
+    |> Zaq.Event.new(:engine, name: :workflow)
+    |> node_router().dispatch()
+  end
+
+  # Renders a DAG build error into a human-readable run `log_summary` message.
+  # Reachable only via code drift (save-time validation rejects unrunnable
+  # workflows); kept for operator-facing clarity on those rare runs.
+  defp format_build_error(:invalid_steps),
+    do: "Workflow steps configuration is invalid or missing."
+
+  defp format_build_error(:empty_dag),
+    do: "Workflow has no nodes configured."
+
+  defp format_build_error({:unknown_node_type, type}),
+    do: "Unknown node type \"#{type}\". Expected \"action\" or \"agent\"."
+
+  defp format_build_error({:unknown_module, nil}),
+    do: "A node is missing its module configuration."
+
+  defp format_build_error({:unknown_module, mod}),
+    do: "Module not found: \"#{mod}\". Check that the module name is spelled correctly."
+
+  defp format_build_error({:unknown_node, name}),
+    do: "An edge references node \"#{name}\" which does not exist."
+
+  defp format_build_error({:invalid_edge_condition, _}),
+    do: "An edge has an invalid condition configuration."
+
+  defp format_build_error({:contract_violation, mod, missing}),
+    do:
+      "Module #{inspect(mod)} does not satisfy the Action contract. Missing: #{inspect(missing)}."
+
+  defp format_build_error(reason),
+    do: inspect(reason)
 
   # Fans a workflow UI broadcast out through the Channels role instead of touching
   # `Phoenix.PubSub` from the engine context. Channels owns the real re-broadcast

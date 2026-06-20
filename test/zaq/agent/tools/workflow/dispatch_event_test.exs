@@ -88,4 +88,10 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
       refute :type in keys
     end
   end
+
+  describe "allowed_event_names/0" do
+    test "returns the workflow event allowlist" do
+      assert DispatchEvent.allowed_event_names() == ["lead_identified"]
+    end
+  end
 end

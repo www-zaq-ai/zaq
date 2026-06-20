@@ -280,6 +280,47 @@ defmodule Zaq.Engine.Workflows.Action do
   defp list_type?(_), do: false
 
   @doc """
+  Resolves a node's `"module"` string and validates the resulting module against
+  the action contract — the single source of truth for save-time node validation
+  (`Step.Node.changeset`) and run-time DAG building (`DagBuilder`).
+
+  Returns `:ok`, `{:error, {:unknown_module, ref}}` when `ref` is `nil` or names
+  no loadable module, or `{:error, {:contract_violation, module, missing}}` when
+  the module loads but does not conform (see `validate/1`).
+  """
+  @spec validate_ref(String.t() | nil) ::
+          :ok
+          | {:error, {:unknown_module, String.t() | nil}}
+          | {:error, {:contract_violation, module(), [missing()]}}
+  def validate_ref(nil), do: {:error, {:unknown_module, nil}}
+
+  def validate_ref(ref) when is_binary(ref) do
+    case resolve(ref) do
+      {:ok, module} -> validate(module)
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Resolves a node's `"module"` string to a loaded module atom.
+
+  Returns `{:ok, module}` or `{:error, {:unknown_module, ref}}`. Does not check
+  the action contract — use `validate_ref/1` for that.
+  """
+  @spec resolve(String.t() | nil) ::
+          {:ok, module()} | {:error, {:unknown_module, String.t() | nil}}
+  def resolve(nil), do: {:error, {:unknown_module, nil}}
+
+  def resolve(ref) when is_binary(ref) do
+    module = ref |> String.split(".") |> Module.concat()
+
+    case Code.ensure_loaded(module) do
+      {:module, ^module} -> {:ok, module}
+      {:error, _} -> {:error, {:unknown_module, ref}}
+    end
+  end
+
+  @doc """
   Validates that `module` satisfies the workflow action contract.
 
   Returns `:ok` for a conforming module, or

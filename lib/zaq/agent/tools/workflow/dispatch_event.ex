@@ -55,9 +55,7 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
     event = Zaq.Event.new(request, :engine, type: :async, name: event_name)
     node_router = Map.get(ctx, :node_router, NodeRouter)
 
-    Logger.debug(
-      "[dispatch_event] dispatching event_name=#{inspect(event.name)} destination=:engine"
-    )
+    Logger.debug("[dispatch_event] dispatching #{inspect(event.name)} to :engine")
 
     case node_router.dispatch(event).response do
       {:ok, _} ->
@@ -82,6 +80,5 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
      "unsupported event_name #{inspect(event_name)}, allowed: #{Enum.join(@allowed_event_names, ", ")}"}
   end
 
-  @doc false
   def allowed_event_names, do: @allowed_event_names
 end

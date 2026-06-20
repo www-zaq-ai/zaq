@@ -12,20 +12,20 @@ defmodule Zaq.Engine.Workflows.Composition do
   so the core needs no database. `Workflows.create_run/4` passes a resolver that
   loads and serialises the referenced workflow at run-creation time — the
   reference is therefore resolved fresh per run and frozen into the persisted
-  snapshot for that run's lifetime (design decisions D1/D2).
+  snapshot for that run's lifetime (edits to a referenced workflow never affect
+  in-progress runs).
 
-  Composition rules (see
-  `docs/exec-plans/active/pr-430-workflow-composition-primitive.md`):
+  Composition rules:
 
-  - **D3** — a referenced workflow must have exactly one root (entry) and one
-    leaf (exit); the seam edge `X -> ref` is rewired to `X -> entry` and
-    `ref -> Y` to `exit -> Y`.
-  - **D4** — inlined nodes are namespaced `"<ref_node_name>/<inner_name>"` so
-    names stay unique (and a workflow may be referenced more than once).
-  - **D5** — `validate/2` rejects reference cycles and any composition whose
-    flattened graph is not acyclic.
-  - **D6** — seam data mapping is passthrough: the existing edge `"mapping"` /
-    `"condition"` on the seam edges is preserved unchanged.
+  - **Single entry/exit** — a referenced workflow must have exactly one root
+    (entry) and one leaf (exit); the seam edge `X -> ref` is rewired to
+    `X -> entry` and `ref -> Y` to `exit -> Y`.
+  - **Namespacing** — inlined nodes are namespaced `"<ref_node_name>/<inner_name>"`
+    so names stay unique (and a workflow may be referenced more than once).
+  - **Acyclicity** — `validate/2` rejects reference cycles and any composition
+    whose flattened graph is not acyclic.
+  - **Seam mapping** — seam data mapping is passthrough: the existing edge
+    `"mapping"` / `"condition"` on the seam edges is preserved unchanged.
   """
 
   @type snapshot :: %{required(String.t()) => list()}
@@ -66,7 +66,7 @@ defmodule Zaq.Engine.Workflows.Composition do
   (`{:workflow_cycle, id}`), a single-root/leaf violation
   (`{:multi_entry_exit, roots, leaves}`), or a flattened graph that is not
   acyclic (`{:workflow_not_acyclic, nodes}`). Intended to run at workflow save
-  time (Task 13).
+  time, so a persisted workflow is always runnable.
   """
   @spec validate(snapshot, resolver) :: :ok | {:error, term()}
   def validate(snapshot, resolver) do
@@ -111,7 +111,7 @@ defmodule Zaq.Engine.Workflows.Composition do
   end
 
   # entry = the only node with no incoming edge; leaf = the only node with no
-  # outgoing edge (D3 single-root / single-leaf constraint).
+  # outgoing edge (the single-root / single-leaf constraint).
   defp entry_and_leaf(%{"nodes" => nodes, "edges" => edges}) do
     tos = MapSet.new(edges, & &1["to"])
     froms = MapSet.new(edges, & &1["from"])
@@ -140,7 +140,7 @@ defmodule Zaq.Engine.Workflows.Composition do
   defp rewire_seam(%{"from" => rname} = edge, rname, _entry, leaf), do: %{edge | "from" => leaf}
   defp rewire_seam(edge, _rname, _entry, _leaf), do: edge
 
-  # ── acyclicity (D5) ───────────────────────────────────────────────────────────
+  # ── acyclicity ──────────────────────────────────────────────────────────────
 
   defp acyclic?(flat) do
     graph = build_digraph(flat)

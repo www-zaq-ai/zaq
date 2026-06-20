@@ -42,7 +42,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   On resume after a pause, `run/2` checks for an existing `"completed"` `StepRun`
   row for `(run_id, step_name)`. If found, the stored results are returned
   immediately — no new row is created and the wrapped module is never called.
-  This makes `WorkflowAgent.execute/2` safe to call on a paused run.
+  This makes `WorkflowRunAgent.execute/2` safe to call on a paused run.
   """
 
   require Logger

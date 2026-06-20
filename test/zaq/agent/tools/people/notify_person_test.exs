@@ -21,6 +21,14 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
     def dispatch(event), do: %{event | response: {:error, "person_not_found:123"}}
   end
 
+  defmodule StructuredErrorRouter do
+    def dispatch(event), do: %{event | response: {:error, {:provider_failed, :timeout}}}
+  end
+
+  defmodule UnexpectedRouter do
+    def dispatch(event), do: %{event | response: {:ok, :queued}}
+  end
+
   describe "schema/0" do
     test "does not expose channel or sheet-specific fields" do
       keys = Keyword.keys(NotifyPerson.schema())
@@ -69,6 +77,26 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
                NotifyPerson.run(
                  %{person: person, subject: "Hello", message: "Body"},
                  %{node_router: ErrorRouter}
+               )
+    end
+
+    test "formats non-binary engine errors for action callers" do
+      person = person_fixture()
+
+      assert {:error, "{:provider_failed, :timeout}"} =
+               NotifyPerson.run(
+                 %{person: person, subject: "Hello", message: "Body"},
+                 %{node_router: StructuredErrorRouter}
+               )
+    end
+
+    test "returns a tagged failure when the engine response is unexpected" do
+      person = person_fixture()
+
+      assert {:error, "notify_person_failed:{:ok, :queued}"} =
+               NotifyPerson.run(
+                 %{person: person, subject: "Hello", message: "Body"},
+                 %{node_router: UnexpectedRouter}
                )
     end
 

@@ -27,7 +27,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
 
   alias Zaq.Engine.TriggerNode
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.WorkflowAgent
+  alias Zaq.Engine.Workflows.WorkflowRunAgent
 
   # ── Module names (used in workflow definition JSON) ───────────────────────────
 
@@ -195,7 +195,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       wf = contact_batch_workflow()
 
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       step_names = finished |> step_runs() |> Enum.map(& &1.step_name) |> MapSet.new()
 
@@ -214,19 +214,19 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
 
   # ── Direct run execution ──────────────────────────────────────────────────────
 
-  describe "WorkflowAgent execution: Batch → Iterate pipeline" do
+  describe "WorkflowRunAgent execution: Batch → Iterate pipeline" do
     test "workflow completes successfully" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
 
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
     end
 
     test "aggregate map row summarizes 12 items: 6 successful + 6 errors" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       batch_run = batch_step_run(run)
 
@@ -239,7 +239,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "each error entry carries the item index and failed-condition reason" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       for err <- batch_step_run(run).results["errors"] do
         assert is_integer(err["index"])
@@ -250,7 +250,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "6 contacts dispatched total across all 3 batches" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       dispatched = total_dispatched(run)
       assert length(dispatched) == 6
@@ -259,7 +259,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "dispatched contacts are the ones that are active and not in sequence" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       dispatched_names =
         total_dispatched(run)
@@ -272,7 +272,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "6 contacts skipped total (3 inactive + 3 in_sequence)" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       errors = total_iterate_errors(run)
       assert length(errors) == 6
@@ -281,7 +281,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "3 contacts fail the active condition, 3 fail the in_sequence condition" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       reasons =
         total_iterate_errors(run)
@@ -298,7 +298,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "condition passes — workflow runs batch when contacts present" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       assert finished.status == "completed"
       assert batch_step_run(run) != nil
@@ -361,7 +361,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
         })
 
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       assert finished.status == "completed"
 
@@ -449,7 +449,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "every contact is its own dispatch fork row (12 contacts)" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       # 6 contacts reach dispatch and complete; the other 6 short-circuit at a
       # failed condition, so their dispatch fork never runs.
@@ -461,7 +461,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "isolated failures are recorded as failed_fatal condition fork rows" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       failed =
         run
@@ -478,7 +478,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "per-fork failures do not fail the run (skip_and_continue)" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       assert finished.status == "completed"
     end
@@ -486,7 +486,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "post_process tail runs once per successful fork" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       sleeps = fork_rows(run, "sleep_between")
       assert length(sleeps) == 6
@@ -496,7 +496,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "aggregate batch_contacts row is present with its first log a step_completed" do
       wf = contact_batch_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       [first | _] = batch_step_run(run).logs
       assert Map.get(first, "event") == "step_completed"
@@ -581,7 +581,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "same 6 contacts dispatched as in the two-step variant" do
       wf = combined_condition_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       dispatched_names =
         total_dispatched(run)
@@ -594,7 +594,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     test "6 contacts skipped in total" do
       wf = combined_condition_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       assert length(total_iterate_errors(run)) == 6
     end
@@ -603,7 +603,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       # Iris is active: false AND in_sequence: true — both fail in one step.
       wf = combined_condition_workflow()
       {:ok, run} = Workflows.create_run(wf, source_event())
-      {:ok, _} = WorkflowAgent.execute(run)
+      {:ok, _} = WorkflowRunAgent.execute(run)
 
       reasons =
         total_iterate_errors(run)

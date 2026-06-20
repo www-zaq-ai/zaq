@@ -5,7 +5,7 @@ defmodule Zaq.Engine.Workflows.Steps.HumanInTheLoop do
   When reached in a DAG, this action creates a `StepApproval` record and
   returns `{:error, {:waiting_for_human, approval_token}}`. `StepRunner`
   pattern-matches this to mark the step as `"waiting"` and return
-  `{:error, :waiting_for_human}`. `WorkflowAgent` then transitions the run to
+  `{:error, :waiting_for_human}`. `WorkflowRunAgent` then transitions the run to
   `"waiting"` by inspecting step statuses in `finalize/2`.
 
   Approval or rejection arrives as a `:workflow` event dispatched to the engine:

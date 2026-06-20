@@ -3,7 +3,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.{CategorizeBySize, ListClients}
-  alias Zaq.Engine.Workflows.WorkflowAgent
+  alias Zaq.Engine.Workflows.WorkflowRunAgent
   @list_clients_module "Zaq.Engine.Workflows.Test.ListClients"
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
   @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
@@ -131,7 +131,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
       wf = four_node_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      assert {:ok, finished} = WorkflowAgent.execute(run)
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
     end
 
@@ -139,7 +139,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
       wf = four_node_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       step_runs = Workflows.list_step_runs(finished.id)
       by_name = Map.new(step_runs, &{&1.step_name, &1})
@@ -157,7 +157,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
       wf = four_node_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       step_runs = Workflows.list_step_runs(finished.id)
       batch_run = Enum.find(step_runs, &(&1.step_name == "batch"))
@@ -170,7 +170,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
       wf = four_node_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       step_runs = Workflows.list_step_runs(finished.id)
       flatten_run = Enum.find(step_runs, &(&1.step_name == "flatten_clients"))
@@ -184,7 +184,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
       wf = four_node_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
-      {:ok, finished} = WorkflowAgent.execute(run)
+      {:ok, finished} = WorkflowRunAgent.execute(run)
 
       step_runs = Workflows.list_step_runs(finished.id)
       flatten_run = Enum.find(step_runs, &(&1.step_name == "flatten_clients"))
