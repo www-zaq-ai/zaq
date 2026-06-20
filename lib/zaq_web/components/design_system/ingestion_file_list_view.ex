@@ -10,7 +10,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon, as: IngFileIcon
   import IngFileIcon, only: [file_icon: 1]
 
-  import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [file_ingestion_status: 2]
+  import ZaqWeb.Components.DesignSystem.IngestionFileStatus
 
   alias ZaqWeb.Components.DesignSystem.StatusPill
   alias ZaqWeb.Helpers.SizeFormat
@@ -69,16 +69,16 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   type="checkbox"
                   class="zaq-bo-checkbox zaq-focus-visible"
                   phx-click="toggle_select"
-                  phx-value-path={Path.join(@current_dir, entry.name)}
-                  checked={MapSet.member?(@selected, Path.join(@current_dir, entry.name))}
+                  phx-value-path={record_path(entry)}
+                  checked={MapSet.member?(@selected, record_path(entry))}
                 />
               </td>
               <td class="px-2 py-2 xl:px-4 xl:py-3 max-w-0 w-full">
                 <div class="flex items-center justify-between">
-                  <%= if entry.type == :directory do %>
+                  <%= if record_folder?(entry) do %>
                     <button
                       phx-click="navigate"
-                      phx-value-path={Path.join(@current_dir, entry.name)}
+                      phx-value-path={record_path(entry)}
                       class="flex items-center gap-2 min-w-0 zaq-text-body zaq-link-underline text-left cursor-pointer"
                       style="color: var(--zaq-text-color-body-accent)"
                       title={entry.name}
@@ -97,7 +97,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     <button
                       type="button"
                       phx-click="open_preview"
-                      phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
+                      phx-value-path={Path.join([@current_volume, record_path(entry)])}
                       class="flex items-center gap-2 min-w-0 text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
                       title={entry.name}
                     >
@@ -111,8 +111,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
                     <button
                       phx-click="move_item"
-                      phx-value-path={Path.join(@current_dir, entry.name)}
-                      phx-value-type={entry.type}
+                      phx-value-path={record_path(entry)}
+                      phx-value-type={record_local_type(entry)}
                       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                       title="Move to…"
                     >
@@ -137,8 +137,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     </button>
                     <button
                       phx-click="rename_item"
-                      phx-value-path={Path.join(@current_dir, entry.name)}
-                      phx-value-type={entry.type}
+                      phx-value-path={record_path(entry)}
+                      phx-value-type={record_local_type(entry)}
                       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                       title="Rename"
                     >
@@ -153,13 +153,13 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     </button>
                     <button
                       :if={
-                        entry.type == :directory or
-                          (entry.type == :file and
+                        record_folder?(entry) or
+                          (record_file?(entry) and
                              Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?)
                       }
                       phx-click="share_item"
-                      phx-value-path={Path.join(@current_dir, entry.name)}
-                      phx-value-type={entry.type}
+                      phx-value-path={record_path(entry)}
+                      phx-value-type={record_local_type(entry)}
                       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                       title="Share with roles"
                     >
@@ -179,8 +179,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     </button>
                     <button
                       phx-click="delete_item"
-                      phx-value-path={Path.join(@current_dir, entry.name)}
-                      phx-value-type={entry.type}
+                      phx-value-path={record_path(entry)}
+                      phx-value-type={record_local_type(entry)}
                       class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-icon"
                       title="Delete"
                     >
@@ -200,7 +200,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                 class="zaq-text-body-sm px-2 py-2 xl:px-4 xl:py-3 w-24 whitespace-nowrap"
                 style="color: var(--zaq-text-color-body-tertiary)"
               >
-                <%= if entry.type == :file do %>
+                <%= if record_file?(entry) do %>
                   {SizeFormat.format_size(entry.size)}
                 <% else %>
                   <% folder_stats = Map.get(@ingestion_map, entry.name) %>
@@ -211,7 +211,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               </td>
               <%!-- Status column: ingestion state only --%>
               <td class="px-2 py-2 xl:px-4 xl:py-3">
-                <%= if entry.type == :file do %>
+                <%= if record_file?(entry) do %>
                   <% status = file_ingestion_status(@ingestion_map, entry.name) %>
                   <%= cond do %>
                     <% status.job_status == "processing" -> %>
@@ -300,7 +300,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               </td>
               <%!-- Access column: shared / public badges --%>
               <td class="px-2 py-2 xl:px-4 xl:py-3 w-28">
-                <%= if entry.type == :file do %>
+                <%= if record_file?(entry) do %>
                   <% status = file_ingestion_status(@ingestion_map, entry.name) %>
                   <div class="flex items-center gap-1 flex-wrap">
                     <span
@@ -385,8 +385,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   phx-value-path={
                     Path.join([
                       @current_volume,
-                      @current_dir,
-                      Map.get(entry, :related_md, %{name: ""}).name
+                      record_path(Map.get(entry, :related_md, %{path: ""}))
                     ])
                   }
                   class="zaq-table-sidecar-preview"

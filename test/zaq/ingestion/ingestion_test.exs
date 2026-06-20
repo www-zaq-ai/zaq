@@ -15,11 +15,15 @@ defmodule Zaq.IngestionTest do
     FileExplorer,
     IngestChunkJob,
     IngestJob,
-    SourcePath
+    SourcePath,
+    VolumeRecords
   }
 
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
+
+  alias Zaq.Event
+  alias Zaq.Ingestion.Api
 
   setup do
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
@@ -121,6 +125,75 @@ defmodule Zaq.IngestionTest do
 
       assert_receive {:job_updated, %{id: ^job_id, status: "processing"}}
       assert_receive {:job_updated, %{id: ^job_id, status: "completed"}}
+    end
+  end
+
+  describe "local volume records" do
+    test "converts local volume entries into canonical records" do
+      entry = %{name: "file.md", type: :file, size: 12, modified_at: DateTime.utc_now()}
+
+      record = VolumeRecords.from_entry(entry, "default", "docs")
+
+      assert record.kind == :file
+      assert record.name == "file.md"
+      assert record.path == "docs/file.md"
+      assert record.attributes["provider"] == "zaq_local"
+      assert record.attributes["volume"] == "default"
+      assert record.attributes["relative_path"] == "docs/file.md"
+    end
+  end
+
+  describe "ingest_records/2" do
+    test "creates a source_record job from a local file record" do
+      path = "record_file_#{System.unique_integer([:positive])}.md"
+      assert {:ok, _full_path} = FileExplorer.upload(path, "# record")
+
+      on_exit(fn -> FileExplorer.delete(path) end)
+
+      {:ok, entries} = FileExplorer.list(".")
+
+      record =
+        entries |> VolumeRecords.from_entries("default", ".") |> Enum.find(&(&1.path == path))
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      end)
+
+      assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "inline"})
+      assert job.file_path == path
+      assert job.volume_name == "default"
+      assert job.source_record["id"] == record.id
+      assert job.source_record["attributes"]["relative_path"] == path
+    end
+
+    test "expands folder records inside the ingestion service" do
+      folder = "record_folder_#{System.unique_integer([:positive])}"
+      assert :ok = FileExplorer.create_directory(folder)
+      assert {:ok, _full_path} = FileExplorer.upload(Path.join(folder, "one.md"), "# one")
+
+      on_exit(fn -> FileExplorer.delete_directory(folder) end)
+
+      {:ok, entries} = FileExplorer.list(".")
+
+      record =
+        entries |> VolumeRecords.from_entries("default", ".") |> Enum.find(&(&1.path == folder))
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      end)
+
+      assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "inline"})
+      assert job.file_path == Path.join(folder, "one.md")
+      assert job.source_record["attributes"]["relative_path"] == Path.join(folder, "one.md")
+    end
+
+    test "ingestion api accepts record dispatch events" do
+      event =
+        Event.new(%{records: [], params: %{"mode" => "async"}}, :ingestion,
+          opts: [action: :ingest_records]
+        )
+
+      assert %{response: {:ok, []}} = Api.handle_event(event, :ingest_records, nil)
     end
   end
 

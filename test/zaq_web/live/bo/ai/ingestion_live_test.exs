@@ -822,6 +822,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       refute has_element?(view, "button", "Delete (1)")
       # A job row for the file appears in the jobs table
       assert has_element?(view, "p", "alpha.md")
+
+      job = Repo.get_by!(IngestJob, file_path: "alpha.md")
+      assert job.source_record["kind"] == "file"
+      assert job.source_record["attributes"]["relative_path"] == "alpha.md"
     end
 
     test "ingest_selected clears selection and shows flash for a directory", %{conn: conn} do
@@ -1464,8 +1468,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "select_all", %{})
       selected = :sys.get_state(view.pid).socket.assigns.selected
 
-      assert MapSet.member?(selected, "./report.pdf")
-      refute MapSet.member?(selected, "./report_converted.md")
+      assert MapSet.member?(selected, "report.pdf")
+      refute MapSet.member?(selected, "report_converted.md")
     end
 
     test "does not pair same-basename md without explicit metadata link", %{
@@ -1486,8 +1490,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "select_all", %{})
       selected = :sys.get_state(view.pid).socket.assigns.selected
 
-      assert MapSet.member?(selected, "./report.pdf")
-      assert MapSet.member?(selected, "./report.md")
+      assert MapSet.member?(selected, "report.pdf")
+      assert MapSet.member?(selected, "report.md")
     end
 
     test "shows metadata-linked image sidecar and excludes it from select_all", %{
@@ -1513,8 +1517,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "select_all", %{})
       selected = :sys.get_state(view.pid).socket.assigns.selected
 
-      assert MapSet.member?(selected, "./photo.png")
-      refute MapSet.member?(selected, "./photo.md")
+      assert MapSet.member?(selected, "photo.png")
+      refute MapSet.member?(selected, "photo.md")
     end
   end
 

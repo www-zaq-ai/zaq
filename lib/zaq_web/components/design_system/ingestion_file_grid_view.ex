@@ -8,7 +8,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon, as: IngFileIcon
   import IngFileIcon, only: [file_icon_color: 1]
 
-  import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [file_ingestion_status: 2]
+  import ZaqWeb.Components.DesignSystem.IngestionFileStatus
 
   alias ZaqWeb.Components.DesignSystem.StatusPill
   alias ZaqWeb.Helpers.SizeFormat
@@ -51,7 +51,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
             :for={entry <- @entries}
             class={[
               "group zaq-ingestion-file-grid-card",
-              if(MapSet.member?(@selected, Path.join(@current_dir, entry.name)),
+              if(MapSet.member?(@selected, record_path(entry)),
                 do: "zaq-ingestion-file-grid-card--selected",
                 else: ""
               )
@@ -59,7 +59,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
           >
             <div class={[
               "absolute top-2 left-2 z-10 transition-opacity",
-              if(MapSet.member?(@selected, Path.join(@current_dir, entry.name)),
+              if(MapSet.member?(@selected, record_path(entry)),
                 do: "opacity-100",
                 else: "opacity-0 group-hover:opacity-100"
               )
@@ -68,15 +68,15 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 type="checkbox"
                 class="zaq-bo-checkbox zaq-focus-visible"
                 phx-click="toggle_select"
-                phx-value-path={Path.join(@current_dir, entry.name)}
-                checked={MapSet.member?(@selected, Path.join(@current_dir, entry.name))}
+                phx-value-path={record_path(entry)}
+                checked={MapSet.member?(@selected, record_path(entry))}
               />
             </div>
             <div class="opacity-0 group-hover:opacity-100 transition-opacity zaq-ingestion-file-grid-card-actions">
               <button
                 phx-click="move_item"
-                phx-value-path={Path.join(@current_dir, entry.name)}
-                phx-value-type={entry.type}
+                phx-value-path={record_path(entry)}
+                phx-value-type={record_local_type(entry)}
                 class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                 title="Move to…"
               >
@@ -97,8 +97,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               </button>
               <button
                 phx-click="rename_item"
-                phx-value-path={Path.join(@current_dir, entry.name)}
-                phx-value-type={entry.type}
+                phx-value-path={record_path(entry)}
+                phx-value-type={record_local_type(entry)}
                 class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                 title="Rename"
               >
@@ -113,13 +113,13 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               </button>
               <button
                 :if={
-                  entry.type == :directory or
-                    (entry.type == :file and
+                  record_folder?(entry) or
+                    (record_file?(entry) and
                        file_ingestion_status(@ingestion_map, entry.name).can_share?)
                 }
                 phx-click="share_item"
-                phx-value-path={Path.join(@current_dir, entry.name)}
-                phx-value-type={entry.type}
+                phx-value-path={record_path(entry)}
+                phx-value-type={record_local_type(entry)}
                 class="zaq-btn zaq-btn-ghost zaq-btn-icon"
                 title="Share with roles"
               >
@@ -139,8 +139,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               </button>
               <button
                 phx-click="delete_item"
-                phx-value-path={Path.join(@current_dir, entry.name)}
-                phx-value-type={entry.type}
+                phx-value-path={record_path(entry)}
+                phx-value-type={record_local_type(entry)}
                 class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-icon"
                 title="Delete"
               >
@@ -154,11 +154,11 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 </svg>
               </button>
             </div>
-            <%= if entry.type == :directory do %>
+            <%= if record_folder?(entry) do %>
               <% folder_stats = Map.get(@ingestion_map, entry.name) %>
               <button
                 phx-click="navigate"
-                phx-value-path={Path.join(@current_dir, entry.name)}
+                phx-value-path={record_path(entry)}
                 class="w-full pt-8 pb-3 flex flex-col items-center"
               >
                 <svg
@@ -201,7 +201,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 role="button"
                 tabindex="0"
                 phx-click="open_preview"
-                phx-value-path={Path.join([@current_volume, @current_dir, entry.name])}
+                phx-value-path={Path.join([@current_volume, record_path(entry)])}
               >
                 <IngFileIcon.file_icon
                   name={entry.name}
@@ -286,8 +286,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                   phx-value-path={
                     Path.join([
                       @current_volume,
-                      @current_dir,
-                      Map.get(entry, :related_md, %{name: ""}).name
+                      record_path(Map.get(entry, :related_md, %{path: ""}))
                     ])
                   }
                   class="zaq-table-sidecar-preview zaq-table-sidecar-preview--ingestion-grid"

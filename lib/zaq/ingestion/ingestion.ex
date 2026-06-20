@@ -16,8 +16,10 @@ defmodule Zaq.Ingestion do
     IngestJob,
     IngestWorker,
     JobLifecycle,
+    RecordSource,
     RenameService,
-    SourcePath
+    SourcePath,
+    VolumeRecords
   }
 
   alias Zaq.Permissions.DocumentPermission, as: Permission
@@ -33,20 +35,42 @@ defmodule Zaq.Ingestion do
 
   # --- Ingestion triggers ---
 
+  def ingest_records(records, params \\ %{}) when is_list(records) and is_map(params) do
+    mode = normalize_mode(Map.get(params, "mode") || Map.get(params, :mode) || :async)
+
+    jobs =
+      records
+      |> Enum.flat_map(fn record ->
+        case ingest_record(record, mode) do
+          {:ok, jobs} when is_list(jobs) -> jobs
+          {:ok, job} -> [job]
+          {:error, _reason} -> []
+        end
+      end)
+
+    {:ok, jobs}
+  end
+
+  def ingest_record(record, mode \\ :async) do
+    case RecordSource.kind(record) do
+      :file ->
+        ingest_file_record(record, mode)
+
+      :folder ->
+        with {:ok, children} <- RecordSource.list_children(record) do
+          children
+          |> Enum.filter(&(RecordSource.kind(&1) == :file))
+          |> ingest_records(%{mode: mode})
+        end
+
+      _ ->
+        {:error, :unsupported_record_kind}
+    end
+  end
+
   def ingest_file(path, mode \\ :async, volume_name \\ nil) do
     with {:ok, job} <- create_job(path, mode, volume_name) do
-      case mode do
-        :async ->
-          %{"job_id" => job.id}
-          |> IngestWorker.new()
-          |> Oban.insert()
-
-          {:ok, job}
-
-        :inline ->
-          IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
-          {:ok, Repo.get!(IngestJob, job.id)}
-      end
+      run_job(job, mode)
     end
   end
 
@@ -308,6 +332,7 @@ defmodule Zaq.Ingestion do
       sorted =
         entries
         |> Enum.sort_by(fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
+        |> VolumeRecords.from_entries(volume_name, current_dir)
 
       {:ok, DirectorySnapshot.build(sorted, volume_name, current_dir, current_user)}
     end
@@ -687,15 +712,44 @@ defmodule Zaq.Ingestion do
   defp list_in_volume(nil, path), do: FileExplorer.list(path)
   defp list_in_volume(volume_name, path), do: FileExplorer.list(volume_name, path)
 
-  defp create_job(path, mode, volume_name) do
+  defp ingest_file_record(record, mode) do
+    with path when is_binary(path) <- RecordSource.relative_path(record),
+         volume when is_binary(volume) <- RecordSource.volume(record),
+         {:ok, job} <- create_job(path, mode, volume, RecordSource.to_storage_map(record)) do
+      run_job(job, mode)
+    else
+      _ -> {:error, :unsupported_record_source}
+    end
+  end
+
+  defp create_job(path, mode, volume_name, source_record \\ nil) do
     attrs =
-      %{file_path: path, status: "pending", mode: to_string(mode)}
+      %{file_path: path, status: "pending", mode: to_string(mode), source_record: source_record}
       |> then(fn a -> if volume_name, do: Map.put(a, :volume_name, volume_name), else: a end)
 
     %IngestJob{}
     |> IngestJob.changeset(attrs)
     |> Repo.insert()
   end
+
+  defp run_job(job, mode) do
+    case mode do
+      :async ->
+        %{"job_id" => job.id}
+        |> IngestWorker.new()
+        |> Oban.insert()
+
+        {:ok, job}
+
+      :inline ->
+        IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
+        {:ok, Repo.get!(IngestJob, job.id)}
+    end
+  end
+
+  defp normalize_mode(:inline), do: :inline
+  defp normalize_mode("inline"), do: :inline
+  defp normalize_mode(_), do: :async
 
   defp maybe_filter_status(query, nil), do: query
 

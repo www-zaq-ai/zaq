@@ -35,6 +35,7 @@ defmodule Zaq.Ingestion.IngestJob do
     field :failed_chunk_indices, {:array, :integer}, default: []
     field :document_id, :integer
     field :volume_name, :string
+    field :source_record, :map
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -57,7 +58,8 @@ defmodule Zaq.Ingestion.IngestJob do
       :failed_chunks,
       :failed_chunk_indices,
       :document_id,
-      :volume_name
+      :volume_name,
+      :source_record
     ])
     |> validate_required([:file_path, :status, :mode])
     |> validate_inclusion(:status, @statuses)

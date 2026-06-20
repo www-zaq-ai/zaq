@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   import ZaqWeb.Live.BO.AI.IngestionComponents
 
   alias Zaq.Accounts.People
+  alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
   alias Zaq.System
@@ -38,6 +39,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        breadcrumbs: [],
        entries: [],
        selected: MapSet.new(),
+       records_by_path: %{},
        jobs: [],
        # Set of job ids currently in their preparation phase, derived from the
        # jobs list on every change so the high-frequency :job_progress handler
@@ -345,7 +347,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("select_all", _params, socket) do
     all_paths =
       socket.assigns.entries
-      |> Enum.map(fn e -> Path.join(socket.assigns.current_dir, e.name) end)
+      |> Enum.map(&record_path/1)
       |> MapSet.new()
 
     selected =
@@ -617,21 +619,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("ingest_selected", _params, socket) do
-    mode = String.to_existing_atom(socket.assigns.ingest_mode)
-    volume = socket.assigns.current_volume
-
-    for path <- socket.assigns.selected do
-      case ingestion_call(:file_info, [volume, path]) do
-        {:ok, %{type: :directory}} ->
-          ingestion_call(:ingest_folder, [path, mode, volume])
-
-        {:ok, %{type: :file}} ->
-          ingestion_call(:ingest_file, [path, mode, volume])
-
-        _ ->
-          :skip
-      end
-    end
+    records = selected_records(socket)
+    dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode})
 
     {:noreply,
      socket
@@ -824,11 +813,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       {:ok, snapshot} ->
         socket
         |> assign(entries: snapshot.entries)
+        |> assign(records_by_path: records_by_path(snapshot.entries))
         |> assign(ingestion_map: snapshot.ingestion_map)
 
       {:error, _} ->
         socket
         |> assign(entries: [])
+        |> assign(records_by_path: %{})
         |> assign(ingestion_map: %{})
     end
   end
@@ -1020,6 +1011,28 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp ingestion_call(fun, args) do
     NodeRouter.invoke(:ingestion, Ingestion, fun, args)
   end
+
+  defp dispatch_ingest_records([], _params), do: {:ok, []}
+
+  defp dispatch_ingest_records(records, params) do
+    # Phase 1 sends canonical records to ingestion. Future external data-source
+    # records should follow this same path so BO never branches on source origin.
+    event =
+      Event.new(%{records: records, params: params}, :ingestion, opts: [action: :ingest_records])
+
+    NodeRouter.dispatch(event).response
+  end
+
+  defp selected_records(socket) do
+    socket.assigns.selected
+    |> Enum.map(&Map.get(socket.assigns.records_by_path, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp records_by_path(entries), do: Map.new(entries, &{record_path(&1), &1})
+
+  defp record_path(%{path: path}) when is_binary(path), do: path
+  defp record_path(%{name: name}), do: name
 
   defp assign_breadcrumbs(socket, "."), do: assign(socket, breadcrumbs: [])
 

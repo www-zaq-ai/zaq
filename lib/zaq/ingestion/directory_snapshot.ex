@@ -7,7 +7,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
   alias Zaq.Repo
 
   def build(entries, current_volume, current_dir, _current_user) do
-    file_entries = Enum.filter(entries, &(&1.type == :file))
+    file_entries = Enum.filter(entries, &(entry_kind(&1) == :file))
 
     entry_details = build_entry_details(file_entries, current_volume, current_dir)
     documents_by_source = fetch_documents_by_source(entry_details)
@@ -21,7 +21,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
     {ingestion_map, visible_names} =
       build_ingestion_map(top_level_details)
 
-    dir_entries = Enum.filter(entries, &(&1.type == :directory))
+    dir_entries = Enum.filter(entries, &(entry_kind(&1) == :folder))
     folder_map = build_folder_map(dir_entries, current_volume, current_dir)
 
     top_level_entries_by_name =
@@ -35,7 +35,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
 
   defp build_entry_details(file_entries, current_volume, current_dir) do
     Enum.map(file_entries, fn entry ->
-      relative_path = Path.join(current_dir, entry.name)
+      relative_path = entry_path(entry, current_dir)
       source_candidates = SourcePath.source_candidates(current_volume, relative_path)
 
       %{
@@ -193,7 +193,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
 
   defp build_folder_map(dir_entries, current_volume, current_dir) do
     Map.new(dir_entries, fn entry ->
-      folder_path = Path.join(current_dir, entry.name)
+      folder_path = entry_path(entry, current_dir)
       prefixes = SourcePath.source_candidates(current_volume, folder_path)
 
       doc_stats = fetch_folder_doc_stats(prefixes)
@@ -242,14 +242,24 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
     |> Enum.reverse()
   end
 
-  defp visible_entry(%{type: :directory} = entry, _top_level_entries_by_name, _visible_names),
-    do: entry
-
   defp visible_entry(entry, top_level_entries_by_name, visible_names) do
-    if MapSet.member?(visible_names, entry.name) do
-      Map.get(top_level_entries_by_name, entry.name)
-    else
-      nil
+    cond do
+      entry_kind(entry) == :folder ->
+        entry
+
+      MapSet.member?(visible_names, entry.name) ->
+        Map.get(top_level_entries_by_name, entry.name)
+
+      true ->
+        nil
     end
   end
+
+  defp entry_kind(%{kind: :folder}), do: :folder
+  defp entry_kind(%{kind: "folder"}), do: :folder
+  defp entry_kind(%{type: :directory}), do: :folder
+  defp entry_kind(_), do: :file
+
+  defp entry_path(%{path: path}, _current_dir) when is_binary(path), do: path
+  defp entry_path(entry, current_dir), do: Path.join(current_dir, entry.name)
 end

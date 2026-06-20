@@ -19,7 +19,8 @@ defmodule Zaq.Ingestion.IngestWorker do
     IngestChunkJob,
     IngestChunkWorker,
     IngestJob,
-    JobLifecycle
+    JobLifecycle,
+    RecordSource
   }
 
   alias Zaq.Repo
@@ -30,7 +31,7 @@ defmodule Zaq.Ingestion.IngestWorker do
 
     updated_job = JobLifecycle.mark_processing!(job)
 
-    file_path = resolve_file_path(updated_job.file_path, updated_job.volume_name)
+    file_path = resolve_file_path(updated_job)
     telemetry_dimensions = %{mode: updated_job.mode, volume: updated_job.volume_name || "default"}
 
     if Map.get(args, "retry_failed_chunks", false) do
@@ -205,6 +206,21 @@ defmodule Zaq.Ingestion.IngestWorker do
 
     %{"job_id" => job_id, "chunk_job_id" => chunk_job.id}
   end
+
+  defp resolve_file_path(%IngestJob{source_record: source_record}) when is_map(source_record) do
+    # Phase 1 stores local volume records here. Future external records should be
+    # resolved in RecordSource through routed data-source fetch/export events.
+    case RecordSource.resolve_path(source_record) do
+      {:ok, full_path} ->
+        full_path
+
+      _ ->
+        resolve_file_path(source_record["path"], get_in(source_record, ["attributes", "volume"]))
+    end
+  end
+
+  defp resolve_file_path(%IngestJob{file_path: path, volume_name: volume_name}),
+    do: resolve_file_path(path, volume_name)
 
   defp resolve_file_path(path, nil) do
     case FileExplorer.resolve_path(path) do
