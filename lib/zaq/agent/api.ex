@@ -235,8 +235,12 @@ defmodule Zaq.Agent.Api do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
 
+  # Channels build assigns from JSON (string keys); in-process callers such as
+  # the workflow `RunAgent` tool set an atom-keyed `:agent_selection`. Accept both
+  # so a selected agent always routes to `Executor.run/2` (direct agent run)
+  # rather than falling through to the RAG `Pipeline`.
   defp selected_agent_id(assigns) when is_map(assigns) do
-    case Map.get(assigns, "agent_selection") do
+    case Map.get(assigns, "agent_selection") || Map.get(assigns, :agent_selection) do
       %{"agent_id" => id} when id not in [nil, ""] -> id
       %{agent_id: id} when id not in [nil, ""] -> id
       _ -> nil

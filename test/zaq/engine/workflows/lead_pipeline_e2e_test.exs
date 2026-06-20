@@ -1,29 +1,35 @@
 defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
   @moduledoc """
-  End-to-end coverage for the two-workflow lead pipeline scenario currently
-  demonstrated by the `UseCases.IdentifyLeadsFromGoogleSheet` /
-  `UseCases.SendLeadsEmail` example modules (which are slated for removal).
+  End-to-end coverage for the **real** two-workflow lead pipeline defined by
+  `UseCases.IdentifyLeadsFromGoogleSheet` (producer) and `UseCases.SendLeadsEmail`
+  (consumer).
 
-  This test reproduces the same behaviour with self-contained stub actions so the
-  scenario keeps being verified after the examples are deleted. It exercises, in
-  one real run through the engine:
+  Unlike a fully-stubbed reproduction, this test builds both workflows from their
+  *production* `build/1` definitions and runs them through the real engine. Only
+  the unavoidable external boundaries are swapped for local stubs:
 
-    1. **Workflow → event → workflow.** A *producer* workflow run dispatches a
-       `lead_identified` engine event for a qualifying lead. The stubbed
-       `NodeRouter` routes that event through `TriggerNode.fire/2` exactly as the
-       live `EventRegistry` would, which creates and starts the *consumer*
-       workflow run. A non-qualifying lead is gated out by an edge condition and
-       never dispatches.
+    * `get_sheet`        — Google datasource read → returns a fixture `%Record{}`
+    * `draft_email`      — LLM agent call → returns a deterministic draft string
+    * `send_email`       — notification dispatch → records the message
+    * `update_sheet_row` — Google datasource write → records the update
+    * `sleep_between`    — duration shortened to 0 so the run is instant
 
-    2. **LLM stub drafting a message.** The consumer's first step stands in for a
-       `RunAgent` call: it returns an `output` string (the drafted email),
-       matching the agent action's output contract without touching an LLM.
+  Everything on the **authorization-critical path stays real**: the producer's
+  `Condition` gating, the real `DispatchEvent` tool (which stamps the `machine`
+  marker), `TriggerNode` (which translates it to `skip_permissions`), and the
+  consumer's real `EnsurePerson` → `Accounts.History` (`build_history`) →
+  `BuildSingleCellUpdate` → `HumanInTheLoop` steps.
 
-    3. **Human-in-the-loop verification.** The consumer suspends at a real
-       `Steps.HumanInTheLoop` node (`waiting`), creating a `StepApproval`.
-       Approving via `Workflows.approve_step/5` resumes the run to completion and
-       the drafted message flows through the approval gate into the send step;
-       rejecting via `reject_step/5` fails the run before anything is sent.
+  ## Why this matters
+
+  `build_history` (`Accounts.History`) only honors the workflow-mapped `person_id`
+  when the run carries `skip_permissions: true`. That flag is only set when the
+  triggering `lead_identified` event carries `machine: true`, which the producer's
+  `dispatch_lead` step must opt into. If that wiring regresses — the producer drops
+  the `machine` flag, `DispatchEvent` stops propagating it, or `TriggerNode` stops
+  translating it — `build_history` fails with `:unauthorized`. The
+  "build_history authorization" describe block pins both the positive and negative
+  cases so the regression is caught before production.
 
   Runs `async: false` because the producer triggers the consumer synchronously
   through `TriggerNode.fire/2` (a `Task.async_stream`), which needs the shared
@@ -32,111 +38,152 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
   """
   use Zaq.DataCase, async: false
 
+  alias Zaq.Accounts.Person
+  alias Zaq.Agent.Tools.Workflow.DispatchEvent
   alias Zaq.Engine.{TriggerNode, Workflows}
-  alias Zaq.Engine.Workflows.Steps.HumanInTheLoop
+  alias Zaq.Engine.Workflows.UseCases.{IdentifyLeadsFromGoogleSheet, SendLeadsEmail}
 
-  # ── Stub actions ──────────────────────────────────────────────────────────
+  @sheet_id "test-sheet-id"
+  @lead_event_key "engine:lead_identified"
 
-  # Producer step 1: surfaces `active` for the qualifying edge and re-exposes the
-  # full lead row under `input` for the dispatch step.
-  defmodule QualifyLead do
+  @lead %{
+    "email" => "john@acme.com",
+    "name" => "John Doe",
+    "company" => "Acme Corp",
+    "active" => true,
+    "email_state" => 1,
+    "row_index" => 2
+  }
+
+  # ── External-boundary stubs ─────────────────────────────────────────────────
+  #
+  # Each honors the real tool's output contract so the production edges and
+  # conditions still validate the wiring. They replace ONLY network/LLM calls;
+  # every other node in both workflows is the real production module.
+
+  # Google Sheets read. Returns the fixture rows configured per-test under the
+  # :e2e_lead_sheet_content application env so the real `ExtractRows` parses them.
+  defmodule GetSheetStub do
     @moduledoc false
     use Zaq.Engine.Workflows.Action,
-      name: "qualify_lead_e2e",
-      schema: [email: [type: :any, required: false]],
-      output_schema: [
-        input: [type: :map, required: true],
-        active: [type: :boolean, required: true]
-      ]
+      name: "get_sheet_stub",
+      schema: [
+        provider: [type: :string, required: true],
+        spreadsheet_id: [type: :string, required: true],
+        range: [type: :string, required: false],
+        config_id: [type: :string, required: false]
+      ],
+      output_schema: [record: [type: :any, required: true]]
 
     @impl Jido.Action
-    def run(params, _ctx) do
-      row =
-        params
-        |> Map.drop([:__cascade__, "__cascade__"])
-        |> Map.new(fn {k, v} -> {to_string(k), v} end)
-
-      active = Map.get(params, "active") || Map.get(params, :active) || false
-      {:ok, %{input: row, active: active == true}}
+    def run(_params, _ctx) do
+      content = Application.get_env(:zaq, :e2e_lead_sheet_content, [])
+      {:ok, %{record: %Zaq.Contracts.Record{id: "stub", kind: :sheet, content: content}}}
     end
   end
 
-  # Producer step 2: dispatches the lead as a `lead_identified` engine event
-  # through the configured NodeRouter (the same indirection the real
-  # `Tools.Workflow.DispatchEvent` uses).
-  defmodule DispatchLead do
+  # Bridges the producer's real `DispatchEvent` into the deterministic
+  # `TriggerNode` seam. `StepRunner` does not inject a `node_router` into the step
+  # context and the real `DispatchEvent` defaults to the live `Zaq.NodeRouter`, so
+  # this wrapper injects the Mox router (whose stub fires `TriggerNode` in-process)
+  # while delegating ALL machine-flag/request logic to the real tool.
+  defmodule BridgeDispatchEvent do
     @moduledoc false
     use Zaq.Engine.Workflows.Action,
-      name: "dispatch_lead_e2e",
-      schema: [input: [type: :map, required: true]],
+      name: "bridge_dispatch_event",
+      schema: [
+        input: [type: :map, required: true],
+        event_name: [type: :string, required: true],
+        machine: [type: :boolean, required: false, default: false]
+      ],
       output_schema: [dispatched: [type: :map, required: true]]
 
+    alias Zaq.Agent.Tools.Workflow.DispatchEvent
+
     @impl Jido.Action
-    def run(params, _ctx) do
-      row = Map.get(params, :input) || Map.get(params, "input") || %{}
-      request = Map.new(row, fn {k, v} -> {to_string(k), v} end)
-      event = Zaq.Event.new(request, :engine, type: :async, name: "lead_identified")
-
-      node_router = Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
-      node_router.dispatch(event)
-
-      {:ok, %{dispatched: request}}
+    def run(params, ctx) do
+      DispatchEvent.run(params, Map.put(ctx, :node_router, Zaq.NodeRouterMock))
     end
   end
 
-  # Consumer step 1: LLM stub. Mirrors `Tools.Workflow.RunAgent`'s `output`
-  # contract — drafts a message from the lead row without invoking a model.
-  defmodule DraftAgent do
+  # LLM agent draft. Mirrors `RunAgent`'s `output` contract.
+  defmodule DraftStub do
     @moduledoc false
     use Zaq.Engine.Workflows.Action,
-      name: "draft_agent_e2e",
-      schema: [email: [type: :any, required: false]],
+      name: "draft_stub",
+      schema: [
+        agent_name: [type: :string, required: false],
+        input: [type: :string, required: false],
+        row: [type: :any, required: false]
+      ],
       output_schema: [output: [type: :string, required: true]]
 
     @impl Jido.Action
     def run(params, _ctx) do
-      name = Map.get(params, "name") || Map.get(params, :name) || "there"
-      company = Map.get(params, "company") || Map.get(params, :company) || "your company"
+      row = params[:row] || params["row"] || %{}
+      name = Map.get(row, "name") || Map.get(row, :name) || "there"
+      company = Map.get(row, "company") || Map.get(row, :company) || "your company"
       {:ok, %{output: "Hi #{name}, excited to connect about #{company}."}}
     end
   end
 
-  # Consumer final step: records the approved, drafted message that would be sent.
-  defmodule SendLead do
+  # Notification dispatch. Mirrors `NotifyPerson`'s contract; records the message.
+  defmodule NotifyStub do
     @moduledoc false
     use Zaq.Engine.Workflows.Action,
-      name: "send_lead_e2e",
-      schema: [message: [type: :any, required: true]],
+      name: "notify_stub",
+      schema: [
+        person: [type: :any, required: false],
+        subject: [type: :string, required: false],
+        message: [type: :any, required: false]
+      ],
       output_schema: [
         notified: [type: :boolean, required: true],
-        sent_message: [type: :string, required: true]
+        status: [type: :any, required: false],
+        sent_message: [type: :string, required: false]
       ]
 
     @impl Jido.Action
     def run(params, _ctx) do
-      message = Map.get(params, :message) || Map.get(params, "message")
-      {:ok, %{notified: true, sent_message: message}}
+      message = params[:message] || params["message"] || ""
+      {:ok, %{notified: true, status: :dispatched, sent_message: to_string(message)}}
     end
   end
 
-  @lead %{
-    "name" => "John Doe",
-    "email" => "john@acme.com",
-    "company" => "Acme Corp",
-    "active" => true,
-    "email_state" => 1
-  }
+  # Google Sheets write. Mirrors `UpdateSheetValues`' status contract.
+  defmodule UpdateStub do
+    @moduledoc false
+    use Zaq.Engine.Workflows.Action,
+      name: "update_stub",
+      schema: [
+        provider: [type: :string, required: false],
+        spreadsheet_id: [type: :string, required: false],
+        range: [type: :any, required: false],
+        values: [type: :any, required: false],
+        value_input_option: [type: :string, required: false]
+      ],
+      output_schema: [status: [type: :string, required: true]]
 
-  # NodeRouter stub: routes a dispatched `lead_identified` event into TriggerNode
-  # (as the live EventRegistry would) and is a no-op for every other event
-  # (workflow lifecycle, etc.).
-  #
-  # `create_trigger/1` namespaces the event name by destination role, so a
-  # `lead_identified` event dispatched to `:engine` is keyed `engine:lead_identified`
-  # — the same key `EventRegistry.derive_event_key/1` produces at runtime.
-  @lead_event_key "engine:lead_identified"
+    @impl Jido.Action
+    def run(_params, _ctx), do: {:ok, %{status: "updated"}}
+  end
+
+  # Captures the event the real `DispatchEvent` builds so the consumer can be
+  # triggered directly (no producer DAG) for the focused authorization tests.
+  defmodule CaptureRouter do
+    @moduledoc false
+    def dispatch(%Zaq.Event{} = event) do
+      send(self(), {:captured, event})
+      event
+    end
+  end
+
+  # ── Setup ───────────────────────────────────────────────────────────────────
 
   setup do
+    # The real `DispatchEvent` (via BridgeDispatchEvent) dispatches the
+    # `lead_identified` event through this mock; route it into TriggerNode exactly
+    # as the live EventRegistry would. Other events (workflow lifecycle) are no-ops.
     Mox.stub(Zaq.NodeRouterMock, :dispatch, fn event ->
       if trigger_key(event) == @lead_event_key do
         TriggerNode.fire(@lead_event_key, event)
@@ -144,6 +191,9 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
 
       event
     end)
+
+    Application.put_env(:zaq, :e2e_lead_sheet_content, sheet_content([@lead]))
+    on_exit(fn -> Application.delete_env(:zaq, :e2e_lead_sheet_content) end)
 
     :ok
   end
@@ -156,126 +206,234 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
 
   defp trigger_key(_), do: nil
 
-  # ── Fixtures ──────────────────────────────────────────────────────────────
+  # ── Workflow fixtures (real definitions, boundaries swapped) ─────────────────
 
   defp create_producer do
-    {:ok, workflow} =
-      Workflows.create_workflow(%{
-        name: "Identify Leads E2E #{System.unique_integer([:positive])}",
-        status: "active",
-        nodes: [
-          %{name: "qualify", type: "action", module: inspect(QualifyLead), params: %{}, index: 0},
-          %{
-            name: "dispatch_lead",
-            type: "action",
-            module: inspect(DispatchLead),
-            params: %{},
-            index: 1
-          }
-        ],
-        edges: [
-          %{
-            from: "qualify",
-            to: "dispatch_lead",
-            condition: %{"field" => "active", "op" => "eq", "value" => true}
-          }
-        ]
-      })
+    build =
+      @sheet_id
+      |> IdentifyLeadsFromGoogleSheet.build("google_drive")
+      |> swap_producer_modules()
 
+    {:ok, workflow} = Workflows.create_workflow(build)
     workflow
   end
 
   defp create_consumer do
-    {:ok, workflow} =
-      Workflows.create_workflow(%{
-        name: "Send Leads Email E2E #{System.unique_integer([:positive])}",
-        status: "active",
-        nodes: [
-          %{
-            name: "draft_email",
-            type: "action",
-            module: inspect(DraftAgent),
-            params: %{},
-            index: 0
-          },
-          %{
-            name: "review_email",
-            type: "action",
-            module: inspect(HumanInTheLoop),
-            params: %{"message" => "Review and approve the drafted lead email."},
-            index: 1
-          },
-          %{name: "send_email", type: "action", module: inspect(SendLead), params: %{}, index: 2}
-        ],
-        edges: [
-          %{
-            from: "draft_email",
-            to: "review_email",
-            condition: %{"field" => "output", "op" => "not_empty"}
-          },
-          %{
-            from: "review_email",
-            to: "send_email",
-            condition: %{"field" => "approved", "op" => "eq", "value" => true},
-            mapping: %{"message" => "draft_email.output"}
-          }
-        ]
-      })
+    build =
+      []
+      |> SendLeadsEmail.build()
+      |> swap_consumer_modules()
 
-    {:ok, trigger} = Workflows.create_trigger(%{event_name: "lead_identified", enabled: true})
+    {:ok, workflow} = Workflows.create_workflow(build)
+    {:ok, trigger} = Workflows.create_trigger(%{event_name: "lead_identified"})
     {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, workflow)
-
     workflow
   end
 
-  defp run_producer(producer, lead) do
+  # Swap get_sheet → stub, shorten sleep, and route the real DispatchEvent through
+  # the bridge. extract_rows, the Condition gates, and the dispatch logic stay real.
+  defp swap_producer_modules(build) do
+    nodes =
+      Enum.map(build.nodes, fn node ->
+        cond do
+          node_name(node) == "get_sheet" -> put_module(node, GetSheetStub)
+          node[:type] == "map" or node["type"] == "map" -> patch_map_node(node)
+          true -> node
+        end
+      end)
+
+    %{build | nodes: nodes}
+  end
+
+  defp patch_map_node(node) do
+    params = node[:params] || node["params"]
+
+    body =
+      Enum.map(params["body"] || [], fn bnode ->
+        if node_name(bnode) == "dispatch_lead",
+          do: put_module(bnode, BridgeDispatchEvent),
+          else: bnode
+      end)
+
+    post =
+      Enum.map(params["post_process"] || [], fn pnode ->
+        if node_name(pnode) == "sleep_between",
+          do: Map.put(pnode, "params", %{"duration_ms" => 0}),
+          else: pnode
+      end)
+
+    params = params |> Map.put("body", body) |> Map.put("post_process", post)
+    Map.put(node, :params, params)
+  end
+
+  # Swap the three external leaf steps; keep ensure_person, build_history,
+  # build_sheet_update, and the real HumanInTheLoop review step.
+  defp swap_consumer_modules(build) do
+    swaps = %{
+      "draft_email" => DraftStub,
+      "send_email" => NotifyStub,
+      "update_sheet_row" => UpdateStub
+    }
+
+    nodes =
+      Enum.map(build.nodes, fn node ->
+        case Map.get(swaps, node_name(node)) do
+          nil -> node
+          mod -> put_module(node, mod)
+        end
+      end)
+
+    %{build | nodes: nodes}
+  end
+
+  defp node_name(node), do: node[:name] || node["name"]
+
+  defp put_module(node, mod) do
+    cond do
+      Map.has_key?(node, :module) -> %{node | module: inspect(mod)}
+      Map.has_key?(node, "module") -> Map.put(node, "module", inspect(mod))
+      true -> node
+    end
+  end
+
+  # ── Helpers ──────────────────────────────────────────────────────────────────
+
+  defp sheet_content(rows) do
+    header = ["email", "name", "company", "active", "email_state"]
+
+    data =
+      Enum.map(rows, fn r ->
+        [
+          r["email"],
+          r["name"],
+          r["company"],
+          if(r["active"], do: "TRUE", else: "FALSE"),
+          to_string(r["email_state"])
+        ]
+      end)
+
+    [header | data]
+  end
+
+  defp run_producer(producer) do
     source_event = %{
       "request" => nil,
-      "assigns" => %{"trigger_type" => "manual", "input" => lead},
+      "assigns" => %{"trigger_type" => "manual", "input" => %{}},
       "trace_id" => Ecto.UUID.generate()
     }
 
     Workflows.create_and_start_run(producer, source_event)
   end
 
+  # Triggers the consumer directly with an event produced by the REAL DispatchEvent
+  # (capturing it), so build_history authorization can be asserted in isolation.
+  defp trigger_consumer(lead, opts) do
+    machine = Keyword.get(opts, :machine, false)
+
+    {:ok, _} =
+      DispatchEvent.run(
+        %{input: lead, event_name: "lead_identified", machine: machine},
+        %{node_router: CaptureRouter}
+      )
+
+    assert_received {:captured, %Zaq.Event{} = event}
+    TriggerNode.fire(@lead_event_key, event)
+  end
+
   defp latest_run(workflow), do: workflow.id |> Workflows.list_runs() |> List.first()
 
   defp step_map(run), do: run.id |> Workflows.list_step_runs() |> Map.new(&{&1.step_name, &1})
 
-  # ── Scenarios ───────────────────────────────────────────────────────────────
+  # ── build_history authorization (the regression guard) ───────────────────────
 
-  describe "qualifying lead → cross-workflow dispatch + HITL approval" do
+  describe "build_history authorization" do
+    test "machine-marked dispatch lets build_history resolve the lead and suspend at HITL" do
+      consumer = create_consumer()
+
+      trigger_consumer(@lead, machine: true)
+
+      run = latest_run(consumer)
+      assert run != nil
+      steps = step_map(run)
+
+      # The previously-failing step now completes: ensure_person created the lead,
+      # build_history authorized via the machine-granted skip_permissions.
+      assert steps["ensure_person"].status == "completed"
+      assert steps["build_history"].status == "completed"
+
+      # A real Person was created for the lead by the real ensure_person step.
+      assert Repo.get_by(Person, email: @lead["email"]) != nil
+
+      # The run suspends at the real human-in-the-loop review step.
+      assert run.status == "waiting"
+      assert steps["review_email"].status == "waiting"
+      refute Map.has_key?(steps, "send_email")
+    end
+
+    test "without the machine marker, build_history fails :unauthorized" do
+      consumer = create_consumer()
+
+      trigger_consumer(@lead, machine: false)
+
+      run = latest_run(consumer)
+      assert run.status == "failed"
+
+      steps = step_map(run)
+      assert steps["ensure_person"].status == "completed"
+      assert steps["build_history"].status == "failed"
+      assert inspect(steps["build_history"].errors) =~ "unauthorized"
+
+      # The pipeline halts at build_history — nothing downstream runs.
+      refute Map.has_key?(steps, "draft_email")
+      refute Map.has_key?(steps, "review_email")
+    end
+  end
+
+  # ── Producer definition guard ────────────────────────────────────────────────
+
+  describe "producer definition" do
+    test "dispatch_lead opts into a machine dispatch" do
+      build = IdentifyLeadsFromGoogleSheet.build(@sheet_id)
+
+      map_node = Enum.find(build.nodes, &(&1[:type] == "map"))
+      dispatch_node = Enum.find(map_node.params["body"], &(&1["name"] == "dispatch_lead"))
+
+      assert dispatch_node["params"]["machine"] == true,
+             "dispatch_lead must set machine: true so SendLeadsEmail's build_history is authorized"
+    end
+  end
+
+  # ── Full pipeline ────────────────────────────────────────────────────────────
+
+  describe "qualifying lead → real producer → real consumer → HITL approval" do
     test "producer dispatches, consumer drafts + suspends, approval completes it" do
       producer = create_producer()
       consumer = create_consumer()
 
-      assert {:ok, producer_run} = run_producer(producer, @lead)
+      assert {:ok, producer_run} = run_producer(producer)
       assert producer_run.status == "completed"
 
-      # Producer: qualifying edge passed, lead dispatched.
-      p_steps = step_map(producer_run)
-      assert p_steps["qualify"].status == "completed"
-      assert p_steps["dispatch_lead"].status == "completed"
-      assert p_steps["dispatch_lead"].results["dispatched"]["email"] == "john@acme.com"
-
-      # Consumer: triggered by the event, drafted, and suspended at HITL.
+      # Consumer: triggered by the real dispatched event, ran the real
+      # ensure_person + build_history (authorized), drafted, and suspended at HITL.
       consumer_run = latest_run(consumer)
       assert consumer_run != nil
       assert consumer_run.status == "waiting"
 
       c_steps = step_map(consumer_run)
+      assert c_steps["ensure_person"].status == "completed"
+      assert c_steps["build_history"].status == "completed"
       assert c_steps["draft_email"].status == "completed"
       assert c_steps["draft_email"].results["output"] =~ "John Doe"
       assert c_steps["draft_email"].results["output"] =~ "Acme Corp"
       assert c_steps["review_email"].status == "waiting"
       refute Map.has_key?(c_steps, "send_email")
 
-      # Human-in-the-loop approval record exists.
+      # Human-in-the-loop approval record exists for the real review step.
       approval = Workflows.get_pending_approval(consumer_run.id)
       assert approval != nil
       assert approval.step_name == "review_email"
 
-      # Approve → resume → complete.
+      # Approve → resume → complete through send + the real sheet-update build.
       assert {:ok, _} = Workflows.approve_step(consumer_run, approval, %{}, "reviewer@acme.com")
 
       completed = Workflows.get_run(consumer_run.id)
@@ -286,15 +444,18 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
       assert after_steps["review_email"].results["approved"] == true
       assert after_steps["send_email"].status == "completed"
       assert after_steps["send_email"].results["notified"] == true
-      # The drafted message flowed through the approval gate into the send step.
       assert after_steps["send_email"].results["sent_message"] =~ "John Doe"
+      # The real BuildSingleCellUpdate ran and the (stubbed) sheet write recorded it.
+      assert after_steps["build_sheet_update"].status == "completed"
+      assert after_steps["update_sheet_row"].status == "completed"
+      assert after_steps["update_sheet_row"].results["status"] == "updated"
     end
 
     test "rejecting the HITL review fails the consumer run before sending" do
       producer = create_producer()
       consumer = create_consumer()
 
-      assert {:ok, _producer_run} = run_producer(producer, @lead)
+      assert {:ok, _producer_run} = run_producer(producer)
 
       consumer_run = latest_run(consumer)
       assert consumer_run.status == "waiting"
@@ -313,22 +474,23 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
     end
   end
 
+  # ── Non-qualifying lead ──────────────────────────────────────────────────────
+
   describe "non-qualifying lead" do
     test "producer completes without dispatching and no consumer run is created" do
+      Application.put_env(
+        :zaq,
+        :e2e_lead_sheet_content,
+        sheet_content([%{@lead | "active" => false}])
+      )
+
       producer = create_producer()
       consumer = create_consumer()
 
-      assert {:ok, producer_run} = run_producer(producer, Map.put(@lead, "active", false))
+      assert {:ok, producer_run} = run_producer(producer)
       assert producer_run.status == "completed"
 
-      p_steps = step_map(producer_run)
-      assert p_steps["qualify"].status == "completed"
-      # Qualifying edge gated out the dispatch.
-      assert p_steps["qualify__to__dispatch_lead__edge"].status == "skipped"
-      refute Map.has_key?(p_steps, "dispatch_lead")
-
-      # Consumer was never triggered.
-      assert Workflows.list_runs(consumer.id) == []
+      assert latest_run(consumer) == nil
     end
   end
 end

@@ -136,7 +136,14 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
                 "type" => "action",
                 "module" => @dispatch_event_module,
                 "params" => %{
-                  "event_name" => to_string(@lead_identified_event)
+                  "event_name" => to_string(@lead_identified_event),
+                  # Mark the dispatched run as a machine (actorless) run so the
+                  # SendLeadsEmail DAG's build_history step can fetch the lead's
+                  # history via its mapped person_id. NOTE: this is currently an
+                  # unconditional opt-in; per-principal authorization (who may
+                  # run/edit a workflow) is tracked under workflow resource
+                  # management.
+                  "machine" => true
                 }
               }
             ],
