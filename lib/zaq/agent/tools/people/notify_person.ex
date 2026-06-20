@@ -12,9 +12,9 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
     description: "Notify a person through the notification center.",
     schema: [
       person: [
-        type: {:struct, Zaq.Accounts.Person},
+        type: :map,
         required: true,
-        doc: "Person to notify, usually returned by EnsurePerson."
+        doc: "Person payload to notify, usually returned by EnsurePerson."
       ],
       subject: [type: :string, required: true, doc: "Notification subject / title."],
       message: [type: :string, required: true, doc: "Notification body text."]
@@ -28,18 +28,29 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
   alias Zaq.Event
   alias Zaq.NodeRouter
 
-  @spec run(%{person: Person.t(), subject: String.t(), message: String.t()}, map()) ::
+  @spec run(%{person: Person.t() | map(), subject: String.t(), message: String.t()}, map()) ::
           {:ok, %{notified: boolean(), status: atom()}} | {:error, String.t()}
   @impl Jido.Action
-  def run(%{person: %Person{id: person_id}, subject: subject, message: message}, context) do
+  def run(%{person: person, subject: subject, message: message}, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
 
-    %{person_id: person_id, subject: subject, message: message}
-    |> Event.new(:engine, opts: [action: :notify_person])
-    |> node_router.dispatch()
-    |> Map.get(:response)
-    |> handle_response()
+    case person_id(person) do
+      id when is_integer(id) ->
+        %{person_id: id, subject: subject, message: message}
+        |> Event.new(:engine, opts: [action: :notify_person])
+        |> node_router.dispatch()
+        |> Map.get(:response)
+        |> handle_response()
+
+      _ ->
+        {:error, "missing_person_id"}
+    end
   end
+
+  defp person_id(%Person{id: id}), do: id
+  defp person_id(%{id: id}), do: id
+  defp person_id(%{"id" => id}), do: id
+  defp person_id(_), do: nil
 
   defp handle_response({:ok, status}) when status in [:dispatched, :skipped] do
     {:ok, %{notified: true, status: status}}

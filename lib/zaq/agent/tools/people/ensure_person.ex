@@ -14,8 +14,8 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   On miss: creates a partial Person entry with `incomplete: true` and links
   the channel.
 
-  Returns the resolved `%Zaq.Accounts.Person{}` and passes all input data through
-  as a string-keyed `row` map so downstream workflow steps receive the original
+  Returns a JSON-safe person payload and passes all input data through as a
+  string-keyed `row` map so downstream workflow steps receive the original
   payload. Downstream steps should read the id from `person.id` when needed.
 
   ## Schema
@@ -32,7 +32,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   ## Example
 
       EnsurePerson.run(%{platform: "email", email: "jad@zaq.ai", display_name: "Jad"}, %{})
-      # => {:ok, %{person: %Zaq.Accounts.Person{}, row: %{"email" => "jad@zaq.ai", "display_name" => "Jad"}}}
+      # => {:ok, %{person: %{id: 1, email: "jad@zaq.ai", full_name: "Jad"}, row: %{"email" => "jad@zaq.ai", "display_name" => "Jad"}}}
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -59,9 +59,9 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
     ],
     output_schema: [
       person: [
-        type: {:struct, Zaq.Accounts.Person},
+        type: :map,
         required: true,
-        doc: "Found or created Person struct."
+        doc: "Found or created person payload."
       ],
       row: [
         type: :map,
@@ -76,7 +76,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   alias Zaq.Accounts.Person
 
   @spec run(map(), map()) ::
-          {:ok, %{person: Person.t(), row: map()}} | {:error, String.t()}
+          {:ok, %{person: map(), row: map()}} | {:error, String.t()}
   @impl Jido.Action
   def run(%{platform: platform} = params, _ctx) do
     email = params[:email] || Map.get(params, "email")
@@ -98,7 +98,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
     case People.find_or_create_from_channel(platform, attrs) do
       {:ok, person} ->
         Logger.info("[EnsurePerson] resolved person_id=#{person.id} platform=#{platform}")
-        {:ok, %{person: person, row: row}}
+        {:ok, %{person: person_payload(person), row: row}}
 
       {:error, reason} ->
         Logger.warning("[EnsurePerson] failed platform=#{platform} reason=#{inspect(reason)}")
@@ -112,5 +112,17 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
     params
     |> Map.drop([:platform])
     |> Map.new(fn {k, v} -> {to_string(k), v} end)
+  end
+
+  defp person_payload(%Person{} = person) do
+    %{
+      id: person.id,
+      full_name: person.full_name,
+      email: person.email,
+      phone: person.phone,
+      role: person.role,
+      status: person.status,
+      incomplete: person.incomplete
+    }
   end
 end

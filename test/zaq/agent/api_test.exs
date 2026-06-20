@@ -527,6 +527,38 @@ defmodule Zaq.Agent.ApiTest do
     assert Keyword.get(opts, :telemetry_dimensions) == %{}
   end
 
+  test "delegates to executor when the whole agent_selection map uses atom keys (workflow RunAgent)" do
+    # `Zaq.Agent.Tools.Workflow.RunAgent` dispatches in-process and sets
+    # `assigns: %{agent_selection: %{agent_id: id}}` with atom keys. This must
+    # route to Executor (direct agent run), NOT fall through to the RAG Pipeline.
+    incoming = %Incoming{content: "Draft outreach email", channel_id: "wf", provider: nil}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [system_prompt: "You are a copywriter.", skip_permissions: true],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{agent_selection: %{agent_id: 42}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "selected"
+
+    assert_received {:executor_called, ^incoming, opts}
+    assert Keyword.get(opts, :agent_id) == 42
+    assert Keyword.get(opts, :system_prompt) == "You are a copywriter."
+    refute_received {:pipeline_called, _, _}
+  end
+
   test "delegates to executor when selected agent person lookup returns nil" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
