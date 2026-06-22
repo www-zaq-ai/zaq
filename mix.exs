@@ -188,6 +188,8 @@ defmodule Zaq.MixProject do
         "assets.build",
         "zaq.python.fetch"
       ],
+      # Use the following script when you want to clone your main DB into your branch work
+      "setup.branch": &setup_branch/1,
       "ecto.setup": ["ecto.create", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
@@ -260,6 +262,23 @@ defmodule Zaq.MixProject do
         Mix.shell().cmd(command)
       end
     ]
+  end
+
+  defp setup_branch(args) do
+    source_db =
+      case args do
+        [] -> "zaq_main"
+        [db_name] -> db_name
+        _ -> Mix.raise("Usage: mix setup.branch [source_db]")
+      end
+
+    Mix.Task.run("deps.get")
+    Mix.Task.run("ecto.create")
+    Mix.Task.run("db.copy", [source_db])
+    Mix.Task.run("ecto.migrate")
+    Mix.Task.run("assets.setup")
+    Mix.Task.run("assets.build")
+    Mix.Task.run("zaq.python.fetch")
   end
 
   defp docs do
