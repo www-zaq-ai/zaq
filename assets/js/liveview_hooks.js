@@ -225,6 +225,7 @@ export const liveViewHooks = {
       const openPanel = () => {
         this._open = true
         panel().classList.remove("hidden")
+        trigger().setAttribute("aria-expanded", "true")
         if (search()) search().value = ""
         filter("")
         if (search()) search().focus()
@@ -233,6 +234,7 @@ export const liveViewHooks = {
       const closePanel = () => {
         this._open = false
         panel().classList.add("hidden")
+        trigger().setAttribute("aria-expanded", "false")
       }
 
       const selectOption = (value, label) => {

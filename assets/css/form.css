@@ -61,10 +61,18 @@
   outline: none;
 }
 
+/* Hover — subtle border lift, same across all control types */
+.zaq-control-select:hover,
+.zaq-control-text:hover,
+.zaq-control-combobox-trigger:hover {
+  border-color: var(--zaq-border-color-accent);
+}
+
 /* Inner: accent border. Outer: soft accent halo (matches double-ring focus reference). */
 .zaq-control-select:focus-visible,
 .zaq-control-text:focus-visible,
-.zaq-control-combobox-trigger:focus-visible {
+.zaq-control-combobox-trigger:focus-visible,
+.zaq-control-combobox-trigger[aria-expanded="true"] {
   outline: none;
   border-color: var(--zaq-border-color-accent);
   box-shadow:
