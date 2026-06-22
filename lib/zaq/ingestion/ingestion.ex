@@ -69,23 +69,14 @@ defmodule Zaq.Ingestion do
   end
 
   def ingest_file(path, mode \\ :async, volume_name \\ nil) do
-    with {:ok, job} <- create_job(path, mode, volume_name) do
-      run_job(job, mode)
+    with {:ok, record} <- VolumeRecords.from_path(volume_name, path) do
+      ingest_record(record, mode)
     end
   end
 
   def ingest_folder(path, mode \\ :async, volume_name \\ nil) do
-    with {:ok, entries} <- list_in_volume(volume_name, path) do
-      jobs =
-        entries
-        |> Enum.filter(&(&1.type == :file))
-        |> Enum.map(fn entry ->
-          file_path = Path.join(path, entry.name)
-          {:ok, job} = ingest_file(file_path, mode, volume_name)
-          job
-        end)
-
-      {:ok, jobs}
+    with {:ok, record} <- VolumeRecords.from_path(volume_name, path) do
+      ingest_record(record, mode)
     end
   end
 
@@ -709,12 +700,10 @@ defmodule Zaq.Ingestion do
 
   # --- Private ---
 
-  defp list_in_volume(nil, path), do: FileExplorer.list(path)
-  defp list_in_volume(volume_name, path), do: FileExplorer.list(volume_name, path)
-
   defp ingest_file_record(record, mode) do
+    volume = RecordSource.volume(record)
+
     with path when is_binary(path) <- RecordSource.relative_path(record),
-         volume when is_binary(volume) <- RecordSource.volume(record),
          {:ok, job} <- create_job(path, mode, volume, RecordSource.to_storage_map(record)) do
       run_job(job, mode)
     else
@@ -722,7 +711,7 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  defp create_job(path, mode, volume_name, source_record \\ nil) do
+  defp create_job(path, mode, volume_name, source_record) do
     attrs =
       %{file_path: path, status: "pending", mode: to_string(mode), source_record: source_record}
       |> then(fn a -> if volume_name, do: Map.put(a, :volume_name, volume_name), else: a end)

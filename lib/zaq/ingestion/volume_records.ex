@@ -8,12 +8,20 @@ defmodule Zaq.Ingestion.VolumeRecords do
   """
 
   alias Zaq.Contracts.Record
-  alias Zaq.Ingestion.SourcePath
+  alias Zaq.Ingestion.{FileExplorer, SourcePath}
 
   @local_provider "zaq_local"
 
   def from_entries(entries, volume_name, current_dir) when is_list(entries) do
     Enum.map(entries, &from_entry(&1, volume_name, current_dir))
+  end
+
+  def from_path(volume_name, path) do
+    normalized_path = SourcePath.normalize_relative(path)
+
+    with {:ok, entry} <- file_info(volume_name, normalized_path) do
+      {:ok, from_entry(entry, volume_name, Path.dirname(normalized_path))}
+    end
   end
 
   def from_entry(entry, volume_name, current_dir) do
@@ -39,10 +47,15 @@ defmodule Zaq.Ingestion.VolumeRecords do
   end
 
   def record_id(volume_name, relative_path),
-    do: Enum.join([@local_provider, volume_name, relative_path], ":")
+    do: Enum.join([@local_provider, volume_name || "default", relative_path], ":")
+
+  defp file_info(nil, path), do: FileExplorer.file_info(path)
+  defp file_info(volume_name, path), do: FileExplorer.file_info(volume_name, path)
 
   defp entry_kind(%{type: :directory}), do: :folder
   defp entry_kind(_entry), do: :file
+
+  defp source_for(relative_path, nil), do: relative_path
 
   defp source_for(relative_path, volume_name) do
     volume_name

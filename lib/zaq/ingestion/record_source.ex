@@ -12,28 +12,30 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Ingestion.{FileExplorer, VolumeRecords}
 
   def kind(%Record{kind: kind}), do: normalize_kind(kind)
-  def kind(%{"kind" => kind}), do: normalize_kind(kind)
-  def kind(%{kind: kind}), do: normalize_kind(kind)
-  def kind(_), do: :unknown
 
-  def relative_path(record),
+  def relative_path(%Record{} = record),
     do: attr(record, "relative_path") || attr(record, :relative_path) || record_path(record)
 
-  def volume(record), do: attr(record, "volume") || attr(record, :volume)
+  def volume(%Record{} = record), do: attr(record, "volume") || attr(record, :volume)
 
-  def resolve_path(record) do
-    with volume when is_binary(volume) <- volume(record),
-         path when is_binary(path) <- relative_path(record) do
-      FileExplorer.resolve_path(volume, path)
-    else
-      _ -> {:error, :unsupported_record_source}
+  def resolve_path(%Record{} = record) do
+    case {volume(record), relative_path(record)} do
+      {volume, path} when is_binary(volume) and is_binary(path) ->
+        FileExplorer.resolve_path(volume, path)
+
+      {nil, path} when is_binary(path) ->
+        FileExplorer.resolve_path(path)
+
+      _ ->
+        {:error, :unsupported_record_source}
     end
   end
 
-  def list_children(record) do
-    with volume when is_binary(volume) <- volume(record),
-         path when is_binary(path) <- relative_path(record),
-         {:ok, entries} <- FileExplorer.list(volume, path) do
+  def list_children(%Record{} = record) do
+    volume = volume(record)
+
+    with path when is_binary(path) <- relative_path(record),
+         {:ok, entries} <- list_entries(volume, path) do
       {:ok, VolumeRecords.from_entries(entries, volume, path)}
     end
   end
@@ -51,31 +53,31 @@ defmodule Zaq.Ingestion.RecordSource do
     }
   end
 
-  def to_storage_map(record) when is_map(record) do
-    %{
-      "id" => Map.get(record, :id) || Map.get(record, "id"),
-      "kind" => record |> kind() |> to_string(),
-      "name" => Map.get(record, :name) || Map.get(record, "name"),
-      "path" => record_path(record),
-      "mime_type" => Map.get(record, :mime_type) || Map.get(record, "mime_type"),
-      "size" => Map.get(record, :size) || Map.get(record, "size"),
-      "modified_at" =>
-        encode_datetime(Map.get(record, :modified_at) || Map.get(record, "modified_at")),
-      "attributes" => attributes(record)
-    }
+  def from_storage_map(%{"id" => id, "kind" => kind} = map) do
+    {:ok,
+     %Record{
+       id: id,
+       kind: normalize_kind(kind),
+       name: Map.get(map, "name"),
+       path: Map.get(map, "path"),
+       mime_type: Map.get(map, "mime_type"),
+       size: Map.get(map, "size"),
+       modified_at: decode_datetime(Map.get(map, "modified_at")),
+       attributes: Map.get(map, "attributes", %{})
+     }}
   end
 
-  defp attr(record, key), do: record |> attributes() |> Map.get(key)
+  def from_storage_map(_), do: {:error, :invalid_source_record}
+
+  defp list_entries(nil, path), do: FileExplorer.list(path)
+  defp list_entries(volume, path), do: FileExplorer.list(volume, path)
+
+  defp attr(%Record{} = record, key), do: record |> attributes() |> Map.get(key)
 
   defp attributes(%Record{attributes: attrs}) when is_map(attrs), do: attrs
-  defp attributes(%{"attributes" => attrs}) when is_map(attrs), do: attrs
-  defp attributes(%{attributes: attrs}) when is_map(attrs), do: attrs
-  defp attributes(_), do: %{}
+  defp attributes(%Record{}), do: %{}
 
   defp record_path(%Record{path: path}), do: path
-  defp record_path(%{"path" => path}), do: path
-  defp record_path(%{path: path}), do: path
-  defp record_path(_), do: nil
 
   defp normalize_kind(:directory), do: :folder
   defp normalize_kind(:folder), do: :folder
@@ -88,4 +90,13 @@ defmodule Zaq.Ingestion.RecordSource do
   defp encode_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp encode_datetime(nil), do: nil
   defp encode_datetime(value), do: value
+
+  defp decode_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> value
+    end
+  end
+
+  defp decode_datetime(value), do: value
 end
