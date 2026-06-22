@@ -20,6 +20,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
   attr :on_create_event, :string, default: "create_and_assign_team"
   attr :on_search, :string, default: nil
   attr :compact, :boolean, default: false
+  attr :searchable, :boolean, default: true
   attr :label, :string, default: nil
   attr :label_position, :string, default: "inline"
 
@@ -99,7 +100,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
         data-select-panel
         class="zaq-searchable-select-panel absolute z-50 mt-1 hidden w-full overflow-hidden"
       >
-        <div class="zaq-searchable-select-search-row">
+        <div :if={@searchable} class="zaq-searchable-select-search-row">
           <input
             type="text"
             data-select-search

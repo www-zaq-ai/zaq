@@ -225,9 +225,9 @@ export const liveViewHooks = {
       const openPanel = () => {
         this._open = true
         panel().classList.remove("hidden")
-        search().value = ""
+        if (search()) search().value = ""
         filter("")
-        search().focus()
+        if (search()) search().focus()
       }
 
       const closePanel = () => {
@@ -252,29 +252,31 @@ export const liveViewHooks = {
       }
       document.addEventListener("click", this._outsideClick, true)
 
-      search().addEventListener("input", (e) => {
-        e.stopPropagation()
-        this._search = search().value
-        const serverSearch = root.dataset.serverSearch
-        if (serverSearch) {
-          clearTimeout(this._searchTimer)
-          this._searchTimer = setTimeout(() => {
-            this.pushEvent(serverSearch, { query: this._search })
-          }, 300)
-        } else {
-          filter(this._search)
-        }
-      })
-      search().addEventListener("change", (e) => {
-        e.stopPropagation()
-      })
+      if (search()) {
+        search().addEventListener("input", (e) => {
+          e.stopPropagation()
+          this._search = search().value
+          const serverSearch = root.dataset.serverSearch
+          if (serverSearch) {
+            clearTimeout(this._searchTimer)
+            this._searchTimer = setTimeout(() => {
+              this.pushEvent(serverSearch, { query: this._search })
+            }, 300)
+          } else {
+            filter(this._search)
+          }
+        })
+        search().addEventListener("change", (e) => {
+          e.stopPropagation()
+        })
+      }
 
       list().addEventListener("click", (e) => {
         const opt = e.target.closest("[data-select-option]")
         if (opt) selectOption(opt.dataset.selectValue, opt.dataset.selectOption)
       })
 
-      search().addEventListener("keydown", (e) => {
+      if (search()) search().addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
           e.stopPropagation()
           closePanel()

@@ -5,7 +5,7 @@ defmodule ZaqWeb.SelectTest do
 
   alias ZaqWeb.Select
 
-  test "renders a select with options" do
+  test "renders options as list items" do
     html =
       render_component(&Select.select/1,
         name: "role",
@@ -13,12 +13,8 @@ defmodule ZaqWeb.SelectTest do
         value: "user"
       )
 
-    assert html =~ ~s(<select)
-    assert html =~ ~s(name="role")
-    assert html =~ ~s(zaq-control-select)
     assert html =~ "Admin"
     assert html =~ "User"
-    assert html =~ ~s(selected)
   end
 
   test "renders label when provided" do
@@ -30,11 +26,10 @@ defmodule ZaqWeb.SelectTest do
         value: nil
       )
 
-    assert html =~ ~s(class="zaq-field-label-uppercase")
     assert html =~ "Role"
   end
 
-  test "renders no label when omitted" do
+  test "renders no label element when omitted" do
     html =
       render_component(&Select.select/1,
         name: "role",
@@ -42,10 +37,10 @@ defmodule ZaqWeb.SelectTest do
         value: nil
       )
 
-    refute html =~ "zaq-field-label-uppercase"
+    refute html =~ ~s(zaq-field-label-uppercase)
   end
 
-  test "renders prompt option" do
+  test "renders prompt as empty_label" do
     html =
       render_component(&Select.select/1,
         name: "role",
@@ -54,7 +49,7 @@ defmodule ZaqWeb.SelectTest do
         value: nil
       )
 
-    assert html =~ ~s(<option value="">Choose one</option>)
+    assert html =~ "Choose one"
   end
 
   test "renders validation errors" do
@@ -81,19 +76,7 @@ defmodule ZaqWeb.SelectTest do
     refute html =~ "text-error"
   end
 
-  test "supports multiple selection" do
-    html =
-      render_component(&Select.select/1,
-        name: "roles",
-        options: [{"Admin", "admin"}, {"User", "user"}],
-        value: ["admin", "user"],
-        multiple: true
-      )
-
-    assert html =~ ~s(multiple)
-  end
-
-  test "applies extra class" do
+  test "applies extra class to wrapper" do
     html =
       render_component(&Select.select/1,
         name: "role",

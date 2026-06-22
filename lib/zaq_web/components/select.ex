@@ -1,9 +1,10 @@
 defmodule ZaqWeb.Select do
-  @moduledoc "Reusable native select component styled with the zaq-control-select token system."
+  @moduledoc "Reusable select component — styled dropdown via SearchableSelect with search disabled."
 
   use Phoenix.Component
 
   import ZaqWeb.CoreComponents, only: [icon: 1]
+  import ZaqWeb.Components.SearchableSelect, only: [searchable_select: 1]
 
   attr :id, :string, default: nil
   attr :name, :string, required: true
@@ -11,31 +12,22 @@ defmodule ZaqWeb.Select do
   attr :value, :any, default: nil
   attr :options, :list, required: true
   attr :prompt, :string, default: nil
-  attr :multiple, :boolean, default: false
   attr :errors, :list, default: []
   attr :class, :string, default: nil
-  attr :rest, :global, include: ~w(disabled form autofocus)
 
   def select(assigns) do
     ~H"""
-    <div class="zaq-field-row-block">
-      <label
-        :if={@label}
-        class="zaq-field-label-uppercase"
-        for={@id || @name}
-      >
-        {@label}
-      </label>
-      <select
+    <div class={["zaq-field-row-block", @class]}>
+      <.searchable_select
         id={@id || @name}
         name={@name}
-        class={["zaq-control-select w-full", @class]}
-        multiple={@multiple}
-        {@rest}
-      >
-        <option :if={@prompt} value="">{@prompt}</option>
-        {Phoenix.HTML.Form.options_for_select(@options, @value)}
-      </select>
+        label={@label}
+        label_position="block"
+        value={@value}
+        options={@options}
+        empty_label={@prompt || "Select…"}
+        searchable={false}
+      />
       <p :for={msg <- @errors} class="mt-1.5 flex gap-2 items-center text-sm text-error">
         <.icon name="hero-exclamation-circle" class="size-5" />
         {msg}
