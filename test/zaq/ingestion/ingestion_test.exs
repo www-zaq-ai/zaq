@@ -15,6 +15,7 @@ defmodule Zaq.IngestionTest do
     FileExplorer,
     IngestChunkJob,
     IngestJob,
+    RecordSource,
     SourcePath,
     VolumeRecords
   }
@@ -40,6 +41,9 @@ defmodule Zaq.IngestionTest do
     )
     |> Repo.insert!()
   end
+
+  defp restore_ingestion_env(nil), do: Application.delete_env(:zaq, Zaq.Ingestion)
+  defp restore_ingestion_env(original), do: Application.put_env(:zaq, Zaq.Ingestion, original)
 
   defp create_linked_documents(source_source, sidecar_source) do
     {:ok, _source_doc} =
@@ -101,6 +105,9 @@ defmodule Zaq.IngestionTest do
 
   describe "ingest_file/2" do
     test "creates a job and enqueues worker in async mode" do
+      assert {:ok, _} = FileExplorer.upload("docs/file.md", "# file")
+      on_exit(fn -> FileExplorer.delete("docs/file.md") end)
+
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 2, document_id: nil}}
       end)
@@ -109,10 +116,13 @@ defmodule Zaq.IngestionTest do
       assert job.status == "pending"
       assert job.mode == "async"
       assert job.file_path == "docs/file.md"
+      assert job.source_record["attributes"]["relative_path"] == "docs/file.md"
     end
 
     test "creates a job and processes inline" do
       Ingestion.subscribe()
+      assert {:ok, _} = FileExplorer.upload("docs/file.md", "# file")
+      on_exit(fn -> FileExplorer.delete("docs/file.md") end)
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 3, document_id: nil}}
@@ -140,6 +150,23 @@ defmodule Zaq.IngestionTest do
       assert record.attributes["provider"] == "zaq_local"
       assert record.attributes["volume"] == "default"
       assert record.attributes["relative_path"] == "docs/file.md"
+    end
+
+    test "storage maps round-trip back into records" do
+      entry = %{name: "file.md", type: :file, size: 12, modified_at: DateTime.utc_now()}
+      record = VolumeRecords.from_entry(entry, "default", "docs")
+
+      assert {:ok, decoded} =
+               record |> RecordSource.to_storage_map() |> RecordSource.from_storage_map()
+
+      assert decoded.id == record.id
+      assert decoded.kind == record.kind
+      assert decoded.path == record.path
+      assert decoded.attributes == record.attributes
+    end
+
+    test "runtime source helpers only accept record structs" do
+      assert_raise FunctionClauseError, fn -> RecordSource.kind(%{"kind" => "file"}) end
     end
   end
 
@@ -476,21 +503,40 @@ defmodule Zaq.IngestionTest do
 
   describe "ingest_file/3 (volume-aware)" do
     test "stores volume_name on the created job" do
+      base_dir = FileExplorer.base_path() |> Path.expand()
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original || [], volumes: %{"docs" => base_dir})
+      )
+
+      on_exit(fn -> restore_ingestion_env(original) end)
+
+      assert {:ok, _} = FileExplorer.upload("docs", "docs/file.md", "# file")
+      on_exit(fn -> FileExplorer.delete("docs", "docs/file.md") end)
+
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
       assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline, "docs")
       assert job.volume_name == "docs"
+      assert job.source_record["attributes"]["volume"] == "docs"
     end
 
     test "nil volume_name when not provided (backward compat)" do
+      assert {:ok, _} = FileExplorer.upload("docs/file.md", "# file")
+      on_exit(fn -> FileExplorer.delete("docs/file.md") end)
+
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
       assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline)
       assert job.volume_name == nil
+      assert job.source_record["attributes"]["relative_path"] == "docs/file.md"
     end
   end
 
@@ -1273,6 +1319,7 @@ defmodule Zaq.IngestionTest do
 
       assert {:ok, jobs} = Ingestion.ingest_folder(folder, :inline, "docs")
       assert Enum.all?(jobs, &(&1.volume_name == "docs"))
+      assert Enum.all?(jobs, &is_map(&1.source_record))
     end
   end
 

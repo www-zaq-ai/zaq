@@ -208,12 +208,12 @@ defmodule Zaq.Ingestion.IngestWorker do
   end
 
   defp resolve_file_path(%IngestJob{source_record: source_record}) when is_map(source_record) do
-    # Phase 1 stores local volume records here. Future external records should be
-    # resolved in RecordSource through routed data-source fetch/export events.
-    case RecordSource.resolve_path(source_record) do
-      {:ok, full_path} ->
-        full_path
-
+    # DB persistence stores source records as maps; runtime source resolution
+    # only accepts canonical %Record{} values.
+    with {:ok, record} <- RecordSource.from_storage_map(source_record),
+         {:ok, full_path} <- RecordSource.resolve_path(record) do
+      full_path
+    else
       _ ->
         resolve_file_path(source_record["path"], get_in(source_record, ["attributes", "volume"]))
     end
@@ -224,8 +224,11 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp resolve_file_path(path, nil) do
     case FileExplorer.resolve_path(path) do
-      {:ok, full_path} -> full_path
-      _ -> path
+      {:ok, full_path} ->
+        full_path
+
+      _ ->
+        path
     end
   end
 
