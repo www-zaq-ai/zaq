@@ -31,6 +31,7 @@ defmodule ZaqWeb.CoreComponents do
 
   alias Phoenix.HTML.Form
   alias Phoenix.LiveView.JS
+  alias ZaqWeb.Components.FormInputIds
 
   @doc """
   Renders flash notices.
@@ -415,7 +416,7 @@ defmodule ZaqWeb.CoreComponents do
       if is_binary(assigns[:id]) and assigns[:id] != "" do
         assigns
       else
-        assign(assigns, :id, secret_input_id(assigns[:name]))
+        assign(assigns, :id, FormInputIds.secret_input_id(assigns[:name]))
       end
 
     ~H"""
@@ -486,14 +487,6 @@ defmodule ZaqWeb.CoreComponents do
     </div>
     """
   end
-
-  defp secret_input_id(nil), do: "secret-input"
-
-  defp secret_input_id(name) when is_binary(name) do
-    "secret-" <> String.replace(name, ~r/[^a-zA-Z0-9_-]+/, "-")
-  end
-
-  defp secret_input_id(name), do: "secret-#{name}"
 
   # Helper used by inputs to generate form errors
   defp error(assigns) do
