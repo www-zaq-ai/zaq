@@ -105,6 +105,98 @@ defmodule Zaq.Ingestion.FTSBackend do
     version_info_in_catalog?() and version_info_callable?()
   end
 
+  @doc """
+  Startup self-heal for a ParadeDB server whose ZAQ database was created
+  separately from the image's default `paradedb` database. There the pg_search
+  binary is preloaded via shared_preload_libraries (the extension is
+  *available*) but was never `CREATE EXTENSION`-d in this database, so detection
+  falls back to Native forever. When pg_search is available but uninstalled,
+  this creates the extension and — on a pre-existing chunks table — its BM25
+  index, then re-detects, so a custom-database install converges to ParadeDB.
+
+  This runs DDL, so it is intentionally **not** part of the detection path:
+  `detect_and_cache/0` and `impl/0` stay side-effect-free and safe to call on
+  any node and inside any transaction. Call this exactly once at startup from
+  the single node that owns ingestion (see the application start callback),
+  never from a
+  request or a lazy cache miss — a BM25 index build on a populated table is
+  heavy and must not block search.
+
+  All DDL is savepoint-protected so a failure (a server where the binary is not
+  actually loadable, or plain Postgres that merely ships the control file)
+  rolls back without aborting an enclosing transaction; gating on
+  `pg_available_extensions` keeps plain Postgres untouched. Returns the
+  freshly detected backend.
+  """
+  def self_heal do
+    if pg_search_available_uninstalled?() do
+      heal_pg_search()
+    end
+
+    detect_and_cache()
+  end
+
+  defp heal_pg_search do
+    opts = savepoint_opts()
+
+    Repo
+    |> SQL.query("CREATE EXTENSION IF NOT EXISTS pg_search", [], opts)
+    |> heal_extension_result(opts)
+  end
+
+  @doc """
+  Handles the self-heal `CREATE EXTENSION` result: on success provisions the
+  BM25 index on a pre-existing chunks table, on failure logs and skips so a
+  server whose pg_search binary is not actually loadable falls through to
+  Native. Public for direct testing of the failure branch, which cannot be
+  triggered against a live ParadeDB where the extension always creates.
+  """
+  def heal_extension_result({:ok, _result}, opts) do
+    maybe_create_bm25_index(opts)
+    Logger.info("[FTSBackend] self-healed pg_search in the connected database")
+  end
+
+  def heal_extension_result({:error, reason}, _opts) do
+    Logger.debug(fn ->
+      "[FTSBackend] pg_search self-heal skipped (CREATE EXTENSION failed): #{inspect(reason)}"
+    end)
+
+    :ok
+  end
+
+  # A legacy chunks table created while the extension was absent has no BM25
+  # index; without it the ParadeDB backend would still lose to Native. A fresh
+  # install has no chunks table yet — detection selects ParadeDB anyway, and
+  # `setup_index/2` provisions the index when the table is later created.
+  defp maybe_create_bm25_index(opts) do
+    if chunks_table_exists?() and not bm25_index_present?() do
+      SQL.query(Repo, __MODULE__.ParadeDB.bm25_index_ddl(), [], opts)
+    end
+
+    :ok
+  end
+
+  defp pg_search_available_uninstalled? do
+    SQL.query(
+      Repo,
+      """
+      SELECT 1 FROM pg_available_extensions
+      WHERE name = 'pg_search' AND installed_version IS NULL
+      LIMIT 1
+      """,
+      []
+    )
+    |> rows_present?()
+  end
+
+  # Savepoint mode only matters inside an open transaction (test sandbox,
+  # Ecto.Multi, a request that lazily triggers detection); outside one it is a
+  # no-op. Shared by the version probe and the self-heal so both stay safe to
+  # run mid-transaction.
+  defp savepoint_opts do
+    if Repo.in_transaction?(), do: [mode: :savepoint], else: []
+  end
+
   # Catalog pre-check that can never raise a SQL error: detection may run
   # inside an open transaction (Ecto.Multi, test sandbox), and a failed
   # statement would abort it (25P02) even when the error itself is handled.
@@ -126,10 +218,8 @@ defmodule Zaq.Ingestion.FTSBackend do
   # row alone cannot. The savepoint keeps a failure (e.g. a forked build with
   # a stale catalog entry) from aborting an enclosing transaction.
   defp version_info_callable? do
-    opts = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
-
     Repo
-    |> SQL.query("SELECT 1 FROM paradedb.version_info()", [], opts)
+    |> SQL.query("SELECT 1 FROM paradedb.version_info()", [], savepoint_opts())
     |> callable_probe_result()
   end
 

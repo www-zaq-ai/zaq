@@ -373,6 +373,7 @@ Unset or empty `INGESTION_VOLUMES` exposes `INGESTION_VOLUMES_BASE` as the defau
 - **JobLifecycle extracted** — all IngestJob state transitions go through `JobLifecycle` to ensure PubSub broadcast is never missed
 - **Permissions centralized for search/listing** — `DocumentAccess` is the canonical query surface for permission-scoped document visibility
 - **HTML parsing not implemented** — `DocumentChunker.parse_layout/2` raises on `:html` format
+- **FTS backend detection is read-only; healing is startup-only** — `FTSBackend.detect_and_cache/0`/`impl/0` only probe (`paradedb.version_info()` callable + index/table state) and never run DDL, so they are safe on any node and inside any transaction. `pg_search` extensions are per-database: a ZAQ DB created separately from the ParadeDB image's default `paradedb` DB has the binary preloaded but the extension uncreated, which would pin detection to Native forever. `FTSBackend.self_heal/0` fixes this by creating the extension (and the BM25 index on a pre-existing chunks table) once at startup, gated in `Zaq.Application` to the `:ingestion` role so multiple nodes never race on the DDL. All heal DDL is savepoint-protected and falls through to Native if `pg_search` is not actually loadable.
 
 ## Testing and Property Invariants
 
