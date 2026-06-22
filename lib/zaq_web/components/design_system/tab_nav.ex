@@ -14,7 +14,7 @@ defmodule ZaqWeb.Components.DesignSystem.TabNav do
 
   def tab_nav(assigns) do
     ~H"""
-    <div class="flex border-b border-black/8">
+    <div class="zaq-tab-nav">
       <button
         :for={tab <- @tabs}
         type="button"
@@ -30,10 +30,8 @@ defmodule ZaqWeb.Components.DesignSystem.TabNav do
 
   defp tab_button_class(active_tab, tab_id) do
     [
-      "flex-1 font-mono text-[0.72rem] font-semibold py-3 transition-colors",
-      active_tab == tab_id &&
-        "zaq-text-accent border-b-2 border-[var(--zaq-color-accent)]",
-      active_tab != tab_id && "text-black/40 hover:text-black/60"
+      "zaq-tab-nav-item zaq-text-body",
+      active_tab == tab_id && "zaq-tab-nav-item--active"
     ]
   end
 end

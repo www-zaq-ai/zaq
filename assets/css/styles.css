@@ -455,6 +455,35 @@ html[data-theme="dark"] .zaq-toggle-group-pill > button:nth-of-type(3) {
   color: var(--zaq-text-color-body-tertiary);
 }
 
+/* ── Tab nav (`ZaqWeb.Components.DesignSystem.TabNav`)
+      Horizontal segmented tab bar for BO master panels (People / Teams). Generic BO pattern. ─ */
+
+.zaq-tab-nav {
+  display: flex;
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-tab-nav-item {
+  flex: 1;
+  padding-block: var(--zaq-scale-16);
+  border: none;
+  border-bottom: var(--zaq-scale-1) solid transparent;
+  background: transparent;
+  color: var(--zaq-text-color-body-tertiary);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.zaq-tab-nav-item:hover:not(.zaq-tab-nav-item--active) {
+  color: var(--zaq-text-color-body-accent);
+  background: var(--zaq-surface-color-accent);
+}
+
+.zaq-tab-nav-item--active {
+  color: var(--zaq-text-color-body-accent);
+  border-bottom-color: var(--zaq-border-color-accent);
+}
+
 /* ── Ingestion chrome band (shared by `IngestionVolumeSelector`, `IngestionFileBrowserHeader`)
       One row shell + actions cluster + chip tokens — reuse together for consistent BO file UI. ─ */
 
