@@ -1,10 +1,10 @@
 defmodule Storybook.Components.Forms.Input do
   use PhoenixStorybook.Story, :component
 
-  def function, do: &ZaqWeb.CoreComponents.input/1
+  def function, do: &ZaqWeb.Components.DesignSystem.Input.input/1
 
   def description,
-    do: "Labelled input. Supports text, email, and password types."
+    do: "Labelled form input with validation errors — text, select, textarea, and checkbox."
 
   def variations do
     [
@@ -28,35 +28,70 @@ defmodule Storybook.Components.Forms.Input do
             attributes: %{name: "email", type: "email", label: "Email address", value: ""}
           },
           %Variation{
-            id: :password,
-            description: "Password",
-            attributes: %{name: "password", type: "password", label: "Password", value: ""}
+            id: :number,
+            description: "Number",
+            attributes: %{
+              name: "max_iterations",
+              type: "number",
+              label: "Max iterations",
+              value: "",
+              placeholder: "Default: 10"
+            }
           }
         ]
       },
       %VariationGroup{
-        id: :secret,
-        description: "Secret input (API keys / tokens)",
+        id: :select_textarea,
+        description: "Select and textarea",
         variations: [
           %Variation{
-            id: :secret_empty,
-            description: "Empty — use secret_input/1 for sensitive fields",
+            id: :select,
+            description: "Select",
             attributes: %{
-              name: "api_key",
-              type: "password",
-              label: "API Key",
-              value: "",
-              placeholder: "sk-…"
+              name: "role",
+              type: "select",
+              label: "Role",
+              value: "admin",
+              prompt: "Choose one",
+              options: [{"Admin", "admin"}, {"User", "user"}]
             }
           },
           %Variation{
-            id: :secret_filled,
-            description: "Filled",
+            id: :textarea,
+            description: "Textarea",
             attributes: %{
-              name: "api_key",
-              type: "password",
-              label: "API Key",
-              value: "sk-live-xxxxxxxxxxxx"
+              name: "bio",
+              type: "textarea",
+              label: "Bio",
+              value: "",
+              placeholder: "Tell us about yourself…",
+              rows: "4"
+            }
+          }
+        ]
+      },
+      %VariationGroup{
+        id: :checkbox,
+        description: "Checkbox",
+        variations: [
+          %Variation{
+            id: :checkbox_off,
+            description: "Unchecked",
+            attributes: %{
+              name: "notify",
+              type: "checkbox",
+              label: "Email notifications",
+              value: false
+            }
+          },
+          %Variation{
+            id: :checkbox_on,
+            description: "Checked",
+            attributes: %{
+              name: "notify",
+              type: "checkbox",
+              label: "Email notifications",
+              value: true
             }
           }
         ]

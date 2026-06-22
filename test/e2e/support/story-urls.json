@@ -35,6 +35,7 @@
   "/storybook/components/file_preview/file_preview_modal",
   "/storybook/components/forms/button",
   "/storybook/components/forms/input",
+  "/storybook/components/forms/secret_input",
   "/storybook/components/forms/password_requirements",
   "/storybook/components/icons/channel_icons",
   "/storybook/components/icons/mcp_endpoint_icons",

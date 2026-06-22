@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.SecretInput do
+defmodule Storybook.Components.Forms.SecretInput do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.DesignSystem.SecretInput.secret_input/1
