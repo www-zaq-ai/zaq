@@ -106,63 +106,131 @@ defmodule Zaq.Ingestion.FTSBackend do
   end
 
   @doc """
-  Startup self-heal for a ParadeDB server whose ZAQ database was created
-  separately from the image's default `paradedb` database. There the pg_search
-  binary is preloaded via shared_preload_libraries (the extension is
-  *available*) but was never `CREATE EXTENSION`-d in this database, so detection
-  falls back to Native forever. When pg_search is available but uninstalled,
-  this creates the extension and — on a pre-existing chunks table — its BM25
-  index, then re-detects, so a custom-database install converges to ParadeDB.
+  Startup self-heal that converges the connected database to a working ParadeDB
+  install. Decides what to do from `pg_available_extensions`:
+
+    * `:absent` — pg_search not on this server (plain Postgres). Nothing to do;
+      Native is correct.
+    * `:uninstalled` — the binary is preloaded (extension *available*) but was
+      never `CREATE EXTENSION`-d in this database (e.g. a ZAQ database created
+      separately from the image's default `paradedb` database). Create it.
+    * `:stale` — installed in this database but at an older version than the
+      loaded library (e.g. the image was upgraded without updating the
+      extension). `ALTER EXTENSION ... UPDATE` it. This is the case that breaks
+      `paradedb.version_info()` and `pg_dump`.
+    * `:current` — already up to date. Nothing to do.
+
+  After healing (which also provisions the BM25 index on a pre-existing chunks
+  table) it re-detects. If detection still resolves to Native while the
+  extension is installed, search is running degraded for a reason ZAQ cannot fix
+  itself — almost always the library is not loaded via
+  `shared_preload_libraries` — so it logs a loud, actionable warning.
 
   This runs DDL, so it is intentionally **not** part of the detection path:
   `detect_and_cache/0` and `impl/0` stay side-effect-free and safe to call on
   any node and inside any transaction. Call this exactly once at startup from
   the single node that owns ingestion (see the application start callback),
-  never from a
-  request or a lazy cache miss — a BM25 index build on a populated table is
-  heavy and must not block search.
+  never from a request or a lazy cache miss — a BM25 index build on a populated
+  table is heavy and must not block search.
 
   All DDL is savepoint-protected so a failure (a server where the binary is not
-  actually loadable, or plain Postgres that merely ships the control file)
-  rolls back without aborting an enclosing transaction; gating on
-  `pg_available_extensions` keeps plain Postgres untouched. Returns the
-  freshly detected backend.
+  actually loadable, or plain Postgres that merely ships the control file) rolls
+  back without aborting an enclosing transaction. Returns the freshly detected
+  backend.
   """
   def self_heal do
-    if pg_search_available_uninstalled?() do
-      heal_pg_search()
-    end
-
-    detect_and_cache()
+    heal_pg_search(pg_search_state())
+    backend = detect_and_cache()
+    warn_if_degraded(backend, pg_search_extension_installed?())
+    backend
   end
 
-  defp heal_pg_search do
-    opts = savepoint_opts()
-
+  defp pg_search_state do
     Repo
-    |> SQL.query("CREATE EXTENSION IF NOT EXISTS pg_search", [], opts)
-    |> heal_extension_result(opts)
+    |> SQL.query(
+      """
+      SELECT installed_version, default_version
+      FROM pg_available_extensions
+      WHERE name = 'pg_search'
+      LIMIT 1
+      """,
+      []
+    )
+    |> pg_search_state_from()
   end
 
   @doc """
-  Handles the self-heal `CREATE EXTENSION` result: on success provisions the
-  BM25 index on a pre-existing chunks table, on failure logs and skips so a
-  server whose pg_search binary is not actually loadable falls through to
-  Native. Public for direct testing of the failure branch, which cannot be
-  triggered against a live ParadeDB where the extension always creates.
+  Maps a `pg_available_extensions` probe for pg_search to the heal action the
+  connected database needs. Public so the decision is unit-testable without a
+  stale extension on disk.
   """
-  def heal_extension_result({:ok, _result}, opts) do
-    maybe_create_bm25_index(opts)
-    Logger.info("[FTSBackend] self-healed pg_search in the connected database")
+  def pg_search_state_from({:ok, %{rows: [[nil, _default]]}}), do: :uninstalled
+  def pg_search_state_from({:ok, %{rows: [[version, version]]}}), do: :current
+  def pg_search_state_from({:ok, %{rows: [[_installed, _default]]}}), do: :stale
+  def pg_search_state_from(_result), do: :absent
+
+  defp heal_pg_search(state) do
+    case heal_command(state) do
+      {sql, action} -> run_extension_heal(sql, action)
+      :noop -> :ok
+    end
   end
 
-  def heal_extension_result({:error, reason}, _opts) do
+  @doc """
+  Maps a pg_search state to the DDL + log label needed to heal it, or `:noop`
+  for `:absent` (plain Postgres) and `:current` (already up to date). Public so
+  the `:stale` upgrade path is unit-testable without a stale extension on disk.
+  """
+  def heal_command(:uninstalled), do: {"CREATE EXTENSION IF NOT EXISTS pg_search", "created"}
+
+  def heal_command(:stale),
+    do: {"ALTER EXTENSION pg_search UPDATE", "updated to the current version"}
+
+  def heal_command(_state), do: :noop
+
+  defp run_extension_heal(sql, action) do
+    opts = savepoint_opts()
+
+    Repo
+    |> SQL.query(sql, [], opts)
+    |> heal_extension_result(opts, action)
+  end
+
+  @doc """
+  Handles a self-heal DDL result: on success provisions the BM25 index on a
+  pre-existing chunks table and logs the action taken, on failure logs and skips
+  so a server whose pg_search binary is not actually loadable falls through to
+  Native. Public for direct testing of the failure branch, which cannot be
+  triggered against a live ParadeDB where the DDL always succeeds.
+  """
+  def heal_extension_result({:ok, _result}, opts, action) do
+    maybe_create_bm25_index(opts)
+    Logger.info("[FTSBackend] self-healed pg_search in the connected database (#{action})")
+  end
+
+  def heal_extension_result({:error, reason}, _opts, _action) do
     Logger.debug(fn ->
-      "[FTSBackend] pg_search self-heal skipped (CREATE EXTENSION failed): #{inspect(reason)}"
+      "[FTSBackend] pg_search self-heal skipped (DDL failed): #{inspect(reason)}"
     end)
 
     :ok
   end
+
+  @doc """
+  Warns when pg_search is installed in the connected database but search still
+  fell back to Native — a degraded state ZAQ cannot self-heal (the library is
+  not loaded by Postgres). Public so the warning matrix is unit-testable.
+  """
+  def warn_if_degraded(backend, true = _extension_installed?) when backend == __MODULE__.Native do
+    Logger.warning(
+      "[FTSBackend] pg_search is installed but not functional — search is running in " <>
+        "degraded (Native) mode. This usually means the pg_search library is not loaded by " <>
+        "Postgres. Add 'pg_search' to shared_preload_libraries in postgresql.conf, restart " <>
+        "Postgres, then run: ALTER EXTENSION pg_search UPDATE;"
+    )
+  end
+
+  def warn_if_degraded(_backend, _extension_installed?), do: :ok
 
   # A legacy chunks table created while the extension was absent has no BM25
   # index; without it the ParadeDB backend would still lose to Native. A fresh
@@ -176,16 +244,9 @@ defmodule Zaq.Ingestion.FTSBackend do
     :ok
   end
 
-  defp pg_search_available_uninstalled? do
-    SQL.query(
-      Repo,
-      """
-      SELECT 1 FROM pg_available_extensions
-      WHERE name = 'pg_search' AND installed_version IS NULL
-      LIMIT 1
-      """,
-      []
-    )
+  defp pg_search_extension_installed? do
+    Repo
+    |> SQL.query("SELECT 1 FROM pg_extension WHERE extname = 'pg_search' LIMIT 1", [])
     |> rows_present?()
   end
 

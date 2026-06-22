@@ -308,16 +308,52 @@ defmodule Zaq.Ingestion.FTSBackendTest do
       assert log =~ "paradedb.version_info() not callable"
     end
 
-    test "heal_extension_result logs and skips when CREATE EXTENSION fails" do
+    test "heal_extension_result logs and skips when the heal DDL fails" do
       Logger.put_module_level(FTSBackend, :debug)
       on_exit(fn -> Logger.delete_module_level(FTSBackend) end)
 
       log =
         capture_log([level: :debug], fn ->
-          assert FTSBackend.heal_extension_result({:error, :not_loadable}, []) == :ok
+          assert FTSBackend.heal_extension_result({:error, :not_loadable}, [], "created") == :ok
         end)
 
       assert log =~ "pg_search self-heal skipped"
+    end
+
+    test "pg_search_state_from maps the probe to the needed heal action" do
+      assert FTSBackend.pg_search_state_from({:ok, %{rows: [[nil, "0.24.0"]]}}) == :uninstalled
+      assert FTSBackend.pg_search_state_from({:ok, %{rows: [["0.24.0", "0.24.0"]]}}) == :current
+      assert FTSBackend.pg_search_state_from({:ok, %{rows: [["0.13.0", "0.24.0"]]}}) == :stale
+      assert FTSBackend.pg_search_state_from({:ok, %{rows: []}}) == :absent
+      assert FTSBackend.pg_search_state_from({:error, :boom}) == :absent
+    end
+
+    test "heal_command selects the DDL for each healable state" do
+      assert FTSBackend.heal_command(:uninstalled) ==
+               {"CREATE EXTENSION IF NOT EXISTS pg_search", "created"}
+
+      assert FTSBackend.heal_command(:stale) ==
+               {"ALTER EXTENSION pg_search UPDATE", "updated to the current version"}
+
+      assert FTSBackend.heal_command(:current) == :noop
+      assert FTSBackend.heal_command(:absent) == :noop
+    end
+
+    test "warn_if_degraded warns only when Native is active while pg_search is installed" do
+      log =
+        capture_log(fn ->
+          assert FTSBackend.warn_if_degraded(FTSBackend.Native, true) == :ok
+        end)
+
+      assert log =~ "degraded (Native) mode"
+      assert log =~ "shared_preload_libraries"
+
+      # ParadeDB active, or pg_search not installed → no warning.
+      refute capture_log(fn -> FTSBackend.warn_if_degraded(FTSBackend.ParadeDB, true) end) =~
+               "degraded"
+
+      refute capture_log(fn -> FTSBackend.warn_if_degraded(FTSBackend.Native, false) end) =~
+               "degraded"
     end
 
     test "sanitize_query_text removes invalid bytes, punctuation, and excessive length" do
