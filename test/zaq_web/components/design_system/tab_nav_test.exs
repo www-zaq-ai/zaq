@@ -22,13 +22,14 @@ defmodule ZaqWeb.Components.DesignSystem.TabNavTest do
     assert html =~ ~s(phx-value-tab="people")
     assert html =~ ~s(phx-value-tab="teams")
     assert html =~ ~s(phx-click="switch_tab")
-    assert html =~ "zaq-text-accent"
+    assert html =~ "zaq-tab-nav"
+    assert html =~ "zaq-tab-nav-item--active"
   end
 
-  test "tab_nav/1 marks inactive tab without accent class on active tab only" do
+  test "tab_nav/1 marks inactive tab without active modifier on inactive tab only" do
     html = render_component(&TabNav.tab_nav/1, active_tab: :teams, tabs: @tabs)
 
-    assert html =~ "zaq-text-accent"
-    assert html =~ "text-black/40"
+    assert Regex.scan(~r/zaq-tab-nav-item--active/, html) |> length() == 1
+    assert html =~ ~s(phx-value-tab="teams")
   end
 end
