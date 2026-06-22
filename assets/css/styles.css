@@ -95,7 +95,7 @@
 }
 
 .zaq-dropdown-menu-item:hover {
-  background: var(--zaq-surface-color-elevated);
+  background: var(--zaq-surface-color-accent);
 }
 
 
