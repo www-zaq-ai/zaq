@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.DiagnosticCard do
+defmodule Storybook.Components.Cards.DiagnosticCard do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 
