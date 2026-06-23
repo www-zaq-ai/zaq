@@ -41,6 +41,70 @@ textarea.zaq-control-text {
   resize: vertical;
 }
 
+/* Secret input — toggle inset inside .zaq-control-text shell */
+.zaq-control-secret-wrap {
+  position: relative;
+}
+
+.zaq-control-secret {
+  padding-inline-end: var(--zaq-scale-48);
+}
+
+/* Hide native password reveal — we provide .zaq-control-secret-toggle */
+.zaq-control-secret::-ms-reveal,
+.zaq-control-secret::-ms-clear {
+  display: none;
+}
+
+.zaq-control-secret::-webkit-credentials-auto-fill-button,
+.zaq-control-secret::-webkit-strong-password-auto-fill-button {
+  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.zaq-control-secret-toggle .eye-off {
+  display: none;
+}
+
+.zaq-control-secret-toggle .eye-on.hidden {
+  display: none !important;
+}
+
+.zaq-control-secret-toggle .eye-off:not(.hidden) {
+  display: inline-flex;
+}
+
+.zaq-control-secret-toggle {
+  position: absolute;
+  top: 50%;
+  right: var(--zaq-scale-16);
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--zaq-icon-color-default);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.zaq-control-secret-toggle:hover {
+  color: var(--zaq-text-color-body-secondary);
+}
+
+.zaq-control-secret-toggle:focus-visible {
+  outline: var(--zaq-scale-2) solid var(--zaq-border-color-accent);
+  outline-offset: var(--zaq-scale-2);
+}
+
+.zaq-control-secret-toggle-icon {
+  width: var(--zaq-scale-16);
+  height: var(--zaq-scale-16);
+}
+
 /* Keyboard focus ring — add to any interactive control (buttons, links, custom inputs). */
 .zaq-focus-visible:focus-visible {
   outline: var(--zaq-scale-2) solid var(--zaq-border-color-accent);
