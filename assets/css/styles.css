@@ -174,14 +174,6 @@ textarea.zaq-control-text {
   align-items: center;
 }
 
-/* Form field validation error row — DesignSystem.Checkbox, Input, SecretInput */
-.zaq-field-error {
-  display: flex;
-  align-items: center;
-  gap: var(--zaq-scale-8);
-  margin-top: var(--zaq-scale-8);
-}
-
 /* ── Dropdown / menu item ─────────────────────────────────────────────────── */
 
 .zaq-dropdown-menu-item {
@@ -425,14 +417,46 @@ pre.zaq-file-preview-body {
   color: inherit;
   text-decoration: underline;
   text-decoration-color: currentColor;
-  text-underline-offset: var(--zaq-scale-8);
+  text-underline-offset: var(--zaq-scale-4);
   text-decoration-thickness: 1px;
   text-decoration-skip-ink: auto;
 }
 
 .zaq-link-underline:hover,
-.zaq-link-underline:focus-visible {
+.zaq-link-underline:focus-visible,
+a.zaq-link:hover .zaq-link-underline,
+a.zaq-link:focus-visible .zaq-link-underline {
   text-decoration-thickness: 2px;
+}
+
+/* BO link shell — flex row; apply `.zaq-link-underline` on `.zaq-link__label` (not the icon) */
+.zaq-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--zaq-scale-8);
+  text-decoration: none;
+  color: inherit;
+  overflow: visible;
+}
+
+.zaq-link__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  line-height: 0;
+}
+
+.zaq-link__label {
+  display: inline;
+  overflow: visible;
+}
+
+/* Accent tone — label + icon (not only the shell; beats `.zaq-link-underline { color: inherit }`) */
+.zaq-link--accent,
+.zaq-link--accent .zaq-link__label,
+.zaq-link--accent .zaq-link__icon {
+  color: var(--zaq-text-color-body-accent);
 }
 
 /* ── Icon — small inline (shared: breadcrumbs, segment toggles, toolbars) ─ */

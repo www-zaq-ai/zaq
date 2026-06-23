@@ -20,6 +20,7 @@
   "/storybook/components/design_system/ingestion_file_list_view",
   "/storybook/components/design_system/ingestion_jobs_panel",
   "/storybook/components/design_system/ingestion_volume_selector",
+  "/storybook/components/design_system/link",
   "/storybook/components/design_system/modal_add_raw",
   "/storybook/components/design_system/modal_delete",
   "/storybook/components/design_system/modal_delete_selected",
