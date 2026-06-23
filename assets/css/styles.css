@@ -35,6 +35,12 @@
   border:var(--zaq-border-color-danger) solid var(--zaq-border-thickness-strong);
 }
 
+/* Multiline control — extends .zaq-control-text; taller min-height + vertical resize */
+textarea.zaq-control-text {
+  min-height: var(--zaq-scale-96);
+  resize: vertical;
+}
+
 /* Keyboard focus ring — add to any interactive control (buttons, links, custom inputs). */
 .zaq-focus-visible:focus-visible {
   outline: var(--zaq-scale-2) solid var(--zaq-border-color-accent);

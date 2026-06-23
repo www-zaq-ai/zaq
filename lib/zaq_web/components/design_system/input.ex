@@ -105,10 +105,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
         <textarea
           id={@id}
           name={@name}
-          class={[
-            @class || "w-full textarea",
-            @errors != [] && (@error_class || "textarea-error")
-          ]}
+          class={text_control_classes(assigns)}
           {@rest}
         >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
       </:field>
