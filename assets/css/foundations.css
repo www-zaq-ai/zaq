@@ -29,7 +29,10 @@
    FOUNDATION TOKENS — Color Palette
    ============================================ */
   /* ── Zaq neon (light and dark) ──────────────────────────────────────────── */
-  --zaq-gradient-neon: linear-gradient(135deg, #0aadca 0%, #3dd5ee 50%, #00d492 100%);
+  --zaq-color-neon-start: #0aadca;
+  --zaq-color-neon-mid:   #3dd5ee;
+  --zaq-color-neon-end:   #00d492;
+  --zaq-gradient-neon: linear-gradient(135deg, var(--zaq-color-neon-start) 0%, var(--zaq-color-neon-mid) 50%, var(--zaq-color-neon-end) 100%);
   
   /* ── Zaq Color Palette (light) ──────────────────────────────────────────── */
   --zaq-color-blue-400:    #027589;

@@ -23,6 +23,15 @@
   --zaq-border-color-success: var(--zaq-color-system-green);
   --zaq-border-color-warning: var(--zaq-color-system-orange);
 
+  /* Neon interactive — brand gradient stroke + dual-tone halo (blue inner, neon-end outer) */
+  --zaq-border-gradient-interactive: var(--zaq-gradient-neon);
+  --zaq-neon-gradient-stop-deep:   var(--zaq-color-neon-start);
+  --zaq-neon-gradient-stop-bright: var(--zaq-color-neon-mid);
+  --zaq-neon-gradient-stop-accent: var(--zaq-color-neon-end);
+  --zaq-glow-interactive-inner: var(--zaq-color-blue-300);
+  --zaq-glow-interactive-outer: var(--zaq-color-neon-end);
+  --zaq-glow-interactive-diffuse: var(--zaq-color-blue-400);
+
   /* ── semantics/colors/text/body ─────────────────────────────────────────── */
   --zaq-text-color-body-default:   var(--zaq-color-black-400);
   --zaq-text-color-body-secondary: var(--zaq-color-black-300);
@@ -71,6 +80,7 @@
   
   /* ── semantics/border ────────────────────────────────────────────────────── */
   --zaq-border-thickness-default: var(--zaq-scale-1);
+  --zaq-border-thickness-strong: var(--zaq-scale-2);
 }
 
 
