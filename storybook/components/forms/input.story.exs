@@ -4,7 +4,8 @@ defmodule Storybook.Components.Forms.Input do
   def function, do: &ZaqWeb.Components.DesignSystem.Input.input/1
 
   def description,
-    do: "Labelled form input with validation errors — text, select, textarea, and checkbox."
+    do:
+      "Labelled form input with validation errors — text-like fields, textarea, and checkbox. For dropdowns see Select and SearchableSelect."
 
   def variations do
     [
@@ -41,21 +42,9 @@ defmodule Storybook.Components.Forms.Input do
         ]
       },
       %VariationGroup{
-        id: :select_textarea,
-        description: "Select and textarea",
+        id: :textarea,
+        description: "Textarea",
         variations: [
-          %Variation{
-            id: :select,
-            description: "Select",
-            attributes: %{
-              name: "role",
-              type: "select",
-              label: "Role",
-              value: "admin",
-              prompt: "Choose one",
-              options: [{"Admin", "admin"}, {"User", "user"}]
-            }
-          },
           %Variation{
             id: :textarea,
             description: "Textarea",
@@ -116,12 +105,12 @@ defmodule Storybook.Components.Forms.Input do
       %VariationGroup{
         id: :password_requirements,
         description:
-          "Password with requirements checker — see Components / Forms / Password Requirements",
+          "Password with requirements checker — see Components / Forms / Password Requirements and SecretInput",
         variations: [
           %Variation{
             id: :with_requirements,
             description:
-              "Use password_requirements/1 below the input for live validation feedback",
+              "Use SecretInput for sensitive fields; password_requirements/1 below for live validation feedback",
             attributes: %{
               name: "new_password",
               type: "password",

@@ -2,9 +2,9 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
   @moduledoc """
   Labelled form input with validation errors.
 
-  Extracted from `ZaqWeb.CoreComponents.input/1`. Supports text-like HTML inputs,
-  select, textarea, checkbox, and hidden types. Pass a `Phoenix.HTML.FormField`
-  via `field` or explicit `name` / `id` / `value` assigns.
+  Supports text-like HTML inputs, textarea, checkbox, and hidden types.
+  For dropdowns use `ZaqWeb.Select.select/1` or `SearchableSelect.searchable_select/1`.
+  Pass a `Phoenix.HTML.FormField` via `field` or explicit `name` / `id` / `value` assigns.
   """
 
   use Phoenix.Component
@@ -20,7 +20,6 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
 
       <.input field={@form[:email]} type="email" />
       <.input name="my-input" errors={["oh no!"]} />
-      <.input field={@form[:user_type]} type="select" options={["Admin": "admin", "User": "user"]} />
   """
   attr :id, :any, default: nil
   attr :name, :any
@@ -30,16 +29,18 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
   attr :type, :string,
     default: "text",
     values: ~w(checkbox color date datetime-local email file month number password
-               search select tel text textarea time url week hidden)
+               search tel text textarea time url week hidden)
 
   attr :field, Phoenix.HTML.FormField,
     doc: "a form field struct retrieved from the form, for example: @form[:email]"
 
   attr :errors, :list, default: []
   attr :checked, :boolean, doc: "the checked flag for checkbox inputs"
-  attr :prompt, :string, default: nil, doc: "the prompt for select inputs"
-  attr :options, :list, doc: "the options to pass to Phoenix.HTML.Form.options_for_select/2"
-  attr :multiple, :boolean, default: false, doc: "the multiple flag for select inputs"
+
+  attr :multiple, :boolean,
+    default: false,
+    doc: "when true with field, appends [] to the input name"
+
   attr :class, :any, default: nil, doc: "the input class to use over defaults"
   attr :error_class, :any, default: nil, doc: "the input error class to use over defaults"
 
@@ -94,25 +95,6 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
       </label>
       <.field_error :for={msg <- @errors}>{msg}</.field_error>
     </div>
-    """
-  end
-
-  def input(%{type: "select"} = assigns) do
-    ~H"""
-    <.input_shell label={@label} errors={@errors}>
-      <:field>
-        <select
-          id={@id}
-          name={@name}
-          class={[@class || "w-full select", @errors != [] && (@error_class || "select-error")]}
-          multiple={@multiple}
-          {@rest}
-        >
-          <option :if={@prompt} value="">{@prompt}</option>
-          {Phoenix.HTML.Form.options_for_select(@options, @value)}
-        </select>
-      </:field>
-    </.input_shell>
     """
   end
 
