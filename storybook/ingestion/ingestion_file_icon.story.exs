@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.IngestionFileIcon do
+defmodule Storybook.Ingestion.IngestionFileIcon do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 

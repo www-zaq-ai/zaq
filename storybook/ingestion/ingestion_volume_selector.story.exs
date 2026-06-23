@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.IngestionVolumeSelector do
+defmodule Storybook.Ingestion.IngestionVolumeSelector do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 

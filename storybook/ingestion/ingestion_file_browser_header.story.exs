@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.IngestionFileBrowserHeader do
+defmodule Storybook.Ingestion.IngestionFileBrowserHeader do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 

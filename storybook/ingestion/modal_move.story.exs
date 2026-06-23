@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.ModalMove do
+defmodule Storybook.Ingestion.ModalMove do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 

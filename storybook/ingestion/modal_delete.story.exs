@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.ModalDelete do
+defmodule Storybook.Ingestion.ModalDelete do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.DesignSystem.ModalDelete.modal_delete/1

@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.ModalDeleteSelected do
+defmodule Storybook.Ingestion.ModalDeleteSelected do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 

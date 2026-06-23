@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.ModalShare do
+defmodule Storybook.Ingestion.ModalShare do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 

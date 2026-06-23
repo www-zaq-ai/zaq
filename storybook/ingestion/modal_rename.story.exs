@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.ModalRename do
+defmodule Storybook.Ingestion.ModalRename do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.DesignSystem.ModalRename.modal_rename/1

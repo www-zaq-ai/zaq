@@ -1,15 +1,15 @@
-defmodule Storybook.Components.DesignSystem.IngestionFileGridView do
+defmodule Storybook.Ingestion.IngestionFileListView do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 
-  import ZaqWeb.Components.DesignSystem.IngestionFileGridView
+  import ZaqWeb.Components.DesignSystem.IngestionFileListView
 
   @dt ~U[2025-01-10 08:00:00Z]
   @dt_older ~U[2024-06-01 10:00:00Z]
   @dt_newer ~U[2025-06-15 16:30:00Z]
 
   def description,
-    do: "Ingestion file browser — card grid: empty directory and representative cards."
+    do: "Ingestion file browser — table (list) view: empty directory and representative rows."
 
   def render(assigns) do
     assigns =
@@ -22,8 +22,8 @@ defmodule Storybook.Components.DesignSystem.IngestionFileGridView do
       class="zaq-text-body flex flex-col gap-8"
       style="padding: var(--zaq-scale-32); max-width: 100%;"
     >
-      <.story_block title="Empty directory" description="No files — empty message only.">
-        <.file_grid_view
+      <.story_block title="Empty directory" description="No files — single placeholder row.">
+        <.file_list_view
           entries={[]}
           selected={@empty}
           current_dir="."
@@ -35,12 +35,12 @@ defmodule Storybook.Components.DesignSystem.IngestionFileGridView do
       <.story_block
         title="Converted markdown sidecar (PDF)"
         description={
-          "Same sidecar data as list view: related .md preview on the card. " <>
-            "Grid: button.zaq-table-sidecar-preview.zaq-table-sidecar-preview--ingestion-grid " <>
-            "(filename in .zaq-table-sidecar-preview-name)."
+          "After PDF ingest, DirectorySnapshot attaches a related .md file. " <>
+            "List view: sub-row tr.zaq-table-row--sidecar; preview control button.zaq-table-sidecar-preview " <>
+            "(matches E2E / Playwright hooks)."
         }
       >
-        <.file_grid_view
+        <.file_list_view
           entries={sidecar_only_entries()}
           selected={@empty}
           current_dir="."
@@ -51,9 +51,9 @@ defmodule Storybook.Components.DesignSystem.IngestionFileGridView do
 
       <.story_block
         title="Populated directory"
-        description="Folders, file statuses, shared/public badges, sidecar preview link, and one selected card."
+        description="Folders, file statuses (job + ingestion), access badges, sidecar row, and one selected row."
       >
-        <.file_grid_view
+        <.file_list_view
           entries={fixture_entries()}
           selected={@selected_one}
           current_dir="."

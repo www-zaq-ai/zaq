@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.ModalAddRaw do
+defmodule Storybook.Ingestion.ModalAddRaw do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.DesignSystem.ModalAddRaw.modal_add_raw/1

@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.IngestionJobsPanel do
+defmodule Storybook.Ingestion.IngestionJobsPanel do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 

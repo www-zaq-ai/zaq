@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.ModalNewFolder do
+defmodule Storybook.Ingestion.ModalNewFolder do
   use PhoenixStorybook.Story, :component
 
   def function, do: &ZaqWeb.Components.DesignSystem.ModalNewFolder.modal_new_folder/1
