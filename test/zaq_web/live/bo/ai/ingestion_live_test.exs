@@ -119,6 +119,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     render_hook(view, "toggle_select", %{"path" => "alpha.md"})
     assert has_element?(view, "button", "Delete (1)")
 
+    render_hook(view, "toggle_select", %{"path" => "alpha.md"})
+    refute has_element?(view, "button", "Delete (1)")
+
+    render_hook(view, "toggle_select", %{"path" => "alpha.md"})
     render_hook(view, "select_all", %{})
     assert has_element?(view, "button", "Delete (4)")
 
@@ -597,6 +601,22 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "p", "fresh.txt")
   end
 
+  test "others job filter includes active non-terminal statuses", %{conn: conn} do
+    create_job(%{file_path: "pending-other.txt", status: "pending"})
+    create_job(%{file_path: "processing-other.txt", status: "processing"})
+    create_job(%{file_path: "partial-other.txt", status: "completed_with_errors"})
+    create_job(%{file_path: "completed-other.txt", status: "completed"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "filter_status", %{"status" => "others"})
+
+    assert has_element?(view, "p", "pending-other.txt")
+    assert has_element?(view, "p", "processing-other.txt")
+    assert has_element?(view, "p", "partial-other.txt")
+    refute has_element?(view, "p", "completed-other.txt")
+  end
+
   test "shows chunk progress and retry button for completed_with_errors jobs", %{conn: conn} do
     partial =
       create_job(%{
@@ -974,6 +994,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "move_go_back", %{})
       assert has_element?(view, "h3", "Move")
     end
+
+    test "move_navigate to an invalid folder clears move folder options", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "move_item", %{"path" => "notes.txt", "type" => "file"})
+      render_hook(view, "move_navigate", %{"path" => "../outside"})
+
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.move_folders == []
+    end
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -1110,6 +1140,35 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       state = :sys.get_state(view.pid)
       job_ids = Enum.map(state.socket.assigns.jobs, & &1.id)
       refute completed_job.id in job_ids
+    end
+
+    test "job_updated removes an existing row when it stops matching the current filter", %{
+      conn: conn
+    } do
+      pending = create_job(%{file_path: "filtered-away.txt", status: "pending"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "filter_status", %{"status" => "pending"})
+
+      assert has_element?(view, "p", "filtered-away.txt")
+
+      completed =
+        Repo.get!(IngestJob, pending.id)
+        |> IngestJob.changeset(%{status: "completed"})
+        |> Repo.update!()
+
+      send(view.pid, {:job_updated, completed})
+
+      refute has_element?(view, "p", "filtered-away.txt")
+    end
+
+    test "job_updated ignores malformed payloads", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      state_before = :sys.get_state(view.pid).socket.assigns.jobs
+
+      send(view.pid, {:job_updated, :not_a_job})
+
+      assert :sys.get_state(view.pid).socket.assigns.jobs == state_before
     end
   end
 

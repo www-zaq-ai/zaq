@@ -73,6 +73,30 @@ defmodule Zaq.Ingestion.IngestJobTest do
       assert Ecto.Changeset.get_change(changeset, :volume_name) == "docs"
     end
 
+    test "exposes valid mode list" do
+      assert IngestJob.modes() == ["inline", "async"]
+    end
+
+    test "accepts optional source_record field" do
+      source_record = %{
+        "id" => "zaq_local:default:docs/readme.md",
+        "kind" => "file",
+        "attributes" => %{"relative_path" => "docs/readme.md"}
+      }
+
+      attrs = %{
+        file_path: "docs/readme.md",
+        status: "pending",
+        mode: "async",
+        source_record: source_record
+      }
+
+      changeset = IngestJob.changeset(%IngestJob{}, attrs)
+
+      assert changeset.valid?
+      assert Ecto.Changeset.get_change(changeset, :source_record) == source_record
+    end
+
     test "valid without volume_name (backward compat)" do
       attrs = %{file_path: "docs/readme.md", status: "pending", mode: "async"}
       changeset = IngestJob.changeset(%IngestJob{}, attrs)

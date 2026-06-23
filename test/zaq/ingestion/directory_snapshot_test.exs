@@ -2,7 +2,7 @@ defmodule Zaq.Ingestion.DirectorySnapshotTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, FileExplorer, IngestJob, Sidecar}
+  alias Zaq.Ingestion.{DirectorySnapshot, Document, FileExplorer, IngestJob, Sidecar}
   alias Zaq.Repo
 
   @volume "default"
@@ -85,6 +85,117 @@ defmodule Zaq.Ingestion.DirectorySnapshotTest do
       {:ok, snapshot} = Ingestion.directory_snapshot(@volume, ".", nil)
 
       assert snapshot.ingestion_map[path].job_status == "pending"
+    end
+
+    test "matches non-root file paths without adding a legacy ./ variant" do
+      folder = ufolder("nested_status")
+      path = Path.join(folder, "child.md")
+      make_dir(folder)
+      make_file(path)
+
+      %IngestJob{}
+      |> IngestJob.changeset(%{
+        file_path: path,
+        volume_name: @volume,
+        status: "processing",
+        mode: "async"
+      })
+      |> Repo.insert!()
+
+      on_exit(fn -> FileExplorer.delete_directory(@volume, folder) end)
+
+      {:ok, snapshot} = Ingestion.directory_snapshot(@volume, folder, nil)
+
+      assert snapshot.ingestion_map["child.md"].job_status == "processing"
+    end
+  end
+
+  describe "entry shape compatibility" do
+    test "accepts entries with string folder kind, directory type, path fields, and non-map attributes" do
+      entries = [
+        %{name: "string-folder", kind: "folder"},
+        %{name: "typed-folder", type: :directory},
+        %{name: "plain.md", path: "plain.md", type: :file, size: 5, attributes: :legacy}
+      ]
+
+      snapshot = DirectorySnapshot.build(entries, @volume, ".", nil)
+
+      assert Enum.map(snapshot.entries, & &1.name) == [
+               "string-folder",
+               "typed-folder",
+               "plain.md"
+             ]
+
+      assert snapshot.ingestion_map["string-folder"].type == :directory
+      assert snapshot.ingestion_map["typed-folder"].type == :directory
+      assert snapshot.ingestion_map["plain.md"].can_share?
+    end
+
+    test "marks folders public from folder settings" do
+      folder = ufolder("public_folder")
+      make_dir(folder)
+
+      on_exit(fn -> FileExplorer.delete_directory(@volume, folder) end)
+
+      assert :ok = Ingestion.set_folder_public(@volume, folder)
+      {:ok, snapshot} = Ingestion.directory_snapshot(@volume, ".", nil)
+
+      assert snapshot.ingestion_map[folder].is_public
+    end
+  end
+
+  describe "metadata-driven sidecars" do
+    test "removes stale related_record attrs when sidecar source is missing" do
+      folder = ufolder("stale_sidecar_attr")
+      source = "default/#{folder}/report.pdf"
+
+      make_dir(folder)
+      make_file(Path.join(folder, "report.pdf"), "%PDF")
+      make_primary(source)
+
+      on_exit(fn ->
+        FileExplorer.delete_directory(@volume, folder)
+      end)
+
+      {:ok, snapshot} = Ingestion.directory_snapshot(@volume, folder, nil)
+      [entry] = snapshot.entries
+
+      refute Map.has_key?(entry.attributes, "related_record")
+    end
+
+    test "keeps same-name related sidecar visible as an independent entry" do
+      folder = ufolder("same_name_sidecar")
+      source = "default/#{folder}/report.pdf"
+      sidecar = "default/#{folder}/report.md"
+
+      make_dir(folder)
+      make_file(Path.join(folder, "report.pdf"), "%PDF")
+      make_file(Path.join(folder, "report.md"), "# sidecar")
+      make_primary(source)
+      make_sidecar(sidecar, source)
+
+      on_exit(fn -> FileExplorer.delete_directory(@volume, folder) end)
+
+      modified_at = DateTime.utc_now()
+
+      entries = [
+        %{
+          name: "report.pdf",
+          type: :file,
+          path: Path.join(folder, "report.pdf"),
+          modified_at: modified_at
+        },
+        %{
+          name: "report.pdf",
+          type: :file,
+          path: Path.join(folder, "report.md"),
+          modified_at: modified_at
+        }
+      ]
+
+      snapshot = DirectorySnapshot.build(entries, @volume, folder, nil)
+
+      assert length(snapshot.entries) == 2
     end
   end
 

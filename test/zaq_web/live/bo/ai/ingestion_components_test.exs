@@ -3,6 +3,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
 
   import Phoenix.LiveViewTest
 
+  alias ZaqWeb.Components.DesignSystem.IngestionFileGridView
+  alias ZaqWeb.Components.DesignSystem.IngestionFileStatus
   alias ZaqWeb.Live.BO.AI.IngestionComponents
 
   # Matches ZaqWeb.Live.BO.AI.IngestionComponents.file_icon/1 image branch (unique SVG gradient ids).
@@ -142,6 +144,132 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       assert html =~ "embedding-warning-title"
       assert html =~ "Embedding not configured"
       assert html =~ "/bo/system-config?tab=embedding"
+    end
+  end
+
+  describe "ingestion file status helpers" do
+    test "file_ingestion_status applies defaults around partial map entries" do
+      status =
+        IngestionFileStatus.file_ingestion_status(%{"notes.md" => %{stale?: true}}, "notes.md")
+
+      assert status.stale?
+      assert status.ingested_at == nil
+      assert status.job_status == nil
+      assert status.permissions_count == 0
+      refute status.is_public
+      refute status.can_share?
+    end
+
+    test "record helpers support fallback shapes and related record variants" do
+      assert IngestionFileStatus.record_path(%{name: "fallback.md"}) == "fallback.md"
+      assert IngestionFileStatus.record_file?(%{kind: :file})
+      assert IngestionFileStatus.record_folder?(%{kind: "folder"})
+      assert IngestionFileStatus.record_folder?(%{type: :directory})
+
+      assert IngestionFileStatus.related_record(%{
+               attributes: %{related_record: %{name: "side.md"}}
+             }) ==
+               %{name: "side.md"}
+
+      assert IngestionFileStatus.related_record(%{}) == nil
+      assert IngestionFileStatus.related_record_name(%{name: "side.md"}) == "side.md"
+      assert IngestionFileStatus.related_record_path(%{path: "side.md"}) == "side.md"
+      assert IngestionFileStatus.related_record_size(%{size: 12}) == 12
+    end
+  end
+
+  describe "grid view rendering" do
+    test "renders empty directory state" do
+      html =
+        render_component(&IngestionFileGridView.file_grid_view/1,
+          entries: [],
+          selected: MapSet.new(),
+          current_dir: ".",
+          current_volume: "default",
+          ingestion_map: %{}
+        )
+
+      assert html =~ "Empty directory"
+    end
+
+    test "renders folder stats with completed count and fallback dash for empty folder size" do
+      html =
+        render_component(&IngestionFileGridView.file_grid_view/1,
+          entries: [
+            %{name: "docs", kind: "folder", path: "docs"},
+            %{name: "empty", type: :directory, path: "empty"}
+          ],
+          selected: MapSet.new(["docs"]),
+          current_dir: ".",
+          current_volume: "default",
+          ingestion_map: %{
+            "docs" => %{total_size: 2048, file_count: 3, ingested_count: 3},
+            "empty" => %{total_size: 0, file_count: 0, ingested_count: 0}
+          }
+        )
+
+      assert html =~ "2.0 KB"
+      assert html =~ "3/3"
+      assert html =~ "—"
+      assert html =~ "zaq-ingestion-file-grid-card--selected"
+    end
+
+    test "renders ingested public and related sidecar indicators" do
+      html =
+        render_component(&IngestionFileGridView.file_grid_view/1,
+          entries: [
+            %{
+              name: "report.pdf",
+              path: "report.pdf",
+              kind: :file,
+              size: 4096,
+              attributes: %{
+                "related_record" => %{
+                  "name" => "report.md",
+                  "path" => "report.md",
+                  "size" => 1024
+                }
+              }
+            }
+          ],
+          selected: MapSet.new(),
+          current_dir: ".",
+          current_volume: "default",
+          ingestion_map: %{
+            "report.pdf" => %{
+              ingested_at: ~U[2026-06-23 06:00:00Z],
+              stale?: false,
+              permissions_count: 2,
+              is_public: true,
+              can_share?: true
+            }
+          }
+        )
+
+      assert html =~ "ingested"
+      assert html =~ "shared"
+      assert html =~ "public"
+      assert html =~ "report.md"
+      assert html =~ "1.0 KB"
+      assert html =~ ~s(phx-value-path="default/report.md")
+    end
+
+    test "renders shared and public indicators without ingested status" do
+      html =
+        render_component(&IngestionFileGridView.file_grid_view/1,
+          entries: [%{name: "draft.md", kind: :file, size: 10}],
+          selected: MapSet.new(),
+          current_dir: ".",
+          current_volume: "default",
+          ingestion_map: %{
+            "draft.md" => %{permissions_count: 1, is_public: true, can_share?: false}
+          }
+        )
+
+      assert html =~ "shared"
+      assert html =~ "public"
+      refute html =~ "ingested"
+      refute html =~ ~s(title="Share with roles")
     end
   end
 

@@ -104,7 +104,8 @@ defmodule Mix.Tasks.Db.Copy do
   end
 
   defp ensure_target_empty!(target_url) do
-    psql = System.find_executable("psql") || Mix.raise("psql not found")
+    system = system_module()
+    psql = system.find_executable("psql") || Mix.raise("psql not found")
 
     sql = """
     SELECT count(*)
@@ -113,7 +114,7 @@ defmodule Mix.Tasks.Db.Copy do
     """
 
     {output, status} =
-      System.cmd(psql, [target_url, "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", sql],
+      system.cmd(psql, [target_url, "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", sql],
         stderr_to_stdout: true
       )
 
@@ -144,8 +145,9 @@ defmodule Mix.Tasks.Db.Copy do
   end
 
   defp copy_full_db!(source_url, target_url) do
-    pg_dump = System.find_executable("pg_dump") || Mix.raise("pg_dump not found")
-    pg_restore = System.find_executable("pg_restore") || Mix.raise("pg_restore not found")
+    system = system_module()
+    pg_dump = system.find_executable("pg_dump") || Mix.raise("pg_dump not found")
+    pg_restore = system.find_executable("pg_restore") || Mix.raise("pg_restore not found")
 
     dump_path =
       Path.join(System.tmp_dir!(), "db-copy-#{System.unique_integer([:positive])}.dump")
@@ -159,7 +161,7 @@ defmodule Mix.Tasks.Db.Copy do
 
     try do
       {dump_output, dump_status} =
-        System.cmd(
+        system.cmd(
           pg_dump,
           [
             "--format=custom",
@@ -177,7 +179,7 @@ defmodule Mix.Tasks.Db.Copy do
       end
 
       {restore_output, restore_status} =
-        System.cmd(
+        system.cmd(
           pg_restore,
           [
             "--exit-on-error",
@@ -222,5 +224,11 @@ defmodule Mix.Tasks.Db.Copy do
     |> URI.parse()
     |> Map.put(:userinfo, "*****")
     |> URI.to_string()
+  end
+
+  defp system_module do
+    :zaq
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:system, System)
   end
 end
