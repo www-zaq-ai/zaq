@@ -79,7 +79,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     |> element("button[phx-click='test_llm']")
     |> render_click()
 
-    assert has_element?(view, "p.text-red-500")
+    assert_diagnostic_error(view)
   end
 
   test "test_llm shows error on non-200 response", %{conn: conn} do
@@ -97,7 +97,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     |> element("button[phx-click='test_llm']")
     |> render_click()
 
-    assert has_element?(view, "p.text-red-500")
+    assert_diagnostic_error(view, "503")
   end
 
   test "test_embedding handles API errors", %{conn: conn} do
@@ -113,7 +113,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     |> element("button[phx-click='test_embedding']")
     |> render_click()
 
-    assert has_element?(view, "p.text-red-500")
+    assert_diagnostic_error(view, "401")
   end
 
   test "test_embedding handles client exceptions", %{conn: conn} do
@@ -127,7 +127,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     |> element("button[phx-click='test_embedding']")
     |> render_click()
 
-    assert has_element?(view, "p.text-red-500", "embedding crash")
+    assert_diagnostic_error(view, "embedding crash")
   end
 
   test "test_embedding shows connected status on success", %{conn: conn} do
@@ -147,5 +147,13 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     |> render_click()
 
     assert has_element?(view, "span", "connected")
+  end
+
+  defp assert_diagnostic_error(view, message_fragment \\ nil) do
+    assert has_element?(view, "span", "✗ error")
+
+    if message_fragment do
+      assert render(view) =~ message_fragment
+    end
   end
 end
