@@ -29,7 +29,7 @@ defmodule ZaqWeb.Components.DesignSystem.Checkbox do
       />
   """
   attr :id, :any, default: nil
-  attr :name, :any
+  attr :name, :any, default: nil
   attr :label, :string, default: nil
   attr :value, :any
 
