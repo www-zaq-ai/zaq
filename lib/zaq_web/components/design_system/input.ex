@@ -3,7 +3,8 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
   Labelled form input with validation errors.
 
   Supports text-like HTML inputs, textarea, checkbox, and hidden types.
-  For dropdowns use `ZaqWeb.Select.select/1` or `SearchableSelect.searchable_select/1`.
+  For passwords and tokens use `secret_input/1`. For dropdowns use
+  `ZaqWeb.Select.select/1` or `SearchableSelect.searchable_select/1`.
   Pass a `Phoenix.HTML.FormField` via `field` or explicit `name` / `id` / `value` assigns.
   """
 
@@ -28,7 +29,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
 
   attr :type, :string,
     default: "text",
-    values: ~w(checkbox color date datetime-local email file month number password
+    values: ~w(checkbox color date datetime-local email file month number
                search tel text textarea time url week hidden)
 
   attr :field, Phoenix.HTML.FormField,

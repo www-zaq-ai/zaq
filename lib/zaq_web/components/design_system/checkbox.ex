@@ -11,6 +11,8 @@ defmodule ZaqWeb.Components.DesignSystem.Checkbox do
 
   import ZaqWeb.CoreComponents, only: [icon: 1]
 
+  alias ZaqWeb.Components.FormFieldHelpers
+
   alias Phoenix.HTML.Form
 
   @doc """
@@ -48,13 +50,8 @@ defmodule ZaqWeb.Components.DesignSystem.Checkbox do
                 phx-value-right phx-value-role_id phx-target required)
 
   def checkbox(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
-    errors = if Phoenix.Component.used_input?(field), do: field.errors, else: []
-
     assigns
-    |> assign(field: nil, id: assigns.id || field.id)
-    |> assign(:errors, Enum.map(errors, &ZaqWeb.CoreComponents.translate_error/1))
-    |> assign_new(:name, fn -> field.name end)
-    |> assign_new(:value, fn -> field.value end)
+    |> FormFieldHelpers.prepare_standard_field(field)
     |> checkbox()
   end
 

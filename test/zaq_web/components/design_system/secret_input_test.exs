@@ -10,6 +10,7 @@ defmodule ZaqWeb.Components.DesignSystem.SecretInputTest do
       render_component(&SecretInput.secret_input/1,
         id: "api-token",
         name: "token",
+        label: "API token",
         value: "s3cr3t",
         placeholder: "••••••",
         input_class: "my-secret-input",
@@ -21,12 +22,29 @@ defmodule ZaqWeb.Components.DesignSystem.SecretInputTest do
     assert html =~ "id=\"api-token\""
     assert html =~ "name=\"token\""
     assert html =~ "type=\"password\""
+    assert html =~ "zaq-field-row-block"
     assert html =~ "my-secret-input"
     assert html =~ "my-secret-button"
     assert html =~ "my-secret-wrapper"
     assert html =~ "eye-on"
     assert html =~ "eye-off"
     assert html =~ "phx-debounce=\"300\""
+  end
+
+  test "secret_input/1 applies design-system defaults and error border" do
+    html =
+      render_component(&SecretInput.secret_input/1,
+        id: "token",
+        name: "token",
+        label: "Token",
+        value: "",
+        errors: ["can't be blank"]
+      )
+
+    assert html =~ "zaq-control-text"
+    assert html =~ "zaq-control-secret"
+    assert html =~ "zaq-border-danger"
+    assert html =~ "zaq-control-secret-toggle"
   end
 
   test "secret_input/1 supports form field and renders field errors" do
@@ -43,7 +61,7 @@ defmodule ZaqWeb.Components.DesignSystem.SecretInputTest do
         field: form[:password]
       )
 
-    assert html =~ "id=\"secret-user-password-\""
+    assert html =~ "id=\"user_password\""
     assert html =~ "name=\"user[password]\""
     assert html =~ "can&#39;t be blank"
   end

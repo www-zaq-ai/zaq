@@ -5,7 +5,7 @@ defmodule Storybook.Components.Forms.Input do
 
   def description,
     do:
-      "Labelled text-like form input (ZAQ tokens). Text, email, number, etc. — textarea is a separate variation; boolean fields use Checkbox. Dropdowns: Select / SearchableSelect. Sensitive fields: SecretInput."
+      "Labelled form input (ZAQ tokens): text-like types, textarea, and validation errors. Boolean fields: Checkbox. Dropdowns: Select / SearchableSelect. Sensitive fields: SecretInput."
 
   def variations do
     [
@@ -65,7 +65,7 @@ defmodule Storybook.Components.Forms.Input do
         variations: [
           %Variation{
             id: :with_error,
-            description: "Field error",
+            description: "Field error (email)",
             attributes: %{
               name: "email",
               type: "email",
@@ -73,23 +73,16 @@ defmodule Storybook.Components.Forms.Input do
               value: "not-an-email",
               errors: ["is not a valid email address"]
             }
-          }
-        ]
-      },
-      %VariationGroup{
-        id: :password_requirements,
-        description:
-          "Password with requirements checker — see Components / Forms / Password Requirements and SecretInput",
-        variations: [
+          },
           %Variation{
-            id: :with_requirements,
-            description:
-              "Use SecretInput for sensitive fields; password_requirements/1 below for live validation feedback",
+            id: :textarea_with_error,
+            description: "Field error (textarea)",
             attributes: %{
-              name: "new_password",
-              type: "password",
-              label: "New password",
-              value: ""
+              name: "bio",
+              type: "textarea",
+              label: "Bio",
+              value: "Hi",
+              errors: ["is too short"]
             }
           }
         ]

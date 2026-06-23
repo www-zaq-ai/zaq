@@ -4,7 +4,8 @@ defmodule Storybook.Components.Forms.SecretInput do
   def function, do: &ZaqWeb.Components.DesignSystem.SecretInput.secret_input/1
 
   def description,
-    do: "Password or token field with show/hide eye toggle and optional field errors."
+    do:
+      "Password or token field with show/hide toggle and optional field errors. Uses the same .zaq-control-text shell as Input."
 
   def variations do
     [
@@ -18,6 +19,7 @@ defmodule Storybook.Components.Forms.SecretInput do
             attributes: %{
               id: "api-key",
               name: "api_key",
+              label: "API key",
               value: "",
               placeholder: "sk-…"
             }
@@ -28,21 +30,8 @@ defmodule Storybook.Components.Forms.SecretInput do
             attributes: %{
               id: "api-key-filled",
               name: "api_key",
+              label: "API key",
               value: "sk-live-xxxxxxxxxxxx"
-            }
-          },
-          %Variation{
-            id: :custom_classes,
-            description: "Custom classes (login-style)",
-            attributes: %{
-              id: "login-password",
-              name: "password",
-              value: "",
-              placeholder: "••••••••",
-              input_class:
-                "block w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 pr-12 text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all text-sm",
-              button_class:
-                "absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors focus:outline-none"
             }
           }
         ]
@@ -57,6 +46,7 @@ defmodule Storybook.Components.Forms.SecretInput do
             attributes: %{
               id: "token",
               name: "token",
+              label: "Token",
               value: "",
               errors: ["can't be blank"]
             }
