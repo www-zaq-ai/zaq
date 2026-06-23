@@ -197,7 +197,7 @@ defmodule Storybook.Layouts.BoLayout do
         </p>
         <ul style="font-size: 0.875rem; color: var(--zaq-color-ink-soft); margin-top: 0.75rem; line-height: 2;">
           <li><code>status_badge</code> → Components / Design system / Status Badge</li>
-          <li><code>config_row</code> → Components / Misc / Config Row</li>
+          <li><code>config_row</code> → Dashboard / AI Diagnostics</li>
           <li><code>diagnostic_card</code> → Components / Design system / Diagnostic Card</li>
           <li><code>feature_gate</code> → Patterns / Add-on Upsell Card (<code>:gate</code>)</li>
         </ul>

@@ -1,6 +1,6 @@
 defmodule Storybook.Dashboard do
   @moduledoc """
-  BO main dashboard page slices (`ZaqWeb.Dashboard.*`).
+  BO dashboard page slices and related BO pages (`ZaqWeb.Dashboard.*`, `/bo/ai-diagnostics`).
   """
   use PhoenixStorybook.Index
 
