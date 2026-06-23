@@ -12,10 +12,14 @@ defmodule Zaq.Ingestion.VolumeRecords do
 
   @local_provider "zaq_local"
 
+  @doc "Converts local volume directory entries into canonical records."
+  @spec from_entries([map()], String.t() | nil, String.t()) :: [Record.t()]
   def from_entries(entries, volume_name, current_dir) when is_list(entries) do
     Enum.map(entries, &from_entry(&1, volume_name, current_dir))
   end
 
+  @doc "Builds a canonical record for a path inside a local volume."
+  @spec from_path(String.t() | nil, String.t()) :: {:ok, Record.t()} | {:error, term()}
   def from_path(volume_name, path) do
     normalized_path = SourcePath.normalize_relative(path)
 
@@ -24,6 +28,8 @@ defmodule Zaq.Ingestion.VolumeRecords do
     end
   end
 
+  @doc "Converts one local volume entry into a canonical record."
+  @spec from_entry(map(), String.t() | nil, String.t()) :: Record.t()
   def from_entry(entry, volume_name, current_dir) do
     relative_path = current_dir |> Path.join(entry.name) |> SourcePath.normalize_relative()
     kind = entry_kind(entry)
@@ -46,6 +52,8 @@ defmodule Zaq.Ingestion.VolumeRecords do
     }
   end
 
+  @doc "Builds a stable local-volume record identifier."
+  @spec record_id(String.t() | nil, String.t()) :: String.t()
   def record_id(volume_name, relative_path),
     do: Enum.join([@local_provider, volume_name || "default", relative_path], ":")
 

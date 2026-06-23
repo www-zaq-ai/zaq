@@ -280,13 +280,13 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                     </div>
                 <% end %>
                 <button
-                  :if={Map.get(entry, :related_md)}
+                  :if={related_record(entry)}
                   type="button"
                   phx-click="open_preview"
                   phx-value-path={
                     Path.join([
                       @current_volume,
-                      record_path(Map.get(entry, :related_md, %{path: ""}))
+                      related_record_path(related_record(entry))
                     ])
                   }
                   class="zaq-table-sidecar-preview zaq-table-sidecar-preview--ingestion-grid"
@@ -302,17 +302,17 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                     <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4" />
                   </svg>
                   <IngFileIcon.file_icon
-                    name={Map.get(entry, :related_md, %{name: ""}).name}
+                    name={related_record_name(related_record(entry))}
                     class="w-3.5 h-3.5 shrink-0"
                   />
                   <span class="zaq-table-sidecar-preview-name zaq-text-caption truncate min-w-0">
-                    {Map.get(entry, :related_md, %{name: ""}).name}
+                    {related_record_name(related_record(entry))}
                   </span>
                   <span
                     class="zaq-table-sidecar-preview-meta zaq-text-caption"
                     style="color: var(--zaq-text-color-body-tertiary)"
                   >
-                    {SizeFormat.format_size(Map.get(entry, :related_md, %{}).size)}
+                    {SizeFormat.format_size(related_record_size(related_record(entry)))}
                   </span>
                 </button>
               </div>

@@ -11,13 +11,21 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion.{FileExplorer, VolumeRecords}
 
+  @doc "Returns the normalized ingestion kind for a canonical record."
+  @spec kind(Record.t()) :: atom()
   def kind(%Record{kind: kind}), do: normalize_kind(kind)
 
+  @doc "Returns the volume-relative path encoded in a canonical record."
+  @spec relative_path(Record.t()) :: String.t() | nil
   def relative_path(%Record{} = record),
     do: attr(record, "relative_path") || attr(record, :relative_path) || record_path(record)
 
+  @doc "Returns the local volume name encoded in a canonical record, when present."
+  @spec volume(Record.t()) :: String.t() | nil
   def volume(%Record{} = record), do: attr(record, "volume") || attr(record, :volume)
 
+  @doc "Resolves a canonical record into a local filesystem path for processing."
+  @spec resolve_path(Record.t()) :: {:ok, String.t()} | {:error, term()}
   def resolve_path(%Record{} = record) do
     case {volume(record), relative_path(record)} do
       {volume, path} when is_binary(volume) and is_binary(path) ->
@@ -31,6 +39,8 @@ defmodule Zaq.Ingestion.RecordSource do
     end
   end
 
+  @doc "Lists child records for a folder record."
+  @spec list_children(Record.t()) :: {:ok, [Record.t()]} | {:error, term()}
   def list_children(%Record{} = record) do
     volume = volume(record)
 
@@ -40,6 +50,8 @@ defmodule Zaq.Ingestion.RecordSource do
     end
   end
 
+  @doc "Serializes a canonical record into a JSON-safe map for persistence."
+  @spec to_storage_map(Record.t()) :: map()
   def to_storage_map(%Record{} = record) do
     %{
       "id" => record.id,
@@ -53,6 +65,8 @@ defmodule Zaq.Ingestion.RecordSource do
     }
   end
 
+  @doc "Deserializes a persisted source record map into a canonical record."
+  @spec from_storage_map(map()) :: {:ok, Record.t()} | {:error, :invalid_source_record}
   def from_storage_map(%{"id" => id, "kind" => kind} = map) do
     {:ok,
      %Record{

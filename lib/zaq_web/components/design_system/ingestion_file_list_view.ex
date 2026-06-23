@@ -374,7 +374,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               </td>
             </tr>
             <tr
-              :if={Map.get(entry, :related_md)}
+              :if={related_record(entry)}
               class="zaq-table-row--sidecar"
             >
               <td></td>
@@ -385,7 +385,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   phx-value-path={
                     Path.join([
                       @current_volume,
-                      record_path(Map.get(entry, :related_md, %{path: ""}))
+                      related_record_path(related_record(entry))
                     ])
                   }
                   class="zaq-table-sidecar-preview"
@@ -401,17 +401,17 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4" />
                   </svg>
                   <.file_icon
-                    name={Map.get(entry, :related_md, %{name: ""}).name}
+                    name={related_record_name(related_record(entry))}
                     class="w-3.5 h-3.5 zaq-text-accent"
                   />
                   <span class="zaq-table-sidecar-preview-name zaq-text-body truncate min-w-0">
-                    {Map.get(entry, :related_md, %{name: ""}).name}
+                    {related_record_name(related_record(entry))}
                   </span>
                   <span
                     class="zaq-table-sidecar-preview-meta zaq-text-caption"
                     style="color: var(--zaq-text-color-body-tertiary)"
                   >
-                    {SizeFormat.format_size(Map.get(entry, :related_md, %{}).size)}
+                    {SizeFormat.format_size(related_record_size(related_record(entry)))}
                   </span>
                 </button>
               </td>

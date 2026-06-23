@@ -2,7 +2,8 @@ defmodule Zaq.Ingestion.DirectorySnapshotTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, FileExplorer, Sidecar}
+  alias Zaq.Ingestion.{Document, FileExplorer, IngestJob, Sidecar}
+  alias Zaq.Repo
 
   @volume "default"
 
@@ -62,6 +63,28 @@ defmodule Zaq.Ingestion.DirectorySnapshotTest do
       stats = folder_stats(folder)
       assert stats.file_count == 1
       assert stats.ingested_count == 0
+    end
+  end
+
+  describe "job status lookup" do
+    test "matches legacy root file paths with ./ prefix" do
+      path = "legacy_status_#{System.unique_integer([:positive])}.md"
+      make_file(path)
+
+      %IngestJob{}
+      |> IngestJob.changeset(%{
+        file_path: "./" <> path,
+        volume_name: @volume,
+        status: "pending",
+        mode: "async"
+      })
+      |> Repo.insert!()
+
+      on_exit(fn -> FileExplorer.delete(@volume, path) end)
+
+      {:ok, snapshot} = Ingestion.directory_snapshot(@volume, ".", nil)
+
+      assert snapshot.ingestion_map[path].job_status == "pending"
     end
   end
 

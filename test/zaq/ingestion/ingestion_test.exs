@@ -5,7 +5,10 @@ defmodule Zaq.IngestionTest do
   import Mox
 
   alias Zaq.Accounts.People
+  alias Zaq.Contracts.Record
+  alias Zaq.Event
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.Api
 
   alias Zaq.Ingestion.{
     Chunk,
@@ -22,9 +25,6 @@ defmodule Zaq.IngestionTest do
 
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
-
-  alias Zaq.Event
-  alias Zaq.Ingestion.Api
 
   setup do
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
@@ -212,6 +212,31 @@ defmodule Zaq.IngestionTest do
       assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "inline"})
       assert job.file_path == Path.join(folder, "one.md")
       assert job.source_record["attributes"]["relative_path"] == Path.join(folder, "one.md")
+    end
+
+    test "returns partial failure details instead of dropping failed records" do
+      path = "record_partial_#{System.unique_integer([:positive])}.md"
+      assert {:ok, _full_path} = FileExplorer.upload(path, "# record")
+
+      on_exit(fn -> FileExplorer.delete(path) end)
+
+      {:ok, entries} = FileExplorer.list(".")
+
+      record =
+        entries |> VolumeRecords.from_entries("default", ".") |> Enum.find(&(&1.path == path))
+
+      bad_record = %Record{id: "bad", kind: :unsupported, name: "bad"}
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      end)
+
+      assert {:error, {:partial_failure, [job], [error]}} =
+               Ingestion.ingest_records([record, bad_record], %{mode: "inline"})
+
+      assert job.file_path == path
+      assert error.reason == :unsupported_record_kind
+      assert error.record == %{id: "bad", name: "bad"}
     end
 
     test "ingestion api accepts record dispatch events" do

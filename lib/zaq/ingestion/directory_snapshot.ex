@@ -56,14 +56,25 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
   end
 
   defp fetch_jobs_map(current_volume, entry_details) do
-    file_paths = Enum.map(entry_details, & &1.relative_path)
+    file_paths = entry_details |> Enum.flat_map(&path_variants(&1.relative_path)) |> Enum.uniq()
 
     IngestJob
     |> where([j], j.volume_name == ^current_volume and j.file_path in ^file_paths)
     |> order_by(desc: :inserted_at)
     |> Repo.all()
-    |> Enum.reduce(%{}, fn job, acc -> Map.put_new(acc, job.file_path, job.status) end)
+    |> Enum.reduce(%{}, fn job, acc ->
+      Map.put_new(acc, normalize_job_path(job.file_path), job.status)
+    end)
   end
+
+  defp path_variants("./" <> _ = path), do: [path, SourcePath.normalize_relative(path)]
+  defp path_variants(path), do: [path, legacy_root_path(path)] |> Enum.uniq()
+
+  defp legacy_root_path(path) when is_binary(path) do
+    if String.contains?(path, "/"), do: path, else: "./" <> path
+  end
+
+  defp normalize_job_path(path) when is_binary(path), do: SourcePath.normalize_relative(path)
 
   defp attach_doc_and_job_details(entry_details, documents_by_source, jobs_map) do
     Enum.map(entry_details, fn detail ->
@@ -107,12 +118,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
       |> then(&Map.get(entry_by_source, &1))
       |> valid_related_entry(detail.entry)
 
-    entry =
-      if related_entry do
-        Map.put(detail.entry, :related_md, related_entry)
-      else
-        Map.delete(detail.entry, :related_md)
-      end
+    entry = put_related_record(detail.entry, related_entry)
 
     Map.put(detail, :entry, entry)
   end
@@ -123,11 +129,39 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
     if related_entry.name == entry.name, do: nil, else: related_entry
   end
 
+  defp put_related_record(entry, nil) do
+    attrs = entry |> record_attributes() |> Map.delete("related_record")
+    Map.put(entry, :attributes, attrs)
+  end
+
+  defp put_related_record(entry, related_entry) do
+    attrs =
+      Map.put(record_attributes(entry), "related_record", related_record_payload(related_entry))
+
+    Map.put(entry, :attributes, attrs)
+  end
+
+  defp related_record(%{attributes: attrs}) when is_map(attrs),
+    do: Map.get(attrs, "related_record")
+
+  defp related_record(_entry), do: nil
+
+  defp related_record_payload(entry) do
+    %{
+      "name" => entry.name,
+      "path" => entry_path(entry, "."),
+      "size" => Map.get(entry, :size)
+    }
+  end
+
+  defp record_attributes(%{attributes: attrs}) when is_map(attrs), do: attrs
+  defp record_attributes(_entry), do: %{}
+
   defp hide_related_sidecars(entry_details) do
     hidden_sidecar_names =
       Enum.reduce(entry_details, MapSet.new(), fn detail, acc ->
-        case Map.get(detail.entry, :related_md) do
-          %{name: name} -> MapSet.put(acc, name)
+        case related_record(detail.entry) do
+          %{"name" => name} -> MapSet.put(acc, name)
           _ -> acc
         end
       end)

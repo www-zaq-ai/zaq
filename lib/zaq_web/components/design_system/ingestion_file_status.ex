@@ -31,6 +31,16 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
     if record_folder?(entry), do: :directory, else: :file
   end
 
+  def related_record(%{attributes: attrs}) when is_map(attrs) do
+    Map.get(attrs, "related_record") || Map.get(attrs, :related_record)
+  end
+
+  def related_record(_entry), do: nil
+
+  def related_record_name(record), do: Map.get(record, "name") || Map.get(record, :name) || ""
+  def related_record_path(record), do: Map.get(record, "path") || Map.get(record, :path) || ""
+  def related_record_size(record), do: Map.get(record, "size") || Map.get(record, :size)
+
   defp record_kind(%{kind: :folder}), do: :folder
   defp record_kind(%{kind: "folder"}), do: :folder
   defp record_kind(%{type: :directory}), do: :folder

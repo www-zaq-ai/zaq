@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   use ZaqWeb, :live_view
 
   import ZaqWeb.Live.BO.AI.IngestionComponents
+  import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [record_path: 1]
 
   alias Zaq.Accounts.People
   alias Zaq.Event
@@ -620,13 +621,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("ingest_selected", _params, socket) do
     records = selected_records(socket)
-    dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode})
+    result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode})
 
-    {:noreply,
-     socket
-     |> assign(selected: MapSet.new())
-     |> load_jobs()
-     |> put_flash(:info, "Ingestion started.")}
+    socket =
+      socket
+      |> assign(selected: MapSet.new())
+      |> load_jobs()
+      |> put_ingest_result_flash(result)
+
+    {:noreply, socket}
   end
 
   def handle_event("retry_job", %{"id" => id}, socket) do
@@ -1031,8 +1034,26 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp records_by_path(entries), do: Map.new(entries, &{record_path(&1), &1})
 
-  defp record_path(%{path: path}) when is_binary(path), do: path
-  defp record_path(%{name: name}), do: name
+  defp put_ingest_result_flash(socket, {:ok, _jobs}),
+    do: put_flash(socket, :info, "Ingestion started.")
+
+  defp put_ingest_result_flash(socket, {:error, {:partial_failure, jobs, errors}}) do
+    if jobs == [] do
+      put_flash(
+        socket,
+        :error,
+        "No selected records could be ingested (#{length(errors)} failed)."
+      )
+    else
+      put_flash(
+        socket,
+        :warning,
+        "Ingestion started for #{length(jobs)} item(s); #{length(errors)} failed."
+      )
+    end
+  end
+
+  defp put_ingest_result_flash(socket, _), do: put_flash(socket, :error, "Ingestion failed.")
 
   defp assign_breadcrumbs(socket, "."), do: assign(socket, breadcrumbs: [])
 

@@ -38,17 +38,13 @@ defmodule Zaq.Ingestion do
   def ingest_records(records, params \\ %{}) when is_list(records) and is_map(params) do
     mode = normalize_mode(Map.get(params, "mode") || Map.get(params, :mode) || :async)
 
-    jobs =
-      records
-      |> Enum.flat_map(fn record ->
-        case ingest_record(record, mode) do
-          {:ok, jobs} when is_list(jobs) -> jobs
-          {:ok, job} -> [job]
-          {:error, _reason} -> []
-        end
-      end)
+    {jobs, errors} = Enum.reduce(records, {[], []}, &collect_ingest_result(&1, mode, &2))
 
-    {:ok, jobs}
+    if errors == [] do
+      {:ok, Enum.reverse(jobs)}
+    else
+      {:error, {:partial_failure, Enum.reverse(jobs), Enum.reverse(errors)}}
+    end
   end
 
   def ingest_record(record, mode \\ :async) do
@@ -710,6 +706,25 @@ defmodule Zaq.Ingestion do
       _ -> {:error, :unsupported_record_source}
     end
   end
+
+  defp collect_ingest_result(record, mode, {jobs, errors}) do
+    case ingest_record(record, mode) do
+      {:ok, record_jobs} when is_list(record_jobs) ->
+        {Enum.reverse(record_jobs) ++ jobs, errors}
+
+      {:ok, job} ->
+        {[job | jobs], errors}
+
+      {:error, {:partial_failure, record_jobs, record_errors}} ->
+        {Enum.reverse(record_jobs) ++ jobs, Enum.reverse(record_errors) ++ errors}
+
+      {:error, reason} ->
+        {jobs, [%{record: record_error_ref(record), reason: reason} | errors]}
+    end
+  end
+
+  defp record_error_ref(%{id: id, name: name}), do: %{id: id, name: name}
+  defp record_error_ref(record), do: inspect(record)
 
   defp create_job(path, mode, volume_name, source_record) do
     attrs =

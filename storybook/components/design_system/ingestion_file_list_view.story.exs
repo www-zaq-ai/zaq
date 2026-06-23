@@ -108,7 +108,9 @@ defmodule Storybook.Components.DesignSystem.IngestionFileListView do
         type: :file,
         size: 2_000_000,
         modified_at: @dt,
-        related_md: %{name: "slide.md", size: 18_000}
+        attributes: %{
+          "related_record" => %{"name" => "slide.md", "path" => "slide.md", "size" => 18_000}
+        }
       }
     ]
   end
@@ -222,7 +224,9 @@ defmodule Storybook.Components.DesignSystem.IngestionFileListView do
         type: :file,
         size: 42_000,
         modified_at: @dt,
-        related_md: %{name: "demo.md", size: 9_800}
+        attributes: %{
+          "related_record" => %{"name" => "demo.md", "path" => "demo.md", "size" => 9_800}
+        }
       }
     ]
   end
