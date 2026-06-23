@@ -57,8 +57,10 @@ defmodule ZaqWeb.Components.DesignSystem.InputTest do
     assert hidden_html =~ "value=\"secret\""
 
     assert textarea_html =~ "<textarea"
+    assert textarea_html =~ "zaq-control-text"
     assert textarea_html =~ "hello"
     assert textarea_html =~ "my-textarea-error"
+    assert textarea_html =~ "too short"
   end
 
   test "input/1 with form field supports multiple names" do
