@@ -6,7 +6,8 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   use Phoenix.Component
 
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
-  alias Zaq.Engine.Telemetry.Contracts.DisplayMeta
+  alias ZaqWeb.Components.DesignSystem.MetricCard
+  alias ZaqWeb.Helpers.TelemetryFormat
 
   alias Zaq.Engine.Telemetry.Contracts.Payloads.{
     CategoryVectorPayload,
@@ -30,114 +31,7 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   attr :range, :string, default: nil
   attr :hint, :string, default: nil
 
-  def metric_card(assigns) do
-    assigns = assign_from_card(assigns)
-
-    ~H"""
-    <article id={@id} class="zaq-card-default zaq-border-default zaq-card-hover">
-      <p
-        class="zaq-text-caption uppercase tracking-[0.18em]"
-        style="color: var(--zaq-text-color-body-secondary);"
-      >
-        {@label}
-      </p>
-      <div class="mt-3 flex items-end justify-between gap-3">
-        <p class="zaq-text-h1" style="color: var(--zaq-text-color-body-default);">
-          {format_value(@value)}<span
-            :if={@unit}
-            class="zaq-text-body-sm ml-1"
-            style="color: var(--zaq-text-color-body-secondary);"
-          >{@unit}</span>
-        </p>
-        <p
-          :if={is_number(@trend)}
-          class={[
-            "rounded-full px-2 py-1 font-mono text-[0.68rem] transition-colors",
-            if(@trend >= 0,
-              do: "bg-cyan-50 text-cyan-700",
-              else: "bg-slate-100 text-slate-600"
-            )
-          ]}
-        >
-          {trend_label(@trend)}
-        </p>
-      </div>
-      <p
-        :if={metadata_line(@display, @range, @hint)}
-        class="zaq-text-body-sm mt-3"
-        style="color: var(--zaq-text-color-body-tertiary);"
-      >
-        {metadata_line(@display, @range, @hint)}
-      </p>
-    </article>
-    """
-  end
-
-  defp assign_from_card(%{card: %ScalarPayload{} = card} = assigns) do
-    assigns
-    |> assign(:label, card.label)
-    |> assign(:value, card.value)
-    |> assign(:unit, card.unit)
-    |> assign(:trend, card.trend)
-    |> assign(:display, card.display)
-  end
-
-  defp assign_from_card(assigns) do
-    display =
-      case Map.get(assigns, :meta) do
-        %DisplayMeta{} = value -> value
-        meta when is_map(meta) -> DisplayMeta.from_map(meta)
-        _ -> %DisplayMeta{}
-      end
-
-    assign(assigns, :display, display)
-  end
-
-  defp metadata_line(display, range, hint) do
-    range_value = display_range(display) || range
-    hint_value = display_hint(display) || hint
-
-    extra_meta =
-      display_extra(display)
-      |> Enum.reject(fn {_key, value} -> blank_meta_value?(value) end)
-      |> Enum.map(fn {key, value} -> "#{format_meta_key(key)}: #{format_meta_value(value)}" end)
-
-    ([metadata_part("range", range_value), hint_value] ++ extra_meta)
-    |> Enum.reject(&blank_meta_value?/1)
-    |> case do
-      [] -> nil
-      parts -> Enum.join(parts, " · ")
-    end
-  end
-
-  defp metadata_part(_name, value) when value in [nil, ""], do: nil
-  defp metadata_part(name, value), do: "#{name}: #{value}"
-
-  defp display_range(%DisplayMeta{range: value}), do: value
-  defp display_range(_), do: nil
-
-  defp display_hint(%DisplayMeta{hint: value}), do: value
-  defp display_hint(_), do: nil
-
-  defp display_extra(%DisplayMeta{extra: value}) when is_map(value), do: value
-  defp display_extra(_), do: %{}
-
-  defp format_meta_key(key) do
-    key
-    |> key_string()
-    |> String.replace("_", " ")
-  end
-
-  defp key_string(key) when is_atom(key), do: Atom.to_string(key)
-  defp key_string(key) when is_binary(key), do: key
-  defp key_string(key), do: to_string(key)
-
-  defp format_meta_value(value) when is_binary(value), do: value
-  defp format_meta_value(value) when is_number(value), do: format_value(value)
-  defp format_meta_value(value), do: to_string(value)
-
-  defp blank_meta_value?(value) when value in [nil, ""], do: true
-  defp blank_meta_value?(_value), do: false
+  def metric_card(assigns), do: MetricCard.metric_card(assigns)
 
   defp assign_time_series_from_chart(%{chart: %DashboardChart{} = chart} = assigns) do
     payload = time_series_payload(chart)
@@ -1401,32 +1295,7 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   defp status_dot_class(:down), do: "bg-slate-700"
   defp status_dot_class(:unknown), do: "bg-slate-300"
 
-  defp trend_label(value) when value >= 0, do: "+#{round2(value)}%"
-  defp trend_label(value), do: "#{round2(value)}%"
-
-  defp format_value(nil), do: "--"
-
-  defp format_value(value) when is_integer(value) do
-    value
-    |> Integer.to_string()
-    |> String.reverse()
-    |> String.replace(~r/(.{3})(?=.)/, "\\1,")
-    |> String.reverse()
-  end
-
-  defp format_value(value) when is_float(value) do
-    rounded = Float.round(value, 2)
-
-    if rounded == trunc(rounded) do
-      Integer.to_string(trunc(rounded))
-    else
-      :erlang.float_to_binary(rounded, decimals: 2)
-      |> String.trim_trailing("0")
-      |> String.trim_trailing(".")
-    end
-  end
-
-  defp format_value(value), do: to_string(value)
+  defp format_value(value), do: TelemetryFormat.format_value(value)
 
   defp to_number(value) when is_integer(value), do: value * 1.0
   defp to_number(value) when is_float(value), do: value
@@ -1471,5 +1340,5 @@ defmodule ZaqWeb.Components.BOTelemetryComponents do
   defp clamp(value, _min, max) when value > max, do: max
   defp clamp(value, _min, _max), do: value
 
-  defp round2(value), do: Float.round(value * 1.0, 2)
+  defp round2(value), do: TelemetryFormat.round2(value)
 end
