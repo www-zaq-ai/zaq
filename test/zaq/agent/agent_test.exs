@@ -93,6 +93,10 @@ defmodule Zaq.AgentTest do
 
     assert {:error, :inactive_agent} = Agent.get_active_agent(inactive_agent.id)
     assert {:error, :agent_not_found} = Agent.get_active_agent(9_999_999)
+    assert {:ok, active_by_name} = Agent.get_active_agent_by_name(active_conversation.name)
+    assert active_by_name.id == active_conversation.id
+    assert {:error, :inactive_agent} = Agent.get_active_agent_by_name(inactive_agent.name)
+    assert {:error, :agent_not_found} = Agent.get_active_agent_by_name("Missing Agent")
     assert {:ok, _agent} = Agent.get_conversation_enabled_agent(active_conversation.id)
     assert {:error, :inactive_agent} = Agent.get_conversation_enabled_agent(inactive_agent.id)
 

@@ -99,11 +99,11 @@ defmodule Zaq.Agent.Executor do
   @doc """
   Runs the full agent execution pipeline for an incoming message.
 
-  Loads the configured agent (or the default answering agent when no `:agent_id` opt is
-  given), ensures its Jido server is running, sends a typing indicator, submits the
-  question via `Factory.ask_with_config/4`, consumes stream events for realtime
-  updates and trace capture, then records telemetry and returns a normalized
-  `Outgoing.t()`.
+  Loads the configured agent (or the default answering agent when no selected
+  agent opt is given), ensures its Jido server is running, sends a typing
+  indicator, submits the question via `Factory.ask_with_config/4`, consumes
+  stream events for realtime updates and trace capture, then records telemetry
+  and returns a normalized `Outgoing.t()`.
 
   On any `{:error, reason}` in the pipeline the error is logged, an error telemetry
   event is emitted, and a safe fallback `Outgoing.t()` is returned — this function
@@ -112,6 +112,7 @@ defmodule Zaq.Agent.Executor do
   ## Options
 
   - `:agent_id` — integer ID of the configured agent to use; omit for the default answering agent
+  - `:agent_name` — configured agent name to use when `:agent_id` is absent
   - `:scope` — explicit server scope string; derived from `derive_scope/1` when absent on the answering path
   - `:question` — override the question text; defaults to `incoming.content`
   - `:system_prompt` — override the agent's `job` field for this run only
@@ -256,9 +257,15 @@ defmodule Zaq.Agent.Executor do
   defp load_selected_agent(opts, agent_module, _factory_module) do
     answering_module = Keyword.get(opts, :answering_module, Answering)
 
-    case Keyword.get(opts, :agent_id) do
-      nil -> {:ok, answering_module.answering_configured_agent()}
-      agent_id -> agent_module.get_active_agent(agent_id)
+    cond do
+      agent_id = Keyword.get(opts, :agent_id) ->
+        agent_module.get_active_agent(agent_id)
+
+      agent_name = Keyword.get(opts, :agent_name) ->
+        agent_module.get_active_agent_by_name(agent_name)
+
+      true ->
+        {:ok, answering_module.answering_configured_agent()}
     end
   end
 

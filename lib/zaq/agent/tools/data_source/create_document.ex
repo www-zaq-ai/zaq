@@ -17,9 +17,14 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
     schema: [
       provider: [type: :string, required: true, doc: "Datasource provider key"],
       name: [type: :string, required: true, doc: "Document name/title"],
-      content: [type: :string, required: true, doc: "Textual content to create"],
+      content: [type: :string, required: false, doc: "Optional textual content to create"],
       path: [type: :string, required: false, doc: "Optional provider path/parent folder"],
       parent_id: [type: :string, required: false, doc: "Optional provider parent identifier"],
+      parents: [
+        type: {:list, :string},
+        required: false,
+        doc: "Optional provider parent identifiers"
+      ],
       mime_type: [type: :string, required: false, doc: "Optional provider MIME type"],
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
@@ -27,7 +32,6 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
   alias Zaq.Agent.Tools.DataSourceTool
 
   @impl Jido.Action
-
   def run(%{provider: provider} = params, context) do
     request =
       %{}
@@ -36,6 +40,7 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
         :content,
         :path,
         :parent_id,
+        :parents,
         :mime_type,
         :config_id
       ])
