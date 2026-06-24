@@ -25,10 +25,10 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
     assert html =~ "Last 24h"
   end
 
-  test "metric_card/1 renders display metadata but not runtime metadata" do
+  test "metric_card/1 renders display metadata and primary link from runtime href" do
     html =
       render_component(&BOTelemetryComponents.metric_card/1,
-        id: "metric-runtime-separation",
+        id: "metric-runtime-separation-card",
         card: %ScalarPayload{
           id: "metric-runtime-separation",
           label: "API calls",
@@ -40,7 +40,9 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
 
     assert html =~ "range: 30d"
     assert html =~ "scope: critical"
-    refute html =~ "/bo/hidden-runtime"
+    assert html =~ ~s(href="/bo/hidden-runtime")
+    assert html =~ ~s(id="metric-runtime-separation")
+    refute html =~ ~s(id="metric-runtime-separation-card" href=)
   end
 
   test "time_series_chart/1 renders representative data and id" do
