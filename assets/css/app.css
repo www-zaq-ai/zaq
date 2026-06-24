@@ -6,6 +6,7 @@
 @import "./text-styles.css";
 @import "./semantics.css";
 @import "./table.css";
+@import "./layout.css";
 @import "./btn.css";
 @import "./styles.css";
 @source "../css";
