@@ -69,6 +69,7 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
   def button(assigns) do
     assigns =
       assigns
+      |> assign(:icon, normalize_icon(assigns))
       |> assign(:icon_position, normalize_icon_position(assigns.icon_position))
       |> assign(:variant, normalize_variant(assigns.variant))
 
@@ -104,7 +105,9 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
 
   defp button_icon(assigns) do
     ~H"""
-    <.icon name={@name} class="zaq-icon-sm" />
+    <span class="inline-flex shrink-0 items-center">
+      <.icon name={@name} class="zaq-icon-sm" />
+    </span>
     """
   end
 
@@ -131,11 +134,21 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
 
   defp inner_content(assigns) do
     ~H"""
-    <.button_icon :if={@icon && (@icon_only || @icon_position == :left)} name={@icon} />
+    <.button_icon :if={show_icon_left?(assigns)} name={@icon} />
     <span :if={not @icon_only}>{render_slot(@inner_block)}</span>
-    <.button_icon :if={@icon && !@icon_only && @icon_position == :right} name={@icon} />
+    <.button_icon :if={show_icon_right?(assigns)} name={@icon} />
     """
   end
+
+  defp show_icon_left?(assigns) do
+    icon?(assigns) and (assigns.icon_only or assigns.icon_position == :left)
+  end
+
+  defp show_icon_right?(assigns) do
+    icon?(assigns) and not assigns.icon_only and assigns.icon_position == :right
+  end
+
+  defp icon?(assigns), do: is_binary(assigns.icon) and assigns.icon != ""
 
   defp show_loading_label?(assigns) do
     not assigns.icon_only or assigns.loading_label != ""
@@ -198,4 +211,11 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
   defp normalize_variant("secondary"), do: :secondary
   defp normalize_variant("ghost"), do: :ghost
   defp normalize_variant("tertiary"), do: :tertiary
+
+  defp normalize_icon(assigns) do
+    case assigns[:icon] || Map.get(assigns, "icon") do
+      icon when is_binary(icon) and icon != "" -> icon
+      _ -> nil
+    end
+  end
 end

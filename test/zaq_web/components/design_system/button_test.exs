@@ -143,6 +143,20 @@ defmodule ZaqWeb.Components.DesignSystem.ButtonTest do
     refute html =~ "zaq-btn__loading"
   end
 
+  test "button/1 tertiary with icon renders hero icon" do
+    html =
+      render_component(&Button.button/1,
+        variant: :tertiary,
+        icon: "hero-arrows-pointing-out",
+        inner_block: [%{inner_block: fn _, _ -> "Move" end}]
+      )
+
+    assert html =~ "zaq-btn-tertiary"
+    assert html =~ "hero-arrows-pointing-out"
+    assert html =~ "Move"
+    assert icon_before_text?(html, "Move")
+  end
+
   test "button/1 merges optional class attribute" do
     html =
       render_component(&Button.button/1,

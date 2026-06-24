@@ -6,8 +6,10 @@ defmodule Storybook.Components.Forms.Button do
   def description do
     "BO action button (`btn.css`). Variants: `:primary`, `:secondary`, `:ghost`, `:tertiary`. " <>
       "Shapes: `:default` or `:pill` (secondary chips). Optional `icon` / `icon_only`. " <>
-      "Tertiary: `active`, `danger`. Any variant supports `loading` + `loading_label` for async `phx-click`. " <>
-      "Navigation: `navigate`, `href`, or `patch`."
+      "Tertiary supports `active` for selected toolbar chips. " <>
+      "Destructive actions use the **Danger action** group (`variant={:tertiary}` + `danger`). " <>
+      "Any variant supports `loading` + `loading_label` for async `phx-click`. " <>
+      "**Link as button:** pass `navigate`, `href`, or `patch` to render a `<.link>` with button styling (page navigation, not `phx-click`)."
   end
 
   def container do
@@ -22,6 +24,7 @@ defmodule Storybook.Components.Forms.Button do
       secondary_variations(),
       ghost_variations(),
       tertiary_variations(),
+      danger_action_variations(),
       pill_variations(),
       loading_variations(),
       navigate_variations()
@@ -142,7 +145,7 @@ defmodule Storybook.Components.Forms.Button do
   defp tertiary_variations do
     %VariationGroup{
       id: :tertiary,
-      description: "variant={:tertiary}",
+      description: "variant={:tertiary} — ingestion toolbar chips",
       variations: [
         %Variation{
           id: :text,
@@ -157,12 +160,6 @@ defmodule Storybook.Components.Forms.Button do
           slots: ["Filter"]
         },
         %Variation{
-          id: :danger,
-          description: "Danger",
-          attributes: %{variant: :tertiary, danger: true},
-          slots: ["Delete"]
-        },
-        %Variation{
           id: :disabled,
           description: "Disabled",
           attributes: %{variant: :tertiary, disabled: true},
@@ -171,7 +168,7 @@ defmodule Storybook.Components.Forms.Button do
         %Variation{
           id: :with_icon,
           description: "With icon",
-          attributes: %{variant: :tertiary, icon: "hero-folder"},
+          attributes: %{variant: :tertiary, icon: "hero-arrows-pointing-out"},
           slots: ["Move"]
         },
         %Variation{
@@ -180,8 +177,47 @@ defmodule Storybook.Components.Forms.Button do
           attributes: %{
             variant: :tertiary,
             icon_only: true,
-            icon: "hero-trash",
+            icon: "hero-arrows-pointing-out",
+            "aria-label": "Move",
+            title: "Move"
+          },
+          slots: []
+        }
+      ]
+    }
+  end
+
+  defp danger_action_variations do
+    %VariationGroup{
+      id: :danger_action,
+      description: "Danger action — `variant={:tertiary}` + `danger` (`.zaq-btn-danger`)",
+      variations: [
+        %Variation{
+          id: :text,
+          description: "Text",
+          attributes: %{variant: :tertiary, danger: true},
+          slots: ["Delete"]
+        },
+        %Variation{
+          id: :disabled,
+          description: "Disabled",
+          attributes: %{variant: :tertiary, danger: true, disabled: true},
+          slots: ["Delete"]
+        },
+        %Variation{
+          id: :with_icon,
+          description: "With icon",
+          attributes: %{variant: :tertiary, danger: true, icon: "hero-trash"},
+          slots: ["Delete selected"]
+        },
+        %Variation{
+          id: :icon_only,
+          description: "Icon only",
+          attributes: %{
+            variant: :tertiary,
             danger: true,
+            icon_only: true,
+            icon: "hero-trash",
             "aria-label": "Delete",
             title: "Delete"
           },
@@ -247,8 +283,8 @@ defmodule Storybook.Components.Forms.Button do
           slots: ["Test"]
         },
         %Variation{
-          id: :tertiary_danger,
-          description: "Tertiary danger loading",
+          id: :danger,
+          description: "Danger action loading",
           attributes: %{
             variant: :tertiary,
             danger: true,
@@ -265,11 +301,12 @@ defmodule Storybook.Components.Forms.Button do
   defp navigate_variations do
     %VariationGroup{
       id: :navigate,
-      description: "Navigation as button",
+      description:
+        "Link as button — `<.link>` with button classes; use for in-app navigation (`navigate`) or external URLs (`href`) instead of `phx-click`",
       variations: [
         %Variation{
           id: :secondary,
-          description: "navigate=",
+          description: "navigate= (LiveView redirect)",
           attributes: %{variant: :secondary, navigate: "/bo/dashboard"},
           slots: ["Go to dashboard"]
         },
