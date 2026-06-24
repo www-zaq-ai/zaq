@@ -13,7 +13,9 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
       → review_email         (human-in-the-loop)
       → send_email
       → increment_email_state ← Workflow.Increment — bumps the sequence counter
-      → update_sheet_row      ← UpdateSheetValues single-cell (row/column/value)
+      → build_range           ← Workflow.Concat — concatenates the A1 range string
+      → build_values          ← Workflow.Concat — wraps the value as a [[value]] matrix
+      → update_sheet_row      ← UpdateSheetValues range mode (range/values)
 
   Row shape expected from the sheet (flat fields flow through the whole DAG):
     %{
@@ -41,6 +43,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   @human_in_the_loop_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
   @send_email_module "Zaq.Agent.Tools.People.NotifyPerson"
   @increment_module "Zaq.Agent.Tools.Workflow.Increment"
+  @build_range_module "Zaq.Agent.Tools.Workflow.Concat"
   @update_sheet_module "Zaq.Agent.Tools.Sheets.UpdateSheetValues"
 
   @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
@@ -127,16 +130,32 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           index: 5
         },
         %{
+          name: "build_range",
+          type: "action",
+          module: @build_range_module,
+          params: %{
+            "parts" => ["Sheet1!{{column}}{{row}}"],
+            "column" => email_state_column
+          },
+          index: 6
+        },
+        %{
+          name: "build_values",
+          type: "action",
+          module: @build_range_module,
+          params: %{"parts" => ["{{value}}"], "as_matrix" => true},
+          index: 7
+        },
+        %{
           name: "update_sheet_row",
           type: "action",
           module: @update_sheet_module,
           params: %{
             "spreadsheet_id" => sheet_id,
             "provider" => provider,
-            "column" => email_state_column,
             "value_input_option" => "USER_ENTERED"
           },
-          index: 6
+          index: 8
         }
       ],
       edges: [
@@ -169,11 +188,18 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
         },
         %{
           from: "increment_email_state",
+          to: "build_range",
+          mapping: %{"row" => "ensure_person.row.row_index"}
+        },
+        %{
+          from: "build_range",
+          to: "build_values",
+          mapping: %{"value" => "increment_email_state.value"}
+        },
+        %{
+          from: "build_values",
           to: "update_sheet_row",
-          mapping: %{
-            "row" => "ensure_person.row.row_index",
-            "value" => "increment_email_state.value"
-          }
+          mapping: %{"range" => "build_range.result", "values" => "build_values.matrix"}
         }
       ]
     }
