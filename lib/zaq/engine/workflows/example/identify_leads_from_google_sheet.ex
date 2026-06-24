@@ -15,7 +15,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
   aggregate row, so failures are visible per item; `strategy: "skip_and_continue"`
   isolates a failing row without aborting the run.
 
-  A lead qualifies when: active == true AND email_state < 4.
+  A lead qualifies when: active == true AND sequence < 4.
   Qualifying rows are dispatched as Zaq.Event payloads to :engine with name :lead_identified.
 
   ## Usage
@@ -127,7 +127,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
                 "module" => @condition_module,
                 "params" => %{
                   "conditions" => [
-                    %{"key" => "email_state", "op" => "lt", "value" => 4, "default" => 0}
+                    %{"key" => "sequence", "op" => "lt", "value" => 4, "default" => 0}
                   ]
                 }
               },

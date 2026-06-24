@@ -9,18 +9,18 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   DAG (linear):
     ensure_person
       → build_history
-      → draft_email       ← RunAgent("DraftEmail") — body returned as `output`
-      → review_email      (human-in-the-loop)
+      → draft_email          ← RunAgent("DraftEmail") — body returned as `output`
+      → review_email         (human-in-the-loop)
       → send_email
-      → build_sheet_update
-      → update_sheet_row
+      → increment_email_state ← Workflow.Increment — bumps the sequence counter
+      → update_sheet_row      ← UpdateSheetValues single-cell (row/column/value)
 
   Row shape expected from the sheet (flat fields flow through the whole DAG):
     %{
       "email"        => "lead@example.com",
       "name"         => "John Doe",
       "company"      => "Acme Corp",
-      "email_state"  => 2,        # current sequence counter
+      "sequence"     => 2,        # current sequence counter
       "row_index"    => 5,        # 1-based sheet row number
       "position"     => "CTO",    # optional enrichment
       "industry"     => "SaaS",   # optional enrichment
@@ -40,7 +40,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   @draft_email_module "Zaq.Agent.Tools.Workflow.RunAgent"
   @human_in_the_loop_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
   @send_email_module "Zaq.Agent.Tools.People.NotifyPerson"
-  @build_sheet_update_module "Zaq.Agent.Tools.Sheets.BuildSingleCellUpdate"
+  @increment_module "Zaq.Agent.Tools.Workflow.Increment"
   @update_sheet_module "Zaq.Agent.Tools.Sheets.UpdateSheetValues"
 
   @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
@@ -71,7 +71,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   def build(opts \\ []) do
     sheet_id = Keyword.get(opts, :sheet_id, @sheet_id)
     provider = Keyword.get(opts, :provider, "google_drive")
-    email_state_column = Keyword.get(opts, :email_state_column, "I")
+    email_state_column = Keyword.get(opts, :email_state_column, "J")
     agent_name = Keyword.get(opts, :agent_name, "DraftEmail")
 
     %{
@@ -99,7 +99,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           params: %{
             "agent_name" => agent_name,
             "input" =>
-              "Draft outreach email for {{name}} ({{email}}) at {{company}}. Email sequence: {{email_state}}."
+              "Draft outreach email for {{name}} ({{email}}) at {{company}}. Email sequence: {{sequence}}."
           },
           index: 2
         },
@@ -120,13 +120,10 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           index: 4
         },
         %{
-          name: "build_sheet_update",
+          name: "increment_email_state",
           type: "action",
-          module: @build_sheet_update_module,
-          params: %{
-            "column" => email_state_column,
-            "increment_by" => 1
-          },
+          module: @increment_module,
+          params: %{},
           index: 5
         },
         %{
@@ -136,6 +133,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           params: %{
             "spreadsheet_id" => sheet_id,
             "provider" => provider,
+            "column" => email_state_column,
             "value_input_option" => "USER_ENTERED"
           },
           index: 6
@@ -165,19 +163,16 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
         },
         %{
           from: "send_email",
-          to: "build_sheet_update",
+          to: "increment_email_state",
           condition: %{"field" => "notified", "op" => "eq", "value" => true},
-          mapping: %{
-            "row_index" => "ensure_person.row.row_index",
-            "value" => "ensure_person.row.email_state"
-          }
+          mapping: %{"value" => "ensure_person.row.sequence"}
         },
         %{
-          from: "build_sheet_update",
+          from: "increment_email_state",
           to: "update_sheet_row",
           mapping: %{
-            "range" => "build_sheet_update.range",
-            "values" => "build_sheet_update.values"
+            "row" => "ensure_person.row.row_index",
+            "value" => "increment_email_state.value"
           }
         }
       ]

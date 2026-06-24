@@ -45,6 +45,57 @@ defmodule Zaq.Agent.Tools.Sheets.UpdateSheetValuesTest do
                      }}
   end
 
+  test "single-cell mode builds the range and wraps the value" do
+    assert {:ok, _} =
+             UpdateSheetValues.run(
+               %{
+                 provider: "google_drive",
+                 spreadsheet_id: "s1",
+                 row: 5,
+                 column: "I",
+                 value: 3
+               },
+               %{node_router: StubNodeRouter}
+             )
+
+    assert_received {:dispatch, :data_source_sheet_update_values,
+                     %{"range" => "Sheet1!I5", "values" => [[3]]}}
+  end
+
+  test "single-cell mode honors a custom sheet_name" do
+    assert {:ok, _} =
+             UpdateSheetValues.run(
+               %{
+                 provider: "google_drive",
+                 spreadsheet_id: "s1",
+                 row: 2,
+                 column: "B",
+                 sheet_name: "Leads",
+                 value: 0
+               },
+               %{node_router: StubNodeRouter}
+             )
+
+    assert_received {:dispatch, :data_source_sheet_update_values,
+                     %{"range" => "Leads!B2", "values" => [[0]]}}
+  end
+
+  test "errors when neither range nor row/column is given" do
+    assert {:error, "Data source sheet update failed: provide a range, or row and column"} =
+             UpdateSheetValues.run(
+               %{provider: "google_drive", spreadsheet_id: "s1", value: 1},
+               %{node_router: StubNodeRouter}
+             )
+  end
+
+  test "errors when neither values nor value is given" do
+    assert {:error, "Data source sheet update failed: provide values, or a value"} =
+             UpdateSheetValues.run(
+               %{provider: "google_drive", spreadsheet_id: "s1", range: "Sheet1!A1"},
+               %{node_router: StubNodeRouter}
+             )
+  end
+
   test "accepts datasource update responses with a Record struct" do
     assert {:ok, %{status: "updated", record: %Record{id: "s1", kind: :spreadsheet}}} =
              UpdateSheetValues.run(
