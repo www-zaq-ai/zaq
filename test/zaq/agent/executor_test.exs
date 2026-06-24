@@ -8,6 +8,11 @@ defmodule Zaq.Agent.ExecutorTest do
 
   defmodule StubAgent do
     def get_active_agent(_agent_id), do: {:ok, %{id: 77, name: "Stub Agent"}}
+    def get_active_agent_by_name(_agent_name), do: {:ok, %{id: 88, name: "Named Stub Agent"}}
+  end
+
+  defmodule MissingNamedStubAgent do
+    def get_active_agent_by_name(_agent_name), do: {:error, :agent_not_found}
   end
 
   defmodule StubServerManager do
@@ -31,6 +36,9 @@ defmodule Zaq.Agent.ExecutorTest do
   defmodule CoverageStubAgent do
     def get_active_agent(_agent_id),
       do: {:ok, %{id: 77, name: "Stub Agent", job: "Configured job"}}
+
+    def get_active_agent_by_name(_agent_name),
+      do: {:ok, %{id: 88, name: "Named Stub Agent", job: "Configured job"}}
   end
 
   defmodule CoverageStubServerManager do
@@ -314,6 +322,34 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   describe "run/2 :scope opt" do
+    test "loads selected configured agent by name when agent_id is absent" do
+      opts =
+        @base_opts
+        |> Keyword.delete(:agent_id)
+        |> Keyword.put(:agent_name, "Named Stub Agent")
+        |> Keyword.put(:scope, "workflow")
+
+      Executor.run(@incoming, opts)
+
+      assert_received {:ensure_server, %{id: 88, name: "Named Stub Agent"},
+                       "Named Stub Agent:workflow"}
+    end
+
+    test "surfaces agent lookup errors from selected agent name" do
+      outgoing =
+        Executor.run(@incoming,
+          agent_name: "Missing",
+          agent_module: MissingNamedStubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactory,
+          node_router: StubNodeRouter
+        )
+
+      assert outgoing.metadata[:error] == true
+      assert outgoing.metadata[:error_type] == nil
+      assert outgoing.metadata[:reason] == ":agent_not_found"
+    end
+
     test "with explicit :scope uses agent name as server id — {agent_name}:{scope}" do
       opts = Keyword.put(@base_opts, :scope, "99")
 

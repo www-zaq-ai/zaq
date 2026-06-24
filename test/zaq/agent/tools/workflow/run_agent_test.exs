@@ -94,48 +94,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
   # ── Tests ──────────────────────────────────────────────────────────────────────
 
-  describe "run/2 — agent not found" do
-    test "returns error when agent_name does not exist" do
-      name = "Ghost_#{System.unique_integer([:positive])}"
-      assert {:error, msg} = RunAgent.run(%{agent_name: name, input: "hello"}, @ctx)
-      assert msg == "agent_not_found:#{name}"
-    end
-
-    test "fails with agent_not_found before dispatching" do
-      result =
-        RunAgent.run(
-          %{
-            agent_name: "Missing_#{System.unique_integer([:positive])}",
-            input: "Draft for {{name}}",
-            name: "Alice",
-            company: "Acme"
-          },
-          @ctx
-        )
-
-      assert {:error, "agent_not_found:" <> _} = result
-    end
-  end
-
-  describe "get_agent_by_name/1" do
-    test "returns agent when name matches" do
-      agent = create_agent()
-      assert {:ok, found} = Agent.get_agent_by_name(agent.name)
-      assert found.id == agent.id
-    end
-
-    test "returns the correct job field" do
-      agent = create_agent(%{job: "You help engineers."})
-      assert {:ok, found} = Agent.get_agent_by_name(agent.name)
-      assert found.job == "You help engineers."
-    end
-
-    test "returns error for unknown name" do
-      assert {:error, :agent_not_found} =
-               Agent.get_agent_by_name("NoSuchAgent_#{System.unique_integer([:positive])}")
-    end
-  end
-
   describe "run/2 — dispatch shape" do
     test "dispatches a :run_pipeline event to the agent node" do
       agent = create_agent()
@@ -149,13 +107,13 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert event.request.provider == nil
     end
 
-    test "selects the resolved agent via assigns.agent_selection" do
+    test "selects the configured agent by name via assigns.agent_selection" do
       agent = create_agent()
 
       RunAgent.run(%{agent_name: agent.name, input: "hello"}, ok_ctx())
 
       assert_received {:dispatched, event}
-      assert event.assigns.agent_selection.agent_id == agent.id
+      assert event.assigns.agent_selection.agent_name == agent.name
     end
 
     test "requests skip_permissions in pipeline_opts" do
@@ -259,7 +217,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert event.request.content == "Draft for Alice at Acme"
     end
 
-    test "passes agent job through verbatim as system_prompt (no substitution)" do
+    test "does not pass an agent job as a system_prompt override" do
       agent = create_agent(%{job: "You assist {{role}} teams at {{company}}."})
 
       RunAgent.run(
@@ -268,10 +226,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       )
 
       assert_received {:dispatched, event}
-
-      # The system prompt is kept static (cacheable) — placeholders are left as-is.
-      assert event.opts[:pipeline_opts][:system_prompt] ==
-               "You assist {{role}} teams at {{company}}."
+      refute Keyword.has_key?(event.opts[:pipeline_opts], :system_prompt)
     end
 
     test "leaves unmatched {{placeholders}} in input as empty string" do

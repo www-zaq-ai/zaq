@@ -2,13 +2,11 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   @moduledoc """
   Runs a named configured agent with template-variable substitution.
 
-  Looks up the agent by `agent_name` from the database, uses its `job` field
-  (system prompt) verbatim, substitutes `{{variable}}` placeholders in `input`
-  using all accumulated workflow params, then invokes `Executor.run/2`.
+  Substitutes `{{variable}}` placeholders in `input` using all accumulated
+  workflow params, then dispatches to the agent node.
 
-  The system prompt is deliberately **not** templated: keeping it static lets
-  providers cache the prompt prefix across runs. All run-specific/custom data
-  belongs in `input` (the user message), never in the system prompt.
+  The configured agent owns its system prompt and model. All run-specific/custom
+  data belongs in `input` (the user message), never in a prompt override.
 
   ## Schema
 
@@ -45,25 +43,18 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   require Logger
 
-  alias Zaq.Agent
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.NodeRouter
 
   @impl Jido.Action
   def run(%{agent_name: agent_name, input: input} = params, context) do
-    case Agent.get_agent_by_name(agent_name) do
-      {:ok, agent} -> dispatch_agent_run(agent, input, params, context)
-      {:error, :agent_not_found} -> {:error, "agent_not_found:#{agent_name}"}
-    end
+    dispatch_agent_run(agent_name, input, params, context)
   end
 
-  defp dispatch_agent_run(agent, input, params, context) do
+  defp dispatch_agent_run(agent_name, input, params, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
     vars = build_vars(params)
-    # System prompt is kept verbatim (static) so the prompt prefix stays
-    # cacheable across runs; only the user message carries run-specific data.
-    system_prompt = agent.job || ""
     resolved_input = substitute(input, vars)
     run_id = Map.get(context, :run_id) || Map.get(context, "run_id")
 
@@ -79,21 +70,21 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     }
 
     incoming
-    |> build_event(agent.id, system_prompt)
+    |> build_event(agent_name)
     |> node_router.dispatch()
     |> Map.get(:response)
     |> handle_response()
   end
 
-  defp build_event(incoming, agent_id, system_prompt) do
+  defp build_event(incoming, agent_name) do
     incoming
     |> Event.new(:agent,
       opts: [
         action: :run_pipeline,
-        pipeline_opts: [system_prompt: system_prompt, skip_permissions: true]
+        pipeline_opts: [skip_permissions: true]
       ]
     )
-    |> Map.put(:assigns, %{agent_selection: %{agent_id: agent_id}})
+    |> Map.put(:assigns, %{agent_selection: %{agent_name: agent_name}})
   end
 
   defp handle_response(%Outgoing{} = outgoing) do

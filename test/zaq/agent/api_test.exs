@@ -559,6 +559,35 @@ defmodule Zaq.Agent.ApiTest do
     refute_received {:pipeline_called, _, _}
   end
 
+  test "delegates to executor when selected agent is provided by name" do
+    incoming = %Incoming{content: "Draft outreach email", channel_id: "wf", provider: nil}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [skip_permissions: true],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{agent_selection: %{agent_name: "LeadOutreach"}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "selected"
+
+    assert_received {:executor_called, ^incoming, opts}
+    assert Keyword.get(opts, :agent_name) == "LeadOutreach"
+    assert Keyword.get(opts, :skip_permissions) == true
+    refute_received {:pipeline_called, _, _}
+  end
+
   test "delegates to executor when selected agent person lookup returns nil" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
