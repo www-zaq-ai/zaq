@@ -259,7 +259,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert event.request.content == "Draft for Alice at Acme"
     end
 
-    test "substitutes {{variable}} in agent job (system_prompt)" do
+    test "passes agent job through verbatim as system_prompt (no substitution)" do
       agent = create_agent(%{job: "You assist {{role}} teams at {{company}}."})
 
       RunAgent.run(
@@ -268,16 +268,19 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       )
 
       assert_received {:dispatched, event}
-      assert event.opts[:pipeline_opts][:system_prompt] == "You assist sales teams at Globex."
+
+      # The system prompt is kept static (cacheable) — placeholders are left as-is.
+      assert event.opts[:pipeline_opts][:system_prompt] ==
+               "You assist {{role}} teams at {{company}}."
     end
 
-    test "leaves unmatched {{placeholders}} as empty string" do
-      agent = create_agent(%{job: "Hello {{missing}}."})
+    test "leaves unmatched {{placeholders}} in input as empty string" do
+      agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "hi"}, ok_ctx())
+      RunAgent.run(%{agent_name: agent.name, input: "Hello {{missing}}."}, ok_ctx())
 
       assert_received {:dispatched, event}
-      assert event.opts[:pipeline_opts][:system_prompt] == "Hello ."
+      assert event.request.content == "Hello ."
     end
 
     test "handles integer extra params in substitution" do
@@ -309,12 +312,15 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     end
 
     test "does not pass agent_name or input as substitution vars" do
-      agent = create_agent(%{job: "{{agent_name}} and {{input}} should be empty."})
+      agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "hello"}, ok_ctx())
+      RunAgent.run(
+        %{agent_name: agent.name, input: "{{agent_name}} and {{input}} should be empty."},
+        ok_ctx()
+      )
 
       assert_received {:dispatched, event}
-      assert event.opts[:pipeline_opts][:system_prompt] == " and  should be empty."
+      assert event.request.content == " and  should be empty."
     end
   end
 
@@ -365,15 +371,19 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     end
 
     test "excludes __cascade__ from substitution vars" do
-      agent = create_agent(%{job: "{{__cascade__}} check"})
+      agent = create_agent()
 
       RunAgent.run(
-        %{agent_name: agent.name, input: "hello", __cascade__: %{some_step: %{result: "data"}}},
+        %{
+          agent_name: agent.name,
+          input: "{{__cascade__}} check",
+          __cascade__: %{some_step: %{result: "data"}}
+        },
         ok_ctx()
       )
 
       assert_received {:dispatched, event}
-      assert event.opts[:pipeline_opts][:system_prompt] == " check"
+      assert event.request.content == " check"
     end
 
     test "multiple nested maps are all flattened" do
