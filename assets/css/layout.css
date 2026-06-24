@@ -1,0 +1,47 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   BO layout spacing — role-based rhythm utilities
+   Tokens: --zaq-layout-* in semantics.css — never use inline in templates.
+   Legacy 12px / 20px Tailwind converges to --zaq-scale-16.
+   Loaded via app.css (semantics.css already applied).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Vertical stack — sibling blocks in a column (page sections, form groups) */
+.zaq-layout-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--zaq-layout-stack-gap);
+}
+
+.zaq-layout-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: var(--zaq-layout-stack-gap-tight);
+}
+
+/* Horizontal cluster — toolbar controls, icon + label rows */
+.zaq-layout-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-layout-inline-gap);
+}
+
+.zaq-layout-inline-compact {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-layout-inline-gap-compact);
+}
+
+/* Gap modifiers — apply on grid or flex containers */
+.zaq-layout-section-gap {
+  gap: var(--zaq-layout-section-gap);
+}
+
+.zaq-layout-grid-gap {
+  gap: var(--zaq-layout-grid-gap);
+}
+
+/* Inner content column inset — chat transcript, narrow reading columns */
+.zaq-layout-content-inset {
+  padding-inline: var(--zaq-layout-content-inset);
+  padding-block: var(--zaq-layout-content-inset);
+}
