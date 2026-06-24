@@ -65,6 +65,12 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.DataSource.CreateDocument
     },
     %{
+      key: "data_source.create_folder",
+      label: "Create folder",
+      description: "Create a folder on a specific datasource provider",
+      module: Zaq.Agent.Tools.DataSource.CreateFolder
+    },
+    %{
       key: "data_source.update_document",
       label: "Update document",
       description: "Update a document by id on a specific datasource provider",
@@ -99,12 +105,6 @@ defmodule Zaq.Agent.Tools.Registry do
       label: "Update sheet values",
       description: "Update values in a spreadsheet range on a specific datasource provider",
       module: Zaq.Agent.Tools.Sheets.UpdateSheetValues
-    },
-    %{
-      key: "data_source.build_single_cell_update",
-      label: "Build single-cell update",
-      description: "Build range and values for updating one spreadsheet cell",
-      module: Zaq.Agent.Tools.Sheets.BuildSingleCellUpdate
     },
     %{
       key: "data_source.append_sheet_values",
