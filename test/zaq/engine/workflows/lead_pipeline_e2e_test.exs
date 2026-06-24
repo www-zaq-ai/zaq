@@ -51,7 +51,7 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
     "name" => "John Doe",
     "company" => "Acme Corp",
     "active" => true,
-    "email_state" => 1,
+    "sequence" => 1,
     "row_index" => 2
   }
 
@@ -160,6 +160,11 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
         spreadsheet_id: [type: :string, required: false],
         range: [type: :any, required: false],
         values: [type: :any, required: false],
+        row: [type: :any, required: false],
+        column: [type: :string, required: false],
+        sheet_name: [type: :string, required: false],
+        value: [type: :any, required: false],
+        increment_by: [type: :integer, required: false],
         value_input_option: [type: :string, required: false]
       ],
       output_schema: [status: [type: :string, required: true]]
@@ -267,7 +272,7 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
   end
 
   # Swap the three external leaf steps; keep ensure_person, build_history,
-  # build_sheet_update, and the real HumanInTheLoop review step.
+  # and the real HumanInTheLoop review step.
   defp swap_consumer_modules(build) do
     swaps = %{
       "draft_email" => DraftStub,
@@ -299,7 +304,7 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
   # ── Helpers ──────────────────────────────────────────────────────────────────
 
   defp sheet_content(rows) do
-    header = ["email", "name", "company", "active", "email_state"]
+    header = ["email", "name", "company", "active", "sequence"]
 
     data =
       Enum.map(rows, fn r ->
@@ -308,7 +313,7 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
           r["name"],
           r["company"],
           if(r["active"], do: "TRUE", else: "FALSE"),
-          to_string(r["email_state"])
+          to_string(r["sequence"])
         ]
       end)
 
@@ -445,8 +450,7 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
       assert after_steps["send_email"].status == "completed"
       assert after_steps["send_email"].results["notified"] == true
       assert after_steps["send_email"].results["sent_message"] =~ "John Doe"
-      # The real BuildSingleCellUpdate ran and the (stubbed) sheet write recorded it.
-      assert after_steps["build_sheet_update"].status == "completed"
+      # The (stubbed) single-cell sheet write recorded the update.
       assert after_steps["update_sheet_row"].status == "completed"
       assert after_steps["update_sheet_row"].results["status"] == "updated"
     end

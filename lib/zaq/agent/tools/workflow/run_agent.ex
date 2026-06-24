@@ -2,17 +2,21 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   @moduledoc """
   Runs a named configured agent with template-variable substitution.
 
-  Looks up the agent by `agent_name` from the database, retrieves its `job`
-  field (system prompt), substitutes `{{variable}}` placeholders using all
-  accumulated workflow params, then invokes `Executor.run/2`.
+  Looks up the agent by `agent_name` from the database, uses its `job` field
+  (system prompt) verbatim, substitutes `{{variable}}` placeholders in `input`
+  using all accumulated workflow params, then invokes `Executor.run/2`.
+
+  The system prompt is deliberately **not** templated: keeping it static lets
+  providers cache the prompt prefix across runs. All run-specific/custom data
+  belongs in `input` (the user message), never in the system prompt.
 
   ## Schema
 
   - `agent_name` — required. Name of the configured agent in the DB.
-  - `input`      — required. The user message / task prompt (also supports `{{variable}}`).
+  - `input`      — required. The user message / task prompt (supports `{{variable}}`).
 
   All other params in the accumulated workflow state are available as
-  `{{variable_name}}` substitutions in both `job` and `input`.
+  `{{variable_name}}` substitutions in `input`.
 
   ## Example
 
@@ -57,7 +61,9 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   defp dispatch_agent_run(agent, input, params, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
     vars = build_vars(params)
-    system_prompt = substitute(agent.job || "", vars)
+    # System prompt is kept verbatim (static) so the prompt prefix stays
+    # cacheable across runs; only the user message carries run-specific data.
+    system_prompt = agent.job || ""
     resolved_input = substitute(input, vars)
     run_id = Map.get(context, :run_id) || Map.get(context, "run_id")
 
