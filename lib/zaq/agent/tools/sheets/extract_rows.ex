@@ -86,8 +86,8 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRows do
 
   defp build_row(headers, row, row_index) do
     headers
-    |> Enum.zip(row)
-    |> Map.new(fn {k, v} -> {k, normalize_value(v)} end)
+    |> Enum.with_index()
+    |> Map.new(fn {k, index} -> {k, row |> Enum.at(index, "") |> normalize_value()} end)
     |> Map.put("row_index", row_index)
   end
 
