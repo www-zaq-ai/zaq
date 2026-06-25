@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.Tools.Sheets.ExtractRows
   alias Zaq.Contracts.Record
@@ -60,6 +61,39 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
       assert {:ok, %{rows: [row]}} = ExtractRows.run(%{record: rec}, @ctx)
       assert Map.has_key?(row, "first_name")
       assert Map.has_key?(row, "email_state")
+    end
+
+    test "keeps trailing header columns as empty strings when row cells are missing" do
+      rec = record([["A", "B", "C", "D"], ["value-a", "value-b"]])
+
+      assert {:ok, %{rows: [row]}} = ExtractRows.run(%{record: rec}, @ctx)
+      assert row == %{"a" => "value-a", "b" => "value-b", "c" => "", "d" => "", "row_index" => 2}
+    end
+
+    property "list rows preserve every header key even when rows are shorter" do
+      check all(
+              header_count <- StreamData.integer(1..20),
+              values <-
+                StreamData.list_of(StreamData.string(:alphanumeric, max_length: 8),
+                  max_length: 20
+                )
+            ) do
+        headers = Enum.map(1..header_count, &"Header#{&1}")
+        row_values = Enum.take(values, header_count)
+        rec = record([headers, row_values])
+
+        assert {:ok, %{rows: [row]}} = ExtractRows.run(%{record: rec}, @ctx)
+
+        expected_keys = Enum.map(headers, &String.downcase/1)
+        assert Enum.all?(expected_keys, &Map.has_key?(row, &1))
+
+        if length(row_values) < header_count do
+          (length(row_values) + 1)..header_count
+          |> Enum.each(fn index ->
+            assert row["header#{index}"] == ""
+          end)
+        end
+      end
     end
   end
 
