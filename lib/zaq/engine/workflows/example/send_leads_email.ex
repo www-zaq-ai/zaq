@@ -9,7 +9,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   DAG (linear):
     ensure_person
       → build_history
-      → draft_email          ← RunAgent("DraftEmail") — body returned as `output`
+      → draft_email          ← RunAgent(agent_id) — body returned as `output`
       → review_email         (human-in-the-loop)
       → send_email
       → increment_email_state ← Workflow.Increment — bumps the sequence counter
@@ -68,14 +68,14 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   - `:sheet_id` — Google Spreadsheet ID (default: hardcoded lead sheet)
   - `:provider` — datasource provider key (default: "google_drive")
   - `:email_state_column` — column letter for email_state (default: "I")
-  - `:agent_name` — ZAQ agent name used for drafting (default: "DraftEmail")
+  - `:agent_id` — ID of the ZAQ agent used for drafting (default: 1)
   """
   @spec build(keyword()) :: map()
   def build(opts \\ []) do
     sheet_id = Keyword.get(opts, :sheet_id, @sheet_id)
     provider = Keyword.get(opts, :provider, "google_drive")
     email_state_column = Keyword.get(opts, :email_state_column, "J")
-    agent_name = Keyword.get(opts, :agent_name, "DraftEmail")
+    agent_id = Keyword.get(opts, :agent_id, 1)
 
     %{
       name: "Send Leads Email",
@@ -100,7 +100,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           type: "action",
           module: @draft_email_module,
           params: %{
-            "agent_name" => agent_name,
+            "agent_id" => agent_id,
             "input" =>
               "Draft outreach email for {{name}} ({{email}}) at {{company}}. Email sequence: {{sequence}}."
           },

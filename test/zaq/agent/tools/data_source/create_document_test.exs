@@ -41,7 +41,6 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
                  content: "hello",
                  path: "/docs",
                  parent_id: "p1",
-                 parents: ["p1", "p2"],
                  mime_type: "text/plain",
                  config_id: "12"
                },
@@ -54,7 +53,6 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
                        "content" => "hello",
                        "path" => "/docs",
                        "parent_id" => "p1",
-                       "parents" => ["p1", "p2"],
                        "mime_type" => "text/plain",
                        "config_id" => "12"
                      }}
