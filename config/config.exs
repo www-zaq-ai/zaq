@@ -50,6 +50,7 @@ config :zaq,
   generators: [timestamp_type: :utc_datetime]
 
 config :mime, :types, %{
+  "application/jsonc" => ["jsonc"],
   "application/vnd.zaq-license" => ["zaq-license"]
 }
 
