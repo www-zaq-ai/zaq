@@ -1,17 +1,22 @@
 defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   @moduledoc """
-  Runs a named configured agent with template-variable substitution.
+  Runs a configured agent with template-variable substitution.
 
   Substitutes `{{variable}}` placeholders in `input` using all accumulated
   workflow params, then dispatches to the agent node.
+
+  The agent is referenced by `agent_id`, mirroring how channels point to agents:
+  the action holds the identifier and dispatches it via `agent_selection`. It does
+  not load or verify the agent — the agent node resolves and validates it through
+  the same path channels use, and surfaces any failure in the response.
 
   The configured agent owns its system prompt and model. All run-specific/custom
   data belongs in `input` (the user message), never in a prompt override.
 
   ## Schema
 
-  - `agent_name` — required. Name of the configured agent in the DB.
-  - `input`      — required. The user message / task prompt (supports `{{variable}}`).
+  - `agent_id` — required. ID of the configured agent (same identifier channels use).
+  - `input`    — required. The user message / task prompt (supports `{{variable}}`).
 
   All other params in the accumulated workflow state are available as
   `{{variable_name}}` substitutions in `input`.
@@ -19,7 +24,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   ## Example
 
       RunAgent.run(
-        %{agent_name: "LeadOutreach", input: "Draft email for {{name}} at {{company}}",
+        %{agent_id: 42, input: "Draft email for {{name}} at {{company}}",
           name: "John", company: "Acme"},
         %{run_id: "run-123"}
       )
@@ -28,9 +33,9 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   use Zaq.Engine.Workflows.Action,
     name: "run_agent",
-    description: "Run a named configured agent with template-variable substitution.",
+    description: "Run a configured agent with template-variable substitution.",
     schema: [
-      agent_name: [type: :string, required: true, doc: "Name of the agent in the DB."],
+      agent_id: [type: :integer, required: true, doc: "ID of the configured agent."],
       input: [
         type: :string,
         required: true,
@@ -48,11 +53,11 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   alias Zaq.NodeRouter
 
   @impl Jido.Action
-  def run(%{agent_name: agent_name, input: input} = params, context) do
-    dispatch_agent_run(agent_name, input, params, context)
+  def run(%{agent_id: agent_id, input: input} = params, context) do
+    dispatch_agent_run(agent_id, input, params, context)
   end
 
-  defp dispatch_agent_run(agent_name, input, params, context) do
+  defp dispatch_agent_run(agent_id, input, params, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
     vars = build_vars(params)
     resolved_input = substitute(input, vars)
@@ -70,13 +75,13 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     }
 
     incoming
-    |> build_event(agent_name)
+    |> build_event(agent_id)
     |> node_router.dispatch()
     |> Map.get(:response)
     |> handle_response()
   end
 
-  defp build_event(incoming, agent_name) do
+  defp build_event(incoming, agent_id) do
     incoming
     |> Event.new(:agent,
       opts: [
@@ -84,7 +89,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
         pipeline_opts: [skip_permissions: true]
       ]
     )
-    |> Map.put(:assigns, %{agent_selection: %{agent_name: agent_name}})
+    |> Map.put(:assigns, %{"agent_selection" => %{"agent_id" => agent_id}})
   end
 
   defp handle_response(%Outgoing{} = outgoing) do
@@ -109,7 +114,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # (__cascade__) are excluded entirely.
   defp build_vars(params) do
     dropped =
-      Map.drop(params, [:agent_name, :input, :__cascade__, "__cascade__"])
+      Map.drop(params, [:agent_id, :input, :__cascade__, "__cascade__"])
 
     nested_vars =
       dropped
