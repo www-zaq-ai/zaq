@@ -94,6 +94,11 @@ defmodule Zaq.Agent.Tools.Accounts.History do
         type: {:list, :map},
         required: true,
         doc: "Conversations (id, title, updated_at) each with their recent messages."
+      ],
+      metadata: [
+        type: :map,
+        required: true,
+        doc: "Message counts and first/last message dates for the loaded conversations."
       ]
     ]
 
@@ -197,23 +202,38 @@ defmodule Zaq.Agent.Tools.Accounts.History do
       |> maybe_put(:from, from)
       |> maybe_put(:to, to)
 
-    conversations =
+    {conversations, {total_message_groups, current_window_message_groups}} =
       list_opts
       |> Conversations.list_conversations()
-      |> Enum.map(fn conv ->
-        messages =
+      |> Enum.map_reduce({[], []}, fn conv, {total_groups, current_window_groups} ->
+        current_window_messages =
           conv
           |> Conversations.list_messages(limit: msg_limit)
-          |> Enum.map(&%{role: &1.role, content: &1.content, inserted_at: &1.inserted_at})
+          |> Enum.map(&message_output/1)
 
-        %{id: conv.id, title: conv.title, updated_at: conv.updated_at, messages: messages}
+        total_messages = Conversations.list_messages(conv)
+
+        conversation = %{
+          id: conv.id,
+          title: conv.title,
+          updated_at: conv.updated_at,
+          messages: current_window_messages
+        }
+
+        {conversation,
+         {[total_messages | total_groups], [current_window_messages | current_window_groups]}}
       end)
 
     Logger.debug(
       "[History] fetched person_id=#{person_id} conversations=#{length(conversations)}"
     )
 
-    {:ok, %{conversations: conversations}}
+    metadata = %{
+      total: summarize_messages(total_message_groups),
+      current_window: summarize_messages(current_window_message_groups)
+    }
+
+    {:ok, %{conversations: conversations, metadata: metadata}}
   rescue
     # Expected data-layer failures must fail the action. Returning an empty
     # success would make "the person has no history" indistinguishable from
@@ -228,4 +248,30 @@ defmodule Zaq.Agent.Tools.Accounts.History do
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp message_output(message) do
+    %{role: message.role, content: message.content, inserted_at: message.inserted_at}
+  end
+
+  defp summarize_messages(message_groups) do
+    messages = List.flatten(message_groups)
+
+    %{
+      messages: length(messages),
+      user_messages: Enum.count(messages, &(&1.role == "user")),
+      assistant_messages: Enum.count(messages, &(&1.role == "assistant")),
+      first_message_date: first_message_date(messages),
+      last_message_date: last_message_date(messages)
+    }
+  end
+
+  defp first_message_date([]), do: nil
+
+  defp first_message_date(messages),
+    do: messages |> Enum.map(& &1.inserted_at) |> Enum.min(DateTime)
+
+  defp last_message_date([]), do: nil
+
+  defp last_message_date(messages),
+    do: messages |> Enum.map(& &1.inserted_at) |> Enum.max(DateTime)
 end
