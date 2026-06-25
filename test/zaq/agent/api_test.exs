@@ -473,7 +473,7 @@ defmodule Zaq.Agent.ApiTest do
     refute_received {:pipeline_called, _, _}
   end
 
-  test "passes a custom system_prompt from pipeline_opts to the executor" do
+  test "does not pass a custom system_prompt from pipeline_opts to the executor" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: nil}
 
     event =
@@ -494,7 +494,7 @@ defmodule Zaq.Agent.ApiTest do
     Api.handle_event(event, :run_pipeline, nil)
 
     assert_received {:executor_called, ^incoming, opts}
-    assert Keyword.get(opts, :system_prompt) == "You are a workflow agent."
+    refute Keyword.has_key?(opts, :system_prompt)
     assert Keyword.get(opts, :skip_permissions) == true
   end
 
@@ -555,7 +555,7 @@ defmodule Zaq.Agent.ApiTest do
 
     assert_received {:executor_called, ^incoming, opts}
     assert Keyword.get(opts, :agent_id) == 42
-    assert Keyword.get(opts, :system_prompt) == "You are a copywriter."
+    refute Keyword.has_key?(opts, :system_prompt)
     refute_received {:pipeline_called, _, _}
   end
 
