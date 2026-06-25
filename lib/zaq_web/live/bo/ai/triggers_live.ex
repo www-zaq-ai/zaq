@@ -22,7 +22,8 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
        page_title: "Triggers",
        modal: :none,
        form: nil,
-       assign_trigger_id: nil
+       assign_trigger_id: nil,
+       temporary_events: []
      )
      |> load_page_data()}
   end
@@ -37,22 +38,25 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
     {:noreply,
      socket
      |> assign(modal: :create)
-     |> assign(form: build_form(%Trigger{}))}
+     |> assign(form: build_form(%Trigger{}), temporary_events: [])}
   end
 
   def handle_event("close_modal", _params, socket) do
-    {:noreply, assign(socket, modal: :none, form: nil, assign_trigger_id: nil)}
+    {:noreply,
+     assign(socket, modal: :none, form: nil, assign_trigger_id: nil, temporary_events: [])}
   end
 
   def handle_event("set_event_name", %{"name" => name}, socket) do
     current_params = Map.get(socket.assigns.form || %{}, :params, %{})
 
-    form =
-      %Trigger{}
-      |> Trigger.changeset(atomize(Map.put(current_params, "event_name", name)))
-      |> to_form()
+    changeset =
+      Trigger.changeset(%Trigger{}, atomize(Map.put(current_params, "event_name", name)))
 
-    {:noreply, assign(socket, form: form)}
+    event_name = Ecto.Changeset.get_field(changeset, :event_name)
+    temporary_events = add_temporary_event(socket.assigns.temporary_events, event_name)
+    form = to_form(changeset)
+
+    {:noreply, assign(socket, form: form, temporary_events: temporary_events)}
   end
 
   def handle_event("validate", %{"trigger" => params}, socket) do
@@ -77,7 +81,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
       {:ok, _trigger} ->
         {:noreply,
          socket
-         |> assign(modal: :none, form: nil)
+         |> assign(modal: :none, form: nil, temporary_events: [])
          |> load_page_data()
          |> put_flash(:info, "Trigger created.")}
 
@@ -117,7 +121,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(modal: :none, form: nil)
+         |> assign(modal: :none, form: nil, temporary_events: [])
          |> load_page_data()
          |> put_flash(:info, "Trigger updated.")}
 
@@ -248,7 +252,11 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
       <%!-- Create modal --%>
       <BOModal.form_dialog :if={@modal == :create} title="New Trigger" cancel_event="close_modal">
         <form phx-change="validate" phx-submit="create_trigger" class="space-y-4">
-          <.trigger_form form={@form} known_events={@known_events} />
+          <.trigger_form
+            form={@form}
+            known_events={@known_events}
+            temporary_events={@temporary_events}
+          />
           <div class="flex justify-end gap-2 pt-2">
             <button
               type="button"
@@ -279,7 +287,11 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
           phx-value-trigger_id={elem(@modal, 1)}
           class="space-y-4"
         >
-          <.trigger_form form={@form} known_events={@known_events} />
+          <.trigger_form
+            form={@form}
+            known_events={@known_events}
+            temporary_events={@temporary_events}
+          />
           <div class="flex justify-end gap-2 pt-2">
             <button
               type="button"
@@ -371,12 +383,15 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
       |> NodeRouter.dispatch()
       |> Map.get(:response, [])
 
-    known_events =
+    registry_events =
       try do
         EventRegistry.list_events() |> Map.keys() |> Enum.sort()
       rescue
         _ -> []
       end
+
+    trigger_events = Enum.map(triggers, fn {trigger, _enriched} -> trigger.event_name end)
+    known_events = Enum.sort(Enum.uniq(registry_events ++ trigger_events))
 
     assign(socket, triggers: triggers, all_workflows: all_workflows, known_events: known_events)
   end
@@ -415,6 +430,12 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
       end
 
     Map.delete(params, "cron_preset")
+  end
+
+  defp add_temporary_event(events, event_name) when event_name in [nil, ""], do: events
+
+  defp add_temporary_event(events, event_name) do
+    Enum.uniq([event_name | events])
   end
 
   defp assignable_workflows(triggers, trigger_id, all_workflows) do
