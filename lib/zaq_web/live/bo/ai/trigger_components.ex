@@ -263,6 +263,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponents do
   @doc "Form used in both create and edit modals."
   attr :form, :map, required: true
   attr :known_events, :list, default: []
+  attr :temporary_events, :list, default: []
 
   def trigger_form(assigns) do
     trigger_type = HTMLForm.input_value(assigns.form, :trigger_type) || "event"
@@ -317,7 +318,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponents do
           id="trigger-event-name-select"
           name="trigger[event_name]"
           value={display_event_name(HTMLForm.input_value(@form, :event_name))}
-          options={Enum.map(@known_events, &{display_event_name(&1), display_event_name(&1)})}
+          options={event_options(@known_events, @temporary_events)}
           placeholder="Search events..."
           empty_label="Select or type an event..."
           allow_create={true}
@@ -455,6 +456,23 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponents do
   # e.g. "engine:cron.daily_sync" → "cron.daily_sync"
   defp display_event_name(nil), do: ""
   defp display_event_name(name), do: String.replace_prefix(name, "engine:", "")
+
+  defp event_options(known_events, temporary_events) do
+    temporary_events = Enum.map(temporary_events, &display_event_name/1)
+
+    known_events
+    |> Enum.map(&display_event_name/1)
+    |> Kernel.++(temporary_events)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(fn event_name ->
+      if event_name in temporary_events do
+        {event_name, event_name, "- not saved yet"}
+      else
+        {event_name, event_name}
+      end
+    end)
+  end
 
   defp translate_error({msg, opts}) do
     Enum.reduce(opts, msg, fn {key, value}, acc ->
