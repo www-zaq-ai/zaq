@@ -6,7 +6,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Engine.{Api, Workflows}
+  alias Zaq.Engine.{Api, EventRegistry, Workflows}
 
   setup :verify_on_exit!
 
@@ -102,6 +102,33 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
 
       html = render(lv)
       assert html =~ "email.new"
+    end
+
+    test "marks newly added event names as not saved yet", %{conn: conn} do
+      event_name = "temporary.event.#{System.unique_integer([:positive])}"
+
+      {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
+      lv |> element("button", "+ New Trigger") |> render_click()
+      render_click(lv, "set_event_name", %{"name" => event_name})
+
+      html = render(lv)
+      assert html =~ event_name
+      assert html =~ "<em"
+      assert html =~ "- not saved yet"
+    end
+
+    test "cancelling after adding a temporary event does not create or register it", %{conn: conn} do
+      event_name = "cancelled.event.#{System.unique_integer([:positive])}"
+      registry_name = "engine:#{event_name}"
+
+      {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
+      lv |> element("button", "+ New Trigger") |> render_click()
+      render_click(lv, "set_event_name", %{"name" => event_name})
+      lv |> element("button", "Cancel") |> render_click()
+
+      assert Workflows.list_triggers() == []
+      refute Map.has_key?(EventRegistry.list_events(), registry_name)
+      refute render(lv) =~ event_name
     end
 
     test "shows error when event_name is blank", %{conn: conn} do

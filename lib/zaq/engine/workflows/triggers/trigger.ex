@@ -75,11 +75,13 @@ defmodule Zaq.Engine.Workflows.Trigger do
         changeset
 
       name ->
+        name = String.trim(name)
+
         normalized =
-          if String.contains?(name, ":") do
-            name
-          else
-            "engine:#{name}"
+          cond do
+            name == "" -> ""
+            String.contains?(name, ":") -> name
+            true -> "engine:#{name}"
           end
 
         put_change(changeset, :event_name, normalized)
