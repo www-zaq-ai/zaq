@@ -98,7 +98,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
     case node_router().dispatch(event).response do
       data when is_map(data) ->
         json = Jason.encode!(data, pretty: true)
-        filename = "workflow-#{socket.assigns.workflow.id}.json"
+        filename = "workflow-#{socket.assigns.workflow.id}.jsonc"
         {:noreply, push_event(socket, "download", %{filename: filename, content: json})}
 
       _ ->
