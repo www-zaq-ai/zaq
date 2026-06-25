@@ -368,7 +368,6 @@ defmodule Zaq.Agent.Api do
             team_ids: team_ids,
             source_filter: incoming.content_filter,
             skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
-            system_prompt: Keyword.get(pipeline_opts, :system_prompt),
             history: Keyword.get(pipeline_opts, :history, %{}),
             telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
             event: event
