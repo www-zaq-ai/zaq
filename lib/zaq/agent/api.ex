@@ -39,8 +39,7 @@ defmodule Zaq.Agent.Api do
 
   - `:run_pipeline` — resolves caller identity via `IdentityPlug`, then routes to
     `Pipeline.run/2` (full RAG path) or `Executor.run/2` (direct agent run) depending
-    on whether `event.assigns["agent_selection"]` carries a non-nil `agent_id` or
-    `agent_name`.
+    on whether `event.assigns["agent_selection"]` carries a non-nil `agent_id`.
 
   - `:invoke` — generic passthrough to `InternalBoundaries.invoke_request/1`.
 
@@ -240,17 +239,15 @@ defmodule Zaq.Agent.Api do
   # the workflow `RunAgent` tool set an atom-keyed `:agent_selection`. Accept both
   # so a selected agent always routes to `Executor.run/2` (direct agent run)
   # rather than falling through to the RAG `Pipeline`.
-  defp selected_agent(assigns) when is_map(assigns) do
+  defp selected_agent_id(assigns) when is_map(assigns) do
     case Map.get(assigns, "agent_selection") || Map.get(assigns, :agent_selection) do
-      %{"agent_id" => id} when id not in [nil, ""] -> {:agent_id, id}
-      %{agent_id: id} when id not in [nil, ""] -> {:agent_id, id}
-      %{"agent_name" => name} when name not in [nil, ""] -> {:agent_name, name}
-      %{agent_name: name} when name not in [nil, ""] -> {:agent_name, name}
+      %{"agent_id" => id} when id not in [nil, ""] -> id
+      %{agent_id: id} when id not in [nil, ""] -> id
       _ -> nil
     end
   end
 
-  defp selected_agent(_), do: nil
+  defp selected_agent_id(_), do: nil
 
   defp mcp_test_opts(opts) when is_list(opts) do
     case Keyword.get(opts, :mcp_test_opts, []) do
@@ -337,7 +334,7 @@ defmodule Zaq.Agent.Api do
       Keyword.put_new(pipeline_opts, :telemetry_dimensions, incoming_dims)
 
     outgoing =
-      case selected_agent(event.assigns) do
+      case selected_agent_id(event.assigns) do
         nil ->
           pipeline_module.run(
             incoming,
@@ -346,7 +343,7 @@ defmodule Zaq.Agent.Api do
             |> Keyword.put(:event, event)
           )
 
-        {agent_key, selected_value} ->
+        selected_id ->
           person_id = incoming.person_id
 
           team_ids =
@@ -364,21 +361,18 @@ defmodule Zaq.Agent.Api do
               _ -> []
             end
 
-          executor_opts =
-            [
-              scope: Executor.derive_scope(incoming),
-              person_id: person_id,
-              team_ids: team_ids,
-              source_filter: incoming.content_filter,
-              skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
-              system_prompt: Keyword.get(pipeline_opts, :system_prompt),
-              history: Keyword.get(pipeline_opts, :history, %{}),
-              telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
-              event: event
-            ]
-            |> Keyword.put(agent_key, selected_value)
-
-          executor_module.run(incoming, executor_opts)
+          executor_module.run(incoming,
+            agent_id: selected_id,
+            scope: Executor.derive_scope(incoming),
+            person_id: person_id,
+            team_ids: team_ids,
+            source_filter: incoming.content_filter,
+            skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
+            system_prompt: Keyword.get(pipeline_opts, :system_prompt),
+            history: Keyword.get(pipeline_opts, :history, %{}),
+            telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
+            event: event
+          )
       end
 
     maybe_dispatch_return_hop(event, incoming, outgoing)

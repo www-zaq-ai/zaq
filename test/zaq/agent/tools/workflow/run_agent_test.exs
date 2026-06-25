@@ -98,7 +98,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     test "dispatches a :run_pipeline event to the agent node" do
       agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "say hi"}, ok_ctx())
+      RunAgent.run(%{agent_id: agent.id, input: "say hi"}, ok_ctx())
 
       assert_received {:dispatched, event}
       assert event.next_hop.destination == :agent
@@ -107,19 +107,19 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert event.request.provider == nil
     end
 
-    test "selects the configured agent by name via assigns.agent_selection" do
+    test "selects the configured agent by id via assigns.agent_selection" do
       agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "hello"}, ok_ctx())
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
 
       assert_received {:dispatched, event}
-      assert event.assigns.agent_selection.agent_name == agent.name
+      assert event.assigns["agent_selection"]["agent_id"] == agent.id
     end
 
     test "requests skip_permissions in pipeline_opts" do
       agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "hello"}, ok_ctx())
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
 
       assert_received {:dispatched, event}
       assert event.opts[:pipeline_opts][:skip_permissions] == true
@@ -128,7 +128,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     test "sets channel_id to workflow:<run_id>" do
       agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "hello"}, ok_ctx())
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
 
       assert_received {:dispatched, event}
       assert event.request.channel_id == "workflow:test-run-1"
@@ -137,7 +137,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     test "uses anon when run_id is absent from context" do
       agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "hello"}, %{node_router: OkRouter})
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, %{node_router: OkRouter})
 
       assert_received {:dispatched, event}
       assert event.request.channel_id == "workflow:anon"
@@ -147,7 +147,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       agent = create_agent()
 
       RunAgent.run(
-        %{agent_name: agent.name, input: "hello"},
+        %{agent_id: agent.id, input: "hello"},
         %{"run_id" => "string-run-42", node_router: OkRouter}
       )
 
@@ -161,7 +161,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       agent = create_agent()
 
       assert {:ok, %{output: "Hello from agent"}} =
-               RunAgent.run(%{agent_name: agent.name, input: "hello"}, ok_ctx())
+               RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
     end
   end
 
@@ -171,7 +171,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       ctx = Map.put(@ctx, :node_router, FailingRouter)
 
       assert {:error, "agent_failed:llm_timeout"} =
-               RunAgent.run(%{agent_name: agent.name, input: "hello"}, ctx)
+               RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
     end
 
     test "returns agent_failed:unknown when reason is missing" do
@@ -179,7 +179,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       ctx = Map.put(@ctx, :node_router, FailingNoReasonRouter)
 
       assert {:error, "agent_failed:unknown"} =
-               RunAgent.run(%{agent_name: agent.name, input: "hello"}, ctx)
+               RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
     end
 
     test "returns agent_failed when the response is an error tuple" do
@@ -187,7 +187,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       ctx = Map.put(@ctx, :node_router, ErrorResponseRouter)
 
       assert {:error, "agent_failed:" <> _} =
-               RunAgent.run(%{agent_name: agent.name, input: "hello"}, ctx)
+               RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
     end
 
     test "returns agent_failed when the response has an unexpected shape" do
@@ -195,7 +195,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       ctx = Map.put(@ctx, :node_router, UnexpectedResponseRouter)
 
       assert {:error, "agent_failed::not_an_outgoing_response"} =
-               RunAgent.run(%{agent_name: agent.name, input: "hello"}, ctx)
+               RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
     end
   end
 
@@ -205,7 +205,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       RunAgent.run(
         %{
-          agent_name: agent.name,
+          agent_id: agent.id,
           input: "Draft for {{name}} at {{company}}",
           name: "Alice",
           company: "Acme"
@@ -221,7 +221,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       agent = create_agent(%{job: "You assist {{role}} teams at {{company}}."})
 
       RunAgent.run(
-        %{agent_name: agent.name, input: "hello", role: "sales", company: "Globex"},
+        %{agent_id: agent.id, input: "hello", role: "sales", company: "Globex"},
         ok_ctx()
       )
 
@@ -232,7 +232,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     test "leaves unmatched {{placeholders}} in input as empty string" do
       agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "Hello {{missing}}."}, ok_ctx())
+      RunAgent.run(%{agent_id: agent.id, input: "Hello {{missing}}."}, ok_ctx())
 
       assert_received {:dispatched, event}
       assert event.request.content == "Hello ."
@@ -241,7 +241,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     test "handles integer extra params in substitution" do
       agent = create_agent()
 
-      RunAgent.run(%{agent_name: agent.name, input: "Sequence {{seq}}", seq: 3}, ok_ctx())
+      RunAgent.run(%{agent_id: agent.id, input: "Sequence {{seq}}", seq: 3}, ok_ctx())
 
       assert_received {:dispatched, event}
       assert event.request.content == "Sequence 3"
@@ -252,7 +252,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       RunAgent.run(
         %{
-          agent_name: agent.name,
+          agent_id: agent.id,
           input: "{{score}} {{enabled}} {{missing_value}} {{payload}}",
           score: 1.5,
           enabled: false,
@@ -266,11 +266,11 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert event.request.content == "1.5 false  [:a, 1]"
     end
 
-    test "does not pass agent_name or input as substitution vars" do
+    test "does not pass agent_id or input as substitution vars" do
       agent = create_agent()
 
       RunAgent.run(
-        %{agent_name: agent.name, input: "{{agent_name}} and {{input}} should be empty."},
+        %{agent_id: agent.id, input: "{{agent_id}} and {{input}} should be empty."},
         ok_ctx()
       )
 
@@ -285,7 +285,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       RunAgent.run(
         %{
-          agent_name: agent.name,
+          agent_id: agent.id,
           input: "Draft for {{name}} at {{company}}, position: {{position}}",
           row: %{"name" => "John Doe", "company" => "Acme", "position" => "CTO"}
         },
@@ -301,7 +301,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       RunAgent.run(
         %{
-          agent_name: agent.name,
+          agent_id: agent.id,
           input: "Hello {{name}}",
           name: "FlatAlice",
           row: %{"name" => "NestedBob"}
@@ -317,7 +317,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       agent = create_agent()
 
       RunAgent.run(
-        %{agent_name: agent.name, input: "{{email}}", row: %{email: "lead@example.com"}},
+        %{agent_id: agent.id, input: "{{email}}", row: %{email: "lead@example.com"}},
         ok_ctx()
       )
 
@@ -330,7 +330,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       RunAgent.run(
         %{
-          agent_name: agent.name,
+          agent_id: agent.id,
           input: "{{__cascade__}} check",
           __cascade__: %{some_step: %{result: "data"}}
         },
@@ -346,7 +346,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       RunAgent.run(
         %{
-          agent_name: agent.name,
+          agent_id: agent.id,
           input: "{{name}} — {{city}}",
           row: %{"name" => "Jane"},
           extra: %{"city" => "Beirut"}

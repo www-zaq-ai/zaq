@@ -20,11 +20,6 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
       content: [type: :string, required: false, doc: "Optional textual content to create"],
       path: [type: :string, required: false, doc: "Optional provider path/parent folder"],
       parent_id: [type: :string, required: false, doc: "Optional provider parent identifier"],
-      parents: [
-        type: {:list, :string},
-        required: false,
-        doc: "Optional provider parent identifiers"
-      ],
       mime_type: [type: :string, required: false, doc: "Optional provider MIME type"],
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
@@ -40,7 +35,6 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
         :content,
         :path,
         :parent_id,
-        :parents,
         :mime_type,
         :config_id
       ])
