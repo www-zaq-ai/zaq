@@ -43,6 +43,11 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
     end
   end
 
+  defp add_message(conv, role, content) do
+    {:ok, message} = Conversations.add_message(conv, %{role: role, content: content})
+    message
+  end
+
   defp set_updated_at(conv, datetime) do
     {1, _} =
       Repo.update_all(
@@ -68,7 +73,16 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
     test "a real result passes the runtime output validator" do
       assert {:ok, _} =
-               Runtime.validate_output(%{conversations: []}, History)
+               Runtime.validate_output(
+                 %{
+                   conversations: [],
+                   metadata: %{
+                     total: %{},
+                     current_window: %{}
+                   }
+                 },
+                 History
+               )
     end
   end
 
@@ -372,6 +386,47 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       assert length(entry.messages) == 2
     end
 
+    test "includes metadata for total and current message windows" do
+      person = create_person("metadata@example.com")
+      conv1 = create_conversation(person.id, %{title: "Window A"})
+      conv2 = create_conversation(person.id, %{title: "Window B"})
+
+      add_message(conv1, "user", "first user")
+      add_message(conv1, "assistant", "first assistant")
+      add_message(conv1, "user", "second user")
+      add_message(conv2, "assistant", "second assistant")
+
+      assert {:ok, result} =
+               History.run(%{messages_per_conversation: 1}, %{person_id: person.id})
+
+      assert result.metadata.total.messages == 4
+      assert result.metadata.total.user_messages == 2
+      assert result.metadata.total.assistant_messages == 2
+      assert %DateTime{} = result.metadata.total.first_message_date
+      assert %DateTime{} = result.metadata.total.last_message_date
+
+      assert result.metadata.current_window.messages == 2
+      assert result.metadata.current_window.user_messages == 1
+      assert result.metadata.current_window.assistant_messages == 1
+      assert %DateTime{} = result.metadata.current_window.first_message_date
+      assert %DateTime{} = result.metadata.current_window.last_message_date
+    end
+
+    test "metadata total only includes conversations loaded by existing filters" do
+      person = create_person("metadata_filter@example.com")
+      hit = create_conversation(person.id, %{title: "Included topic"})
+      miss = create_conversation(person.id, %{title: "Excluded topic"})
+
+      add_messages(hit, 3, "included")
+      add_messages(miss, 2, "excluded")
+
+      assert {:ok, result} = History.run(%{query: "Included"}, %{person_id: person.id})
+
+      assert conversation_ids(result) == [hit.id]
+      assert result.metadata.total.messages == 3
+      assert result.metadata.current_window.messages == 3
+    end
+
     test "no filters returns most recent conversations (default limit 10)" do
       person = create_person("recent@example.com")
 
@@ -413,7 +468,19 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
     test "person with no conversations gets an empty list (not unauthorized)" do
       person = create_person("noconv@example.com")
-      assert {:ok, %{conversations: []}} = History.run(%{}, %{person_id: person.id})
+
+      assert {:ok, %{conversations: [], metadata: metadata}} =
+               History.run(%{}, %{person_id: person.id})
+
+      assert metadata.total == %{
+               messages: 0,
+               user_messages: 0,
+               assistant_messages: 0,
+               first_message_date: nil,
+               last_message_date: nil
+             }
+
+      assert metadata.current_window == metadata.total
     end
 
     test "data-layer query failures return an action error" do
