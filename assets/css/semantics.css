@@ -63,7 +63,7 @@
   --zaq-border-color-strong:  var(--zaq-color-neutral-300);
   
   
-  /* color-text-body, surface-elevated, surface-accent, border-accent, border-error:
+  /* color-text-body, surface-elevated, surface-accent, border-accent, border-danger:
      no override needed — same foundation tokens as light mode */
 }
 

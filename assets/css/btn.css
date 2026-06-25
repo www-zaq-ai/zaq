@@ -86,7 +86,7 @@
   /* btn/tertiary/color/text */
   --zaq-btn-tertiary-color-text-resting: var(--zaq-text-color-body-tertiary);
   --zaq-btn-tertiary-color-text-hover:   var(--zaq-text-color-body-secondary);
-  --zaq-btn-tertiary-color-text-disabled: var(--zaq-text-color-body-disabled);
+  --zaq-btn-tertiary-color-text-disabled: var(--zaq-text-color-body-tertiary);
   --zaq-btn-tertiary-color-text-active: var(--zaq-text-color-body-secondary);
 
   /* btn/tertiary/color/border */
@@ -106,6 +106,7 @@
 }
 
 /* ── Dark mode overrides ─────────────────────────────────────────────────── */
+[data-zaq-theme="dark"],
 [data-theme="dark"] {
   --zaq-btn-secondary-color-border-resting: var(--zaq-color-neutral-400);
 }

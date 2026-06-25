@@ -1,8 +1,9 @@
 # Claude Agent Entry Point
 
 @AGENTS.md
+@DESIGN.md
 
-The above file contains ALL team standards. Follow it exactly.
+The above files contain ALL team standards. Follow them exactly. **BO UI work:** read `DESIGN.md` first, then `docs/bo-components.md` for layout/flash/checklist.
 
 # context-mode — MANDATORY routing rules
 
