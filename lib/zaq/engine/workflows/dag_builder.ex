@@ -12,7 +12,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
             "params" => %{}, "index" => 0},
           %{"name" => "draft", "type" => "action",
             "module" => "Zaq.Agent.Tools.Workflow.RunAgent",
-            "params" => %{"agent_name" => "MailResponder", "input" => "Draft a reply"},
+            "params" => %{"agent_id" => 42, "input" => "Draft a reply"},
             "index" => 1}
         ],
         "edges" => [

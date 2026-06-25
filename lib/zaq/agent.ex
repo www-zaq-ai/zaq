@@ -68,7 +68,7 @@ defmodule Zaq.Agent do
   def get_agent_by_name(name) when is_binary(name) do
     case Repo.get_by(ConfiguredAgent, name: name) do
       nil -> {:error, :agent_not_found}
-      agent -> {:ok, Repo.preload(agent, :credential)}
+      agent -> {:ok, agent}
     end
   end
 
@@ -90,15 +90,6 @@ defmodule Zaq.Agent do
       %ConfiguredAgent{active: true} = agent -> {:ok, agent}
       %ConfiguredAgent{} -> {:error, :inactive_agent}
       nil -> {:error, :agent_not_found}
-    end
-  end
-
-  @spec get_active_agent_by_name(String.t()) :: {:ok, ConfiguredAgent.t()} | {:error, atom()}
-  def get_active_agent_by_name(name) when is_binary(name) do
-    case get_agent_by_name(name) do
-      {:ok, %ConfiguredAgent{active: true} = agent} -> {:ok, agent}
-      {:ok, %ConfiguredAgent{}} -> {:error, :inactive_agent}
-      {:error, :agent_not_found} -> {:error, :agent_not_found}
     end
   end
 

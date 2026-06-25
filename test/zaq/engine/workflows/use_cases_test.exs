@@ -66,7 +66,7 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
           sheet_id: "sheet-456",
           provider: "custom_drive",
           email_state_column: "K",
-          agent_name: "CustomDraftAgent"
+          agent_id: 7
         )
 
       assert attrs.name == "Send Leads Email"
@@ -78,16 +78,22 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
                "draft_email",
                "review_email",
                "send_email",
-               "build_sheet_update",
+               "increment_email_state",
+               "build_range",
+               "build_values",
                "update_sheet_row"
              ]
 
       draft_email = Enum.find(attrs.nodes, &(&1.name == "draft_email"))
-      assert draft_email.params["agent_name"] == "CustomDraftAgent"
+      assert draft_email.params["agent_id"] == 7
       assert draft_email.params["input"] =~ "Draft outreach email"
 
-      build_sheet_update = Enum.find(attrs.nodes, &(&1.name == "build_sheet_update"))
-      assert build_sheet_update.params == %{"column" => "K", "increment_by" => 1}
+      build_range = Enum.find(attrs.nodes, &(&1.name == "build_range"))
+      assert build_range.params["column"] == "K"
+      assert build_range.params["parts"] == ["Sheet1!{{column}}{{row}}"]
+
+      build_values = Enum.find(attrs.nodes, &(&1.name == "build_values"))
+      assert build_values.params == %{"parts" => ["{{value}}"], "as_matrix" => true}
 
       update_sheet_row = Enum.find(attrs.nodes, &(&1.name == "update_sheet_row"))
       assert update_sheet_row.params["spreadsheet_id"] == "sheet-456"
@@ -98,8 +104,10 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
                {"build_history", "draft_email"},
                {"draft_email", "review_email"},
                {"review_email", "send_email"},
-               {"send_email", "build_sheet_update"},
-               {"build_sheet_update", "update_sheet_row"}
+               {"send_email", "increment_email_state"},
+               {"increment_email_state", "build_range"},
+               {"build_range", "build_values"},
+               {"build_values", "update_sheet_row"}
              ]
     end
   end
@@ -111,7 +119,7 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
                  sheet_id: "sheet-456",
                  provider: "custom_drive",
                  email_state_column: "K",
-                 agent_name: "CustomDraftAgent"
+                 agent_id: 7
                )
 
       trigger = workflow_trigger(workflow)

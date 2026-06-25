@@ -112,7 +112,7 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
     use Zaq.Engine.Workflows.Action,
       name: "draft_stub",
       schema: [
-        agent_name: [type: :string, required: false],
+        agent_id: [type: :integer, required: false],
         input: [type: :string, required: false],
         row: [type: :any, required: false]
       ],
