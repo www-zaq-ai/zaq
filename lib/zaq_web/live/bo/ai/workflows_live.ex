@@ -33,7 +33,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
        running: false
      )
      |> allow_upload(:workflow_file,
-       accept: ~w(.json application/json text/plain),
+       accept: ~w(.json .jsonc application/json application/jsonc text/plain),
        max_entries: 1,
        max_file_size: 1_000_000
      )}
@@ -193,15 +193,22 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       {:noreply, assign(socket, import_error: "Upload error: #{msg}")}
     else
       result =
-        consume_uploaded_entries(socket, :workflow_file, fn %{path: path}, _entry ->
-          parse_upload_entry(path)
+        consume_uploaded_entries(socket, :workflow_file, fn %{path: path}, entry ->
+          parse_upload_entry(path, entry.client_name)
         end)
 
       case result do
-        [attrs] when is_map(attrs) -> dispatch_import(attrs, socket)
-        [:bad_json] -> {:noreply, assign(socket, import_error: "File is not valid JSON.")}
-        [] -> {:noreply, assign(socket, import_error: "No file selected.")}
-        _ -> {:noreply, assign(socket, import_error: "Could not read file.")}
+        [attrs] when is_map(attrs) ->
+          dispatch_import(attrs, socket)
+
+        [:bad_json] ->
+          {:noreply, assign(socket, import_error: "File is not valid JSON or JSONC.")}
+
+        [] ->
+          {:noreply, assign(socket, import_error: "No file selected.")}
+
+        _ ->
+          {:noreply, assign(socket, import_error: "Could not read file.")}
       end
     end
   end
@@ -240,13 +247,20 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
     Enum.filter(list, fn {w, _, _, _} -> String.contains?(String.downcase(w.name), lower) end)
   end
 
-  defp parse_upload_entry(path) do
+  defp parse_upload_entry(path, client_name) do
     with {:ok, raw} <- File.read(path),
-         {:ok, attrs} <- Jason.decode(raw) do
+         {:ok, attrs} <- decode_upload(raw, client_name) do
       {:ok, attrs}
     else
-      {:error, %Jason.DecodeError{}} -> {:ok, :bad_json}
+      {:error, _} -> {:ok, :bad_json}
       _ -> {:ok, :read_error}
+    end
+  end
+
+  defp decode_upload(raw, client_name) do
+    case client_name |> to_string() |> Path.extname() |> String.downcase() do
+      ".jsonc" -> JSONC.decode(raw)
+      _ -> Jason.decode(raw)
     end
   end
 
@@ -566,13 +580,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       >
         <form phx-submit="import_workflow" phx-change="validate_import" class="space-y-4">
           <p class="font-mono text-[0.82rem] text-black">
-            Upload a <code class="text-black/70">.json</code> workflow export file.
+            Upload a <code class="text-black/70">.json</code>
+            or <code class="text-black/70">.jsonc</code>
+            workflow export file.
           </p>
 
           <BOFileUpload.drop_zone
             upload={@uploads.workflow_file}
             id="workflow-import-drop-zone"
-            accept_label=".json"
+            accept_label=".json, .jsonc"
           />
 
           <div

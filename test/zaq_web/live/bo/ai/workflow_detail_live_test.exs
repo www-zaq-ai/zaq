@@ -176,6 +176,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
       assert_push_event(view, "download", %{filename: filename, content: _content})
 
       assert filename =~ "workflow-#{workflow.id}"
+      assert filename =~ ".jsonc"
     end
   end
 

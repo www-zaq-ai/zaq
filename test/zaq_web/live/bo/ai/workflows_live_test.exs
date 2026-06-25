@@ -193,7 +193,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
 
       assert render_upload(upload, "bad.json")
       html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
-      assert html =~ "File is not valid JSON."
+      assert html =~ "File is not valid JSON or JSONC."
     end
 
     test "shows upload error for unsupported file type", %{conn: conn} do
@@ -249,6 +249,38 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
         ])
 
       assert render_upload(upload, "good.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+      assert html =~ "Workflow imported successfully."
+      refute html =~ "import-modal"
+    end
+
+    test "imports jsonc files with comments", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      valid_jsonc = """
+      // Workflow exports can be annotated before import.
+      {
+        "name": "Imported JSONC Workflow",
+        "nodes": [
+          {
+            "name": "step1",
+            "type": "action",
+            "module": "Zaq.Engine.Workflows.Test.InboxWithResults",
+            "params": {},
+            "index": 0,
+          },
+        ],
+        "edges": [],
+      }
+      """
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "good.jsonc", content: valid_jsonc, type: "text/plain"}
+        ])
+
+      assert render_upload(upload, "good.jsonc")
       html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
       assert html =~ "Workflow imported successfully."
       refute html =~ "import-modal"
