@@ -1,6 +1,6 @@
 ---
 name: design-migrate
-description: Migrate ZAQ web UI (components, LiveViews, layouts) styling to the --zaq-* token system. Accepts a Figma frame URL (design-led), a file path (audit), or --audit-all (full sweep). Always reads the CSS catalog (foundations, semantics, text-styles, btn, form, modal, table, styles) before proposing changes; outputs a human-validation table with token check. Enforces text-only scale tokens for typography only — never spacing. Prefers existing role-specific classes over new CSS in styles.css. Full sweep mode writes a backlog file directly.
+description: Migrate legacy ZAQ web UI (components, LiveViews, layouts) styling to the --zaq-* token system. Reads DESIGN.md and CSS catalog (foundations, semantics, text-styles, btn, form, modal, table, layout, styles) before proposing changes. Accepts a Figma frame URL (design-led), a file path (audit), or --audit-all (full sweep). Typical position in workflow: after extract, before replace.
 trigger: when the user types /design-migrate
 ---
 
@@ -60,9 +60,10 @@ Parse the input after `/design-migrate`:
 **Full sweep (`--audit-all`):**
 - Skip to the Full Sweep section below.
 
-**All modes — mandatory CSS catalog read (before Step 3):**
+**All modes — mandatory read (before Step 3):**
 
-Before proposing any replacement, read the design-system CSS in two layers. **Pick classes from the role-specific file first** — do not duplicate btn/form/modal/table patterns in `styles.css`.
+1. Read **`DESIGN.md`** (CSS catalog, token rules, Do's/Don'ts).
+2. Read the design-system CSS in two layers below. **Pick classes from the role-specific file first** — do not duplicate btn/form/modal/table patterns in `styles.css`.
 
 **Layer 1 — tokens and typography (constraints and vars)**
 
@@ -80,7 +81,8 @@ Before proposing any replacement, read the design-system CSS in two layers. **Pi
 | `assets/css/form.css` | Form controls — labels, `<select>`, text inputs, combobox triggers/panels (`.zaq-control-*`, `.zaq-field-*`) | No — read-only. Form spacing uses layout scales only (`--zaq-scale-8`, `--zaq-scale-16`) per file comments |
 | `assets/css/modal.css` | Modal shell — backdrop, panel (`.zaq-modal`, `.zaq-bo-modal-backdrop`, flush variant) | No — read-only |
 | `assets/css/table.css` | Data tables — `.zaq-table` shell, header/body cells, sticky/dense patterns | No — read-only |
-| `assets/css/styles.css` | **Everything else** — generic BO chrome, cards, feedback, breadcrumbs, feature-composed patterns (e.g. `.zaq-chat-*`), and **new** reusable multi-property utilities when no role file covers the need | **Yes — only writable CSS file** |
+| `assets/css/layout.css` | Layout utilities — `.zaq-layout-stack`, `.zaq-layout-inline`, gap modifiers | No — read-only. Prefer over new spacing in `styles.css` |
+| `assets/css/styles.css` | **Everything else** — generic BO chrome, cards, feedback, breadcrumbs, feature-composed patterns (e.g. `.zaq-chat-*`), icon sizes (`.zaq-icon-sm/md`), and **new** reusable multi-property utilities when no role file covers the need | **Yes — only writable CSS file** |
 
 Apply the **Token usage constraints** section below. **Comments in source CSS override pixel-size guessing** — e.g. `--zaq-scale-10` is 10px but is **not** a spacing token.
 
@@ -119,7 +121,7 @@ Example (shape only — adapt rows to the real audit):
 | `bo_layout.ex:143` | Secondary body copy in sidebar | `text-[0.82rem]` | `.zaq-text-body-sm` | ok |
 | `bo_layout.ex:198` | Accent focus ring on nav | `#03b6d4` | `--zaq-border-color-accent` on appropriate property via token-safe class or inline per property | ok |
 | `bo_layout.ex:220` | Inline monospace snippet | `font-mono text-xs` | `.zaq-text-code` or `.zaq-text-caption` (pick by visual density) | ok |
-| `bo_layout.ex:512` | Error state helper text | `text-red-600` | `(⚠ no --zaq-text-color-error — keep legacy or request token)` | `(⚠ no token for role)` |
+| `bo_layout.ex:512` | Error state helper text | `text-red-600` | `.zaq-text-body-sm` + `style="color: var(--zaq-text-color-body-danger)"` or `(⚠ keep legacy — human decide)` | ok |
 | `some_live.ex:88` | Toolbar row gap | `gap-2.5` / `p-[10px]` | `.zaq-text-caption` for copy; for spacing use `--zaq-scale-8` or `(layout — keep)` — **never** `var(--zaq-scale-10)` on gap/padding | `(⚠ scale-10 is text-only)` |
 
 Optional compact appendix: one-line `file:line  existing → proposed  (reason)` duplicates are fine for grep-friendly logs, but the **table is the source of truth** for approval.
@@ -246,7 +248,7 @@ Generated: <date>
 - `bo_layout.ex:198` — **UI role:** focus ring accent — **Existing:** `#03b6d4` — **Proposed:** `border-color: var(--zaq-border-color-accent)` (inline or class per rules)
 
 ## HIGH
-- `bo_layout.ex:201` — **UI role:** dark ink surface — **Existing:** `.zaq-bg-ink` (app.css) — **Proposed:** `var(--zaq-surface-color-dark)` / matching general class
+- `bo_layout.ex:201` — **UI role:** dark ink surface — **Existing:** `.zaq-bg-ink` (app.css) — **Proposed:** `var(--zaq-surface-color-base)` or matching semantic surface token per DESIGN.md
 
 ## MEDIUM
 - `bo_layout.ex:220` — **UI role:** compact monospace — **Existing:** `font-mono text-xs` — **Proposed:** `.zaq-text-caption`
@@ -321,6 +323,7 @@ Apply styles in this exact order:
    | Form label, input, select, combobox | `form.css` — `.zaq-control-*`, `.zaq-field-*` |
    | Modal backdrop / panel | `modal.css` — `.zaq-modal`, `.zaq-bo-modal-backdrop` |
    | Data table / dense list grid | `table.css` — `.zaq-table` and related |
+   | Layout spacing (stack, inline, gaps) | `layout.css` — `.zaq-layout-*` |
    | Typography | `text-styles.css` — `.zaq-text-*` |
    | Generic chrome, cards, feedback, composites | `styles.css` — `.zaq-card-*`, `.zaq-border-*`, feature patterns |
    | Token vars (inline color only) | `semantics.css` — never foundation vars |
@@ -356,7 +359,7 @@ Apply styles in this exact order:
    | `--zaq-border-color-*` | `border-color` / `border` / `outline` only |
    | `--zaq-text-color-body-*` | `color` (text) only |
 
-   If no token exists for the correct role (e.g. need a text-error color but only `--zaq-border-color-error` exists): **do not use the wrong-category token**. Mark the table row / appendix line as `(⚠ no token for this role — keep legacy or request new token)` and leave the decision to the human.
+   If no token exists for the correct role (e.g. need destructive text color): use `--zaq-text-color-body-danger` — never `error` naming. Mark `(⚠ no token for this role — keep legacy or request new token)` when no semantic token fits.
 
 10. **Tailwind color and typography** → never use. Layout/spacing Tailwind utilities are allowed only as described in Rule 11 below.
 
