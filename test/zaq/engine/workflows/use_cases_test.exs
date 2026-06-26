@@ -21,19 +21,24 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
       get_sheet = Enum.find(attrs.nodes, &(&1.name == "get_sheet"))
       assert get_sheet.params == %{"provider" => "custom_drive", "spreadsheet_id" => "sheet-123"}
 
+      # Iteration is authored as a `Batch` action (type "action"), not a public
+      # `map` node — `Batch` lowers itself onto the internal `map` at build time.
       process_rows = Enum.find(attrs.nodes, &(&1.name == "process_rows"))
-      assert process_rows.type == "map"
-      assert process_rows.params["over"] == "items"
-      assert process_rows.params["field"] == "input"
-      assert process_rows.params["delivery"] == "item"
-      assert process_rows.params["chunk_size"] == 50
+      assert process_rows.type == "action"
+      assert process_rows.module == "Zaq.Agent.Tools.Workflow.Batch"
+      assert process_rows.params["batch_size"] == 50
       assert process_rows.params["strategy"] == "skip_and_continue"
 
-      assert Enum.map(process_rows.params["body"], & &1["name"]) == [
+      assert [%{"module" => "Zaq.Agent.Tools.Workflow.Iterate"} = iterate] =
+               process_rows.params["process"]
+
+      assert Enum.map(iterate["params"]["pipeline"], & &1["name"]) == [
                "check_active",
                "check_email_state",
                "dispatch_lead"
              ]
+
+      assert Enum.map(process_rows.params["post_process"], & &1["name"]) == ["sleep_between"]
 
       assert [%{from: "get_sheet", to: "extract_rows"}, extract_to_process] = attrs.edges
       assert extract_to_process.condition == %{"field" => "rows", "op" => "not_empty"}
