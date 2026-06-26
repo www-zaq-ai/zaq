@@ -7,22 +7,25 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
 
   ## Translation
 
-  A Batch node's `params` are mapped onto a `map` node:
+  A Batch node's `params` map onto a `map` node:
 
-  - `process == [<single Iterate node>]` ⇒ the Iterate is unwrapped: the map body
-    is the Iterate's `pipeline`, delivered **per item** (`delivery: "item"`).
-    `batch_size` becomes a throughput hint (`chunk_size`); fan-out stays per item so
-    each item gets its own `StepRun` (the visibility upgrade). The inner Iterate's
-    `strategy` wins.
-  - `process == [<plain pipeline>]` ⇒ the map body is the process pipeline,
-    delivered **per chunk** (`delivery: "list"`, `chunk_size: batch_size`); the
-    body's first action's input schema decides the delivery `field`/mode.
+  - `process` ⇒ the map body (a flat pipeline of `action`/`agent` nodes). It is the
+    work run for each fan-out unit.
+  - `delivery` ⇒ how each unit reaches the body, lowered straight to the map's
+    `delivery`:
+    - `"list"` (default) — fan out **per chunk**; the body receives a chunk of up to
+      `batch_size` items. Each chunk gets its own per-fork `StepRun`.
+    - `"item"` — fan out **per item**; the body receives one item. Each item gets
+      its own per-fork `StepRun`.
+  - `batch_size` ⇒ the map's `chunk_size` (chunk width for `"list"`).
+  - `strategy` ⇒ error strategy (default `"skip_and_continue"`).
   - `post_process` ⇒ the map's `post_process` (per-fork tail).
+  - The delivery `field` (the param key the unit is delivered under) is detected
+    from the body's first action's input schema.
 
   Iteration over the upstream collection always reads the `items` key (Batch's
-  required input, supplied via the incoming edge mapping). `Iterate` no longer
-  exists as a runtime module — it survives only as the inline marker this
-  translator unwraps.
+  required input, supplied via the incoming edge mapping). There is no `Iterate`
+  module — delivery mode is the explicit `delivery` param, not a wrapper node.
   """
 
   @behaviour Zaq.Engine.Workflows.Node
@@ -30,7 +33,7 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.Step
 
-  @iterate_module "Zaq.Agent.Tools.Workflow.Iterate"
+  @default_delivery "list"
 
   @doc """
   Rewrites a Batch node into a `map` node. Returns `{:ok, map_node}` or
@@ -43,14 +46,15 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
     process = Map.get(params, "process", [])
     post_process = Map.get(params, "post_process", [])
     batch_size = Map.get(params, "batch_size")
-    batch_strategy = Map.get(params, "strategy", "skip_and_continue")
+    strategy = Map.get(params, "strategy", "skip_and_continue")
+    delivery = Map.get(params, "delivery", @default_delivery)
 
-    with {:ok, body, delivery, strategy} <- resolve_body(process, batch_strategy),
-         {:ok, field} <- detect_field(body) do
+    with :ok <- require_process(process),
+         {:ok, field} <- detect_field(process) do
       map_params =
         %{
           "over" => "items",
-          "body" => body,
+          "body" => process,
           "field" => field,
           "delivery" => delivery,
           "strategy" => strategy,
@@ -67,6 +71,9 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
        }}
     end
   end
+
+  defp require_process([_ | _]), do: :ok
+  defp require_process(_), do: {:error, :missing_process_pipeline}
 
   @doc """
   Save-time validation for an authored Batch node (dispatched by
@@ -85,76 +92,34 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
   end
 
   defp validate_map_params(params) do
-    with :ok <- validate_body(Map.get(params, "body")) do
+    with :ok <- validate_body(Map.get(params, "body")),
+         :ok <- validate_delivery(Map.get(params, "delivery")) do
       validate_chunk_size(Map.get(params, "chunk_size"))
     end
   end
 
+  defp validate_delivery(d) when d in ["item", "list"], do: :ok
+  defp validate_delivery(_), do: {:error, ~s(delivery must be "item" or "list")}
+
+  # Each lowered body node is validated through the single node validator
+  # (`Step.Node.validate_node_map/1`) — the same rules a top-level node gets, with
+  # no Batch-specific re-derivation of type/module/contract checks.
   defp validate_body([_ | _] = body) do
     body
     |> Enum.with_index()
     |> Enum.reduce_while(:ok, fn {bnode, i}, :ok ->
-      case body_node_error(bnode) do
-        nil -> {:cont, :ok}
-        msg -> {:halt, {:error, "process node #{i} #{msg}"}}
+      case Step.Node.validate_node_map(bnode) do
+        :ok -> {:cont, :ok}
+        {:error, msg} -> {:halt, {:error, "process node #{i}: #{msg}"}}
       end
     end)
   end
 
   defp validate_body(_body), do: {:error, "process must list at least one node"}
 
-  # Body nodes are validated for type validity, module requiredness, and the
-  # Action contract — the same save-time guarantees a top-level node gets — reusing
-  # `Step.Node.module_contract_error/2` so there is one contract source of truth.
-  defp body_node_error(bnode) when is_map(bnode) do
-    type = body_field(bnode, "type")
-    module = body_field(bnode, "module")
-
-    cond do
-      type not in Step.Node.types() ->
-        "has invalid type #{inspect(type)}"
-
-      type in ["action", "agent"] and (is_nil(module) or module == "") ->
-        "is missing its module"
-
-      true ->
-        case Step.Node.module_contract_error(type, module) do
-          nil -> nil
-          msg -> "module #{msg}"
-        end
-    end
-  end
-
-  defp body_node_error(_bnode), do: "must be a map"
-
-  # Tolerate atom-keyed inline nodes; `:type`/`:module` are existing schema-field
-  # atoms, so `to_existing_atom` never creates new atoms.
-  defp body_field(bnode, key) do
-    Map.get(bnode, key) || Map.get(bnode, String.to_existing_atom(key))
-  end
-
   defp validate_chunk_size(nil), do: :ok
   defp validate_chunk_size(n) when is_integer(n) and n > 0, do: :ok
   defp validate_chunk_size(_n), do: {:error, "batch_size must be a positive integer"}
-
-  # A nested Iterate ⇒ per-item fan-out over the Iterate's pipeline.
-  defp resolve_body([%{"module" => @iterate_module} = iter], batch_strategy) do
-    iter_params = Map.get(iter, "params") || %{}
-    pipeline = Map.get(iter_params, "pipeline", [])
-    strategy = Map.get(iter_params, "strategy", batch_strategy)
-
-    if pipeline == [] do
-      {:error, {:missing_iterate_pipeline, Map.get(iter, "name")}}
-    else
-      {:ok, pipeline, "item", strategy}
-    end
-  end
-
-  # A plain process pipeline ⇒ per-chunk fan-out over the pipeline.
-  defp resolve_body([_ | _] = process, batch_strategy),
-    do: {:ok, process, "list", batch_strategy}
-
-  defp resolve_body(_empty, _batch_strategy), do: {:error, :missing_process_pipeline}
 
   # Delivery field comes from the body's first action's input schema.
   # `Action.batch_field/1` guards module loading, so we only need the atom here.

@@ -6,10 +6,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   from WorkflowRunAgent as steps execute.
 
   In addition to the standard `:step_updated` / `:run_updated` messages,
-  handles real-time progress from Batch and Iterate nodes:
+  handles real-time chunk progress from Batch nodes:
 
   - `{:batch_progress, step_name, progress}` — chunk progress from Batch
-  - `{:iterate_progress, step_name, progress}` — item progress from Iterate
   """
   use ZaqWeb, :live_view
 
@@ -35,7 +34,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
            now: DateTime.utc_now(),
            node_info: build_node_info(run),
            batch_progress: %{},
-           iterate_progress: %{},
            selected_step: active_step(step_runs)
          )}
 
@@ -107,12 +105,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   # Live chunk progress from Batch — update batch_progress for this step.
   def handle_info({:batch_progress, step_name, progress}, socket) do
     {:noreply, update(socket, :batch_progress, &Map.put(&1, step_name, progress))}
-  end
-
-  # Live item progress from Iterate — update iterate_progress for this step.
-  # When Iterate runs inside Batch, the step_name is the Batch's step_name.
-  def handle_info({:iterate_progress, step_name, progress}, socket) do
-    {:noreply, update(socket, :iterate_progress, &Map.put(&1, step_name, progress))}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
@@ -259,7 +251,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
       do: :timer.send_interval(1_000, self(), :tick)
   end
 
-  # Builds a map of step_name → %{is_batch, is_iterate, params} from the run's
+  # Builds a map of step_name → %{is_batch, is_map, params} from the run's
   # steps_snapshot.  Used to route each step to the correct card component.
   defp build_node_info(run) do
     (run.steps_snapshot || %{})
@@ -270,7 +262,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
       {n["name"],
        %{
          is_batch: batch_module?(mod),
-         is_iterate: iterate_module?(mod),
          is_map: n["type"] == "map",
          params: n["params"] || %{}
        }}
@@ -524,14 +515,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                   <.batch_step_card
                     step={step}
                     batch_progress={Map.get(@batch_progress, step.step_name)}
-                    iterate_progress={Map.get(@iterate_progress, step.step_name)}
-                    node_params={Map.get(info, :params, %{})}
-                    now={@now}
-                  />
-                <% Map.get(info, :is_iterate) -> %>
-                  <.iterate_step_card
-                    step={step}
-                    iterate_progress={Map.get(@iterate_progress, step.step_name)}
+                    step_runs={@step_runs}
                     node_params={Map.get(info, :params, %{})}
                     now={@now}
                   />
