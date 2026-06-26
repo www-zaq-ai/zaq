@@ -385,6 +385,78 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
   end
 
+  describe "build/2 — start sentinel edge (issue #508)" do
+    defp start_edge_steps(edges) do
+      %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "b",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => edges
+      }
+    end
+
+    test "builds when a start edge carries a mapping" do
+      steps =
+        start_edge_steps([
+          %{"from" => "start", "to" => "a", "mapping" => %{"x" => "start.position"}}
+        ])
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "builds when a start edge carries only a condition" do
+      steps =
+        start_edge_steps([
+          %{
+            "from" => "start",
+            "to" => "a",
+            "condition" => %{"field" => "ok", "op" => "eq", "value" => true}
+          }
+        ])
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "rejects a no-op start edge (no mapping, no condition)" do
+      steps = start_edge_steps([%{"from" => "start", "to" => "a"}])
+
+      assert {:error, {:invalid_start_edge, "a"}} = DagBuilder.build(steps)
+    end
+
+    test "rejects duplicate start edges to the same node" do
+      steps =
+        start_edge_steps([
+          %{"from" => "start", "to" => "a", "mapping" => %{"x" => "start.one"}},
+          %{"from" => "start", "to" => "a", "mapping" => %{"y" => "start.two"}}
+        ])
+
+      assert {:error, {:duplicate_start_edge, "a"}} = DagBuilder.build(steps)
+    end
+
+    test "allows start fan-out to different nodes" do
+      steps =
+        start_edge_steps([
+          %{"from" => "start", "to" => "a", "mapping" => %{"x" => "start.one"}},
+          %{"from" => "start", "to" => "b", "mapping" => %{"y" => "start.two"}}
+        ])
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+  end
+
   # --- Property tests ---
 
   describe "build/1 — structural invariants" do

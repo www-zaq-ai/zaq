@@ -36,7 +36,11 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
       input: [
         type: :map,
         required: true,
-        doc: "The map to evaluate conditions against."
+        doc:
+          "Map to evaluate conditions against. Normally delivered by the upstream node " <>
+            "or by Batch/Iterate (this is the batch delivery field). When absent — e.g. a " <>
+            "Condition that is the first node off a trigger — `run/2` falls back to the " <>
+            "incoming fact at root; `start.<field>` dotted keys reach the trigger payload."
       ],
       conditions: [
         type: {:list, :map},
@@ -69,9 +73,9 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
 
   @impl Jido.Action
   def run(params, context) do
-    input = Map.fetch!(params, :input)
     conditions = Map.get(params, :conditions, [])
     on_fail = Map.get(params, :on_fail, :halt)
+    input = resolve_input(params)
 
     failed = Enum.reject(conditions, &condition_passes?(&1, input))
 
@@ -95,6 +99,18 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
           end)
 
         {:error, "condition_failed:#{failed_keys}"}
+    end
+  end
+
+  # The map to evaluate conditions against:
+  #   - an explicit `:input` (mid-DAG: the upstream node produced it), else
+  #   - the incoming fact at root (first node off a trigger), minus this action's
+  #     own config keys. The persistent `start` namespace rides along in either
+  #     case and is reachable via `start.<field>` dotted keys.
+  defp resolve_input(params) do
+    case Map.fetch(params, :input) do
+      {:ok, input} -> input
+      :error -> Map.drop(params, [:conditions, :on_fail])
     end
   end
 
@@ -125,18 +141,15 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   defp to_op(op) when is_atom(op), do: op
   defp to_op(op) when is_binary(op), do: String.to_existing_atom(op)
 
-  # Try string key first, then fall back to atom form (and vice-versa).
+  # A dotted key (e.g. "start.position") traverses namespaces in the eval map:
+  # each segment is looked up with atom/string fallback, descending into nested
+  # maps. A plain key is looked up directly (string first, then atom form).
   defp fetch_value(map, key) when is_binary(key) do
-    case Map.fetch(map, key) do
-      {:ok, _} = hit ->
-        hit
-
-      :error ->
-        atom = String.to_existing_atom(key)
-        Map.fetch(map, atom)
+    if String.contains?(key, ".") do
+      fetch_path(map, String.split(key, "."))
+    else
+      fetch_flat(map, key)
     end
-  rescue
-    ArgumentError -> :error
   end
 
   defp fetch_value(map, key) when is_atom(key) do
@@ -145,4 +158,28 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
       :error -> Map.fetch(map, Atom.to_string(key))
     end
   end
+
+  defp fetch_path(map, [segment]) when is_map(map), do: fetch_flat(map, segment)
+
+  defp fetch_path(map, [segment | rest]) when is_map(map) do
+    case fetch_flat(map, segment) do
+      {:ok, sub} -> fetch_path(sub, rest)
+      :error -> :error
+    end
+  end
+
+  defp fetch_path(_non_map, _segments), do: :error
+
+  # Try string key first, then fall back to atom form. Safe when the atom was
+  # never interned (e.g. a key string this VM has never seen).
+  defp fetch_flat(map, key) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, _} = hit -> hit
+      :error -> Map.fetch(map, String.to_existing_atom(key))
+    end
+  rescue
+    ArgumentError -> :error
+  end
+
+  defp fetch_flat(_non_map, _key), do: :error
 end
