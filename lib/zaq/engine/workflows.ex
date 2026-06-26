@@ -1391,6 +1391,14 @@ defmodule Zaq.Engine.Workflows do
   defp format_build_error({:invalid_edge_condition, _}),
     do: "An edge has an invalid condition configuration."
 
+  defp format_build_error({:invalid_start_edge, to}),
+    do:
+      ~s(The "start" edge to node "#{to}" must declare a mapping or condition; ) <>
+        "a no-op start edge would shadow the node without transforming the trigger payload."
+
+  defp format_build_error({:duplicate_start_edge, to}),
+    do: ~s(Multiple "start" edges target node "#{to}"; at most one is allowed per node.)
+
   defp format_build_error({:contract_violation, mod, missing}),
     do:
       "Module #{inspect(mod)} does not satisfy the Action contract. Missing: #{inspect(missing)}."

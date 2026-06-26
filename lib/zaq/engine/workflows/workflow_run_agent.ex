@@ -252,7 +252,23 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
     (Zaq.MapUtils.fetch_either(assigns, :input, "input") || %{})
     |> normalize_input()
+    |> seed_start_namespace()
   end
+
+  # Seeds the trigger payload into the persistent `start` namespace inside the
+  # run's `__cascade__`. `start` behaves like a virtual origin node whose output
+  # is the trigger payload: it rides the cascade through every step (StepRunner
+  # accumulates `__cascade__`), so any edge `mapping` can reference `start.<field>`
+  # at any stage — exactly as it references a real upstream node's output. The
+  # raw payload also stays at the fact root so existing flat-field workflows are
+  # unaffected.
+  defp seed_start_namespace(input) when is_map(input) do
+    cascade = Map.get(input, :__cascade__, Map.get(input, "__cascade__", %{}))
+    start_payload = Map.drop(input, [:__cascade__, "__cascade__"])
+    Map.put(input, :__cascade__, Map.put(cascade, :start, start_payload))
+  end
+
+  defp seed_start_namespace(input), do: input
 
   # Normalizes only the known event-envelope structural keys to atoms. Arbitrary
   # payload/assigns values are preserved verbatim. No dynamic atom creation

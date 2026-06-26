@@ -31,6 +31,11 @@ defmodule Zaq.Engine.Workflows.Step.Node do
 
   @types ~w(action agent workflow map)
 
+  # Names reserved for virtual edge sentinels (see `DagBuilder.start_sentinel/0`).
+  # A real node may not take one of these names, or a `from: "start"` edge could
+  # not be told apart from an edge out of a real node.
+  @reserved_node_names ~w(start)
+
   embedded_schema do
     field :name, :string
     field :type, :string
@@ -41,15 +46,33 @@ defmodule Zaq.Engine.Workflows.Step.Node do
 
   def types, do: @types
 
+  def reserved_node_names, do: @reserved_node_names
+
   def changeset(node, attrs) do
     node
     |> cast(attrs, [:name, :type, :module, :index, :params])
     |> validate_required([:name, :type, :index])
     |> validate_inclusion(:type, @types)
+    |> validate_name_not_reserved()
     |> validate_module_required_for_action()
     |> validate_module_contract()
     |> validate_workflow_ref_required()
     |> validate_map_params()
+  end
+
+  # A node may not take a reserved sentinel name (e.g. "start"), case-insensitively.
+  defp validate_name_not_reserved(changeset) do
+    case get_field(changeset, :name) do
+      name when is_binary(name) ->
+        if String.downcase(String.trim(name)) in @reserved_node_names do
+          add_error(changeset, :name, "is reserved and cannot be used as a node name")
+        else
+          changeset
+        end
+
+      _ ->
+        changeset
+    end
   end
 
   defp validate_module_required_for_action(changeset) do

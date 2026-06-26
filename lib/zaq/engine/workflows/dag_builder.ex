@@ -91,6 +91,13 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   @type steps :: map()
   @type build_result :: {:ok, Runic.Workflow.t()} | {:error, term()}
 
+  # Reserved sentinel `from` for the virtual origin node. A `from: "start"` edge
+  # remaps/guards the planted initial fact before it reaches a root node. Shared
+  # with `Step.Node` so node naming and edge wiring agree on one reserved word.
+  @start_sentinel "start"
+
+  def start_sentinel, do: @start_sentinel
+
   # Backstop: the global `max_items` cap for a `map` fan-out when a node
   # declares no `params["max_items"]`. Overridable via
   # `config :zaq, Zaq.Engine.Workflows, map_max_items: N`.
@@ -432,21 +439,52 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   end
 
   defp validate_edges(edges, node_map) do
-    Enum.reduce_while(edges, :ok, fn edge, :ok ->
-      validate_single_edge(edge, node_map)
-    end)
+    case Enum.reduce_while(edges, :ok, fn edge, :ok ->
+           validate_single_edge(edge, node_map)
+         end) do
+      :ok -> validate_start_edges(edges)
+      {:error, _} = err -> err
+    end
   end
 
   defp validate_single_edge(edge, node_map) do
     to = Map.get(edge, "to")
 
-    if is_nil(to) or not Map.has_key?(node_map, to) do
-      {:halt, {:error, {:unknown_node, to}}}
-    else
-      case validate_edge_condition(Map.get(edge, "condition")) do
-        :ok -> {:cont, :ok}
-        {:error, _} = err -> {:halt, err}
-      end
+    cond do
+      is_nil(to) or not Map.has_key?(node_map, to) ->
+        {:halt, {:error, {:unknown_node, to}}}
+
+      # A sentinel `from: "start"` edge that neither maps nor guards would shadow
+      # the root node without transforming the planted fact — reject it as a no-op.
+      noop_start_edge?(edge) ->
+        {:halt, {:error, {:invalid_start_edge, to}}}
+
+      true ->
+        case validate_edge_condition(Map.get(edge, "condition")) do
+          :ok -> {:cont, :ok}
+          {:error, _} = err -> {:halt, err}
+        end
+    end
+  end
+
+  defp noop_start_edge?(edge) do
+    Map.get(edge, "from") == @start_sentinel and
+      is_nil(Map.get(edge, "condition")) and
+      map_size(Map.get(edge, "mapping") || %{}) == 0
+  end
+
+  # Two `from: "start"` edges into the same node would plant two competing roots
+  # for it (ambiguous double-seed). Fan-out to *different* nodes stays allowed.
+  defp validate_start_edges(edges) do
+    duplicate =
+      edges
+      |> Enum.filter(&(Map.get(&1, "from") == @start_sentinel))
+      |> Enum.frequencies_by(&Map.get(&1, "to"))
+      |> Enum.find(fn {_to, count} -> count > 1 end)
+
+    case duplicate do
+      {to, _count} -> {:error, {:duplicate_start_edge, to}}
+      nil -> :ok
     end
   end
 
@@ -555,16 +593,30 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     condition = Map.get(edge, "condition")
     mapping = Map.get(edge, "mapping") || %{}
 
-    if not is_nil(condition) or map_size(mapping) > 0 do
-      guard_name = "#{from_name}__to__#{to_name}__edge"
-      from_index = get_in(node_map, [from_name, :index]) || 0
-      guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, from_index)
+    cond do
+      is_nil(condition) and map_size(mapping) == 0 ->
+        Runic.Workflow.add(wf, runic_node, direct_edge_opts(from_name, node_map))
 
-      wf
-      |> Runic.Workflow.add(guard_node, to: node_atom(from_name), validate: :off)
-      |> Runic.Workflow.add(runic_node, to: node_atom(guard_name), validate: :off)
-    else
-      Runic.Workflow.add(wf, runic_node, direct_edge_opts(from_name, node_map))
+      from_name == @start_sentinel and not Map.has_key?(node_map, from_name) ->
+        # Sentinel source: there is no upstream node, so the EdgeStep guard
+        # becomes a ROOT that transforms the planted initial fact. The target
+        # node is wired downstream of the guard, so it no longer reacts to the
+        # raw planted fact (avoids double-firing on the untransformed payload).
+        guard_name = "#{from_name}__to__#{to_name}__edge"
+        guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, 0)
+
+        wf
+        |> Runic.Workflow.add(guard_node, validate: :off)
+        |> Runic.Workflow.add(runic_node, to: node_atom(guard_name), validate: :off)
+
+      true ->
+        guard_name = "#{from_name}__to__#{to_name}__edge"
+        from_index = get_in(node_map, [from_name, :index]) || 0
+        guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, from_index)
+
+        wf
+        |> Runic.Workflow.add(guard_node, to: node_atom(from_name), validate: :off)
+        |> Runic.Workflow.add(runic_node, to: node_atom(guard_name), validate: :off)
     end
   end
 
