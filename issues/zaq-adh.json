@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-26T13:18:22Z",
+  "description": "Expose centralized NONE option in channel and IMAP agent selection UI and persist it distinctly.",
+  "id": "zaq-adh",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[channel-routing-3] Wire channel agent NONE option UI and persistence",
+  "type": "task",
+  "updated_at": "2026-06-26T13:18:22Z"
+}
