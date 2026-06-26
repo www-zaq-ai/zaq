@@ -152,7 +152,7 @@ defmodule Zaq.Channels.EmailBridge do
            [],
            agent_candidates(config, connection[:mailbox]),
            actor_from_incoming(incoming),
-           channel_name: connection[:mailbox],
+           channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
            pipeline_module: pipeline_module(),
            node_router: node_router_module()
          ) do

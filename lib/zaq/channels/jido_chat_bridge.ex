@@ -621,7 +621,7 @@ defmodule Zaq.Channels.JidoChatBridge do
                [role_ids: role_ids],
                agent_candidates(config, msg.channel_id),
                actor_from_incoming(msg),
-               channel_name: channel_name(config, msg.channel_id),
+               channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
                pipeline_module: pipeline_module(),
                node_router: node_router_module()
              )
@@ -1328,18 +1328,6 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp channel_assignment_agent_choice(_config, _channel_id), do: nil
-
-  defp channel_name(config, channel_id) when is_binary(channel_id) do
-    with id when is_integer(id) <- Map.get(config, :id) || Map.get(config, "id"),
-         %RetrievalChannel{channel_name: channel_name} <-
-           RetrievalChannel.get_by_config_and_channel(id, channel_id) do
-      channel_name
-    else
-      _ -> channel_id
-    end
-  end
-
-  defp channel_name(_config, channel_id), do: channel_id
 
   # person_id is usually nil at this point — IdentityPlug resolves it later in
   # Zaq.Agent.Api, which enriches the event actor with the resolved id.
