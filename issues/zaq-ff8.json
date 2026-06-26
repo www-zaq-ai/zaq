@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-26T13:18:22Z",
+  "description": "Cover NodeRouter fire, centralized channel routing, NONE selection, and bridge paths.",
+  "id": "zaq-ff8",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[channel-routing-4] Test channel trigger and routing behavior",
+  "type": "task",
+  "updated_at": "2026-06-26T13:18:22Z"
+}
