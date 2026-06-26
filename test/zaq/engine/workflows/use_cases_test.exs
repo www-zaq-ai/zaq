@@ -2,6 +2,8 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.DagBuilder
+  alias Zaq.Engine.Workflows.UseCases.GenerateCompanyContext
   alias Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet
   alias Zaq.Engine.Workflows.UseCases.SendLeadsEmail
 
@@ -131,6 +133,59 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
       assert trigger.event_name == "engine:lead_identified"
     end
   end
+
+  describe "GenerateCompanyContext.build/1" do
+    test "branches via a Condition node, not edge predicates (node = eval, edges = route)" do
+      attrs = GenerateCompanyContext.build()
+
+      # The evaluation unit is a Condition node placed before the two branches.
+      check_context = Enum.find(attrs.nodes, &(&1.name == "check_context"))
+      assert check_context.type == "action"
+      assert check_context.module == "Zaq.Agent.Tools.Workflow.Condition"
+      assert check_context.params["on_fail"] == "continue"
+
+      assert check_context.params["conditions"] == [
+               %{"key" => "company context file", "op" => "not_empty"}
+             ]
+
+      # check_context is a root: no incoming edge (the engine feeds it the planted
+      # trigger row directly), and there are no `from: "start"` edges — a bare start
+      # edge is rejected, and branching now lives in the node, not the edge.
+      assert Enum.filter(attrs.edges, &(&1.from == "start")) == []
+      refute Enum.any?(attrs.edges, &(&1.to == "check_context"))
+
+      # The two edges out of the node only route on the emitted `passed` boolean.
+      load_edge = branch_edge(attrs, "load_existing_context")
+      assert load_edge.from == "check_context"
+      assert load_edge.condition == %{"field" => "passed", "op" => "eq", "value" => true}
+      assert load_edge.mapping == %{"document_id" => "start.company context file"}
+
+      generate_edge = branch_edge(attrs, "extract_company_summary")
+      assert generate_edge.from == "check_context"
+      assert generate_edge.condition == %{"field" => "passed", "op" => "eq", "value" => false}
+
+      assert generate_edge.mapping == %{
+               "company_official_name" => "start.company official name",
+               "company_website" => "start.company website"
+             }
+    end
+
+    test "the persisted (JSONB) shape builds a valid DAG with check_context as the root" do
+      snapshot = GenerateCompanyContext.build() |> Jason.encode!() |> Jason.decode!()
+
+      assert {:ok, _dag} = DagBuilder.build(snapshot)
+    end
+
+    test "the built workflow persists and assigns the lead_identified trigger" do
+      assert {:ok, workflow} = GenerateCompanyContext.create()
+
+      trigger = workflow_trigger(workflow)
+      assert workflow.name == "Generate Company Context"
+      assert trigger.event_name == "engine:lead_identified"
+    end
+  end
+
+  defp branch_edge(attrs, to), do: Enum.find(attrs.edges, &(&1.to == to))
 
   defp workflow_trigger(workflow) do
     assert [trigger] = Workflows.list_triggers_for_workflow(workflow.id)

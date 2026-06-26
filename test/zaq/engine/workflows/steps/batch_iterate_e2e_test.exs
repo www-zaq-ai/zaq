@@ -232,7 +232,10 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
 
       for err <- batch_step_run(run).results["errors"] do
         assert is_integer(err["index"])
-        assert err["reason"] =~ "condition_failed"
+        # New clear sentence form (replaces the old `condition_failed:` marker):
+        # each failed item names the field, expected, and actual value.
+        assert err["reason"] =~ "Condition not met:"
+        assert err["reason"] =~ "must equal"
       end
     end
 
@@ -490,7 +493,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
 
   # Both conditions (active: true AND in_sequence: false) merged into one Condition
   # node. Contacts that violate multiple conditions produce a single error whose
-  # reason lists all failing keys (e.g. "condition_failed:active,in_sequence").
+  # reason names each failing field, expected, and actual value (e.g.
+  # "Condition not met: active must equal true but was false; …").
   defp combined_condition_workflow do
     {:ok, wf} =
       Workflows.create_workflow(%{
