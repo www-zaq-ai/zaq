@@ -2,7 +2,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
   use Zaq.DataCase, async: false
   import ExUnit.CaptureLog
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.{AgentRouting, ChannelConfig}
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Engine.Notifications.EmailNotification
@@ -186,6 +186,11 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       %{event | response: response}
     end
+
+    def fire(event) do
+      send(self(), {:node_router_fire_event, event})
+      event
+    end
   end
 
   defmodule NodeRouterBadPipelineStub do
@@ -220,6 +225,11 @@ defmodule Zaq.Channels.EmailBridgeTest do
         end
 
       %{event | response: response}
+    end
+
+    def fire(event) do
+      send(self(), {:node_router_fire_event, event})
+      event
     end
   end
 
@@ -503,6 +513,40 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       assert get_in(event.assigns, ["agent_selection", "agent_id"]) == mailbox_agent.id
       assert get_in(event.assigns, ["agent_selection", "source"]) == "mailbox_assignment"
+    end
+
+    test "NONE mailbox routing fires trigger event without agent dispatch" do
+      Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      provider_agent = insert_configured_agent(true)
+      :ok = Zaq.System.set_global_default_agent_id(provider_agent.id)
+
+      config = %{
+        provider: "email:imap",
+        settings: %{
+          "imap" => %{
+            "selected_mailboxes" => ["INBOX"],
+            "agent_routing" => %{
+              "mailboxes" => %{"INBOX" => AgentRouting.none_value()}
+            }
+          }
+        }
+      }
+
+      prepared = ImapConfigHelpers.normalize_bridge_config(config)
+      payload = %{"body_text" => "hello"}
+      sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
+
+      assert :ok = EmailBridge.from_listener(prepared, payload, sink_opts)
+      assert_received {:node_router_fire_event, event}
+      assert event.request.content == "incoming"
+      assert event.name == "channel_message_received.email_imap.inbox"
+      refute Map.has_key?(event.assigns || %{}, "agent_selection")
+      refute_received {:node_router_run_pipeline_event, _}
     end
   end
 
