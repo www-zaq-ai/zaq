@@ -224,6 +224,11 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   defp inject_cascade(result, _prev_cascade, _step_name), do: result
 
+  # A binary error reason is already user-facing prose; keep it verbatim. Everything
+  # else (atoms, tuples, exceptions) is inspected for a readable representation.
+  defp reason_text(reason) when is_binary(reason), do: reason
+  defp reason_text(reason), do: inspect(reason)
+
   defp execute_step(mod, run_id, step_name, step_index, params, context, map_index, strategy) do
     t0 = Action.log_start()
 
@@ -255,7 +260,12 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         run_id: run_id,
         step_name: step_name,
         actor: actor,
-        skip_permissions: skip_permissions?(source_event)
+        skip_permissions: skip_permissions?(source_event),
+        # `__cascade__` is stripped from `action_params` (it is engine plumbing, not
+        # a domain param) but exposed here so evaluation nodes like `Condition` can
+        # resolve node-qualified (`step.field`) and `start.*` references via
+        # `FactLookup`, exactly as `EdgeStep` does on edges.
+        __cascade__: prev_cascade
       })
 
     try do
@@ -321,9 +331,13 @@ defmodule Zaq.Engine.Workflows.StepRunner do
           {:error, :waiting_for_human}
 
         {:error, reason} = err ->
-          step_log = Action.log_entry(:step_failed, t0, %{reason: inspect(reason)})
+          # A string reason (e.g. the Condition node's "Condition not met: …" sentence)
+          # is already human-readable — store it verbatim so the run view shows it
+          # cleanly. Only non-string reasons (atoms, tuples) are inspected.
+          reason_text = reason_text(reason)
+          step_log = Action.log_entry(:step_failed, t0, %{reason: reason_text})
 
-          Workflows.fail_step_run(step_run, %{reason: inspect(reason)}, [step_log],
+          Workflows.fail_step_run(step_run, %{reason: reason_text}, [step_log],
             status: failure_status(map_index, strategy)
           )
 

@@ -51,9 +51,9 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       assert {:error, reason} =
                Condition.run(%{input: input, conditions: conditions}, @ctx)
 
-      assert String.starts_with?(reason, "condition_failed:")
-      assert String.contains?(reason, "active")
-      assert String.contains?(reason, "flagged")
+      assert String.starts_with?(reason, "Condition not met:")
+      assert reason =~ "active must equal true but was false"
+      assert reason =~ "flagged must equal false but was true"
     end
 
     test "partial failure — only failing key is in the error string" do
@@ -67,7 +67,24 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       assert {:error, reason} =
                Condition.run(%{input: input, conditions: conditions}, @ctx)
 
-      assert reason == "condition_failed:flagged"
+      assert reason == "Condition not met: flagged must equal false but was true"
+    end
+  end
+
+  describe "run/2 — clear error names every failed field (position example)" do
+    test "two failing position conditions produce a self-explanatory message" do
+      person = %{"name" => "John Doe", "age" => 24, "position" => "CTO"}
+
+      conditions = [
+        %{"key" => "position", "op" => "eq", "value" => "CFO"},
+        %{"key" => "position", "op" => "eq", "value" => "CEO"}
+      ]
+
+      assert {:error, reason} = Condition.run(%{input: person, conditions: conditions}, @ctx)
+
+      assert reason ==
+               ~s(Condition not met: position must equal "CFO" but was "CTO"; ) <>
+                 ~s(position must equal "CEO" but was "CTO")
     end
   end
 
@@ -83,7 +100,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       input = %{"email_state" => 4}
       conditions = [%{"key" => "email_state", "op" => "lt", "value" => 4}]
 
-      assert {:error, "condition_failed:email_state"} =
+      assert {:error, "Condition not met: email_state must be less than 4 but was 4"} =
                Condition.run(%{input: input, conditions: conditions}, @ctx)
     end
 
@@ -142,7 +159,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       input = %{"active" => true}
       conditions = [%{"key" => "email_state", "op" => "lt", "value" => 0, "default" => 0}]
 
-      assert {:error, "condition_failed:email_state"} =
+      assert {:error, "Condition not met: email_state must be less than 0 but was 0"} =
                Condition.run(%{input: input, conditions: conditions}, @ctx)
     end
 
@@ -150,19 +167,33 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       input = %{"active" => true}
       conditions = [%{"key" => "email_state", "op" => "lt", "value" => 4}]
 
-      assert {:error, "condition_failed:email_state"} =
+      assert {:error, "Condition not met: email_state must be less than 4 but was empty"} =
                Condition.run(%{input: input, conditions: conditions}, @ctx)
     end
   end
 
   describe "run/2 — conditions fail with on_fail: :continue" do
-    test "returns ok with passed: false and failed_conditions" do
+    test "returns ok with passed: false and failed_conditions (no input passthrough)" do
       input = %{active: false}
 
       conditions = [%{"key" => "active", "value" => true}]
 
-      assert {:ok, %{passed: false, failed_conditions: [_], input: ^input}} =
+      # Routing mode omits `input` so it cannot clobber a downstream node's own param.
+      assert {:ok, result} =
                Condition.run(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
+
+      assert %{passed: false, failed_conditions: [_]} = result
+      refute Map.has_key?(result, :input)
+    end
+
+    test "passing conditions in continue mode emit only passed: true" do
+      input = %{active: true}
+      conditions = [%{"key" => "active", "value" => true}]
+
+      assert {:ok, result} =
+               Condition.run(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
+
+      assert result == %{passed: true}
     end
   end
 
@@ -223,7 +254,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => unique_key, "value" => true}]
 
       # The condition will fail (key not found, no default) but must not raise
-      assert {:error, "condition_failed:" <> _} =
+      assert {:error, "Condition not met: " <> _} =
                Condition.run(%{input: input, conditions: conditions}, @ctx)
     end
 
@@ -302,6 +333,75 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         assert {:ok, %{passed: true}} = Condition.run(base, @ctx)
         assert {:ok, %{passed: true}} = Condition.run(noisy, @ctx)
       end
+    end
+  end
+
+  describe "run/2 — cascade-aware resolution (FactLookup parity with edges)" do
+    test "resolves a node-qualified key from context.__cascade__" do
+      ctx = %{__cascade__: %{"store_context" => %{record: %{id: 7}}}}
+      conditions = [%{"key" => "store_context.record.id", "op" => "eq", "value" => 7}]
+
+      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+    end
+
+    test "resolves the persistent start.* namespace from the cascade" do
+      ctx = %{__cascade__: %{start: %{"company context file" => "drive-123"}}}
+      conditions = [%{"key" => "start.company context file", "op" => "not_empty"}]
+
+      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+    end
+
+    test "the original input is returned unchanged (cascade only augments the lookup view)" do
+      input = %{"company context file" => ""}
+      ctx = %{__cascade__: %{start: input}}
+      conditions = [%{"key" => "company context file", "op" => "empty"}]
+
+      assert {:ok, %{passed: true, input: ^input}} =
+               Condition.run(%{input: input, conditions: conditions}, ctx)
+    end
+  end
+
+  describe "run/2 — on_fail normalization (string forms from JSONB)" do
+    test "string \"continue\" routes instead of halting" do
+      input = %{active: false}
+      conditions = [%{"key" => "active", "value" => true}]
+
+      assert {:ok, %{passed: false, failed_conditions: [_]}} =
+               Condition.run(%{input: input, conditions: conditions, on_fail: "continue"}, @ctx)
+    end
+
+    test "string \"halt\" stops the step" do
+      input = %{active: false}
+      conditions = [%{"key" => "active", "value" => true}]
+
+      assert {:error, "Condition not met: active must equal true but was false"} =
+               Condition.run(%{input: input, conditions: conditions, on_fail: "halt"}, @ctx)
+    end
+
+    test "an unrecognized on_fail value defaults to halt" do
+      input = %{active: false}
+      conditions = [%{"key" => "active", "value" => true}]
+
+      assert {:error, "Condition not met: active must equal true but was false"} =
+               Condition.run(%{input: input, conditions: conditions, on_fail: "bogus"}, @ctx)
+    end
+  end
+
+  describe "run/2 — non-map input" do
+    test "a scalar input falls back to condition defaults without raising" do
+      params = %{
+        input: "scalar-input",
+        conditions: [%{"key" => "x", "op" => "eq", "value" => 1, "default" => 1}]
+      }
+
+      assert {:ok, %{passed: true, input: "scalar-input"}} = Condition.run(params, @ctx)
+    end
+  end
+
+  describe "Action lifecycle hooks (contract defaults)" do
+    test "on_success passes the result through and on_failure returns :ok" do
+      assert {:ok, %{a: 1}} = Condition.on_success(%{a: 1}, %{})
+      assert :ok = Condition.on_failure(:boom, %{})
     end
   end
 end
