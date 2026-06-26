@@ -90,11 +90,13 @@ canonical shape. Mirror its structure exactly:
 - `build(opts \\ [])` — returns the `%{name:, status: "active", nodes: [...], edges: [...]}` map.
 - Each node: `%{name:, type: "action", module: @x_module, params: %{...}, index: n}`.
   Every node is `type: "action"` (or `agent`/`workflow`). **Never emit `type: "map"`** —
-  `map` is an internal-only lowering target, not an authorable type. For per-item
-  fan-out, author a `Batch` **action** node (`module: "Zaq.Agent.Tools.Workflow.Batch"`)
-  with an inline `process` pipeline (wrap it in a single `Iterate` marker for
-  per-item delivery) and optional `post_process`; `Batch` lowers itself onto the
-  internal `map` at build time. See `identify_leads_from_google_sheet.ex`.
+  `map` is an internal-only lowering target, not an authorable type. For fan-out,
+  author a `Batch` **action** node (`module: "Zaq.Agent.Tools.Workflow.Batch"`) with a
+  flat inline `process` pipeline and optional `post_process`. Set delivery mode with
+  the `delivery` param: `"item"` (one fan-out unit per item) or `"list"` (per chunk
+  of `batch_size`, the default). **There is no `Iterate` node** — delivery is a param,
+  not a wrapper. `Batch` lowers itself onto the internal `map` at build time. See
+  `identify_leads_from_google_sheet.ex`.
 - Each edge: `%{from:, to:, condition: %{"field" =>, "op" =>, "value" =>}, mapping: %{"target_param" => "source_node.output.path"}}`.
   `condition` and `mapping` are both optional per edge.
 

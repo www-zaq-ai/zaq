@@ -23,16 +23,14 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
 
       # Iteration is authored as a `Batch` action (type "action"), not a public
       # `map` node — `Batch` lowers itself onto the internal `map` at build time.
+      # Per-row delivery is the explicit `delivery: "item"` param (no Iterate wrapper).
       process_rows = Enum.find(attrs.nodes, &(&1.name == "process_rows"))
       assert process_rows.type == "action"
       assert process_rows.module == "Zaq.Agent.Tools.Workflow.Batch"
-      assert process_rows.params["batch_size"] == 50
+      assert process_rows.params["delivery"] == "item"
       assert process_rows.params["strategy"] == "skip_and_continue"
 
-      assert [%{"module" => "Zaq.Agent.Tools.Workflow.Iterate"} = iterate] =
-               process_rows.params["process"]
-
-      assert Enum.map(iterate["params"]["pipeline"], & &1["name"]) == [
+      assert Enum.map(process_rows.params["process"], & &1["name"]) == [
                "check_active",
                "check_email_state",
                "dispatch_lead"

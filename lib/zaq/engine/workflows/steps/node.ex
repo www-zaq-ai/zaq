@@ -203,13 +203,31 @@ defmodule Zaq.Engine.Workflows.Step.Node do
   defp node_validation_message(reason), do: inspect(reason)
 
   @doc """
-  Returns `nil` when the `(type, module)` pair satisfies the node-module contract,
-  otherwise a human-readable error string.
+  Validates a single node map (string-keyed, JSONB shape), returning `:ok` or
+  `{:error, message}`.
 
-  Public so translator modules (`Workflows.Node` implementations such as `Batch`)
-  can re-use the exact save-time contract check `Step.Node` applies to top-level
-  nodes when validating their own inline sub-pipeline nodes.
+  This is the **one** place node validity is defined. A top-level node is validated
+  by `changeset/2`; an inline sub-pipeline node owned by a translator (e.g. the
+  `process`/`post_process` nodes of a `Batch`) is validated by routing it through
+  this function — which simply runs the same `changeset/2`. Translators must not
+  re-derive type/module/contract checks of their own; they call this so node rules
+  live in a single home and a nested translator node is even validated recursively.
+
+  Inline body nodes carry no `index` (it is assigned at build), so a placeholder is
+  supplied to satisfy requiredness.
   """
-  @spec module_contract_error(String.t() | nil, String.t() | nil) :: String.t() | nil
-  def module_contract_error(type, module), do: node_module_error(type, module)
+  @spec validate_node_map(map()) :: :ok | {:error, String.t()}
+  def validate_node_map(attrs) when is_map(attrs) do
+    changeset = changeset(%__MODULE__{}, Map.put_new(attrs, "index", 0))
+
+    if changeset.valid? do
+      :ok
+    else
+      {:error, errors_to_message(changeset)}
+    end
+  end
+
+  defp errors_to_message(%Ecto.Changeset{errors: errors}) do
+    Enum.map_join(errors, "; ", fn {field, {msg, _opts}} -> "#{field} #{msg}" end)
+  end
 end

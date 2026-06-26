@@ -664,7 +664,6 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
   @non_conforming_module "Zaq.Engine.Workflows.Test.NonConformingAction"
   @process_contact_module "Zaq.Engine.Workflows.Test.ProcessContact"
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
-  @iterate_module "Zaq.Agent.Tools.Workflow.Iterate"
 
   # A Batch map lowers a body pipeline that runs StepRunner-wrapped per fork; that
   # needs a run_id (without one, raw adjacent modules can have incompatible ports).
@@ -726,8 +725,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
   end
 
-  describe "build — Batch translator (nested Iterate marker)" do
-    defp batch_iterate_inline_steps do
+  describe "build — Batch translator (per-item delivery)" do
+    defp batch_item_delivery_steps do
       %{
         "nodes" => [
           %{
@@ -735,21 +734,13 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
             "type" => "action",
             "module" => @batch_module,
             "params" => %{
+              "delivery" => "item",
               "process" => [
                 %{
-                  "name" => "iterate",
+                  "name" => "process_contact",
                   "type" => "action",
-                  "module" => @iterate_module,
-                  "params" => %{
-                    "pipeline" => [
-                      %{
-                        "name" => "process_contact",
-                        "type" => "action",
-                        "module" => @process_contact_module,
-                        "params" => %{}
-                      }
-                    ]
-                  }
+                  "module" => @process_contact_module,
+                  "params" => %{}
                 }
               ]
             },
@@ -760,14 +751,13 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       }
     end
 
-    test "nested Iterate is unwrapped → builds successfully" do
-      assert {:ok, %Runic.Workflow{}} = build_batch(batch_iterate_inline_steps())
+    test "per-item delivery → builds successfully" do
+      assert {:ok, %Runic.Workflow{}} = build_batch(batch_item_delivery_steps())
     end
 
-    test "neither the iterate marker nor its pipeline are top-level nodes" do
-      {:ok, wf} = build_batch(batch_iterate_inline_steps())
+    test "the body pipeline nodes are not top-level DAG nodes" do
+      {:ok, wf} = build_batch(batch_item_delivery_steps())
       node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
-      refute "iterate" in node_names
       refute "process_contact" in node_names
     end
   end

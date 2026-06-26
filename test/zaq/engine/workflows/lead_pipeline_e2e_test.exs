@@ -250,18 +250,16 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
     %{build | nodes: nodes}
   end
 
-  # `process_rows` is a `Batch` action — its per-item pipeline lives under the
-  # `Iterate` marker (`params.process[0].params.pipeline`); the per-fork tail under
-  # `params.post_process`.
+  # `process_rows` is a `Batch` action — its per-item body is the flat
+  # `params.process` pipeline; the per-fork tail is `params.post_process`.
   defp patch_batch_node(node) do
     params = node[:params] || node["params"]
 
     process =
-      Enum.map(params["process"] || [], fn pnode ->
-        case get_in(pnode, ["params", "pipeline"]) do
-          nil -> pnode
-          pipeline -> put_in(pnode, ["params", "pipeline"], patch_dispatch(pipeline))
-        end
+      Enum.map(params["process"] || [], fn bnode ->
+        if node_name(bnode) == "dispatch_lead",
+          do: put_module(bnode, BridgeDispatchEvent),
+          else: bnode
       end)
 
     post =
@@ -273,14 +271,6 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
 
     params = params |> Map.put("process", process) |> Map.put("post_process", post)
     Map.put(node, :params, params)
-  end
-
-  defp patch_dispatch(pipeline) do
-    Enum.map(pipeline, fn bnode ->
-      if node_name(bnode) == "dispatch_lead",
-        do: put_module(bnode, BridgeDispatchEvent),
-        else: bnode
-    end)
   end
 
   # Swap the three external leaf steps; keep ensure_person, build_history,
@@ -413,10 +403,9 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
       build = IdentifyLeadsFromGoogleSheet.build(@sheet_id)
 
       batch_node = Enum.find(build.nodes, &(node_name(&1) == "process_rows"))
-      [iterate] = batch_node.params["process"]
 
       dispatch_node =
-        Enum.find(iterate["params"]["pipeline"], &(&1["name"] == "dispatch_lead"))
+        Enum.find(batch_node.params["process"], &(&1["name"] == "dispatch_lead"))
 
       assert dispatch_node["params"]["machine"] == true,
              "dispatch_lead must set machine: true so SendLeadsEmail's build_history is authorized"
