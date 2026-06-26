@@ -62,9 +62,19 @@ defmodule Zaq.NodeRouter do
   @spec dispatch(Event.t()) :: Event.t()
   def dispatch(%Event{} = event), do: dispatch(event, %{})
 
+  @doc """
+  Publishes an event to the workflow trigger stream without routing it.
+
+  This is for events that should be observable by `Zaq.Engine.EventRegistry`
+  even when no role API should handle the event.
+  """
+  @spec fire(Event.t()) :: Event.t()
+  def fire(%Event{} = event), do: broadcast_event(event)
+
   @spec dispatch(Event.t(), map()) :: Event.t()
   def dispatch(%Event{next_hop: %EventHop{destination: role}} = event, runtime)
       when is_map(runtime) do
+    broadcast_event(event)
     {:ok, dispatch_ctx} = prepare_dispatch(event, role, runtime)
     do_dispatch(dispatch_ctx)
   end
@@ -204,7 +214,6 @@ defmodule Zaq.NodeRouter do
   defp do_dispatch(%{hop_type: :sync} = dispatch_ctx) do
     dispatch_ctx
     |> do_dispatch_sync()
-    |> broadcast_event()
     |> continue_dispatch(dispatch_ctx.runtime)
   end
 
@@ -213,7 +222,6 @@ defmodule Zaq.NodeRouter do
       async_start(dispatch_ctx.runtime, fn ->
         routed_event =
           do_dispatch_sync(dispatch_ctx)
-          |> broadcast_event()
           |> continue_dispatch(dispatch_ctx.runtime)
 
         log_async_failure(routed_event, dispatch_ctx)
@@ -321,6 +329,7 @@ defmodule Zaq.NodeRouter.Behaviour do
   Used for testing and alternative routing strategies.
   """
   @callback find_node(supervisor :: atom()) :: node() | nil
+  @callback fire(Zaq.Event.t()) :: Zaq.Event.t()
   @callback dispatch(Zaq.Event.t()) :: Zaq.Event.t()
   @callback dispatch(Zaq.Event.t(), map()) :: Zaq.Event.t()
 end
