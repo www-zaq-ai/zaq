@@ -154,8 +154,8 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
       assert changeset.valid?
     end
 
-    test "rejects a map node whose body contains a non-conforming module" do
-      bad_body = [
+    test "rejects a Batch node whose process body contains a non-conforming module" do
+      bad_process = [
         %{
           "name" => "lookup",
           "type" => "action",
@@ -166,8 +166,9 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
 
       bad_node = %{
         name: "enrich_each",
-        type: "map",
-        params: %{"over" => "leads", "body" => bad_body},
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.Batch",
+        params: %{"process" => bad_process},
         index: 1
       }
 
@@ -416,7 +417,10 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
     end
   end
 
-  describe "nodes validation — map nodes" do
+  describe "nodes validation — map is not an authorable type" do
+    # `map` is an internal lowering target produced by a translator's `enrich/2`
+    # (the `Batch` action) — never authored directly. Iteration validation now
+    # lives in `Batch.validate/1` (see the Batch tool test).
     @map_node %{
       name: "enrich_each",
       type: "map",
@@ -434,7 +438,7 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
       index: 1
     }
 
-    test "accepts a map node carrying over + body (no module needed)" do
+    test "rejects a directly-authored map node" do
       changeset =
         Workflow.changeset(%Workflow{}, %{
           name: "W",
@@ -443,71 +447,20 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
           edges: [%{from: "fetch", to: "enrich_each"}]
         })
 
-      assert changeset.valid?
-    end
-
-    test "rejects a map node missing the over field" do
-      bad_node = %{@map_node | params: Map.delete(@map_node.params, "over")}
-
-      changeset =
-        Workflow.changeset(%Workflow{}, %{
-          name: "W",
-          status: "active",
-          nodes: [@valid_node, bad_node],
-          edges: [%{from: "fetch", to: "enrich_each"}]
-        })
-
       refute changeset.valid?
-    end
 
-    test "rejects a map node with an empty body" do
-      bad_node = %{@map_node | params: Map.put(@map_node.params, "body", [])}
+      node_errors =
+        changeset
+        |> Ecto.Changeset.get_change(:nodes)
+        |> Enum.flat_map(& &1.errors)
 
-      changeset =
-        Workflow.changeset(%Workflow{}, %{
-          name: "W",
-          status: "active",
-          nodes: [@valid_node, bad_node],
-          edges: [%{from: "fetch", to: "enrich_each"}]
-        })
-
-      refute changeset.valid?
-    end
-
-    test "accepts a map node with a positive integer max_items (D-A8)" do
-      node = %{@map_node | params: Map.put(@map_node.params, "max_items", 100)}
-
-      changeset =
-        Workflow.changeset(%Workflow{}, %{
-          name: "W",
-          status: "active",
-          nodes: [@valid_node, node],
-          edges: [%{from: "fetch", to: "enrich_each"}]
-        })
-
-      assert changeset.valid?
-    end
-
-    test "rejects a map node with a non-positive max_items" do
-      for bad <- [0, -5, "10", 1.5] do
-        node = %{@map_node | params: Map.put(@map_node.params, "max_items", bad)}
-
-        changeset =
-          Workflow.changeset(%Workflow{}, %{
-            name: "W",
-            status: "active",
-            nodes: [@valid_node, node],
-            edges: [%{from: "fetch", to: "enrich_each"}]
-          })
-
-        refute changeset.valid?, "expected max_items #{inspect(bad)} to be rejected"
-      end
+      assert Enum.any?(node_errors, fn {field, _} -> field == :type end)
     end
   end
 
   describe "Node.types/0" do
-    test "returns the valid node type list" do
-      assert Node.types() == ["action", "agent", "workflow", "map"]
+    test "returns the valid (authorable) node type list — map is internal-only" do
+      assert Node.types() == ["action", "agent", "workflow"]
     end
   end
 

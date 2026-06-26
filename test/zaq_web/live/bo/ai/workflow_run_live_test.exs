@@ -337,7 +337,17 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
               name: "batch_step",
               type: "action",
               module: "Zaq.Agent.Tools.Workflow.Batch",
-              params: %{},
+              params: %{
+                "batch_size" => 2,
+                "process" => [
+                  %{
+                    "name" => "categorize",
+                    "type" => "action",
+                    "module" => "Zaq.Engine.Workflows.Test.CategorizeBySize",
+                    "params" => %{}
+                  }
+                ]
+              },
               index: 0
             }
           ]
@@ -512,6 +522,19 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       index: 0
     }
 
+    # `map` is an internal lowering target, not an authorable type, so it cannot go
+    # through `create_workflow`'s changeset. The run view renders it from the run's
+    # `steps_snapshot` (where `Batch` lowering puts it), so we insert the carrier
+    # workflow as a struct to reach that snapshot.
+    defp map_workflow_fixture do
+      Repo.insert!(%Workflows.Workflow{
+        name: "Map Run Workflow",
+        status: "active",
+        nodes: [struct(Workflows.Step.Node, @map_node)],
+        edges: []
+      })
+    end
+
     defp map_run_with_rows(conn, workflow) do
       run = run_fixture(workflow)
 
@@ -540,7 +563,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
 
     test "renders the aggregate node with ok/failed counts", %{conn: conn} do
-      workflow = workflow_fixture(%{nodes: [@map_node]})
+      workflow = map_workflow_fixture()
       html = map_run_with_rows(conn, workflow)
 
       assert html =~ "2 ok"
@@ -548,7 +571,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
 
     test "renders a visible failed fork row with its reason", %{conn: conn} do
-      workflow = workflow_fixture(%{nodes: [@map_node]})
+      workflow = map_workflow_fixture()
       html = map_run_with_rows(conn, workflow)
 
       assert html =~ "Failed items"
@@ -557,7 +580,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
 
     test "the aggregate card lists the per-item body pipeline", %{conn: conn} do
-      workflow = workflow_fixture(%{nodes: [@map_node]})
+      workflow = map_workflow_fixture()
       html = map_run_with_rows(conn, workflow)
 
       # the body step name is shown as a per-item pipeline chip
@@ -566,7 +589,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
 
     test "the DAG renders the map node with a MAP badge", %{conn: conn} do
-      workflow = workflow_fixture(%{nodes: [@map_node]})
+      workflow = map_workflow_fixture()
       run = run_fixture(workflow)
       {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
 
