@@ -1512,7 +1512,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
       assert_received {:node_router_fire_event, event}
       assert event.request.content == "trigger only"
-      assert event.name == "channel_message_received.mattermost.no_agent"
+      assert event.name == "channels:message_received.mattermost.#{config.id}"
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
       refute_received {:node_router_run_pipeline_event, _}
     end

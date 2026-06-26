@@ -838,13 +838,13 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                  actor,
                  node_router: StubNodeRouter,
                  agent_module: StubAgent,
-                 channel_name: "Engineering Team"
+                 channel_config_id: 123
                )
 
       assert_received {:node_router_dispatch, event}
       assert event.request == msg
       assert event.next_hop.destination == :agent
-      assert event.name == "channel_message_received.mattermost.engineering_team"
+      assert event.name == "channels:message_received.mattermost.123"
       assert get_in(event.assigns, ["agent_selection", "agent_id"]) == 3
       assert get_in(event.assigns, ["agent_selection", "source"]) == "channel_assignment"
       refute_received {:node_router_fire, _}
@@ -865,15 +865,39 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                  actor,
                  node_router: StubNodeRouter,
                  agent_module: StubAgent,
-                 channel_name: "Engineering Team"
+                 channel_config_id: 123
                )
 
       assert_received {:node_router_fire, event}
       assert event.request == msg
       assert event.next_hop.destination == :agent
-      assert event.name == "channel_message_received.mattermost.engineering_team"
+      assert event.name == "channels:message_received.mattermost.123"
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
       refute_received {:node_router_dispatch, _}
+    end
+
+    test "uses incoming telemetry channel_config_id when option is absent" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{"telemetry_dimensions" => %{"channel_config_id" => "cfg-9"}}
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert %Zaq.Engine.Messages.Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.name == "channels:message_received.mattermost.cfg_9"
     end
   end
 

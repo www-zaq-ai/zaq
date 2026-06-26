@@ -406,16 +406,20 @@ defmodule Zaq.Channels.CommunicationBridge do
 
   defp channel_message_event_name(%Incoming{} = incoming, opts) do
     provider = incoming.provider |> to_string() |> slug_part()
-    channel_name = Keyword.get(opts, :channel_name) || incoming_channel_name(incoming)
 
-    "channel_message_received.#{provider}.#{slug_part(channel_name)}"
+    channel_config_id =
+      Keyword.get(opts, :channel_config_id) || incoming_channel_config_id(incoming)
+
+    "channels:message_received.#{provider}.#{slug_part(channel_config_id)}"
   end
 
-  defp incoming_channel_name(%Incoming{metadata: metadata, channel_id: channel_id})
-       when is_map(metadata) do
-    Map.get(metadata, "channel_name") || Map.get(metadata, :channel_name) ||
-      get_in(metadata, ["email", "mailbox"]) || Map.get(metadata, "mailbox") || channel_id
+  defp incoming_channel_config_id(%Incoming{metadata: metadata}) when is_map(metadata) do
+    get_in(metadata, ["telemetry_dimensions", "channel_config_id"]) ||
+      get_in(metadata, [:telemetry_dimensions, :channel_config_id]) ||
+      Map.get(metadata, "channel_config_id") || Map.get(metadata, :channel_config_id) || "unknown"
   end
+
+  defp incoming_channel_config_id(_incoming), do: "unknown"
 
   defp slug_part(value) do
     value
