@@ -3,6 +3,7 @@
    Ingestion file grid chrome + cards: `ZaqWeb.Components.DesignSystem.IngestionFileGridView`.
    Consumes semantic tokens from semantics.css only.
    Primary consumer: `ZaqWeb.Components.DesignSystem.IngestionFileListView`.
+   Reusable API: `ZaqWeb.Components.DesignSystem.Table` + `Table.Grid`.
    ───────────────────────────────────────────────────────────────────────────── */
 
 /* ── Shell (radius needs `border-collapse: separate`; avoid `overflow: hidden`
@@ -58,7 +59,8 @@
   transition: background-color 150ms ease;
 }
 
-.zaq-table tbody tr:hover:not(.zaq-table-row--plain):not(.zaq-table-row--sidecar) {
+/* Row surface hover — only when the row has a primary destination (navigate / patch / click). */
+.zaq-table tbody tr.zaq-table-row--clickable:hover:not(.zaq-table-row--plain):not(.zaq-table-row--sidecar) {
   background: var(--zaq-surface-color-base);
 }
 
@@ -68,6 +70,51 @@
 
 .zaq-table tbody tr.zaq-table-row--sidecar {
   background: var(--zaq-surface-color-accent);
+}
+
+.zaq-table tbody tr.zaq-table-row--selected {
+  background: var(--zaq-surface-color-accent);
+}
+
+.zaq-table-scroll {
+  max-height: 45vh;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.zaq-table-caption {
+  color: var(--zaq-text-color-body-tertiary);
+}
+
+.zaq-table-cell--actions {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+}
+
+/* Action toolbar — hidden until row or grid card is hovered */
+.zaq-table-actions--reveal-hover {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.zaq-table tbody tr:hover .zaq-table-actions--reveal-hover {
+  opacity: 1;
+}
+
+.zaq-ingestion-file-grid-card:hover .zaq-table-actions--reveal-hover {
+  opacity: 1;
+}
+
+/* Grid card checkbox — show on card hover or when selected */
+.zaq-ingestion-file-grid-card-checkbox {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.zaq-ingestion-file-grid-card:hover .zaq-ingestion-file-grid-card-checkbox,
+.zaq-ingestion-file-grid-card--selected .zaq-ingestion-file-grid-card-checkbox {
+  opacity: 1;
 }
 
 /* Row selection checkboxes: `.zaq-bo-checkbox` + `.zaq-focus-visible` on inputs (styles.css). */

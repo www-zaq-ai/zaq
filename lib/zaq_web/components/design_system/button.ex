@@ -158,6 +158,7 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
     [
       shape_class(assigns.shape),
       variant_class(assigns.variant),
+      icon_only_class(assigns),
       tertiary_active_class(assigns),
       danger_class(assigns),
       typography_class(assigns),
@@ -172,6 +173,9 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
   defp shape_class(:default), do: "zaq-btn"
 
   defp variant_class(variant), do: "zaq-btn-#{variant}"
+
+  defp icon_only_class(%{icon_only: true}), do: "zaq-btn-icon"
+  defp icon_only_class(_), do: nil
 
   defp tertiary_active_class(%{variant: :tertiary, active: true}), do: "zaq-btn-tertiary--active"
   defp tertiary_active_class(_), do: nil
