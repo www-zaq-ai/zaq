@@ -13,6 +13,7 @@ defmodule Zaq.Channels.ChannelConfig do
   import Ecto.Query
   require Logger
 
+  alias Zaq.Channels.AgentRouting
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
 
@@ -367,15 +368,41 @@ defmodule Zaq.Channels.ChannelConfig do
 
   def get_provider_default_agent_id(_), do: nil
 
+  @doc "Returns provider-level agent routing choice, including NONE when configured."
+  def get_provider_agent_choice(config) do
+    case provider_routing_settings(config) do
+      %{"default_agent_id" => value} when value in ["__none__", "none", :none] ->
+        AgentRouting.none_value()
+
+      %{"default_agent_mode" => "none"} ->
+        AgentRouting.none_value()
+
+      routing ->
+        Map.get(routing, "default_agent_id") |> ParseUtils.parse_optional_int()
+    end
+  end
+
   @doc "Sets or clears provider-level default configured agent id in settings."
   def set_provider_default_agent_id(%__MODULE__{} = config, agent_id) do
     settings = config.settings || %{}
     routing = provider_routing_settings(config)
 
     updated_routing =
-      case ParseUtils.parse_optional_int(agent_id) do
-        nil -> Map.delete(routing, "default_agent_id")
-        id -> Map.put(routing, "default_agent_id", id)
+      cond do
+        agent_id in [AgentRouting.none_value(), "none", :none] ->
+          routing
+          |> Map.put("default_agent_id", AgentRouting.none_value())
+          |> Map.put("default_agent_mode", "none")
+
+        is_nil(ParseUtils.parse_optional_int(agent_id)) ->
+          routing
+          |> Map.delete("default_agent_id")
+          |> Map.delete("default_agent_mode")
+
+        true ->
+          routing
+          |> Map.put("default_agent_id", ParseUtils.parse_optional_int(agent_id))
+          |> Map.delete("default_agent_mode")
       end
 
     updated_settings =

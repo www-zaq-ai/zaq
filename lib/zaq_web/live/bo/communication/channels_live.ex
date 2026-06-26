@@ -5,8 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   require Logger
-  alias Zaq.Agent
-  alias Zaq.Channels.{Bridge, ChannelConfig}
+  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig}
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
@@ -16,6 +15,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
   alias ZaqWeb.Live.BO.Communication.OAuthClaimState
@@ -83,8 +83,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:ingress_status_loading, ingress_status_loading(configs))
      |> assign(:ingress_status_refresh_attempts, 0)
      |> assign(:ingress_status_modal, nil)
-     |> assign(:agent_options, agent_options())
-     |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
+     |> assign(:agent_options, AgentRoutingOptions.agent_options())
+     |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
      # config modal
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
@@ -361,7 +361,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> assign(:modal_errors, [])
          |> assign(:configs, configs)
          |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
-         |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
+         |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
          |> schedule_ingress_status_refresh(configs)
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
@@ -455,7 +455,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      socket
      |> assign(:configs, configs)
      |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
-     |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
+     |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
      |> schedule_ingress_status_refresh(configs)
      |> maybe_put_runtime_sync_flash(
        sync_result,
@@ -470,7 +470,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       ) do
     with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
          %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
-         {:ok, configured_agent_id} <- validate_conversation_agent_id(raw_id),
+         {:ok, configured_agent_id} <- AgentRouting.validate_choice(raw_id),
          {:ok, updated} <-
            ChannelConfig.set_provider_default_agent_id(
              config,
@@ -485,7 +485,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
        socket
        |> assign(:configs, configs)
        |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
-       |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
+       |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
        |> schedule_ingress_status_refresh(configs)
        |> maybe_put_runtime_sync_flash(sync_result, "Provider default agent updated.")}
     else
@@ -501,10 +501,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       ) do
     with {:ok, rc_id} <- ParseUtils.parse_int_strict(id),
          %RetChannel{} = retrieval_channel <- Repo.get(RetChannel, rc_id),
-         {:ok, configured_agent_id} <- validate_conversation_agent_id(raw_id),
+         {:ok, configured_agent_id} <- AgentRouting.validate_choice(raw_id),
          {:ok, _updated} <-
            retrieval_channel
-           |> RetChannel.changeset(%{configured_agent_id: configured_agent_id})
+           |> RetChannel.changeset(retrieval_channel_agent_attrs(configured_agent_id))
            |> Repo.update() do
       config = first_enabled_config(socket)
 
@@ -903,28 +903,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     RetChannel.list_by_config(config.id)
   end
 
-  defp provider_default_agent_id(nil), do: nil
+  defp provider_default_agent_value(nil), do: ""
 
-  defp provider_default_agent_id(%ChannelConfig{} = config),
-    do: ChannelConfig.get_provider_default_agent_id(config)
+  defp provider_default_agent_value(%ChannelConfig{} = config),
+    do:
+      config
+      |> ChannelConfig.get_provider_agent_choice()
+      |> AgentRouting.select_value()
 
-  defp agent_options do
-    Agent.list_conversation_enabled_agents()
-    |> Enum.map(fn agent -> {agent.name, agent.id} end)
-  end
+  defp retrieval_channel_agent_attrs(:none),
+    do: %{agent_routing_mode: "none", configured_agent_id: nil}
 
-  defp validate_conversation_agent_id(raw_id) do
-    case ParseUtils.parse_optional_int(raw_id) do
-      nil ->
-        {:ok, nil}
+  defp retrieval_channel_agent_attrs(nil),
+    do: %{agent_routing_mode: nil, configured_agent_id: nil}
 
-      id ->
-        case Agent.get_conversation_enabled_agent(id) do
-          {:ok, _agent} -> {:ok, id}
-          _ -> {:error, :invalid_agent}
-        end
-    end
-  end
+  defp retrieval_channel_agent_attrs(id),
+    do: %{agent_routing_mode: "agent", configured_agent_id: id}
+
+  def retrieval_channel_agent_value(%RetChannel{agent_routing_mode: "none"}),
+    do: AgentRouting.none_value()
+
+  def retrieval_channel_agent_value(%RetChannel{configured_agent_id: configured_agent_id}),
+    do: AgentRouting.select_value(configured_agent_id)
 
   defp fetch_and_assign_channels(socket, cfg, team_id) do
     case mattermost_api().list_accessible_channels(cfg, team_id) do
@@ -1220,7 +1220,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     |> assign(:confirm_delete, nil)
     |> assign(:configs, configs)
     |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
-    |> assign(:provider_default_agent_id, provider_default_agent_id(first_config))
+    |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
     |> assign(:retrieval_channels, load_retrieval_channels(first_config))
     |> schedule_ingress_status_refresh(configs)
     |> put_flash(:info, flash_message)
