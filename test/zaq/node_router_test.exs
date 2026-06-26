@@ -670,6 +670,17 @@ defmodule Zaq.NodeRouterTest do
 
       assert_receive {:node_router_event, received_event}
       assert received_event.trace_id == event.trace_id
+      assert received_event.next_hop == event.next_hop
+      assert received_event.hops == event.hops
+    end
+
+    test "fire/1 broadcasts without routing" do
+      event = Event.new(%{module: String, function: :upcase, args: ["hello"]}, :bo)
+
+      assert NodeRouter.fire(event) == event
+
+      assert_receive {:node_router_event, ^event}
+      refute_receive {:node_router_event, _}
     end
 
     test "dispatch/1 still broadcasts when event name is nil" do

@@ -35,6 +35,7 @@ defmodule Zaq.Channels.RetrievalChannel do
     field :team_id, :string
     field :team_name, :string
     field :active, :boolean, default: true
+    field :agent_routing_mode, :string
 
     timestamps(type: :utc_datetime)
   end
@@ -48,9 +49,11 @@ defmodule Zaq.Channels.RetrievalChannel do
       :team_id,
       :team_name,
       :active,
+      :agent_routing_mode,
       :configured_agent_id
     ])
     |> validate_required([:channel_config_id, :channel_id, :channel_name, :team_id, :team_name])
+    |> validate_inclusion(:agent_routing_mode, ["none", "agent"], allow_nil: true)
     |> foreign_key_constraint(:channel_config_id)
     |> foreign_key_constraint(:configured_agent_id)
     |> unique_constraint([:channel_config_id, :channel_id],

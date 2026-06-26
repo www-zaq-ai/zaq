@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.CommunicationBridgeTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge}
+  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig, CommunicationBridge}
   alias Zaq.Repo
 
   defmodule StubBridge do
@@ -152,6 +152,11 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
         end
 
       %{event | response: response}
+    end
+
+    def fire(event) do
+      send(self(), {:node_router_fire, event})
+      event
     end
   end
 
@@ -820,12 +825,64 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     end
   end
 
+  describe "route_incoming_message/5" do
+    test "dispatches the canonical event when an agent resolves" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert %Zaq.Engine.Messages.Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent,
+                 channel_name: "Engineering Team"
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.request == msg
+      assert event.next_hop.destination == :agent
+      assert event.name == "channel_message_received.mattermost.engineering_team"
+      assert get_in(event.assigns, ["agent_selection", "agent_id"]) == 3
+      assert get_in(event.assigns, ["agent_selection", "source"]) == "channel_assignment"
+      refute_received {:node_router_fire, _}
+    end
+
+    test "fires without dispatch when NONE resolves" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert :ok =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [
+                   {:channel_assignment, AgentRouting.none_value()},
+                   {:global_default, "3"}
+                 ],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent,
+                 channel_name: "Engineering Team"
+               )
+
+      assert_received {:node_router_fire, event}
+      assert event.request == msg
+      assert event.next_hop.destination == :agent
+      assert event.name == "channel_message_received.mattermost.engineering_team"
+      refute Map.has_key?(event.assigns || %{}, "agent_selection")
+      refute_received {:node_router_dispatch, _}
+    end
+  end
+
   describe "first_active_selection/2" do
     test "returns first conversation-enabled candidate" do
       candidates = [{:channel_assignment, "1"}, {:provider_default, "3"}, {:global_default, "2"}]
 
       assert %{"agent_id" => 3, "source" => "provider_default"} =
-               CommunicationBridge.first_active_selection(candidates, StubAgent)
+               AgentRouting.first_active_selection(candidates, StubAgent)
     end
 
     test "returns nil when no candidate resolves to conversation-enabled agent" do
@@ -835,17 +892,27 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
         {:global_default, "2"}
       ]
 
-      assert is_nil(CommunicationBridge.first_active_selection(candidates, StubAgent))
+      assert is_nil(AgentRouting.first_active_selection(candidates, StubAgent))
+    end
+
+    test "NONE stops fallback resolution" do
+      candidates = [
+        {:channel_assignment, AgentRouting.none_value()},
+        {:global_default, "3"}
+      ]
+
+      assert is_nil(AgentRouting.first_active_selection(candidates, StubAgent))
+      assert {:ok, :none} = AgentRouting.resolve_selection(candidates, StubAgent)
     end
 
     test "uses default Zaq.Agent module when not provided" do
       candidates = [{:channel_assignment, "999"}]
 
       # Call with 1 arg (uses default Agent module via line 243)
-      assert is_nil(CommunicationBridge.first_active_selection(candidates))
+      assert is_nil(AgentRouting.first_active_selection(candidates))
 
       # Also call with explicit Zaq.Agent to exercise the default resolution path
-      assert is_nil(CommunicationBridge.first_active_selection(candidates, Zaq.Agent))
+      assert is_nil(AgentRouting.first_active_selection(candidates, Zaq.Agent))
     end
   end
 end
