@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-1xp"
+  ],
   "created": "2026-06-26T13:18:22Z",
   "description": "Broadcast original NodeRouter events before dispatch routing and add a fire-only API for workflow triggers.",
   "id": "zaq-jd5",

@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jd5"
+  ],
   "blocks": [],
   "created": "2026-06-26T13:18:22Z",
   "description": "Centralize channel message dispatch/fire selection and NONE agent resolution in CommunicationBridge.",
