@@ -5,15 +5,15 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
   DAG:
     get_sheet ──> extract_rows ──(rows not empty)──> process_rows
       process_rows (a `Batch` action, per-row fan-out over `items`):
-        process:      [iterate_rows → check_active, check_email_state, dispatch_lead]
+        process:      [check_active, check_email_state, dispatch_lead]
         post_process: [sleep_between]
 
   `process_rows` is a `type: "action"` `Batch` node — iteration is never authored
   as a public `map` type. `Batch` lowers itself onto the internal `map` primitive
-  at build time. The single `Iterate` marker inside `process` gives per-item
-  delivery, so each row becomes its own per-fork `StepRun` (`process_rows/<step>[i]`)
-  plus one aggregate row; `strategy: "skip_and_continue"` isolates a failing row
-  without aborting the run.
+  at build time. `delivery: "item"` makes each row its own fan-out unit, so each row
+  becomes its own per-fork `StepRun` (`process_rows/<step>[i]`) plus one aggregate
+  row; `strategy: "skip_and_continue"` isolates a failing row without aborting the
+  run.
 
   A lead qualifies when: active == true AND sequence < 4.
   Qualifying rows are dispatched as Zaq.Event payloads to :engine with name :lead_identified.
@@ -31,7 +31,6 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
   @dispatch_event_module "Zaq.Agent.Tools.Workflow.DispatchEvent"
   @sleep_module "Zaq.Agent.Tools.Workflow.Sleep"
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
-  @iterate_module "Zaq.Agent.Tools.Workflow.Iterate"
 
   @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
   @lead_identified_event "lead_identified"
@@ -108,54 +107,44 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
           # Iteration is expressed through the `Batch` action — never a public
           # `map` node. `Batch` lowers this onto the internal `map` primitive at
           # build time (per-row fan-out over `items`, supplied by the incoming
-          # edge mapping). A single `Iterate` marker wraps the per-item pipeline,
-          # giving per-item delivery so each row gets its own `StepRun`. The
-          # delivery field is read from the body's first action's input schema.
+          # edge mapping). `delivery: "item"` makes each row its own fan-out unit,
+          # so every row gets its own `StepRun`. The delivery field is read from
+          # the body's first action's input schema.
           params: %{
-            "batch_size" => 50,
+            "delivery" => "item",
             "strategy" => "skip_and_continue",
             "process" => [
               %{
-                "name" => "iterate_rows",
+                "name" => "check_active",
                 "type" => "action",
-                "module" => @iterate_module,
+                "module" => @condition_module,
                 "params" => %{
-                  "strategy" => "skip_and_continue",
-                  "pipeline" => [
-                    %{
-                      "name" => "check_active",
-                      "type" => "action",
-                      "module" => @condition_module,
-                      "params" => %{
-                        "conditions" => [%{"key" => "active", "value" => true}]
-                      }
-                    },
-                    %{
-                      "name" => "check_email_state",
-                      "type" => "action",
-                      "module" => @condition_module,
-                      "params" => %{
-                        "conditions" => [
-                          %{"key" => "sequence", "op" => "lt", "value" => 4, "default" => 0}
-                        ]
-                      }
-                    },
-                    %{
-                      "name" => "dispatch_lead",
-                      "type" => "action",
-                      "module" => @dispatch_event_module,
-                      "params" => %{
-                        "event_name" => to_string(@lead_identified_event),
-                        # Mark the dispatched run as a machine (actorless) run so the
-                        # SendLeadsEmail DAG's build_history step can fetch the lead's
-                        # history via its mapped person_id. NOTE: this is currently an
-                        # unconditional opt-in; per-principal authorization (who may
-                        # run/edit a workflow) is tracked under workflow resource
-                        # management.
-                        "machine" => true
-                      }
-                    }
+                  "conditions" => [%{"key" => "active", "value" => true}]
+                }
+              },
+              %{
+                "name" => "check_email_state",
+                "type" => "action",
+                "module" => @condition_module,
+                "params" => %{
+                  "conditions" => [
+                    %{"key" => "sequence", "op" => "lt", "value" => 4, "default" => 0}
                   ]
+                }
+              },
+              %{
+                "name" => "dispatch_lead",
+                "type" => "action",
+                "module" => @dispatch_event_module,
+                "params" => %{
+                  "event_name" => to_string(@lead_identified_event),
+                  # Mark the dispatched run as a machine (actorless) run so the
+                  # SendLeadsEmail DAG's build_history step can fetch the lead's
+                  # history via its mapped person_id. NOTE: this is currently an
+                  # unconditional opt-in; per-principal authorization (who may
+                  # run/edit a workflow) is tracked under workflow resource
+                  # management.
+                  "machine" => true
                 }
               }
             ],

@@ -366,20 +366,17 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       refute html =~ "#fffbeb"
     end
 
-    test "batch node with post_process and nested iterate renders inner section and post label" do
+    test "batch node renders its flat process steps and the post_process label" do
       node = %{
         name: "batch",
         type: "action",
         module: "Zaq.Agent.Tools.Workflow.Batch",
         index: 0,
         params: %{
+          "delivery" => "item",
           "process" => [
             %{"name" => "plain_step", "module" => "SomeMod"},
-            %{
-              "name" => "iter_step",
-              "module" => "Zaq.Agent.Tools.Workflow.Iterate",
-              "params" => %{"pipeline" => [%{"name" => "inner_1"}, %{"name" => "inner_2"}]}
-            }
+            %{"name" => "another_step", "module" => "OtherMod"}
           ],
           "post_process" => [%{"name" => "post_1", "module" => "SomePost"}]
         }
@@ -387,25 +384,23 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
 
       html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
       assert html =~ "POST PROCESS"
-      assert html =~ "inner_1"
-      assert html =~ "inner_2"
-      assert html =~ "marker-end=\"url(#dag-arr)\""
+      assert html =~ "plain_step"
+      assert html =~ "another_step"
     end
 
-    test "standalone iterate node renders stacked mini nodes with arrows" do
+    test "map node renders its body pipeline as stacked mini nodes" do
       node = %{
-        name: "iter",
-        type: "action",
-        module: "Zaq.Agent.Tools.Workflow.Iterate",
+        name: "m",
+        type: "map",
         index: 0,
-        params: %{"pipeline" => [%{"name" => "a"}, %{"name" => "b"}, %{"name" => "c"}]}
+        params: %{"body" => [%{"name" => "a"}, %{"name" => "b"}, %{"name" => "c"}]}
       }
 
       html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
+      assert html =~ "MAP"
       assert html =~ "a"
       assert html =~ "b"
       assert html =~ "c"
-      assert html =~ "marker-end=\"url(#dag-arr)\""
     end
   end
 
@@ -512,7 +507,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
     end
   end
 
-  describe "batch_step_card/1 and iterate_step_card/1" do
+  describe "batch_step_card/1" do
     test "batch_step_card renders running live chunk progress counters" do
       step = %{
         id: "sr-b1",
@@ -536,7 +531,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
             successful_chunks: 1,
             failed_chunks: 1
           },
-          iterate_progress: nil,
+          step_runs: [],
           node_params: %{"process" => [%{"name" => "p1"}]}
         )
 
@@ -544,7 +539,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ "Chunks"
     end
 
-    test "batch_step_card renders completed chunk results summary" do
+    test "batch_step_card renders the completed aggregate ok/failed counts" do
+      # New map-summary shape: results["results"] is the list of per-fork summaries,
+      # results["errors"] the failed forks. The top "Chunks" bar derives ok/✗ from them.
       step = %{
         id: "sr-b2",
         step_name: "batch_done",
@@ -557,8 +554,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
         finished_at: ~U[2024-01-01 00:00:02Z],
         results: %{
           "results" => [
-            %{"results" => [%{"id" => 1}], "errors" => [%{"index" => 2, "reason" => "boom"}]}
-          ]
+            %{"index" => 0, "status" => "completed", "result" => %{}},
+            %{"index" => 2, "status" => "completed", "result" => %{}}
+          ],
+          "errors" => [%{"index" => 1, "reason" => "boom"}],
+          "count" => 3
         }
       }
 
@@ -566,12 +566,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
         render_component(&WorkflowComponents.batch_step_card/1,
           step: step,
           batch_progress: nil,
-          iterate_progress: nil,
+          step_runs: [],
           node_params: %{}
         )
 
-      assert html =~ "Chunk Results (1)"
-      assert html =~ "✓ 1"
+      assert html =~ "Chunks"
+      assert html =~ "✓ 2"
       assert html =~ "✗ 1"
     end
 
@@ -600,15 +600,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
             phase: :process,
             current_step: 0
           },
-          iterate_progress: %{current_item: 1, total_items: 2, current_step: 0},
+          step_runs: [],
           node_params: %{
+            "delivery" => "item",
             "process" => [
               %{"name" => "p1", "module" => "Some.Step"},
-              %{
-                "name" => "p2_iter",
-                "module" => "Zaq.Agent.Tools.Workflow.Iterate",
-                "params" => %{"pipeline" => [%{"name" => "ip1"}, %{"name" => "ip2"}]}
-              }
+              %{"name" => "p2", "module" => "Other.Step"}
             ],
             "post_process" => [%{"name" => "post1", "module" => "Some.Post"}]
           }
@@ -616,88 +613,82 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
 
       assert html =~ "Process"
       assert html =~ "Post"
-      assert html =~ "ip1"
-      assert html =~ "ip2"
+      assert html =~ "p1"
+      assert html =~ "p2"
       assert html =~ "Input"
     end
 
-    test "iterate_step_card renders running iterate progress counters" do
+    test "batch_step_card lists per-fork runs with their logs" do
       step = %{
-        id: "sr-i1",
-        step_name: "iterate_step",
-        step_index: 0,
-        status: "running",
-        logs: [],
-        results: %{},
-        input: %{},
-        errors: nil,
-        started_at: DateTime.utc_now(),
-        finished_at: nil
-      }
-
-      html =
-        render_component(&WorkflowComponents.iterate_step_card/1,
-          step: step,
-          iterate_progress: %{current_item: 3, total_items: 7, current_step: 0},
-          node_params: %{"pipeline" => [%{"name" => "a1"}, %{"name" => "a2"}]}
-        )
-
-      assert html =~ "3 / 7"
-      assert html =~ "Items"
-    end
-
-    test "iterate_step_card renders pipeline chips and collapsible input/output sections" do
-      step = %{
-        id: "sr-i3",
-        step_name: "iterate_done",
+        id: "sr-bf",
+        step_name: "batch_fork",
         step_index: 0,
         status: "completed",
-        logs: [%{"event" => "step_ok", "reason" => "ok"}],
+        logs: [],
         results: %{"results" => [%{"id" => 1}], "errors" => []},
-        input: %{"payload" => "abc"},
+        input: %{},
         errors: nil,
         started_at: ~U[2024-01-01 00:00:00Z],
-        finished_at: ~U[2024-01-01 00:00:01Z]
+        finished_at: ~U[2024-01-01 00:00:02Z]
       }
 
+      # Two fan-out units (indices 0 and 1), each with two body steps. The list
+      # groups by index — every [0] row together, then every [1] row together —
+      # not by body-step name.
+      forks = [
+        %{
+          id: "f0a",
+          step_name: "batch_fork/check[0]",
+          step_index: 0,
+          status: "completed",
+          logs: [%{"event" => "step_ok", "reason" => "ok0"}],
+          errors: nil,
+          started_at: ~U[2024-01-01 00:00:00Z],
+          finished_at: ~U[2024-01-01 00:00:01Z]
+        },
+        %{
+          id: "f0b",
+          step_name: "batch_fork/dispatch[0]",
+          step_index: 0,
+          status: "completed",
+          logs: [%{"event" => "step_ok", "reason" => "sent"}],
+          errors: nil,
+          started_at: ~U[2024-01-01 00:00:01Z],
+          finished_at: ~U[2024-01-01 00:00:02Z]
+        },
+        %{
+          id: "f1a",
+          step_name: "batch_fork/check[1]",
+          step_index: 0,
+          status: "failed_fatal",
+          logs: [],
+          errors: %{"reason" => "boom"},
+          started_at: ~U[2024-01-01 00:00:00Z],
+          finished_at: ~U[2024-01-01 00:00:01Z]
+        }
+      ]
+
       html =
-        render_component(&WorkflowComponents.iterate_step_card/1,
+        render_component(&WorkflowComponents.batch_step_card/1,
           step: step,
-          iterate_progress: nil,
-          node_params: %{"pipeline" => [%{"name" => "first"}, %{"name" => "second"}]}
+          batch_progress: nil,
+          step_runs: forks,
+          node_params: %{"delivery" => "item", "process" => [%{"name" => "dispatch"}]}
         )
 
-      assert html =~ "Pipeline (per item)"
-      assert html =~ "first"
-      assert html =~ "second"
-      assert html =~ "Input"
-      assert html =~ "Output"
+      # Two index groups → count is the number of fan-out units, not rows.
+      assert html =~ "Per-fork runs (2)"
+      assert html =~ "Fork #0"
+      assert html =~ "Fork #1"
+      assert html =~ "batch_fork/dispatch[0]"
+      assert html =~ "batch_fork/check[1]"
       assert html =~ "step_ok"
-    end
+      assert html =~ "boom"
+      assert html =~ "per item"
 
-    test "iterate_step_card renders failed error panel when errors exist" do
-      step = %{
-        id: "sr-i2",
-        step_name: "iterate_failed",
-        step_index: 0,
-        status: "failed",
-        logs: [],
-        results: %{},
-        input: %{},
-        errors: %{"reason" => "broken"},
-        started_at: ~U[2024-01-01 00:00:00Z],
-        finished_at: ~U[2024-01-01 00:00:01Z]
-      }
-
-      html =
-        render_component(&WorkflowComponents.iterate_step_card/1,
-          step: step,
-          iterate_progress: nil,
-          node_params: %{}
-        )
-
-      assert html =~ "Error"
-      assert html =~ "broken"
+      # Index grouping: both [0] rows precede the [1] row.
+      assert :binary.match(html, "batch_fork/dispatch[0]") <
+               :binary.match(html, "batch_fork/check[1]")
     end
   end
 end

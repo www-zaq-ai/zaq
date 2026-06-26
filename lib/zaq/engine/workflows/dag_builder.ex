@@ -36,24 +36,21 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   orchestrator: `enrich_nodes/1` calls `Batch.enrich/2`, which rewrites the Batch
   node into a general `"map"` node before the node map is built. Iteration,
   chunking, per-fork visibility, strategies, and error isolation all live in the
-  `map` lowering (see "map node lowering" below). `Iterate` no longer exists as a
-  runtime module — it survives only as an inline `process` marker that
-  `Batch.enrich/2` unwraps into the map body.
+  `map` lowering (see "map node lowering" below). Delivery mode is the explicit
+  `delivery` param (`"item"` | `"list"`) — there is no `Iterate` wrapper node.
 
-  A Batch node declares its sub-pipeline as **inline node maps** inside `params`:
+  A Batch node declares its sub-pipeline as a flat **inline node map** pipeline
+  inside `params`:
 
       %{
         "name" => "batch_contacts",
         "type" => "action",
         "module" => "Zaq.Agent.Tools.Workflow.Batch",
         "params" => %{
-          "batch_size" => 4,
+          "delivery"   => "item",            # or "list" (per-chunk, the default)
+          "batch_size" => 4,                 # chunk width for "list"
           "strategy"   => "skip_and_continue",
-          "process" => [
-            %{"name" => "iterate_contacts", "type" => "action",
-              "module" => "Zaq.Agent.Tools.Workflow.Iterate",
-              "params" => %{"pipeline" => [ ...inline body nodes... ]}}
-          ],
+          "process" => [ ...inline body nodes... ],
           "post_process" => [ ...inline tail nodes... ]
         },
         "index" => 1
