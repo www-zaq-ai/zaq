@@ -196,13 +196,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
              is_hitl: is_hitl,
              is_batch: is_batch,
              is_map: is_map,
+             is_start: is_start,
              inner: inner,
              separator_y: separator_y
            } ->
           sr = Map.get(run_idx, name)
           # A `map`/`Batch` node gets the iteration visual treatment (teal, dashed,
-          # vertical body-step stack) since it is the iteration primitive.
-          {fill, stroke, tc} = dag_node_colors(sr, is_hitl, is_batch, is_map)
+          # vertical body-step stack) since it is the iteration primitive. The
+          # virtual `start` origin gets its own indigo "trigger" styling.
+          {fill, stroke, tc} = dag_node_colors(sr, is_hitl, is_batch, is_map, is_start)
           label = if String.length(name) > 17, do: String.slice(name, 0, 14) <> "…", else: name
 
           %{
@@ -218,6 +220,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             is_hitl: is_hitl,
             is_batch: is_batch,
             is_map: is_map,
+            is_start: is_start,
             inner: inner,
             separator_y: separator_y
           }
@@ -515,6 +518,74 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     </div>
     """
   end
+
+  @doc """
+  Detail card for the virtual `start` origin node. Shows the run's trigger
+  payload — the `source_event` input that seeds the `start` namespace — since
+  `start` has no `StepRun` of its own.
+  """
+  attr :run, :map, required: true
+
+  def start_input_card(assigns) do
+    assigns =
+      assigns
+      |> assign(:input, source_event_input(assigns.run))
+      |> assign(:trigger_type, source_event_trigger_type(assigns.run))
+
+    ~H"""
+    <div class="bg-white rounded-xl border border-black/[0.08] overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-black/[0.06] bg-indigo-50/60">
+        <div class="flex items-center gap-3">
+          <span class="font-mono text-[0.85rem] font-semibold text-indigo-700">start</span>
+          <span
+            :if={@trigger_type}
+            class="font-mono text-[0.62rem] text-indigo-500 uppercase tracking-wider"
+          >
+            {@trigger_type} trigger
+          </span>
+        </div>
+      </div>
+
+      <div class="px-5 py-3">
+        <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-2">
+          Trigger input
+        </p>
+        <p
+          :if={map_size(@input) == 0}
+          class="font-mono text-[0.8rem] text-black/40 py-2"
+        >
+          No trigger input recorded.
+        </p>
+        <ZaqWeb.Components.JsonTree.json_tree
+          :if={map_size(@input) > 0}
+          id="jt-start-input"
+          data={@input}
+        />
+      </div>
+    </div>
+    """
+  end
+
+  # The trigger payload that seeds the run's `start` namespace, read from the
+  # persisted `source_event.assigns.input` (atom keys, with a string fallback).
+  defp source_event_input(%{source_event: %{assigns: assigns}}) when is_map(assigns) do
+    case Map.get(assigns, :input) || Map.get(assigns, "input") do
+      input when is_map(input) -> input
+      _ -> %{}
+    end
+  end
+
+  defp source_event_input(_run), do: %{}
+
+  defp source_event_trigger_type(%{source_event: %{assigns: assigns}}) when is_map(assigns) do
+    case Map.get(assigns, :trigger_type) || Map.get(assigns, "trigger_type") do
+      nil -> nil
+      "" -> nil
+      type -> to_string(type)
+    end
+  end
+
+  defp source_event_trigger_type(_run), do: nil
 
   @doc "A single structured log entry row from a step run's logs list."
   attr :log, :map, required: true
@@ -1250,6 +1321,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
           is_hitl: hitl_module?(mod),
           is_batch: batch_module?(mod),
           is_map: nf(n, "type") == "map",
+          is_start: false,
           params: nf(n, "params") || %{}
         }
       end)
@@ -1257,6 +1329,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     edges =
       Enum.map(raw_edges, fn e -> %{from: nf(e, "from"), to: nf(e, "to")} end)
       |> Enum.filter(&(&1.from && &1.to))
+
+    # Surface the virtual `start` origin when any edge fans out from the start
+    # sentinel, so the trigger origin is visible (and selectable) in the DAG.
+    {nodes, edges} = maybe_inject_start_node(nodes, edges)
 
     if nodes == [] do
       %{nodes: [], pos: %{}, edges: [], width: 200, height: 80}
@@ -1300,6 +1376,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             is_hitl: node.is_hitl,
             is_batch: node.is_batch,
             is_map: node.is_map,
+            is_start: node.is_start,
             inner: inner,
             separator_y: @dag_node_h
           }
@@ -1311,6 +1388,36 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         positioned |> Enum.map(fn n -> n.y + n.h end) |> Enum.max() |> Kernel.+(@dag_pad_y)
 
       %{nodes: positioned, pos: pos_map, edges: edges, width: total_w, height: actual_h}
+    end
+  end
+
+  # The reserved sentinel `from` name for the virtual trigger origin. Mirrors
+  # `Zaq.Engine.Workflows.DagBuilder`'s start sentinel.
+  @start_sentinel "start"
+
+  # When the DAG branches off `from: "start"` edges there is no real node behind
+  # them, so neither the origin nor its edges render. Inject a synthetic origin
+  # node (index -1 → leveled above its targets) so the trigger is shown and can
+  # be selected to reveal the run's input payload.
+  defp maybe_inject_start_node(nodes, edges) do
+    fans_from_start? = Enum.any?(edges, &(&1.from == @start_sentinel))
+    has_start_node? = Enum.any?(nodes, &(&1.name == @start_sentinel))
+
+    if fans_from_start? and not has_start_node? do
+      start_node = %{
+        name: @start_sentinel,
+        type: @start_sentinel,
+        index: -1,
+        is_hitl: false,
+        is_batch: false,
+        is_map: false,
+        is_start: true,
+        params: %{}
+      }
+
+      {[start_node | nodes], edges}
+    else
+      {nodes, edges}
     end
   end
 
@@ -1341,7 +1448,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   # Node colour selection: status colours override type colours so a running batch
   # node shows blue (running), not its default purple.
-  defp dag_node_colors(sr, is_hitl, is_batch, is_map) do
+  # The virtual `start` origin is always styled as a trigger pill (indigo),
+  # independent of run status — it has no StepRun of its own.
+  defp dag_node_colors(_sr, _is_hitl, _is_batch, _is_map, true),
+    do: {"#eef2ff", "#6366f1", "#4338ca"}
+
+  defp dag_node_colors(sr, is_hitl, is_batch, is_map, _is_start) do
     dag_status_colors(nf(sr, "status"), is_hitl) ||
       dag_type_colors(is_batch, is_map)
   end
