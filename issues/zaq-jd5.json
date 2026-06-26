@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-26T13:18:22Z",
+  "description": "Broadcast original NodeRouter events before dispatch routing and add a fire-only API for workflow triggers.",
+  "id": "zaq-jd5",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[channel-routing-1] Align NodeRouter fire and dispatch trigger events",
+  "type": "task",
+  "updated_at": "2026-06-26T13:18:22Z"
+}
