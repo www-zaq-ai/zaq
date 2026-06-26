@@ -544,7 +544,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert :ok = EmailBridge.from_listener(prepared, payload, sink_opts)
       assert_received {:node_router_fire_event, event}
       assert event.request.content == "incoming"
-      assert event.name == "channel_message_received.email_imap.inbox"
+      assert event.name == "channels:message_received.email_imap.unknown"
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
       refute_received {:node_router_run_pipeline_event, _}
     end
