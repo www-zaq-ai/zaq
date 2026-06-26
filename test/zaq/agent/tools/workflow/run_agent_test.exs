@@ -279,6 +279,50 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     end
   end
 
+  # The substitution regex is ~r/\{\{(\w+)\}\}/, and \w is [A-Za-z0-9_] — it does
+  # NOT include spaces. So a placeholder must use a single-token name like
+  # `company_summary`; `{{company summary}}` (with a space) never matches and is
+  # left verbatim in the prompt. This pins that contract.
+  describe "run/2 — placeholder tokens cannot contain spaces" do
+    test "{{company summary}} (with a space) is NOT substituted, even when the value is present" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          # Value supplied under the spaced key — it must still NOT be injected.
+          "company summary" => "Acme builds rockets.",
+          agent_id: agent.id,
+          input:
+            "Based on the following company summary: {{company summary}}, write a concise list of the top services ZAQ can provide to this business and for each provide a clear benefit and a short explanation of how is it relevant."
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      # The spaced placeholder is left untouched (verbatim), not replaced.
+      assert event.request.content =~ "{{company summary}}"
+      refute event.request.content =~ "Acme builds rockets."
+    end
+
+    test "{{company_summary}} (underscore) IS substituted" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input:
+            "Based on the following company summary: {{company_summary}}, write a concise list of the top services ZAQ can provide to this business and for each provide a clear benefit and a short explanation of how is it relevant.",
+          company_summary: "Acme builds rockets."
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.content =~ "company summary: Acme builds rockets., write"
+      refute event.request.content =~ "{{"
+    end
+  end
+
   describe "run/2 — nested map (row) flattening" do
     test "flattens row map fields into substitution vars" do
       agent = create_agent()

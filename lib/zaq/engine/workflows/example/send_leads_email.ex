@@ -46,6 +46,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   """
 
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.UseCases.Helper
 
   @ensure_person_module "Zaq.Agent.Tools.People.EnsurePerson"
   @build_history_module "Zaq.Agent.Tools.Accounts.History"
@@ -65,12 +66,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   """
   @spec create(keyword()) :: {:ok, Workflows.Workflow.t()} | {:error, term()}
   def create(opts \\ []) do
-    Zaq.Repo.transaction(fn ->
-      {:ok, workflow} = Workflows.create_workflow(build(opts))
-      {:ok, trigger} = Workflows.create_trigger(%{event_name: @event_name})
-      {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, workflow)
-      workflow
-    end)
+    Helper.create_workflow_with_trigger(build(opts), %{event_name: @event_name})
   end
 
   @doc """
