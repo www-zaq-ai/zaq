@@ -6,6 +6,16 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   Triggered by: `:lead_identified` event (dispatched as `Zaq.Event` to :engine).
   The event payload (= the Google Sheet row) is the initial input to the run.
 
+  ## The `start` namespace (trigger payload contract)
+
+  The trigger payload is kept for the whole run in the persistent `start`
+  namespace — a virtual origin node whose "output" is the row that triggered the
+  run. Any edge `mapping` can read a field from it via a `start.<field>` dotted
+  path, exactly as it reads a real upstream node's output (e.g. `draft_email.output`).
+  This decouples downstream steps from any single node having to echo the row:
+  `start.sequence` and `start.row_index` below come straight from the trigger,
+  not from `ensure_person`.
+
   DAG (linear):
     ensure_person
       → build_history
@@ -17,13 +27,13 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
       → build_values          ← Workflow.Concat — wraps the value as a [[value]] matrix
       → update_sheet_row      ← UpdateSheetValues range mode (range/values)
 
-  Row shape expected from the sheet (flat fields flow through the whole DAG):
+  Row shape expected from the trigger (each field readable as `start.<field>`):
     %{
       "email"        => "lead@example.com",
       "name"         => "John Doe",
       "company"      => "Acme Corp",
-      "sequence"     => 2,        # current sequence counter
-      "row_index"    => 5,        # 1-based sheet row number
+      "sequence"     => 2,        # current sequence counter  → start.sequence
+      "row_index"    => 5,        # 1-based sheet row number   → start.row_index
       "position"     => "CTO",    # optional enrichment
       "industry"     => "SaaS",   # optional enrichment
       "size"         => "50-200", # optional enrichment
@@ -184,12 +194,12 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           from: "send_email",
           to: "increment_email_state",
           condition: %{"field" => "notified", "op" => "eq", "value" => true},
-          mapping: %{"value" => "ensure_person.row.sequence"}
+          mapping: %{"value" => "start.sequence"}
         },
         %{
           from: "increment_email_state",
           to: "build_range",
-          mapping: %{"row" => "ensure_person.row.row_index"}
+          mapping: %{"row" => "start.row_index"}
         },
         %{
           from: "build_range",
