@@ -167,6 +167,11 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       %{event | response: response}
     end
+
+    def fire(event) do
+      send(self(), {:node_router_fire_event, event})
+      event
+    end
   end
 
   defmodule StubAdapterOutbound do
@@ -1466,6 +1471,50 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
       assert_received {:node_router_run_pipeline_event, event}
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
+    end
+
+    test "NONE channel assignment fires trigger event without agent dispatch" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      provider_agent = insert_configured_agent(true)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => provider_agent.id}}
+        })
+
+      insert_retrieval_channel(config.id,
+        channel_id: "room-none",
+        channel_name: "No Agent",
+        team_id: "team-1",
+        team_name: "Team",
+        agent_routing_mode: "none"
+      )
+
+      incoming = %ChatIncoming{
+        text: "trigger only",
+        external_room_id: "room-none",
+        external_thread_id: nil,
+        external_message_id: "msg-none",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+      assert_received {:node_router_fire_event, event}
+      assert event.request.content == "trigger only"
+      assert event.name == "channel_message_received.mattermost.no_agent"
+      refute Map.has_key?(event.assigns || %{}, "agent_selection")
+      refute_received {:node_router_run_pipeline_event, _}
     end
 
     test "resolve_agent_selection/3 ignores channel assignments when config id is unavailable" do

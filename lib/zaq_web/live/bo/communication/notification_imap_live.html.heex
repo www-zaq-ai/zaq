@@ -190,13 +190,13 @@
                 name="imap_config[provider_default_agent_id]"
                 class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#0284c7]/20 focus:border-[#0284c7] transition-all"
               >
-                <option value="" selected={is_nil(@provider_default_agent_id)}>
+                <option value="" selected={@provider_default_agent_value == ""}>
                   No default agent
                 </option>
                 <option
                   :for={{name, id} <- @agent_options}
                   value={id}
-                  selected={to_string(@provider_default_agent_id || "") == to_string(id)}
+                  selected={@provider_default_agent_value == to_string(id)}
                 >
                   {name}
                 </option>
@@ -276,7 +276,7 @@
                 >
                   <option
                     value=""
-                    selected={is_nil(Map.get(@mailbox_agent_assignments, mailbox))}
+                    selected={mailbox_agent_value(@mailbox_agent_assignments, mailbox) == ""}
                   >
                     Use fallback
                   </option>
@@ -284,8 +284,7 @@
                     :for={{name, id} <- @agent_options}
                     value={id}
                     selected={
-                      to_string(Map.get(@mailbox_agent_assignments, mailbox) || "") ==
-                        to_string(id)
+                      mailbox_agent_value(@mailbox_agent_assignments, mailbox) == to_string(id)
                     }
                   >
                     {name}

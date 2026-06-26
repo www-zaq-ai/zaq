@@ -42,15 +42,15 @@ defmodule Zaq.Types.WorkflowEvent do
   @impl true
   def dump(%Event{} = event) do
     map = %{
-      "request" => event.request,
-      "assigns" => event.assigns,
-      "response" => event.response,
+      "request" => dump_value(event.request),
+      "assigns" => dump_value(event.assigns),
+      "response" => dump_value(event.response),
       "hops" => Enum.map(event.hops || [], &dump_hop/1),
       "next_hop" => dump_hop(event.next_hop),
       "trace_id" => event.trace_id,
-      "opts" => event.opts,
+      "opts" => dump_value(event.opts),
       "version" => event.version,
-      "actor" => event.actor
+      "actor" => dump_value(event.actor)
     }
 
     {:ok, map}
@@ -70,6 +70,32 @@ defmodule Zaq.Types.WorkflowEvent do
   end
 
   defp dump_hop(map) when is_map(map), do: map
+
+  defp dump_value(%_struct{} = value) do
+    value
+    |> Map.from_struct()
+    |> dump_value()
+  end
+
+  defp dump_value(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {dump_key(key), dump_value(value)} end)
+  end
+
+  defp dump_value(list) when is_list(list) do
+    Enum.map(list, &dump_value/1)
+  end
+
+  defp dump_value(tuple) when is_tuple(tuple) do
+    tuple
+    |> Tuple.to_list()
+    |> dump_value()
+  end
+
+  # defp dump_value(atom) when is_atom(atom), do: Atom.to_string(atom)
+  defp dump_value(value), do: value
+
+  # defp dump_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp dump_key(key), do: key
 
   @impl true
   def load(map) when is_map(map) do
