@@ -2,14 +2,25 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   @moduledoc """
   Checks that all specified key/value conditions hold on an input map.
 
-  If every condition passes, the action returns `{:ok, %{passed: true, input: input}}`.
+  The behaviour on success and failure depends on `on_fail`:
 
-  When one or more conditions fail the behaviour depends on `on_fail`:
+  - `:halt` (default) — the **linear-guard** mode. All conditions pass →
+    `{:ok, %{passed: true, input: input}}` (the input is passed through so the next
+    step in the chain can read it). One or more fail → `{:error, reason}` where
+    `reason` is a human-readable sentence naming each failed field, its expected
+    value, and the actual value — e.g.
+    `Condition not met: position must equal "CFO" but was "CTO"` — which stops the
+    workflow step and is shown verbatim in the run view.
+  - `:continue` — the **routing** mode (if/else branching). Returns
+    `{:ok, %{passed: true}}` or `{:ok, %{passed: false, failed_conditions: [...]}}` so
+    downstream **edges** route on the `passed` flag (node evaluates, edge routes).
+    `input` is deliberately **omitted** here: passing a generic `input` through would
+    clobber a downstream node's own `input` param (the fact wins on a key collision —
+    e.g. `RunAgent`'s prompt template). The evaluated data is still reachable via
+    cascade (`<node>.input.*`) and the persistent `start.*` namespace.
 
-  - `:halt` (default) — returns `{:error, "condition_failed:<keys>"}`
-    (e.g. `"condition_failed:active,flagged"`) which stops the workflow step.
-  - `:continue` — returns `{:ok, %{passed: false, failed_conditions: [...], input: input}}`
-    so downstream steps can branch on the `passed` flag.
+  `on_fail` may be given as an atom (`:halt` / `:continue`) or, when authored in a
+  persisted workflow, as the equivalent string (`"halt"` / `"continue"`).
 
   ## Condition format
 
@@ -18,8 +29,11 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
       %{"key" => "active", "value" => true}
       %{"key" => "flagged", "value" => false}
 
-  Keys are looked up using both atom and string forms so the tool works with
-  atom-keyed or string-keyed maps transparently.
+  Keys are resolved through `Zaq.Engine.Workflows.FactLookup` — the same cascade-aware
+  resolver edges use — so besides plain top-level keys a `"key"` may reference a
+  node-qualified result (`"store_context.record.id"`) or the persistent trigger
+  namespace (`"start.company website"`). Both atom and string key forms resolve, so
+  the tool works against in-memory and JSONB-rehydrated facts transparently.
 
   ## Example
 
@@ -59,25 +73,34 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     ],
     output_schema: [
       passed: [type: :boolean, required: true, doc: "true if all conditions matched."],
-      input: [type: :map, required: true, doc: "The original input map, passed through."],
+      input: [
+        type: :map,
+        required: false,
+        doc:
+          "The original input map, passed through — present only in :halt mode. In :continue " <>
+            "(routing) mode it is omitted so it cannot clobber a downstream node's own `input` " <>
+            "param; the data stays reachable via cascade (`<node>.input.*`)."
+      ],
       failed_conditions: [
         type: {:list, :any},
         required: false,
-        doc: "Conditions that did not match. Present only when passed: false."
+        doc: "Conditions that did not match. Present only when passed: false (continue mode)."
       ]
     ]
 
   alias Zaq.Engine.Workflows.EdgeCondition
+  alias Zaq.Engine.Workflows.FactLookup
 
   require Logger
 
   @impl Jido.Action
   def run(params, context) do
     conditions = Map.get(params, :conditions, [])
-    on_fail = Map.get(params, :on_fail, :halt)
+    on_fail = normalize_on_fail(Map.get(params, :on_fail))
     input = resolve_input(params)
+    eval_map = eval_map(input, context)
 
-    failed = Enum.reject(conditions, &condition_passes?(&1, input))
+    failed = Enum.reject(conditions, &condition_passes?(&1, eval_map))
 
     Logger.debug("[condition] evaluated",
       run_id: Map.get(context, :run_id),
@@ -86,21 +109,62 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     )
 
     cond do
+      # Routing mode (`:continue`) emits ONLY the routing signal. Passing a generic
+      # `input` through would clobber a downstream node's own `input` param (e.g.
+      # RunAgent's prompt template), since the fact wins on a key collision. The
+      # evaluated data stays reachable downstream via cascade (`<node>.input.*`) and
+      # the persistent `start.*` namespace — node evaluates, edges route.
+      on_fail == :continue ->
+        {:ok, routing_result(failed)}
+
       failed == [] ->
         {:ok, %{passed: true, input: input}}
 
-      on_fail == :continue ->
-        {:ok, %{passed: false, failed_conditions: failed, input: input}}
-
       true ->
-        failed_keys =
-          Enum.map_join(failed, ",", fn c ->
-            Map.get(c, "key") || Map.get(c, :key) || "unknown"
-          end)
-
-        {:error, "condition_failed:#{failed_keys}"}
+        {:error,
+         "Condition not met: " <> Enum.map_join(failed, "; ", &describe_failure(&1, eval_map))}
     end
   end
+
+  defp routing_result([]), do: %{passed: true}
+  defp routing_result(failed), do: %{passed: false, failed_conditions: failed}
+
+  # Builds one human-readable clause per failed condition, e.g.
+  # `position must equal "CFO" but was "CTO"`. Names the field, what was expected,
+  # and the actual value, so the run-view error is self-explanatory.
+  defp describe_failure(condition, eval_map) do
+    field = get_field(condition, "key") || "field"
+    op = (get_field(condition, "op") || "eq") |> to_op()
+    expected = get_field(condition, "value")
+    phrase(field, op, expected, actual_value(condition, eval_map))
+  end
+
+  defp actual_value(condition, eval_map) do
+    case FactLookup.fetch(eval_map, get_field(condition, "key")) do
+      {:ok, value} -> value
+      :error -> get_field(condition, "default")
+    end
+  end
+
+  defp phrase(field, :not_empty, _expected, _actual), do: "#{field} must not be empty"
+
+  defp phrase(field, :empty, _expected, actual),
+    do: "#{field} must be empty but was #{render(actual)}"
+
+  defp phrase(field, op, expected, actual),
+    do: "#{field} #{op_phrase(op)} #{render(expected)} but was #{render(actual)}"
+
+  defp op_phrase(:eq), do: "must equal"
+  defp op_phrase(:neq), do: "must not equal"
+  defp op_phrase(:gt), do: "must be greater than"
+  defp op_phrase(:lt), do: "must be less than"
+  defp op_phrase(:gte), do: "must be at least"
+  defp op_phrase(:lte), do: "must be at most"
+  defp op_phrase(:in), do: "must be one of"
+  defp op_phrase(op), do: "must satisfy #{op}"
+
+  defp render(nil), do: "empty"
+  defp render(value), do: inspect(value)
 
   # The map to evaluate conditions against:
   #   - an explicit `:input` (mid-DAG: the upstream node produced it), else
@@ -114,12 +178,39 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     end
   end
 
-  defp condition_passes?(condition, input) do
+  # The evaluation map is the resolved input augmented with the run's `__cascade__`
+  # (handed through `context` by `StepRunner`), so a condition `key` can reference a
+  # node-qualified result (`store_context.record.id`) or the persistent `start.*`
+  # namespace — not just a top-level key. The original `input` is returned to callers
+  # unchanged; only this lookup view carries the cascade.
+  defp eval_map(input, context) when is_map(input) do
+    case cascade(context) do
+      cascade when is_map(cascade) and map_size(cascade) > 0 ->
+        Map.put(input, :__cascade__, cascade)
+
+      _ ->
+        input
+    end
+  end
+
+  defp eval_map(input, _context), do: input
+
+  # `context` is always the action context map injected by `StepRunner` (or `%{}`).
+  defp cascade(context),
+    do: Map.get(context, :__cascade__) || Map.get(context, "__cascade__") || %{}
+
+  # `on_fail` arrives as an atom (direct calls / tests) or a string (authored in
+  # JSONB — `DagBuilder.atomize_keys` atomizes keys but leaves values as strings).
+  # Accept both; default to `:halt` when absent or unrecognized.
+  defp normalize_on_fail(value) when value in [:continue, "continue"], do: :continue
+  defp normalize_on_fail(_value), do: :halt
+
+  defp condition_passes?(condition, eval_map) do
     key = get_field(condition, "key")
     value = get_field(condition, "value")
     op = (get_field(condition, "op") || "eq") |> to_op()
 
-    case fetch_value(input, key) do
+    case FactLookup.fetch(eval_map, key) do
       {:ok, actual} ->
         EdgeCondition.evaluate(op, actual, value)
 
@@ -140,46 +231,4 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
 
   defp to_op(op) when is_atom(op), do: op
   defp to_op(op) when is_binary(op), do: String.to_existing_atom(op)
-
-  # A dotted key (e.g. "start.position") traverses namespaces in the eval map:
-  # each segment is looked up with atom/string fallback, descending into nested
-  # maps. A plain key is looked up directly (string first, then atom form).
-  defp fetch_value(map, key) when is_binary(key) do
-    if String.contains?(key, ".") do
-      fetch_path(map, String.split(key, "."))
-    else
-      fetch_flat(map, key)
-    end
-  end
-
-  defp fetch_value(map, key) when is_atom(key) do
-    case Map.fetch(map, key) do
-      {:ok, _} = hit -> hit
-      :error -> Map.fetch(map, Atom.to_string(key))
-    end
-  end
-
-  defp fetch_path(map, [segment]) when is_map(map), do: fetch_flat(map, segment)
-
-  defp fetch_path(map, [segment | rest]) when is_map(map) do
-    case fetch_flat(map, segment) do
-      {:ok, sub} -> fetch_path(sub, rest)
-      :error -> :error
-    end
-  end
-
-  defp fetch_path(_non_map, _segments), do: :error
-
-  # Try string key first, then fall back to atom form. Safe when the atom was
-  # never interned (e.g. a key string this VM has never seen).
-  defp fetch_flat(map, key) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, _} = hit -> hit
-      :error -> Map.fetch(map, String.to_existing_atom(key))
-    end
-  rescue
-    ArgumentError -> :error
-  end
-
-  defp fetch_flat(_non_map, _key), do: :error
 end

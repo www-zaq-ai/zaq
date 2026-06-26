@@ -31,8 +31,9 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
 
   ## DAG
 
-      start ──(context file present)──> load_existing_context   (leaf)
-      start ──(context file empty)────> extract_company_summary
+      check_context (root)               ← Condition (on_fail: continue): emits `passed`
+      check_context ──(passed)─────────> load_existing_context   (leaf)
+      check_context ──(not passed)─────> extract_company_summary
         → map_business_to_zaq          ← RunAgent: list ZAQ services + benefits
         → build_context_document       ← Concat: summary + mapping into one markdown doc
         → review_summary               ← HumanInTheLoop: approve before storing
@@ -48,15 +49,16 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
 
   ## Notes on the fixes applied vs. the original draft
 
-  - Branching uses two `from: "start"` edges, NOT a `Condition` node. A `Condition`
-    action only resolves TOP-LEVEL fact keys (it cannot reach the `start` namespace,
-    which lives under `__cascade__`), and its default `on_fail: :halt` fails the run
-    on the common empty-cell case instead of routing. The start-sentinel guards read
-    the planted trigger row directly; the unmatched branch is skipped, not failed.
-  - `start.<field>` works in downstream edge *mappings* (EdgeStep traverses
-    `__cascade__`), but NOT inside a `Condition` node. At the root, the trigger row is
-    the flat top-level fact, so the `start` guards read bare keys (`company context
-    file`); later edges read `start.company official name` / `start.row_index`.
+  - Branching is a `Condition` **node** (`check_context`), not edge predicates: the
+    node evaluates `company context file` once and emits `passed`; the two edges out
+    of it route on that boolean (node = eval, edge = route). `on_fail: "continue"` is
+    required so the common empty-cell case flows on (emitting `passed: false`) instead
+    of failing the run; the losing branch's guard is a skipped edge, not a failure.
+  - `Condition` resolves fields through the same `FactLookup` the edges use, so a
+    condition `key` may be a top-level key (`company context file` at the root) or a
+    `start.<field>` / node-qualified cascade path. Edge *mappings* read
+    `start.company context file`, `start.company official name`, `start.row_index` to
+    pull values from the persistent trigger namespace.
   - `RunAgent` requires **`agent_id` (integer)**, never `agent_name` — see its schema.
   - `{{variable}}` substitution matches `\\w+` only (no spaces), so edge `mapping`
     renames spaced sheet columns to snake_case targets (`company_official_name`) that
@@ -81,6 +83,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
   @human_in_the_loop_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
   @create_document_module "Zaq.Agent.Tools.DataSource.CreateDocument"
   @update_sheet_module "Zaq.Agent.Tools.Sheets.UpdateSheetValues"
+  @condition_module "Zaq.Agent.Tools.Workflow.Condition"
 
   # Same lead sheet the producer (IdentifyLeadsFromGoogleSheet) scans.
   @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
@@ -126,13 +129,23 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
       description: "Build or load a per-company context document for each identified lead",
       status: "active",
       nodes: [
-        # Branching happens entirely in the two `from: "start"` edges below — no
-        # Condition node. A Condition action only resolves TOP-LEVEL fact keys and
-        # cannot reach the `start` namespace (which lives under `__cascade__`), and
-        # its default `on_fail: :halt` would fail the run on the (common) empty-cell
-        # case instead of routing. The start-sentinel edges read the planted trigger
-        # row directly and skip (non-fatally) the branch whose guard does not match.
-
+        # Evaluation node (node = eval, edges = route). It reads the planted trigger
+        # row and emits `%{passed: bool}`; the two edges below route on that flag.
+        # `on_fail: "continue"` is essential — the common empty-cell case must NOT
+        # fail the run, it must flow on so the `passed: false` branch can fire. The
+        # condition `key` is a bare top-level key because at the root the trigger row
+        # IS the flat fact; node-qualified (`start.*`) keys also resolve here now that
+        # Condition shares `FactLookup` with the edges.
+        %{
+          name: "check_context",
+          type: "action",
+          module: @condition_module,
+          params: %{
+            "on_fail" => "continue",
+            "conditions" => [%{"key" => "company context file", "op" => "not_empty"}]
+          },
+          index: 1
+        },
         # "context file" cell is non-empty → the document already exists → load it
         # (leaf branch).
         %{
@@ -140,7 +153,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
           type: "action",
           module: @download_document_module,
           params: %{"provider" => provider},
-          index: 1
+          index: 2
         },
         # "context file" cell is empty → no context yet → research + summarize.
         %{
@@ -154,7 +167,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
                 "{{company_official_name}} operates in. You can also use their official " <>
                 "website at {{company_website}}. Craft a clear, concise summary of this company."
           },
-          index: 2
+          index: 3
         },
         %{
           name: "map_business_to_zaq",
@@ -167,7 +180,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
                 "top services ZAQ can provide to this business. For each, give a clear benefit and " <>
                 "a short explanation of why it is relevant."
           },
-          index: 3
+          index: 4
         },
         # Concatenate summary + service mapping into a single markdown document.
         # Concat substitutes {{key}} from the other input params (mapped in below)
@@ -183,7 +196,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             ],
             "separator" => "\n\n"
           },
-          index: 4
+          index: 5
         },
         %{
           name: "review_summary",
@@ -193,7 +206,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             "message" =>
               "Review and approve the company summary and ZAQ service mapping before storing them."
           },
-          index: 5
+          index: 6
         },
         # Create the per-company Drive folder. `name` comes from the trigger row.
         %{
@@ -205,7 +218,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             "mime_type" => "application/vnd.google-apps.folder",
             "parent_id" => parent_folder_id
           },
-          index: 6
+          index: 7
         },
         # Store the markdown document inside the folder created above.
         %{
@@ -217,7 +230,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             "name" => "company_context.md",
             "mime_type" => "text/markdown"
           },
-          index: 7
+          index: 8
         },
         # Build the A1 range for the writeback cell, e.g. "Sheet1!K5".
         %{
@@ -228,7 +241,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             "parts" => ["Sheet1!{{column}}{{row}}"],
             "column" => context_file_column
           },
-          index: 8
+          index: 9
         },
         # Wrap the new document id as a 1x1 matrix for the range update.
         %{
@@ -236,7 +249,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
           type: "action",
           module: @concat_module,
           params: %{"parts" => ["{{value}}"], "as_matrix" => true},
-          index: 9
+          index: 10
         },
         %{
           name: "update_sheet_row",
@@ -247,34 +260,38 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             "spreadsheet_id" => sheet_id,
             "value_input_option" => "USER_ENTERED"
           },
-          index: 10
+          index: 11
         }
       ],
       edges: [
-        # Two `from: "start"` guards branch directly off the planted trigger row.
-        # The engine plants the row as the initial fact (flat, top-level keys — the
-        # downcased sheet headers, spaces preserved), so the condition `field` and
-        # the mapping sources are BARE top-level keys here (no `start.` prefix — that
-        # prefix only resolves in downstream edges via `__cascade__`). The guard whose
-        # condition is not met is recorded as a skipped edge, not a failure.
+        # `check_context` takes NO incoming edge: a node with no upstream is a root
+        # that the engine feeds the planted trigger row directly (same as `get_sheet`
+        # in IdentifyLeadsFromGoogleSheet). A bare `from: "start"` edge is rejected as
+        # a no-op — `from: "start"` is reserved for edges that transform/branch the
+        # payload at entry, which is now the job of this node, not the edge.
+        #
+        # Branching is node → edges: `check_context` evaluated the predicate and
+        # emitted `passed`; the two edges below only SELECT a branch on that boolean.
+        # The losing branch's guard is false → recorded as a skipped edge, not a failure.
 
-        # context file present → load it. `document_id` is required by DownloadDocument
-        # and comes from the row's context-file cell.
+        # passed (file present) → load the existing document. `document_id` is read
+        # from the persistent `start` namespace (EdgeStep resolves it via __cascade__).
         %{
-          from: "start",
+          from: "check_context",
           to: "load_existing_context",
-          condition: %{"field" => "company context file", "op" => "not_empty"},
-          mapping: %{"document_id" => "company context file"}
+          condition: %{"field" => "passed", "op" => "eq", "value" => true},
+          mapping: %{"document_id" => "start.company context file"}
         },
-        # context file empty → generate. Rename the spaced sheet columns to snake_case
-        # so the prompt can interpolate them as {{company_official_name}} / {{company_website}}.
+        # not passed (file empty) → generate. Rename the spaced sheet columns to
+        # snake_case so the prompt can interpolate {{company_official_name}} /
+        # {{company_website}}; sources read from the `start` namespace.
         %{
-          from: "start",
+          from: "check_context",
           to: "extract_company_summary",
-          condition: %{"field" => "company context file", "op" => "empty"},
+          condition: %{"field" => "passed", "op" => "eq", "value" => false},
           mapping: %{
-            "company_official_name" => "company official name",
-            "company_website" => "company website"
+            "company_official_name" => "start.company official name",
+            "company_website" => "start.company website"
           }
         },
         %{
