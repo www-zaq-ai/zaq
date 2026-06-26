@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-26T18:38:50Z",
+  "description": "Move channel-originated person resolution before CommunicationBridge dispatch. Build a minimal nested actor.person payload with id/full_name/team_ids and populate Incoming.person_id before dispatch.",
+  "id": "zaq-u3g",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[identity-actor-contract] Resolve channel person identity before agent dispatch",
+  "type": "task",
+  "updated_at": "2026-06-26T18:38:50Z"
+}
