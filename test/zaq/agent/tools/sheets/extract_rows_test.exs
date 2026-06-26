@@ -14,9 +14,13 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
     test "converts headers + data rows to maps with downcased keys" do
       rec = record([["Name", "Email"], ["Alice", "alice@example.com"]])
 
-      assert {:ok, %{rows: [row]}} = ExtractRows.run(%{record: rec}, @ctx)
+      assert {:ok, %{rows: [row], metadata: metadata}} = ExtractRows.run(%{record: rec}, @ctx)
       assert row["name"] == "Alice"
       assert row["email"] == "alice@example.com"
+
+      assert metadata.headers_detected == true
+      assert metadata.headers["name"] == %{column: "A", original: "Name"}
+      assert metadata.headers["email"] == %{column: "B", original: "Email"}
     end
 
     test "assigns row_index starting at 2 (header = row 1)" do
@@ -63,6 +67,30 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
       assert Map.has_key?(row, "email_state")
     end
 
+    test "uses column letters for empty header values" do
+      rec = record([["", nil, "Name"], ["value-a", "value-b", "Alice"]])
+
+      assert {:ok, %{rows: [row], metadata: metadata}} = ExtractRows.run(%{record: rec}, @ctx)
+
+      assert row["A"] == "value-a"
+      assert row["B"] == "value-b"
+      assert row["name"] == "Alice"
+
+      assert metadata.headers["A"] == %{column: "A", original: ""}
+      assert metadata.headers["B"] == %{column: "B", original: nil}
+      assert metadata.headers["name"] == %{column: "C", original: "Name"}
+    end
+
+    test "maps extracted headers to spreadsheet columns beyond Z" do
+      headers = Enum.map(1..27, &"Header#{&1}")
+      rec = record([headers, Enum.map(1..27, &"value-#{&1}")])
+
+      assert {:ok, %{metadata: metadata}} = ExtractRows.run(%{record: rec}, @ctx)
+
+      assert metadata.headers["header26"].column == "Z"
+      assert metadata.headers["header27"].column == "AA"
+    end
+
     test "keeps trailing header columns as empty strings when row cells are missing" do
       rec = record([["A", "B", "C", "D"], ["value-a", "value-b"]])
 
@@ -82,10 +110,17 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
         row_values = Enum.take(values, header_count)
         rec = record([headers, row_values])
 
-        assert {:ok, %{rows: [row]}} = ExtractRows.run(%{record: rec}, @ctx)
+        assert {:ok, %{rows: [row], metadata: metadata}} = ExtractRows.run(%{record: rec}, @ctx)
 
         expected_keys = Enum.map(headers, &String.downcase/1)
         assert Enum.all?(expected_keys, &Map.has_key?(row, &1))
+        assert metadata.headers_detected == true
+
+        expected_keys
+        |> Enum.with_index()
+        |> Enum.each(fn {key, index} ->
+          assert metadata.headers[key].column == column_letter(index)
+        end)
 
         if length(row_values) < header_count do
           (length(row_values) + 1)..header_count
@@ -101,9 +136,10 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
     test "drops header row and normalizes remaining maps" do
       rec = record([%{"name" => "header"}, %{"name" => "Alice", "active" => "TRUE"}])
 
-      assert {:ok, %{rows: [row]}} = ExtractRows.run(%{record: rec}, @ctx)
+      assert {:ok, %{rows: [row], metadata: metadata}} = ExtractRows.run(%{record: rec}, @ctx)
       assert row["name"] == "Alice"
       assert row["active"] == true
+      assert metadata == %{headers_detected: false, headers: %{}}
     end
 
     test "assigns row_index starting at 2" do
@@ -123,12 +159,15 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
   end
 
   describe "run/2 — header_row: false" do
-    test "keys list rows positionally and keeps the first row, row_index from 1" do
+    test "keys list rows by column letter and keeps the first row, row_index from 1" do
       rec = record([["Alice", "TRUE"], ["Bob", "FALSE"]])
 
-      assert {:ok, %{rows: rows}} = ExtractRows.run(%{record: rec, header_row: false}, @ctx)
+      assert {:ok, %{rows: rows, metadata: metadata}} =
+               ExtractRows.run(%{record: rec, header_row: false}, @ctx)
+
       assert Enum.map(rows, & &1["row_index"]) == [1, 2]
-      assert [%{"0" => "Alice", "1" => true} | _] = rows
+      assert [%{"A" => "Alice", "B" => true} | _] = rows
+      assert metadata == %{headers_detected: false, headers: %{}}
     end
 
     test "keeps all map rows (does not drop the first) with row_index from 1" do
@@ -176,5 +215,14 @@ defmodule Zaq.Agent.Tools.Sheets.ExtractRowsTest do
     test "returns empty rows for empty content list" do
       assert {:ok, %{rows: []}} = ExtractRows.run(%{record: record([])}, @ctx)
     end
+  end
+
+  defp column_letter(index), do: do_column_letter(index + 1, "")
+
+  defp do_column_letter(0, acc), do: acc
+
+  defp do_column_letter(index, acc) do
+    remainder = rem(index - 1, 26)
+    do_column_letter(div(index - 1, 26), <<?A + remainder>> <> acc)
   end
 end
