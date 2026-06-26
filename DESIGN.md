@@ -409,7 +409,10 @@ New form components may live under `design_system/` or `components/` — no DESI
 
 ### Data tables
 
-> Canonical: `assets/css/table.css` + `storybook/core_components/table.story.exs`.
+> Canonical: `assets/css/table.css` + `lib/zaq_web/components/design_system/table.ex` + `storybook/components/table/`.
+
+- **List:** `ZaqWeb.Components.DesignSystem.Table` — `table/1`, `table_row/1`, `table_cell/1`, cell helpers
+- **Grid:** `ZaqWeb.Components.DesignSystem.Table.Grid` — `grid/1`, `grid_card/1` (shared helpers + CSS)
 
 Use `.zaq-table` shell and related cell patterns — do not duplicate table styling in `styles.css` or templates.
 
@@ -429,6 +432,8 @@ Use `.zaq-table` shell and related cell patterns — do not duplicate table styl
 | MetricCard | `ZaqWeb.Components.DesignSystem.MetricCard` | KPI display |
 | DiagnosticCard | `ZaqWeb.Components.DesignSystem.DiagnosticCard` | System health summary |
 | SimplePagination | `ZaqWeb.Components.DesignSystem.SimplePagination` | List page controls |
+| Table | `ZaqWeb.Components.DesignSystem.Table` | List tables + cell helpers |
+| Table.Grid | `ZaqWeb.Components.DesignSystem.Table.Grid` | Card grid header + tiles |
 | AddonUpsellCard | `ZaqWeb.Components.DesignSystem.AddonUpsellCard` | Feature gating / upsell |
 
 Feature-scoped modules (ingestion file browser, modals, etc.) live under `design_system/` with matching stories under `storybook/ingestion/` or `storybook/components/`.
