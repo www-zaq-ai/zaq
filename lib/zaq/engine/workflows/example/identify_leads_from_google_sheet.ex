@@ -24,6 +24,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
   """
 
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.UseCases.Helper
 
   @get_sheet_module "Zaq.Agent.Tools.Sheets.GetSheet"
   @extract_rows_module "Zaq.Agent.Tools.Sheets.ExtractRows"
@@ -55,19 +56,11 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
     provider = Keyword.get(opts, :provider, "google_drive")
     cron_schedule = Keyword.get(opts, :cron_schedule, @cron_schedule)
 
-    Zaq.Repo.transaction(fn ->
-      {:ok, workflow} = Workflows.create_workflow(build(sheet_id, provider))
-
-      {:ok, trigger} =
-        Workflows.create_trigger(%{
-          event_name: @trigger_event,
-          trigger_type: "cron",
-          cron_schedule: cron_schedule
-        })
-
-      {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, workflow)
-      workflow
-    end)
+    Helper.create_workflow_with_trigger(build(sheet_id, provider), %{
+      event_name: @trigger_event,
+      trigger_type: "cron",
+      cron_schedule: cron_schedule
+    })
   end
 
   @doc """
