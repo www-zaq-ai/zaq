@@ -26,6 +26,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.EdgeCondition
+  alias Zaq.Engine.Workflows.FactLookup
   alias Zaq.Engine.Workflows.WorkflowRun
 
   @edge_keys [
@@ -147,44 +148,15 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     ArgumentError -> key
   end
 
-  # Look up a key in the fact. Supports dotted cascade paths up to depth 3:
-  #
-  #   "field"           — top-level fact key
-  #   "step.field"      — cascade[step][field]
-  #   "step.map.field"  — cascade[step][map][field]  (one level of nesting inside a map)
-  #
-  # Depth > 3 (e.g., "A.b.c.d") is not supported and returns nil.
-  defp lookup(fact, key) when is_binary(key) do
-    case String.split(key, ".", parts: 2) do
-      [step_name, nested_key] -> lookup_cascade(fact, step_name, nested_key)
-      [simple_key] -> Map.get(fact, to_key(simple_key), Map.get(fact, simple_key))
-    end
-  end
-
-  defp lookup(fact, key), do: Map.get(fact, key)
-
-  defp lookup_cascade(fact, step_name, nested_key) do
-    cascade = Map.get(fact, :__cascade__, Map.get(fact, "__cascade__", %{}))
-
-    case Map.get(cascade, to_key(step_name), Map.get(cascade, step_name)) do
-      nil ->
-        nil
-
-      step_result when is_map(step_result) ->
-        case String.split(nested_key, ".", parts: 2) do
-          [field, subfield] -> lookup_nested_field(step_result, field, subfield)
-          [field] -> Map.get(step_result, to_key(field), Map.get(step_result, field))
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp lookup_nested_field(step_result, field, subfield) do
-    case Map.get(step_result, to_key(field), Map.get(step_result, field)) do
-      nested when is_map(nested) -> Map.get(nested, to_key(subfield), Map.get(nested, subfield))
-      _ -> nil
+  # Resolve a field/source reference against the fact via the shared cascade-aware
+  # resolver. Edge routing treats an absent reference as `nil` (a false condition,
+  # or a nil-mapped value), so the `{:ok, _} | :error` contract is collapsed here.
+  # See `FactLookup` for the supported `"field"` / `"step.field"` / `"step.map.field"`
+  # forms.
+  defp lookup(fact, key) do
+    case FactLookup.fetch(fact, key) do
+      {:ok, value} -> value
+      :error -> nil
     end
   end
 
