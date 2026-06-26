@@ -32,7 +32,6 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
   # ── Module names (used in workflow definition JSON) ───────────────────────────
 
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
-  @iterate_module "Zaq.Agent.Tools.Workflow.Iterate"
   @condition_module "Zaq.Agent.Tools.Workflow.Condition"
 
   @list_contacts_module "Zaq.Engine.Workflows.Steps.BatchIterateE2ETest.ListContacts"
@@ -115,40 +114,30 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
             type: "action",
             module: @batch_module,
             params: %{
-              "batch_size" => 4,
+              "delivery" => "item",
               "strategy" => "skip_and_continue",
               "process" => [
                 %{
-                  "name" => "iterate_contacts",
+                  "name" => "condition_active",
                   "type" => "action",
-                  "module" => @iterate_module,
+                  "module" => @condition_module,
                   "params" => %{
-                    "strategy" => "skip_and_continue",
-                    "pipeline" => [
-                      %{
-                        "name" => "condition_active",
-                        "type" => "action",
-                        "module" => @condition_module,
-                        "params" => %{
-                          "conditions" => [%{"key" => "active", "value" => true}]
-                        }
-                      },
-                      %{
-                        "name" => "condition_not_in_seq",
-                        "type" => "action",
-                        "module" => @condition_module,
-                        "params" => %{
-                          "conditions" => [%{"key" => "in_sequence", "value" => false}]
-                        }
-                      },
-                      %{
-                        "name" => "dispatch",
-                        "type" => "action",
-                        "module" => @dispatch_module,
-                        "params" => %{}
-                      }
-                    ]
+                    "conditions" => [%{"key" => "active", "value" => true}]
                   }
+                },
+                %{
+                  "name" => "condition_not_in_seq",
+                  "type" => "action",
+                  "module" => @condition_module,
+                  "params" => %{
+                    "conditions" => [%{"key" => "in_sequence", "value" => false}]
+                  }
+                },
+                %{
+                  "name" => "dispatch",
+                  "type" => "action",
+                  "module" => @dispatch_module,
+                  "params" => %{}
                 }
               ],
               "post_process" => [
@@ -325,23 +314,14 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
               type: "action",
               module: @batch_module,
               params: %{
-                "batch_size" => 4,
+                "delivery" => "item",
                 "strategy" => "skip_and_continue",
                 "process" => [
                   %{
-                    "name" => "iterate_contacts",
+                    "name" => "dispatch",
                     "type" => "action",
-                    "module" => @iterate_module,
-                    "params" => %{
-                      "pipeline" => [
-                        %{
-                          "name" => "dispatch",
-                          "type" => "action",
-                          "module" => @dispatch_module,
-                          "params" => %{}
-                        }
-                      ]
-                    }
+                    "module" => @dispatch_module,
+                    "params" => %{}
                   }
                 ]
               },
@@ -529,35 +509,25 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
             type: "action",
             module: @batch_module,
             params: %{
-              "batch_size" => 4,
+              "delivery" => "item",
               "strategy" => "skip_and_continue",
               "process" => [
                 %{
-                  "name" => "iterate_contacts",
+                  "name" => "condition_eligibility",
                   "type" => "action",
-                  "module" => @iterate_module,
+                  "module" => @condition_module,
                   "params" => %{
-                    "strategy" => "skip_and_continue",
-                    "pipeline" => [
-                      %{
-                        "name" => "condition_eligibility",
-                        "type" => "action",
-                        "module" => @condition_module,
-                        "params" => %{
-                          "conditions" => [
-                            %{"key" => "active", "value" => true},
-                            %{"key" => "in_sequence", "value" => false}
-                          ]
-                        }
-                      },
-                      %{
-                        "name" => "dispatch",
-                        "type" => "action",
-                        "module" => @dispatch_module,
-                        "params" => %{}
-                      }
+                    "conditions" => [
+                      %{"key" => "active", "value" => true},
+                      %{"key" => "in_sequence", "value" => false}
                     ]
                   }
+                },
+                %{
+                  "name" => "dispatch",
+                  "type" => "action",
+                  "module" => @dispatch_module,
+                  "params" => %{}
                 }
               ]
             },

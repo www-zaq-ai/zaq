@@ -171,7 +171,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   Handles both struct nodes/edges (detail page) and string-key map nodes/edges
   (run page, from steps_snapshot).
 
-  Batch nodes are rendered with a purple double-border; Iterate nodes with a
+  Batch nodes are rendered with a purple double-border; `map` nodes with a
   teal dashed border; HITL nodes retain their amber dashed style.
   """
   attr :nodes, :list, required: true
@@ -195,15 +195,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
              h: h,
              is_hitl: is_hitl,
              is_batch: is_batch,
-             is_iterate: is_iterate,
              is_map: is_map,
              inner: inner,
              separator_y: separator_y
            } ->
           sr = Map.get(run_idx, name)
-          # A `map` node shares the iterate visual treatment (teal, dashed, vertical
-          # body-step stack) since it is the iteration primitive.
-          {fill, stroke, tc} = dag_node_colors(sr, is_hitl, is_batch, is_iterate or is_map)
+          # A `map`/`Batch` node gets the iteration visual treatment (teal, dashed,
+          # vertical body-step stack) since it is the iteration primitive.
+          {fill, stroke, tc} = dag_node_colors(sr, is_hitl, is_batch, is_map)
           label = if String.length(name) > 17, do: String.slice(name, 0, 14) <> "…", else: name
 
           %{
@@ -218,7 +217,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             label: label,
             is_hitl: is_hitl,
             is_batch: is_batch,
-            is_iterate: is_iterate,
             is_map: is_map,
             inner: inner,
             separator_y: separator_y
@@ -326,14 +324,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             stroke-dasharray={
               cond do
                 n.is_hitl -> "4 2"
-                n.is_iterate or n.is_map -> "6 2"
+                n.is_map -> "6 2"
                 true -> "none"
               end
             }
           />
-          <%!-- Type badge text for batch / iterate / map --%>
+          <%!-- Type badge text for batch / map --%>
           <text
-            :if={n.is_batch or n.is_iterate or n.is_map}
+            :if={n.is_batch or n.is_map}
             x={n.x + n.w - 6}
             y={n.y + 11}
             text-anchor="end"
@@ -342,11 +340,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             fill={n.stroke}
             opacity="0.7"
           >
-            {cond do
-              n.is_batch -> "BATCH"
-              n.is_map -> "MAP"
-              true -> "ITERATE"
-            end}
+            {if n.is_batch, do: "BATCH", else: "MAP"}
           </text>
           <%!-- Node label (centred in header band) --%>
           <text
@@ -402,17 +396,17 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               width={n.w - 16}
               height={sn.h}
               rx="5"
-              fill={if sn.is_iterate, do: "#f0f9ff", else: "#f4f4f5"}
-              stroke={if sn.is_iterate, do: "#0ea5e9", else: "#d1d5db"}
+              fill="#f4f4f5"
+              stroke="#d1d5db"
               stroke-width="1"
-              stroke-dasharray={if sn.is_iterate, do: "4 2", else: "none"}
+              stroke-dasharray="none"
             />
             <text
               x={n.x + 14}
               y={n.y + n.separator_y + sn.y_offset + 17}
               font-family="ui-monospace, 'Courier New', monospace"
               font-size="10"
-              fill={if sn.is_iterate, do: "#0369a1", else: "#374151"}
+              fill="#374151"
             >
               {sn.sub_label}
             </text>
@@ -558,11 +552,17 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   """
   attr :step, :map, required: true
   attr :batch_progress, :map, default: nil
-  attr :iterate_progress, :map, default: nil
+  attr :step_runs, :list, default: []
   attr :node_params, :map, default: %{}
   attr :now, :any, default: nil
 
   def batch_step_card(assigns) do
+    assigns =
+      assign(assigns,
+        delivery_label: batch_delivery_label(assigns.node_params),
+        fork_groups: fork_step_groups(assigns.step_runs, assigns.step.step_name)
+      )
+
     ~H"""
     <div class="bg-white rounded-xl border border-purple-200 overflow-hidden shadow-[0_0_0_1px_rgb(233,213,255,0.5)]">
       <%!-- Header --%>
@@ -570,6 +570,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         <div class="flex items-center gap-3">
           <span class="font-mono text-[0.62rem] font-bold text-purple-500 uppercase tracking-wider bg-purple-100 px-1.5 py-0.5 rounded leading-none">
             BATCH
+          </span>
+          <span
+            :if={@delivery_label}
+            class="font-mono text-[0.6rem] text-purple-600/80 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 leading-none"
+          >
+            {@delivery_label}
           </span>
           <span class="font-mono text-[0.72rem] text-black/40 w-5 text-right tabular-nums">
             {@step.step_index + 1}
@@ -672,65 +678,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               </span>
             <% end %>
           </div>
-          <%!-- Inline iterate progress — shown inside process lane while iterating --%>
-          <% iter_pipeline_names = get_nested_iterate_pipeline_names(@node_params) %>
-          <% iter_current_step = @iterate_progress && Map.get(@iterate_progress, :current_step) %>
-          <div
-            :if={live_phase == :process and @iterate_progress != nil}
-            class="mt-2 bg-sky-50 rounded-lg border border-sky-200 px-3 py-2 space-y-2"
-          >
-            <div class="flex items-center justify-between">
-              <span class="font-mono text-[0.62rem] font-semibold text-sky-600 uppercase tracking-wider flex items-center gap-1.5">
-                <span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-                Iterating
-              </span>
-              <span class="font-mono text-[0.72rem] text-sky-600 tabular-nums">
-                {@iterate_progress.current_item} / {@iterate_progress.total_items} items
-              </span>
-            </div>
-            <div class="w-full bg-sky-100 rounded-full h-1.5 overflow-hidden">
-              <div
-                class="bg-sky-400 h-1.5 rounded-full transition-all duration-300"
-                style={"width: #{iterate_pct(@iterate_progress)}%"}
-              />
-            </div>
-            <%!-- Per-action chips for the iterate pipeline --%>
-            <div :if={iter_pipeline_names != []} class="flex items-center flex-wrap gap-1.5 pt-0.5">
-              <%= for {name, i} <- Enum.with_index(iter_pipeline_names) do %>
-                <% chip_state =
-                  cond do
-                    is_integer(iter_current_step) and i < iter_current_step -> :done
-                    is_integer(iter_current_step) and i == iter_current_step -> :active
-                    is_integer(iter_current_step) -> :pending
-                    true -> :idle
-                  end %>
-                <span class={[
-                  "inline-flex items-center gap-1 font-mono text-[0.68rem] px-1.5 py-0.5 rounded-full border transition-colors",
-                  case chip_state do
-                    :done -> "text-emerald-700 bg-emerald-100 border-emerald-300"
-                    :active -> "text-sky-700 bg-sky-100 border-sky-400"
-                    :pending -> "text-black/30 bg-black/[0.03] border-black/[0.06]"
-                    :idle -> "text-sky-600 bg-sky-50 border-sky-200"
-                  end
-                ]}>
-                  <span
-                    :if={chip_state == :active}
-                    class="inline-block w-1 h-1 rounded-full bg-sky-400 animate-pulse"
-                  />
-                  <span
-                    :if={chip_state == :done}
-                    class="text-emerald-500 text-[0.58rem] leading-none"
-                  >
-                    ✓
-                  </span>
-                  {name}
-                </span>
-                <span :if={i < length(iter_pipeline_names) - 1} class="text-black/20 text-[0.65rem]">
-                  →
-                </span>
-              <% end %>
-            </div>
-          </div>
         </div>
         <%!-- Post-process lane --%>
         <div
@@ -795,106 +742,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
           Logs
         </p>
         <.step_log_entry :for={log <- @step.logs} log={log} />
-      </div>
-
-      <%!-- Per-chunk breakdown (completed only) --%>
-      <% chunk_results = get_chunk_results(@step.results) %>
-      <div
-        :if={@step.status == "completed" and chunk_results != []}
-        class="border-b border-purple-100"
-      >
-        <button
-          type="button"
-          phx-click={
-            JS.toggle(to: "#batch-chunks-#{@step.id}")
-            |> JS.toggle_class("rotate-90", to: "#batch-chevron-#{@step.id}")
-          }
-          class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
-        >
-          <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
-            Chunk Results ({length(chunk_results)})
-          </span>
-          <svg
-            id={"batch-chevron-#{@step.id}"}
-            class="w-3 h-3 text-black/30 transition-transform"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        <div
-          id={"batch-chunks-#{@step.id}"}
-          phx-update="ignore"
-          style="display:none"
-          class="divide-y divide-black/[0.04]"
-        >
-          <%= for {chunk, ci} <- Enum.with_index(chunk_results) do %>
-            <% ok = chunk_ok_count(chunk) %>
-            <% item_errors = errors_list(chunk) %>
-            <div class="px-5">
-              <button
-                type="button"
-                phx-click={
-                  JS.toggle(to: "#batch-chunk-#{@step.id}-#{ci}")
-                  |> JS.toggle_class("rotate-90", to: "#batch-chunk-chev-#{@step.id}-#{ci}")
-                }
-                class="w-full py-2.5 cursor-pointer flex items-center justify-between select-none"
-              >
-                <span class="font-mono text-[0.75rem] text-black/60 tabular-nums">
-                  Chunk {ci + 1}
-                </span>
-                <div class="flex items-center gap-3 font-mono text-[0.72rem]">
-                  <span class="text-emerald-600">✓ {ok}</span>
-                  <span :if={item_errors != []} class="text-red-500">
-                    ✗ {length(item_errors)}
-                  </span>
-                  <svg
-                    id={"batch-chunk-chev-#{@step.id}-#{ci}"}
-                    class="w-3 h-3 text-black/20 transition-transform"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </button>
-              <div id={"batch-chunk-#{@step.id}-#{ci}"} style="display:none" class="pb-3 space-y-2">
-                <%!-- Error items --%>
-                <div :if={item_errors != []}>
-                  <p class="font-mono text-[0.6rem] font-semibold text-red-400 uppercase tracking-wider mb-1.5">
-                    Errors
-                  </p>
-                  <div class="space-y-1">
-                    <div
-                      :for={err <- item_errors}
-                      class="flex items-center gap-2 font-mono text-[0.72rem]"
-                    >
-                      <span class="text-black/40 tabular-nums">
-                        item #{Map.get(err, "index", Map.get(err, :index, "?"))}
-                      </span>
-                      <span class="text-black/20">→</span>
-                      <span class="text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
-                        {Map.get(err, "reason", Map.get(err, :reason, "error"))}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <%!-- Successful items summary --%>
-                <p
-                  :if={ok > 0}
-                  class="font-mono text-[0.72rem] text-emerald-600"
-                >
-                  {ok} item{if ok != 1, do: "s"} processed successfully
-                </p>
-              </div>
-            </div>
-          <% end %>
-        </div>
       </div>
 
       <%!-- Input (collapsible) --%>
@@ -971,208 +818,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         </p>
         <pre class="font-mono text-[0.75rem] text-red-700 whitespace-pre-wrap break-all">{inspect(@step.errors, pretty: true)}</pre>
       </div>
-    </div>
-    """
-  end
 
-  @doc """
-  Renders a step card for a standalone Iterate node (not inside Batch).
-
-  Shows:
-  - Live item progress bar (when running) via `iterate_progress`
-  - Pipeline step names as connected chips
-  - Output summary with ok/error counts (when completed)
-  - Full output JSON (collapsible)
-
-  `node_params` should be the node's `params` map from `steps_snapshot` —
-  used to read the `pipeline` step names.
-  """
-  attr :step, :map, required: true
-  attr :iterate_progress, :map, default: nil
-  attr :node_params, :map, default: %{}
-  attr :now, :any, default: nil
-
-  def iterate_step_card(assigns) do
-    ~H"""
-    <div class="bg-white rounded-xl border border-sky-200 overflow-hidden shadow-[0_0_0_1px_rgb(186,230,253,0.5)]">
-      <%!-- Header --%>
-      <div class="flex items-center justify-between px-5 py-3 bg-sky-50 border-b border-sky-100">
-        <div class="flex items-center gap-3">
-          <span class="font-mono text-[0.62rem] font-bold text-sky-600 uppercase tracking-wider bg-sky-100 px-1.5 py-0.5 rounded leading-none flex items-center gap-1">
-            <svg
-              class="w-3 h-3"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            ITERATE
-          </span>
-          <span class="font-mono text-[0.72rem] text-black/40 w-5 text-right tabular-nums">
-            {@step.step_index + 1}
-          </span>
-          <span class="font-mono text-[0.85rem] font-semibold text-black">
-            {@step.step_name}
-          </span>
-        </div>
-        <div class="flex items-center gap-3">
-          <.run_duration run={@step} now={@now} />
-          <.run_status_badge status={@step.status} />
-        </div>
-      </div>
-
-      <%!-- Item progress bar (always visible while running or after completion) --%>
-      <% iter_prog = iterate_display_progress(@step, @iterate_progress) %>
-      <div :if={iter_prog != nil} class="px-5 py-4 border-b border-sky-100">
-        <div class="flex items-center justify-between mb-2">
-          <span class="font-mono text-[0.68rem] font-semibold text-sky-600 uppercase tracking-wider">
-            Items
-          </span>
-          <span class="font-mono text-[0.75rem] text-black/60 flex items-center gap-2">
-            <%= if iter_prog.total > 0 do %>
-              {iter_prog.current} / {iter_prog.total}
-              <span :if={iter_prog.ok > 0} class="text-emerald-600">✓ {iter_prog.ok}</span>
-              <span :if={iter_prog.errors > 0} class="text-red-500">✗ {iter_prog.errors}</span>
-            <% else %>
-              <span class="text-black/40 italic">initializing…</span>
-            <% end %>
-          </span>
-        </div>
-        <div class="w-full bg-black/5 rounded-full h-2 overflow-hidden">
-          <%= if iter_prog.total > 0 do %>
-            <div
-              class="bg-sky-400 h-2 rounded-full transition-all duration-300"
-              style={"width: #{iterate_pct2(iter_prog)}%"}
-            />
-          <% else %>
-            <div class="bg-sky-200 h-2 rounded-full w-full animate-pulse" />
-          <% end %>
-        </div>
-      </div>
-
-      <%!-- Inner pipeline chips (per item) --%>
-      <% pipeline_names = get_inner_step_names(@node_params, "pipeline") %>
-      <% is_running = @step.status == "running" %>
-      <% current_step = @iterate_progress && Map.get(@iterate_progress, :current_step) %>
-      <div :if={pipeline_names != []} class="px-5 py-3 border-b border-sky-100">
-        <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-2">
-          Pipeline (per item)
-        </p>
-        <div class="flex items-center flex-wrap gap-1.5">
-          <%= for {name, i} <- Enum.with_index(pipeline_names) do %>
-            <% chip_state =
-              cond do
-                is_running and is_integer(current_step) and i < current_step -> :done
-                is_running and is_integer(current_step) and i == current_step -> :active
-                is_running and is_integer(current_step) -> :pending
-                true -> :idle
-              end %>
-            <span class={[
-              "inline-flex items-center gap-1 font-mono text-[0.72rem] px-2 py-0.5 rounded-full border transition-colors",
-              case chip_state do
-                :done -> "text-emerald-700 bg-emerald-100 border-emerald-300"
-                :active -> "text-sky-700 bg-sky-100 border-sky-400"
-                :pending -> "text-black/30 bg-black/[0.03] border-black/[0.06]"
-                :idle -> "text-sky-700 bg-sky-50 border-sky-200"
-              end
-            ]}>
-              <span
-                :if={chip_state == :active}
-                class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"
-              />
-              <span :if={chip_state == :done} class="text-emerald-500 text-[0.6rem] leading-none">
-                ✓
-              </span>
-              {name}
-            </span>
-            <span :if={i < length(pipeline_names) - 1} class="text-black/20 text-sm">→</span>
-          <% end %>
-        </div>
-      </div>
-
-      <%!-- Logs --%>
-      <div :if={@step.logs != []} class="px-5 py-3 border-b border-sky-100 space-y-1">
-        <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-2">
-          Logs
-        </p>
-        <.step_log_entry :for={log <- @step.logs} log={log} />
-      </div>
-
-      <%!-- Input (collapsible) --%>
-      <div
-        :if={not is_nil(@step.input) and map_size(@step.input) > 0}
-        class="border-b border-sky-100"
-      >
-        <button
-          type="button"
-          phx-click={
-            JS.toggle(to: "#iter-input-#{@step.id}")
-            |> JS.toggle_class("rotate-90", to: "#iter-in-chevron-#{@step.id}")
-          }
-          class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
-        >
-          <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
-            Input
-          </span>
-          <svg
-            id={"iter-in-chevron-#{@step.id}"}
-            class="w-3 h-3 text-black/30 transition-transform"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        <div id={"iter-input-#{@step.id}"} phx-update="ignore" style="display:none" class="px-5 pb-3">
-          <ZaqWeb.Components.JsonTree.json_tree id={"jt-iter-in-#{@step.id}"} data={@step.input} />
-        </div>
-      </div>
-
-      <%!-- Output (collapsible) --%>
-      <% step_output = clean_results(@step.results) %>
-      <div :if={@step.status in ["completed", "waiting"] and map_size(step_output) > 0}>
-        <button
-          type="button"
-          phx-click={
-            JS.toggle(to: "#iter-output-#{@step.id}")
-            |> JS.toggle_class("rotate-90", to: "#iter-chevron-#{@step.id}")
-          }
-          class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
-        >
-          <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
-            Output
-          </span>
-          <svg
-            id={"iter-chevron-#{@step.id}"}
-            class="w-3 h-3 text-black/30 transition-transform"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        <div id={"iter-output-#{@step.id}"} phx-update="ignore" style="display:none" class="px-5 pb-3">
-          <ZaqWeb.Components.JsonTree.json_tree id={"jt-iter-#{@step.id}"} data={step_output} />
-        </div>
-      </div>
-
-      <%!-- Error --%>
-      <div :if={@step.status == "failed" and @step.errors != nil} class="px-5 py-3 bg-red-50">
-        <p class="font-mono text-[0.65rem] font-semibold text-red-500 uppercase tracking-wider mb-2">
-          Error
-        </p>
-        <pre class="font-mono text-[0.75rem] text-red-700 whitespace-pre-wrap break-all">{inspect(@step.errors, pretty: true)}</pre>
-      </div>
+      <%!-- Per-fork runs: each fan-out unit's StepRuns, grouped by index, with logs --%>
+      <.fork_run_list :if={@fork_groups != []} step={@step} groups={@fork_groups} now={@now} />
     </div>
     """
   end
@@ -1196,18 +844,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     ok_count = results |> Map.get("results", []) |> length()
     errors = Map.get(results, "errors", [])
 
-    failed_forks =
-      Enum.filter(assigns.step_runs, fn sr ->
-        String.starts_with?(sr.step_name, assigns.step.step_name <> "/") and
-          sr.status in ["failed", "failed_fatal"]
-      end)
-
     assigns =
       assign(assigns,
         ok_count: ok_count,
         failed_count: length(errors),
         errors: errors,
-        failed_forks: failed_forks,
+        fork_groups: fork_step_groups(assigns.step_runs, assigns.step.step_name),
         body_names: get_inner_step_names(assigns.node_params, "body"),
         post_names: get_inner_step_names(assigns.node_params, "post_process")
       )
@@ -1271,22 +913,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         </span>
       </div>
 
-      <%!-- Per-fork failure rows --%>
-      <div :if={@failed_forks != []} class="px-5 py-3 space-y-1.5 bg-red-50/40">
-        <p class="font-mono text-[0.65rem] font-semibold text-red-500 uppercase tracking-wider mb-1">
-          Failed items
-        </p>
-        <div
-          :for={fork <- @failed_forks}
-          class="flex items-center justify-between gap-3"
-          data-role="map-failed-fork"
-        >
-          <span class="font-mono text-[0.78rem] font-semibold text-black/80">{fork.step_name}</span>
-          <span class="font-mono text-[0.72rem] text-red-700 truncate">
-            {map_fork_reason(fork)}
-          </span>
-        </div>
-      </div>
+      <%!-- Per-fork runs: every item's StepRuns, grouped by index, with status + logs --%>
+      <.fork_run_list :if={@fork_groups != []} step={@step} groups={@fork_groups} now={@now} />
     </div>
     """
   end
@@ -1297,20 +925,136 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   defp map_fork_reason(_), do: "failed"
 
+  attr :step, :map, required: true
+  attr :groups, :list, required: true
+  attr :now, :any, default: nil
+
+  @doc """
+  Collapsible list of a fan-out (`Batch`/`map`) node's per-fork `StepRun` rows —
+  every chunk/item, success or failure, each with its own status, duration, and
+  logs. This is the per-chunk/per-item log visibility surface.
+
+  Rows are **grouped by fan-out index** (`[i]`): one unit's body-step rows are
+  shown together (in execution order), so a reader follows a single item/chunk
+  top-to-bottom rather than seeing all `check_active[*]` then all
+  `check_email_state[*]`.
+  """
+  def fork_run_list(assigns) do
+    ~H"""
+    <div class="border-t border-black/[0.06]">
+      <button
+        type="button"
+        phx-click={
+          JS.toggle(to: "#forks-#{@step.id}")
+          |> JS.toggle_class("rotate-90", to: "#forks-chev-#{@step.id}")
+        }
+        class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
+      >
+        <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
+          Per-fork runs ({length(@groups)})
+        </span>
+        <svg
+          id={"forks-chev-#{@step.id}"}
+          class="w-3 h-3 text-black/30 transition-transform"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      <div id={"forks-#{@step.id}"} style="display:none" class="divide-y divide-black/[0.06]">
+        <div :for={{idx, rows} <- @groups} class="px-5 py-3" data-role="fork-group">
+          <p class="font-mono text-[0.6rem] font-bold uppercase tracking-wider text-black/35 mb-2">
+            {fork_group_label(idx)}
+          </p>
+          <div class="space-y-2.5">
+            <div :for={fork <- rows} data-role="fork-run">
+              <div class="flex items-center justify-between gap-3">
+                <span class="font-mono text-[0.78rem] font-semibold text-black/80 truncate">
+                  {fork.step_name}
+                </span>
+                <div class="flex items-center gap-3 shrink-0">
+                  <.run_duration run={fork} now={@now} />
+                  <.run_status_badge status={fork.status} />
+                </div>
+              </div>
+              <div :if={fork.logs not in [nil, []]} class="mt-1.5 space-y-1">
+                <.step_log_entry :for={log <- fork.logs} log={log} />
+              </div>
+              <p :if={fork_error_reason(fork)} class="mt-1 font-mono text-[0.72rem] text-red-600">
+                {fork_error_reason(fork)}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp fork_group_label(idx) when is_integer(idx) and idx >= 0, do: "Fork ##{idx}"
+  defp fork_group_label(_), do: "Other"
+
+  # Per-fork StepRun rows for a fan-out node, grouped by fan-out index (`[i]`).
+  # Returns `[{index, [rows]}]` sorted by index, each group ordered by execution
+  # start so a single unit reads top-to-bottom in pipeline order.
+  defp fork_step_groups(step_runs, step_name) do
+    step_runs
+    |> Enum.filter(&String.starts_with?(&1.step_name, step_name <> "/"))
+    |> Enum.group_by(&fork_index/1)
+    |> Enum.sort_by(fn {idx, _rows} -> idx end)
+    |> Enum.map(fn {idx, rows} -> {idx, Enum.sort_by(rows, &fork_sort_key/1)} end)
+  end
+
+  # Extracts the trailing fan-out index from a fork step name (`<node>/<step>[i]`).
+  defp fork_index(%{step_name: name}) when is_binary(name) do
+    case Regex.run(~r/\[(\d+)\]$/, name) do
+      [_, i] -> String.to_integer(i)
+      _ -> -1
+    end
+  end
+
+  defp fork_index(_), do: -1
+
+  # Orders rows within a fork by execution start (chronological); rows without a
+  # start time sort last, tie-broken by step name for stability.
+  defp fork_sort_key(%{started_at: %DateTime{} = dt} = sr),
+    do: {0, DateTime.to_unix(dt, :microsecond), sr.step_name}
+
+  defp fork_sort_key(%{step_name: name}), do: {1, 0, name}
+
+  defp fork_error_reason(%{status: s} = sr) when s in ["failed", "failed_fatal"],
+    do: map_fork_reason(sr)
+
+  defp fork_error_reason(_), do: nil
+
+  # Human label for a Batch node's delivery mode, shown next to the BATCH badge.
+  defp batch_delivery_label(params) when is_map(params) do
+    case Map.get(params, "delivery") || Map.get(params, :delivery) || "list" do
+      "item" ->
+        "per item"
+
+      "list" ->
+        case Map.get(params, "batch_size") || Map.get(params, :batch_size) do
+          n when is_integer(n) -> "per chunk · size #{n}"
+          _ -> "per chunk"
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp batch_delivery_label(_), do: nil
+
   # ── Public detection helpers (used by WorkflowRunLive for node_info) ──────────
 
   @doc "Returns true if the module string is the Batch action."
   def batch_module?(nil), do: false
   def batch_module?(mod) when is_binary(mod), do: String.contains?(mod, "Tools.Workflow.Batch")
   def batch_module?(_), do: false
-
-  @doc "Returns true if the module string is the Iterate action."
-  def iterate_module?(nil), do: false
-
-  def iterate_module?(mod) when is_binary(mod),
-    do: String.contains?(mod, "Tools.Workflow.Iterate")
-
-  def iterate_module?(_), do: false
 
   # ── Helpers ─────────────────────────────────────────────────────
 
@@ -1446,27 +1190,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     end
   end
 
-  defp iterate_display_progress(step, live_progress) do
-    cond do
-      step.status == "running" and live_progress != nil ->
-        %{
-          current: live_progress.current_item,
-          total: live_progress.total_items,
-          ok: 0,
-          errors: 0
-        }
-
-      step.status == "running" ->
-        %{current: 0, total: 0, ok: 0, errors: 0}
-
-      step.status in ["completed", "failed"] ->
-        progress_from_results(step.results)
-
-      true ->
-        nil
-    end
-  end
-
   # Derives a progress summary from a completed step's results map.
   defp progress_from_results(results) do
     ok = results_list(results)
@@ -1477,14 +1200,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   defp batch_pct(%{current: c, total: t}) when t > 0, do: min(100, round(c / t * 100))
   defp batch_pct(_), do: 0
-
-  defp iterate_pct(%{current_item: c, total_items: t}) when t > 0,
-    do: min(100, round(c / t * 100))
-
-  defp iterate_pct(_), do: 0
-
-  defp iterate_pct2(%{current: c, total: t}) when t > 0, do: min(100, round(c / t * 100))
-  defp iterate_pct2(_), do: 0
 
   # Returns step names from a nested inline params list (process/post_process/pipeline).
   defp get_inner_step_names(params, key) when is_map(params) do
@@ -1498,44 +1213,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   end
 
   defp get_inner_step_names(_, _), do: []
-
-  # Digs into a batch node's process pipeline to find an Iterate step and returns
-  # its inner pipeline step names. Used to show per-action chips inside the inline
-  # iterate widget on the batch card.
-  defp get_nested_iterate_pipeline_names(node_params) when is_map(node_params) do
-    (nf(node_params, "process") || [])
-    |> Enum.find(&iterate_step?/1)
-    |> case do
-      nil -> []
-      step -> step |> then(&(nf(&1, "params") || %{})) |> extract_pipeline_names()
-    end
-  end
-
-  defp get_nested_iterate_pipeline_names(_), do: []
-
-  defp iterate_step?(step) do
-    mod = nf(step, "module") || ""
-    is_binary(mod) and String.contains?(mod, "Iterate")
-  end
-
-  defp extract_pipeline_names(params) do
-    (nf(params, "pipeline") || [])
-    |> Enum.map(&(nf(&1, "name") || "?"))
-  end
-
-  # Extracts the per-chunk result list from batch step_run.results.
-  defp get_chunk_results(results) when is_map(results) do
-    Map.get(results, "results") || Map.get(results, :results) || []
-  end
-
-  defp get_chunk_results(_), do: []
-
-  # Counts ok items inside a chunk result (which is an Iterate output).
-  defp chunk_ok_count(chunk) when is_map(chunk) do
-    chunk |> Map.get("results", Map.get(chunk, :results, [])) |> length()
-  end
-
-  defp chunk_ok_count(_), do: 0
 
   # Strips cascade keys from results before rendering in JsonTree.
   defp clean_results(results), do: WorkflowResultHelpers.clean_results(results)
@@ -1572,7 +1249,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
           index: nf(n, "index") || 0,
           is_hitl: hitl_module?(mod),
           is_batch: batch_module?(mod),
-          is_iterate: iterate_module?(mod),
           is_map: nf(n, "type") == "map",
           params: nf(n, "params") || %{}
         }
@@ -1613,7 +1289,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               idx * (@dag_node_w + @dag_h_gap)
 
           y = @dag_pad_y + level * (@dag_node_h + @dag_v_gap)
-          inner = compute_node_inner(node.params, node.is_batch, node.is_iterate, node.is_map)
+          inner = compute_node_inner(node.params, node.is_batch, node.is_map)
 
           %{
             name: node.name,
@@ -1623,7 +1299,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             h: @dag_node_h + inner.h_extra,
             is_hitl: node.is_hitl,
             is_batch: node.is_batch,
-            is_iterate: node.is_iterate,
             is_map: node.is_map,
             inner: inner,
             separator_y: @dag_node_h
@@ -1666,9 +1341,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   # Node colour selection: status colours override type colours so a running batch
   # node shows blue (running), not its default purple.
-  defp dag_node_colors(sr, is_hitl, is_batch, is_iterate) do
+  defp dag_node_colors(sr, is_hitl, is_batch, is_map) do
     dag_status_colors(nf(sr, "status"), is_hitl) ||
-      dag_type_colors(is_batch, is_iterate)
+      dag_type_colors(is_batch, is_map)
   end
 
   defp dag_status_colors("running", _), do: {"#eff6ff", "#3b82f6", "#1d4ed8"}
@@ -1706,27 +1381,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   @empty_inner %{type: :none, sub_nodes: [], mini_nodes: [], h_extra: 0, post_section_y: nil}
 
-  defp compute_node_inner(_params, false, false, false), do: @empty_inner
+  defp compute_node_inner(_params, false, false), do: @empty_inner
 
-  defp compute_node_inner(params, true, _is_iterate, _is_map) when is_map(params),
+  defp compute_node_inner(params, true, _is_map) when is_map(params),
     do: compute_batch_node_inner(params)
 
-  defp compute_node_inner(params, _is_batch, true, _is_map) when is_map(params) do
-    pipeline = Map.get(params, "pipeline") || Map.get(params, :pipeline) || []
-    names = Enum.map(pipeline, &(Map.get(&1, "name") || Map.get(&1, :name) || "?"))
-    iterate_inner(names)
-  end
-
-  # A `map` node shows its `body` pipeline (and any `post_process` tail) as the same
-  # vertical full-node stack an `Iterate` node uses — it is the iteration primitive.
-  defp compute_node_inner(params, _is_batch, _is_iterate, true) when is_map(params) do
+  # A `map` node shows its `body` pipeline (and any `post_process` tail) as a
+  # vertical full-node stack — it is the iteration primitive.
+  defp compute_node_inner(params, _is_batch, true) when is_map(params) do
     body = Map.get(params, "body") || Map.get(params, :body) || []
     post = Map.get(params, "post_process") || Map.get(params, :post_process) || []
     names = Enum.map(body ++ post, &(Map.get(&1, "name") || Map.get(&1, :name) || "?"))
     iterate_inner(names)
   end
 
-  defp compute_node_inner(_params, _is_batch, _is_iterate, _is_map), do: @empty_inner
+  defp compute_node_inner(_params, _is_batch, _is_map), do: @empty_inner
 
   defp iterate_inner([]), do: @empty_inner
 
@@ -1776,31 +1445,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     end
   end
 
+  # Each Batch `process`/`post_process` step renders as one flat sub-node row. The
+  # iterated body is the flat `process` pipeline — there is no nested Iterate node to
+  # expand (delivery mode is the `delivery` param, surfaced in the step card).
   defp build_batch_sub_node(step, y_off) do
     name = Map.get(step, "name") || Map.get(step, :name) || "?"
-    mod = Map.get(step, "module") || Map.get(step, :module) || ""
-    is_iter = iterate_module?(mod)
-    full_nodes = if is_iter, do: iter_pipeline_full_nodes(step), else: []
-    # header row (24px) + stacked nodes section; plain action gets a fixed 28px row
-    sub_h = if is_iter, do: 24 + full_nodes_h(full_nodes), else: 28
-    icon = if is_iter, do: "↻", else: "▸"
+    sub_h = 28
 
     sub_node = %{
-      sub_label: "#{icon} #{dag_trunc(name, 22)}",
-      is_iterate: is_iter,
-      mini_nodes: full_nodes,
+      sub_label: "▸ #{dag_trunc(name, 22)}",
+      mini_nodes: [],
       y_offset: y_off,
       h: sub_h
     }
 
     {sub_node, y_off + sub_h + 6}
-  end
-
-  defp iter_pipeline_full_nodes(step) do
-    params = Map.get(step, "params") || Map.get(step, :params) || %{}
-    pipeline = Map.get(params, "pipeline") || Map.get(params, :pipeline) || []
-    names = Enum.map(pipeline, &(Map.get(&1, "name") || Map.get(&1, :name) || "?"))
-    compute_iter_full_nodes(names)
   end
 
   # Returns total pixel height of a stacked full-node section (8px top + nodes + gaps + 8px bottom).
