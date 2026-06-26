@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-26T13:18:22Z",
+  "description": "Centralize channel message dispatch/fire selection and NONE agent resolution in CommunicationBridge.",
+  "id": "zaq-1xp",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[channel-routing-2] Centralize channel incoming routing and NONE agent selection",
+  "type": "task",
+  "updated_at": "2026-06-26T13:18:22Z"
+}
