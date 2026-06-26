@@ -6,16 +6,27 @@ defmodule Zaq.Engine.Workflows.Step.Node do
   Validated at changeset time so malformed steps are rejected before they
   reach `DagBuilder` at run time.
 
-  Node types:
+  Node types (the **authorable** surface):
   - `"action"` / `"agent"` — requires `module`
   - `"workflow"` — references another workflow by id via
     `params["workflow_ref"]`; its steps are spliced inline at run creation by
     `Zaq.Engine.Workflows.Composition`
-  - `"map"` — a general iteration primitive: runs an inline `params["body"]`
-    pipeline once per item of the upstream collection named by `params["over"]`,
-    fanning out via Runic `FanOut`/`FanIn`. Body nodes may themselves be
-    `action`/`agent`/`workflow`. Batch is a consumer built on top of this; it is
-    not a Batch-specific construct.
+
+  Iteration (fan-out/fan-in) is **not** a node type users author. It is an internal
+  lowering target (`map`) produced at build time by a translator's
+  `c:Zaq.Engine.Workflows.Node.enrich/2` callback — today the `Zaq.Agent.Tools.Workflow.Batch`
+  action. Authors express iteration as a `type: "action"` Batch node; `map` never
+  appears in persisted, authored steps. The same rule holds for any future
+  orchestration primitive: it ships as an `action` tool that enriches onto an
+  internal node type, so the authoring surface stays `action`/`agent`/`workflow`.
+
+  ## Module-level (`Node`) validation
+
+  Beyond the per-type checks below, `changeset/2` dispatches to the node module's
+  optional `c:Zaq.Engine.Workflows.Node.validate/1` callback (the save-time analogue
+  of `DagBuilder`'s build-time enrich dispatch). A translator like `Batch` validates its
+  own inline sub-pipeline there, so the persisted representation is guaranteed
+  runnable without `Step.Node` knowing the translator's internals.
 
   Conditional routing is handled by edge attributes (`condition`, `mapping`), not by
   a dedicated node type. See `Step.Edge` and `DagBuilder` for the edge-based routing
@@ -29,7 +40,7 @@ defmodule Zaq.Engine.Workflows.Step.Node do
 
   @primary_key false
 
-  @types ~w(action agent workflow map)
+  @types ~w(action agent workflow)
 
   # Names reserved for virtual edge sentinels (see `DagBuilder.start_sentinel/0`).
   # A real node may not take one of these names, or a `from: "start"` edge could
@@ -57,7 +68,7 @@ defmodule Zaq.Engine.Workflows.Step.Node do
     |> validate_module_required_for_action()
     |> validate_module_contract()
     |> validate_workflow_ref_required()
-    |> validate_map_params()
+    |> validate_node_module()
   end
 
   # A node may not take a reserved sentinel name (e.g. "start"), case-insensitively.
@@ -154,96 +165,51 @@ defmodule Zaq.Engine.Workflows.Step.Node do
     end
   end
 
-  # A `"map"` node iterates an inline `body` pipeline over the upstream collection
-  # named by `over` (see `DagBuilder`/`Composition`). `over` + `body` are required.
-  # Optional throughput/delivery knobs (the Batch superset):
-  #   - `chunk_size` — positive integer; nil ⇒ per-item fan-out
-  #   - `delivery`   — "item" | "list" (how each unit reaches the body via `field`)
-  #   - `field`      — the param key under which the unit is delivered
-  defp validate_map_params(changeset) do
-    if get_field(changeset, :type) == "map" do
-      params = changeset |> get_field(:params) |> Kernel.||(%{})
+  # Dispatches to the node module's optional `Workflows.Node.validate/1` callback —
+  # the save-time analogue of `DagBuilder`'s `enrich/2` dispatch. A translator
+  # (e.g. `Batch`) validates its own inline sub-pipeline there, so `Step.Node` never
+  # needs to know a translator's internals. Modules that do not implement the
+  # callback (plain action/agent/workflow nodes) are left untouched.
+  defp validate_node_module(changeset) do
+    module = get_field(changeset, :module)
 
-      changeset
-      |> validate_map_over(Map.get(params, "over"))
-      |> validate_map_body(Map.get(params, "body"))
-      |> validate_map_delivery(Map.get(params, "delivery"))
-      |> validate_map_chunk_size(Map.get(params, "chunk_size"))
-      |> validate_map_max_items(Map.get(params, "max_items"))
+    with {:ok, mod} <- resolve_node_module(module),
+         true <- function_exported?(mod, :validate, 1),
+         {:error, reason} <- mod.validate(node_attrs(changeset)) do
+      add_error(changeset, :params, node_validation_message(reason))
     else
-      changeset
+      _ -> changeset
     end
   end
 
-  defp validate_map_over(changeset, over) when is_binary(over) and over != "", do: changeset
+  defp resolve_node_module(module) when is_binary(module) and module != "",
+    do: Action.resolve(module)
 
-  defp validate_map_over(changeset, _over),
-    do: add_error(changeset, :params, "over is required for map nodes")
+  defp resolve_node_module(_module), do: :error
 
-  defp validate_map_body(changeset, [_ | _] = body) do
-    body
-    |> Enum.with_index()
-    |> Enum.reduce(changeset, fn {bnode, i}, cs ->
-      case body_node_error(bnode) do
-        nil -> cs
-        msg -> add_error(cs, :params, "body node #{i} #{msg}")
-      end
-    end)
+  # Reconstructs the string-keyed node map the `Node.validate/1` callback expects
+  # (mirrors the persisted JSONB shape).
+  defp node_attrs(changeset) do
+    %{
+      "name" => get_field(changeset, :name),
+      "type" => get_field(changeset, :type),
+      "module" => get_field(changeset, :module),
+      "index" => get_field(changeset, :index),
+      "params" => get_field(changeset, :params) || %{}
+    }
   end
 
-  defp validate_map_body(changeset, _body),
-    do: add_error(changeset, :params, "body must list at least one node for map nodes")
+  defp node_validation_message(reason) when is_binary(reason), do: reason
+  defp node_validation_message(reason), do: inspect(reason)
 
-  # Body nodes (string-keyed maps) are validated for type validity, module
-  # requiredness, and the Action contract — the same save-time guarantees a
-  # top-level node gets, so a `map` whose body names a missing/non-conforming
-  # module is rejected at save. Body nodes carry no `index` (it is assigned at
-  # build), so full node requiredness is intentionally not re-run here.
-  defp body_node_error(bnode) when is_map(bnode) do
-    type = body_field(bnode, "type")
-    module = body_field(bnode, "module")
+  @doc """
+  Returns `nil` when the `(type, module)` pair satisfies the node-module contract,
+  otherwise a human-readable error string.
 
-    cond do
-      type not in @types ->
-        "has invalid type #{inspect(type)}"
-
-      type in ["action", "agent"] and (is_nil(module) or module == "") ->
-        "is missing its module"
-
-      true ->
-        case node_module_error(type, module) do
-          nil -> nil
-          msg -> "module #{msg}"
-        end
-    end
-  end
-
-  defp body_node_error(_bnode), do: "must be a map"
-
-  # Body nodes are normally string-keyed (JSONB / serialized snapshots); tolerate
-  # atom keys too. `:type`/`:module` are existing schema-field atoms, so resolving
-  # them with `to_existing_atom` never creates new atoms.
-  defp body_field(bnode, key) do
-    Map.get(bnode, key) || Map.get(bnode, String.to_existing_atom(key))
-  end
-
-  defp validate_map_delivery(changeset, nil), do: changeset
-  defp validate_map_delivery(changeset, d) when d in ["item", "list"], do: changeset
-
-  defp validate_map_delivery(changeset, _d),
-    do: add_error(changeset, :params, ~s(delivery must be "item" or "list"))
-
-  defp validate_map_chunk_size(changeset, nil), do: changeset
-  defp validate_map_chunk_size(changeset, n) when is_integer(n) and n > 0, do: changeset
-
-  defp validate_map_chunk_size(changeset, _n),
-    do: add_error(changeset, :params, "chunk_size must be a positive integer")
-
-  # `max_items` caps the fan-out cardinality. Optional at save; when present
-  # it must be a positive integer. The run-time backstop lives in `DagBuilder`.
-  defp validate_map_max_items(changeset, nil), do: changeset
-  defp validate_map_max_items(changeset, n) when is_integer(n) and n > 0, do: changeset
-
-  defp validate_map_max_items(changeset, _n),
-    do: add_error(changeset, :params, "max_items must be a positive integer")
+  Public so translator modules (`Workflows.Node` implementations such as `Batch`)
+  can re-use the exact save-time contract check `Step.Node` applies to top-level
+  nodes when validating their own inline sub-pipeline nodes.
+  """
+  @spec module_contract_error(String.t() | nil, String.t() | nil) :: String.t() | nil
+  def module_contract_error(type, module), do: node_module_error(type, module)
 end

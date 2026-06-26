@@ -8,6 +8,8 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.DagBuilder
+  alias Zaq.Engine.Workflows.Step
+  alias Zaq.Engine.Workflows.Workflow
   alias Zaq.Engine.Workflows.WorkflowRun
 
   @source_event %{
@@ -21,40 +23,44 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
     :ok
   end
 
-  defp map_workflow do
-    {:ok, wf} =
-      Workflows.create_workflow(%{
-        name: "Map #{System.unique_integer([:positive])}",
-        status: "active",
-        nodes: [
-          %{
-            name: "emit",
-            type: "action",
-            module: "Zaq.Engine.Workflows.Test.EmitItems",
-            params: %{},
-            index: 0
-          },
-          %{
-            name: "m",
-            type: "map",
-            params: %{
-              "over" => "items",
-              "body" => [
-                %{
-                  "name" => "ok",
-                  "type" => "action",
-                  "module" => "Zaq.Engine.Workflows.Test.OkAction",
-                  "params" => %{}
-                }
-              ]
-            },
-            index: 1
-          }
-        ],
-        edges: [%{from: "emit", to: "m"}]
-      })
+  # `map` is an internal lowering target — it is no longer an authorable node type
+  # (`Step.Node` rejects it; authors reach it via the `Batch` action). These tests
+  # exercise the primitive directly, including capabilities `Batch` does not expose
+  # (`max_items`, explicit `delivery`/`field`), so they insert the workflow struct
+  # straight to the DB, bypassing the authoring changeset. The run path
+  # (`create_run` → `DagBuilder.build`) still accepts `map` as an internal type.
+  defp insert_workflow(name, nodes, edges) do
+    Zaq.Repo.insert!(%Workflow{
+      name: "#{name} #{System.unique_integer([:positive])}",
+      status: "active",
+      nodes: Enum.map(nodes, &struct(Step.Node, &1)),
+      edges: Enum.map(edges, &struct(Step.Edge, &1))
+    })
+  end
 
-    wf
+  defp insert_map_workflow(name, emit_module, map_params) do
+    insert_workflow(
+      name,
+      [
+        %{name: "emit", type: "action", module: emit_module, params: %{}, index: 0},
+        %{name: "m", type: "map", params: map_params, index: 1}
+      ],
+      [%{from: "emit", to: "m"}]
+    )
+  end
+
+  defp map_workflow do
+    insert_map_workflow("Map", "Zaq.Engine.Workflows.Test.EmitItems", %{
+      "over" => "items",
+      "body" => [
+        %{
+          "name" => "ok",
+          "type" => "action",
+          "module" => "Zaq.Engine.Workflows.Test.OkAction",
+          "params" => %{}
+        }
+      ]
+    })
   end
 
   test "runs the body once per item and collects results" do
@@ -101,35 +107,13 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
   # the even item (n=2, index 1) and succeeds on the odds.
 
   defp strategy_workflow(strategy, body_module \\ "Zaq.Engine.Workflows.Test.FailEvenN") do
-    {:ok, wf} =
-      Workflows.create_workflow(%{
-        name: "MapStrategy #{System.unique_integer([:positive])}",
-        status: "active",
-        nodes: [
-          %{
-            name: "emit",
-            type: "action",
-            module: "Zaq.Engine.Workflows.Test.EmitItems",
-            params: %{},
-            index: 0
-          },
-          %{
-            name: "m",
-            type: "map",
-            params: %{
-              "over" => "items",
-              "strategy" => strategy,
-              "body" => [
-                %{"name" => "fail", "type" => "action", "module" => body_module, "params" => %{}}
-              ]
-            },
-            index: 1
-          }
-        ],
-        edges: [%{from: "emit", to: "m"}]
-      })
-
-    wf
+    insert_map_workflow("MapStrategy", "Zaq.Engine.Workflows.Test.EmitItems", %{
+      "over" => "items",
+      "strategy" => strategy,
+      "body" => [
+        %{"name" => "fail", "type" => "action", "module" => body_module, "params" => %{}}
+      ]
+    })
   end
 
   test ":skip_and_continue — run completes, failing item isolated as non-fatal + collected" do
@@ -170,43 +154,24 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
   end
 
   test "multi-step body — a failure short-circuits the rest of that fork only" do
-    {:ok, wf} =
-      Workflows.create_workflow(%{
-        name: "MapMultiStep #{System.unique_integer([:positive])}",
-        status: "active",
-        nodes: [
+    wf =
+      insert_map_workflow("MapMultiStep", "Zaq.Engine.Workflows.Test.EmitItems", %{
+        "over" => "items",
+        "strategy" => "skip_and_continue",
+        "body" => [
           %{
-            name: "emit",
-            type: "action",
-            module: "Zaq.Engine.Workflows.Test.EmitItems",
-            params: %{},
-            index: 0
+            "name" => "fail",
+            "type" => "action",
+            "module" => "Zaq.Engine.Workflows.Test.FailEvenN",
+            "params" => %{}
           },
           %{
-            name: "m",
-            type: "map",
-            params: %{
-              "over" => "items",
-              "strategy" => "skip_and_continue",
-              "body" => [
-                %{
-                  "name" => "fail",
-                  "type" => "action",
-                  "module" => "Zaq.Engine.Workflows.Test.FailEvenN",
-                  "params" => %{}
-                },
-                %{
-                  "name" => "after",
-                  "type" => "action",
-                  "module" => "Zaq.Engine.Workflows.Test.MarkDone",
-                  "params" => %{}
-                }
-              ]
-            },
-            index: 1
+            "name" => "after",
+            "type" => "action",
+            "module" => "Zaq.Engine.Workflows.Test.MarkDone",
+            "params" => %{}
           }
-        ],
-        edges: [%{from: "emit", to: "m"}]
+        ]
       })
 
     {:ok, finished} = Workflows.create_and_start_run(wf, @source_event)
@@ -271,24 +236,11 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
       ]
     }
 
-    {:ok, wf} =
-      Workflows.create_workflow(%{
-        name: "MapDelivery #{System.unique_integer([:positive])}",
-        status: "active",
-        nodes: [
-          %{
-            name: "emit",
-            type: "action",
-            module: "Zaq.Engine.Workflows.Test.EmitNumbers",
-            params: %{},
-            index: 0
-          },
-          %{name: "m", type: "map", params: Map.merge(base, extra_params), index: 1}
-        ],
-        edges: [%{from: "emit", to: "m"}]
-      })
-
-    wf
+    insert_map_workflow(
+      "MapDelivery",
+      "Zaq.Engine.Workflows.Test.EmitNumbers",
+      Map.merge(base, extra_params)
+    )
   end
 
   defp fork_rows(run_id) do
@@ -397,40 +349,18 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
   # --- max_items guard (Part 3, Step 10 / D-A8) -----------------------------
 
   defp max_items_workflow(max_items) do
-    {:ok, wf} =
-      Workflows.create_workflow(%{
-        name: "MapLimit #{System.unique_integer([:positive])}",
-        status: "active",
-        nodes: [
-          %{
-            name: "emit",
-            type: "action",
-            module: "Zaq.Engine.Workflows.Test.EmitItems",
-            params: %{},
-            index: 0
-          },
-          %{
-            name: "m",
-            type: "map",
-            params: %{
-              "over" => "items",
-              "max_items" => max_items,
-              "body" => [
-                %{
-                  "name" => "ok",
-                  "type" => "action",
-                  "module" => "Zaq.Engine.Workflows.Test.OkAction",
-                  "params" => %{}
-                }
-              ]
-            },
-            index: 1
-          }
-        ],
-        edges: [%{from: "emit", to: "m"}]
-      })
-
-    wf
+    insert_map_workflow("MapLimit", "Zaq.Engine.Workflows.Test.EmitItems", %{
+      "over" => "items",
+      "max_items" => max_items,
+      "body" => [
+        %{
+          "name" => "ok",
+          "type" => "action",
+          "module" => "Zaq.Engine.Workflows.Test.OkAction",
+          "params" => %{}
+        }
+      ]
+    })
   end
 
   test "a collection over max_items is rejected with {:map_over_limit, …}" do
@@ -469,22 +399,7 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
       ]
     }
 
-    {:ok, wf} =
-      Workflows.create_workflow(%{
-        name: "MapPost #{System.unique_integer([:positive])}",
-        status: "active",
-        nodes: [
-          %{
-            name: "emit",
-            type: "action",
-            module: "Zaq.Engine.Workflows.Test.EmitNumbers",
-            params: %{},
-            index: 0
-          },
-          %{name: "m", type: "map", params: base, index: 1}
-        ],
-        edges: [%{from: "emit", to: "m"}]
-      })
+    wf = insert_map_workflow("MapPost", "Zaq.Engine.Workflows.Test.EmitNumbers", base)
 
     {:ok, finished} = Workflows.create_and_start_run(wf, @source_event)
     assert finished.status == "completed"

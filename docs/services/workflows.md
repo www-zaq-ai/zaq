@@ -1,6 +1,6 @@
 # Workflows Service
 
-DAG-based workflow engine built on [Runic](https://hexdocs.pm/runic). Workflows are defined as a graph of steps (nodes + edges) stored as JSONB, validated at save time, snapshotted at run creation, and executed synchronously by `WorkflowRunAgent` from a pre-built DAG. Iteration is a first-class engine `map` primitive (Runic `FanOut`/`FanIn`); workflows may also reference other workflows inline via composition.
+DAG-based workflow engine built on [Runic](https://hexdocs.pm/runic). Workflows are defined as a graph of steps (nodes + edges) stored as JSONB, validated at save time, snapshotted at run creation, and executed synchronously by `WorkflowRunAgent` from a pre-built DAG. Iteration is an internal engine `map` primitive (Runic `FanOut`/`FanIn`) reached through the `Batch` action — never an authorable node type; workflows may also reference other workflows inline via composition.
 
 ---
 
@@ -86,12 +86,13 @@ The `steps` column on `Workflow` (and `steps_snapshot` on `WorkflowRun`) must fo
 }
 ```
 
-**Node types** (`Step.Node` accepts `action`, `agent`, `workflow`, `map`):
+**Authorable node types** (`Step.Node.types/0` ⇒ `action`, `agent`, `workflow`):
 - `"action"` / `"agent"` — wrapped in `Jido.Runic.ActionNode`. When `run_id` is present, wrapped further by `StepRunner`. The `module` must satisfy the `Action` contract at save time.
-- `"map"` — iteration primitive (Runic `FanOut`/`FanIn`). Runs an inline `params["body"]` pipeline once per item of the upstream collection named by `params["over"]`. Each item writes its own per-fork `Step.Run`; the trailing `MapCollect` writes the single aggregate `Step.Run`. A fan-out cap applies: `params["max_items"]` or the global default `Application.get_env(:zaq, Zaq.Engine.Workflows)[:map_max_items]` (defaults to `10_000`). Exceeding it surfaces `{:error, {:map_over_limit, …}}` (read back via `Workflows.map_over_limit/1`).
 - `"workflow"` — references another workflow by `params["workflow_ref"]`. Its steps are spliced inline at run creation by `Composition` (single entry/exit, namespaced node names, acyclicity validated at save). No child run is created.
 
-The `Batch` tool (`Zaq.Agent.Tools.Workflow.Batch`) is a build-time translator, not a node type: `DagBuilder` calls `Batch.enrich/2` to lower a Batch node onto a `"map"` node before assembly.
+Iteration is **not** an authorable node type. Authors express it through the `Batch` **action** (`type: "action"`, `module: "Zaq.Agent.Tools.Workflow.Batch"`). `Batch.enrich/2` lowers it onto the internal `"map"` node at build time; `Batch.validate/1` validates the inline `process`/`post_process` pipeline at save. The same rule holds for any future orchestration primitive — it ships as an `action` tool that enriches onto an internal node type, so the authoring surface stays `action`/`agent`/`workflow`.
+
+**Internal `"map"` node** (produced only by a translator's `enrich/2`, never authored): the iteration primitive (Runic `FanOut`/`FanIn`). Runs an inline `params["body"]` pipeline once per item of the upstream collection named by `params["over"]`. Each item writes its own per-fork `Step.Run`; the trailing `MapCollect` writes the single aggregate `Step.Run`. A fan-out cap applies: `params["max_items"]` or the global default `Application.get_env(:zaq, Zaq.Engine.Workflows)[:map_max_items]` (defaults to `10_000`). Exceeding it surfaces `{:error, {:map_over_limit, …}}` (read back via `Workflows.map_over_limit/1`). `DagBuilder` still accepts `"map"` in a run's `steps_snapshot` because that is where lowering writes it.
 
 **Edge fields:**
 - `"from"` / `"to"` — node names (strings, matched to node `"name"` field).
