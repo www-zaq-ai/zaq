@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-1xp"
+  ],
   "blocks": [],
   "created": "2026-06-26T13:18:22Z",
   "description": "Expose centralized NONE option in channel and IMAP agent selection UI and persist it distinctly.",
