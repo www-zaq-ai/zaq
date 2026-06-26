@@ -898,4 +898,68 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert {:error, {:invalid_edge_condition, _}} = Workflows.start_run(run)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Blocker 2 (issue #508): mapping the trigger payload onto the FIRST node.
+  #
+  # Simulates Workflow A dispatching %{name, age, position} which triggers
+  # Workflow B, whose first node is a condition that references the producer's
+  # field under a RENAMED key (current_position). The rename is declared on a
+  # sentinel edge `from: "start"` to the first node, using a dotted-path source
+  # (current_position => start.position). The persistent `start` namespace holds
+  # the trigger payload for the whole run. None of this exists yet, so the run
+  # fails today — both because a first-node condition crashes (Blocker 1) and
+  # because no `start` mapping renames `position` -> `current_position`.
+  # EXPECTED TO FAIL until the mapping feature lands.
+  # ---------------------------------------------------------------------------
+  describe "execute/1 — maps a renamed trigger field onto the first node (issue #508)" do
+    test "condition as first node passes against a start-mapped renamed field" do
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WB Mapping #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{
+              name: "check_position",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "conditions" => [
+                  %{"key" => "current_position", "op" => "eq", "value" => "CTO"}
+                ]
+              },
+              index: 0
+            }
+          ],
+          edges: [
+            %{
+              "from" => "start",
+              "to" => "check_position",
+              "mapping" => %{"current_position" => "start.position"}
+            }
+          ]
+        })
+
+      # The raw dispatched payload, exactly as TriggerNode would plant it
+      # (Workflow A's output, string-keyed at the root of assigns.input).
+      source = flat_trigger_source(%{"name" => "Jad", "age" => 32, "position" => "CTO"})
+      {:ok, run} = Workflows.create_run(wf, source)
+
+      assert {:ok, updated} = WorkflowRunAgent.execute(run)
+      assert updated.status == "completed"
+    end
+  end
+
+  # A %Zaq.Event{} carrying a FLAT trigger payload at assigns.input, matching
+  # the shape TriggerNode.build_source_event/2 produces for a dispatched event
+  # whose request is the producer's output map (no `event` envelope wrapper).
+  defp flat_trigger_source(payload) do
+    %Event{
+      request: %{trigger_type: :event},
+      next_hop: nil,
+      name: :workflow_run_triggered,
+      trace_id: Ecto.UUID.generate(),
+      assigns: %{trigger_type: :event, input: payload, skip_permissions: true}
+    }
+  end
 end

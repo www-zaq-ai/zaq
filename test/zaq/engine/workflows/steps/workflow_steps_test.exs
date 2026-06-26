@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Engine.Workflows.DagBuilder
   alias Zaq.Engine.Workflows.Step.Node
   alias Zaq.Engine.Workflows.Workflow
 
@@ -507,6 +508,31 @@ defmodule Zaq.Engine.Workflows.WorkflowStepsTest do
   describe "Node.types/0" do
     test "returns the valid node type list" do
       assert Node.types() == ["action", "agent", "workflow", "map"]
+    end
+  end
+
+  describe "nodes validation — reserved sentinel names (issue #508)" do
+    test "rejects a node named \"start\"" do
+      changeset = Node.changeset(%Node{}, %{@valid_node | name: "start"})
+
+      refute changeset.valid?
+      assert changeset.errors[:name]
+    end
+
+    test "rejects a node named \"start\" case-insensitively / with surrounding space" do
+      changeset = Node.changeset(%Node{}, %{@valid_node | name: "  Start "})
+
+      refute changeset.valid?
+      assert changeset.errors[:name]
+    end
+
+    test "accepts non-reserved names" do
+      changeset = Node.changeset(%Node{}, %{@valid_node | name: "kickoff"})
+      assert changeset.valid?
+    end
+
+    test "reserved_node_names/0 agrees with DagBuilder.start_sentinel/0" do
+      assert DagBuilder.start_sentinel() in Node.reserved_node_names()
     end
   end
 

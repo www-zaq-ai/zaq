@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.Tools.Workflow.Condition
 
@@ -237,6 +238,70 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       # With a default that matches value, the condition passes
       assert {:ok, %{passed: true}} =
                Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Blocker 1 (issue #508): a Condition as the FIRST node of a run triggered by
+  # a dispatched event has no upstream node to produce an `:input` key. The
+  # trigger payload seeds the fact at root, so the condition must evaluate
+  # against the incoming fact at root instead of crashing on a missing `:input`.
+  # ---------------------------------------------------------------------------
+  describe "run/2 — first node off a trigger (root-fact contract)" do
+    test "evaluates a root key when the trigger payload seeds the fact (no :input)" do
+      params = %{
+        "name" => "Jad",
+        "age" => 32,
+        "position" => "CTO",
+        conditions: [%{"key" => "position", "op" => "eq", "value" => "CTO"}]
+      }
+
+      assert {:ok, %{passed: true}} = Condition.run(params, @ctx)
+    end
+
+    test "resolves a dotted path into a nested map at root" do
+      params = %{
+        profile: %{"position" => "CTO"},
+        conditions: [%{"key" => "profile.position", "op" => "eq", "value" => "CTO"}]
+      }
+
+      assert {:ok, %{passed: true}} = Condition.run(params, @ctx)
+    end
+
+    test "explicit :input still wins (mid-DAG behaviour preserved)" do
+      params = %{
+        "position" => "CFO",
+        input: %{"position" => "CTO"},
+        conditions: [%{"key" => "position", "op" => "eq", "value" => "CTO"}]
+      }
+
+      assert {:ok, %{passed: true}} = Condition.run(params, @ctx)
+    end
+
+    # Additive guarantee: the root-fallback never weakens mid-DAG behaviour — when
+    # `:input` is present it remains authoritative, regardless of any extra keys
+    # sitting at the fact root (e.g. a persistent `start` namespace or cascade).
+    property "explicit :input is authoritative regardless of arbitrary root noise" do
+      check all(
+              val <- StreamData.integer(),
+              noise <-
+                StreamData.map_of(
+                  StreamData.string(:alphanumeric, min_length: 3),
+                  StreamData.integer(),
+                  max_length: 5
+                )
+            ) do
+        base = %{
+          input: %{"field" => val},
+          conditions: [%{"key" => "field", "op" => "eq", "value" => val}]
+        }
+
+        # Plant a conflicting root value; :input must still win.
+        noisy = noise |> Map.put("field", val + 1) |> Map.merge(base)
+
+        assert {:ok, %{passed: true}} = Condition.run(base, @ctx)
+        assert {:ok, %{passed: true}} = Condition.run(noisy, @ctx)
+      end
     end
   end
 end
