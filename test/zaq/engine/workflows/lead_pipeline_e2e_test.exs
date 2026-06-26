@@ -242,7 +242,7 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
       Enum.map(build.nodes, fn node ->
         cond do
           node_name(node) == "get_sheet" -> put_module(node, GetSheetStub)
-          node[:type] == "map" or node["type"] == "map" -> patch_map_node(node)
+          node_name(node) == "process_rows" -> patch_batch_node(node)
           true -> node
         end
       end)
@@ -250,14 +250,18 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
     %{build | nodes: nodes}
   end
 
-  defp patch_map_node(node) do
+  # `process_rows` is a `Batch` action — its per-item pipeline lives under the
+  # `Iterate` marker (`params.process[0].params.pipeline`); the per-fork tail under
+  # `params.post_process`.
+  defp patch_batch_node(node) do
     params = node[:params] || node["params"]
 
-    body =
-      Enum.map(params["body"] || [], fn bnode ->
-        if node_name(bnode) == "dispatch_lead",
-          do: put_module(bnode, BridgeDispatchEvent),
-          else: bnode
+    process =
+      Enum.map(params["process"] || [], fn pnode ->
+        case get_in(pnode, ["params", "pipeline"]) do
+          nil -> pnode
+          pipeline -> put_in(pnode, ["params", "pipeline"], patch_dispatch(pipeline))
+        end
       end)
 
     post =
@@ -267,8 +271,16 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
           else: pnode
       end)
 
-    params = params |> Map.put("body", body) |> Map.put("post_process", post)
+    params = params |> Map.put("process", process) |> Map.put("post_process", post)
     Map.put(node, :params, params)
+  end
+
+  defp patch_dispatch(pipeline) do
+    Enum.map(pipeline, fn bnode ->
+      if node_name(bnode) == "dispatch_lead",
+        do: put_module(bnode, BridgeDispatchEvent),
+        else: bnode
+    end)
   end
 
   # Swap the three external leaf steps; keep ensure_person, build_history,
@@ -400,8 +412,11 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
     test "dispatch_lead opts into a machine dispatch" do
       build = IdentifyLeadsFromGoogleSheet.build(@sheet_id)
 
-      map_node = Enum.find(build.nodes, &(&1[:type] == "map"))
-      dispatch_node = Enum.find(map_node.params["body"], &(&1["name"] == "dispatch_lead"))
+      batch_node = Enum.find(build.nodes, &(node_name(&1) == "process_rows"))
+      [iterate] = batch_node.params["process"]
+
+      dispatch_node =
+        Enum.find(iterate["params"]["pipeline"], &(&1["name"] == "dispatch_lead"))
 
       assert dispatch_node["params"]["machine"] == true,
              "dispatch_lead must set machine: true so SendLeadsEmail's build_history is authorized"
