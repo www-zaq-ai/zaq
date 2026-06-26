@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-26T18:38:50Z",
+  "description": "Remove Agent-side IdentityPlug/person reload for channel-originated messages. Derive person_id/team_ids from actor.person and update workflow/tool consumers to use nested actor.person.id.",
+  "id": "zaq-r35",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[identity-actor-contract] Consume nested actor person in Agent and tools",
+  "type": "task",
+  "updated_at": "2026-06-26T18:38:50Z"
+}
