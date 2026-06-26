@@ -501,148 +501,153 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
               {@selected_step}
             </p>
 
-            <p
-              :if={visible == []}
-              class="bg-white rounded-xl border border-black/[0.08] font-mono text-[0.85rem] text-black/50 text-center py-10"
-            >
-              No steps recorded yet.
-            </p>
+            <%= if @selected_step == "start" do %>
+              <%!-- Virtual origin: show the trigger payload, not a StepRun. --%>
+              <.start_input_card run={@run} />
+            <% else %>
+              <p
+                :if={visible == []}
+                class="bg-white rounded-xl border border-black/[0.08] font-mono text-[0.85rem] text-black/50 text-center py-10"
+              >
+                No steps recorded yet.
+              </p>
 
-            <%= for step <- visible do %>
-              <% info = Map.get(@node_info, step.step_name, %{}) %>
-              <%= cond do %>
-                <% Map.get(info, :is_batch) -> %>
-                  <.batch_step_card
-                    step={step}
-                    batch_progress={Map.get(@batch_progress, step.step_name)}
-                    step_runs={@step_runs}
-                    node_params={Map.get(info, :params, %{})}
-                    now={@now}
-                  />
-                <% Map.get(info, :is_map) -> %>
-                  <.map_step_card
-                    step={step}
-                    step_runs={@step_runs}
-                    node_params={Map.get(info, :params, %{})}
-                    now={@now}
-                  />
-                <% true -> %>
-                  <%!-- Generic step card --%>
-                  <div class="bg-white rounded-xl border border-black/[0.08] overflow-hidden">
-                    <%!-- Step header --%>
-                    <div class="flex items-center justify-between px-5 py-3 border-b border-black/[0.06] bg-black/[0.01]">
-                      <div class="flex items-center gap-3">
-                        <span class="font-mono text-[0.72rem] text-black/40 w-5 text-right tabular-nums">
-                          {step.step_index + 1}
-                        </span>
-                        <span class="font-mono text-[0.85rem] font-semibold text-black">
-                          {step.step_name}
-                        </span>
+              <%= for step <- visible do %>
+                <% info = Map.get(@node_info, step.step_name, %{}) %>
+                <%= cond do %>
+                  <% Map.get(info, :is_batch) -> %>
+                    <.batch_step_card
+                      step={step}
+                      batch_progress={Map.get(@batch_progress, step.step_name)}
+                      step_runs={@step_runs}
+                      node_params={Map.get(info, :params, %{})}
+                      now={@now}
+                    />
+                  <% Map.get(info, :is_map) -> %>
+                    <.map_step_card
+                      step={step}
+                      step_runs={@step_runs}
+                      node_params={Map.get(info, :params, %{})}
+                      now={@now}
+                    />
+                  <% true -> %>
+                    <%!-- Generic step card --%>
+                    <div class="bg-white rounded-xl border border-black/[0.08] overflow-hidden">
+                      <%!-- Step header --%>
+                      <div class="flex items-center justify-between px-5 py-3 border-b border-black/[0.06] bg-black/[0.01]">
+                        <div class="flex items-center gap-3">
+                          <span class="font-mono text-[0.72rem] text-black/40 w-5 text-right tabular-nums">
+                            {step.step_index + 1}
+                          </span>
+                          <span class="font-mono text-[0.85rem] font-semibold text-black">
+                            {step.step_name}
+                          </span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                          <.run_duration run={step} now={@now} />
+                          <.run_status_badge status={step.status} />
+                        </div>
                       </div>
-                      <div class="flex items-center gap-3">
-                        <.run_duration run={step} now={@now} />
-                        <.run_status_badge status={step.status} />
-                      </div>
-                    </div>
 
-                    <%!-- Logs --%>
-                    <div
-                      :if={step.logs != []}
-                      class="px-5 py-3 border-b border-black/[0.06] space-y-1"
-                    >
-                      <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-2">
-                        Logs
-                      </p>
-                      <.step_log_entry :for={log <- step.logs} log={log} />
-                    </div>
-
-                    <%!-- Input (collapsible) --%>
-                    <div
-                      :if={not is_nil(step.input) and map_size(step.input) > 0}
-                      class="border-b border-black/[0.06]"
-                    >
-                      <button
-                        type="button"
-                        phx-click={
-                          JS.toggle(to: "#step-input-#{step.id}")
-                          |> JS.toggle_class("rotate-90", to: "#step-input-chevron-#{step.id}")
-                        }
-                        class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
-                      >
-                        <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
-                          Input
-                        </span>
-                        <svg
-                          id={"step-input-chevron-#{step.id}"}
-                          class="w-3 h-3 text-black/30 transition-transform"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          viewBox="0 0 24 24"
-                        >
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
+                      <%!-- Logs --%>
                       <div
-                        id={"step-input-#{step.id}"}
-                        phx-update="ignore"
-                        style="display:none"
-                        class="px-5 pb-3"
+                        :if={step.logs != []}
+                        class="px-5 py-3 border-b border-black/[0.06] space-y-1"
                       >
-                        <ZaqWeb.Components.JsonTree.json_tree
-                          id={"jt-step-input-#{step.id}"}
-                          data={step.input}
-                        />
+                        <p class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider mb-2">
+                          Logs
+                        </p>
+                        <.step_log_entry :for={log <- step.logs} log={log} />
                       </div>
-                    </div>
 
-                    <%!-- Output (collapsible) --%>
-                    <% step_output = clean_results(step.results) %>
-                    <div
-                      :if={step.status in ["completed", "waiting"] and map_size(step_output) > 0}
-                      class="border-b border-black/[0.06]"
-                    >
-                      <button
-                        type="button"
-                        phx-click={
-                          JS.toggle(to: "#step-output-#{step.id}")
-                          |> JS.toggle_class("rotate-90", to: "#step-chevron-#{step.id}")
-                        }
-                        class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
+                      <%!-- Input (collapsible) --%>
+                      <div
+                        :if={not is_nil(step.input) and map_size(step.input) > 0}
+                        class="border-b border-black/[0.06]"
                       >
-                        <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
-                          Output
-                        </span>
-                        <svg
-                          id={"step-chevron-#{step.id}"}
-                          class="w-3 h-3 text-black/30 transition-transform"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          viewBox="0 0 24 24"
+                        <button
+                          type="button"
+                          phx-click={
+                            JS.toggle(to: "#step-input-#{step.id}")
+                            |> JS.toggle_class("rotate-90", to: "#step-input-chevron-#{step.id}")
+                          }
+                          class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
                         >
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                      <div id={"step-output-#{step.id}"} style="display:none" class="px-5 pb-3">
-                        <ZaqWeb.Components.JsonTree.json_tree
-                          id={"jt-step-#{step.id}"}
-                          data={step_output}
-                        />
+                          <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
+                            Input
+                          </span>
+                          <svg
+                            id={"step-input-chevron-#{step.id}"}
+                            class="w-3 h-3 text-black/30 transition-transform"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                        <div
+                          id={"step-input-#{step.id}"}
+                          phx-update="ignore"
+                          style="display:none"
+                          class="px-5 pb-3"
+                        >
+                          <ZaqWeb.Components.JsonTree.json_tree
+                            id={"jt-step-input-#{step.id}"}
+                            data={step.input}
+                          />
+                        </div>
+                      </div>
+
+                      <%!-- Output (collapsible) --%>
+                      <% step_output = clean_results(step.results) %>
+                      <div
+                        :if={step.status in ["completed", "waiting"] and map_size(step_output) > 0}
+                        class="border-b border-black/[0.06]"
+                      >
+                        <button
+                          type="button"
+                          phx-click={
+                            JS.toggle(to: "#step-output-#{step.id}")
+                            |> JS.toggle_class("rotate-90", to: "#step-chevron-#{step.id}")
+                          }
+                          class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
+                        >
+                          <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
+                            Output
+                          </span>
+                          <svg
+                            id={"step-chevron-#{step.id}"}
+                            class="w-3 h-3 text-black/30 transition-transform"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                        <div id={"step-output-#{step.id}"} style="display:none" class="px-5 pb-3">
+                          <ZaqWeb.Components.JsonTree.json_tree
+                            id={"jt-step-#{step.id}"}
+                            data={step_output}
+                          />
+                        </div>
+                      </div>
+
+                      <%!-- Errors --%>
+                      <div
+                        :if={step.status == "failed" and step.errors != nil}
+                        class="px-5 py-3 bg-red-50"
+                      >
+                        <p class="font-mono text-[0.65rem] font-semibold text-red-500 uppercase tracking-wider mb-2">
+                          Error
+                        </p>
+                        <pre class="font-mono text-[0.75rem] text-red-700 whitespace-pre-wrap break-all">{inspect(step.errors, pretty: true)}</pre>
                       </div>
                     </div>
-
-                    <%!-- Errors --%>
-                    <div
-                      :if={step.status == "failed" and step.errors != nil}
-                      class="px-5 py-3 bg-red-50"
-                    >
-                      <p class="font-mono text-[0.65rem] font-semibold text-red-500 uppercase tracking-wider mb-2">
-                        Error
-                      </p>
-                      <pre class="font-mono text-[0.75rem] text-red-700 whitespace-pre-wrap break-all">{inspect(step.errors, pretty: true)}</pre>
-                    </div>
-                  </div>
+                <% end %>
               <% end %>
             <% end %>
           </div>
