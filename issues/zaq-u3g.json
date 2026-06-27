@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-06-26T18:38:50Z",
@@ -13,8 +13,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[identity-actor-contract] Resolve channel person identity before agent dispatch",
   "type": "task",
-  "updated_at": "2026-06-26T18:58:33Z"
+  "updated_at": "2026-06-27T00:03:16Z"
 }
