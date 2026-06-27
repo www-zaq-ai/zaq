@@ -10,11 +10,15 @@
     {
       "text": "Updated Agent.Api/Pipeline to consume channel-supplied actor.person id/team_ids, removed Agent-side person reload, updated History workflow actor lookup/tests/docs. mix q passes.",
       "timestamp": "2026-06-26T18:58:33Z"
+    },
+    {
+      "text": "Completed Incoming.person migration for Agent/workflow/tool consumers. StepRunner now injects source_event.request as ctx[:incoming]; History uses Incoming.person_id/1; targeted Agent/workflow/BO/channel tests pass; mix q passes.",
+      "timestamp": "2026-06-27T00:11:32Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[identity-actor-contract] Consume nested actor person in Agent and tools",
   "type": "task",
-  "updated_at": "2026-06-27T00:03:16Z"
+  "updated_at": "2026-06-27T00:11:32Z"
 }
