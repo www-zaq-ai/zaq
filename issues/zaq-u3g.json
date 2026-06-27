@@ -14,11 +14,15 @@
     {
       "text": "Completed channel-side identity contract cleanup. Channel-originated pipeline events keep actor nil and carry resolved identity on Incoming.person; BO ChatLive now builds Incoming.person when current_user.person_id exists; mix q passes.",
       "timestamp": "2026-06-27T00:11:32Z"
+    },
+    {
+      "text": "Channels now keep resolved identity on Incoming.person; execution actor normalization is handled at Agent/Engine boundaries via ActorNormalizer instead of in channel code. mix q passes.",
+      "timestamp": "2026-06-27T07:46:45Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[identity-actor-contract] Resolve channel person identity before agent dispatch",
   "type": "task",
-  "updated_at": "2026-06-27T00:11:32Z"
+  "updated_at": "2026-06-27T07:46:45Z"
 }
