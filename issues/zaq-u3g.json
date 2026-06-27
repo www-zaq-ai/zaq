@@ -10,11 +10,15 @@
     {
       "text": "Implemented IdentityResolver extraction and CommunicationBridge actor.person enrichment before agent dispatch. Targeted channel tests and mix q pass.",
       "timestamp": "2026-06-26T18:58:33Z"
+    },
+    {
+      "text": "Completed channel-side identity contract cleanup. Channel-originated pipeline events keep actor nil and carry resolved identity on Incoming.person; BO ChatLive now builds Incoming.person when current_user.person_id exists; mix q passes.",
+      "timestamp": "2026-06-27T00:11:32Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[identity-actor-contract] Resolve channel person identity before agent dispatch",
   "type": "task",
-  "updated_at": "2026-06-27T00:03:16Z"
+  "updated_at": "2026-06-27T00:11:32Z"
 }
