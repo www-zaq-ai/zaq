@@ -14,11 +14,15 @@
     {
       "text": "Completed Incoming.person migration for Agent/workflow/tool consumers. StepRunner now injects source_event.request as ctx[:incoming]; History uses Incoming.person_id/1; targeted Agent/workflow/BO/channel tests pass; mix q passes.",
       "timestamp": "2026-06-27T00:11:32Z"
+    },
+    {
+      "text": "Adjusted identity contract per review: added reusable Zaq.Identity.ActorNormalizer, normalized Incoming.person into Event.actor at Agent and TriggerNode workflow boundaries, removed workflow/tool identity dependency on ctx[:incoming], and validated with mix q.",
+      "timestamp": "2026-06-27T07:46:45Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[identity-actor-contract] Consume nested actor person in Agent and tools",
   "type": "task",
-  "updated_at": "2026-06-27T00:11:32Z"
+  "updated_at": "2026-06-27T07:46:45Z"
 }
