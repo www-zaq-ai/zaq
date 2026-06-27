@@ -9,6 +9,11 @@ defmodule Zaq.Channels.EmailBridgeTest do
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
+  defmodule UnresolvedIdentityResolver do
+    def resolve(_incoming, _opts), do: {:error, :not_found}
+    def person_payload(_person), do: raise("unexpected person payload")
+  end
+
   defmodule DynamicAdapterStub do
     def to_internal(payload, connection_details) do
       send(self(), {:dynamic_adapter_called, payload, connection_details})
@@ -355,11 +360,18 @@ defmodule Zaq.Channels.EmailBridgeTest do
       Application.put_env(:zaq, :email_bridge_router_module, Zaq.Channels.Router)
       Application.put_env(:zaq, :email_bridge_conversations_module, Zaq.Engine.Conversations)
 
+      Application.put_env(
+        :zaq,
+        :communication_bridge_identity_resolver,
+        UnresolvedIdentityResolver
+      )
+
       on_exit(fn ->
         Application.delete_env(:zaq, :email_bridge_pipeline_module)
         Application.delete_env(:zaq, :email_bridge_router_module)
         Application.delete_env(:zaq, :email_bridge_conversations_module)
         Application.delete_env(:zaq, :email_bridge_node_router_module)
+        Application.delete_env(:zaq, :communication_bridge_identity_resolver)
       end)
 
       :ok
@@ -426,8 +438,14 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert selected_id == provider_agent.id
     end
 
-    test "run_pipeline event actor carries the author identity with a person_id slot" do
+    test "run_pipeline event does not carry an actor" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      Application.put_env(
+        :zaq,
+        :communication_bridge_identity_resolver,
+        UnresolvedIdentityResolver
+      )
 
       config = insert_imap_channel_config(%{})
       payload = %{"body_text" => "hello"}
@@ -436,9 +454,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
       assert_received {:node_router_run_pipeline_event, event}
 
-      # person_id is nil at bridge time — IdentityPlug resolves it later in
-      # Zaq.Agent.Api; the bridge must still expose the slot.
-      assert %{id: "author@example.com", person_id: nil} = event.actor
+      assert event.actor == nil
     end
 
     test "falls back to global default agent selection when provider default is absent" do
@@ -544,7 +560,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert :ok = EmailBridge.from_listener(prepared, payload, sink_opts)
       assert_received {:node_router_fire_event, event}
       assert event.request.content == "incoming"
-      assert event.name == "channels:message_received.email_imap.unknown"
+      assert event.name == "channels:message_received.workflow_only.email_imap.unknown"
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
       refute_received {:node_router_run_pipeline_event, _}
     end

@@ -18,8 +18,9 @@ defmodule Zaq.Channels.CommunicationBridge do
   """
 
   alias Zaq.{Agent, Event, NodeRouter}
-  alias Zaq.Channels.{AgentRouting, Bridge}
+  alias Zaq.Channels.{AgentRouting, Bridge, EventNames}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.People.IdentityResolver
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
 
   @callback send_reply(term(), map()) :: :ok | {:error, term()}
@@ -311,6 +312,7 @@ defmodule Zaq.Channels.CommunicationBridge do
       when is_list(pipeline_opts) and is_list(candidates) and is_map(actor) and is_list(opts) do
     node_router_module = Keyword.get(opts, :node_router, NodeRouter)
     pipeline_module = Keyword.get(opts, :pipeline_module, Zaq.Agent.Pipeline)
+    msg = put_channel_config_id(msg, Keyword.get(opts, :channel_config_id))
 
     with {:ok, agent_selection} <-
            AgentRouting.resolve_selection(candidates, Keyword.get(opts, :agent_module, Agent)) do
@@ -335,6 +337,8 @@ defmodule Zaq.Channels.CommunicationBridge do
          node_router_module,
          Zaq.Agent.Pipeline
        ) do
+    {msg, actor} = resolve_incoming_actor(msg, actor, pipeline_opts, opts)
+
     msg
     |> build_agent_pipeline_event(pipeline_opts, agent_selection, actor, opts)
     |> route_agent_pipeline_event(agent_selection, node_router_module)
@@ -374,13 +378,34 @@ defmodule Zaq.Channels.CommunicationBridge do
       when is_list(pipeline_opts) and is_map(actor) and is_list(opts) do
     msg
     |> Event.new(:agent,
-      actor: actor,
       type: :async,
-      name: channel_message_event_name(msg, opts),
+      name: EventNames.message_received(msg, routing_outcome(agent_selection), opts),
       opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
     )
     |> put_agent_selection_assign(agent_selection)
   end
+
+  defp resolve_incoming_actor(%Incoming{} = msg, actor, pipeline_opts, opts) when is_map(actor) do
+    resolver =
+      Keyword.get(
+        opts,
+        :identity_resolver,
+        Application.get_env(:zaq, :communication_bridge_identity_resolver, IdentityResolver)
+      )
+
+    resolver_opts = Keyword.merge(pipeline_opts, Keyword.get(opts, :identity_opts, []))
+
+    case resolver.resolve(msg, resolver_opts) do
+      {:ok, person} ->
+        person_payload = resolver.person_payload(person)
+        {%{msg | person: person_payload}, actor}
+
+      {:error, _reason} ->
+        {msg, actor}
+    end
+  end
+
+  defp resolve_incoming_actor(%Incoming{} = msg, actor, _pipeline_opts, _opts), do: {msg, actor}
 
   defp dispatch_agent_pipeline_event(%Event{} = event, node_router_module) do
     case node_router_module.dispatch(event).response do
@@ -404,34 +429,39 @@ defmodule Zaq.Channels.CommunicationBridge do
 
   defp put_agent_selection_assign(%Event{} = event, _selection), do: event
 
-  defp channel_message_event_name(%Incoming{} = incoming, opts) do
-    provider = incoming.provider |> to_string() |> slug_part()
+  defp routing_outcome(:none), do: :workflow_only
+  defp routing_outcome(_agent_selection), do: :agent_requested
 
-    channel_config_id =
-      Keyword.get(opts, :channel_config_id) || incoming_channel_config_id(incoming)
+  defp put_channel_config_id(%Incoming{} = msg, nil), do: msg
 
-    "channels:message_received.#{provider}.#{slug_part(channel_config_id)}"
-  end
+  defp put_channel_config_id(%Incoming{} = msg, channel_config_id) do
+    case normalize_channel_config_id(channel_config_id) do
+      nil ->
+        msg
 
-  defp incoming_channel_config_id(%Incoming{metadata: metadata}) when is_map(metadata) do
-    get_in(metadata, ["telemetry_dimensions", "channel_config_id"]) ||
-      get_in(metadata, [:telemetry_dimensions, :channel_config_id]) ||
-      Map.get(metadata, "channel_config_id") || Map.get(metadata, :channel_config_id) || "unknown"
-  end
+      normalized ->
+        metadata = Map.put(msg.metadata || %{}, "channel_config_id", normalized)
 
-  defp incoming_channel_config_id(_incoming), do: "unknown"
+        telemetry_dimensions =
+          metadata
+          |> Map.get("telemetry_dimensions", %{})
+          |> Map.put("channel_config_id", normalized)
 
-  defp slug_part(value) do
-    value
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/, "_")
-    |> String.trim("_")
-    |> case do
-      "" -> "unknown"
-      slug -> slug
+        %{msg | metadata: Map.put(metadata, "telemetry_dimensions", telemetry_dimensions)}
     end
   end
+
+  defp normalize_channel_config_id(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp normalize_channel_config_id(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      "unknown" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_channel_config_id(_value), do: nil
 
   defp bridge_supports?(bridge, fun, arity)
        when is_atom(bridge) and is_atom(fun) and is_integer(arity) do

@@ -46,6 +46,7 @@ defmodule Zaq.Agent.Pipeline do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
+  alias Zaq.Identity.ActorNormalizer
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -54,31 +55,25 @@ defmodule Zaq.Agent.Pipeline do
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
     incoming = pre_do_run(incoming, opts)
-    person_id = incoming.person_id
 
-    team_ids =
-      case node_router(opts).dispatch(
-             Event.new(
-               %{person_id: person_id},
-               :engine,
-               opts: [action: :get_person]
-             )
-           ).response do
-        nil -> []
-        %{team_ids: ids} when not is_nil(ids) -> ids
-        _ -> []
-      end
+    actor =
+      opts |> Keyword.get(:event) |> event_actor() || ActorNormalizer.from_incoming(nil, incoming)
+
+    person_id = Keyword.get(opts, :person_id) || ActorNormalizer.person_id(actor)
 
     opts =
       Keyword.merge(opts,
         person_id: person_id,
-        team_ids: team_ids,
+        team_ids: Keyword.get(opts, :team_ids, ActorNormalizer.team_ids(actor)),
         source_filter: incoming.content_filter
       )
 
     result = do_run(incoming, opts)
     Outgoing.from_pipeline_result(incoming, result)
   end
+
+  defp event_actor(%Event{actor: actor}), do: actor
+  defp event_actor(_), do: nil
 
   @spec pre_do_run(Incoming.t(), keyword()) :: Incoming.t()
   defp pre_do_run(incoming, opts) do
