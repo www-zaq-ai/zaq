@@ -649,7 +649,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         message_id: request_id,
         author_id: to_string(current_user.id),
         provider: :web,
-        person_id: Map.get(current_user, :person_id),
+        person: current_user_person(current_user),
         content_filter: source_filter,
         metadata: %{
           session_id: session_id,
@@ -688,6 +688,20 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     )
 
     :ok
+  end
+
+  defp current_user_person(current_user) do
+    case Map.get(current_user, :person_id) do
+      nil ->
+        nil
+
+      id ->
+        %{
+          id: id,
+          full_name: Map.get(current_user, :username),
+          team_ids: Map.get(current_user, :team_ids) || []
+        }
+    end
   end
 
   defp maybe_emit_fallback_pipeline_result(

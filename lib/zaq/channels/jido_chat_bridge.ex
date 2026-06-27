@@ -1329,14 +1329,12 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp channel_assignment_agent_choice(_config, _channel_id), do: nil
 
-  # person_id is usually nil at this point — IdentityPlug resolves it later in
-  # Zaq.Agent.Api, which enriches the event actor with the resolved id.
+  # person is resolved by CommunicationBridge before dispatching to the agent node.
   defp actor_from_incoming(%Incoming{} = incoming) do
     %{
       id: incoming.author_id,
       name: incoming.author_name,
-      provider: incoming.provider,
-      person_id: incoming.person_id
+      provider: incoming.provider
     }
   end
 

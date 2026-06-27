@@ -44,18 +44,19 @@ defmodule Zaq.Agent.Executor do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
+  alias Zaq.Identity.ActorNormalizer
   alias Zaq.Utils.DateUtils
 
   @doc """
-  Derives a stable scope string from an incoming message used to key the Jido agent server.
+  Derives a stable scope string from an incoming message and actor used to key the Jido agent server.
 
   Format: `"channel:type:identity"` where channel is the normalized provider and identity is
-  `person_id`, `session_id`, or `"anonymous"`.
+  `person.id`, `session_id`, or `"anonymous"`.
 
   Priority order:
   1. `:web` provider + `metadata.conversation_id` — `"bo:conv:<id>"` (BO per-conversation isolation)
-  2. `person_id` — `"<channel>:person:<person_id>"` when present
-  3. `metadata.session_id` — `"bo:session:<session_id>"` when `person_id` is nil and session ID is a non-empty string
+  2. `actor.person.id` — `"<channel>:person:<person_id>"` when present
+  3. `metadata.session_id` — `"bo:session:<session_id>"` when actor person is nil and session ID is a non-empty string
   4. `"anonymous"` — fallback for all other cases
 
   ## Examples
@@ -67,34 +68,41 @@ defmodule Zaq.Agent.Executor do
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
-      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: 7})
+      iex> Zaq.Agent.Executor.derive_scope(base, %{person: %{id: 7}})
       "test:person:7"
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
-      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: nil, metadata: %{session_id: "sess_abc"}})
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person: nil, metadata: %{session_id: "sess_abc"}})
       "bo:session:sess_abc"
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
-      iex> Zaq.Agent.Executor.derive_scope(%{base | person_id: nil, metadata: %{}})
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person: nil, metadata: %{}})
       "anonymous"
 
   """
   @spec derive_scope(Incoming.t()) :: String.t()
-  def derive_scope(%Incoming{provider: :web, metadata: %{conversation_id: id}})
+  def derive_scope(%Incoming{} = incoming),
+    do: derive_scope(incoming, ActorNormalizer.from_incoming(nil, incoming))
+
+  @spec derive_scope(Incoming.t(), map() | nil) :: String.t()
+  def derive_scope(%Incoming{provider: :web, metadata: %{conversation_id: id}}, _actor)
       when is_binary(id) and id != "",
       do: "bo:conv:#{id}"
 
-  def derive_scope(%Incoming{person_id: person_id, provider: provider})
-      when not is_nil(person_id),
-      do: "#{normalize_provider(provider)}:person:#{person_id}"
+  def derive_scope(%Incoming{provider: provider} = incoming, actor) do
+    case ActorNormalizer.person_id(actor) do
+      nil -> derive_scope_without_person(incoming)
+      person_id -> "#{normalize_provider(provider)}:person:#{person_id}"
+    end
+  end
 
-  def derive_scope(%Incoming{metadata: %{session_id: sid}})
-      when is_binary(sid) and sid != "",
-      do: "bo:session:#{sid}"
+  defp derive_scope_without_person(%Incoming{metadata: %{session_id: sid}})
+       when is_binary(sid) and sid != "",
+       do: "bo:session:#{sid}"
 
-  def derive_scope(_), do: "anonymous"
+  defp derive_scope_without_person(_), do: "anonymous"
 
   @doc """
   Runs the full agent execution pipeline for an incoming message.
@@ -165,7 +173,7 @@ defmodule Zaq.Agent.Executor do
                  team_ids: Keyword.get(opts, :team_ids, []),
                  source_filter: Keyword.get(opts, :source_filter),
                  skip_permissions: Keyword.get(opts, :skip_permissions, false),
-                 actor: event_actor(opts),
+                 actor: execution_actor(opts, incoming),
                  node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
                }
              ),
@@ -264,8 +272,12 @@ defmodule Zaq.Agent.Executor do
 
   defp ensure_scope_for_answering_path(opts, incoming) do
     if is_nil(Keyword.get(opts, :scope)),
-      do: Keyword.put(opts, :scope, derive_scope(incoming)),
+      do: Keyword.put(opts, :scope, derive_scope(incoming, execution_actor(opts, incoming))),
       else: opts
+  end
+
+  defp execution_actor(opts, incoming) do
+    event_actor(opts) || ActorNormalizer.from_incoming(nil, incoming)
   end
 
   @doc false

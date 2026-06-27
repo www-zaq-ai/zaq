@@ -2,7 +2,9 @@ defmodule Zaq.Engine.TriggerNodeTest do
   use Zaq.DataCase, async: true
 
   alias Ecto.Adapters.SQL
-  alias Zaq.Engine.{TriggerNode, Workflows}
+  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.TriggerNode
+  alias Zaq.Engine.Workflows
   alias Zaq.Event
   alias Zaq.Repo
 
@@ -265,14 +267,38 @@ defmodule Zaq.Engine.TriggerNodeTest do
       workflow = create_active_workflow("ActorWorkflow")
       Workflows.assign_workflow_to_trigger(trigger, workflow)
 
-      actor = %{id: "u1", name: "alice", person_id: 42}
+      actor = %{id: "u1", name: "alice", person: %{id: 42}}
       incoming_event = %{build_event(:actor_event) | actor: actor}
 
       assert :ok = TriggerNode.fire("engine:actor_event", incoming_event)
 
       [run] = Workflows.list_runs(workflow.id)
       stored = run.source_event.actor
-      assert stored["person_id"] == 42 or stored[:person_id] == 42
+      person = stored["person"] || stored[:person]
+      assert person["id"] == 42 or person[:id] == 42
+    end
+
+    test "derives source_event.actor from incoming request person when broadcast actor is absent" do
+      trigger = create_trigger("incoming_person_event")
+      workflow = create_active_workflow("IncomingPersonWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "c1",
+        provider: :mattermost,
+        person: %{id: 42, full_name: "Alice", team_ids: [7]}
+      }
+
+      incoming_event = %{build_event(:incoming_person_event) | request: incoming, actor: nil}
+
+      assert :ok = TriggerNode.fire("engine:incoming_person_event", incoming_event)
+
+      [run] = Workflows.list_runs(workflow.id)
+      stored = run.source_event.actor
+      person = stored["person"] || stored[:person]
+      assert person["id"] == 42 or person[:id] == 42
+      assert person["team_ids"] == [7] or person[:team_ids] == [7]
     end
 
     test "actor stays nil for actorless events — never fabricated" do

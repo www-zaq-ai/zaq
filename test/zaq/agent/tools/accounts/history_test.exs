@@ -11,7 +11,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
   # Identity is resolved from the trusted execution context:
   # - chat path:     ctx[:person_id] (set by the pipeline from the channel author)
-  # - workflow path: ctx[:actor][:person_id] (set by StepRunner from source_event)
+  # - workflow path: ctx[:actor][:person][:id] (set by StepRunner from source_event.actor)
   # - machine path:  ctx[:skip_permissions] == true honors params[:person_id]
   # The LLM-facing person_id param is ignored on non-machine paths.
 
@@ -121,28 +121,28 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
     end
   end
 
-  # ── identity resolution — workflow path (actor) ─────────────────────
+  # ── identity resolution — workflow path (actor) ──────────────────────
 
-  describe "run/2 — workflow identity (actor person_id)" do
-    test "uses actor.person_id with atom keys" do
+  describe "run/2 — workflow identity (actor person)" do
+    test "uses actor.person.id with atom keys" do
       person = create_person("wf_atom@example.com")
       conv = create_conversation(person.id)
       add_messages(conv, 1)
 
-      assert {:ok, result} = History.run(%{}, %{actor: %{person_id: person.id}})
+      assert {:ok, result} = History.run(%{}, %{actor: %{person: %{id: person.id}}})
       assert conversation_ids(result) == [conv.id]
     end
 
-    test "uses actor person_id with string keys (JSONB round-trip)" do
+    test "uses actor person id with string keys (JSONB round-trip)" do
       person = create_person("wf_string@example.com")
       conv = create_conversation(person.id)
       add_messages(conv, 1)
 
-      assert {:ok, result} = History.run(%{}, %{actor: %{"person_id" => person.id}})
+      assert {:ok, result} = History.run(%{}, %{actor: %{"person" => %{"id" => person.id}}})
       assert conversation_ids(result) == [conv.id]
     end
 
-    test "actor person_id wins over ctx person_id" do
+    test "actor person id wins over ctx person_id" do
       actor_person = create_person("wf_actor@example.com")
       ctx_person = create_person("wf_ctx@example.com")
       actor_conv = create_conversation(actor_person.id)
@@ -151,11 +151,20 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
       assert {:ok, result} =
                History.run(%{}, %{
-                 actor: %{person_id: actor_person.id},
+                 actor: %{person: %{id: actor_person.id}},
                  person_id: ctx_person.id
                })
 
       assert conversation_ids(result) == [actor_conv.id]
+    end
+
+    test "supports legacy flat actor person_id from persisted workflow events" do
+      person = create_person("wf_legacy@example.com")
+      conv = create_conversation(person.id)
+      add_messages(conv, 1)
+
+      assert {:ok, result} = History.run(%{}, %{actor: %{"person_id" => person.id}})
+      assert conversation_ids(result) == [conv.id]
     end
   end
 

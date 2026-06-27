@@ -12,8 +12,8 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   The person whose history is fetched is resolved from the **trusted execution
   context**, never from LLM-supplied parameters:
 
-  - workflow path: `ctx[:actor]["person_id"]` — set by `StepRunner` from
-    `run.source_event.actor`, which channels populate from the message author
+  - workflow path: `ctx[:actor]["person"]["id"]` — set by `StepRunner` from
+    the workflow run's normalized `source_event.actor`
   - chat path: `ctx[:person_id]` — set by the agent pipeline from the
     channel-resolved author
 
@@ -105,6 +105,7 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   require Logger
 
   alias Zaq.Engine.Conversations
+  alias Zaq.Identity.ActorNormalizer
 
   @impl Jido.Action
   def run(params, ctx) do
@@ -121,7 +122,7 @@ defmodule Zaq.Agent.Tools.Accounts.History do
 
   defp effective_person_id(params, ctx) do
     if ctx[:skip_permissions] == true do
-      case normalize_id(params[:person_id]) || context_person_id(ctx) do
+      case ActorNormalizer.normalize_id(params[:person_id]) || context_person_id(ctx) do
         nil -> {:error, :missing_person_id}
         id -> {:ok, id}
       end
@@ -134,26 +135,9 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   end
 
   defp context_person_id(ctx) do
-    normalize_id(actor_person_id(ctx[:actor])) || normalize_id(ctx[:person_id])
+    ActorNormalizer.normalize_id(ActorNormalizer.person_id(ctx[:actor])) ||
+      ActorNormalizer.normalize_id(ctx[:person_id])
   end
-
-  # Tolerates atom keys (in-process context) and string keys (actor maps that
-  # round-tripped through the JSONB source_event).
-  defp actor_person_id(%{person_id: id}), do: id
-  defp actor_person_id(%{"person_id" => id}), do: id
-  defp actor_person_id(_), do: nil
-
-  # nil/blank/non-numeric values never resolve to an identity.
-  defp normalize_id(id) when is_integer(id), do: id
-
-  defp normalize_id(id) when is_binary(id) do
-    case Integer.parse(String.trim(id)) do
-      {n, ""} -> n
-      _ -> nil
-    end
-  end
-
-  defp normalize_id(_), do: nil
 
   # ── Time range resolution ────────────────────────────────────────────
 
