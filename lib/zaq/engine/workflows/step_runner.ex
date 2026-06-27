@@ -386,10 +386,10 @@ defmodule Zaq.Engine.Workflows.StepRunner do
       source_request: source_event && source_event.request,
       skip_permissions: skip_permissions?(source_event),
       # `__cascade__` is stripped from `action_params` (it is engine plumbing, not
-        # a domain param) but exposed here so evaluation nodes like `Condition` can
-        # resolve node-qualified (`step.field`) and `start.*` references via
-        # `FactLookup`, exactly as `EdgeStep` does on edges.
-        __cascade__: prev_cascade
+      # a domain param) but exposed here so evaluation nodes like `Condition` can
+      # resolve node-qualified (`step.field`) and `start.*` references via
+      # `FactLookup`, exactly as `EdgeStep` does on edges.
+      __cascade__: prev_cascade
     })
   end
 
