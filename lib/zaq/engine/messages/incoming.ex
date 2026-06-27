@@ -23,7 +23,7 @@ defmodule Zaq.Engine.Messages.Incoming do
     :thread_id,
     :message_id,
     :provider,
-    :person_id,
+    :person,
     is_dm: false,
     metadata: %{},
     content_filter: []
@@ -37,7 +37,7 @@ defmodule Zaq.Engine.Messages.Incoming do
           thread_id: String.t() | nil,
           message_id: String.t() | integer() | nil,
           provider: atom() | String.t(),
-          person_id: integer() | nil,
+          person: map() | nil,
           is_dm: boolean(),
           metadata: map(),
           content_filter: [String.t()]
@@ -56,13 +56,26 @@ defmodule Zaq.Engine.Messages.Incoming do
       author_name: fetch_optional(attrs, :author_name),
       thread_id: fetch_optional(attrs, :thread_id),
       message_id: fetch_optional(attrs, :message_id),
-      person_id: fetch_optional(attrs, :person_id),
+      person: normalize_person(fetch_optional(attrs, :person)),
       is_dm: fetch_optional(attrs, :is_dm) == true,
       content_filter: normalize_content_filter(fetch_optional(attrs, :content_filter)),
       metadata: metadata
     }
 
     put_telemetry_dimensions(incoming, attrs)
+  end
+
+  @doc "Returns the ZAQ Person ID carried by the incoming message, if resolved."
+  @spec person_id(t()) :: integer() | nil
+  def person_id(%__MODULE__{person: person}), do: person_field(person, :id)
+
+  @doc "Returns resolved team IDs from the incoming message person payload."
+  @spec team_ids(t()) :: [integer()]
+  def team_ids(%__MODULE__{person: person}) do
+    case person_field(person, :team_ids) do
+      ids when is_list(ids) -> ids
+      _ -> []
+    end
   end
 
   defp put_telemetry_dimensions(%__MODULE__{} = incoming, attrs) do
@@ -122,6 +135,30 @@ defmodule Zaq.Engine.Messages.Incoming do
 
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
   defp normalize_metadata(_), do: %{}
+
+  defp normalize_person(nil), do: nil
+
+  defp normalize_person(person) when is_map(person) do
+    id = person_field(person, :id)
+
+    if is_nil(id) do
+      nil
+    else
+      %{
+        id: id,
+        full_name: person_field(person, :full_name),
+        team_ids: person_field(person, :team_ids) || []
+      }
+    end
+  end
+
+  defp normalize_person(_), do: nil
+
+  defp person_field(person, key) when is_map(person) and is_atom(key) do
+    Map.get(person, key) || Map.get(person, Atom.to_string(key))
+  end
+
+  defp person_field(_person, _key), do: nil
 
   defp normalize_content_filter(list) when is_list(list) do
     Enum.filter(list, &is_binary/1)

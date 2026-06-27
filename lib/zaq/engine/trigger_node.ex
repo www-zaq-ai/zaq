@@ -23,6 +23,7 @@ defmodule Zaq.Engine.TriggerNode do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Identity.ActorNormalizer
 
   @spec fire(String.t(), map()) :: :ok
   def fire(event_name, event) when is_binary(event_name) do
@@ -85,7 +86,7 @@ defmodule Zaq.Engine.TriggerNode do
   end
 
   defp incoming_actor(incoming_event) do
-    Map.get(incoming_event, :actor) || Map.get(incoming_event, "actor")
+    ActorNormalizer.from_event_request(incoming_event)
   end
 
   # The bypass requires an explicit machine marker on the triggering payload —

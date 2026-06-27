@@ -20,7 +20,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Accounts.{Person, PersonChannel}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
-  alias Zaq.Engine.Messages.Measurements
+  alias Zaq.Engine.Messages.{Incoming, Measurements}
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
   alias Zaq.Utils.EmailUtils
@@ -207,7 +207,8 @@ defmodule Zaq.Engine.Conversations do
 
     with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, channel_type),
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
-         {:ok, conv} <- maybe_assign_person(conv, msg.person_id || Map.get(result, :person_id)),
+         {:ok, conv} <-
+           maybe_assign_person(conv, Incoming.person_id(msg) || Map.get(result, :person_id)),
          {:ok, _} <- add_message(conv, %{role: "user", content: msg.content}),
          {:ok, assistant_msg} <-
            add_message(conv, %{

@@ -522,20 +522,19 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert ctx.extra == "val"
     end
 
-    test "injects the source_event actor into context" do
+    test "injects the source_event request into context as source_request" do
       source_event = %{
-        "request" => nil,
+        "request" => %{"person" => %{"id" => 42}},
         "assigns" => %{"trigger_type" => "event"},
-        "trace_id" => Ecto.UUID.generate(),
-        "actor" => %{"id" => "u1", "person_id" => 42, "name" => "alice"}
+        "trace_id" => Ecto.UUID.generate()
       }
 
       run = create_run_with_source_event(source_event)
       StepRunner.run(wp(run, ContextCaptureAction, "ctx_step", 0), %{})
 
       ctx = ContextProbe.get_context()
-      assert ctx.actor["person_id"] == 42
-      assert ctx.actor["name"] == "alice"
+      assert ctx.source_request["person"]["id"] == 42
+      assert is_nil(ctx.actor)
     end
 
     test "skip_permissions is true only with the explicit persisted flag" do
@@ -609,14 +608,14 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert step_run.status == "completed"
     end
 
-    test "actor-carrying run recalls the actor's own conversations" do
+    test "actor-person run recalls the actor person's own conversations" do
       {person, conv} = person_with_conversation()
 
       source_event = %{
-        "request" => nil,
+        "actor" => %{"person" => %{"id" => person.id}},
+        "request" => %{},
         "assigns" => %{"trigger_type" => "event"},
-        "trace_id" => Ecto.UUID.generate(),
-        "actor" => %{"id" => "u1", "person_id" => person.id, "name" => "alice"}
+        "trace_id" => Ecto.UUID.generate()
       }
 
       run = create_run_with_source_event(source_event)

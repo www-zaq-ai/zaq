@@ -30,9 +30,9 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   ## Context injection
 
-  Each step's context is enriched with `run_id`, `step_name`, the run's
-  `source_event.actor` (the identity that caused the run), and
-  `skip_permissions` — `true` only when `source_event.assigns` carries an
+    Each step's context is enriched with `run_id`, `step_name`, the run's
+    canonical `source_event.actor`, optional `source_event.request` as
+    `source_request`, and `skip_permissions` — `true` only when `source_event.assigns` carries an
   explicit `skip_permissions: true` flag (set at run creation for machine/cron
   and BO manual runs), `false` otherwise. A missing actor never implies the
   bypass.
@@ -252,21 +252,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         input: json_safe(action_params)
       })
 
-    source_event = run_id |> Workflows.get_run!() |> Map.get(:source_event)
-    actor = source_event && source_event.actor
-
-    enriched_context =
-      Map.merge(context || %{}, %{
-        run_id: run_id,
-        step_name: step_name,
-        actor: actor,
-        skip_permissions: skip_permissions?(source_event),
-        # `__cascade__` is stripped from `action_params` (it is engine plumbing, not
-        # a domain param) but exposed here so evaluation nodes like `Condition` can
-        # resolve node-qualified (`step.field`) and `start.*` references via
-        # `FactLookup`, exactly as `EdgeStep` does on edges.
-        __cascade__: prev_cascade
-      })
+    enriched_context = enrich_context(context, run_id, step_name, prev_cascade)
 
     try do
       case call_with_strategy(mod, action_params, enriched_context, timeout_ms, strategy) do
@@ -388,6 +374,23 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
         reraise e, __STACKTRACE__
     end
+  end
+
+  defp enrich_context(context, run_id, step_name, prev_cascade) do
+    source_event = run_id |> Workflows.get_run!() |> Map.get(:source_event)
+
+    Map.merge(context || %{}, %{
+      run_id: run_id,
+      step_name: step_name,
+      actor: source_event && source_event.actor,
+      source_request: source_event && source_event.request,
+      skip_permissions: skip_permissions?(source_event),
+      # `__cascade__` is stripped from `action_params` (it is engine plumbing, not
+        # a domain param) but exposed here so evaluation nodes like `Condition` can
+        # resolve node-qualified (`step.field`) and `start.*` references via
+        # `FactLookup`, exactly as `EdgeStep` does on edges.
+        __cascade__: prev_cascade
+    })
   end
 
   # Recursively converts action_params to a JSON-safe structure for Postgres JSONB.

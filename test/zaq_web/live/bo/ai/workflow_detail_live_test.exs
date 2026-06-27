@@ -212,7 +212,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
       actor = source_event.actor
       assert actor["name"] == user.username
       assert actor["provider"] == "bo"
-      assert is_nil(actor["person_id"])
+      assert is_nil(actor["person"])
     end
   end
 

@@ -160,10 +160,10 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
         })
 
       source_event = %{
-        "request" => nil,
+        "actor" => %{"person" => %{"id" => person.id}},
+        "request" => %{},
         "assigns" => %{"trigger_type" => "manual"},
-        "trace_id" => Ecto.UUID.generate(),
-        "actor" => %{"id" => "u1", "person_id" => person.id}
+        "trace_id" => Ecto.UUID.generate()
       }
 
       {:ok, run} = Workflows.create_run(wf, source_event)
