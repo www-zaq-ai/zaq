@@ -149,7 +149,7 @@ Adapter inbound path:
 ### Messages — Incoming (`Zaq.Engine.Messages.Incoming`)
 - Canonical struct for all inbound messages crossing the adapter boundary.
 - Enforce keys: `:content`, `:channel_id`, `:provider`.
-- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person_id`, `:metadata`.
+- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person`, `:metadata`.
 - All channel adapters must map their transport payload to this struct before passing to any
   ZAQ component.
 - When crossing nodes, this payload is carried in `%Zaq.Event.request`.

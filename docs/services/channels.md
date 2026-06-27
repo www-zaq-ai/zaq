@@ -75,9 +75,16 @@ defstruct [
   :thread_id,     # String | nil
   :message_id,    # String | nil
   :provider,      # atom | String — e.g. :mattermost, :web
+  :person,        # %{id: integer, full_name: string | nil, team_ids: [integer]} | nil
   metadata: %{}
 ]
 ```
+
+Channel identity belongs to `Incoming.person` at the channel boundary. Bridges resolve
+the author through `Zaq.People.IdentityResolver` before dispatching onward. Agent and
+Engine boundaries promote that transport identity into canonical `%Zaq.Event.actor`
+via `Zaq.Identity.ActorNormalizer`. The incoming payload is intentionally minimal and
+JSON-safe because `%Incoming{}` may cross nodes.
 
 ### `Zaq.Engine.Messages.Outgoing`
 
@@ -190,19 +197,24 @@ Authentication and signature verification are provider-specific and handled insi
 
 `Zaq.Channels.CommunicationBridge` is the stateless helper boundary used by API/bridge flows for provider-targeted operations.
 
-### Event actor shape
+### Incoming person shape
 
-When a bridge dispatches a `run_pipeline` event, it sets the event `actor` from the
-incoming message author:
+When a bridge dispatches a `run_pipeline` event, it sets the incoming message `person`
+from the resolved channel author:
 
 ```elixir
-%{id: author_id, name: author_name, provider: provider, person_id: person_id}
+%{
+  id: person_id,
+  full_name: full_name,
+  team_ids: team_ids
+}
 ```
 
-`person_id` is the ZAQ Person ID and is usually `nil` at bridge time — `IdentityPlug`
-resolves it inside `Zaq.Agent.Api`, which enriches the event actor before the
-post-dispatch broadcast (so workflow triggers see the resolved identity). `id` remains
-the channel-provider author ID; the two ID spaces are intentionally separate keys.
+`author_id` and `author_name` remain provider identity fields on `%Incoming{}`.
+`person.id` is the ZAQ Person ID and is present only when the channel author resolves
+to a Person. Channel-originated events may leave `%Zaq.Event.actor` unset; Agent and
+Engine trigger boundaries derive canonical `actor.person` from `%Incoming.person` early
+in execution.
 
 ### Public API
 

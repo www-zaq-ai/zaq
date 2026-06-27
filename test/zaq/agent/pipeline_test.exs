@@ -144,10 +144,13 @@ defmodule Zaq.Agent.PipelineTest do
 
   # Sends the opts received by run/2 to the test process for inspection.
   defmodule SpyExecutor do
-    def run(%Zaq.Engine.Messages.Incoming{} = incoming, opts) do
+    alias Zaq.Engine.Messages.Incoming
+    alias Zaq.Engine.Messages.Outgoing
+
+    def run(%Incoming{} = incoming, opts) do
       send(:pipeline_test_pid, {:executor_opts, opts})
 
-      %Zaq.Engine.Messages.Outgoing{
+      %Outgoing{
         body: "spy answer",
         channel_id: incoming.channel_id,
         provider: incoming.provider,
@@ -159,7 +162,7 @@ defmodule Zaq.Agent.PipelineTest do
           completion_tokens: 3,
           total_tokens: 8,
           error: false,
-          person_id: incoming.person_id
+          person_id: Incoming.person_id(incoming)
         }
       }
     end
@@ -237,14 +240,14 @@ defmodule Zaq.Agent.PipelineTest do
     end
   end
 
-  describe "run/2 team_ids lookup from People" do
-    test "completes without error when person_id is nil (no person lookup)" do
-      # incoming with nil person_id — should not crash
+  describe "run/2 team_ids lookup from incoming person" do
+    test "completes without error when person is nil" do
+      # incoming with nil person — should not crash
       incoming = %Incoming{
         content: "What is the answer?",
         channel_id: "ch",
         provider: :test,
-        person_id: nil
+        person: nil
       }
 
       Pipeline.run(incoming, @base_opts)
@@ -346,7 +349,7 @@ defmodule Zaq.Agent.PipelineTest do
 
   describe "pre_do_run" do
     test "does not call identity_plug" do
-      # After the refactor, identity resolution happens in Api, not Pipeline.
+      # Identity resolution happens in Channels before agent dispatch, not Pipeline.
       # SpyIdentityPlug must NOT be called during Pipeline.run.
       opts = Keyword.put(@base_opts, :identity_plug, SpyIdentityPlug)
       opts = Keyword.put(opts, :server, :stub_server_ref)
@@ -369,13 +372,13 @@ defmodule Zaq.Agent.PipelineTest do
     end
   end
 
-  describe "run/2 does not overwrite person_id" do
-    test "passes person_id from incoming to executor" do
+  describe "run/2 does not overwrite person" do
+    test "passes person_id from incoming person to executor" do
       incoming_with_person = %Incoming{
         content: "What is the answer?",
         channel_id: "test",
         provider: :test,
-        person_id: 42
+        person: %{id: 42}
       }
 
       opts = Keyword.put(@base_opts, :executor_module, SpyExecutor)

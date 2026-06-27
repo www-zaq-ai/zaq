@@ -167,6 +167,24 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     def get_conversation_enabled_agent(_), do: {:error, :agent_not_found}
   end
 
+  defmodule StubIdentityResolver do
+    def resolve(_incoming, _opts),
+      do: {:ok, %{id: 42, full_name: "Ada Lovelace", team_ids: [7, 9]}}
+
+    def person_payload(person) do
+      %{
+        id: person.id,
+        full_name: person.full_name,
+        team_ids: person.team_ids
+      }
+    end
+  end
+
+  defmodule StubIdentityResolverError do
+    def resolve(_incoming, _opts), do: {:error, :not_found}
+    def person_payload(_person), do: raise("unexpected person_payload call")
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
     original_bridge_path = Path.expand("../../../lib/zaq/channels/bridge.ex", __DIR__)
@@ -842,9 +860,11 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                )
 
       assert_received {:node_router_dispatch, event}
-      assert event.request == msg
+      assert %{event.request | metadata: %{}} == msg
+      assert event.request.metadata["channel_config_id"] == "123"
+      assert event.request.metadata["telemetry_dimensions"]["channel_config_id"] == "123"
       assert event.next_hop.destination == :agent
-      assert event.name == "channels:message_received.mattermost.123"
+      assert event.name == "channels:message_received.agent_requested.mattermost.123"
       assert get_in(event.assigns, ["agent_selection", "agent_id"]) == 3
       assert get_in(event.assigns, ["agent_selection", "source"]) == "channel_assignment"
       refute_received {:node_router_fire, _}
@@ -869,9 +889,11 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                )
 
       assert_received {:node_router_fire, event}
-      assert event.request == msg
+      assert %{event.request | metadata: %{}} == msg
+      assert event.request.metadata["channel_config_id"] == "123"
+      assert event.request.metadata["telemetry_dimensions"]["channel_config_id"] == "123"
       assert event.next_hop.destination == :agent
-      assert event.name == "channels:message_received.mattermost.123"
+      assert event.name == "channels:message_received.workflow_only.mattermost.123"
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
       refute_received {:node_router_dispatch, _}
     end
@@ -897,7 +919,60 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                )
 
       assert_received {:node_router_dispatch, event}
-      assert event.name == "channels:message_received.mattermost.cfg_9"
+      assert event.name == "channels:message_received.agent_requested.mattermost.cfg_9"
+    end
+
+    test "resolves incoming person before dispatching to the agent node" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        author_id: "u1",
+        author_name: "ada"
+      }
+
+      actor = %{id: "u1", name: "ada", provider: :mattermost}
+
+      assert %Zaq.Engine.Messages.Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent,
+                 identity_resolver: StubIdentityResolver
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.request.person == %{id: 42, full_name: "Ada Lovelace", team_ids: [7, 9]}
+      assert event.actor == nil
+    end
+
+    test "keeps incoming person unresolved when person resolution fails" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        author_id: "u1"
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert %Zaq.Engine.Messages.Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent,
+                 identity_resolver: StubIdentityResolverError
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.request.person == nil
+      assert event.actor == nil
     end
   end
 

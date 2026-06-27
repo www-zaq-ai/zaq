@@ -232,9 +232,13 @@ When `NodeRouter.dispatch/1` broadcasts a `%Zaq.Event{}`, `Engine.EventRegistry`
 Every run's `source_event` carries the identity and permission context that
 `StepRunner` injects into each step's context:
 
-- **actor** — `TriggerNode` copies the triggering event's `actor` (channels set it from
-  the message author; `Zaq.Agent.Api` enriches it with the IdentityPlug-resolved
-  `person_id`). Actorless events store `actor: nil` — never a fabricated identity.
+- **actor** — canonical execution identity. `TriggerNode` preserves an existing
+  triggering event actor, or derives `actor.person` from a broadcast event whose
+  request is `%Incoming{person: ...}` before creating the workflow run. Actorless
+  events store `actor: nil` — never a fabricated identity.
+- **source_request** — optional original `source_event.request` payload. It may be
+  `%Incoming{}`, a plain map, nil, or another request shape; it is not the permission
+  identity contract.
 - **skip_permissions** — `source_event.assigns.skip_permissions` is `true` only when set
   explicitly at run creation: `CronTriggerWorker` marks its trigger payload with
   `machine: true` (translated by `TriggerNode`), and BO manual runs
@@ -242,7 +246,7 @@ Every run's `source_event` carries the identity and permission context that
   (BO users have no Person record). A missing actor never implies the bypass.
 
 Steps authorize against this context — e.g. `Zaq.Agent.Tools.Accounts.History` resolves
-the person from `ctx[:actor]["person_id"]` and honors its `person_id` parameter only
+the person from `ctx[:actor]["person"]["id"]` and honors its `person_id` parameter only
 under `skip_permissions: true`.
 
 ---
