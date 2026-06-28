@@ -200,8 +200,12 @@ Field behavior categories:
 ### Elixir Pipeline
 ```
 File → IngestWorker → DocumentProcessor → DocumentChunker → IngestChunkWorker
-     → ChunkTitle (LLM) → EmbeddingClient → Chunk (PGVector)
+     → EmbeddingClient → Chunk (PGVector)
 ```
+
+> Chunk-title generation was removed from the ingest path (commit `ed949b95`);
+> `store_chunk_with_metadata/3` embeds the raw chunk content. The `Zaq.Agent.ChunkTitle`
+> module still exists but is no longer wired into ingestion.
 
 ### Python Pipeline (`lib/zaq/ingestion/python/`)
 Handles non-markdown files before they enter the Elixir pipeline:

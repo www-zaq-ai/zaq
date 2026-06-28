@@ -1,0 +1,7 @@
+# Derived benchmark data — reproducible via `mix zaq.bench.liverag.build`, not committed.
+liverag.parquet
+questions.jsonl
+docs.jsonl
+# Benchmark run outputs.
+results/
+corpus/
