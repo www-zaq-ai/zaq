@@ -62,7 +62,6 @@
   "/storybook/layouts/bo_layout",
   "/storybook/layouts/master_detail",
   "/storybook/modals/bo_modal",
-  "/storybook/modals/confirm_dialog",
   "/storybook/not_used/role_share_picker",
   "/storybook/not_used/status_grid",
   "/storybook/not_used/table",
