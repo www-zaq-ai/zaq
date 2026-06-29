@@ -145,6 +145,63 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
 
       assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
     end
+
+    test "not_empty failure produces special message without actual value" do
+      input = %{"name" => ""}
+      conditions = [%{"key" => "name", "op" => "not_empty"}]
+
+      assert {:error, "Condition not met: name must not be empty"} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "empty failure includes rendered actual value" do
+      input = %{"name" => "Alice"}
+      conditions = [%{"key" => "name", "op" => "empty"}]
+
+      assert {:error, ~s(Condition not met: name must be empty but was "Alice")} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "neq failure renders must not equal" do
+      input = %{"status" => "active"}
+      conditions = [%{"key" => "status", "op" => "neq", "value" => "active"}]
+
+      assert {:error, ~s(Condition not met: status must not equal "active" but was "active")} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "gt failure renders must be greater than" do
+      input = %{"score" => 5}
+      conditions = [%{"key" => "score", "op" => "gt", "value" => 10}]
+
+      assert {:error, "Condition not met: score must be greater than 10 but was 5"} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "gte failure renders must be at least" do
+      input = %{"score" => 4}
+      conditions = [%{"key" => "score", "op" => "gte", "value" => 5}]
+
+      assert {:error, "Condition not met: score must be at least 5 but was 4"} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "lte failure renders must be at most" do
+      input = %{"score" => 6}
+      conditions = [%{"key" => "score", "op" => "lte", "value" => 5}]
+
+      assert {:error, "Condition not met: score must be at most 5 but was 6"} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "in failure renders must be one of" do
+      input = %{"role" => "viewer"}
+      conditions = [%{"key" => "role", "op" => "in", "value" => ["admin", "owner"]}]
+
+      assert {:error,
+              ~s(Condition not met: role must be one of ["admin", "owner"] but was "viewer")} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
   end
 
   describe "run/2 — default value for missing keys" do
