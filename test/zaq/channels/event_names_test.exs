@@ -49,6 +49,22 @@ defmodule Zaq.Channels.EventNamesTest do
              "channels:agent_response.delivering.mattermost.incoming_id"
   end
 
+  test "channel_config_id returns fallback for unsupported payloads" do
+    assert EventNames.channel_config_id(:not_a_channel_payload, "fallback-id") ==
+             "fallback-id"
+
+    assert EventNames.channel_config_id(nil, "fallback-id") == "fallback-id"
+  end
+
+  test "channel_config_id ignores blank string ids" do
+    assert EventNames.channel_config_id(%{"channel_config_id" => "   "}, "fallback-id") ==
+             "fallback-id"
+  end
+
+  test "channel_config_id accepts integer ids" do
+    assert EventNames.channel_config_id(%{channel_config_id: 42}, "fallback-id") == 42
+  end
+
   test "part normalizes blank and non-alphanumeric values" do
     assert EventNames.part("  ") == "unknown"
     assert EventNames.part("Team #1 / Support") == "team_1_support"

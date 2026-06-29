@@ -24,6 +24,98 @@ defmodule ZaqWeb.Components.DesignSystem.MetricCardTest do
     assert html =~ "Last 24h"
   end
 
+  test "metric_card/1 renders external primary_link with href" do
+    html =
+      render_component(&MetricCard.metric_card/1,
+        id: "external-card",
+        label: "Docs",
+        value: 1,
+        primary_link: %{
+          id: "external-link",
+          destination: "https://example.com/docs",
+          external: true
+        }
+      )
+
+    assert html =~ ~s(id="external-link")
+    assert html =~ ~s(href="https://example.com/docs")
+    refute html =~ ~s(data-phx-link="redirect")
+  end
+
+  test "metric_card/1 accepts DisplayMeta struct passed through meta" do
+    html =
+      render_component(&MetricCard.metric_card/1,
+        id: "metric-display-meta",
+        label: "Usage",
+        value: 42,
+        meta: %DisplayMeta{
+          range: "7d",
+          hint: "complete",
+          extra: %{"owner_name" => "Ops", 42 => true, team_size: 12, empty: "", skipped: nil}
+        }
+      )
+
+    assert html =~ "range: 7d"
+    assert html =~ "complete"
+    assert html =~ "team size: 12"
+    assert html =~ "owner name: Ops"
+    assert html =~ "42: true"
+    refute html =~ "empty:"
+    refute html =~ "skipped:"
+  end
+
+  test "metric_card/1 converts map meta into display metadata and ignores runtime href" do
+    html =
+      render_component(&MetricCard.metric_card/1,
+        id: "metric-map-meta",
+        label: "Latency",
+        value: 12,
+        meta: %{"range" => "30d", "hint" => "healthy", "href" => "/hidden", "p95_latency" => 1234}
+      )
+
+    assert html =~ "range: 30d"
+    assert html =~ "healthy"
+    assert html =~ "p95 latency: 1,234"
+    refute html =~ "/hidden"
+  end
+
+  test "metric_card/1 falls back to empty display metadata for invalid meta" do
+    html =
+      render_component(&MetricCard.metric_card/1,
+        id: "metric-invalid-meta",
+        label: "Fallback",
+        value: 99,
+        meta: :invalid,
+        range: "fallback range",
+        hint: "fallback hint"
+      )
+
+    assert html =~ "range: fallback range"
+    assert html =~ "fallback hint"
+  end
+
+  test "metric_card/1 handles missing primary_link assign when called directly" do
+    assigns =
+      %Phoenix.LiveView.Socket{}
+      |> Phoenix.Component.assign(:id, "direct-card")
+      |> Phoenix.Component.assign(:label, "Direct")
+      |> Phoenix.Component.assign(:value, 5)
+      |> Phoenix.Component.assign(:display, %{extra: %{ignored: "value"}})
+      |> Phoenix.Component.assign(:range, "manual")
+      |> Phoenix.Component.assign(:hint, "hint")
+      |> Map.fetch!(:assigns)
+
+    html =
+      MetricCard.metric_card(assigns)
+      |> rendered_to_string()
+
+    assert html =~ ~s(id="direct-card")
+    assert html =~ "Direct"
+    assert html =~ "range: manual"
+    assert html =~ "hint"
+    refute html =~ "ignored: value"
+  end
+
   test "metric_card/1 renders display metadata but not runtime metadata on the article" do
     html =
       render_component(&MetricCard.metric_card/1,
