@@ -29,3 +29,25 @@
 .zaq-modal--flush {
   padding: 0;
 }
+
+/* Storybook — contain `fixed` modals inside bounded preview frames */
+.zaq-modal-preview {
+  position: relative;
+  height: 22rem;
+  overflow: hidden;
+  border-radius: var(--zaq-scale-16);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-base);
+}
+
+.zaq-modal-preview--tall {
+  height: 28rem;
+}
+
+.zaq-modal-preview--short {
+  height: 16rem;
+}
+
+.zaq-modal-preview .fixed {
+  position: absolute !important;
+}
