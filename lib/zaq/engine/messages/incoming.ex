@@ -13,6 +13,8 @@ defmodule Zaq.Engine.Messages.Incoming do
   For cross-node routing, this struct is wrapped by `%Zaq.Event{request: %Incoming{...}}`.
   """
 
+  alias Zaq.Identity.ActorNormalizer
+
   @enforce_keys [:content, :channel_id, :provider]
 
   defstruct [
@@ -67,16 +69,11 @@ defmodule Zaq.Engine.Messages.Incoming do
 
   @doc "Returns the ZAQ Person ID carried by the incoming message, if resolved."
   @spec person_id(t()) :: integer() | nil
-  def person_id(%__MODULE__{person: person}), do: person_field(person, :id)
+  def person_id(%__MODULE__{person: person}), do: ActorNormalizer.person_id(%{person: person})
 
   @doc "Returns resolved team IDs from the incoming message person payload."
   @spec team_ids(t()) :: [integer()]
-  def team_ids(%__MODULE__{person: person}) do
-    case person_field(person, :team_ids) do
-      ids when is_list(ids) -> ids
-      _ -> []
-    end
-  end
+  def team_ids(%__MODULE__{person: person}), do: ActorNormalizer.team_ids(%{person: person})
 
   defp put_telemetry_dimensions(%__MODULE__{} = incoming, attrs) do
     dimensions = build_telemetry_dimensions(incoming, attrs)
@@ -136,29 +133,7 @@ defmodule Zaq.Engine.Messages.Incoming do
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
   defp normalize_metadata(_), do: %{}
 
-  defp normalize_person(nil), do: nil
-
-  defp normalize_person(person) when is_map(person) do
-    id = person_field(person, :id)
-
-    if is_nil(id) do
-      nil
-    else
-      %{
-        id: id,
-        full_name: person_field(person, :full_name),
-        team_ids: person_field(person, :team_ids) || []
-      }
-    end
-  end
-
-  defp normalize_person(_), do: nil
-
-  defp person_field(person, key) when is_map(person) and is_atom(key) do
-    Map.get(person, key) || Map.get(person, Atom.to_string(key))
-  end
-
-  defp person_field(_person, _key), do: nil
+  defp normalize_person(person), do: ActorNormalizer.person(%{person: person})
 
   defp normalize_content_filter(list) when is_list(list) do
     Enum.filter(list, &is_binary/1)
