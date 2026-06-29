@@ -29,6 +29,66 @@ defmodule Zaq.Identity.ActorNormalizerTest do
     assert %{actor: %{person: %{id: 42}}} = ActorNormalizer.normalize_event(event)
   end
 
+  test "from_event_request accepts plain maps with string keys" do
+    actor = %{
+      "id" => "u1",
+      "name" => "Alice",
+      "provider" => :mattermost,
+      "person" => %{"id" => "8"},
+      "person_id" => "9",
+      "custom" => "kept"
+    }
+
+    event = %{"actor" => actor, "request" => :unsupported_request}
+
+    result = ActorNormalizer.from_event_request(event)
+
+    assert result.id == "u1"
+    assert result.name == "Alice"
+    assert result.provider == :mattermost
+    assert result.person == %{"id" => "8"}
+    assert result.person_id == "9"
+    assert result["custom"] == "kept"
+  end
+
+  test "from_event_request returns nil for unsupported payloads" do
+    assert ActorNormalizer.from_event_request(:not_an_event) == nil
+  end
+
+  test "from_request drops non-map actors for unsupported requests" do
+    assert ActorNormalizer.from_request(:not_an_actor, :unsupported_request) == nil
+  end
+
+  test "from_incoming ignores blank incoming actor defaults and still promotes person" do
+    incoming =
+      Incoming.new(%{
+        content: "hello",
+        channel_id: "c1",
+        author_id: "",
+        author_name: "",
+        provider: "",
+        person: %{id: "7", full_name: "Blank Defaults", team_ids: []}
+      })
+
+    actor = ActorNormalizer.from_incoming(nil, incoming)
+
+    assert actor == %{person: %{id: 7, full_name: "Blank Defaults", team_ids: []}}
+    assert Map.has_key?(actor, :id) == false
+    assert Map.has_key?(actor, :name) == false
+    assert Map.has_key?(actor, :provider) == false
+  end
+
+  test "from_person_payload ignores non-map person payloads" do
+    assert ActorNormalizer.from_person_payload(nil, :not_a_person) == nil
+  end
+
+  test "person helpers normalize string-key person maps through public API" do
+    actor = %{person: %{"id" => "42", "full_name" => "Ada", "team_ids" => ["7", 8]}}
+
+    assert ActorNormalizer.person_id(actor) == 42
+    assert ActorNormalizer.team_ids(actor) == [7, 8]
+  end
+
   test "person helpers tolerate persisted string-key actors and legacy flat person_id" do
     actor = %{"person" => %{"id" => "42", "team_ids" => ["1", 2]}}
 

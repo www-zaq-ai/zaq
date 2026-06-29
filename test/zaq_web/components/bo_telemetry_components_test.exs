@@ -5,6 +5,14 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
 
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.Engine.Telemetry.Contracts.{DisplayMeta, RuntimeMeta}
+
+  alias Zaq.Engine.Telemetry.Contracts.Payloads.{
+    CategoryVectorPayload,
+    ProgressPayload,
+    SeriesPayload,
+    StatusListPayload
+  }
+
   alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
   alias ZaqWeb.Components.BOTelemetryComponents
 
@@ -423,6 +431,343 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
 
     assert html =~ "data-radar-series=\"benchmark\""
     assert html =~ "Benchmark lane"
+  end
+
+  test "time_series_chart/1 accepts precomputed assigns when chart is not a DashboardChart" do
+    html =
+      render_component(&BOTelemetryComponents.time_series_chart/1,
+        chart: %{},
+        id: "manual-line",
+        title: "Manual",
+        primary_label: "Manual primary",
+        secondary_label: nil,
+        points: [%{x: "X1", y: "12.5"}, %{y: 7, label: "Y only"}, 3, :bad],
+        secondary_points: [%{y: 5}, 6, :bad],
+        benchmark_points: [],
+        baseline_points: [],
+        width: 420,
+        height: 180
+      )
+
+    assert html =~ "id=\"manual-line\""
+    assert html =~ "Manual"
+    assert html =~ ~s(data-line-x-axis-label="X1")
+    assert html =~ "Y only"
+    assert html =~ ~s(data-line-x-axis-label="T3")
+    assert html =~ ~s(data-tip-label="T4")
+    assert html =~ ~s(data-tip-value="0")
+  end
+
+  test "time_series_chart/1 renders No data for an empty manual chart" do
+    html =
+      render_component(&BOTelemetryComponents.time_series_chart/1,
+        chart: %{},
+        id: "manual-line-empty",
+        title: "Manual empty",
+        primary_label: "Manual primary",
+        secondary_label: nil,
+        points: [],
+        secondary_points: [],
+        benchmark_points: [],
+        baseline_points: [],
+        width: 420,
+        height: 180
+      )
+
+    assert html =~ "id=\"manual-line-empty\""
+    assert html =~ "No data"
+  end
+
+  test "components read legacy summary from raw DashboardChart structs" do
+    bar_html =
+      render_component(&BOTelemetryComponents.bar_chart/1,
+        id: "legacy-bars",
+        chart: %DashboardChart{
+          id: "legacy-bars",
+          kind: :bar,
+          title: "Legacy Bars",
+          summary: %{bars: [10, :bad]}
+        }
+      )
+
+    donut_html =
+      render_component(&BOTelemetryComponents.donut_chart/1,
+        id: "legacy-donut",
+        chart: %DashboardChart{
+          id: "legacy-donut",
+          kind: :donut,
+          title: "Legacy Donut",
+          summary: %{segments: [25, :bad]}
+        }
+      )
+
+    gauge_html =
+      render_component(&BOTelemetryComponents.gauge_chart/1,
+        id: "legacy-gauge",
+        chart: %DashboardChart{
+          id: "legacy-gauge",
+          kind: :gauge,
+          title: "Legacy Gauge",
+          summary: %{value: 42, min: 0, max: 100}
+        }
+      )
+
+    status_html =
+      render_component(&BOTelemetryComponents.status_grid/1,
+        id: "legacy-status",
+        chart: %DashboardChart{
+          id: "legacy-status",
+          kind: :status_grid,
+          title: "Legacy Status",
+          summary: %{items: ["Plain service", 123]}
+        }
+      )
+
+    progress_html =
+      render_component(&BOTelemetryComponents.progress_countdown/1,
+        id: "legacy-progress",
+        chart: %DashboardChart{
+          id: "legacy-progress",
+          kind: :progress,
+          title: "Legacy Progress",
+          summary: %{total: 10, remaining: 4}
+        }
+      )
+
+    radar_html =
+      render_component(&BOTelemetryComponents.radar_chart/1,
+        id: "legacy-radar",
+        chart: %DashboardChart{
+          id: "legacy-radar",
+          kind: :radar,
+          title: "Legacy Radar",
+          summary: %{axes: [10, :bad, %{label: "Named", value: "30"}], benchmark_axes: [5, 6, 7]}
+        }
+      )
+
+    assert bar_html =~ "id=\"legacy-bars\""
+    assert bar_html =~ "10"
+    assert bar_html =~ "0"
+    assert bar_html =~ "width: 0%"
+
+    assert donut_html =~ "id=\"legacy-donut\""
+    assert donut_html =~ ~s(data-tip-label="1")
+    assert donut_html =~ ~s|data-tip-value="25 (100%)"|
+    assert donut_html =~ "0 (0%)"
+
+    assert gauge_html =~ "id=\"legacy-gauge\""
+    assert gauge_html =~ ">42<"
+    assert gauge_html =~ "0 - 100"
+
+    assert status_html =~ "Plain service"
+    assert status_html =~ "Unknown"
+    assert status_html =~ "bg-slate-300"
+
+    assert progress_html =~ "60%"
+    assert progress_html =~ "remaining of 10"
+
+    assert radar_html =~ "id=\"legacy-radar\""
+    assert radar_html =~ "Axis 1"
+    assert radar_html =~ "Axis 2"
+    assert radar_html =~ "Named"
+    assert radar_html =~ "30"
+    assert radar_html =~ "data-radar-series=\"benchmark\""
+  end
+
+  test "typed payload charts normalize mixed entry values" do
+    bar_html =
+      render_component(&BOTelemetryComponents.bar_chart/1,
+        id: "typed-bars",
+        chart: %DashboardChart{
+          id: "typed-bars",
+          kind: :bar,
+          title: "Typed Bars",
+          payload: %CategoryVectorPayload{entries: [12, :bad]}
+        }
+      )
+
+    donut_html =
+      render_component(&BOTelemetryComponents.donut_chart/1,
+        id: "typed-donut",
+        chart: %DashboardChart{
+          id: "typed-donut",
+          kind: :donut,
+          title: "Typed Donut",
+          payload: %CategoryVectorPayload{entries: [12, :bad]}
+        }
+      )
+
+    status_html =
+      render_component(&BOTelemetryComponents.status_grid/1,
+        id: "typed-status",
+        chart: %DashboardChart{
+          id: "typed-status",
+          kind: :status_grid,
+          title: "Typed Status",
+          payload: %StatusListPayload{items: ["String status", :bad]}
+        }
+      )
+
+    progress_html =
+      render_component(&BOTelemetryComponents.progress_countdown/1,
+        id: "typed-progress",
+        chart: %DashboardChart{
+          id: "typed-progress",
+          kind: :progress,
+          title: "Typed Progress",
+          payload: %ProgressPayload{total: 8, remaining: 2}
+        }
+      )
+
+    radar_html =
+      render_component(&BOTelemetryComponents.radar_chart/1,
+        id: "typed-radar",
+        chart: %DashboardChart{
+          id: "typed-radar",
+          kind: :radar,
+          title: "Typed Radar",
+          payload: %CategoryVectorPayload{
+            entries: [10, :bad, %{label: "Parsed", value: "15.5"}],
+            benchmark_entries: [1, 2, 3]
+          }
+        }
+      )
+
+    assert bar_html =~ ~s(<span class="font-mono">1</span>)
+    assert bar_html =~ ~s(<span class="font-mono">2</span>)
+    assert bar_html =~ ~s(<span class="font-mono text-slate-500">12</span>)
+    assert bar_html =~ ~s(<span class="font-mono text-slate-500">0</span>)
+
+    assert donut_html =~ ~s(data-tip-label="1")
+    assert donut_html =~ ~s|data-tip-value="12 (100%)"|
+    assert donut_html =~ "0 (0%)"
+
+    assert status_html =~ "String status"
+    assert status_html =~ "Unknown"
+
+    assert progress_html =~ "75%"
+    assert progress_html =~ "remaining of 8"
+
+    assert radar_html =~ "Axis 1"
+    assert radar_html =~ "Axis 2"
+    assert radar_html =~ "Parsed"
+    assert radar_html =~ "15.5"
+    assert radar_html =~ "data-radar-series=\"benchmark\""
+  end
+
+  test "bar_chart/1 handles non-positive max values" do
+    html =
+      render_component(&BOTelemetryComponents.bar_chart/1,
+        id: "bar-zero-max",
+        chart: %DashboardChart{
+          id: "bar-zero-max",
+          kind: :bar,
+          title: "Zero max",
+          summary: %{bars: [%{label: "Zero", value: 0}, %{label: "Bad", value: :bad}]}
+        }
+      )
+
+    assert html =~ "Zero"
+    assert html =~ "Bad"
+    assert html =~ "width: 0%"
+  end
+
+  test "status_grid/1 maps all status aliases and fallback classes" do
+    html =
+      render_component(&BOTelemetryComponents.status_grid/1,
+        id: "status-aliases",
+        chart: %DashboardChart{
+          id: "status-aliases",
+          kind: :status_grid,
+          title: "Status aliases",
+          summary: %{
+            items: [
+              %{label: "Up", status: :up},
+              %{label: "Warning", status: :warning},
+              %{label: "Down", status: :down},
+              %{label: "Error", status: :error},
+              %{label: "Unexpected", status: :unexpected}
+            ]
+          }
+        }
+      )
+
+    assert html =~ "Up"
+    assert html =~ "Warning"
+    assert html =~ "Down"
+    assert html =~ "Error"
+    assert html =~ "Unexpected"
+    assert html =~ "bg-cyan-500"
+    assert html =~ "bg-slate-400"
+    assert html =~ "bg-slate-700"
+    assert html =~ "bg-slate-300"
+  end
+
+  test "gauge_chart/1 clamps below min and above max" do
+    low_html =
+      render_component(&BOTelemetryComponents.gauge_chart/1,
+        id: "gauge-low",
+        chart: %DashboardChart{
+          id: "gauge-low",
+          kind: :gauge,
+          title: "Gauge low",
+          summary: %{value: -10, min: 0, max: 100}
+        }
+      )
+
+    high_html =
+      render_component(&BOTelemetryComponents.gauge_chart/1,
+        id: "gauge-high-clamp",
+        chart: %DashboardChart{
+          id: "gauge-high-clamp",
+          kind: :gauge,
+          title: "Gauge high",
+          summary: %{value: 150, min: 0, max: 100}
+        }
+      )
+
+    low_x = extract_data_number(low_html, "data-pointer-x")
+    high_x = extract_data_number(high_html, "data-pointer-x")
+
+    assert low_html =~ ~s(text-2xl font-semibold text-slate-900">0</p>)
+    assert high_html =~ ~s(text-2xl font-semibold text-slate-900">100</p>)
+    assert low_x < high_x
+    assert low_x < 110
+    assert high_x > 110
+  end
+
+  test "gauge_chart/1 uses two-point semicircle for tiny positive ratios" do
+    html =
+      render_component(&BOTelemetryComponents.gauge_chart/1,
+        id: "gauge-tiny",
+        chart: %DashboardChart{
+          id: "gauge-tiny",
+          kind: :gauge,
+          title: "Gauge tiny",
+          summary: %{value: 1, min: 0, max: 1000}
+        }
+      )
+
+    assert html =~ ~r/data-gauge-ratio="0(\.0+)?"/
+    assert html =~ "<polyline"
+  end
+
+  test "donut_chart/1 omits zero-length arcs but keeps legend" do
+    html =
+      render_component(&BOTelemetryComponents.donut_chart/1,
+        id: "donut-zero-length",
+        chart: %DashboardChart{
+          id: "donut-zero-length",
+          kind: :donut,
+          title: "Donut zero",
+          summary: %{segments: [%{label: "Zero", value: 0}, %{label: "Full", value: 10}]}
+        }
+      )
+
+    assert html =~ "Zero"
+    assert html =~ "Full"
+    assert html =~ ~s(data-tip-label="Full")
+    refute html =~ ~s(data-tip-label="Zero")
   end
 
   test "chart components handle empty datasets" do
