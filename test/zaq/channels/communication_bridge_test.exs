@@ -167,6 +167,13 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     def get_conversation_enabled_agent(_), do: {:error, :agent_not_found}
   end
 
+  defmodule StubPipeline do
+    def run(msg, opts) do
+      send(self(), {:stub_pipeline_run, msg, opts})
+      {:ok, msg}
+    end
+  end
+
   defmodule StubIdentityResolver do
     def resolve(_incoming, _opts),
       do: {:ok, %{id: 42, full_name: "Ada Lovelace", team_ids: [7, 9]}}
@@ -844,6 +851,14 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
   end
 
   describe "route_incoming_message/5" do
+    test "rejects invalid actor through the generated default opts arity before routing" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+
+      assert_raise FunctionClauseError, fn ->
+        CommunicationBridge.route_incoming_message(msg, [], [], :invalid_actor)
+      end
+    end
+
     test "dispatches the canonical event when an agent resolves" do
       msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
       actor = %{id: "u1", provider: :mattermost}
@@ -868,6 +883,124 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       assert get_in(event.assigns, ["agent_selection", "agent_id"]) == 3
       assert get_in(event.assigns, ["agent_selection", "source"]) == "channel_assignment"
       refute_received {:node_router_fire, _}
+    end
+
+    test "trims and attaches string channel_config_id before delegated pipeline execution" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{
+          "kept" => true,
+          "telemetry_dimensions" => %{"tenant" => "acme"}
+        }
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:ok, routed_msg} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 agent_module: StubAgent,
+                 pipeline_module: StubPipeline,
+                 channel_config_id: "  cfg-7  "
+               )
+
+      assert routed_msg.metadata["channel_config_id"] == "cfg-7"
+      assert routed_msg.metadata["telemetry_dimensions"]["channel_config_id"] == "cfg-7"
+      assert routed_msg.metadata["telemetry_dimensions"]["tenant"] == "acme"
+      assert routed_msg.metadata["kept"] == true
+      assert_received {:stub_pipeline_run, ^routed_msg, []}
+    end
+
+    test "ignores blank string channel_config_id before delegated pipeline execution" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{
+          "kept" => true,
+          "telemetry_dimensions" => %{"tenant" => "acme"}
+        }
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:ok, routed_msg} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 agent_module: StubAgent,
+                 pipeline_module: StubPipeline,
+                 channel_config_id: "   "
+               )
+
+      refute Map.has_key?(routed_msg.metadata || %{}, "channel_config_id")
+      refute get_in(routed_msg.metadata || %{}, ["telemetry_dimensions", "channel_config_id"])
+      assert_received {:stub_pipeline_run, ^routed_msg, []}
+    end
+
+    test "ignores unknown string channel_config_id before delegated pipeline execution" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{
+          "kept" => true,
+          "telemetry_dimensions" => %{"tenant" => "acme"}
+        }
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:ok, routed_msg} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 agent_module: StubAgent,
+                 pipeline_module: StubPipeline,
+                 channel_config_id: " unknown "
+               )
+
+      refute Map.has_key?(routed_msg.metadata || %{}, "channel_config_id")
+      refute get_in(routed_msg.metadata || %{}, ["telemetry_dimensions", "channel_config_id"])
+      assert_received {:stub_pipeline_run, ^routed_msg, []}
+    end
+
+    test "ignores unsupported channel_config_id values before delegated pipeline execution" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{
+          "kept" => true,
+          "telemetry_dimensions" => %{"tenant" => "acme"}
+        }
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:ok, routed_msg} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 agent_module: StubAgent,
+                 pipeline_module: StubPipeline,
+                 channel_config_id: %{id: 123}
+               )
+
+      refute Map.has_key?(routed_msg.metadata || %{}, "channel_config_id")
+      refute get_in(routed_msg.metadata || %{}, ["telemetry_dimensions", "channel_config_id"])
+      assert_received {:stub_pipeline_run, ^routed_msg, []}
     end
 
     test "fires without dispatch when NONE resolves" do

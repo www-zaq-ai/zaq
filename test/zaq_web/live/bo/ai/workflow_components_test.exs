@@ -63,6 +63,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ "pending"
       assert html =~ "bg-black/5"
     end
+
+    test "renders interrupted status with yellow CSS class" do
+      html = render_component(&WorkflowComponents.run_status_badge/1, status: "interrupted")
+      assert html =~ "interrupted"
+      assert html =~ "yellow"
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -104,6 +110,19 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       html = render_component(&WorkflowComponents.run_duration/1, run: run)
       assert html =~ "2m"
       assert html =~ "30s"
+    end
+
+    test "freezes paused duration at updated_at" do
+      started = ~U[2024-01-01 10:00:00Z]
+      updated_at = ~U[2024-01-01 10:00:30Z]
+      now = ~U[2024-01-01 10:10:00Z]
+
+      run = %{started_at: started, finished_at: nil, status: "paused", updated_at: updated_at}
+
+      html = render_component(&WorkflowComponents.run_duration/1, run: run, now: now)
+
+      assert html =~ "30s"
+      refute html =~ "10m"
     end
   end
 
@@ -402,6 +421,76 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ "b"
       assert html =~ "c"
     end
+
+    test "injects clickable start node for start edge" do
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [@node],
+          edges: [%{from: "start", to: "fetch"}],
+          on_node_click: true,
+          selected_step: "start"
+        )
+
+      assert html =~ "start"
+      assert html =~ "#eef2ff"
+      assert html =~ "#6366f1"
+      assert html =~ ~s(phx-click="select_step")
+      assert html =~ ~s(phx-value-step_name="start")
+    end
+
+    test "renders batch node with empty params as plain batch shell" do
+      node = %{
+        name: "batch",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.Batch",
+        index: 0,
+        params: %{}
+      }
+
+      html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
+
+      assert html =~ "BATCH"
+      refute html =~ "plain_step"
+      refute html =~ "POST PROCESS"
+    end
+
+    test "handles map node with nil params and empty body params" do
+      nil_params_node = %{name: "m_nil", type: "map", index: 0, params: nil}
+      empty_body_node = %{name: "m_empty", type: "map", index: 0, params: %{"body" => []}}
+
+      nil_html =
+        render_component(&WorkflowComponents.workflow_dag/1, nodes: [nil_params_node], edges: [])
+
+      empty_html =
+        render_component(&WorkflowComponents.workflow_dag/1, nodes: [empty_body_node], edges: [])
+
+      assert nil_html =~ "<svg"
+      assert nil_html =~ "MAP"
+      refute nil_html =~ "validate"
+
+      assert empty_html =~ "<svg"
+      assert empty_html =~ "MAP"
+      refute empty_html =~ "validate"
+    end
+
+    test "renders map post_process tail" do
+      node = %{
+        name: "map_tail",
+        type: "map",
+        index: 0,
+        params: %{
+          "body" => [%{"name" => "validate"}],
+          "post_process" => [%{"name" => "notify"}]
+        }
+      }
+
+      html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
+
+      assert html =~ "validate"
+      assert html =~ "notify"
+      assert html =~ "<line"
+      assert html =~ "marker-end=\"url(#dag-arr)\""
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -689,6 +778,337 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       # Index grouping: both [0] rows precede the [1] row.
       assert :binary.match(html, "batch_fork/dispatch[0]") <
                :binary.match(html, "batch_fork/check[1]")
+    end
+
+    test "marks all process chips done during post_process phase" do
+      step = %{
+        id: "sr-b4",
+        step_name: "batch_post",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: %{
+            phase: :post_process,
+            current_step: 0,
+            current_chunk: 1,
+            total_chunks: 1,
+            successful_chunks: 0,
+            failed_chunks: 0
+          },
+          step_runs: [],
+          node_params: %{"process" => [%{"name" => "p1"}]}
+        )
+
+      assert html =~ "p1"
+      assert html =~ "text-emerald-700 bg-emerald-100"
+    end
+
+    test "marks post chips done active pending" do
+      step = %{
+        id: "sr-b5",
+        step_name: "batch_post_states",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: %{
+            phase: :post_process,
+            current_step: 1,
+            current_chunk: 1,
+            total_chunks: 1
+          },
+          step_runs: [],
+          node_params: %{
+            "process" => [%{"name" => "p1"}],
+            "post_process" => [%{"name" => "post1"}, %{"name" => "post2"}, %{"name" => "post3"}]
+          }
+        )
+
+      assert html =~ "text-emerald-700 bg-emerald-100"
+      assert html =~ "border-emerald-400"
+      assert html =~ "text-black/30 bg-black/[0.03] border-black/[0.06]"
+      assert html =~ "animate-pulse"
+    end
+
+    test "renders logs and failed error block" do
+      step = %{
+        id: "sr-b6",
+        step_name: "batch_logs",
+        step_index: 0,
+        status: "failed",
+        logs: [%{"event" => "item_error", "reason" => "bad item"}],
+        results: %{},
+        input: %{},
+        errors: %{"reason" => "fatal"},
+        started_at: ~U[2024-01-01 00:00:00Z],
+        finished_at: ~U[2024-01-01 00:00:01Z]
+      }
+
+      html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: %{}
+        )
+
+      assert html =~ "Logs"
+      assert html =~ "item_error"
+      assert html =~ "bad item"
+      assert html =~ "Error"
+      assert html =~ "fatal"
+    end
+
+    test "handles unknown and non-map delivery params" do
+      step = %{
+        id: "sr-b7",
+        step_name: "batch_unknown",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      unknown_html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: %{"delivery" => "unknown"}
+        )
+
+      nil_html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: nil
+        )
+
+      refute unknown_html =~ "per item"
+      refute unknown_html =~ "per chunk"
+      assert nil_html =~ "BATCH"
+      refute nil_html =~ "per item"
+      refute nil_html =~ "per chunk"
+    end
+
+    test "covers progress fallbacks" do
+      running_step = %{
+        id: "sr-b8",
+        step_name: "batch_fallbacks",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: nil,
+        input: %{},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      paused_step = %{running_step | id: "sr-b9", status: "paused"}
+      completed_nil = %{running_step | id: "sr-b10", status: "completed", results: nil}
+
+      completed_empty = %{
+        running_step
+        | id: "sr-b11",
+          status: "completed",
+          results: %{"results" => []}
+      }
+
+      running_html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: running_step,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: %{}
+        )
+
+      paused_html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: paused_step,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: %{}
+        )
+
+      completed_nil_html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: completed_nil,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: %{}
+        )
+
+      completed_empty_html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: completed_empty,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: %{}
+        )
+
+      assert running_html =~ "initializing"
+      refute paused_html =~ "Chunks"
+      refute completed_nil_html =~ "Chunks"
+      refute completed_empty_html =~ "Chunks"
+    end
+
+    test "handles atom process key safely" do
+      step = %{
+        id: "sr-b12",
+        step_name: "batch_atom",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: %{process: [%{name: "atom_step"}]}
+        )
+
+      assert html =~ "atom_step"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # map_step_card/1
+  # ---------------------------------------------------------------------------
+
+  describe "map_step_card/1" do
+    test "renders body and post-process labels" do
+      step = %{
+        id: "sr-m1",
+        step_name: "map_step",
+        step_index: 0,
+        status: "completed",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: ~U[2024-01-01 00:00:00Z],
+        finished_at: ~U[2024-01-01 00:00:02Z]
+      }
+
+      html =
+        render_component(&WorkflowComponents.map_step_card/1,
+          step: step,
+          step_runs: [],
+          node_params: %{
+            "body" => [%{"name" => "validate"}],
+            "post_process" => [%{"name" => "notify"}]
+          }
+        )
+
+      assert html =~ "Per item"
+      assert html =~ "validate"
+      assert html =~ "then"
+      assert html =~ "notify"
+    end
+
+    test "renders failed fork fallback reason and Other group" do
+      step = %{
+        id: "sr-m2",
+        step_name: "map_node",
+        step_index: 0,
+        status: "failed",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: %{"reason" => "fatal"},
+        started_at: ~U[2024-01-01 00:00:00Z],
+        finished_at: ~U[2024-01-01 00:00:02Z]
+      }
+
+      html =
+        render_component(&WorkflowComponents.map_step_card/1,
+          step: step,
+          step_runs: [
+            %{
+              step_name: "map_node/check",
+              status: "failed",
+              errors: nil,
+              started_at: nil,
+              logs: []
+            }
+          ],
+          node_params: %{}
+        )
+
+      assert html =~ "Other"
+      assert html =~ "failed"
+      assert html =~ "map_node/check"
+    end
+
+    test "sorts fork rows without started_at by name" do
+      step = %{
+        id: "sr-m3",
+        step_name: "map_sort",
+        step_index: 0,
+        status: "completed",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: ~U[2024-01-01 00:00:00Z],
+        finished_at: ~U[2024-01-01 00:00:02Z]
+      }
+
+      html =
+        render_component(&WorkflowComponents.map_step_card/1,
+          step: step,
+          step_runs: [
+            %{
+              step_name: "map_sort/beta[0]",
+              status: "completed",
+              errors: nil,
+              started_at: nil,
+              logs: []
+            },
+            %{
+              step_name: "map_sort/alpha[0]",
+              status: "completed",
+              errors: nil,
+              started_at: nil,
+              logs: []
+            }
+          ],
+          node_params: %{}
+        )
+
+      assert :binary.match(html, "map_sort/alpha[0]") < :binary.match(html, "map_sort/beta[0]")
     end
   end
 end

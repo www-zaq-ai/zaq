@@ -149,8 +149,22 @@ defmodule Zaq.Channels.EmailBridgeTest do
     end
   end
 
+  defmodule PipelineUnexpectedValueStub do
+    def run(_incoming, _opts), do: :queued
+  end
+
   defmodule RouterOkStub do
     def deliver(_outgoing), do: :ok
+  end
+
+  defmodule ApiDeliveryNodeRouterStub do
+    def dispatch(event) do
+      if event.opts[:action] == :deliver_outgoing do
+        send(self(), {:api_delivery_event, event})
+      end
+
+      %{event | response: :ok}
+    end
   end
 
   defmodule RouterErrorStub do
@@ -613,6 +627,25 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert email.from == {"ZAQ", "julien@eweev.com"}
       assert {"In-Reply-To", "<msg-2@example.com>"} in email.headers
       assert {"References", "<msg-1@example.com> <msg-2@example.com>"} in email.headers
+    end
+
+    test "reply without email metadata map does not set reply_from" do
+      upsert_smtp_channel()
+
+      outgoing = %Zaq.Engine.Messages.Outgoing{
+        body: "Reply body",
+        channel_id: "recipient@example.com",
+        provider: :"email:imap",
+        in_reply_to: "<msg@example.com>",
+        metadata: %{"email" => "invalid", "subject" => "Question"}
+      }
+
+      assert :ok = EmailBridge.send_reply(outgoing, %{})
+
+      assert_receive {:email, email}
+      assert email.subject == "Re: Question"
+      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert {"In-Reply-To", "<msg@example.com>"} in email.headers
     end
 
     test "send_reply keeps subject unchanged for non-reply emails" do
@@ -1144,11 +1177,13 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous_pipeline = Application.get_env(:zaq, :email_bridge_pipeline_module)
       previous_router = Application.get_env(:zaq, :email_bridge_router_module)
       previous_conversations = Application.get_env(:zaq, :email_bridge_conversations_module)
+      previous_node_router = Application.get_env(:zaq, :email_bridge_node_router_module)
 
       on_exit(fn ->
         Application.put_env(:zaq, :email_bridge_pipeline_module, previous_pipeline)
         Application.put_env(:zaq, :email_bridge_router_module, previous_router)
         Application.put_env(:zaq, :email_bridge_conversations_module, previous_conversations)
+        Application.put_env(:zaq, :email_bridge_node_router_module, previous_node_router)
       end)
 
       :ok
@@ -1212,6 +1247,49 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert log =~ "Failed to process inbound message"
     end
 
+    test "wraps unexpected direct pipeline value" do
+      Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineUnexpectedValueStub)
+      Application.put_env(:zaq, :email_bridge_router_module, RouterOkStub)
+      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsOkStub)
+
+      config = %{provider: "email:imap"}
+
+      log =
+        capture_log(fn ->
+          assert {:error, :queued} =
+                   EmailBridge.from_listener(
+                     config,
+                     %{"body_text" => "hello"},
+                     adapter: IncomingAdapterStub,
+                     mailbox: "INBOX"
+                   )
+        end)
+
+      assert log =~ "Failed to process inbound message"
+    end
+
+    test "delivers outgoing through NodeRouter when router module is Channels Api" do
+      Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
+      Application.put_env(:zaq, :email_bridge_router_module, Zaq.Channels.Api)
+      Application.put_env(:zaq, :email_bridge_node_router_module, ApiDeliveryNodeRouterStub)
+      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsOkStub)
+
+      config = %{provider: "email:imap"}
+
+      assert :ok =
+               EmailBridge.from_listener(
+                 config,
+                 %{"body_text" => "hello"},
+                 adapter: IncomingAdapterStub,
+                 mailbox: "INBOX"
+               )
+
+      assert_receive {:api_delivery_event, event}
+      assert event.opts[:action] == :deliver_outgoing
+      assert event.request.body == "outgoing"
+      assert event.request.channel_id == "recipient@example.com"
+    end
+
     test "ignores persistence module in bridge path" do
       Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
       Application.put_env(:zaq, :email_bridge_router_module, RouterOkStub)
@@ -1252,6 +1330,54 @@ defmodule Zaq.Channels.EmailBridgeTest do
         end)
 
       assert log =~ "Failed to process inbound message"
+    end
+  end
+
+  describe "resolve_agent_selection/3" do
+    test "blank mailbox ignores mailbox assignment and falls back to provider default" do
+      provider_agent = insert_configured_agent(true)
+
+      config = %{
+        settings: %{
+          "routing" => %{"default_agent_id" => provider_agent.id},
+          "imap" => %{
+            "agent_routing" => %{"mailboxes" => %{"INBOX" => provider_agent.id + 1}}
+          }
+        }
+      }
+
+      selection =
+        EmailBridge.resolve_agent_selection(
+          config,
+          %Zaq.Engine.Messages.Incoming{content: "x", channel_id: "c", provider: :"email:imap"},
+          mailbox: "   "
+        )
+
+      assert %{"agent_id" => agent_id, "source" => "provider_default"} = selection
+      assert agent_id == provider_agent.id
+    end
+
+    test "non-binary mailbox ignores mailbox assignment and falls back to provider default" do
+      provider_agent = insert_configured_agent(true)
+
+      config = %{
+        settings: %{
+          "routing" => %{"default_agent_id" => provider_agent.id},
+          "imap" => %{
+            "agent_routing" => %{"mailboxes" => %{"INBOX" => provider_agent.id + 1}}
+          }
+        }
+      }
+
+      selection =
+        EmailBridge.resolve_agent_selection(
+          config,
+          %Zaq.Engine.Messages.Incoming{content: "x", channel_id: "c", provider: :"email:imap"},
+          mailbox: :INBOX
+        )
+
+      assert %{"agent_id" => agent_id, "source" => "provider_default"} = selection
+      assert agent_id == provider_agent.id
     end
   end
 
