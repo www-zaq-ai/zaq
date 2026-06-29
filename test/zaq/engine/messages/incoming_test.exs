@@ -157,6 +157,20 @@ defmodule Zaq.Engine.Messages.IncomingTest do
     assert msg.content_filter == ["ok", "safe"]
   end
 
+  test "new/1 normalizes person payload through ActorNormalizer" do
+    msg =
+      Incoming.new(%{
+        content: "hello",
+        channel_id: "ch1",
+        provider: :mattermost,
+        person: %{"id" => "42", "full_name" => "Ada", "team_ids" => ["7", :bad, 8]}
+      })
+
+    assert msg.person == %{id: 42, full_name: "Ada", team_ids: [7, 8]}
+    assert Incoming.person_id(msg) == 42
+    assert Incoming.team_ids(msg) == [7, 8]
+  end
+
   describe "new/1 required keys" do
     test "raises ArgumentError when :content key is missing" do
       attrs = %{channel_id: "ch1", provider: :mattermost}
