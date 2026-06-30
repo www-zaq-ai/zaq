@@ -381,6 +381,11 @@ defmodule Zaq.Agent.FactoryTest do
       assert Factory.spawn_opts_from_server_id(nil) == nil
       assert Factory.spawn_opts_from_server_id(123) == nil
     end
+
+    test "returns empty opts (fresh agent, no history) for a workflow run scope" do
+      server_id = "My Agent:workflow:run:#{Ecto.UUID.generate()}"
+      assert Factory.spawn_opts_from_server_id(server_id) == %{}
+    end
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do
