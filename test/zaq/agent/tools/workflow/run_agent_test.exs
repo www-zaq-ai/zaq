@@ -116,13 +116,117 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert event.assigns["agent_selection"]["agent_id"] == agent.id
     end
 
-    test "requests skip_permissions in pipeline_opts" do
+    test "passes skip_permissions: true when the context grants it" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx(%{skip_permissions: true}))
+
+      assert_received {:dispatched, event}
+      assert event.opts[:pipeline_opts][:skip_permissions] == true
+    end
+
+    test "defaults skip_permissions to false when the context omits it" do
       agent = create_agent()
 
       RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
 
       assert_received {:dispatched, event}
-      assert event.opts[:pipeline_opts][:skip_permissions] == true
+      assert event.opts[:pipeline_opts][:skip_permissions] == false
+    end
+
+    test "carries the run_id as data on the incoming metadata in a workflow context" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
+
+      assert_received {:dispatched, event}
+      assert event.request.metadata[:run_id] == "test-run-1"
+      # The tool never computes a scope string — that's derive_scope's job.
+      assert event.request.metadata[:execution_scope] == nil
+    end
+
+    test "carries the step_index as data on the incoming metadata in a workflow context" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx(%{step_index: 3}))
+
+      assert_received {:dispatched, event}
+      assert event.request.metadata[:run_id] == "test-run-1"
+      # step_index lets derive_scope/2 give each run_agent step its own server.
+      assert event.request.metadata[:step_index] == 3
+    end
+
+    test "omits step_index from metadata when the context has no run_id" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "hello"},
+        %{node_router: OkRouter, step_index: 3}
+      )
+
+      assert_received {:dispatched, event}
+      # No run marker without a run_id, so no step marker either.
+      assert event.request.metadata[:run_id] == nil
+      assert event.request.metadata[:step_index] == nil
+    end
+
+    test "propagates the context actor onto the dispatched event" do
+      agent = create_agent()
+      actor = %{person: %{id: 99}}
+
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx(%{actor: actor}))
+
+      assert_received {:dispatched, event}
+      assert event.actor == actor
+    end
+
+    test "derives author_id from the context actor's person id (no hardcoded literal)" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx(%{actor: %{person: %{id: 99}}}))
+
+      assert_received {:dispatched, event}
+      assert event.request.author_id == "99"
+    end
+
+    test "leaves author_id nil when the context carries no actor/person" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
+
+      assert_received {:dispatched, event}
+      assert event.request.author_id == nil
+    end
+
+    test "tool-call context (parent incoming, no run_id) carries no run marker" do
+      agent = create_agent()
+
+      parent =
+        %Zaq.Engine.Messages.Incoming{
+          content: "parent question",
+          channel_id: "c",
+          provider: :web,
+          person: %{id: 7}
+        }
+
+      ctx = %{node_router: OkRouter, incoming: parent, actor: %{person: %{id: 7}}}
+
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
+
+      assert_received {:dispatched, event}
+      # No run_id → no marker; derive_scope falls to the standard person scope.
+      # The child is a different agent name, so it cannot collide with the parent.
+      assert event.request.metadata[:run_id] == nil
+      assert event.request.provider == nil
+    end
+
+    test "carries no run marker when neither run_id nor incoming is present" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "hello"}, %{node_router: OkRouter})
+
+      assert_received {:dispatched, event}
+      assert event.request.metadata[:run_id] == nil
     end
 
     test "sets channel_id to workflow:<run_id>" do
