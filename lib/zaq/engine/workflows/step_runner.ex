@@ -30,7 +30,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   ## Context injection
 
-    Each step's context is enriched with `run_id`, `step_name`, the run's
+    Each step's context is enriched with `run_id`, `step_name`, `step_index`, the run's
     canonical `source_event.actor`, optional `source_event.request` as
     `source_request`, and `skip_permissions` — `true` only when `source_event.assigns` carries an
   explicit `skip_permissions: true` flag (set at run creation for machine/cron
@@ -252,7 +252,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         input: json_safe(action_params)
       })
 
-    enriched_context = enrich_context(context, run_id, step_name, prev_cascade)
+    enriched_context = enrich_context(context, run_id, step_name, step_index, prev_cascade)
 
     try do
       case call_with_strategy(mod, action_params, enriched_context, timeout_ms, strategy) do
@@ -376,12 +376,13 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     end
   end
 
-  defp enrich_context(context, run_id, step_name, prev_cascade) do
+  defp enrich_context(context, run_id, step_name, step_index, prev_cascade) do
     source_event = run_id |> Workflows.get_run!() |> Map.get(:source_event)
 
     Map.merge(context || %{}, %{
       run_id: run_id,
       step_name: step_name,
+      step_index: step_index,
       actor: source_event && source_event.actor,
       source_request: source_event && source_event.request,
       skip_permissions: skip_permissions?(source_event),

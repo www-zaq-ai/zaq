@@ -170,6 +170,68 @@ defmodule Zaq.Agent.ExecutorTest do
       incoming = %{@base_incoming | person: nil, metadata: %{}}
       assert Executor.derive_scope(incoming) == "anonymous"
     end
+
+    test "metadata.run_id derives workflow:run:<id> and overrides person scope" do
+      incoming = %{
+        @base_incoming
+        | person: %{id: 7},
+          metadata: %{run_id: "abc"}
+      }
+
+      assert Executor.derive_scope(incoming) == "workflow:run:abc"
+    end
+
+    test "metadata.run_id + step_index derives workflow:run:<id>:step:<index>" do
+      incoming = %{
+        @base_incoming
+        | person: %{id: 7},
+          metadata: %{run_id: "abc", step_index: 2}
+      }
+
+      assert Executor.derive_scope(incoming) == "workflow:run:abc:step:2"
+    end
+
+    test "step_index 0 still derives a per-step scope" do
+      incoming = %{@base_incoming | metadata: %{run_id: "abc", step_index: 0}}
+
+      assert Executor.derive_scope(incoming) == "workflow:run:abc:step:0"
+    end
+
+    test "non-integer step_index falls back to the per-run scope" do
+      incoming = %{@base_incoming | metadata: %{run_id: "abc", step_index: "2"}}
+
+      assert Executor.derive_scope(incoming) == "workflow:run:abc"
+    end
+
+    test "metadata.run_id overrides conversation scope on :web" do
+      incoming = %{
+        @base_incoming
+        | provider: :web,
+          metadata: %{conversation_id: "conv-1", run_id: "xyz"}
+      }
+
+      assert Executor.derive_scope(incoming) == "workflow:run:xyz"
+    end
+
+    test "empty run_id falls through to person scope" do
+      incoming = %{
+        @base_incoming
+        | person: %{id: 5},
+          metadata: %{run_id: ""}
+      }
+
+      assert Executor.derive_scope(incoming) == "bo:person:5"
+    end
+
+    test "metadata.execution_scope is ignored (no scope backdoor)" do
+      incoming = %{
+        @base_incoming
+        | person: %{id: 5},
+          metadata: %{execution_scope: "workflow:run:injected"}
+      }
+
+      assert Executor.derive_scope(incoming) == "bo:person:5"
+    end
   end
 
   describe "run/2 — answering agent (no agent_id)" do

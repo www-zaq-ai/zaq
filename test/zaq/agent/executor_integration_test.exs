@@ -145,6 +145,87 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert_receive {:openai_request, "POST", "/v1/responses", "", _body}, 1_000
   end
 
+  # Base server ids in the Jido agent registry, shaped "<agent_name>:<scope>".
+  # The react strategy also registers "<server_id>/react_worker" children; those
+  # are excluded so we assert on the spawned agent server itself.
+  defp spawned_server_ids do
+    Zaq.Agent.Jido
+    |> Jido.registry_name()
+    |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
+    |> Enum.reject(&String.contains?(&1, "/"))
+  end
+
+  defp server_ids_for(agent_name) do
+    Enum.filter(spawned_server_ids(), &String.starts_with?(&1, agent_name <> ":"))
+  end
+
+  test "concurrent messages on the same server scope are rejected with :busy" do
+    test_pid = self()
+
+    # Atomic counter — only the FIRST request to land holds the lock open long
+    # enough for the rest to pile up against the same Jido agent process.
+    # (`Agent` is aliased to `Zaq.Agent` in this module, so we use :atomics.)
+    counter = :atomics.new(1, [])
+
+    handler = fn conn, _body ->
+      n = :atomics.add_get(counter, 1, 1)
+      if n == 1, do: Process.sleep(800)
+      send(test_pid, {:llm_hit, n})
+      {200, streamed_reply(conn.request_path, "Yo", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, test_pid)
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Busy Cred #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "test-key"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Busy Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "Reply with Yo.",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{"stream" => false}
+      })
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    # Same channel + no :scope override => ONE server_id => ONE process.
+    incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
+
+    # Fire 8 concurrently against the SAME agent/scope.
+    results =
+      1..8
+      |> Enum.map(fn _ ->
+        Task.async(fn -> Executor.run(incoming, agent_id: to_string(configured_agent.id)) end)
+      end)
+      |> Task.await_many(5_000)
+
+    errored = Enum.filter(results, & &1.metadata.error)
+    ok = Enum.reject(results, & &1.metadata.error)
+
+    # The busy ones never reach the LLM; only the winner(s) hit the stub.
+    assert errored != [], "expected at least one :busy rejection"
+    assert ok != [], "expected at least one request to win the lock"
+
+    # Naming proof for the collision: all 8 derive the SAME scope (no
+    # conversation/person/run_id ⇒ "anonymous"), so they collapse onto a SINGLE
+    # spawned server `<name>:anonymous` — which is exactly why the overlap is
+    # rejected as :busy rather than fanning out to distinct servers.
+    assert server_ids_for(configured_agent.name) == ["#{configured_agent.name}:anonymous"]
+  end
+
   test "runs catalog-only provider via openai runtime fallback" do
     handler = fn conn, body ->
       payload = Jason.decode!(body)
