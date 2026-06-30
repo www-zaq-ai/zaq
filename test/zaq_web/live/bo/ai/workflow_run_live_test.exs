@@ -574,7 +574,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       workflow = map_workflow_fixture()
       html = map_run_with_rows(conn, workflow)
 
-      assert html =~ "Per-fork runs"
+      assert html =~ "Per-batch runs"
       assert html =~ "m/ok[1]"
       assert html =~ "boom"
     end

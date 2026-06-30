@@ -827,3 +827,78 @@ defmodule Zaq.Engine.Workflows.Test.MarkDone do
   @impl Jido.Action
   def run(_params, _context), do: {:ok, %{done: true}}
 end
+
+# ---------------------------------------------------------------------------
+# Sequential-timing test support (Batch chunk_size: 1 + per-fork post_process)
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.TimeRecorder do
+  @moduledoc """
+  Collects `{chunk, monotonic_ms}` marks in the order map forks execute them — one
+  mark per Batch iteration. Lets a test see which chunks ran and when.
+  """
+  use Agent
+
+  def start_link(_), do: Agent.start_link(fn -> [] end, name: __MODULE__)
+
+  def record(chunk),
+    do: Agent.update(__MODULE__, &[{chunk, System.monotonic_time(:millisecond)} | &1])
+
+  # Marks in execution order (oldest first).
+  def marks, do: Agent.get(__MODULE__, &Enum.reverse/1)
+
+  # The recorded chunks (each a sorted list of item indices) in execution order.
+  def chunks, do: Enum.map(marks(), fn {chunk, _ms} -> chunk end)
+
+  def reset, do: Agent.update(__MODULE__, fn _ -> [] end)
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitIndexedItems do
+  @moduledoc "Emits `[%{index: 1}, %{index: 2}, ...]` — source for sequential-timing Batch tests."
+  use Jido.Action,
+    name: "test_emit_indexed_items",
+    schema: [count: [type: :integer, required: false, default: 3]],
+    output_schema: [items: [type: :list, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context) do
+    count = Map.get(params, :count, 3)
+    {:ok, %{items: Enum.map(1..count, &%{index: &1})}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.RecordItemTime do
+  @moduledoc """
+  Map body step (delivery `"list"`): runs **once per delivered chunk** (i.e. once
+  per Batch iteration). It logs the execution time and records one `TimeRecorder`
+  mark keyed by the chunk's item indices, then passes the chunk through as `items`.
+  It does **not** sleep — the wait is a separate `Zaq.Agent.Tools.Workflow.Sleep`
+  node in the Batch's `post_process`.
+  """
+  use Jido.Action,
+    name: "test_record_item_time",
+    schema: [items: [type: :list, required: true]],
+    output_schema: [items: [type: :list, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  alias Zaq.Engine.Workflows.Test.TimeRecorder
+
+  @impl Jido.Action
+  def run(%{items: items}, _context) do
+    indices = Enum.map(items, fn item -> Map.get(item, :index) || Map.get(item, "index") end)
+
+    # IO.puts (not Logger) so it prints regardless of the test logger level (:warning).
+    IO.puts(
+      "[RecordItemTime] executing chunk #{inspect(indices)} at #{DateTime.utc_now() |> DateTime.to_iso8601()}"
+    )
+
+    # One mark per chunk — NOT per item — so the recorded count reflects Batch
+    # iterations, faithfully honoring `batch_size`.
+    TimeRecorder.record(Enum.sort(indices))
+
+    {:ok, %{items: items}}
+  end
+end
