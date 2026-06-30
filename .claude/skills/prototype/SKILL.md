@@ -1,35 +1,31 @@
 ---
 name: prototype
 description: >-
-  Builds a design-system-aligned UI simulation from a UX plan using static fixtures.
-  Output lives in lib/zaq_web/playground/ and assets/css/playground.css only — no
-  Storybook, no design system edits, no production routes. Use after /ux-design
-  before /design.
+  Stages UX-plan features on real BO routes using static fixtures. May update DSM
+  (DesignSystem.*), existing components, CSS, router, and sidebar. Never touches
+  backend (lib/zaq/**, NodeRouter, migrations). Use after /ux-design; hand off to
+  /design for production-ready DS patterns and data wiring.
 ---
 
-# Prototype — UX plan to isolated simulation
+# Prototype — UX plan to staged BO feature
 
-**Announce at start:** "Using /prototype — reading DESIGN.md, then building playground simulation"
+**Announce at start:** "Using /prototype — reading DESIGN.md, then staging feature on BO routes with fixtures"
 
 ## Role
 
-You are a **prototype builder**, not a product engineer.
+You are a **front-end prototype builder**, not a backend engineer.
 
 | You do | You do not |
 |--------|------------|
-| Simulate end-product screens with static data | Add production routes, LiveViews, or sidebar entries |
-| **Import** existing components **read-only** when they fit exactly | **Edit** any file under `lib/zaq_web/components/` |
-| Build **equivalent HTML** stubs when a component is missing or insufficient | Touch **Storybook** (`storybook/**`) or design system CSS |
-| Style stubs via **`assets/css/playground.css`** (scoped, prototype-only) | Edit `app.css`, `styles.css`, `btn.css`, or other role CSS files |
-| Read **`DESIGN.md`** + Storybook **read-only** for token/class reference | Promote playground code into production paths |
-| Flag gaps (`# Component gap:` in `@moduledoc`) for **`/design`** | Create README, reports, or docs |
+| Wire **real BO LiveViews** under `lib/zaq_web/live/bo/` | Call `NodeRouter`, `Repo`, or any `lib/zaq/` context |
+| Load data from **`Fixtures` modules only** | Add migrations, schemas, Oban workers, config changes |
+| **Create or extend** `DesignSystem.*` when UX requires it | Change backend API contracts or event payloads |
+| **Extend existing components** when a small variant unlocks the flow | Ship production data wiring (post-review / **`/design`**) |
+| Read **`DESIGN.md`** + Storybook **read-only** as the DS contract | Create or edit Storybook stories (that is **`/design`** / **`/extract`**) |
+| Register **BO routes and sidebar** entries for discoverability | Treat prototype DSM edits as final production patterns without review |
+| Flag DSM gaps for **`/design`** when a component needs hardening | Write docs/reports unless asked |
 
-**Isolation rule:** Only create or edit files under:
-
-- `lib/zaq_web/playground/**`
-- `assets/css/playground.css`
-
-Every other path is **read-only** — including all of `storybook/`, `lib/zaq_web/components/`, and `lib/zaq_web/live/`.
+**Leverage `/design`:** read `DESIGN.md` and existing Storybook the same way `/design` does. Prototype may extend DSM pragmatically for staging; **`/design`** owns production-ready patterns, Storybook, and real data wiring.
 
 ---
 
@@ -45,50 +41,63 @@ If no UX plan exists, stop and ask the user to run **`/ux-design`** first.
 
 ## Output layout
 
-Each feature gets one slug folder under playground:
+Each feature gets real BO wiring with fixtures:
 
 ```
-lib/zaq_web/playground/
-  registry.ex                    # slug → prototype module (append entry per feature)
-  {feature-slug}/
-    fixtures.ex                  # static demo data
-    {feature}_prototype.ex       # LiveComponent — screens, scenarios, navigation
-    components/                  # HTML stubs for gaps / [NEW] blocks
+lib/zaq_web/
+  fixtures/{feature_slug}.ex          # static demo data + scenarios
+  live/bo/{feature_slug}_live.ex      # LiveView — mount/handle_event use fixtures only
+  live/bo/{feature_slug}_live.html.heex
+  components/design_system/...        # new or extended DSM modules (when needed)
+  components/...                      # extended shared components (when needed)
+  router.ex                           # live route under :bo session
+  components/bo_layout.ex             # sidebar nav entry (when feature needs discoverability)
 
-assets/css/
-  playground.css                 # prototype-only styles (shared file, scoped sections)
+assets/css/                           # role CSS / styles.css per DESIGN.md (when needed)
 ```
+
+**Not in prototype scope:** `storybook/**` — Storybook stories are owned by **`/design`** (typically via **`/extract`**).
 
 **Module naming:**
 
 | File | Module |
 |------|--------|
-| `registry.ex` | `ZaqWeb.Playground.Registry` |
-| `fixtures.ex` | `ZaqWeb.Playground.{Feature}.Fixtures` |
-| `{feature}_prototype.ex` | `ZaqWeb.Playground.{Feature}.Prototype` |
-| `components/*.ex` | `ZaqWeb.Playground.{Feature}.Components.*` |
+| `fixtures/{slug}.ex` | `ZaqWeb.Fixtures.{Feature}` |
+| `live/bo/{slug}_live.ex` | `ZaqWeb.Live.BO.{Feature}Live` |
 
-Use `{Feature}` = PascalCase of slug (`process-monitor` → `ProcessMonitor`).
+Use `{Feature}` = PascalCase of slug (`process-monitor` → `ProcessMonitor`, `ProcessMonitorLive`).
 
-**Preview:** prototypes mount via the shared **Playground host** at `/playground/:slug` (host LiveView + route are one-time infra — this skill registers the slug in `registry.ex` only; it does **not** edit `router.ex`).
+**Preview:** feature mounts at **`/bo/{slug}`** inside the real BO shell (`BOLayout.bo_layout`, sidebar, flash).
+
+---
+
+## Fake data contract (mandatory)
+
+Every prototype feature **must** stage data without touching backend structure:
+
+- LiveView **`mount/3`** and all event handlers read from **`ZaqWeb.Fixtures.{Feature}`** — no DB, no `NodeRouter.dispatch/1`, no context calls
+- Fixtures hold all scenarios from the UX plan (happy path, empty, error, permission variants)
+- **`@moduledoc`** on LiveView and Fixtures must note **`@prototype true`** so reviewers know data is staged
+- **`handle_event` that would persist** → update in-memory fixture state via `assign/2` only — never dispatch backend events
+- If UX requires a component API that does not exist → extend DSM or add a new `DesignSystem.*` module — do not stub in a throwaway folder
 
 ---
 
 ## Procedure
 
-### 1. Read DESIGN.md (mandatory — read-only reference)
+### 1. Read DESIGN.md (mandatory)
 
-**Read `DESIGN.md` in full** before writing HEEX. The simulation should **look like** production BO UI but must not modify the design system.
+**Read `DESIGN.md` in full** before writing HEEX. Prototype output should look like production BO UI.
 
 | Section | Use in prototype |
 |---------|------------------|
-| **Component inventory** | Decide import vs HTML stub (step 3) — reference only |
-| **Token naming** | `--zaq-*` semantic vars in markup and `playground.css` |
+| **Component inventory** | Decide import vs extend vs new DSM module (step 3) |
+| **Token naming** | `--zaq-*` semantic vars in markup and CSS |
 | **Typography** | `.zaq-text-*` classes — never inline `font-size` |
 | **Do's and Don'ts** | No hex, no `--zaq-btn-*` in templates |
 | **Layout & Tailwind** | Layout Tailwind only when DS has no utility |
 
-Read Storybook and `docs/bo-components.md` **read-only** to copy markup patterns — **never write** to `storybook/`.
+Read Storybook and `docs/bo-components.md` **read-only** for markup patterns — **never write** to `storybook/`.
 
 ### 2. Read the UX plan
 
@@ -100,92 +109,77 @@ Resolve open questions with sensible static defaults; note assumptions in fixtur
 
 | UX block | Strategy |
 |----------|----------|
-| Exact fit | **Import read-only** (e.g. `BOLayout.bo_layout`, `EmptyState`) |
-| Partial fit | **HTML stub** + `# Component gap:` flag |
-| `[NEW COMPONENT]` | **HTML stub** + `# Component gap:` flag |
-| No DS equivalent | **HTML stub** with `.zaq-*` classes |
+| Exact fit | **Import** existing component (e.g. `BOLayout.bo_layout`, `EmptyState`) |
+| Partial fit | **Extend** existing `DesignSystem.*` or shared component |
+| `[NEW COMPONENT]` | **New** `DesignSystem.*` module — flag for **`/design`** hardening |
+| No DS equivalent | **New** `DesignSystem.*` with `.zaq-*` classes — flag for **`/design`** |
 
 ```
 Does an existing component satisfy the UX spec without changes?
-  YES → import read-only
-  NO  → HTML stub in playground/components/ + flag for /design
-  NEVER → edit lib/zaq_web/components/**
+  YES → import
+  NEEDS VARIANT → extend existing component or DesignSystem.*
+  NEW → add DesignSystem.* module + flag for /design (Storybook, hardening)
+  NEVER → NodeRouter, Repo, or lib/zaq/ context calls
 ```
 
 ### 4. Define fixtures
 
-Static scenarios in `fixtures.ex` — no DB, no contexts.
+Static scenarios in `lib/zaq_web/fixtures/{slug}.ex` — cover all UX states. No DB, no contexts.
 
-### 5. Build the interactive shell
+### 5. Build the LiveView
 
-Single **LiveComponent** (`Prototype`) per feature:
+One **LiveView** per feature (`{Feature}Live`):
 
-- `assign(:screen, …)` and `assign(:scenario, …)` for navigation and states
-- `phx-click` switches screen/scenario — no `push_navigate` to production routes
-- **Exact-fit blocks** → read-only imports
-- **Gaps** → playground HTML stub components
-- Optional in-UI scenario switcher (tabs/select) — not Storybook controls
+- `assign(:screen, …)` and `assign(:scenario, …)` for navigation and states when the UX plan has multiple views
+- `phx-click` switches screen/scenario — use `push_patch` within the feature route when needed
+- **Exact-fit blocks** → import existing components
+- **Gaps** → new or extended `DesignSystem.*` modules
+- Optional in-UI scenario switcher (tabs/select) for reviewing states
 
-Wrap full-page simulations in `BOLayout.bo_layout` (read-only import) with fake assigns.
+Wrap every page in `BOLayout.bo_layout` with fake assigns (`current_user`, `current_path`, `features_version`, etc.) sourced from fixtures.
 
-### 6. Playground CSS (`assets/css/playground.css`)
+### 6. CSS (when needed)
 
-Use when stub layout cannot be achieved with existing DS classes alone.
-
-**Rules:**
+Use role CSS / `styles.css` per **`DESIGN.md`** rules when DS classes alone are insufficient.
 
 | Rule | Detail |
 |------|--------|
-| **Single file** | All prototype CSS goes in `assets/css/playground.css` — append a commented section per feature |
-| **Scoped** | Every selector prefixed `.zaq-playground--{slug}` (e.g. `.zaq-playground--process-monitor .health-summary`) |
-| **Not in app bundle** | **Do not** `@import` into `app.css` — loaded only by the Playground host layout |
-| **Prefer tokens** | Use `var(--zaq-*)` — raw hex only when no semantic token exists |
-| **Disposable** | Rules simulate the end product; `/design` rebuilds properly in role CSS |
+| **Prefer DS classes** | Use existing `.zaq-*` before adding CSS |
+| **Token-first** | Use `var(--zaq-*)` — raw hex only when no semantic token exists |
+| **Not app.css** | Never edit `assets/css/app.css` |
+| **Disposable staging** | Prototype CSS is staging; **`/design`** hardens patterns in role CSS |
 
-Example section:
+### 7. Register route and sidebar
 
-```css
-/* --- process-monitor (prototype — not production) --- */
-.zaq-playground--process-monitor .health-summary {
-  display: flex;
-  gap: var(--zaq-scale-8);
-}
-```
-
-### 7. Register in `registry.ex`
-
-Append an entry so the Playground host can mount the prototype:
+Add route in `lib/zaq_web/router.ex` under the `:bo` live session:
 
 ```elixir
-%{
-  slug: "process-monitor",
-  module: ZaqWeb.Playground.ProcessMonitor.Prototype,
-  title: "Process Monitor",
-  css_scope: "zaq-playground--process-monitor"
-}
+live "/process-monitor", Live.BO.ProcessMonitorLive
 ```
 
-Do **not** edit `router.ex`.
+Add sidebar entry in `lib/zaq_web/components/bo_layout.ex` when the feature needs discoverability — mark with a `# @prototype` comment.
+
+Set `current_path` assign to match the route (e.g. `"/bo/process-monitor"`) for active nav highlighting.
 
 ### 8. Design system audit (mandatory)
 
-Grep new playground files for violations:
+Grep touched files for violations:
 
 | Pattern | Verdict |
 |---------|---------|
 | Diffs under `storybook/**` | **Fail** |
-| Diffs under `lib/zaq_web/components/**` | **Fail** |
-| Diffs under `assets/css/` except `playground.css` | **Fail** |
+| `NodeRouter`, `Zaq.Repo`, `Ecto.`, or `alias Zaq.` (non-`ZaqWeb`) in LiveView/fixtures | **Fail** |
+| Diffs under `lib/zaq/**` | **Fail** |
+| Diffs under `config/**`, `mix.exs`, `priv/repo/migrations/**` | **Fail** |
 | `#[0-9a-fA-F]{3,8}` outside `var(--zaq-*)` | **Fail** |
 | `app.css` classes, daisyUI | **Fail** |
 | Forbidden Tailwind color/typography utilities | **Fail** |
-| Unscoped rules in `playground.css` (missing `.zaq-playground--{slug}`) | **Fail** |
 
 ### 9. Verify
 
 1. `mix format` on touched files
-2. Confirm diffs **only** in `lib/zaq_web/playground/**` and `assets/css/playground.css`
-3. Run **`/run`** → open `/playground/{slug}` (when host exists) and walk the happy path
+2. Confirm no backend or Storybook diffs
+3. Run **`/run`** → open `/bo/{slug}` and walk the happy path
 
 ---
 
@@ -193,39 +187,40 @@ Grep new playground files for violations:
 
 | Path | Purpose |
 |------|---------|
-| `lib/zaq_web/playground/**` | Registry, fixtures, LiveComponent, HTML stubs |
-| `assets/css/playground.css` | Prototype-only scoped CSS |
+| `lib/zaq_web/**` | LiveViews, components, router, fixtures, sidebar |
+| `assets/css/**` (not `app.css`) | Staging CSS per DESIGN.md |
 
 ## Forbidden writes
 
 | Path | Reason |
 |------|--------|
-| `storybook/**` | No impact on design system documentation |
-| `lib/zaq_web/components/**` | Existing components read-only |
-| `lib/zaq_web/live/**` | No production LiveViews |
-| `lib/zaq_web/router.ex` | No route changes from this skill |
-| `assets/css/**` except `playground.css` | No design system CSS changes |
+| `storybook/**` | Storybook owned by **`/design`** / **`/extract`** |
 | `lib/zaq/**` | No backend |
-| `config/**`, `mix.exs`, `priv/**` | No infrastructure |
-| `docs/**` | No documentation output |
+| `priv/repo/migrations/**`, `priv/repo/seeds*` | No DB structure changes |
+| `config/**`, `mix.exs` | No infrastructure |
+| `docs/**` | No documentation output unless asked |
+| `NodeRouter` / context wiring in LiveViews | Fake data only |
 
 ---
 
 ## Quality checklist
 
-- [ ] **`DESIGN.md` read** (reference only); import vs HTML-stub decided per block
-- [ ] **Zero diffs** under `storybook/` and `lib/zaq_web/components/`
-- [ ] All screens and states from UX plan reachable in LiveComponent
-- [ ] Static data only — no `Repo.`, `NodeRouter`, contexts
-- [ ] `# Component gap:` flags on HTML stubs where relevant
-- [ ] `playground.css` sections scoped with `.zaq-playground--{slug}`
-- [ ] Slug registered in `registry.ex`
+- [ ] **`DESIGN.md` read**; import vs extend vs new DSM decided per block
+- [ ] **Zero diffs** under `storybook/` and `lib/zaq/`
+- [ ] All screens and states from UX plan reachable at `/bo/{slug}`
+- [ ] Static data only — fixtures module, no `Repo.`, `NodeRouter`, contexts
+- [ ] LiveView and Fixtures `@moduledoc` note `@prototype true`
+- [ ] Route registered in `router.ex`; sidebar entry when needed
+- [ ] DSM gaps flagged for **`/design`** follow-up
 - [ ] Design system audit passes
 
 ---
 
 ## Handoff
 
-Human reviews simulation at `/playground/{slug}` → approves or revises UX plan → run **`/design`** to implement flagged gaps in `DesignSystem.*` and wire production UI.
+1. Human reviews staged UI at **`/bo/{slug}`** in the real BO shell
+2. Gaps needing **production data wiring** or **DS hardening** → **`/design`** (extract / migrate / replace)
+3. **`/design` is not blocked on prototype** — it runs independently for production-ready DSM work
+4. Prototype output is **staging** until backend integration is explicitly scoped later (outside this skill)
 
-**Do not** wire playground modules into the BO sidebar or production router.
+**Do not** wire real backend data in this skill — that is post-review work via **`/design`** or a separate backend task.

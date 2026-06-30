@@ -10,7 +10,7 @@ trigger: when building new BO interfaces, components, or design-system patterns
 
 ## Step 1: Read the contract
 
-0. If no interactive reference exists yet, confirm **`/ux-design`** and **`/prototype`** ran — review the simulation at `/playground/{slug}` before building production UI.
+0. If no interactive reference exists yet, confirm **`/ux-design`** and **`/prototype`** ran — review the staged feature at `/bo/{slug}` before building production UI. **`/prototype`** may extend DSM for staging; this skill owns production-ready patterns, Storybook, and real data wiring.
 
 1. Read **`DESIGN.md`** (tokens, CSS catalog, components, Do's/Don'ts).
 2. Check **Storybook** for an existing story matching the UI role (`http://localhost:4000/storybook`).
