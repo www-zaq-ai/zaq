@@ -59,25 +59,31 @@ defmodule ZaqWeb.Components.BOModal do
       id={@id}
       cancel_event={@cancel_event}
       max_width_class={@max_width_class}
-      panel_class="text-center"
+      panel_class="zaq-modal--centered"
     >
-      <div class="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-lg bg-red-100">
-        <.icon name="hero-trash" class="h-5 w-5 text-red-500" />
+      <div class="zaq-modal-confirm-icon-badge">
+        <.icon name="hero-trash" class="zaq-icon-md" />
       </div>
-      <h3 class="mb-2 font-mono text-base font-bold text-black">{@title}</h3>
-      <p class="mb-6 font-mono text-[0.75rem] text-black/40">{@message}</p>
-      <div class="flex items-center justify-center gap-3">
+      <div class="zaq-layout-stack-tight zaq-modal-confirm-copy">
+        <h3 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">{@title}</h3>
+        <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
+          {@message}
+        </p>
+      </div>
+      <div class="zaq-modal-confirm-actions">
         <button
+          type="button"
           phx-click={@cancel_event}
-          class="rounded-xl border border-black/10 px-5 py-2.5 font-mono text-[0.75rem] text-black/40 transition-all hover:border-black/20 hover:text-black"
+          class="zaq-btn zaq-btn-secondary zaq-btn-text_label-default"
         >
           {@cancel_label}
         </button>
         <button
+          type="button"
           id={@confirm_button_id}
           phx-click={@confirm_event}
           phx-value-id={@confirm_value_id}
-          class="rounded-xl bg-red-500 px-5 py-2.5 font-mono text-[0.75rem] font-bold text-white transition-all hover:bg-red-600"
+          class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-text_label-default"
         >
           {@confirm_label}
         </button>
