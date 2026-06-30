@@ -13,6 +13,31 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   The configured agent owns its system prompt and model. All run-specific/custom
   data belongs in `input` (the user message), never in a prompt override.
 
+  ## What this tool does (and does not do)
+
+  Like a channel, `run_agent` only builds a correct `%Incoming{}` carrying identity
+  as **data** and dispatches `:run_pipeline` — it does **not** decide how the agent
+  server is scoped or spawned. Scope derivation is owned by
+  `Zaq.Agent.Executor.derive_scope/2`; spawn/history mapping by
+  `Zaq.Agent.Factory`.
+
+  The run-specific data the incoming carries is `metadata.run_id` and, when running
+  as a workflow node, `metadata.step_index` (the workflow run id and the node's step
+  index). `derive_scope/2` turns those into `"workflow:run:<run_id>:step:<step_index>"`
+  (or `"workflow:run:<run_id>"` when no step index is present) so each `run_agent`
+  step gets its own Jido server instead of collapsing onto the shared `"anonymous"`
+  scope and contending (`:busy`). Different runs — and different run_agent steps
+  within a run — are isolated.
+
+  - **Workflow node** (context has `:run_id`) → incoming carries `metadata.run_id`.
+  - **Agent tool call** (context has the parent `:incoming`, e.g. Agent A's LLM
+    calls `run_agent` to run Agent B) → no run marker; the standard person/identity
+    scope applies. B is a different agent name, so it cannot collide with A.
+
+  Identity and permissions also flow from the context as data: the triggering
+  `:actor` is forwarded onto the event, and `skip_permissions` is taken from the
+  context (explicit opt-in) rather than assumed.
+
   ## Schema
 
   - `agent_id` — required. ID of the configured agent (same identifier channels use).
@@ -50,6 +75,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
+  alias Zaq.Identity.ActorNormalizer
   alias Zaq.NodeRouter
 
   @impl Jido.Action
@@ -61,36 +87,116 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     node_router = Map.get(context, :node_router, NodeRouter)
     vars = build_vars(params)
     resolved_input = substitute(input, vars)
-    run_id = Map.get(context, :run_id) || Map.get(context, "run_id")
 
-    # provider: nil keeps this a node-internal request — the agent node's
-    # `:run_pipeline` handler runs its pre-run verification (identity, prompt
-    # guard, scoping) and returns the %Outgoing{} directly instead of routing it
-    # to a delivery channel.
-    incoming = %Incoming{
-      content: resolved_input,
-      channel_id: "workflow:#{run_id || "anon"}",
-      author_id: "workflow",
-      provider: nil
-    }
-
-    incoming
-    |> build_event(agent_id)
+    resolved_input
+    |> build_incoming(context)
+    |> build_event(agent_id, context)
     |> node_router.dispatch()
     |> Map.get(:response)
     |> handle_response()
   end
 
-  defp build_event(incoming, agent_id) do
+  # provider: nil keeps this a node-internal request — the agent node's
+  # `:run_pipeline` handler runs its pre-run verification (identity, prompt
+  # guard, scoping) and returns the %Outgoing{} directly instead of routing it
+  # to a delivery channel.
+  #
+  # metadata.run_id (and metadata.step_index) carry the run/step identity as data
+  # only. The scope decision belongs to Executor.derive_scope/2, which maps them to
+  # "workflow:run:<run_id>:step:<step_index>" — one isolated agent server per step.
+  defp build_incoming(content, context) do
+    %Incoming{
+      content: content,
+      channel_id: channel_id(context),
+      author_id: author_id(context),
+      provider: nil,
+      metadata: incoming_metadata(context)
+    }
+  end
+
+  # Carry the run id (and step index, when present) as data when running as a
+  # workflow node; nothing extra for a tool call (the standard person/identity scope
+  # applies, and B != A by name). The step index lets `derive_scope/2` give each
+  # `run_agent` step its own server (`"workflow:run:<run_id>:step:<step_index>"`), so
+  # two run_agent steps in one run never contend on a shared server.
+  defp incoming_metadata(context) do
+    case run_id(context) do
+      nil -> %{}
+      run_id -> maybe_put_step_index(%{run_id: run_id}, context)
+    end
+  end
+
+  defp maybe_put_step_index(metadata, context) do
+    case step_index(context) do
+      nil -> metadata
+      step_index -> Map.put(metadata, :step_index, step_index)
+    end
+  end
+
+  defp step_index(context) do
+    case Map.get(context, :step_index) || Map.get(context, "step_index") do
+      index when is_integer(index) -> index
+      _ -> nil
+    end
+  end
+
+  # Author identity comes from the execution context's actor (the person who
+  # triggered the run / parent agent call), never a fabricated literal. nil when
+  # there is no person — the agent node also receives the actor on the event, so
+  # this only keeps the incoming consistent and avoids stamping a bogus id onto a
+  # real actor via ActorNormalizer.put_actor_defaults/2.
+  defp author_id(context) do
+    case ActorNormalizer.person_id(context_actor(context)) do
+      nil -> nil
+      person_id -> to_string(person_id)
+    end
+  end
+
+  defp build_event(incoming, agent_id, context) do
     incoming
     |> Event.new(:agent,
       opts: [
         action: :run_pipeline,
-        pipeline_opts: [skip_permissions: true]
+        pipeline_opts: [skip_permissions: skip_permissions?(context)]
       ]
     )
     |> Map.put(:assigns, %{"agent_selection" => %{"agent_id" => agent_id}})
+    |> maybe_put_actor(context_actor(context))
   end
+
+  defp channel_id(context) do
+    case run_id(context) do
+      nil -> parent_channel_id(context)
+      run_id -> "workflow:#{run_id}"
+    end
+  end
+
+  defp parent_channel_id(context) do
+    case parent_incoming(context) do
+      %Incoming{channel_id: cid} when is_binary(cid) -> cid
+      _ -> "workflow:anon"
+    end
+  end
+
+  defp run_id(context), do: Map.get(context, :run_id) || Map.get(context, "run_id")
+
+  defp parent_incoming(context) do
+    case Map.get(context, :incoming) || Map.get(context, "incoming") do
+      %Incoming{} = incoming -> incoming
+      _ -> nil
+    end
+  end
+
+  defp context_actor(context), do: Map.get(context, :actor) || Map.get(context, "actor")
+
+  # skip_permissions is an explicit opt-in flowing from the execution context
+  # (machine event runs set it; human-triggered runs do not). Never granted
+  # implicitly — a missing flag means the child runs with the caller's permissions.
+  defp skip_permissions?(context),
+    do: (Map.get(context, :skip_permissions) || Map.get(context, "skip_permissions")) == true
+
+  defp maybe_put_actor(event, nil), do: event
+  defp maybe_put_actor(event, actor), do: Map.put(event, :actor, actor)
 
   defp handle_response(%Outgoing{} = outgoing) do
     if error_metadata?(outgoing.metadata) do

@@ -115,6 +115,13 @@ defmodule Zaq.Agent.Factory do
       [_agent, provider, "person", id] when provider != "" and id != "" ->
         %{conversation_id: nil, person_id: id, channel_type: provider}
 
+      # Per-run scope `workflow:run:<id>` (derived by Executor.derive_scope/2 from
+      # the incoming's run_id) has no prior conversation/person to load — a
+      # workflow-run agent starts fresh. Matched explicitly so this is
+      # intentional, not a fall-through.
+      ["" <> _agent, "workflow", "run", _id] ->
+        %{}
+
       _ ->
         %{}
     end

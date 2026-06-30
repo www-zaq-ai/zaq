@@ -54,10 +54,17 @@ defmodule Zaq.Agent.Executor do
   `person.id`, `session_id`, or `"anonymous"`.
 
   Priority order:
-  1. `:web` provider + `metadata.conversation_id` — `"bo:conv:<id>"` (BO per-conversation isolation)
-  2. `actor.person.id` — `"<channel>:person:<person_id>"` when present
-  3. `metadata.session_id` — `"bo:session:<session_id>"` when actor person is nil and session ID is a non-empty string
-  4. `"anonymous"` — fallback for all other cases
+  1. `metadata.run_id` + `metadata.step_index` — `"workflow:run:<run_id>:step:<step_index>"`
+     (per-step isolation: each `run_agent` step in a run gets its own agent server, so two
+     `run_agent` steps in the same run never contend on one shared server).
+  2. `metadata.run_id` (no step index) — `"workflow:run:<run_id>"` (per-run isolation for
+     node-internal callers such as `RunAgent`; overrides identity-derived scopes so each
+     workflow run gets its own agent server). The caller only carries the run id (and
+     step index) as data — this function owns the scope policy.
+  3. `:web` provider + `metadata.conversation_id` — `"bo:conv:<id>"` (BO per-conversation isolation)
+  4. `actor.person.id` — `"<channel>:person:<person_id>"` when present
+  5. `metadata.session_id` — `"bo:session:<session_id>"` when actor person is nil and session ID is a non-empty string
+  6. `"anonymous"` — fallback for all other cases
 
   ## Examples
 
@@ -81,12 +88,30 @@ defmodule Zaq.Agent.Executor do
       iex> Zaq.Agent.Executor.derive_scope(%{base | person: nil, metadata: %{}})
       "anonymous"
 
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | person: %{id: 9}, metadata: %{run_id: "r1"}})
+      "workflow:run:r1"
+
+      iex> alias Zaq.Engine.Messages.Incoming
+      iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
+      iex> Zaq.Agent.Executor.derive_scope(%{base | metadata: %{run_id: "r1", step_index: 2}})
+      "workflow:run:r1:step:2"
+
   """
   @spec derive_scope(Incoming.t()) :: String.t()
   def derive_scope(%Incoming{} = incoming),
     do: derive_scope(incoming, ActorNormalizer.from_incoming(nil, incoming))
 
   @spec derive_scope(Incoming.t(), map() | nil) :: String.t()
+  def derive_scope(%Incoming{metadata: %{run_id: run_id, step_index: step_index}}, _actor)
+      when is_binary(run_id) and run_id != "" and is_integer(step_index),
+      do: "workflow:run:#{run_id}:step:#{step_index}"
+
+  def derive_scope(%Incoming{metadata: %{run_id: run_id}}, _actor)
+      when is_binary(run_id) and run_id != "",
+      do: "workflow:run:#{run_id}"
+
   def derive_scope(%Incoming{provider: :web, metadata: %{conversation_id: id}}, _actor)
       when is_binary(id) and id != "",
       do: "bo:conv:#{id}"
@@ -152,7 +177,9 @@ defmodule Zaq.Agent.Executor do
            {:ok, server_id} <-
              ensure_agent_server(server_manager_module, configured_agent, opts),
            _ <-
-             Event.new(%{provider: incoming.provider, channel_id: incoming.channel_id}, :channels,
+             Event.new(
+               %{provider: incoming.provider, channel_id: incoming.channel_id},
+               :channels,
                opts: [action: :send_typing],
                type: :async
              )
@@ -198,20 +225,7 @@ defmodule Zaq.Agent.Executor do
         Outgoing.from_pipeline_result(incoming, result)
       else
         {:error, %ReqLLM.Error.API.Stream{} = reason, partial} ->
-          if suppress_stream_error?(incoming, partial) do
-            # Stream error after tokens were already delivered — the answer is visible.
-            # Suppress the error bubble so we don't overlay a complete streamed response.
-            Logger.warning(
-              "Stream ended with error after content was delivered (suppressing error bubble): #{inspect(reason)}"
-            )
-
-            record_execution_error(dims, reason)
-            Outgoing.from_pipeline_result(incoming, suppressed_stream_error_result(reason))
-          else
-            # Stream failed before any content reached the user (e.g. budget/rate
-            # limit on the first token). Surface the error instead of an empty bubble.
-            surface_execution_error(incoming, reason, dims, selected_agent_result)
-          end
+          handle_stream_error(incoming, reason, partial, dims, selected_agent_result)
 
         {:error, reason, _partial} ->
           surface_execution_error(incoming, reason, dims, selected_agent_result)
@@ -221,6 +235,23 @@ defmodule Zaq.Agent.Executor do
       end
 
     result
+  end
+
+  # A streaming error after tokens were already delivered means the answer is
+  # visible; suppress the error bubble so we don't overlay a complete response.
+  # Otherwise (failed before any content — e.g. budget/rate limit on the first
+  # token) surface the error instead of an empty bubble.
+  defp handle_stream_error(incoming, reason, partial, dims, selected_agent_result) do
+    if suppress_stream_error?(incoming, partial) do
+      Logger.warning(
+        "Stream ended with error after content was delivered (suppressing error bubble): #{inspect(reason)}"
+      )
+
+      record_execution_error(dims, reason)
+      Outgoing.from_pipeline_result(incoming, suppressed_stream_error_result(reason))
+    else
+      surface_execution_error(incoming, reason, dims, selected_agent_result)
+    end
   end
 
   # Suppress only when a streaming surface exists AND answer content was actually
