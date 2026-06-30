@@ -612,10 +612,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   Renders a step card for a Batch node.
 
   Shows:
-  - Live chunk progress bar (when running) via `batch_progress`
+  - Live batch progress bar (when running) via `batch_progress`
   - Live iterate-inside-batch item progress (when running) via `iterate_progress`
   - Inner process pipeline step names as connected chips
-  - Per-chunk result summary (collapsible, when completed)
+  - Per-batch result summary (collapsible, when completed)
   - Full output JSON (collapsible)
 
   `node_params` should be the node's `params` map from `steps_snapshot` —
@@ -661,12 +661,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         </div>
       </div>
 
-      <%!-- Chunk progress bar (always visible while running or after completion) --%>
-      <% progress = batch_display_progress(@step, @batch_progress) %>
+      <%!-- Batch progress bar (always visible while running or after completion) --%>
+      <% progress = batch_display_progress(@step, @batch_progress, @fork_groups) %>
       <div :if={progress != nil} class="px-5 py-4 border-b border-purple-100">
         <div class="flex items-center justify-between mb-2">
           <span class="font-mono text-[0.68rem] font-semibold text-purple-600 uppercase tracking-wider">
-            Chunks
+            Batches
           </span>
           <span class="font-mono text-[0.75rem] text-black/60 flex items-center gap-2">
             <%= if progress.total > 0 do %>
@@ -674,7 +674,13 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               <span :if={progress.ok > 0} class="text-emerald-600">✓ {progress.ok}</span>
               <span :if={progress.errors > 0} class="text-red-500">✗ {progress.errors}</span>
             <% else %>
-              <span class="text-black/40 italic">initializing…</span>
+              <%= if progress.ok > 0 or progress.errors > 0 do %>
+                <span class="text-black/50">{progress.current} done</span>
+                <span :if={progress.ok > 0} class="text-emerald-600">✓ {progress.ok}</span>
+                <span :if={progress.errors > 0} class="text-red-500">✗ {progress.errors}</span>
+              <% else %>
+                <span class="text-black/40 italic">initializing…</span>
+              <% end %>
             <% end %>
           </span>
         </div>
@@ -890,7 +896,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         <pre class="font-mono text-[0.75rem] text-red-700 whitespace-pre-wrap break-all">{inspect(@step.errors, pretty: true)}</pre>
       </div>
 
-      <%!-- Per-fork runs: each fan-out unit's StepRuns, grouped by index, with logs --%>
+      <%!-- Per-batch runs: each batch's StepRuns, grouped by index, with logs --%>
       <.fork_run_list :if={@fork_groups != []} step={@step} groups={@fork_groups} now={@now} />
     </div>
     """
@@ -984,7 +990,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         </span>
       </div>
 
-      <%!-- Per-fork runs: every item's StepRuns, grouped by index, with status + logs --%>
+      <%!-- Per-batch runs: every batch's StepRuns, grouped by index, with status + logs --%>
       <.fork_run_list :if={@fork_groups != []} step={@step} groups={@fork_groups} now={@now} />
     </div>
     """
@@ -1022,7 +1028,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         class="w-full px-5 py-3 cursor-pointer flex items-center gap-2 select-none hover:bg-black/[0.01] transition-colors"
       >
         <span class="font-mono text-[0.65rem] font-semibold text-black/40 uppercase tracking-wider">
-          Per-fork runs ({length(@groups)})
+          Per-batch runs ({length(@groups)})
         </span>
         <svg
           id={"forks-chev-#{@step.id}"}
@@ -1065,7 +1071,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     """
   end
 
-  defp fork_group_label(idx) when is_integer(idx) and idx >= 0, do: "Fork ##{idx}"
+  defp fork_group_label(idx) when is_integer(idx) and idx >= 0, do: "Batch ##{idx}"
   defp fork_group_label(_), do: "Other"
 
   # Per-fork StepRun rows for a fan-out node, grouped by fan-out index (`[i]`).
@@ -1109,8 +1115,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
       "list" ->
         case Map.get(params, "batch_size") || Map.get(params, :batch_size) do
-          n when is_integer(n) -> "per chunk · size #{n}"
-          _ -> "per chunk"
+          n when is_integer(n) -> "per batch · size #{n}"
+          _ -> "per batch"
         end
 
       _ ->
@@ -1238,9 +1244,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   # ── Batch / Iterate component helpers ────────────────────────────
 
   # Returns a normalised progress map for rendering, or nil if no progress.
-  # `live_progress` is the live broadcast map; `step` is the step_run.
-  # When running, we use live_progress; when done, we derive from step.results.
-  defp batch_display_progress(step, live_progress) do
+  # `live_progress` is the live broadcast map; `step` is the step_run; `fork_groups`
+  # are the per-batch fork rows. When running, we prefer live_progress, else derive
+  # the completed/failed counts live from the fork rows (the total is unknown until
+  # the run finishes, so `total: 0` keeps the bar indeterminate). When done, we
+  # derive everything from step.results.
+  defp batch_display_progress(step, live_progress, fork_groups) do
     cond do
       step.status == "running" and live_progress != nil ->
         %{
@@ -1251,7 +1260,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         }
 
       step.status == "running" ->
-        %{current: 0, total: 0, ok: 0, errors: 0}
+        {ok, errors} = fork_terminal_counts(fork_groups)
+        %{current: ok + errors, total: 0, ok: ok, errors: errors}
 
       step.status in ["completed", "failed"] ->
         progress_from_results(step.results)
@@ -1259,6 +1269,19 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
       true ->
         nil
     end
+  end
+
+  # Counts batches (forks) that have reached a terminal state, by inspecting each
+  # fork group's last (chronologically) row. A still-running batch's last row is
+  # `"running"` and is not counted, so the tally reflects completed iterations.
+  defp fork_terminal_counts(fork_groups) do
+    Enum.reduce(fork_groups, {0, 0}, fn {_idx, rows}, {ok, err} ->
+      case List.last(rows) do
+        %{status: "completed"} -> {ok + 1, err}
+        %{status: s} when s in ["failed", "failed_fatal"] -> {ok, err + 1}
+        _ -> {ok, err}
+      end
+    end)
   end
 
   # Derives a progress summary from a completed step's results map.

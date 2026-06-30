@@ -92,9 +92,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     step_runs = Enum.sort_by(step_runs, & &1.step_index)
 
     # Auto-focus the currently running step; manual selection is preserved otherwise.
+    # A running fork sub-step focuses its parent node so the iteration shows inside
+    # that node's batch card instead of as a standalone per-fork card.
     socket =
       if step_run.status == "running" do
-        assign(socket, selected_step: step_run.step_name)
+        assign(socket, selected_step: parent_node_name(step_run.step_name))
       else
         socket
       end
@@ -235,13 +237,31 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
   # ── Private helpers ─────────────────────────────────────────────
 
-  # Returns the step_name of the currently running step, or nil.
+  # Returns the node name of the currently running step, or nil. A running map/Batch
+  # fork sub-step (`<node>/<step>[i]`) resolves to its parent node so the iteration
+  # stays inside that node's batch card rather than popping out a per-fork card.
   # Used on mount to pre-select the active step when loading a live run.
   defp active_step(step_runs) do
     Enum.find_value(step_runs, fn sr ->
-      if sr.status == "running", do: sr.step_name
+      if sr.status == "running", do: parent_node_name(sr.step_name)
     end)
   end
+
+  # A map/Batch fork sub-step StepRun is named `<node>/<step>[i]`. Returns the
+  # parent node name for such a name, or the name unchanged otherwise.
+  defp parent_node_name(step_name) when is_binary(step_name) do
+    case Regex.run(~r{^(.+?)/.+\[\d+\]$}, step_name) do
+      [_, node] -> node
+      _ -> step_name
+    end
+  end
+
+  defp parent_node_name(other), do: other
+
+  defp fork_sub_step?(step_name) when is_binary(step_name),
+    do: String.contains?(step_name, "/") and Regex.match?(~r/\[\d+\]$/, step_name)
+
+  defp fork_sub_step?(_), do: false
 
   defp subscribe_and_start(run_id, run) do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "workflow_run:#{run_id}")
@@ -251,8 +271,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
       do: :timer.send_interval(1_000, self(), :tick)
   end
 
-  # Builds a map of step_name → %{is_batch, is_map, params} from the run's
-  # steps_snapshot.  Used to route each step to the correct card component.
+  # Builds a map of step_name → %{is_batch, is_map, index, params} from the run's
+  # steps_snapshot.  Used to route each step to the correct card component (and to
+  # synthesize a live batch step while it is still fanning out).
   defp build_node_info(run) do
     (run.steps_snapshot || %{})
     |> Map.get("nodes", [])
@@ -263,6 +284,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
        %{
          is_batch: batch_module?(mod),
          is_map: n["type"] == "map",
+         index: n["index"] || 0,
          params: n["params"] || %{}
        }}
     end)
@@ -465,10 +487,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
         <%!-- DAG + optional step detail panel --%>
         <% all_visible = visible_steps(@step_runs) %>
-        <% visible =
-          if @selected_step,
-            do: Enum.filter(all_visible, &(&1.step_name == @selected_step)),
-            else: [] %>
+        <% visible = selected_step_cards(@selected_step, all_visible, @node_info, @step_runs) %>
         <div class={[
           "flex gap-6 items-start transition-all duration-300",
           if(@selected_step, do: "", else: "")
@@ -696,8 +715,62 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
   defp visible_steps(step_runs) do
     Enum.reject(step_runs, fn sr ->
-      String.contains?(sr.step_name, "__to__") and String.ends_with?(sr.step_name, "__edge")
+      edge_step?(sr.step_name) or fork_sub_step?(sr.step_name)
     end)
+  end
+
+  defp edge_step?(step_name),
+    do: String.contains?(step_name, "__to__") and String.ends_with?(step_name, "__edge")
+
+  # The StepRun(s) to render for the selected node. Normally the node's own row(s);
+  # but while a map/Batch node is still fanning out, its aggregate row does not exist
+  # yet (it is written last, by MapCollect), so synthesize a "running" batch step from
+  # the live fork sub-step rows — keeping the iteration inside the batch card.
+  defp selected_step_cards(nil, _all_visible, _node_info, _step_runs), do: []
+  defp selected_step_cards("start", _all_visible, _node_info, _step_runs), do: []
+
+  defp selected_step_cards(selected, all_visible, node_info, step_runs) do
+    case Enum.filter(all_visible, &(&1.step_name == selected)) do
+      [] -> List.wrap(synthetic_batch_step(selected, node_info, step_runs))
+      found -> found
+    end
+  end
+
+  # A live placeholder for a map/Batch node whose aggregate row hasn't been written
+  # yet but whose forks are already running. `nil` for any other node.
+  defp synthetic_batch_step(node_name, node_info, step_runs) do
+    info = Map.get(node_info, node_name, %{})
+
+    forks =
+      Enum.filter(
+        step_runs,
+        &(fork_sub_step?(&1.step_name) and parent_node_name(&1.step_name) == node_name)
+      )
+
+    if (Map.get(info, :is_batch) or Map.get(info, :is_map)) and forks != [] do
+      %{
+        id: "live-#{node_name}",
+        step_name: node_name,
+        step_index: Map.get(info, :index, 0),
+        status: "running",
+        logs: [],
+        input: nil,
+        results: nil,
+        errors: nil,
+        started_at: earliest_started_at(forks),
+        finished_at: nil
+      }
+    end
+  end
+
+  defp earliest_started_at(forks) do
+    forks
+    |> Enum.map(& &1.started_at)
+    |> Enum.filter(&match?(%DateTime{}, &1))
+    |> case do
+      [] -> nil
+      dts -> Enum.min(dts, DateTime)
+    end
   end
 
   defp review_steps(step_runs, waiting_step_name) do
@@ -718,5 +791,5 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   defp short_id(id), do: String.slice(id, 0, 8)
 
   defp format_dt(nil), do: "—"
-  defp format_dt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+  defp format_dt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
 end

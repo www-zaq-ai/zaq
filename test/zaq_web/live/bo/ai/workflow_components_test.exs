@@ -625,12 +625,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
         )
 
       assert html =~ "2 / 5"
-      assert html =~ "Chunks"
+      assert html =~ "Batches"
     end
 
     test "batch_step_card renders the completed aggregate ok/failed counts" do
       # New map-summary shape: results["results"] is the list of per-fork summaries,
-      # results["errors"] the failed forks. The top "Chunks" bar derives ok/✗ from them.
+      # results["errors"] the failed forks. The top "Batches" bar derives ok/✗ from them.
       step = %{
         id: "sr-b2",
         step_name: "batch_done",
@@ -659,7 +659,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
           node_params: %{}
         )
 
-      assert html =~ "Chunks"
+      assert html =~ "Batches"
       assert html =~ "✓ 2"
       assert html =~ "✗ 1"
     end
@@ -766,9 +766,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
         )
 
       # Two index groups → count is the number of fan-out units, not rows.
-      assert html =~ "Per-fork runs (2)"
-      assert html =~ "Fork #0"
-      assert html =~ "Fork #1"
+      assert html =~ "Per-batch runs (2)"
+      assert html =~ "Batch #0"
+      assert html =~ "Batch #1"
       assert html =~ "batch_fork/dispatch[0]"
       assert html =~ "batch_fork/check[1]"
       assert html =~ "step_ok"
@@ -909,10 +909,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
         )
 
       refute unknown_html =~ "per item"
-      refute unknown_html =~ "per chunk"
+      refute unknown_html =~ "per batch"
       assert nil_html =~ "BATCH"
       refute nil_html =~ "per item"
-      refute nil_html =~ "per chunk"
+      refute nil_html =~ "per batch"
     end
 
     test "covers progress fallbacks" do
@@ -972,9 +972,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
         )
 
       assert running_html =~ "initializing"
-      refute paused_html =~ "Chunks"
-      refute completed_nil_html =~ "Chunks"
-      refute completed_empty_html =~ "Chunks"
+      refute paused_html =~ "Batches"
+      refute completed_nil_html =~ "Batches"
+      refute completed_empty_html =~ "Batches"
     end
 
     test "handles atom process key safely" do

@@ -684,7 +684,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
   defp format_dt(nil), do: "—"
 
   defp format_dt(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   end
 
   # Returns the Unix timestamp (seconds) when the cron schedule next fires.
