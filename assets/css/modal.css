@@ -30,6 +30,34 @@
   padding: 0;
 }
 
+/* Destructive confirm dialog — centered copy + icon badge (BOModal.confirm_dialog) */
+.zaq-modal--centered {
+  text-align: center;
+}
+
+.zaq-modal-confirm-icon-badge {
+  display: grid;
+  place-items: center;
+  width: var(--zaq-scale-40);
+  height: var(--zaq-scale-40);
+  margin-inline: auto;
+  margin-bottom: var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-8);
+  background-color: var(--zaq-surface-color-danger);
+  color: var(--zaq-text-color-body-danger);
+}
+
+.zaq-modal-confirm-copy {
+  margin-bottom: var(--zaq-scale-24);
+}
+
+.zaq-modal-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--zaq-scale-16);
+}
+
 /* Storybook — contain `fixed` modals inside bounded preview frames */
 .zaq-modal-preview {
   position: relative;
