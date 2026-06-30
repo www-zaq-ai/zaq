@@ -39,6 +39,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.divide",
              "arithmetic.square",
              "workflow.condition",
+             "workflow.run_agent",
              "advanced.lua_eval"
            ]
   end
@@ -83,6 +84,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     assert function_exported?(descriptor.module, :run, 2)
   end
 
+  test "workflow.run_agent resolves to the RunAgent tool so agents can run other agents" do
+    assert Registry.valid_tool_key?("workflow.run_agent")
+
+    assert {:ok, [Zaq.Agent.Tools.Workflow.RunAgent]} =
+             Registry.resolve_modules(["workflow.run_agent"])
+  end
+
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
              "accounts.fetch_history",
@@ -117,6 +125,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.divide",
              "arithmetic.square",
              "workflow.condition",
+             "workflow.run_agent",
              "advanced.lua_eval"
            ]
   end

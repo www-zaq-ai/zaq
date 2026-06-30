@@ -258,6 +258,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Workflow.Condition
     },
     %{
+      key: "workflow.run_agent",
+      label: "Run agent",
+      description:
+        "Run another configured agent by id with template-variable substitution and return its answer",
+      module: Zaq.Agent.Tools.Workflow.RunAgent
+    },
+    %{
       key: "advanced.lua_eval",
       label: "Lua eval",
       description: "Evaluate Lua code in a sandbox",
