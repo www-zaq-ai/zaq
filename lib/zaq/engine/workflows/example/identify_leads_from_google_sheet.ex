@@ -106,6 +106,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
           params: %{
             "delivery" => "item",
             "strategy" => "skip_and_continue",
+            "batch_size" => 1,
             "process" => [
               %{
                 "name" => "check_active",
