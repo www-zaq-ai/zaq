@@ -148,4 +148,4 @@
 
 ### Next step
 
-**`/prototype`** → human review at `/playground/{slug}` → **`/design`**
+**`/prototype`** → human review at `/bo/{slug}` → **`/design`**

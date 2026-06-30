@@ -23,7 +23,7 @@ You are a **UX designer**, not a UI designer or developer.
 | Map screens to existing BO components | Invent new components without flagging gaps |
 | Surface UX risks and open questions from the PRD | Resolve backend/data architecture |
 
-**Downstream handoff:** **`/prototype`** builds an interactive Storybook playground from this plan (static data, isolated paths). After human review, UI designer uses **`/design`** (reads `DESIGN.md`, Storybook, `docs/bo-components.md`).
+**Downstream handoff:** **`/prototype`** stages the feature on real BO routes with static fixtures (may extend DSM when needed). After human review at `/bo/{slug}`, **`/design`** hardens DS patterns, adds Storybook, and wires production UI (reads `DESIGN.md`, Storybook, `docs/bo-components.md`).
 
 ---
 
@@ -190,7 +190,7 @@ Close with a **UI Designer Brief** section:
 - [backend-dependent items, v2 features]
 
 ### Next step
-Run **`/prototype`** on this UX plan → human reviews at `/playground/{slug}` → then **`/design`** on approval.
+Run **`/prototype`** on this UX plan → human reviews at `/bo/{slug}` → then **`/design`** on approval.
 ```
 
 ### 8. Invoke prototype
@@ -202,18 +202,20 @@ Pass:
 - Path to the UX plan: `docs/ux/{feature-slug}.md`
 - Feature slug (same kebab-case name)
 
-The prototype skill implements simulations in:
+The prototype skill stages features in:
 
-- `lib/zaq_web/playground/{feature-slug}/` — fixtures, LiveComponent, HTML stubs
-- `assets/css/playground.css` — scoped prototype-only CSS (not imported in `app.css`)
-- `lib/zaq_web/playground/registry.ex` — slug registration for the Playground host
+- `lib/zaq_web/fixtures/{feature-slug}.ex` — static demo data and scenarios
+- `lib/zaq_web/live/bo/{feature-slug}_live.ex` (+ `.html.heex`) — BO LiveView with fixtures only
+- `lib/zaq_web/components/design_system/` — new or extended DSM modules when needed
+- `lib/zaq_web/router.ex` + `components/bo_layout.ex` — route and sidebar entry
 
 **Constraints (enforced by `/prototype`, not by this skill):**
 
-- Reads **`DESIGN.md`** read-only — tokens/classes for markup; never edits Storybook or DS files
-- **Never edits** existing components — import read-only when exact fit; otherwise HTML stubs
-- No Storybook, no production routes, no backend
-- `# Component gap:` flags in stub `@moduledoc` for **`/design`** follow-up
+- Reads **`DESIGN.md`** and Storybook as DS reference; may extend DSM and existing components when needed
+- **No Storybook stories** — documentation is **`/design`** / **`/extract`**
+- **No backend** — fixtures only, no `NodeRouter`, `Repo`, or `lib/zaq/` changes
+- Real BO routes at `/bo/{slug}` — not isolated playground paths
+- Flags DSM gaps for **`/design`** hardening when staging shortcuts need production polish
 
 ---
 
