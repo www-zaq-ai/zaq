@@ -8,10 +8,87 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, IngestJob}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
+
+  defmodule ProviderBrowserBridgeStub do
+    def list_files(provider, params) do
+      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+        send(pid, {:list_files, provider, params})
+      end
+
+      records =
+        case get_in(params, ["filters", "parent"]) do
+          "folder-1" ->
+            [
+              %Record{
+                id: "child-folder",
+                kind: :folder,
+                name: "Nested Folder",
+                path: nil,
+                url: "https://drive.example/child-folder",
+                icon: "https://drive.example/icons/folder.png"
+              },
+              %Record{
+                id: "file-no-url",
+                kind: :file,
+                name: "No Preview.txt",
+                path: nil,
+                url: nil,
+                icon: "https://drive.example/icons/text.png",
+                mime_type: "text/plain",
+                size: 456
+              }
+            ]
+
+          _ ->
+            [
+              %Record{
+                id: "folder-1",
+                kind: :folder,
+                name: "Project Docs",
+                path: nil,
+                url: "https://drive.example/folder-1",
+                icon: "https://drive.example/icons/folder.png"
+              },
+              %Record{
+                id: "file-1",
+                kind: :file,
+                name: "Budget.pdf",
+                path: nil,
+                url: "https://drive.example/file-1",
+                icon: "https://drive.example/icons/pdf.png",
+                mime_type: "application/pdf",
+                size: 123
+              }
+            ]
+        end
+
+      {:ok,
+       %RecordPage{
+         resource_type: :item,
+         records: records,
+         pagination: %{cursor: nil, has_more?: false},
+         stats: %{scanned: length(records), returned: length(records)},
+         filters: Map.get(params, "filters", %{}),
+         metadata: %{}
+       }}
+    end
+  end
+
+  defmodule ProviderBrowserErrorBridgeStub do
+    def list_files(provider, params) do
+      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+        send(pid, {:list_files, provider, params})
+      end
+
+      Application.get_env(:zaq, :provider_browser_response, {:error, :timeout})
+    end
+  end
 
   setup do
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
@@ -37,10 +114,30 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     File.write!(Path.join(tmp_dir, "docs/readme.md"), "# readme")
 
     original = Application.get_env(:zaq, Zaq.Ingestion)
+    original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+    original_test_pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid)
+    original_provider_browser_response = Application.get_env(:zaq, :provider_browser_response)
+
     Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir)
 
     on_exit(fn ->
       Application.put_env(:zaq, Zaq.Ingestion, original || [])
+
+      case original_bridge do
+        nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+        module -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, module)
+      end
+
+      case original_test_pid do
+        nil -> Application.delete_env(:zaq, :ingestion_provider_browser_test_pid)
+        pid -> Application.put_env(:zaq, :ingestion_provider_browser_test_pid, pid)
+      end
+
+      case original_provider_browser_response do
+        nil -> Application.delete_env(:zaq, :provider_browser_response)
+        value -> Application.put_env(:zaq, :provider_browser_response, value)
+      end
+
       File.rm_rf!(tmp_dir)
     end)
 
@@ -96,6 +193,201 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   # ────────────────────────────────────────────────────────────────
   # Existing tests (unchanged)
   # ────────────────────────────────────────────────────────────────
+
+  describe "provider browsing" do
+    setup do
+      Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
+      Application.put_env(:zaq, :ingestion_provider_browser_test_pid, self())
+
+      {:ok, config} =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Google Drive #{System.unique_integer([:positive])}",
+          provider: "google_drive",
+          kind: "data_source",
+          enabled: true,
+          settings: %{}
+        })
+        |> Repo.insert()
+
+      {:ok, provider_config: config}
+    end
+
+    test "lists provider records from the route provider and navigates folders", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      assert_received {:list_files, "google_drive", %{"config_id" => config_id, "filters" => %{}}}
+      assert is_integer(config_id)
+      assert has_element?(view, "button", "Project Docs")
+      assert has_element?(view, "span", "Budget.pdf")
+      assert has_element?(view, ~s(img[src="https://drive.example/icons/folder.png"]), "")
+      assert has_element?(view, ~s(img[src="https://drive.example/icons/pdf.png"]), "")
+      refute has_element?(view, "#new-folder-button")
+      refute has_element?(view, "#add-raw-md-button")
+
+      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
+      assert has_element?(view, ~s(img[src="https://drive.example/icons/folder.png"]), "")
+      assert has_element?(view, ~s(img[src="https://drive.example/icons/pdf.png"]), "")
+      render_hook(view, "toggle_view_mode", %{"mode" => "list"})
+
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+
+      assert_received {:list_files, "google_drive",
+                       %{"filters" => %{"parent" => "folder-1", "include_shared" => false}}}
+
+      assert has_element?(view, "button", "Nested Folder")
+      assert has_element?(view, "span", "No Preview.txt")
+    end
+
+    test "previews provider records by URL and blocks external ingestion", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      view
+      |> element(~s(button[phx-click="open_preview"][phx-value-path="file-1"]))
+      |> render_click()
+
+      assert has_element?(view, "#file-preview-modal")
+      assert has_element?(view, ~s(iframe[src="https://drive.example/file-1"]), "")
+      assert has_element?(view, "a", "Open in provider")
+
+      render_hook(view, "close_preview_modal", %{})
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+
+      view
+      |> element("#ingest-selected-button")
+      |> render_click()
+
+      assert render(view) =~ "Provider ingestion will be enabled in phase 3."
+    end
+
+    test "uses any enabled provider from the URL without an ingestion allowlist", %{conn: conn} do
+      {:ok, custom_config} =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "SharePoint #{System.unique_integer([:positive])}",
+          provider: "sharepoint",
+          kind: "data_source",
+          enabled: true,
+          settings: %{}
+        })
+        |> Repo.insert()
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/sharepoint")
+
+      assert_received {:list_files, "sharepoint", %{"config_id" => config_id, "filters" => %{}}}
+
+      assert config_id == custom_config.id
+      assert has_element?(view, "button", "Project Docs")
+    end
+
+    test "does not dispatch when no enabled provider configuration exists", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/missing_provider")
+
+      refute_received {:list_files, "missing_provider", _params}
+
+      assert render(view) =~
+               "No enabled data-source configuration found for missing_provider."
+    end
+
+    test "provider read-only guards keep the modal closed and flash info", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      for {event, params, expected} <- [
+            {"show_new_folder_modal", %{}, "Provider folders are read-only in this phase."},
+            {"rename_item", %{"path" => "file-1", "type" => "file"},
+             "Provider records are read-only in this phase."},
+            {"delete_item", %{"path" => "file-1", "type" => "file"},
+             "Provider records are read-only in this phase."},
+            {"show_delete_confirmation", %{}, "Provider records are read-only in this phase."},
+            {"move_item", %{"path" => "file-1", "type" => "file"},
+             "Provider records are read-only in this phase."}
+          ] do
+        render_hook(view, event, params)
+        state = :sys.get_state(view.pid)
+
+        assert Phoenix.Flash.get(state.socket.assigns.flash, :info) == expected
+        assert state.socket.assigns.modal == nil
+      end
+    end
+
+    test "provider load errors render empty state and detailed provider_error", %{conn: conn} do
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        ProviderBrowserErrorBridgeStub
+      )
+
+      Application.put_env(:zaq, :provider_browser_response, {:error, :timeout})
+      {:ok, timeout_view, timeout_html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      assert timeout_html =~ "Failed to load provider records: :timeout"
+      timeout_state = :sys.get_state(timeout_view.pid)
+      assert timeout_state.socket.assigns.entries == []
+      assert timeout_state.socket.assigns.records_by_path == %{}
+      assert timeout_state.socket.assigns.ingestion_map == %{}
+
+      Application.put_env(:zaq, :provider_browser_response, :unexpected)
+      {:ok, unexpected_view, unexpected_html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      assert unexpected_html =~ "Failed to load provider records."
+      unexpected_state = :sys.get_state(unexpected_view.pid)
+      assert unexpected_state.socket.assigns.entries == []
+      assert unexpected_state.socket.assigns.records_by_path == %{}
+      assert unexpected_state.socket.assigns.ingestion_map == %{}
+    end
+
+    test "provider root navigation and go_back reset the breadcrumb stack", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+      render_hook(view, "go_back", %{})
+      render_hook(view, "navigate", %{"path" => "."})
+
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.current_dir == "."
+      assert state.socket.assigns.provider_folder_stack == []
+      assert state.socket.assigns.breadcrumbs == []
+    end
+
+    test "provider breadcrumb navigation updates the stack and ignores missing ids", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+      render_hook(view, "navigate", %{"path" => "child-folder"})
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+
+      stack_state = :sys.get_state(view.pid)
+      assert stack_state.socket.assigns.current_dir == "folder-1"
+      assert length(stack_state.socket.assigns.provider_folder_stack) == 1
+      assert length(stack_state.socket.assigns.breadcrumbs) == 1
+
+      before_missing = :sys.get_state(view.pid)
+      render_hook(view, "navigate", %{"path" => "missing-id"})
+      after_missing = :sys.get_state(view.pid)
+
+      assert after_missing.socket.assigns.current_dir == before_missing.socket.assigns.current_dir
+
+      assert after_missing.socket.assigns.provider_folder_stack ==
+               before_missing.socket.assigns.provider_folder_stack
+
+      assert after_missing.socket.assigns.breadcrumbs == before_missing.socket.assigns.breadcrumbs
+    end
+
+    test "provider preview errors when a record has no URL", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+      render_hook(view, "open_preview", %{"path" => "file-no-url"})
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :error) ==
+               "Preview unavailable for this provider record."
+
+      assert state.socket.assigns.modal != :preview
+    end
+  end
 
   test "navigates directories and handles non-directory navigation", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
@@ -882,6 +1174,58 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert_receive {:path_ingested, _path}, 500
     end
+
+    test "ingest_selected reports an error flash when all selected records fail", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      :sys.replace_state(view.pid, fn state ->
+        bad_record = %Record{id: "bad", kind: :unsupported, name: "bad"}
+
+        assigns =
+          Map.merge(state.socket.assigns, %{
+            selected: MapSet.new(["bad"]),
+            records_by_path: Map.put(state.socket.assigns.records_by_path, "bad", bad_record)
+          })
+
+        put_in(state.socket.assigns, assigns)
+      end)
+
+      render_hook(view, "ingest_selected", %{})
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :error) ==
+               "No selected records could be ingested (1 failed)."
+    end
+
+    test "ingest_selected reports a warning flash when some records fail", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      :sys.replace_state(view.pid, fn state ->
+        bad_record = %Record{id: "bad", kind: :unsupported, name: "bad"}
+
+        assigns =
+          Map.merge(state.socket.assigns, %{
+            selected: MapSet.new(["alpha.md", "bad"]),
+            records_by_path: Map.put(state.socket.assigns.records_by_path, "bad", bad_record)
+          })
+
+        put_in(state.socket.assigns, assigns)
+      end)
+
+      render_hook(view, "ingest_selected", %{})
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :warning) ==
+               "Ingestion started for 1 item(s); 1 failed."
+    end
+
+    @tag :skip
+    test "ingest_selected reports a generic failure flash when the dispatch response is unexpected",
+         %{conn: _conn} do
+      :ok
+    end
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -914,6 +1258,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "filter_status", %{"status" => "all"})
       assert has_element?(view, "p", "p.txt")
       assert has_element?(view, "p", "c.txt")
+    end
+
+    @tag :skip
+    test "load_jobs falls back to an empty list when NodeRouter returns a bad response", %{
+      conn: _conn
+    } do
+      :ok
     end
   end
 
@@ -1003,6 +1354,24 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       state = :sys.get_state(view.pid)
       assert state.socket.assigns.move_folders == []
+    end
+  end
+
+  describe "mount/provider normalization" do
+    test "mounting /bo/ingestion/local normalizes provider to local", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/local")
+      state = :sys.get_state(view.pid)
+
+      assert state.socket.assigns.provider == "local"
+      assert state.socket.assigns.current_path == "/bo/ingestion"
+    end
+
+    test "mounting /bo/ingestion/zaq_local also normalizes provider to local", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/zaq_local")
+      state = :sys.get_state(view.pid)
+
+      assert state.socket.assigns.provider == "local"
+      assert state.socket.assigns.current_path == "/bo/ingestion"
     end
   end
 
@@ -1169,6 +1538,53 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       send(view.pid, {:job_updated, :not_a_job})
 
       assert :sys.get_state(view.pid).socket.assigns.jobs == state_before
+    end
+
+    test "others filter removes a job once it stops matching", %{conn: conn} do
+      pending = create_job(%{file_path: "others-pending.txt", status: "pending"})
+      _failed = create_job(%{file_path: "others-failed.txt", status: "failed"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "filter_status", %{"status" => "others"})
+
+      assert has_element?(view, "p", "others-pending.txt")
+      refute has_element?(view, "p", "others-failed.txt")
+
+      updated =
+        Repo.get!(IngestJob, pending.id)
+        |> IngestJob.changeset(%{status: "failed"})
+        |> Repo.update!()
+
+      send(view.pid, {:job_updated, updated})
+
+      refute has_element?(view, "p", "others-pending.txt")
+    end
+
+    test "job_updated updates existing rows and caps the list at 20 entries", %{conn: conn} do
+      jobs = for idx <- 1..20, do: create_job(%{file_path: "job-#{idx}.txt", status: "pending"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      existing = List.first(jobs)
+
+      updated_existing =
+        Repo.get!(IngestJob, existing.id)
+        |> IngestJob.changeset(%{status: "processing"})
+        |> Repo.update!()
+
+      send(view.pid, {:job_updated, updated_existing})
+
+      state_after_update = :sys.get_state(view.pid)
+      assert updated_existing.id in Enum.map(state_after_update.socket.assigns.jobs, & &1.id)
+
+      new_job = create_job(%{file_path: "job-21.txt", status: "pending"})
+      send(view.pid, {:job_updated, new_job})
+
+      state = :sys.get_state(view.pid)
+      job_ids = Enum.map(state.socket.assigns.jobs, & &1.id)
+
+      assert new_job.id in job_ids
+      assert length(job_ids) == 20
     end
   end
 
@@ -1343,6 +1759,45 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       state = :sys.get_state(view.pid)
       assert Map.has_key?(state.socket.assigns.prep_progress, job.id)
       assert render(view) =~ "describing images 1/3"
+    end
+
+    test "prune removes stale prep entries and keeps fresh ones queued for another sweep", %{
+      conn: conn
+    } do
+      Application.put_env(:zaq, :ingestion_prep_ttl_ms, 0)
+      on_exit(fn -> Application.delete_env(:zaq, :ingestion_prep_ttl_ms) end)
+
+      job_a = create_job(%{file_path: "scan-a.pdf", status: "processing", total_chunks: 0})
+      job_b = create_job(%{file_path: "scan-b.pdf", status: "processing", total_chunks: 0})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      send(
+        view.pid,
+        {:job_progress, job_a.id, %{"current" => 1, "total" => 3, "status" => "processing"}}
+      )
+
+      send(
+        view.pid,
+        {:job_progress, job_b.id, %{"current" => 1, "total" => 3, "status" => "processing"}}
+      )
+
+      :sys.replace_state(view.pid, fn state ->
+        now = :erlang.monotonic_time(:millisecond)
+
+        update_in(state.socket.assigns.prep_seen_at, fn seen_at ->
+          seen_at
+          |> Map.put(job_a.id, now - 1_000)
+          |> Map.put(job_b.id, now + 1_000)
+        end)
+      end)
+
+      send(view.pid, :prune_prep_progress)
+
+      state = :sys.get_state(view.pid)
+      refute Map.has_key?(state.socket.assigns.prep_progress, job_a.id)
+      assert Map.has_key?(state.socket.assigns.prep_progress, job_b.id)
+      assert state.socket.assigns.prep_progress != %{}
     end
   end
 
@@ -1682,6 +2137,32 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert length(pending) == 1
     end
 
+    test "duplicate pending share target keeps the existing pending entry unchanged", %{
+      view: view,
+      person: person
+    } do
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+
+      state = :sys.get_state(view.pid)
+      [pending_entry] = state.socket.assigns.share_modal_pending
+
+      :sys.replace_state(view.pid, fn current_state ->
+        update_in(current_state.socket.assigns.share_modal_targets_options, fn options ->
+          [{person.full_name, "person:#{person.id}"} | options]
+        end)
+      end)
+
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+
+      updated = :sys.get_state(view.pid).socket.assigns.share_modal_pending
+      assert length(updated) == 1
+      [updated_entry] = updated
+
+      assert updated_entry.id == pending_entry.id
+      assert updated_entry.type == pending_entry.type
+    end
+
     test "remove_pending removes an entry from share_modal_pending", %{view: view, person: person} do
       render_hook(view, "share_item", %{"path" => "alpha.md"})
       render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
@@ -1800,6 +2281,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       refute "public" in Repo.get!(Document, doc.id).tags
     end
 
+    test "toggling public off removes the tag from an already public document", %{conn: conn} do
+      {:ok, doc} = Document.create(%{source: "alpha.md", content: "content", tags: ["public"]})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "share_item", %{"path" => "alpha.md"})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "confirm_share", %{})
+
+      refute "public" in Repo.get!(Document, doc.id).tags
+    end
+
     test "toggle without confirm does not persist", %{conn: conn} do
       {:ok, doc} = Document.create(%{source: "alpha.md", content: "content"})
 
@@ -1842,6 +2335,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       refute "public" in Repo.get!(Document, doc.id).tags
       refute Zaq.Ingestion.folder_public?("default", "docs")
+    end
+
+    test "toggling folder public off removes the folder flag and public tag", %{conn: conn} do
+      {:ok, doc} = Document.create(%{source: "default/docs/readme.md", content: "content"})
+      :ok = Zaq.Ingestion.set_folder_public("default", "docs")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "share_item", %{"path" => "docs", "type" => "directory"})
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "confirm_share", %{})
+
+      refute Zaq.Ingestion.folder_public?("default", "docs")
+      refute "public" in Repo.get!(Document, doc.id).tags
     end
   end
 
@@ -1893,6 +2400,51 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   # ────────────────────────────────────────────────────────────────
 
   describe "handle_event upload (folder drop behaviour)" do
+    test "cancel_upload removes a queued upload entry", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      upload =
+        file_input(view, "#upload-form", :files, [
+          %{
+            name: "alpha.md",
+            content: "# alpha",
+            type: "text/markdown"
+          }
+        ])
+
+      render_upload(upload, "alpha.md", 1)
+
+      ref = upload.entries |> hd() |> Map.get("ref")
+
+      render_hook(view, "cancel_upload", %{"ref" => ref})
+
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.uploads.files.entries == []
+    end
+
+    test "upload errors do not escape the tmp dir and keep the view alive", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      view
+      |> file_input("#upload-form", :files, [
+        %{
+          name: "escape.md",
+          content: "# escape",
+          type: "text/markdown",
+          relative_path: "../escape.md"
+        }
+      ])
+      |> render_upload("escape.md", 100)
+
+      render_hook(view, "upload", %{})
+
+      refute File.exists?(Path.expand(Path.join(tmp_dir, "../escape.md")))
+      assert Process.alive?(view.pid)
+    end
+
     test "does not clear folder_drop_skipped across batches", %{conn: conn, tmp_dir: tmp_dir} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 

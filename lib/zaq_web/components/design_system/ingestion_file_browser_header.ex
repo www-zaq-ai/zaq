@@ -13,6 +13,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
   attr :selected, :any, required: true
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
+  attr :provider_mode, :boolean, default: false
 
   def file_browser_header(assigns) do
     ~H"""
@@ -22,6 +23,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
       </p>
       <div class="zaq-ingestion-chrome-actions">
         <button
+          :if={not @provider_mode}
           id="new-folder-button"
           phx-click="show_new_folder_modal"
           class="zaq-btn zaq-btn-tertiary zaq-btn-text_label-default"
@@ -33,6 +35,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
           New Folder
         </button>
         <button
+          :if={not @provider_mode}
           id="add-raw-md-button"
           phx-click="show_add_raw_modal"
           class="zaq-btn zaq-btn-tertiary zaq-btn-text_label-default"
@@ -49,7 +52,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
           Add Raw MD
         </button>
         <button
-          :if={MapSet.size(@selected) > 0}
+          :if={not @provider_mode and MapSet.size(@selected) > 0}
           id="bulk-delete-button"
           phx-click="show_delete_confirmation"
           class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-text_label-default"
@@ -67,6 +70,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
         </button>
         <button
           :for={mode <- ~w(async inline)}
+          :if={not @provider_mode}
           id={"ingest-mode-#{mode}"}
           phx-click="set_mode"
           phx-value-mode={mode}
@@ -85,7 +89,11 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
           type="button"
           class="zaq-btn zaq-btn-primary zaq-btn-text_label-default"
         >
-          Ingest Selected ({MapSet.size(@selected)})
+          <%= if @provider_mode do %>
+            Ingestion in Phase 3
+          <% else %>
+            Ingest Selected ({MapSet.size(@selected)})
+          <% end %>
         </button>
       </div>
     </div>

@@ -20,6 +20,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   attr :current_dir, :string, required: true
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
+  attr :provider_mode, :boolean, default: false
 
   def file_list_view(assigns) do
     ~H"""
@@ -83,7 +84,16 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       style="color: var(--zaq-text-color-body-accent)"
                       title={entry.name}
                     >
+                      <img
+                        :if={record_icon_url(entry)}
+                        src={record_icon_url(entry)}
+                        class="w-4 h-4 shrink-0"
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                      />
                       <svg
+                        :if={!record_icon_url(entry)}
                         class="w-4 h-4 shrink-0"
                         fill="currentColor"
                         viewBox="0 0 20 20"
@@ -97,11 +107,20 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     <button
                       type="button"
                       phx-click="open_preview"
-                      phx-value-path={Path.join([@current_volume, record_path(entry)])}
+                      phx-value-path={preview_path(entry, @current_volume, @provider_mode)}
                       class="flex items-center gap-2 min-w-0 text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
                       title={entry.name}
                     >
+                      <img
+                        :if={record_icon_url(entry)}
+                        src={record_icon_url(entry)}
+                        class="w-4 h-4 shrink-0"
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                      />
                       <.file_icon
+                        :if={!record_icon_url(entry)}
                         name={entry.name}
                         class={"w-4 h-4 shrink-0 #{IngFileIcon.file_icon_color(entry.name)}"}
                       />
@@ -110,6 +129,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <% end %>
                   <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ml-3 shrink-0">
                     <button
+                      :if={not @provider_mode}
                       phx-click="move_item"
                       phx-value-path={record_path(entry)}
                       phx-value-type={record_local_type(entry)}
@@ -136,6 +156,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       </svg>
                     </button>
                     <button
+                      :if={not @provider_mode}
                       phx-click="rename_item"
                       phx-value-path={record_path(entry)}
                       phx-value-type={record_local_type(entry)}
@@ -153,9 +174,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     </button>
                     <button
                       :if={
-                        record_folder?(entry) or
-                          (record_file?(entry) and
-                             Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?)
+                        not @provider_mode and
+                          (record_folder?(entry) or
+                             (record_file?(entry) and
+                                Map.get(@ingestion_map, entry.name, %{can_share?: false}).can_share?))
                       }
                       phx-click="share_item"
                       phx-value-path={record_path(entry)}
@@ -178,6 +200,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       </svg>
                     </button>
                     <button
+                      :if={not @provider_mode}
                       phx-click="delete_item"
                       phx-value-path={record_path(entry)}
                       phx-value-type={record_local_type(entry)}

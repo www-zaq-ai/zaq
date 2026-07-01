@@ -7,6 +7,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [record_path: 1]
 
   alias Zaq.Accounts.People
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
@@ -26,16 +28,23 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   @prep_ttl_ms_default :timer.minutes(30)
   @prep_prune_interval_ms :timer.minutes(1)
 
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, @ingestion_topic)
 
+    provider = normalize_provider(Map.get(params, "provider"))
     volumes = fetch_volumes()
     current_volume = volumes |> Map.keys() |> List.first()
 
     {:ok,
      socket
      |> assign(
-       current_path: "/bo/ingestion",
+       current_path: ingestion_path(provider),
+       provider: provider,
+       provider_config_id: provider_config_id(provider),
+       provider_folder_stack: [],
+       provider_page: nil,
+       provider_page_token: nil,
+       provider_error: nil,
        current_dir: ".",
        breadcrumbs: [],
        entries: [],
@@ -319,21 +328,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # File Browser
 
   def handle_event("navigate", %{"path" => path}, socket) do
-    {:noreply,
-     socket
-     |> assign(current_dir: path, selected: MapSet.new())
-     |> assign_breadcrumbs(path)
-     |> load_entries()}
+    if provider_mode?(socket) do
+      {:noreply, navigate_provider(socket, path)}
+    else
+      {:noreply,
+       socket
+       |> assign(current_dir: path, selected: MapSet.new())
+       |> assign_breadcrumbs(path)
+       |> load_entries()}
+    end
   end
 
   def handle_event("go_back", _params, socket) do
-    parent = parent_dir(socket.assigns.current_dir)
+    if provider_mode?(socket) do
+      {:noreply, provider_go_back(socket)}
+    else
+      parent = parent_dir(socket.assigns.current_dir)
 
-    {:noreply,
-     socket
-     |> assign(current_dir: parent, selected: MapSet.new())
-     |> assign_breadcrumbs(parent)
-     |> load_entries()}
+      {:noreply,
+       socket
+       |> assign(current_dir: parent, selected: MapSet.new())
+       |> assign_breadcrumbs(parent)
+       |> load_entries()}
+    end
   end
 
   def handle_event("toggle_select", %{"path" => path}, socket) do
@@ -367,6 +384,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   # Modal: New Folder
 
+  def handle_event("show_new_folder_modal", _params, %{assigns: %{provider: provider}} = socket)
+      when provider not in ["local", "zaq_local"] do
+    {:noreply, put_flash(socket, :info, "Provider folders are read-only in this phase.")}
+  end
+
   def handle_event("show_new_folder_modal", _params, socket) do
     {:noreply, assign(socket, modal: :new_folder, modal_name: "", modal_error: nil)}
   end
@@ -394,6 +416,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   # Modal: Rename
+
+  def handle_event("rename_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
+      when provider not in ["local", "zaq_local"] do
+    {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
+  end
 
   def handle_event("rename_item", %{"path" => path, "type" => type}, socket) do
     {:noreply,
@@ -424,6 +451,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   # Modal: Delete single item
+
+  def handle_event("delete_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
+      when provider not in ["local", "zaq_local"] do
+    {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
+  end
 
   def handle_event("delete_item", %{"path" => path, "type" => type}, socket) do
     {:noreply,
@@ -460,6 +492,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   # Modal: Bulk delete
 
+  def handle_event(
+        "show_delete_confirmation",
+        _params,
+        %{assigns: %{provider: provider}} = socket
+      )
+      when provider not in ["local", "zaq_local"] do
+    {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
+  end
+
   def handle_event("show_delete_confirmation", _params, socket) do
     {:noreply, assign(socket, modal: :delete_selected, modal_error: nil)}
   end
@@ -489,6 +530,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   # Modal: Move item
+
+  def handle_event("move_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
+      when provider not in ["local", "zaq_local"] do
+    {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
+  end
 
   def handle_event("move_item", %{"path" => path, "type" => type}, socket) do
     {:noreply,
@@ -548,7 +594,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("open_preview", %{"path" => path}, socket) do
-    {:noreply, PreviewHelpers.open_preview(socket, path, :modal)}
+    if provider_mode?(socket) do
+      {:noreply, open_provider_preview(socket, path)}
+    else
+      {:noreply, PreviewHelpers.open_preview(socket, path, :modal)}
+    end
   end
 
   def handle_event("close_preview_modal", _params, socket) do
@@ -558,13 +608,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Add Raw MD
 
   def handle_event("show_add_raw_modal", _params, socket) do
-    {:noreply,
-     assign(socket,
-       modal: :add_raw,
-       raw_filename: "",
-       raw_content: "",
-       modal_error: nil
-     )}
+    if provider_mode?(socket) do
+      {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
+    else
+      {:noreply,
+       assign(socket,
+         modal: :add_raw,
+         raw_filename: "",
+         raw_content: "",
+         modal_error: nil
+       )}
+    end
   end
 
   def handle_event("update_raw_field", %{"field" => "filename", "value" => value}, socket) do
@@ -620,16 +674,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("ingest_selected", _params, socket) do
-    records = selected_records(socket)
-    result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode})
+    if provider_mode?(socket) do
+      {:noreply, put_flash(socket, :info, "Provider ingestion will be enabled in phase 3.")}
+    else
+      records = selected_records(socket)
+      result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode})
 
-    socket =
-      socket
-      |> assign(selected: MapSet.new())
-      |> load_jobs()
-      |> put_ingest_result_flash(result)
+      socket =
+        socket
+        |> assign(selected: MapSet.new())
+        |> load_jobs()
+        |> put_ingest_result_flash(result)
 
-    {:noreply, socket}
+      {:noreply, socket}
+    end
   end
 
   def handle_event("retry_job", %{"id" => id}, socket) do
@@ -806,6 +864,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp load_entries(socket) do
+    if provider_mode?(socket), do: load_provider_entries(socket), else: load_local_entries(socket)
+  end
+
+  defp load_local_entries(socket) do
     volume = socket.assigns.current_volume
 
     case ingestion_call(:directory_snapshot, [
@@ -824,6 +886,40 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         |> assign(entries: [])
         |> assign(records_by_path: %{})
         |> assign(ingestion_map: %{})
+    end
+  end
+
+  defp load_provider_entries(%{assigns: %{provider_config_id: nil}} = socket) do
+    assign(socket,
+      entries: [],
+      records_by_path: %{},
+      ingestion_map: %{},
+      provider_error: "No enabled data-source configuration found for #{socket.assigns.provider}."
+    )
+  end
+
+  defp load_provider_entries(socket) do
+    case dispatch_list_files(socket.assigns.provider, provider_list_params(socket)) do
+      {:ok, %Zaq.Contracts.RecordPage{} = page} ->
+        records = page.records || []
+
+        socket
+        |> assign(entries: records)
+        |> assign(records_by_path: records_by_path(records))
+        |> assign(ingestion_map: %{})
+        |> assign(provider_page: page)
+        |> assign(provider_page_token: get_in(page.pagination, [:cursor]))
+        |> assign(provider_error: nil)
+
+      {:error, reason} ->
+        socket
+        |> assign(entries: [], records_by_path: %{}, ingestion_map: %{})
+        |> assign(provider_error: "Failed to load provider records: #{inspect(reason)}")
+
+      _ ->
+        socket
+        |> assign(entries: [], records_by_path: %{}, ingestion_map: %{})
+        |> assign(provider_error: "Failed to load provider records.")
     end
   end
 
@@ -1015,6 +1111,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     NodeRouter.invoke(:ingestion, Ingestion, fun, args)
   end
 
+  defp dispatch_list_files(provider, params) do
+    opts = [action: :data_source_list_files]
+    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
+
+    Event.new(%{provider: provider, params: params}, :channels, opts: opts)
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
+  defp data_source_bridge_module do
+    Application.get_env(:zaq, :ingestion_data_source_bridge_module, DataSourceBridge)
+  end
+
   defp dispatch_ingest_records([], _params), do: {:ok, []}
 
   defp dispatch_ingest_records(records, params) do
@@ -1033,6 +1142,124 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp records_by_path(entries), do: Map.new(entries, &{record_path(&1), &1})
+
+  defp normalize_provider(nil), do: "local"
+  defp normalize_provider(""), do: "local"
+  defp normalize_provider("local"), do: "local"
+  defp normalize_provider("zaq_local"), do: "local"
+  defp normalize_provider(provider) when is_binary(provider), do: provider
+
+  defp ingestion_path("local"), do: "/bo/ingestion"
+  defp ingestion_path(provider), do: "/bo/ingestion/#{provider}"
+
+  defp provider_mode?(socket), do: socket.assigns.provider != "local"
+
+  defp provider_config_id("local"), do: nil
+
+  defp provider_config_id(provider) do
+    case ChannelConfig.get_by_provider(provider) do
+      %{id: id} -> id
+      _ -> nil
+    end
+  end
+
+  defp provider_list_params(socket) do
+    folder = List.last(socket.assigns.provider_folder_stack)
+
+    filters =
+      case folder do
+        %{id: id} when is_binary(id) and id != "." -> %{"parent" => id, "include_shared" => false}
+        _ -> %{}
+      end
+
+    %{
+      "config_id" => socket.assigns.provider_config_id,
+      "filters" => filters,
+      "include_permissions" => true
+    }
+  end
+
+  defp navigate_provider(socket, ".") do
+    socket
+    |> assign(
+      provider_folder_stack: [],
+      current_dir: ".",
+      breadcrumbs: [],
+      selected: MapSet.new()
+    )
+    |> load_entries()
+  end
+
+  defp navigate_provider(socket, id) do
+    cond do
+      crumb_index = Enum.find_index(socket.assigns.provider_folder_stack, &(&1.id == id)) ->
+        stack = Enum.take(socket.assigns.provider_folder_stack, crumb_index + 1)
+
+        socket
+        |> assign(provider_folder_stack: stack, current_dir: id, selected: MapSet.new())
+        |> assign_provider_breadcrumbs(stack)
+        |> load_entries()
+
+      record = Map.get(socket.assigns.records_by_path, id) ->
+        stack =
+          socket.assigns.provider_folder_stack ++ [%{id: record_path(record), name: record.name}]
+
+        socket
+        |> assign(
+          provider_folder_stack: stack,
+          current_dir: record_path(record),
+          selected: MapSet.new()
+        )
+        |> assign_provider_breadcrumbs(stack)
+        |> load_entries()
+
+      true ->
+        socket
+    end
+  end
+
+  defp provider_go_back(socket) do
+    stack = Enum.drop(socket.assigns.provider_folder_stack, -1)
+
+    current_dir =
+      case List.last(stack) do
+        %{id: id} -> id
+        _ -> "."
+      end
+
+    socket
+    |> assign(provider_folder_stack: stack, current_dir: current_dir, selected: MapSet.new())
+    |> assign_provider_breadcrumbs(stack)
+    |> load_entries()
+  end
+
+  defp assign_provider_breadcrumbs(socket, stack) do
+    crumbs = Enum.map(stack, &%{name: &1.name, path: &1.id})
+    assign(socket, breadcrumbs: crumbs)
+  end
+
+  defp open_provider_preview(socket, id) do
+    record = Map.get(socket.assigns.records_by_path, id)
+    url = record && Map.get(record, :url)
+
+    if is_binary(url) and url != "" do
+      preview = %{
+        relative_path: url,
+        filename: record.name || id,
+        ext: record.name |> to_string() |> Path.extname() |> String.downcase(),
+        kind: :external_url,
+        content: nil,
+        rendered_html: nil,
+        file_size: record.size,
+        modified_at: record.modified_at,
+        raw_url: url
+      }
+
+      assign(socket, preview: preview, modal: :preview)
+    else
+      put_flash(socket, :error, "Preview unavailable for this provider record.")
+    end
+  end
 
   defp put_ingest_result_flash(socket, {:ok, _jobs}),
     do: put_flash(socket, :info, "Ingestion started.")
