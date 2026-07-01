@@ -123,6 +123,36 @@ defmodule ZaqWeb.Components.FilePreview do
       />
     </div>
 
+    <div :if={@preview.kind == :external_url} class="zaq-file-preview-shell overflow-hidden">
+      <div class="zaq-file-preview-bar">
+        <span class="zaq-pill zaq-text-caption zaq-pill--accent uppercase tracking-wide">
+          provider
+        </span>
+        <span
+          class="zaq-text-caption uppercase tracking-wide"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          external preview
+        </span>
+      </div>
+      <iframe
+        src={@preview.raw_url}
+        class="w-full"
+        style={"height: #{@pdf_height};"}
+        title={@preview.filename}
+      />
+      <div class="zaq-file-preview-bar zaq-file-preview-bar--rounded-top justify-end">
+        <a
+          href={@preview.raw_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="zaq-btn zaq-btn-secondary zaq-btn-text_label-default"
+        >
+          Open in provider
+        </a>
+      </div>
+    </div>
+
     <div
       :if={@preview.kind == :binary}
       class="zaq-file-preview-shell zaq-file-preview-shell--inset text-center"

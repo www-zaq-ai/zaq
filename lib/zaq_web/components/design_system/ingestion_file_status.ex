@@ -22,6 +22,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
   # data sources should pass the same shape and constrain actions via assigns
   # instead of adding a parallel browser component tree.
   def record_path(%{path: path}) when is_binary(path), do: path
+  def record_path(%{id: id}) when is_binary(id), do: id
   def record_path(%{name: name}), do: name
 
   def record_file?(entry), do: record_kind(entry) == :file
@@ -30,6 +31,20 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
   def record_local_type(entry) do
     if record_folder?(entry), do: :directory, else: :file
   end
+
+  def record_icon_url(%{icon: icon}) when is_binary(icon) and icon != "", do: icon
+
+  def record_icon_url(%{raw: raw}) when is_map(raw) do
+    Map.get(raw, "iconLink") || Map.get(raw, :iconLink) || Map.get(raw, "icon_link") ||
+      Map.get(raw, :icon_link)
+  end
+
+  def record_icon_url(_entry), do: nil
+
+  def preview_path(entry, _current_volume, true), do: record_path(entry)
+
+  def preview_path(entry, current_volume, false),
+    do: Path.join([current_volume, record_path(entry)])
 
   def related_record(%{attributes: attrs}) when is_map(attrs) do
     Map.get(attrs, "related_record") || Map.get(attrs, :related_record)

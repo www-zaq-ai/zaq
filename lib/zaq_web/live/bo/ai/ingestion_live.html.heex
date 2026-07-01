@@ -13,7 +13,7 @@
     <%!-- =============== LEFT: File Browser + Upload =============== --%>
     <div class="lg:col-span-2 space-y-6 min-w-0">
       <.volume_selector
-        :if={map_size(@volumes) > 1}
+        :if={@provider == "local" and map_size(@volumes) > 1}
         volumes={@volumes}
         current_volume={@current_volume}
       />
@@ -23,7 +23,15 @@
           selected={@selected}
           ingest_mode={@ingest_mode}
           embedding_ready={@embedding_ready}
+          provider_mode={@provider != "local"}
         />
+        <p
+          :if={@provider_error}
+          class="zaq-text-body-sm mb-3"
+          style="color: var(--zaq-text-color-body-danger)"
+        >
+          {@provider_error}
+        </p>
         <.breadcrumb breadcrumbs={@breadcrumbs} current_dir={@current_dir} />
         <.toggle view_mode={@view_mode} entries={@entries} />
         <.file_list_view
@@ -33,6 +41,7 @@
           current_dir={@current_dir}
           current_volume={@current_volume}
           ingestion_map={@ingestion_map}
+          provider_mode={@provider != "local"}
         />
         <.file_grid_view
           :if={@view_mode == "grid"}
@@ -41,10 +50,12 @@
           current_dir={@current_dir}
           current_volume={@current_volume}
           ingestion_map={@ingestion_map}
+          provider_mode={@provider != "local"}
         />
       </div>
 
       <.upload_section
+        :if={@provider == "local"}
         uploads={@uploads}
         embedding_ready={@embedding_ready}
         folder_drop_skipped={@folder_drop_skipped}

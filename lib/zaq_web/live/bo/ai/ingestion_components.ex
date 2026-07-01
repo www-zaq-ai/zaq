@@ -48,6 +48,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :selected, :any, required: true
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
+  attr :provider_mode, :boolean, default: false
 
   def file_browser_header(assigns) do
     IngestionFileBrowserHeader.file_browser_header(assigns)
@@ -78,6 +79,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_dir, :string, required: true
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
+  attr :provider_mode, :boolean, default: false
 
   def file_list_view(assigns) do
     IngestionFileListView.file_list_view(assigns)
@@ -90,6 +92,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_dir, :string, required: true
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
+  attr :provider_mode, :boolean, default: false
 
   def file_grid_view(assigns) do
     IngestionFileGridView.file_grid_view(assigns)

@@ -18,6 +18,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   attr :current_dir, :string, required: true
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
+  attr :provider_mode, :boolean, default: false
 
   def file_grid_view(assigns) do
     ~H"""
@@ -74,6 +75,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
             </div>
             <div class="opacity-0 group-hover:opacity-100 transition-opacity zaq-ingestion-file-grid-card-actions">
               <button
+                :if={not @provider_mode}
                 phx-click="move_item"
                 phx-value-path={record_path(entry)}
                 phx-value-type={record_local_type(entry)}
@@ -96,6 +98,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 </svg>
               </button>
               <button
+                :if={not @provider_mode}
                 phx-click="rename_item"
                 phx-value-path={record_path(entry)}
                 phx-value-type={record_local_type(entry)}
@@ -113,9 +116,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               </button>
               <button
                 :if={
-                  record_folder?(entry) or
-                    (record_file?(entry) and
-                       file_ingestion_status(@ingestion_map, entry.name).can_share?)
+                  not @provider_mode and
+                    (record_folder?(entry) or
+                       (record_file?(entry) and
+                          file_ingestion_status(@ingestion_map, entry.name).can_share?))
                 }
                 phx-click="share_item"
                 phx-value-path={record_path(entry)}
@@ -138,6 +142,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 </svg>
               </button>
               <button
+                :if={not @provider_mode}
                 phx-click="delete_item"
                 phx-value-path={record_path(entry)}
                 phx-value-type={record_local_type(entry)}
@@ -161,7 +166,16 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 phx-value-path={record_path(entry)}
                 class="w-full pt-8 pb-3 flex flex-col items-center"
               >
+                <img
+                  :if={record_icon_url(entry)}
+                  src={record_icon_url(entry)}
+                  class="w-10 h-10 mb-2 shrink-0"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                />
                 <svg
+                  :if={!record_icon_url(entry)}
                   class="w-10 h-10 mb-2 shrink-0"
                   fill="currentColor"
                   viewBox="0 0 20 20"
@@ -201,9 +215,18 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                 role="button"
                 tabindex="0"
                 phx-click="open_preview"
-                phx-value-path={Path.join([@current_volume, record_path(entry)])}
+                phx-value-path={preview_path(entry, @current_volume, @provider_mode)}
               >
+                <img
+                  :if={record_icon_url(entry)}
+                  src={record_icon_url(entry)}
+                  class="w-10 h-10 mb-2 shrink-0"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                />
                 <IngFileIcon.file_icon
+                  :if={!record_icon_url(entry)}
                   name={entry.name}
                   class={"w-10 h-10 mb-2 #{file_icon_color(entry.name)}"}
                 />
