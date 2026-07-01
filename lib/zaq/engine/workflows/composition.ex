@@ -64,15 +64,51 @@ defmodule Zaq.Engine.Workflows.Composition do
 
   Returns `:ok`, or `{:error, reason}` for a reference cycle
   (`{:workflow_cycle, id}`), a single-root/leaf violation
-  (`{:multi_entry_exit, roots, leaves}`), or a flattened graph that is not
-  acyclic (`{:workflow_not_acyclic, nodes}`). Intended to run at workflow save
-  time, so a persisted workflow is always runnable.
+  (`{:multi_entry_exit, roots, leaves}`), a flattened graph that is not
+  acyclic (`{:workflow_not_acyclic, nodes}`), or a **convergence node** — one
+  node targeted by more than one edge (`{:convergence_not_supported, nodes}`).
+  Intended to run at workflow save time, so a persisted workflow is always
+  runnable.
+
+  ## Why convergence is rejected (interim)
+
+  A node reached by multiple inbound edges is lowered to a single Runic Step with
+  multiple inbound connections, which Runic invokes **nondeterministically** —
+  only the parent that wins the reaction race triggers it, so the node fires
+  intermittently (observed ~1/4). Until `DagBuilder` learns to lower convergence
+  into one single-parent node per inbound edge (see
+  `docs/exec-plans/active/2026-07-01-dagbuilder-convergence-node-duplication.md`),
+  we reject it at save/import time with a clear, actionable error instead of
+  letting a workflow silently misfire at runtime. Author each branch with its own
+  terminal node (e.g. `craft_email_direct` / `craft_email_after_write`) instead of
+  pointing two edges at one node.
   """
   @spec validate(snapshot, resolver) :: :ok | {:error, term()}
   def validate(snapshot, resolver) do
-    with {:ok, flat} <- expand(snapshot, resolver) do
-      if acyclic?(flat), do: :ok, else: {:error, {:workflow_not_acyclic, offending_nodes(flat)}}
+    with {:ok, flat} <- expand(snapshot, resolver),
+         :ok <- check_acyclic(flat) do
+      check_convergence(flat)
     end
+  end
+
+  defp check_acyclic(flat) do
+    if acyclic?(flat), do: :ok, else: {:error, {:workflow_not_acyclic, offending_nodes(flat)}}
+  end
+
+  # A node with >1 inbound edge is an unsupported convergence node — see moduledoc.
+  defp check_convergence(%{"edges" => edges}) do
+    case convergence_nodes(edges) do
+      [] -> :ok
+      nodes -> {:error, {:convergence_not_supported, nodes}}
+    end
+  end
+
+  defp convergence_nodes(edges) do
+    edges
+    |> Enum.frequencies_by(& &1["to"])
+    |> Enum.filter(fn {_to, count} -> count > 1 end)
+    |> Enum.map(fn {to, _count} -> to end)
+    |> Enum.sort()
   end
 
   # ── expansion ───────────────────────────────────────────────────────────────

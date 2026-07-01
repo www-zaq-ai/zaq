@@ -149,6 +149,10 @@ defmodule Zaq.Engine.Workflows.DispatchEventWorkflowTest do
     for event <- lead_identified do
       assert event.next_hop.destination == :engine
       assert event.next_hop.type == :async
+      # The batch node set `machine: true` — the marker rides on assigns (a
+      # side-channel), never inside the request payload.
+      assert event.assigns.machine == true
+      refute Map.has_key?(event.request, "machine")
     end
 
     # Each per-item event carries its own item payload (distinct ids 1..3).
@@ -162,11 +166,10 @@ defmodule Zaq.Engine.Workflows.DispatchEventWorkflowTest do
       assert req["id"] == i
       assert req["email"] == "user#{i}@example.com"
       assert req["name"] == "User #{i}"
-      # The batch node set `machine: true` — the marker rides on each dispatch.
-      assert req["machine"] == true
     end
 
     # The no-input second-node dispatch carried no machine marker.
+    refute Map.has_key?(ready_event.assigns, :machine)
     refute Map.has_key?(ready_event.request, "machine")
 
     # ── Step 3: the channels dispatch routes to :channels with a string message ─

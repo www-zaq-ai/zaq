@@ -25,6 +25,19 @@ defmodule Zaq.Engine.Workflows.FactLookup do
   step name and every segment are looked up with an atom-then-string fallback, so
   references resolve whether the run is in memory (atom keys) or was rehydrated
   from JSONB (string keys).
+
+  ## Format-insensitive fallback
+
+  Each segment is resolved by an **exact** match first; if that misses, it falls
+  back to a **canonicalized** match that ignores case and treats runs of spaces,
+  underscores, and hyphens as one separator (after trimming). So a reference like
+  `"company context content"` resolves a key stored as `"Company Context Content"`,
+  `"company_context_content"`, or `"company context content "` — the mismatch
+  class that arises from human-authored sheet headers — without any action having
+  to canonicalize keys. Exact matches always win, so this never changes the result
+  for references that already resolve, and reserved internal keys (`__*`) never
+  fuzzy-match. It does **not** bridge genuinely different words (e.g. `content` vs
+  `file`).
   """
 
   @cascade_keys [:__cascade__, "__cascade__"]
@@ -73,10 +86,23 @@ defmodule Zaq.Engine.Workflows.FactLookup do
 
   defp descend(_non_map, _segments), do: :error
 
-  # Fetch a string key trying the interned-atom form first, then the raw string,
-  # so both atom-keyed (in-memory) and string-keyed (JSONB) maps resolve. Never
-  # interns a new atom (avoids atom-table exhaustion on attacker-controlled keys).
+  # Resolve a single segment: try an exact match first, then fall back to a
+  # normalized match. Exact always wins, so already-matching workflows are
+  # unaffected; the fallback only rescues references whose formatting differs
+  # from the stored key (case, spaces vs underscores vs hyphens, stray padding).
   defp flat_fetch(map, key) when is_map(map) and is_binary(key) do
+    case exact_fetch(map, key) do
+      {:ok, _} = hit -> hit
+      :error -> normalized_fetch(map, key)
+    end
+  end
+
+  defp flat_fetch(_map, _key), do: :error
+
+  # Exact fetch: interned-atom form first, then the raw string, so both
+  # atom-keyed (in-memory) and string-keyed (JSONB) maps resolve. Never interns a
+  # new atom (avoids atom-table exhaustion on attacker-controlled keys).
+  defp exact_fetch(map, key) do
     case existing_atom(key) do
       {:ok, atom} ->
         case Map.fetch(map, atom) do
@@ -89,7 +115,35 @@ defmodule Zaq.Engine.Workflows.FactLookup do
     end
   end
 
-  defp flat_fetch(_map, _key), do: :error
+  # Format-insensitive fallback: canonicalize the reference and every candidate
+  # key (downcase, collapse runs of space/underscore/hyphen to a single space,
+  # trim) and return the first key that matches. This lets a workflow reference
+  # `company context content` resolve a trigger payload keyed `Company Context
+  # Content`, `company_context_content`, or with trailing spaces — the exact
+  # class of mismatch that comes from human-authored sheet headers — without any
+  # action having to canonicalize keys first. Reserved internal keys (`__*`, e.g.
+  # `__cascade__`) never fuzzy-match, so cascade internals are never exposed.
+  defp normalized_fetch(map, key) do
+    target = canonical(key)
+
+    Enum.find_value(map, :error, fn {k, v} ->
+      if canonical_map_key(k) == target, do: {:ok, v}, else: nil
+    end)
+  end
+
+  defp canonical_map_key(k) when is_binary(k) do
+    if String.starts_with?(k, "__"), do: nil, else: canonical(k)
+  end
+
+  defp canonical_map_key(k) when is_atom(k), do: canonical_map_key(Atom.to_string(k))
+  defp canonical_map_key(_), do: nil
+
+  defp canonical(str) do
+    str
+    |> String.downcase()
+    |> String.replace(~r/[\s_-]+/u, " ")
+    |> String.trim()
+  end
 
   defp existing_atom(key) do
     {:ok, String.to_existing_atom(key)}

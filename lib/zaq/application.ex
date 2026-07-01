@@ -13,6 +13,10 @@ defmodule Zaq.Application do
   def start(_type, _args) do
     roles = Zaq.NodeRoles.current()
 
+    # Silence the expected per-fork edge-condition prune logs (ConditionNotMet)
+    # emitted by Jido/Runic so genuine failures stand out. See the module doc.
+    Workflows.LogFilter.install()
+
     ObanTelemetry.attach()
 
     children =

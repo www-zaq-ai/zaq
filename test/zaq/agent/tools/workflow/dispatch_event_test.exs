@@ -179,17 +179,19 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
       assert String.contains?(reason, "something_went_wrong")
     end
 
-    test "marks the request as a machine run when machine: true" do
+    test "marks the event as a machine run on assigns when machine: true" do
       assert {:ok, %{dispatched: dispatched}} =
                DispatchEvent.run(
                  %{input: %{"email" => "a@b.com"}, event_name: "lead_identified", machine: true},
                  @ctx
                )
 
-      assert dispatched["machine"] == true
+      # The marker rides on assigns, never the request payload.
+      refute Map.has_key?(dispatched, "machine")
 
       assert_received {:dispatched, %Event{} = event}
-      assert event.request["machine"] == true
+      assert event.assigns.machine == true
+      refute Map.has_key?(event.request, "machine")
     end
 
     test "omits the machine marker by default" do
@@ -200,6 +202,9 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
                )
 
       refute Map.has_key?(dispatched, "machine")
+
+      assert_received {:dispatched, %Event{} = event}
+      refute Map.has_key?(event.assigns, :machine)
     end
 
     test "omits the machine marker when machine: false" do
@@ -210,6 +215,9 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
                )
 
       refute Map.has_key?(dispatched, "machine")
+
+      assert_received {:dispatched, %Event{} = event}
+      refute Map.has_key?(event.assigns, :machine)
     end
 
     test "dispatches any event name — there is no allowlist" do
