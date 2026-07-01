@@ -697,9 +697,59 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
   defp error_message(%Ecto.Changeset{} = cs) do
     cs
-    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {k, v}, acc -> String.replace(acc, "%{#{k}}", to_string(v)) end)
+    |> Ecto.Changeset.traverse_errors(fn
+      # Composition failures carry a structured `reason` — turn it into a plain,
+      # actionable sentence instead of the raw "invalid workflow composition".
+      {"invalid workflow composition", opts} ->
+        humanize_composition(opts[:reason])
+
+      {msg, opts} ->
+        Enum.reduce(opts, msg, fn {k, v}, acc ->
+          String.replace(acc, "%{#{k}}", stringify_error_opt(v))
+        end)
     end)
-    |> Enum.map_join("; ", fn {field, msgs} -> "#{field}: #{Enum.join(msgs, ", ")}" end)
+    |> Enum.map_join("; ", &format_field_errors/1)
   end
+
+  # `:nodes`/`:edges` composition messages are already full sentences, so skip
+  # the techy field prefix; other fields (e.g. name) still read best labelled.
+  defp format_field_errors({field, msgs}) when field in [:nodes, :edges], do: format_msgs(msgs)
+  defp format_field_errors({field, msgs}), do: "#{field}: #{format_msgs(msgs)}"
+
+  # Translate composition `reason` tuples into user-facing, fixable guidance.
+  defp humanize_composition({:workflow_not_acyclic, nodes}) do
+    "This workflow has a loop between the steps: #{Enum.join(nodes, ", ")}. " <>
+      "Steps must flow in one direction — remove the connection that leads back " <>
+      "to an earlier step so the workflow no longer cycles."
+  end
+
+  defp humanize_composition({:workflow_cycle, _id}) do
+    "A sub-workflow referenced here eventually references itself, creating an " <>
+      "endless loop. Remove the circular workflow reference."
+  end
+
+  defp humanize_composition({:multi_entry_exit, roots, leaves}) do
+    "A referenced sub-workflow must have exactly one starting step and one " <>
+      "ending step. Starting steps found: #{fmt_names(roots)}; ending steps found: " <>
+      "#{fmt_names(leaves)}. Adjust it to a single entry and a single exit."
+  end
+
+  defp humanize_composition(other) do
+    "The workflow structure is invalid (#{inspect(other)})."
+  end
+
+  defp fmt_names([]), do: "none"
+  defp fmt_names(names), do: Enum.join(names, ", ")
+
+  # Error option values are usually strings/atoms, but validators can attach
+  # structured metadata (e.g. the composition `reason` tuple
+  # `{:workflow_not_acyclic, [...]}`). `to_string/1` raises on those, which would
+  # crash the import handler and leave the modal showing nothing — so stringify
+  # defensively.
+  defp stringify_error_opt(v) when is_binary(v), do: v
+  defp stringify_error_opt(v) when is_atom(v) or is_number(v), do: to_string(v)
+  defp stringify_error_opt(v), do: inspect(v)
+
+  defp format_msgs(msgs) when is_list(msgs), do: Enum.map_join(msgs, ", ", &stringify_error_opt/1)
+  defp format_msgs(other), do: stringify_error_opt(other)
 end
