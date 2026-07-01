@@ -230,6 +230,171 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     end
   end
 
+  describe "import_workflow/1 — rejects invalid workflows before persisting" do
+    # These mirror the shape produced by decoding an uploaded .json/.jsonc file:
+    # string-keyed maps handed straight to import_workflow/1 (see the BO import
+    # flow in ZaqWeb ...WorkflowsLive). An invalid workflow must surface an error
+    # and never be persisted — the guard fires before any run can exist.
+
+    test "rejects a cyclic workflow (A -> B -> A) and persists nothing" do
+      before = Repo.aggregate(Workflow, :count)
+
+      attrs = %{
+        "name" => "Cyclic Import #{System.unique_integer()}",
+        "nodes" => [
+          %{
+            "name" => "A",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "B",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => [
+          %{"from" => "A", "to" => "B"},
+          %{"from" => "B", "to" => "A"}
+        ]
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert {"invalid workflow composition", meta} = changeset.errors[:nodes]
+      assert {:workflow_not_acyclic, _cycle} = meta[:reason]
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+
+    test "rejects a decoded file missing the workflow name and persists nothing" do
+      before = Repo.aggregate(Workflow, :count)
+
+      attrs = %{
+        "nodes" => [
+          %{
+            "name" => "A",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert changeset.errors[:name]
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+
+    test "imports a valid decoded workflow and forces status to active" do
+      attrs = %{
+        "name" => "Imported #{System.unique_integer()}",
+        "status" => "draft",
+        "nodes" => [
+          %{
+            "name" => "A",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:ok, %Workflow{} = workflow} = Workflows.import_workflow(attrs)
+      assert workflow.status == "active"
+    end
+  end
+
+  describe "import_workflow/1 — optional trigger" do
+    defp import_node do
+      %{"name" => "A", "type" => "action", "module" => @ok_module, "params" => %{}, "index" => 0}
+    end
+
+    test "creates and links a trigger when the file includes one" do
+      attrs = %{
+        "name" => "Imported With Trigger #{System.unique_integer()}",
+        "nodes" => [import_node()],
+        "edges" => [],
+        "trigger" => %{"event_name" => "lead_identified", "trigger_type" => "event"}
+      }
+
+      assert {:ok, %Workflow{} = workflow} = Workflows.import_workflow(attrs)
+
+      assert [%Trigger{} = trigger] = Workflows.list_triggers_for_workflow(workflow.id)
+      # event_name is normalised with the "engine:" prefix on save.
+      assert trigger.event_name == "engine:lead_identified"
+      assert trigger.trigger_type == "event"
+    end
+
+    test "imports without a trigger when the file omits one (trigger is optional)" do
+      attrs = %{
+        "name" => "Imported No Trigger #{System.unique_integer()}",
+        "nodes" => [import_node()],
+        "edges" => []
+      }
+
+      assert {:ok, %Workflow{} = workflow} = Workflows.import_workflow(attrs)
+      assert Workflows.list_triggers_for_workflow(workflow.id) == []
+    end
+
+    test "rolls back the whole import when the trigger is invalid (no workflow, no trigger)" do
+      workflows_before = Repo.aggregate(Workflow, :count)
+      triggers_before = Repo.aggregate(Trigger, :count)
+
+      attrs = %{
+        "name" => "Bad Trigger Import #{System.unique_integer()}",
+        "nodes" => [import_node()],
+        "edges" => [],
+        # cron trigger without the required cron_schedule → invalid
+        "trigger" => %{"event_name" => "x", "trigger_type" => "cron"}
+      }
+
+      assert {:error, %Ecto.Changeset{}} = Workflows.import_workflow(attrs)
+      assert Repo.aggregate(Workflow, :count) == workflows_before
+      assert Repo.aggregate(Trigger, :count) == triggers_before
+    end
+
+    test "rejects a non-object trigger value" do
+      attrs = %{
+        "name" => "Malformed Trigger #{System.unique_integer()}",
+        "nodes" => [import_node()],
+        "edges" => [],
+        "trigger" => "engine:oops"
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert changeset.errors[:event_name]
+    end
+
+    test "round-trips: export includes the trigger and re-import re-links it" do
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Exportable #{System.unique_integer()}",
+          status: "active",
+          nodes: [%{name: "A", type: "action", module: @ok_module, params: %{}, index: 0}],
+          edges: []
+        })
+
+      {:ok, trigger} =
+        Workflows.create_trigger(%{event_name: "order_placed", trigger_type: "event"})
+
+      {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, workflow)
+
+      exported = Workflows.export_workflow(workflow)
+      assert exported["trigger"]["event_name"] == "engine:order_placed"
+
+      assert {:ok, reimported} = Workflows.import_workflow(exported)
+      assert [%Trigger{} = t] = Workflows.list_triggers_for_workflow(reimported.id)
+      assert t.event_name == "engine:order_placed"
+    end
+  end
+
   describe "update_workflow/3 — composition validation (D5)" do
     test "rejects an edit that introduces a reference cycle (B -> A -> B)" do
       {:ok, a} =

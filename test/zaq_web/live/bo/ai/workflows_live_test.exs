@@ -299,6 +299,60 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
       html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
       assert html =~ "can&#39;t be blank"
     end
+
+    test "shows a composition error and creates nothing for a cyclic workflow", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      cyclic =
+        Jason.encode!(%{
+          "name" => "Cyclic Import #{System.unique_integer([:positive])}",
+          "status" => "active",
+          "nodes" => [
+            %{
+              "name" => "A",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 0
+            },
+            %{
+              "name" => "B",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 1
+            }
+          ],
+          "edges" => [
+            %{"from" => "A", "to" => "B"},
+            %{"from" => "B", "to" => "A"}
+          ]
+        })
+
+      before = Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count)
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "cyclic.json", content: cyclic, type: "application/json"}
+        ])
+
+      assert render_upload(upload, "cyclic.json")
+
+      # Before the fix this crashed the LiveView (to_string on the not-acyclic
+      # reason tuple); now it surfaces a plain, actionable validation error.
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+      # Human-readable guidance, not the raw reason tuple or generic template.
+      assert html =~ "This workflow has a loop between the steps"
+      assert html =~ "remove the connection that leads back"
+      assert html =~ "A"
+      assert html =~ "B"
+      refute html =~ "invalid workflow composition"
+      refute html =~ "workflow_not_acyclic"
+
+      assert Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count) == before
+    end
   end
 
   describe "load_workflows fallback and rendering branches" do

@@ -902,3 +902,60 @@ defmodule Zaq.Engine.Workflows.Test.RecordItemTime do
     {:ok, %{items: items}}
   end
 end
+
+# ---------------------------------------------------------------------------
+# Numeric routing / arithmetic test doubles
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.RouteByRange do
+  @moduledoc false
+  # Start node for numeric routing. Passes `number` through unchanged and
+  # classifies it into a `bucket` via three range conditions:
+  #   number < 10        -> "a"
+  #   10 <= number < 20  -> "b"
+  #   20 <= number < 30  -> "c"
+  # Edge conditions are single-op, so the range logic lives here and the outgoing
+  # edges route with `eq` on the emitted bucket.
+  use Jido.Action,
+    name: "test_route_by_range",
+    schema: [number: [type: :integer, required: true]],
+    output_schema: [
+      number: [type: :integer, required: true],
+      bucket: [type: :string, required: true]
+    ]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context) do
+    number = Map.get(params, :number) || Map.get(params, "number")
+
+    bucket =
+      cond do
+        number < 10 -> "a"
+        number < 20 -> "b"
+        number < 30 -> "c"
+        true -> "out_of_range"
+      end
+
+    {:ok, %{number: number, bucket: bucket}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.Decrement do
+  @moduledoc false
+  # Decrements the running `number` by 1 and passes it on, so a chain of N
+  # Decrement nodes lowers the number by exactly N.
+  use Jido.Action,
+    name: "test_decrement",
+    schema: [number: [type: :integer, required: true]],
+    output_schema: [number: [type: :integer, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context) do
+    number = Map.get(params, :number) || Map.get(params, "number")
+    {:ok, %{number: number - 1}}
+  end
+end
