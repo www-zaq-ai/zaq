@@ -1220,12 +1220,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert Phoenix.Flash.get(state.socket.assigns.flash, :warning) ==
                "Ingestion started for 1 item(s); 1 failed."
     end
-
-    @tag :skip
-    test "ingest_selected reports a generic failure flash when the dispatch response is unexpected",
-         %{conn: _conn} do
-      :ok
-    end
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -1258,13 +1252,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "filter_status", %{"status" => "all"})
       assert has_element?(view, "p", "p.txt")
       assert has_element?(view, "p", "c.txt")
-    end
-
-    @tag :skip
-    test "load_jobs falls back to an empty list when NodeRouter returns a bad response", %{
-      conn: _conn
-    } do
-      :ok
     end
   end
 
