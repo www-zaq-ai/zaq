@@ -29,7 +29,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchSequentialTimingTest do
   @sleep_module "Zaq.Agent.Tools.Workflow.Sleep"
 
   @item_count 3
-  @sleep_ms 2_000
+  @sleep_ms 200
 
   @source_event %{
     "request" => nil,
