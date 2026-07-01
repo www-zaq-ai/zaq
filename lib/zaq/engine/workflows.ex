@@ -399,12 +399,14 @@ defmodule Zaq.Engine.Workflows do
   Exports a workflow as a plain map suitable for JSON serialisation.
 
   The output can be passed back to `import_workflow/1` to recreate the workflow.
+  If the workflow has a trigger assigned, the first one is included under
+  `"trigger"` so the round-trip re-creates and re-links it.
   """
   @spec export_workflow(Workflow.t()) :: map()
   def export_workflow(%Workflow{} = workflow) do
     steps = serialize_steps(workflow)
 
-    %{
+    base = %{
       "name" => workflow.name,
       "description" => workflow.description,
       "status" => workflow.status,
@@ -412,20 +414,70 @@ defmodule Zaq.Engine.Workflows do
       "nodes" => steps["nodes"],
       "edges" => steps["edges"]
     }
+
+    case list_triggers_for_workflow(workflow.id) do
+      [trigger | _] -> Map.put(base, "trigger", serialize_trigger(trigger))
+      [] -> base
+    end
+  end
+
+  defp serialize_trigger(%Trigger{} = trigger) do
+    %{
+      "event_name" => trigger.event_name,
+      "trigger_type" => trigger.trigger_type,
+      "enabled" => trigger.enabled,
+      "cron_schedule" => trigger.cron_schedule
+    }
   end
 
   @doc """
-  Creates a workflow from an exported map.
+  Creates a workflow from an exported map, optionally with a trigger.
 
   Always sets `status` to `"active"` regardless of the exported value so the
   workflow is immediately usable after import.
-  Returns `{:error, changeset}` if the map is missing required fields.
+
+  If the map carries a `"trigger"` object (optional), a trigger is created from
+  it and linked to the new workflow. The whole import is transactional: if either
+  the workflow or the trigger is invalid, nothing is persisted and
+  `{:error, changeset}` is returned — so a half-imported workflow can never
+  exist.
+
+  The `"trigger"` object accepts the same fields as `create_trigger/2`
+  (`event_name` (required), `trigger_type`, `enabled`, `cron_schedule`).
   """
   @spec import_workflow(map()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
   def import_workflow(attrs) when is_map(attrs) do
-    attrs
-    |> Map.put("status", "active")
-    |> create_workflow()
+    {trigger_attrs, workflow_attrs} = Map.pop(attrs, "trigger")
+    workflow_attrs = Map.put(workflow_attrs, "status", "active")
+
+    Repo.transaction(fn ->
+      with {:ok, workflow} <- create_workflow(workflow_attrs),
+           {:ok, workflow} <- attach_imported_trigger(workflow, trigger_attrs) do
+        workflow
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  # Trigger is optional — no `"trigger"` key means import just the workflow.
+  defp attach_imported_trigger(workflow, nil), do: {:ok, workflow}
+
+  defp attach_imported_trigger(workflow, trigger_attrs) when is_map(trigger_attrs) do
+    with {:ok, trigger} <- create_trigger(trigger_attrs),
+         {:ok, _link} <- assign_workflow_to_trigger(trigger, workflow) do
+      {:ok, workflow}
+    end
+  end
+
+  # A `"trigger"` that is present but not an object is malformed.
+  defp attach_imported_trigger(_workflow, _other) do
+    changeset =
+      %Trigger{}
+      |> Trigger.changeset(%{})
+      |> Ecto.Changeset.add_error(:event_name, "trigger must be an object with an event_name")
+
+    {:error, changeset}
   end
 
   # --- Runs ---
