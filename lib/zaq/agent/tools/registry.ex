@@ -265,6 +265,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Workflow.RunAgent
     },
     %{
+      key: "workflow.dispatch_event",
+      label: "Dispatch event",
+      description:
+        "Dispatch a workflow event to the Engine node, forwarding prior step outputs plus any extra input fields",
+      module: Zaq.Agent.Tools.Workflow.DispatchEvent
+    },
+    %{
       key: "advanced.lua_eval",
       label: "Lua eval",
       description: "Evaluate Lua code in a sandbox",
