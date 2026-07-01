@@ -118,7 +118,7 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
   end
 
   describe "SendLeadsEmail.create/1" do
-    test "creates the workflow and assigns the lead identified trigger" do
+    test "creates the workflow and assigns the craft_email trigger" do
       assert {:ok, workflow} =
                SendLeadsEmail.create(
                  sheet_id: "sheet-456",
@@ -130,47 +130,61 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
       trigger = workflow_trigger(workflow)
 
       assert workflow.name == "Send Leads Email"
-      assert trigger.event_name == "engine:lead_identified"
+      # SendLeadsEmail is now the consumer of the `craft_email` hand-off dispatched
+      # by GenerateCompanyContext (which converges both entry branches on it).
+      assert trigger.event_name == "engine:craft_email"
     end
   end
 
   describe "GenerateCompanyContext.build/1" do
-    test "branches via a Condition node, not edge predicates (node = eval, edges = route)" do
+    test "forks at entry on two `from: \"start\"` edges, not a Condition node" do
       attrs = GenerateCompanyContext.build()
 
-      # The evaluation unit is a Condition node placed before the two branches.
-      check_context = Enum.find(attrs.nodes, &(&1.name == "check_context"))
-      assert check_context.type == "action"
-      assert check_context.module == "Zaq.Agent.Tools.Workflow.Condition"
-      assert check_context.params["on_fail"] == "continue"
+      # Branching lives on the reserved `start` origin now, so there is no
+      # check_context Condition node and no load_existing_context branch.
+      refute Enum.any?(attrs.nodes, &(&1.name == "check_context"))
+      refute Enum.any?(attrs.nodes, &(&1.name == "load_existing_context"))
 
-      assert check_context.params["conditions"] == [
-               %{"key" => "company context file", "op" => "not_empty"}
-             ]
+      start_edges = Enum.filter(attrs.edges, &(&1.from == "start"))
+      assert length(start_edges) == 2
 
-      # check_context is a root: no incoming edge (the engine feeds it the planted
-      # trigger row directly), and there are no `from: "start"` edges — a bare start
-      # edge is rejected, and branching now lives in the node, not the edge.
-      assert Enum.filter(attrs.edges, &(&1.from == "start")) == []
-      refute Enum.any?(attrs.edges, &(&1.to == "check_context"))
+      # Context already present → short-circuit to craft_email_direct (a DispatchEvent).
+      # The dispatch is split into two single-parent nodes (craft_email_direct /
+      # craft_email_after_write) so neither is a nondeterministic convergence node.
+      craft_email_direct = Enum.find(attrs.nodes, &(&1.name == "craft_email_direct"))
+      assert craft_email_direct.module == "Zaq.Agent.Tools.Workflow.DispatchEvent"
 
-      # The two edges out of the node only route on the emitted `passed` boolean.
-      load_edge = branch_edge(attrs, "load_existing_context")
-      assert load_edge.from == "check_context"
-      assert load_edge.condition == %{"field" => "passed", "op" => "eq", "value" => true}
-      assert load_edge.mapping == %{"document_id" => "start.company context file"}
+      craft_email_after = Enum.find(attrs.nodes, &(&1.name == "craft_email_after_write"))
+      assert craft_email_after.module == "Zaq.Agent.Tools.Workflow.DispatchEvent"
 
-      generate_edge = branch_edge(attrs, "extract_company_summary")
-      assert generate_edge.from == "check_context"
-      assert generate_edge.condition == %{"field" => "passed", "op" => "eq", "value" => false}
+      # No node named plain "craft_email" — that was the flaky convergence node.
+      refute Enum.any?(attrs.nodes, &(&1.name == "craft_email"))
 
-      assert generate_edge.mapping == %{
+      # Each dispatch node has exactly one inbound edge.
+      assert Enum.count(attrs.edges, &(&1.to == "craft_email_direct")) == 1
+      assert Enum.count(attrs.edges, &(&1.to == "craft_email_after_write")) == 1
+
+      have_context = Enum.find(start_edges, &(&1.to == "craft_email_direct"))
+
+      assert have_context.condition == %{
+               "field" => "start.company context content",
+               "op" => "not_empty"
+             }
+
+      assert have_context.mapping == %{"input" => "start.company context content"}
+
+      # No context yet → generate. Spaced sheet columns are renamed to snake_case
+      # targets for {{...}} prompt interpolation; sources keep their spaces.
+      generate = Enum.find(start_edges, &(&1.to == "extract_company_summary"))
+      assert generate.condition == %{"field" => "start.company context content", "op" => "empty"}
+
+      assert generate.mapping == %{
                "company_official_name" => "start.company official name",
                "company_website" => "start.company website"
              }
     end
 
-    test "the persisted (JSONB) shape builds a valid DAG with check_context as the root" do
+    test "the persisted (JSONB) shape builds a valid DAG" do
       snapshot = GenerateCompanyContext.build() |> Jason.encode!() |> Jason.decode!()
 
       assert {:ok, _dag} = DagBuilder.build(snapshot)
@@ -184,8 +198,6 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
       assert trigger.event_name == "engine:lead_identified"
     end
   end
-
-  defp branch_edge(attrs, to), do: Enum.find(attrs.edges, &(&1.to == to))
 
   defp workflow_trigger(workflow) do
     assert [trigger] = Workflows.list_triggers_for_workflow(workflow.id)
