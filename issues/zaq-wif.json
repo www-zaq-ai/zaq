@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-01T11:53:33Z",
+  "description": "Add provider route/state to BO ingestion UI, reuse existing RecordPage listing via NodeRouter, support provider folder navigation and URL preview, and block external ingestion until phase 3.",
+  "id": "zaq-wif",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[phase-2] Add provider browsing to ingestion UI",
+  "type": "task",
+  "updated_at": "2026-07-01T11:53:33Z"
+}
