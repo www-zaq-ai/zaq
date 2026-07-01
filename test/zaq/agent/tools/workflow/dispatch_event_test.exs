@@ -39,6 +39,117 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
       assert event.name == "lead_identified"
     end
 
+    test "dispatches an empty request when no input is given" do
+      assert {:ok, %{dispatched: %{}}} =
+               DispatchEvent.run(%{event_name: "lead_identified"}, @ctx)
+
+      assert_received {:dispatched, %Event{} = event}
+      assert event.request == %{}
+      assert event.name == "lead_identified"
+    end
+
+    test "treats nil input as an empty request" do
+      assert {:ok, %{dispatched: %{}}} =
+               DispatchEvent.run(%{input: nil, event_name: "lead_identified"}, @ctx)
+    end
+
+    test "dispatches a scalar input verbatim as the request" do
+      assert {:ok, %{dispatched: "seeds ready"}} =
+               DispatchEvent.run(
+                 %{input: "seeds ready", event_name: "notify_channel", destination: "channels"},
+                 @ctx
+               )
+
+      assert_received {:dispatched, %Event{} = event}
+      assert event.request == "seeds ready"
+      assert event.next_hop.destination == :channels
+    end
+
+    test "a scalar input bypasses the cascade merge" do
+      ctx = Map.put(@ctx, :__cascade__, %{"step_a" => %{"foo" => 1}})
+
+      assert {:ok, %{dispatched: "just this"}} =
+               DispatchEvent.run(%{input: "just this", event_name: "notify_channel"}, ctx)
+    end
+
+    test "defaults the destination to :engine when not set" do
+      assert {:ok, _} = DispatchEvent.run(%{event_name: "lead_identified"}, @ctx)
+
+      assert_received {:dispatched, %Event{} = event}
+      assert event.next_hop.destination == :engine
+    end
+
+    test "routes to an explicit destination role" do
+      assert {:ok, _} =
+               DispatchEvent.run(
+                 %{event_name: "lead_identified", destination: "agent"},
+                 @ctx
+               )
+
+      assert_received {:dispatched, %Event{} = event}
+      assert event.next_hop.destination == :agent
+    end
+
+    test "accepts an atom destination" do
+      assert {:ok, _} =
+               DispatchEvent.run(
+                 %{event_name: "lead_identified", destination: :channels},
+                 @ctx
+               )
+
+      assert_received {:dispatched, %Event{} = event}
+      assert event.next_hop.destination == :channels
+    end
+
+    test "rejects an unknown destination before dispatching" do
+      assert {:error, reason} =
+               DispatchEvent.run(
+                 %{event_name: "lead_identified", destination: "mars"},
+                 @ctx
+               )
+
+      assert reason =~ "unsupported destination"
+      refute_received {:dispatched, _}
+    end
+
+    test "dispatches the merged outputs of prior steps from the cascade" do
+      ctx =
+        Map.put(@ctx, :__cascade__, %{
+          "step_a" => %{"foo" => 1, :nested => %{"x" => true}},
+          "step_b" => %{bar: 2}
+        })
+
+      assert {:ok, %{dispatched: dispatched}} =
+               DispatchEvent.run(%{event_name: "lead_identified"}, ctx)
+
+      assert dispatched == %{"foo" => 1, "nested" => %{"x" => true}, "bar" => 2}
+    end
+
+    test "drops engine-internal plumbing keys from the cascade" do
+      ctx =
+        Map.put(@ctx, :__cascade__, %{
+          "step_a" => %{"keep" => 1, :__cascade__ => %{}, "__map_index__" => 3}
+        })
+
+      assert {:ok, %{dispatched: %{"keep" => 1} = dispatched}} =
+               DispatchEvent.run(%{event_name: "lead_identified"}, ctx)
+
+      refute Map.has_key?(dispatched, "__cascade__")
+      refute Map.has_key?(dispatched, "__map_index__")
+    end
+
+    test "explicit input is layered on top of prior outputs and wins on conflicts" do
+      ctx = Map.put(@ctx, :__cascade__, %{"step_a" => %{"foo" => 1, "bar" => 2}})
+
+      assert {:ok, %{dispatched: dispatched}} =
+               DispatchEvent.run(
+                 %{input: %{"bar" => 99, "extra" => "added"}, event_name: "lead_identified"},
+                 ctx
+               )
+
+      assert dispatched == %{"foo" => 1, "bar" => 99, "extra" => "added"}
+    end
+
     test "stringifies atom-keyed input" do
       input = %{email: "a@b.com", active: true}
 
@@ -101,31 +212,40 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
       refute Map.has_key?(dispatched, "machine")
     end
 
-    test "rejects non-allowlisted event names" do
-      assert {:error, reason} =
+    test "dispatches any event name — there is no allowlist" do
+      assert {:ok, %{dispatched: %{}}} =
                DispatchEvent.run(%{input: %{}, event_name: "any_event_name_works"}, @ctx)
 
-      assert reason =~ "unsupported event_name"
-      assert reason =~ "lead_identified"
+      assert_received {:dispatched, %Event{} = event}
+      assert event.name == "any_event_name_works"
+    end
+
+    test "rejects a blank event name" do
+      assert {:error, reason} =
+               DispatchEvent.run(%{input: %{}, event_name: "   "}, @ctx)
+
+      assert reason =~ "must not be blank"
     end
   end
 
   describe "schema/0" do
-    test "does not expose arbitrary destination or hop type controls" do
+    test "exposes input, event_name, destination and machine, but no raw hop controls" do
       keys = Keyword.keys(DispatchEvent.schema())
 
       assert :input in keys
       assert :event_name in keys
+      assert :destination in keys
       assert :machine in keys
-      refute :destination in keys
+      # The raw event-struct name and hop type stay internal.
       refute :name in keys
       refute :type in keys
     end
-  end
 
-  describe "allowed_event_names/0" do
-    test "returns the workflow event allowlist" do
-      assert DispatchEvent.allowed_event_names() == ["lead_identified"]
+    test "destination is optional and defaults to \"engine\"" do
+      destination_opts = Keyword.fetch!(DispatchEvent.schema(), :destination)
+
+      refute destination_opts[:required]
+      assert destination_opts[:default] == "engine"
     end
   end
 end
