@@ -183,5 +183,65 @@ defmodule Zaq.Engine.Workflows.CompositionTest do
 
       assert :ok = Composition.validate(parent, resolver())
     end
+
+    test "rejects a convergence node (>1 inbound edge) with the offending node name" do
+      # Two branches point at the same terminal node D — the flaky convergence shape.
+      parent = %{
+        "nodes" => [node("A"), node("B"), node("C"), node("D")],
+        "edges" => [
+          %{"from" => "A", "to" => "B"},
+          %{"from" => "A", "to" => "C"},
+          %{"from" => "B", "to" => "D"},
+          %{"from" => "C", "to" => "D"}
+        ]
+      }
+
+      assert {:error, {:convergence_not_supported, ["D"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "reports every convergence node, sorted" do
+      parent = %{
+        "nodes" => [node("A"), node("B"), node("X"), node("Y")],
+        "edges" => [
+          %{"from" => "A", "to" => "X"},
+          %{"from" => "B", "to" => "X"},
+          %{"from" => "A", "to" => "Y"},
+          %{"from" => "B", "to" => "Y"}
+        ]
+      }
+
+      assert {:error, {:convergence_not_supported, ["X", "Y"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "allows fan-out (one source → many targets) — that is not convergence" do
+      parent = %{
+        "nodes" => [node("A"), node("B"), node("C")],
+        "edges" => [%{"from" => "A", "to" => "B"}, %{"from" => "A", "to" => "C"}]
+      }
+
+      assert :ok = Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "allows two `from: start` edges to DIFFERENT nodes (mutually-exclusive fork)" do
+      parent = %{
+        "nodes" => [node("direct"), node("generate")],
+        "edges" => [
+          %{
+            "from" => "start",
+            "to" => "direct",
+            "condition" => %{"field" => "x", "op" => "not_empty"}
+          },
+          %{
+            "from" => "start",
+            "to" => "generate",
+            "condition" => %{"field" => "x", "op" => "empty"}
+          }
+        ]
+      }
+
+      assert :ok = Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
   end
 end

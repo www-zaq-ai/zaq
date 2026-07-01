@@ -115,7 +115,7 @@ defmodule Zaq.Engine.Workflows.CronTriggerWorkerTest do
       assert event.name == "engine:cron.daily_sync"
     end
 
-    test "dispatches event payload carrying the explicit machine marker" do
+    test "dispatches event carrying the explicit machine marker on assigns" do
       trigger = create_cron_trigger()
       dispatched = start_supervised!({Agent, fn -> nil end})
 
@@ -127,7 +127,9 @@ defmodule Zaq.Engine.Workflows.CronTriggerWorkerTest do
       :ok = CronTriggerWorker.perform(build_job(trigger.id))
 
       event = Agent.get(dispatched, & &1)
-      assert event.request == %{trigger_id: trigger.id, machine: true}
+      # The machine marker rides on assigns (side-channel), not the request payload.
+      assert event.request == %{trigger_id: trigger.id}
+      assert event.assigns == %{machine: true}
     end
 
     test "dispatches event routed to :engine destination" do

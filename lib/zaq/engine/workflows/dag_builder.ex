@@ -389,7 +389,15 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       }
       |> then(fn p -> if run_id, do: Map.put(p, :run_id, run_id), else: p end)
 
-    ActionNode.new(Zaq.Engine.Workflows.Steps.EdgeStep, params, name: node_atom(name))
+    # `max_retries: 0` — an EdgeStep "fails" only by raising `ConditionNotMet` to
+    # prune a branch, which is deterministic control flow: a retry re-evaluates the
+    # same pure condition, gets the same result, and only adds Jido's default
+    # backoff (250ms) plus retry log noise per pruned branch. Mirror StepRunner,
+    # which is also built non-retriable.
+    ActionNode.new(Zaq.Engine.Workflows.Steps.EdgeStep, params,
+      name: node_atom(name),
+      max_retries: 0
+    )
   end
 
   @doc """
