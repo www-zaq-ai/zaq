@@ -140,7 +140,7 @@ ASCII boxes are **required** for layout zones — they communicate structure wit
 
 ### 5. Component mapping
 
-Cross-check **`DESIGN.md` inventory** and **`docs/bo-components.md`**. For each screen block:
+Cross-check **`DESIGN.md` inventory** and **`docs/bo-components.md`** at write time — do not copy the inventory into this UX doc; name the **module** each block needs. For each screen block:
 
 | UX need | Existing component | Gap? |
 |---------|-------------------|------|
@@ -151,7 +151,20 @@ Cross-check **`DESIGN.md` inventory** and **`docs/bo-components.md`**. For each 
 | Empty state | `DesignSystem.EmptyState` | — |
 | ... | ... | **NEW** if nothing fits |
 
-**Gap rule:** if no component exists, describe the UX need and mark **`[NEW COMPONENT]`** with suggested API slots — do not design visuals.
+**Gap rule:** if no component exists, describe the UX need and mark **`[NEW COMPONENT]`** or **`[GAP]`** with suggested API slots — do not design visuals.
+
+#### 5b. Form field mapping (required for create / edit / settings screens)
+
+For every form screen in the page inventory, add a **field-level** table (in addition to block-level §5). Resolve control types from **`DESIGN.md` § Form Controls** — name the module, not a visual pattern.
+
+| Screen | Field | Control (module) | Gap? |
+|--------|-------|------------------|------|
+| Create process | Process name | `DesignSystem.Input` | — |
+| Create process | Linked workflows | `SearchableSelect` (multi) or **`[GAP]`** checkbox list | note if multi-select DSM missing |
+| Add KPI | Card type | `ZaqWeb.Select` | — |
+| ... | ... | ... | ... |
+
+Block-level rows like “DesignSystem inputs” alone are **not sufficient** for form screens — field rows prevent prototype drift.
 
 ### 6. UX decisions log
 
@@ -189,6 +202,14 @@ Close with a **UI Designer Brief** section:
 ### Out of scope for UI pass
 - [backend-dependent items, v2 features]
 
+### Prototype handoff (mandatory)
+
+**`/prototype` implements §5 and §5b verbatim.** Module names are resolved from **`DESIGN.md`** at build time — the UX plan is the feature-specific list; `DESIGN.md` is the evolving catalog.
+
+- Every §5 / §5b row without a gap → that module in the staged LiveView
+- **`[NEW COMPONENT]`** / **`[GAP]`** → DSM stub or approved interim pattern; flagged for **`/design`**
+- No raw `<input>` / `<select>` unless §5b documents **`[GAP]`**
+
 ### Next step
 Run **`/prototype`** on this UX plan → human reviews at `/bo/{slug}` → then **`/design`** on approval.
 ```
@@ -211,7 +232,10 @@ The prototype skill stages features in:
 
 **Constraints (enforced by `/prototype`, not by this skill):**
 
-- Reads **`DESIGN.md`** and Storybook as DS reference; may extend DSM and existing components when needed
+- **Primary spec:** this UX plan **§5 Component mapping** and **§5b Form field mapping**
+- Resolves module names from **`DESIGN.md`** at build time (inventory is not duplicated in the prototype skill)
+- Reads Storybook read-only when UX rows are ambiguous
+- **No raw form controls** in LiveView templates unless §5b marks **`[GAP]`**
 - **No Storybook stories** — documentation is **`/design`** / **`/extract`**
 - **No backend** — fixtures only, no `NodeRouter`, `Repo`, or `lib/zaq/` changes
 - Real BO routes at `/bo/{slug}` — not isolated playground paths
@@ -244,7 +268,8 @@ Before delivering, verify:
 - [ ] Permission model reflected (read vs edit affordances)
 - [ ] UX risks from PRD addressed or flagged in open questions
 - [ ] No visual design decisions (colors, fonts, pixel spacing)
-- [ ] Component mapping complete; gaps labeled `[NEW COMPONENT]`
+- [ ] Component mapping complete (§5 block-level); **form screens have §5b field-level rows**
+- [ ] Gaps labeled `[NEW COMPONENT]` or `[GAP]`; prototype handoff section present
 - [ ] UI Designer Brief includes build order and Storybook targets
 - [ ] **`/prototype` invoked** (or user opted out)
 
