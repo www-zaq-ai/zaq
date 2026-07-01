@@ -99,32 +99,57 @@ Every prototype feature **must** stage data without touching backend structure:
 
 Read Storybook and `docs/bo-components.md` **read-only** for markup patterns — **never write** to `storybook/`.
 
-### 2. Read the UX plan
+### 2. Read the UX plan (primary implementation spec)
 
-Extract page inventory, screen specs, states, component mapping, and flows to simulate.
+Extract page inventory, screen specs, states, flows, and **§ Component mapping** (including **Form field mapping** when present).
+
+**The UX plan is the feature-specific build list.** `/ux-design` maps each screen block to DSM modules; **`/prototype` implements that mapping verbatim.** Do not substitute raw HTML when the UX plan names a component.
 
 Resolve open questions with sensible static defaults; note assumptions in fixtures `@moduledoc` if non-obvious.
 
-### 3. Map components (before HEEX)
+### 3. Resolve components (before HEEX)
 
-| UX block | Strategy |
-|----------|----------|
-| Exact fit | **Import** existing component (e.g. `BOLayout.bo_layout`, `EmptyState`) |
-| Partial fit | **Extend** existing `DesignSystem.*` or shared component |
-| `[NEW COMPONENT]` | **New** `DesignSystem.*` module — flag for **`/design`** hardening |
-| No DS equivalent | **New** `DesignSystem.*` with `.zaq-*` classes — flag for **`/design`** |
+**Do not maintain a component list in this skill** — the inventory evolves in **`DESIGN.md`**. At build time:
+
+1. Read **UX plan §5** (and §5b form fields) — one row = one implementation obligation.
+2. Resolve module names from **`DESIGN.md`** (inventory + Form Controls) and **`docs/bo-components.md`**.
+3. Spot-check **Storybook** read-only when the UX row is ambiguous.
+
+| UX plan row | Strategy |
+|-------------|----------|
+| Named `DesignSystem.*` / `ZaqWeb.*` module, no gap | **Import** that module — no raw markup equivalent |
+| Partial fit / variant noted | **Extend** existing `DesignSystem.*` or shared component |
+| **`[NEW COMPONENT]`** or **`[GAP]`** | **New or extended** `DesignSystem.*` stub — flag for **`/design`** |
+| Form field maps to a control type | Use the module named in UX plan; if **`[GAP]`**, use documented DSM field shell (`.zaq-field-row-block`, `.zaq-bo-checkbox`) — never invent classes |
+
+**Form composition rule (mandatory):**
+
+- **Never** use raw `<input>`, `<select>`, or `<textarea>` in LiveView templates under `live/bo/`.
+- **Always** use modules resolved from **`DESIGN.md` § Form Controls** (e.g. `DesignSystem.Input`, `ZaqWeb.Select`, `SearchableSelect`, `DesignSystem.Checkbox`) unless UX plan marks **`[GAP]`** with an approved interim pattern.
+- **Never** invent form classes (`zaq-input`, legacy `app.css` utilities, daisyUI). Control shells live in `assets/css/form.css` (`.zaq-control-text`, combobox trigger, etc.) and are applied via DSM modules.
+- Before writing a form screen, grep `lib/zaq_web/live/bo/` for an existing form using DS imports — copy the **import / except pattern**, not ad-hoc markup.
 
 ```
-Does an existing component satisfy the UX spec without changes?
-  YES → import
-  NEEDS VARIANT → extend existing component or DesignSystem.*
-  NEW → add DesignSystem.* module + flag for /design (Storybook, hardening)
-  NEVER → NodeRouter, Repo, or lib/zaq/ context calls
+UX plan row with no gap?
+  YES → import named module from DESIGN.md
+  [NEW COMPONENT] / [GAP] → extend DSM or approved gap pattern + flag for /design
+  NEVER → raw form tags, invented classes, NodeRouter, Repo
 ```
+
+List any **`[GAP]`** stubs and **`[NEW COMPONENT]`** modules in the LiveView `@moduledoc` for **`/design`** follow-up.
 
 ### 4. Define fixtures
 
 Static scenarios in `lib/zaq_web/fixtures/{slug}.ex` — cover all UX states. No DB, no contexts.
+
+**Fixture contract:**
+
+- URL / query params are **strings** — normalize in fixtures (`to_scenario/1` or match both `"empty"` and `:empty`); never rely on atom-only function heads for param-driven data.
+- **Scenario switcher** (when used):
+  - Each scenario must change something **visible** on the intended screen (document which screen in fixtures `@moduledoc`).
+  - Update URL via `push_patch` / `push_navigate` so `handle_params` reloads data.
+  - Use `phx-value-*` attrs that the target component forwards (`DesignSystem.Button` only passes attrs in its `rest` include list — prefer `phx-value-id` or a native `<button class="zaq-btn …">` for prototype-only controls).
+  - Auto-navigate to the screen where a scenario matters when the user is elsewhere (e.g. dashboard scenario → show view).
 
 ### 5. Build the LiveView
 
@@ -174,12 +199,20 @@ Grep touched files for violations:
 | `#[0-9a-fA-F]{3,8}` outside `var(--zaq-*)` | **Fail** |
 | `app.css` classes, daisyUI | **Fail** |
 | Forbidden Tailwind color/typography utilities | **Fail** |
+| Raw `<input`, `<select`, `<textarea` in `live/bo/*` (outside `DesignSystem.*`) | **Fail** |
+| Invented form classes (`zaq-input`, etc.) | **Fail** |
+| Form screen (`phx-submit` / `<.form`) with **no** `DesignSystem.Input`, `Select`, `SearchableSelect`, or `Checkbox` import | **Fail** |
+| UX plan §5 row implemented with a different pattern than mapped (unless documented `[GAP]` in `@moduledoc`) | **Fail** |
 
 ### 9. Verify
 
 1. `mix format` on touched files
 2. Confirm no backend or Storybook diffs
-3. Run **`/run`** → open `/bo/{slug}` and walk the happy path
+3. Run **`/run`** → open `/bo/{slug}` and verify:
+   - Happy path
+   - **Every fixture scenario** (each changes visible UI on the intended screen)
+   - **Every form screen** from the UX plan (create / edit / settings)
+4. Confirm form controls match DSM modules named in UX plan §5 / §5b
 
 ---
 
@@ -205,13 +238,15 @@ Grep touched files for violations:
 
 ## Quality checklist
 
-- [ ] **`DESIGN.md` read**; import vs extend vs new DSM decided per block
+- [ ] **UX plan §5 (+ §5b form fields) read** — every row implemented or documented `[GAP]` in `@moduledoc`
+- [ ] **`DESIGN.md` read at build time** — modules resolved from live inventory, not skill memory
+- [ ] **No raw form tags** in LiveView templates; form screens use DSM modules from UX mapping
 - [ ] **Zero diffs** under `storybook/` and `lib/zaq/`
 - [ ] All screens and states from UX plan reachable at `/bo/{slug}`
 - [ ] Static data only — fixtures module, no `Repo.`, `NodeRouter`, contexts
-- [ ] LiveView and Fixtures `@moduledoc` note `@prototype true`
+- [ ] Fixture params normalized (string scenarios); scenario switcher tested per scenario
+- [ ] LiveView and Fixtures `@moduledoc` note `@prototype true` + list `[NEW]` / `[GAP]` for `/design`
 - [ ] Route registered in `router.ex`; sidebar entry when needed
-- [ ] DSM gaps flagged for **`/design`** follow-up
 - [ ] Design system audit passes
 
 ---

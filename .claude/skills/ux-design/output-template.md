@@ -108,6 +108,12 @@
 |----------------|-----------|-----|
 | | | |
 
+### 5b. Form field mapping
+
+| Screen | Field | Control (module) | Gap? |
+|--------|-------|------------------|------|
+| | | | |
+
 ### New components needed
 
 | Name | UX responsibility | Suggested slots/attrs |
@@ -145,6 +151,10 @@
 ### Out of scope
 
 -
+
+### Prototype handoff
+
+**`/prototype` implements §5 and §5b verbatim** — modules resolved from `DESIGN.md` at build time.
 
 ### Next step
 
