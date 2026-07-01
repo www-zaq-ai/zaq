@@ -40,6 +40,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.square",
              "workflow.condition",
              "workflow.run_agent",
+             "workflow.dispatch_event",
              "advanced.lua_eval"
            ]
   end
@@ -126,6 +127,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.square",
              "workflow.condition",
              "workflow.run_agent",
+             "workflow.dispatch_event",
              "advanced.lua_eval"
            ]
   end
