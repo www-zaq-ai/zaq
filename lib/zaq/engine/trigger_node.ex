@@ -11,9 +11,11 @@ defmodule Zaq.Engine.TriggerNode do
   `source_event.assigns.input`, making the event payload available as the
   initial fact for the starting node. The triggering event's `actor` is copied
   onto the `source_event` so steps can authorize against the person who caused
-  the run; an explicit `machine: true` payload marker (set by
-  `CronTriggerWorker`) translates to `assigns.skip_permissions = true` — a
-  missing actor alone never grants the bypass.
+  the run; an explicit machine marker on the triggering event's `assigns` (set by
+  the dispatcher — `DispatchEvent` or `CronTriggerWorker`) translates to
+  `assigns.skip_permissions = true`. The marker is read from `assigns`, never the
+  request payload, so a scalar payload can't crash the trigger — and a missing
+  actor alone never grants the bypass.
 
   Failures in individual workflow runs do not crash the TriggerNode call —
   errors are logged but do not propagate.
@@ -76,7 +78,7 @@ defmodule Zaq.Engine.TriggerNode do
           trigger_type: :event,
           workflow_id: workflow.id,
           input: input,
-          skip_permissions: machine_event?(incoming_event)
+          skip_permissions: machine_marked?(incoming_event)
         }
     }
   end
@@ -89,10 +91,15 @@ defmodule Zaq.Engine.TriggerNode do
     ActorNormalizer.from_event_request(incoming_event)
   end
 
-  # The bypass requires an explicit machine marker on the triggering payload —
-  # an absent actor must never imply it (nil is not a grant).
-  defp machine_event?(incoming_event) do
-    request = build_input(incoming_event)
-    Map.get(request, :machine) == true or Map.get(request, "machine") == true
+  # The bypass requires an explicit machine marker on the event's `assigns`
+  # (side-channel metadata set by the dispatcher — `DispatchEvent` /
+  # `CronTriggerWorker`), never derived from the request payload. An absent
+  # actor must never imply it (nil is not a grant), and only the boolean `true`
+  # grants it. Reading `assigns` (not the request) means a scalar payload can
+  # never crash the trigger.
+  defp machine_marked?(%{assigns: assigns}) when is_map(assigns) do
+    Map.get(assigns, :machine) == true or Map.get(assigns, "machine") == true
   end
+
+  defp machine_marked?(_incoming_event), do: false
 end

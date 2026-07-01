@@ -269,6 +269,58 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
       assert Repo.aggregate(Workflow, :count) == before
     end
 
+    test "rejects a convergence node (two edges into one node) and persists nothing" do
+      # The `craft_email` bug shape: two branches point at the same node. Runic
+      # invokes a multi-inbound Step nondeterministically, so we reject it at import
+      # with a clear, structured reason until DagBuilder learns to duplicate it.
+      before = Repo.aggregate(Workflow, :count)
+
+      attrs = %{
+        "name" => "Convergent Import #{System.unique_integer()}",
+        "nodes" => [
+          %{
+            "name" => "root",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 1
+          },
+          %{
+            "name" => "b",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 2
+          },
+          %{
+            "name" => "merge",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 3
+          }
+        ],
+        "edges" => [
+          %{"from" => "root", "to" => "a"},
+          %{"from" => "root", "to" => "b"},
+          %{"from" => "a", "to" => "merge"},
+          %{"from" => "b", "to" => "merge"}
+        ]
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert {"invalid workflow composition", meta} = changeset.errors[:nodes]
+      assert {:convergence_not_supported, ["merge"]} = meta[:reason]
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+
     test "rejects a decoded file missing the workflow name and persists nothing" do
       before = Repo.aggregate(Workflow, :count)
 

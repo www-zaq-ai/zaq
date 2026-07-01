@@ -32,12 +32,14 @@ defmodule Zaq.Engine.Workflows.CronTriggerWorker do
         {:cancel, :not_cron_trigger}
 
       trigger ->
-        # machine: true is the explicit marker TriggerNode translates into
-        # source_event.assigns.skip_permissions for actorless scheduled runs.
+        # The machine marker rides on assigns (not the request), which TriggerNode
+        # translates into source_event.assigns.skip_permissions for actorless
+        # scheduled runs.
         Event.new(
-          %{trigger_id: trigger.id, machine: true},
+          %{trigger_id: trigger.id},
           :engine,
-          name: trigger.event_name
+          name: trigger.event_name,
+          assigns: %{machine: true}
         )
         |> node_router().dispatch()
 

@@ -58,7 +58,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   @update_sheet_module "Zaq.Agent.Tools.Sheets.UpdateSheetValues"
 
   @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
-  @event_name "lead_identified"
+  @event_name "craft_email"
 
   @doc """
   Creates the workflow and wires it to the `lead_identified` trigger.

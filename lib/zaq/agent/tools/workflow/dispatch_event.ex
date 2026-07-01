@@ -14,8 +14,10 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   ## Machine runs
 
   Set `machine: true` to mark the dispatched event as a machine (actorless)
-  run. `Zaq.Engine.TriggerNode` reads the `"machine"` marker on the request and
-  flips `source_event.assigns.skip_permissions = true` on the triggered run, so
+  run. The marker rides on the event's `assigns` (not the request payload, so it
+  works for scalar payloads too); `Zaq.Engine.TriggerNode` reads
+  `assigns.machine` and flips `source_event.assigns.skip_permissions = true` on
+  the triggered run, so
   steps that authorize against the trusted context (e.g.
   `Zaq.Agent.Tools.Accounts.History`) accept their mapped `person_id` instead of
   requiring a human actor. The bypass is opt-in — a missing marker never grants
@@ -35,8 +37,9 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   `input`, an empty request (`%{}`) is dispatched.
 
   A **scalar `input`** (e.g. a string) is dispatched **verbatim** as the request,
-  bypassing the cascade merge and machine marker — handy for a plain message
-  payload, e.g. `input: "seeds ready"` with `destination: "channels"`.
+  bypassing the cascade merge — handy for a plain message payload, e.g.
+  `input: "seeds ready"` with `destination: "channels"`. The machine marker still
+  applies to scalar payloads (it rides on `assigns`, not the request).
 
   ## Example
 
@@ -133,8 +136,15 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   end
 
   defp dispatch_event(input, event_name, destination, machine?, ctx) do
-    request = build_request(input, machine?, ctx)
-    event = Zaq.Event.new(request, destination, type: :async, name: event_name)
+    request = build_request(input, ctx)
+
+    event =
+      Zaq.Event.new(request, destination,
+        type: :async,
+        name: event_name,
+        assigns: machine_assigns(machine?)
+      )
+
     node_router = Map.get(ctx, :node_router, NodeRouter)
 
     Logger.debug("[dispatch_event] dispatching #{inspect(event.name)} to #{inspect(destination)}")
@@ -156,9 +166,10 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   end
 
   # A scalar `input` (string, number, …) is dispatched verbatim as the request —
-  # e.g. a plain channels message. Cascade merging and the machine marker only
-  # apply to map payloads, so a scalar bypasses both.
-  defp build_request(input, _machine?, _ctx) when not is_map(input) and not is_nil(input),
+  # e.g. a plain channels message. Cascade merging only applies to map payloads,
+  # so a scalar bypasses it. The machine marker rides on `assigns`, not the
+  # request, so scalar payloads carry it just as well as maps.
+  defp build_request(input, _ctx) when not is_map(input) and not is_nil(input),
     do: input
 
   # Map (or absent) `input`: default to the merged outputs of every previously
@@ -169,11 +180,10 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   # All keys are stringified — the iterate pipeline may atom-normalize keys via
   # try_to_atom, leaving a mixed map that the engine rejects as
   # {:invalid_request, ...}.
-  defp build_request(input, machine?, ctx) do
+  defp build_request(input, ctx) do
     ctx
     |> prior_step_outputs()
     |> Map.merge(string_keyed(input || %{}))
-    |> maybe_mark_machine(machine?)
   end
 
   # Flattens the run's cascade (`%{step_name => result}`) into a single
@@ -198,11 +208,12 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
 
   defp internal_key?(k), do: k |> to_string() |> String.starts_with?("__")
 
-  # The `"machine"` marker is read by `Zaq.Engine.TriggerNode` to set
-  # skip_permissions on the triggered run. Only added when explicitly requested
-  # so non-machine dispatches keep a clean request payload.
-  defp maybe_mark_machine(request, true), do: Map.put(request, "machine", true)
-  defp maybe_mark_machine(request, false), do: request
+  # The machine marker rides on the event's `assigns` (side-channel metadata),
+  # NOT the request payload — so `Zaq.Engine.TriggerNode` reads it without digging
+  # into (and never crashing on) a scalar request, and the request stays clean
+  # domain data. Only set when explicitly requested.
+  defp machine_assigns(true), do: %{machine: true}
+  defp machine_assigns(false), do: %{}
 
   defp validate_event_name(event_name) when is_binary(event_name) do
     if String.trim(event_name) == "", do: {:error, "event_name must not be blank"}, else: :ok

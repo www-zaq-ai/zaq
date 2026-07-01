@@ -734,6 +734,13 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       "#{fmt_names(leaves)}. Adjust it to a single entry and a single exit."
   end
 
+  defp humanize_composition({:convergence_not_supported, nodes}) do
+    "These steps are each reached by more than one connection: #{fmt_names(nodes)}. " <>
+      "A step with multiple incoming connections currently runs unreliably, so it " <>
+      "is not yet supported. Give each incoming branch its own step (e.g. duplicate " <>
+      "the step once per branch) instead of pointing several connections at one step."
+  end
+
   defp humanize_composition(other) do
     "The workflow structure is invalid (#{inspect(other)})."
   end

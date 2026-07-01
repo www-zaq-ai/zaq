@@ -317,7 +317,7 @@ defmodule Zaq.Engine.TriggerNodeTest do
       workflow = create_active_workflow("MachineWorkflow")
       Workflows.assign_workflow_to_trigger(trigger, workflow)
 
-      incoming_event = build_event(:machine_event, %{trigger_id: 7, machine: true})
+      incoming_event = build_event(:machine_event, %{trigger_id: 7}, %{machine: true})
 
       assert :ok = TriggerNode.fire("engine:machine_event", incoming_event)
 
@@ -330,7 +330,7 @@ defmodule Zaq.Engine.TriggerNodeTest do
       workflow = create_active_workflow("MachineStringWorkflow")
       Workflows.assign_workflow_to_trigger(trigger, workflow)
 
-      incoming_event = build_event(:machine_string_event, %{"machine" => true})
+      incoming_event = build_event(:machine_string_event, %{}, %{"machine" => true})
 
       assert :ok = TriggerNode.fire("engine:machine_string_event", incoming_event)
 
@@ -354,7 +354,7 @@ defmodule Zaq.Engine.TriggerNodeTest do
       workflow = create_active_workflow("SneakyMarkerWorkflow")
       Workflows.assign_workflow_to_trigger(trigger, workflow)
 
-      incoming_event = build_event(:sneaky_marker_event, %{"machine" => "yes"})
+      incoming_event = build_event(:sneaky_marker_event, %{}, %{"machine" => "yes"})
 
       assert :ok = TriggerNode.fire("engine:sneaky_marker_event", incoming_event)
 
