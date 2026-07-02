@@ -364,7 +364,10 @@ defmodule ZaqWeb.Components.BOLayout do
       </aside>
       
     <!-- Main -->
-      <main id="bo-main" class="flex-1">
+      <%!-- min-w-0: without it this flex item's min-width:auto lets wide page
+           content (long unbroken lines, wide tables) push the main column past
+           the viewport and give the whole BO a horizontal scrollbar. --%>
+      <main id="bo-main" class="flex-1 min-w-0">
         <!-- Header -->
         <header
           class="h-16 border-b flex items-center px-8 gap-6"

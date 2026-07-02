@@ -235,6 +235,88 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
   end
 
+  describe "agent trace panel on a step card" do
+    test "renders agent/model/trace detail for a step whose results carry them", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      step_run_fixture(run, %{
+        step_name: "fetch",
+        step_index: 0,
+        status: "completed",
+        results: %{
+          "output" => "hi",
+          "trace" => [%{"id" => "t1", "type" => "content"}],
+          "agent" => %{"name" => "Bot"},
+          "model" => "gpt-4"
+        }
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      html = render(view)
+
+      assert html =~ "data-testid=\"agent-trace-panel-"
+      assert html =~ "Bot"
+      assert html =~ "gpt-4"
+      assert html =~ "Traces (1)"
+    end
+
+    test "omits the panel for a step whose results carry no agent/trace data", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      step_run_fixture(run, %{
+        step_name: "fetch",
+        step_index: 0,
+        status: "completed",
+        results: %{"output" => "done"}
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      html = render(view)
+
+      refute html =~ "data-testid=\"agent-trace-panel-"
+    end
+
+    test "expands a trace row's JSON on click, scoped to its own step", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      step_run =
+        step_run_fixture(run, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "completed",
+          results: %{"output" => "hi", "trace" => [%{"id" => "t1", "type" => "content"}]}
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+
+      html =
+        render_click(view, "toggle_step_trace_details", %{
+          "step_run_id" => step_run.id,
+          "trace_id" => "t1"
+        })
+
+      assert html =~ "data-testid=\"trace-details-t1\""
+      assert html =~ "Copy trace JSON"
+    end
+
+    test "copy_message pushes a clipboard event with the given text", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      render_click(view, "copy_message", %{"text" => "hello"})
+
+      assert_push_event(view, "clipboard", %{text: "hello"})
+    end
+  end
+
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
   @hitl_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
 

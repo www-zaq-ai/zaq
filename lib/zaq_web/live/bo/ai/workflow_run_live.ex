@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   alias Zaq.{Event, NodeRouter}
   alias ZaqWeb.Components.BOLayout
   alias ZaqWeb.Live.BO.AI.WorkflowResultHelpers
+  alias ZaqWeb.Live.BO.Communication.MessageHelpers
 
   @impl true
   def mount(%{"id" => workflow_id, "run_id" => run_id}, _session, socket) do
@@ -34,7 +35,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
            now: DateTime.utc_now(),
            node_info: build_node_info(run),
            batch_progress: %{},
-           selected_step: active_step(step_runs)
+           selected_step: active_step(step_runs),
+           expanded_trace_ids: %{}
          )}
 
       :error ->
@@ -119,6 +121,27 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
       if socket.assigns.selected_step == step_name, do: nil, else: step_name
 
     {:noreply, assign(socket, selected_step: selected)}
+  end
+
+  def handle_event(
+        "toggle_step_trace_details",
+        %{"step_run_id" => sid, "trace_id" => tid},
+        socket
+      ) do
+    current = Map.get(socket.assigns.expanded_trace_ids, sid, MapSet.new())
+
+    updated =
+      Map.put(
+        socket.assigns.expanded_trace_ids,
+        sid,
+        MessageHelpers.toggle_trace_details(current, tid)
+      )
+
+    {:noreply, assign(socket, :expanded_trace_ids, updated)}
+  end
+
+  def handle_event("copy_message", %{"text" => text}, socket) do
+    {:noreply, push_event(socket, "clipboard", %{text: text})}
   end
 
   def handle_event("cancel_run", _params, socket) do
@@ -514,8 +537,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
             </div>
           </div>
 
-          <%!-- Right: Steps panel — only rendered when a node is selected --%>
-          <div :if={@selected_step} class="w-1/2 space-y-3">
+          <%!-- Right: Steps panel — only rendered when a node is selected.
+               min-w-0 stops wide step content (e.g. long trace JSON lines) from
+               inflating this flex item past w-1/2; inner overflow-x-auto
+               regions then scroll instead of stretching the page. --%>
+          <div :if={@selected_step} class="w-1/2 min-w-0 space-y-3">
             <p class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider">
               {@selected_step}
             </p>
@@ -617,6 +643,23 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                             data={step.input}
                           />
                         </div>
+                      </div>
+
+                      <%!-- Agent trace (inline, always visible when present) --%>
+                      <div
+                        :if={
+                          step.status in ["completed", "waiting"] and
+                            agent_trace_available?(step.results)
+                        }
+                        class="border-b border-black/[0.06] px-5 py-3"
+                      >
+                        <ZaqWeb.Components.ChatMessage.agent_trace_panel
+                          message_info={agent_trace_info(step.results)}
+                          expanded_ids={Map.get(@expanded_trace_ids, step.id, MapSet.new())}
+                          toggle_event="toggle_step_trace_details"
+                          testid={"agent-trace-panel-#{step.id}"}
+                          phx-value-step_run_id={step.id}
+                        />
                       </div>
 
                       <%!-- Output (collapsible) --%>
@@ -782,6 +825,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   end
 
   defp clean_results(results), do: WorkflowResultHelpers.clean_results(results)
+  defp agent_trace_info(results), do: WorkflowResultHelpers.agent_trace_info(results)
+  defp agent_trace_available?(results), do: WorkflowResultHelpers.agent_trace_available?(results)
 
   defp format_step_error(%{"message" => msg}) when is_binary(msg), do: msg
   defp format_step_error(%{"reason" => reason}) when is_binary(reason), do: reason
