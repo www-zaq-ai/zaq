@@ -31,6 +31,27 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     end
   end
 
+  defmodule TraceRouter do
+    alias Zaq.Engine.Messages.Outgoing
+
+    def dispatch(event) do
+      %{
+        event
+        | response: %Outgoing{
+            body: "Hello from agent",
+            channel_id: event.request.channel_id,
+            provider: nil,
+            metadata: %{
+              trace: [%{"id" => "llm:0:content", "type" => "content"}],
+              agent: %{id: 1, name: "Bot"},
+              model: "gpt-4",
+              measurements: %{"latency_ms" => 10}
+            }
+          }
+      }
+    end
+  end
+
   defmodule FailingRouter do
     alias Zaq.Engine.Messages.Outgoing
 
@@ -266,6 +287,27 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert {:ok, %{output: "Hello from agent"}} =
                RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
+    end
+
+    test "returns safe defaults for trace/agent/model/measurements when metadata is empty" do
+      agent = create_agent()
+
+      assert {:ok,
+              %{output: "Hello from agent", trace: [], agent: nil, model: nil, measurements: %{}}} =
+               RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
+    end
+
+    test "carries trace/agent/model/measurements through from outgoing.metadata" do
+      agent = create_agent()
+      ctx = Map.put(@ctx, :node_router, TraceRouter)
+
+      assert {:ok, result} = RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
+
+      assert result.output == "Hello from agent"
+      assert result.trace == [%{"id" => "llm:0:content", "type" => "content"}]
+      assert result.agent == %{"id" => 1, "name" => "Bot"}
+      assert result.model == "gpt-4"
+      assert result.measurements == %{"latency_ms" => 10}
     end
   end
 

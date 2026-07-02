@@ -379,13 +379,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :toggle_event, :string, required: true
 
   def message_info_popin(assigns) do
-    assigns =
-      assigns
-      |> assign_new(:expanded_ids, fn -> MapSet.new() end)
-      |> assign(:traces, traces(assigns.message_info))
-      |> assign(:measurements, measurements(assigns.message_info))
-      |> assign(:agent_name, agent_name(assigns.message_info))
-      |> assign(:model_name, model_name(assigns.message_info))
+    assigns = assign_new(assigns, :expanded_ids, fn -> MapSet.new() end)
 
     ~H"""
     <div
@@ -408,81 +402,114 @@ defmodule ZaqWeb.Components.ChatMessage do
         </div>
 
         <div class="overflow-y-auto pr-1" style="max-height: calc(85vh - 90px);">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-            <div class="rounded-xl border border-[#e8e6e1] bg-[#fcfcfb] px-3 py-2">
-              <p class="font-mono text-[0.62rem] uppercase tracking-widest text-[#9e9b94]">Agent</p>
-              <p class="font-mono text-[0.75rem] text-[#2c2b28] truncate">{@agent_name}</p>
-            </div>
-            <div class="rounded-xl border border-[#e8e6e1] bg-[#fcfcfb] px-3 py-2">
-              <p class="font-mono text-[0.62rem] uppercase tracking-widest text-[#9e9b94]">Model</p>
-              <p class="font-mono text-[0.75rem] text-[#2c2b28] truncate">{@model_name}</p>
-            </div>
-          </div>
-
-          <div class="mb-4">
-            <p class="font-mono text-[0.68rem] font-bold text-[#7f7c76] mb-2">Measurements</p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div
-                :for={{key, value} <- @measurements}
-                class="rounded-lg border border-[#ece9e3] bg-white px-2.5 py-2 flex items-center justify-between gap-3"
-              >
-                <span class="font-mono text-[0.66rem] text-[#7f7c76] truncate">{key}</span>
-                <span class="font-mono text-[0.66rem] text-[#2c2b28]">
-                  {format_detail_value(value)}
-                </span>
-              </div>
-              <p :if={@measurements == []} class="font-mono text-[0.66rem] text-[#9e9b94]">
-                No measurements available.
-              </p>
-            </div>
-          </div>
-
-          <p class="font-mono text-[0.68rem] font-bold text-[#7f7c76] mb-2">
-            Traces ({length(@traces)})
-          </p>
-          <ul class="space-y-2">
-            <li
-              :for={trace <- sort_traces_chronologically(@traces)}
-              class="border border-[#e8e6e1] rounded-xl overflow-hidden"
-            >
-              <button
-                type="button"
-                phx-click={@toggle_event}
-                phx-value-trace_id={trace_id(trace)}
-                class="w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-[#faf9f7]"
-                data-testid={"trace-row-#{trace_id(trace)}"}
-              >
-                <span class="font-mono text-[0.75rem] text-[#2c2b28] truncate">
-                  {trace_label(trace)}
-                </span>
-                <span class="font-mono text-[0.62rem] text-[#9e9b94]">
-                  {format_response_time(trace_duration_ms(trace))}
-                </span>
-              </button>
-
-              <div
-                :if={MapSet.member?(@expanded_ids, trace_id(trace))}
-                class="px-3 pb-3 pt-1 bg-[#fcfcfb] border-t border-[#f0ede8]"
-                data-testid={"trace-details-#{trace_id(trace)}"}
-              >
-                <div class="flex items-center justify-between mt-2 mb-1">
-                  <p class="font-mono text-[0.68rem] text-[#7f7c76] font-bold">Full JSON</p>
-                  <button
-                    type="button"
-                    phx-click="copy_message"
-                    phx-value-text={pretty_json(trace)}
-                    class="font-mono text-[0.62rem] px-2 py-1 rounded-md border border-black/10 text-black/60 hover:bg-black/5"
-                    title="Copy trace JSON"
-                  >
-                    Copy
-                  </button>
-                </div>
-                <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(trace)}</pre>
-              </div>
-            </li>
-          </ul>
+          <.agent_trace_panel
+            message_info={@message_info}
+            expanded_ids={@expanded_ids}
+            toggle_event={@toggle_event}
+          />
         </div>
       </div>
+    </div>
+    """
+  end
+
+  @doc """
+  Agent/Model tiles, Measurements grid, and an expandable Traces list —
+  the same content `message_info_popin/1` shows in a modal, extracted so it can
+  also be rendered inline (e.g. always-visible inside a workflow step card,
+  with no modal chrome and no "i" icon click needed to reveal it).
+  """
+  attr :message_info, :map, default: %{}
+  attr :expanded_ids, :any, default: nil
+  attr :toggle_event, :string, required: true
+  attr :testid, :string, default: "agent-trace-panel"
+  attr :rest, :global, doc: "forwarded onto each trace-row button, e.g. phx-value-step_run_id"
+
+  def agent_trace_panel(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:expanded_ids, fn -> MapSet.new() end)
+      |> assign(:traces, traces(assigns.message_info))
+      |> assign(:measurements, measurements(assigns.message_info))
+      |> assign(:agent_name, agent_name(assigns.message_info))
+      |> assign(:model_name, model_name(assigns.message_info))
+
+    ~H"""
+    <div data-testid={@testid}>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+        <div class="rounded-xl border border-[#e8e6e1] bg-[#fcfcfb] px-3 py-2">
+          <p class="font-mono text-[0.62rem] uppercase tracking-widest text-[#9e9b94]">Agent</p>
+          <p class="font-mono text-[0.75rem] text-[#2c2b28] truncate">{@agent_name}</p>
+        </div>
+        <div class="rounded-xl border border-[#e8e6e1] bg-[#fcfcfb] px-3 py-2">
+          <p class="font-mono text-[0.62rem] uppercase tracking-widest text-[#9e9b94]">Model</p>
+          <p class="font-mono text-[0.75rem] text-[#2c2b28] truncate">{@model_name}</p>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <p class="font-mono text-[0.68rem] font-bold text-[#7f7c76] mb-2">Measurements</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            :for={{key, value} <- @measurements}
+            class="rounded-lg border border-[#ece9e3] bg-white px-2.5 py-2 flex items-center justify-between gap-3"
+          >
+            <span class="font-mono text-[0.66rem] text-[#7f7c76] truncate">{key}</span>
+            <span class="font-mono text-[0.66rem] text-[#2c2b28]">
+              {format_detail_value(value)}
+            </span>
+          </div>
+          <p :if={@measurements == []} class="font-mono text-[0.66rem] text-[#9e9b94]">
+            No measurements available.
+          </p>
+        </div>
+      </div>
+
+      <p class="font-mono text-[0.68rem] font-bold text-[#7f7c76] mb-2">
+        Traces ({length(@traces)})
+      </p>
+      <ul class="space-y-2">
+        <li
+          :for={{trace, row_id} <- trace_rows(@traces)}
+          class="border border-[#e8e6e1] rounded-xl overflow-hidden"
+        >
+          <button
+            type="button"
+            phx-click={@toggle_event}
+            phx-value-trace_id={row_id}
+            class="w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-[#faf9f7]"
+            data-testid={"trace-row-#{row_id}"}
+            {@rest}
+          >
+            <span class="font-mono text-[0.75rem] text-[#2c2b28] truncate">
+              {trace_label(trace)}
+            </span>
+            <span class="font-mono text-[0.62rem] text-[#9e9b94]">
+              {format_response_time(trace_duration_ms(trace))}
+            </span>
+          </button>
+
+          <div
+            :if={MapSet.member?(@expanded_ids, row_id)}
+            class="px-3 pb-3 pt-1 bg-[#fcfcfb] border-t border-[#f0ede8]"
+            data-testid={"trace-details-#{row_id}"}
+          >
+            <div class="flex items-center justify-between mt-2 mb-1">
+              <p class="font-mono text-[0.68rem] text-[#7f7c76] font-bold">Full JSON</p>
+              <button
+                type="button"
+                phx-click="copy_message"
+                phx-value-text={pretty_json(trace)}
+                class="font-mono text-[0.62rem] px-2 py-1 rounded-md border border-black/10 text-black/60 hover:bg-black/5"
+                title="Copy trace JSON"
+              >
+                Copy
+              </button>
+            </div>
+            <pre class="font-mono text-[0.66rem] leading-relaxed text-[#2c2b28] bg-white border border-[#ece9e3] rounded-lg p-2 overflow-x-auto">{pretty_json(trace)}</pre>
+          </div>
+        </li>
+      </ul>
     </div>
     """
   end
@@ -758,6 +785,27 @@ defmodule ZaqWeb.Components.ChatMessage do
   end
 
   defp legacy_trace_type(_), do: nil
+
+  # Traces persisted before segment ids carried a type suffix can collide (a
+  # reasoning and a content segment of the same LLM call share its call id), so
+  # toggling one row would expand/collapse the other. Suffix only colliding ids
+  # to keep every already-persisted unique id (and its testid) unchanged.
+  defp trace_rows(traces) do
+    sorted = sort_traces_chronologically(traces)
+    ids = Enum.map(sorted, &trace_id/1)
+    frequencies = Enum.frequencies(ids)
+
+    sorted
+    |> Enum.zip(ids)
+    |> Enum.with_index()
+    |> Enum.map(fn {{trace, id}, index} ->
+      if frequencies[id] > 1 do
+        {trace, "#{id}:#{trace_value(trace, [:type, "type"]) || index}"}
+      else
+        {trace, id}
+      end
+    end)
+  end
 
   defp trace_id(trace) do
     id =
