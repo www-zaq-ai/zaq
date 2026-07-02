@@ -10,6 +10,13 @@ defmodule Zaq.Engine.Workflows.RunRecoveryWorker do
 
   Jobs are unique on `run_id` so a duplicate enqueue (e.g. overlapping boots) is
   a no-op while a recovery is still pending or executing.
+
+  A run reaching this worker means the application's prep_stop callback never
+  got to interrupt it before the node went down — a genuine unplanned death
+  (crash, `kill -9`, OOM, host loss), not a graceful stop. `reason:
+  "unplanned_termination"` reflects that honestly, distinct from the
+  `"graceful_shutdown"` label prep_stop uses for the common, deliberate-restart
+  case.
   """
 
   use Oban.Worker,
@@ -48,7 +55,14 @@ defmodule Zaq.Engine.Workflows.RunRecoveryWorker do
         :ok
 
       %WorkflowRun{} = run ->
-        case workflows_mod().interrupt_run(run) do
+        opts = [
+          reason: "unplanned_termination",
+          message:
+            "No clean shutdown was recorded for this run before the node went down — " <>
+              "the process likely crashed or was killed."
+        ]
+
+        case workflows_mod().interrupt_run(run, opts) do
           {:ok, _interrupted} ->
             Logger.info("[RunRecovery] interrupted run #{run_id} (was #{run.status})")
             :ok

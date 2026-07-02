@@ -78,6 +78,13 @@ defmodule Zaq.Application do
 
   @impl true
   def prep_stop(state) do
+    # Only a node actually running the engine could own an in-flight
+    # WorkflowRun — a BO/agent/ingestion-only node interrupting runs it never
+    # executed would wrongly kill work still executing on a live engine node.
+    if Zaq.NodeRoles.has_any?([:engine]) do
+      Workflows.interrupt_in_flight_runs()
+    end
+
     state
   end
 

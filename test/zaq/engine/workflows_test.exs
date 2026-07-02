@@ -667,6 +667,54 @@ defmodule Zaq.Engine.WorkflowsTest do
     end
   end
 
+  # --- interrupt_in_flight_runs/1 ---
+
+  describe "interrupt_in_flight_runs/1" do
+    test "interrupts every running/pending run with the graceful_shutdown reason by default" do
+      w = create_workflow()
+      running = create_run(w) |> set_run_status("running")
+      pending = create_run(w)
+      completed = create_run(w) |> set_run_status("completed")
+
+      {:ok, running_step} =
+        Workflows.create_step_run(running, %{step_name: "fetch", step_index: 0, status: "running"})
+
+      assert :ok = Workflows.interrupt_in_flight_runs()
+
+      assert Workflows.get_run!(running.id).status == "interrupted"
+      assert Workflows.get_run!(pending.id).status == "interrupted"
+      # Untouched control — proves the sweep didn't just interrupt everything.
+      assert Workflows.get_run!(completed.id).status == "completed"
+
+      reloaded_step = Repo.get!(Zaq.Engine.Workflows.Step.Run, running_step.id)
+      assert reloaded_step.status == "failed"
+      assert reloaded_step.errors["reason"] == "graceful_shutdown"
+      assert reloaded_step.errors["message"] =~ "restart or deploy"
+    end
+
+    test "accepts a custom reason/message" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      assert :ok =
+               Workflows.interrupt_in_flight_runs(
+                 reason: "custom_reason",
+                 message: "custom message"
+               )
+
+      assert Workflows.get_run!(run.id).status == "interrupted"
+    end
+
+    test "is a no-op when nothing is running or pending" do
+      w = create_workflow()
+      completed = create_run(w) |> set_run_status("completed")
+
+      assert :ok = Workflows.interrupt_in_flight_runs()
+
+      assert Workflows.get_run!(completed.id).status == "completed"
+    end
+  end
+
   defp set_run_status(run, status) do
     {:ok, updated} = Workflows.update_run(run, %{status: status})
     updated
