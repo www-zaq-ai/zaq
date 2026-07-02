@@ -59,6 +59,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 | Engine, conversations, notifications, dispatch | `docs/services/engine.md`        |
 | Ingestion pipeline, chunking, embedding        | `docs/services/ingestion.md`     |
 | Onboarding, portal provisioning, consent       | `docs/services/onboarding.md`    |
+| RAG benchmark (LiveRAG): running, scoring, corpus reuse | `docs/services/rag-benchmark.md` |
 | Add-ons loading & feature gating               | `docs/services/addons.md`       |
 | System config, secrets, encryption             | `docs/services/system-config.md` |
 | Telemetry, metrics, buffer behavior            | `docs/services/telemetry.md`     |

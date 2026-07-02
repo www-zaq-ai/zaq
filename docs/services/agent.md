@@ -3,7 +3,7 @@
 ## Overview
 
 The Agent service is the AI layer of ZAQ. It handles query rewriting, response formulation,
-confidence scoring, prompt security, and chunk title generation during ingestion.
+confidence scoring, and prompt security.
 
 Core pipeline modules remain stateless, but configured agents are now runtime-managed.
 `Zaq.Agent.Supervisor` starts:
@@ -304,9 +304,12 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 
 ### Chunk Title Generation (`Zaq.Agent.ChunkTitle`)
 - Generates concise, searchable titles (max 8 words) for document chunks via LLM
-- Focuses on named entities, dates, product names to improve embedding quality
+- Focuses on named entities, dates, product names
 - Implements `Zaq.Agent.ChunkTitleBehaviour` (injectable for tests)
-- Called during ingestion by `DocumentProcessor.store_chunk_with_metadata/3`
+- **No longer wired into ingestion.** Title generation and the chunk-title column were
+  dropped from the ingest path in commit `ed949b95`; `DocumentProcessor.store_chunk_with_metadata/3`
+  now embeds the raw chunk content. The module + `chunk_title` prompt template are retained
+  but currently have no production caller.
 
 ### Prompt Templates (`Zaq.Agent.PromptTemplate`)
 - Ecto schema backed by `prompt_templates` DB table
