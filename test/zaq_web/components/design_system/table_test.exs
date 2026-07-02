@@ -12,7 +12,7 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
 
   test "table/1 renders zaq-table shell and body rows" do
     html =
-      render_component(fn _assigns ->
+      render_component(fn assigns ->
         ~H"""
         <Table.table id="users-table">
           <:body>
@@ -139,7 +139,7 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
 
   test "grid/1 renders header table and card grid container" do
     html =
-      render_component(fn _assigns ->
+      render_component(fn assigns ->
         ~H"""
         <Grid.grid id="file-grid">
           <:cards>
