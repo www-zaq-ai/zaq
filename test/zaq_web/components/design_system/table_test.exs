@@ -1,6 +1,7 @@
 defmodule ZaqWeb.Components.DesignSystem.TableTest do
   use ExUnit.Case, async: true
 
+  import Phoenix.Component
   import Phoenix.LiveViewTest
   import ZaqWeb.Helpers.DateFormat, only: [format_datetime: 1]
 
@@ -11,28 +12,19 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
 
   test "table/1 renders zaq-table shell and body rows" do
     html =
-      render_component(&Table.table/1,
-        id: "users-table",
-        body: [
-          %{
-            inner_block: fn _, _ ->
-              Table.table_row(%{
-                inner_block: [
-                  %{
-                    inner_block: fn _, _ ->
-                      Table.table_cell(%{
-                        inner_block: [
-                          %{inner_block: fn _, _ -> Table.table_text(%{label: "Jana"}) end}
-                        ]
-                      })
-                    end
-                  }
-                ]
-              })
-            end
-          }
-        ]
-      )
+      render_component(fn _assigns ->
+        ~H"""
+        <Table.table id="users-table">
+          <:body>
+            <Table.table_row>
+              <Table.table_cell>
+                <Table.table_text label="Jana" />
+              </Table.table_cell>
+            </Table.table_row>
+          </:body>
+        </Table.table>
+        """
+      end)
 
     assert String.contains?(html, ~s(id="users-table"))
     assert String.contains?(html, "zaq-table")
@@ -147,18 +139,17 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
 
   test "grid/1 renders header table and card grid container" do
     html =
-      render_component(&Grid.grid/1,
-        id: "file-grid",
-        cards: [
-          %{
-            inner_block: fn _, _ ->
-              Grid.grid_card(%{
-                inner_block: [%{inner_block: fn _, _ -> "Card" end}]
-              })
-            end
-          }
-        ]
-      )
+      render_component(fn _assigns ->
+        ~H"""
+        <Grid.grid id="file-grid">
+          <:cards>
+            <Grid.grid_card>
+              Card
+            </Grid.grid_card>
+          </:cards>
+        </Grid.grid>
+        """
+      end)
 
     assert String.contains?(html, "ingestion-grid-header")
     assert String.contains?(html, "zaq-ingestion-file-grid")
