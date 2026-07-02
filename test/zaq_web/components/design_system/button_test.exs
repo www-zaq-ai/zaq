@@ -70,7 +70,7 @@ defmodule ZaqWeb.Components.DesignSystem.ButtonTest do
 
     assert left_html =~ "hero-x-mark"
     assert left_html =~ "Dismiss"
-    assert icon_before_text?(left_html, "Dismiss")
+    assert icon_before_text?(left_html, "Dismiss", "hero-x-mark")
 
     right_html =
       render_component(&Button.button/1,
@@ -80,7 +80,7 @@ defmodule ZaqWeb.Components.DesignSystem.ButtonTest do
         inner_block: [%{inner_block: fn _, _ -> "Dismiss" end}]
       )
 
-    refute icon_before_text?(right_html, "Dismiss")
+    refute icon_before_text?(right_html, "Dismiss", "hero-x-mark")
   end
 
   test "button/1 icon_only uses zaq-btn-icon without label typography" do
@@ -154,7 +154,7 @@ defmodule ZaqWeb.Components.DesignSystem.ButtonTest do
     assert html =~ "zaq-btn-tertiary"
     assert html =~ "hero-arrows-pointing-out"
     assert html =~ "Move"
-    assert icon_before_text?(html, "Move")
+    assert icon_before_text?(html, "Move", "hero-arrows-pointing-out")
   end
 
   test "button/1 merges optional class attribute" do
@@ -168,8 +168,8 @@ defmodule ZaqWeb.Components.DesignSystem.ButtonTest do
     assert html =~ "zaq-btn-primary"
   end
 
-  defp icon_before_text?(html, text) do
-    {icon_pos, _} = :binary.match(html, "hero-x-mark")
+  defp icon_before_text?(html, text, icon) do
+    {icon_pos, _} = :binary.match(html, icon)
     {text_pos, _} = :binary.match(html, text)
     icon_pos < text_pos
   end

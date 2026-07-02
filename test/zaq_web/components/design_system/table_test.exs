@@ -7,7 +7,7 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
   alias ZaqWeb.Components.DesignSystem.Table
   alias ZaqWeb.Components.DesignSystem.Table.Grid
 
-  @dt DateTime.utc(2025, 3, 13, 14, 5, 0)
+  @dt ~U[2025-03-13 14:05:00Z]
 
   test "table/1 renders zaq-table shell and body rows" do
     html =
