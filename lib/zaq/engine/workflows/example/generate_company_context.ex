@@ -30,10 +30,15 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
   Rather than a `Condition` node, the entry fork lives on two `from: "start"`
   edges. `start` is the reserved virtual origin: an edge out of it remaps/guards
   the planted initial fact before it reaches a real root node. A bare `from: "start"`
-  edge (no condition, no mapping) is rejected as a no-op, but each of ours both
-  guards and maps, and they fan out to *different* nodes (allowed; two `start`
+  edge (no condition, no mapping) is rejected as a no-op, but each of ours at
+  least guards, and they fan out to *different* nodes (allowed; two `start`
   edges into the *same* node would be an ambiguous double-seed). See
   `Zaq.Engine.Workflows.DagBuilder`.
+
+  The short-circuit edge guards but deliberately does **not** map: the full
+  start fact (a map) flows into `craft_email_direct`, because a scalar-mapped
+  `input` would dispatch a scalar request that cannot carry the
+  `machine: true` flag (see `machine_event?` handling in `TriggerNode`).
 
   ## DAG
 
@@ -48,8 +53,9 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
         → craft_email_after_write      ← DispatchEvent: hand off to the email-drafting workflow
 
   Both branches hand off to the email-drafting workflow by dispatching the same
-  `craft_email` event (as a machine/actorless run) carrying the context document as
-  `input` — but through **two separate single-parent nodes** (`craft_email_direct`
+  `craft_email` event (as a machine/actorless run) — the generation branch maps the
+  context document as `input`, the short-circuit branch forwards the start fact
+  containing it — but through **two separate single-parent nodes** (`craft_email_direct`
   and `craft_email_after_write`), NOT one shared convergence node. A Runic Step with
   two inbound edges fires nondeterministically (only the parent that wins the
   reaction race triggers it), so a shared node would dispatch only intermittently.
