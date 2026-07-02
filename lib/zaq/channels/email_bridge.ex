@@ -192,13 +192,11 @@ defmodule Zaq.Channels.EmailBridge do
     end
   end
 
-  defp provider_key(provider) when is_atom(provider), do: provider
-
   defp provider_key(provider) when is_binary(provider) do
-    String.to_existing_atom(provider)
-  rescue
-    ArgumentError -> :email
+    Bridge.provider_to_bridge_key(provider) || :email
   end
+
+  defp provider_key(provider), do: Bridge.provider_to_bridge_key(provider)
 
   @impl true
   def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do

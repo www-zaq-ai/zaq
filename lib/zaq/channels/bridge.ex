@@ -276,6 +276,8 @@ defmodule Zaq.Channels.Bridge do
   @spec provider_to_bridge_key(String.t()) :: atom() | nil
   def provider_to_bridge_key(@smtp_provider), do: :email
   def provider_to_bridge_key(@imap_provider), do: :email
+  def provider_to_bridge_key(:"email:smtp"), do: :email
+  def provider_to_bridge_key(:"email:imap"), do: :email
   def provider_to_bridge_key(provider) when is_atom(provider), do: provider
 
   def provider_to_bridge_key(provider) when is_binary(provider) do
