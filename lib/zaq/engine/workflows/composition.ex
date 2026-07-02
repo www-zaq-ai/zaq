@@ -28,6 +28,8 @@ defmodule Zaq.Engine.Workflows.Composition do
     `"mapping"` / `"condition"` on the seam edges is preserved unchanged.
   """
 
+  alias Zaq.Engine.Workflows.DagBuilder
+
   @type snapshot :: %{required(String.t()) => list()}
   @type resolver :: (String.t() -> {:ok, snapshot} | {:error, term()})
 
@@ -64,9 +66,14 @@ defmodule Zaq.Engine.Workflows.Composition do
 
   Returns `:ok`, or `{:error, reason}` for a reference cycle
   (`{:workflow_cycle, id}`), a single-root/leaf violation
-  (`{:multi_entry_exit, roots, leaves}`), a flattened graph that is not
-  acyclic (`{:workflow_not_acyclic, nodes}`), or a **convergence node** — one
-  node targeted by more than one edge (`{:convergence_not_supported, nodes}`).
+  (`{:multi_entry_exit, roots, leaves}`), a node name used more than once
+  (`{:duplicate_node_names, names}`), an edge naming a node that does not
+  exist (`{:unknown_edge_endpoints, names}` — `from` may also be the virtual
+  `"start"` sentinel), a flattened graph that is not acyclic
+  (`{:workflow_not_acyclic, nodes}`), a **convergence node** — one node
+  targeted by more than one edge (`{:convergence_not_supported, nodes}`) — or
+  nodes not connected to the rest of the graph
+  (`{:disconnected_nodes, names}`).
   Intended to run at workflow save time, so a persisted workflow is always
   runnable.
 
@@ -86,14 +93,99 @@ defmodule Zaq.Engine.Workflows.Composition do
   @spec validate(snapshot, resolver) :: :ok | {:error, term()}
   def validate(snapshot, resolver) do
     with {:ok, flat} <- expand(snapshot, resolver),
-         :ok <- check_acyclic(flat) do
-      check_convergence(flat)
+         :ok <- check_duplicate_names(flat),
+         :ok <- check_edge_endpoints(flat),
+         :ok <- check_acyclic(flat),
+         :ok <- check_convergence(flat) do
+      check_connectivity(flat)
+    end
+  end
+
+  # Node names must be unique — a duplicated name makes edge endpoints ambiguous
+  # and collides in `DagBuilder`, which keys steps by name. Checked first (the
+  # graph checks below dedupe names into single vertices, so they cannot see the
+  # problem) and on the *flattened* graph, so a collision introduced by splicing
+  # (a parent node literally named like a namespaced sub-node) is caught too.
+  defp check_duplicate_names(%{"nodes" => nodes}) do
+    duplicates =
+      nodes
+      |> Enum.frequencies_by(& &1["name"])
+      |> Enum.filter(fn {_name, count} -> count > 1 end)
+      |> Enum.map(fn {name, _count} -> name end)
+      |> Enum.sort()
+
+    case duplicates do
+      [] -> :ok
+      duplicates -> {:error, {:duplicate_node_names, duplicates}}
+    end
+  end
+
+  # Every edge endpoint must name a real node. `from` may additionally be the
+  # virtual "start" sentinel (see `DagBuilder.start_sentinel/0`); `to` never can.
+  defp check_edge_endpoints(%{"nodes" => nodes, "edges" => edges}) do
+    names = MapSet.new(nodes, & &1["name"])
+    start = DagBuilder.start_sentinel()
+
+    unknown =
+      edges
+      |> Enum.flat_map(fn %{"from" => from, "to" => to} ->
+        if from == start, do: [to], else: [from, to]
+      end)
+      |> Enum.reject(&MapSet.member?(names, &1))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    case unknown do
+      [] -> :ok
+      unknown -> {:error, {:unknown_edge_endpoints, unknown}}
     end
   end
 
   defp check_acyclic(flat) do
     if acyclic?(flat), do: :ok, else: {:error, {:workflow_not_acyclic, offending_nodes(flat)}}
   end
+
+  # Every node must be (weakly) connected to the rest of the graph — an orphan
+  # node or a disjoint chain would silently never run. The "start" sentinel is a
+  # vertex too, so a start-fork (start -> a, start -> b) is one connected graph.
+  # The main component is the largest one (ties broken by earliest node in DAG
+  # order); every node outside it is reported.
+  defp check_connectivity(%{"nodes" => nodes} = flat) when length(nodes) > 1 do
+    graph = build_digraph(flat)
+
+    components =
+      try do
+        :digraph_utils.components(graph)
+      after
+        :digraph.delete(graph)
+      end
+
+    case components do
+      [_single] ->
+        :ok
+
+      many ->
+        order = nodes |> Enum.map(& &1["name"]) |> Enum.with_index() |> Map.new()
+        sentinel_rank = map_size(order)
+
+        first_in = fn comp ->
+          comp |> Enum.map(&Map.get(order, &1, sentinel_rank)) |> Enum.min()
+        end
+
+        main = Enum.max_by(many, fn comp -> {length(comp), -first_in.(comp)} end)
+
+        disconnected =
+          many
+          |> List.delete(main)
+          |> List.flatten()
+          |> Enum.filter(&Map.has_key?(order, &1))
+          |> Enum.sort()
+
+        {:error, {:disconnected_nodes, disconnected}}
+    end
+  end
+
+  defp check_connectivity(_flat), do: :ok
 
   # A node with >1 inbound edge is an unsupported convergence node — see moduledoc.
   defp check_convergence(%{"edges" => edges}) do

@@ -741,6 +741,24 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
       "the step once per branch) instead of pointing several connections at one step."
   end
 
+  defp humanize_composition({:duplicate_node_names, names}) do
+    "These step names are used by more than one step: #{fmt_names(names)}. " <>
+      "Connections address steps by name, so every step needs a distinct one — " <>
+      "rename the duplicated steps."
+  end
+
+  defp humanize_composition({:unknown_edge_endpoints, names}) do
+    "Some connections reference steps that do not exist: #{fmt_names(names)}. " <>
+      "Every connection must start and end at a defined step — fix the step " <>
+      "names or remove the broken connections."
+  end
+
+  defp humanize_composition({:disconnected_nodes, names}) do
+    "These steps are not connected to the rest of the workflow: #{fmt_names(names)}. " <>
+      "A step only runs when a connection leads to it — link each one into the " <>
+      "flow or remove it."
+  end
+
   defp humanize_composition(other) do
     "The workflow structure is invalid (#{inspect(other)})."
   end
@@ -757,6 +775,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
   defp stringify_error_opt(v) when is_atom(v) or is_number(v), do: to_string(v)
   defp stringify_error_opt(v), do: inspect(v)
 
-  defp format_msgs(msgs) when is_list(msgs), do: Enum.map_join(msgs, ", ", &stringify_error_opt/1)
-  defp format_msgs(other), do: stringify_error_opt(other)
+  defp format_msgs(msgs) when is_list(msgs) do
+    msgs
+    |> Enum.map(&format_msg/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(", ")
+  end
+
+  defp format_msgs(other), do: format_msg(other)
+
+  # Embedded changesets (nodes/edges) traverse into one error map per entry —
+  # empty for valid entries, `%{field => msgs}` for invalid ones. Render those
+  # as "field message" sentences instead of an inspected map.
+  defp format_msg(%{} = nested) do
+    Enum.map_join(nested, ", ", fn {field, msgs} -> "#{field} #{format_msgs(msgs)}" end)
+  end
+
+  defp format_msg(other), do: stringify_error_opt(other)
 end
