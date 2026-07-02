@@ -122,6 +122,93 @@ defmodule Zaq.Ingestion.FTSBackendTest do
 
       assert FTSBackend.detect_and_cache() == FTSBackend.ParadeDB
     end
+
+    # Regression for docs/exec-plans/issues/paraddb.md: a ZAQ database created
+    # separately from the ParadeDB image's default `paradedb` DB has the
+    # pg_search binary preloaded (shared_preload_libraries) — so the extension
+    # is *available* — but it was never `CREATE EXTENSION`-d in this database.
+    # Detection used to fall back to Native permanently. It must self-heal:
+    # create the extension + BM25 index in the connected DB and converge to
+    # ParadeDB. The sandbox rolls the DDL back.
+    @tag :paradedb
+    test "self-heals pg_search when available but not created in the connected DB" do
+      # Provision a fully working ParadeDB chunks table, then strip it back to
+      # the broken custom-DB state: a legacy chunks table with no BM25 index
+      # and the extension absent from this database (but still available).
+      Chunk.create_table(1536)
+      Repo.query!("DROP INDEX IF EXISTS chunks_bm25_idx")
+      Repo.query!("DROP EXTENSION IF EXISTS pg_search CASCADE")
+      FTSBackend.reset_cache()
+
+      # Precondition: the extension really is uninstalled in this DB but still
+      # available from the preloaded binary on disk.
+      assert {:ok, %{rows: []}} =
+               Repo.query("SELECT 1 FROM pg_extension WHERE extname = 'pg_search'")
+
+      assert {:ok, %{rows: [[1]]}} =
+               Repo.query(
+                 "SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search' AND installed_version IS NULL"
+               )
+
+      # Pure detection must NOT heal — it reports Native on the broken state so
+      # it stays safe to call on any node and inside any transaction.
+      assert FTSBackend.detect_and_cache() == FTSBackend.Native
+      FTSBackend.reset_cache()
+
+      # The explicit startup self-heal creates the extension + index and
+      # converges to ParadeDB.
+      assert FTSBackend.self_heal() == FTSBackend.ParadeDB
+
+      assert {:ok, %{rows: [[1]]}} =
+               Repo.query("SELECT 1 FROM pg_extension WHERE extname = 'pg_search'")
+
+      assert {:ok, %{rows: [[1]]}} =
+               Repo.query("SELECT 1 FROM pg_indexes WHERE indexname = 'chunks_bm25_idx'")
+    end
+
+    # Same custom-DB scenario but on a fresh install with no chunks table yet:
+    # the self-heal must create the extension (so ParadeDB is selected) without
+    # attempting a BM25 index — there is no table to index. setup_index/2 later
+    # provisions the index when the chunks table is created.
+    @tag :paradedb
+    test "self-heals pg_search on a fresh install with no chunks table" do
+      Repo.query!("DROP TABLE IF EXISTS chunks")
+      Repo.query!("DROP EXTENSION IF EXISTS pg_search CASCADE")
+      FTSBackend.reset_cache()
+
+      assert {:ok, %{rows: [[1]]}} =
+               Repo.query(
+                 "SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search' AND installed_version IS NULL"
+               )
+
+      assert FTSBackend.self_heal() == FTSBackend.ParadeDB
+
+      assert {:ok, %{rows: [[1]]}} =
+               Repo.query("SELECT 1 FROM pg_extension WHERE extname = 'pg_search'")
+
+      assert {:ok, %{rows: []}} =
+               Repo.query("SELECT 1 FROM pg_indexes WHERE indexname = 'chunks_bm25_idx'")
+    end
+
+    # A second detection after a heal is a no-op: the extension is now installed,
+    # so the available-but-uninstalled probe is false and no DDL runs.
+    @tag :paradedb
+    test "self-heal is idempotent once the extension is installed" do
+      Chunk.create_table(1536)
+      Repo.query!("DROP INDEX IF EXISTS chunks_bm25_idx")
+      Repo.query!("DROP EXTENSION IF EXISTS pg_search CASCADE")
+      FTSBackend.reset_cache()
+
+      assert FTSBackend.self_heal() == FTSBackend.ParadeDB
+      FTSBackend.reset_cache()
+
+      log =
+        capture_log(fn ->
+          assert FTSBackend.self_heal() == FTSBackend.ParadeDB
+        end)
+
+      refute log =~ "self-healed pg_search"
+    end
   end
 
   describe "fresh install bootstrap" do
@@ -219,6 +306,54 @@ defmodule Zaq.Ingestion.FTSBackendTest do
         end)
 
       assert log =~ "paradedb.version_info() not callable"
+    end
+
+    test "heal_extension_result logs and skips when the heal DDL fails" do
+      Logger.put_module_level(FTSBackend, :debug)
+      on_exit(fn -> Logger.delete_module_level(FTSBackend) end)
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert FTSBackend.heal_extension_result({:error, :not_loadable}, [], "created") == :ok
+        end)
+
+      assert log =~ "pg_search self-heal skipped"
+    end
+
+    test "pg_search_state_from maps the probe to the needed heal action" do
+      assert FTSBackend.pg_search_state_from({:ok, %{rows: [[nil, "0.24.0"]]}}) == :uninstalled
+      assert FTSBackend.pg_search_state_from({:ok, %{rows: [["0.24.0", "0.24.0"]]}}) == :current
+      assert FTSBackend.pg_search_state_from({:ok, %{rows: [["0.13.0", "0.24.0"]]}}) == :stale
+      assert FTSBackend.pg_search_state_from({:ok, %{rows: []}}) == :absent
+      assert FTSBackend.pg_search_state_from({:error, :boom}) == :absent
+    end
+
+    test "heal_command selects the DDL for each healable state" do
+      assert FTSBackend.heal_command(:uninstalled) ==
+               {"CREATE EXTENSION IF NOT EXISTS pg_search", "created"}
+
+      assert FTSBackend.heal_command(:stale) ==
+               {"ALTER EXTENSION pg_search UPDATE", "updated to the current version"}
+
+      assert FTSBackend.heal_command(:current) == :noop
+      assert FTSBackend.heal_command(:absent) == :noop
+    end
+
+    test "warn_if_degraded warns only when Native is active while pg_search is installed" do
+      log =
+        capture_log(fn ->
+          assert FTSBackend.warn_if_degraded(FTSBackend.Native, true) == :ok
+        end)
+
+      assert log =~ "degraded (Native) mode"
+      assert log =~ "shared_preload_libraries"
+
+      # ParadeDB active, or pg_search not installed → no warning.
+      refute capture_log(fn -> FTSBackend.warn_if_degraded(FTSBackend.ParadeDB, true) end) =~
+               "degraded"
+
+      refute capture_log(fn -> FTSBackend.warn_if_degraded(FTSBackend.Native, false) end) =~
+               "degraded"
     end
 
     test "sanitize_query_text removes invalid bytes, punctuation, and excessive length" do

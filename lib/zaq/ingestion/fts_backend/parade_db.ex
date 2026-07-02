@@ -82,20 +82,24 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
     )
   end
 
+  @bm25_index_ddl """
+  CREATE INDEX IF NOT EXISTS chunks_bm25_idx
+    ON chunks USING bm25(id, content)
+    WITH (key_field='id')
+  """
+
   @impl true
   def setup_bm25_index(repo, _dimension) do
     SQL.query!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
-
-    SQL.query!(
-      repo,
-      """
-      CREATE INDEX IF NOT EXISTS chunks_bm25_idx
-        ON chunks USING bm25(id, content)
-        WITH (key_field='id')
-      """,
-      []
-    )
+    SQL.query!(repo, @bm25_index_ddl, [])
 
     :ok
   end
+
+  @doc """
+  The idempotent DDL that creates `chunks_bm25_idx`. Exposed as the single
+  source of truth so `FTSBackend`'s startup self-heal provisions the same
+  index without duplicating the statement.
+  """
+  def bm25_index_ddl, do: @bm25_index_ddl
 end
