@@ -244,4 +244,116 @@ defmodule Zaq.Engine.Workflows.CompositionTest do
       assert :ok = Composition.validate(parent, fn _ -> {:error, :none} end)
     end
   end
+
+  describe "validate/2 — edge endpoints must reference real nodes" do
+    test "rejects an edge whose `to` names no node" do
+      parent = %{
+        "nodes" => [node("A"), node("B", index: 1)],
+        "edges" => [%{"from" => "A", "to" => "B"}, %{"from" => "B", "to" => "ghost"}]
+      }
+
+      assert {:error, {:unknown_edge_endpoints, ["ghost"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "rejects an edge whose `from` names no node (start sentinel excepted)" do
+      parent = %{
+        "nodes" => [node("A"), node("B", index: 1)],
+        "edges" => [%{"from" => "phantom", "to" => "A"}, %{"from" => "A", "to" => "B"}]
+      }
+
+      assert {:error, {:unknown_edge_endpoints, ["phantom"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "reports every unknown endpoint once, sorted" do
+      parent = %{
+        "nodes" => [node("A")],
+        "edges" => [
+          %{"from" => "A", "to" => "zeta"},
+          %{"from" => "alpha", "to" => "A"},
+          %{"from" => "A", "to" => "zeta"}
+        ]
+      }
+
+      assert {:error, {:unknown_edge_endpoints, ["alpha", "zeta"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+  end
+
+  describe "validate/2 — connectivity" do
+    test "rejects a node not connected by any edge" do
+      parent = %{
+        "nodes" => [node("A"), node("B", index: 1), node("orphan", index: 2)],
+        "edges" => [%{"from" => "A", "to" => "B"}]
+      }
+
+      assert {:error, {:disconnected_nodes, ["orphan"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "rejects two disjoint chains, reporting the nodes outside the main component" do
+      parent = %{
+        "nodes" => [node("A"), node("B", index: 1), node("C", index: 2), node("D", index: 3)],
+        "edges" => [%{"from" => "A", "to" => "B"}, %{"from" => "C", "to" => "D"}]
+      }
+
+      assert {:error, {:disconnected_nodes, ["C", "D"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "allows a single-node workflow with no edges" do
+      parent = %{"nodes" => [node("only")], "edges" => []}
+      assert :ok = Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "start-sentinel fork counts as connected (start -> a, start -> b)" do
+      parent = %{
+        "nodes" => [node("a"), node("b", index: 1)],
+        "edges" => [%{"from" => "start", "to" => "a"}, %{"from" => "start", "to" => "b"}]
+      }
+
+      assert :ok = Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+  end
+
+  describe "validate/2 — node names must be unique" do
+    test "rejects two nodes sharing a name" do
+      parent = %{
+        "nodes" => [node("A"), node("A", index: 1), node("B", index: 2)],
+        "edges" => [%{"from" => "A", "to" => "B"}]
+      }
+
+      assert {:error, {:duplicate_node_names, ["A"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "reports each duplicated name once, sorted" do
+      parent = %{
+        "nodes" => [
+          node("beta"),
+          node("alpha", index: 1),
+          node("beta", index: 2),
+          node("alpha", index: 3),
+          node("beta", index: 4)
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:duplicate_node_names, ["alpha", "beta"]}} =
+               Composition.validate(parent, fn _ -> {:error, :none} end)
+    end
+
+    test "catches a collision introduced by splicing a referenced workflow" do
+      # The parent's plain node is literally named "call1/D" — the same name the
+      # splice gives the referenced workflow's entry node after namespacing.
+      parent = %{
+        "nodes" => [node("call1/D"), ref("call1", "wf1")],
+        "edges" => [%{"from" => "call1/D", "to" => "call1"}]
+      }
+
+      assert {:error, {:duplicate_node_names, ["call1/D"]}} =
+               Composition.validate(parent, resolver())
+    end
+  end
 end

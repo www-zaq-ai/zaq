@@ -243,8 +243,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
         %{
           from: "start",
           to: "craft_email_direct",
-          condition: %{"field" => "start.company context content", "op" => "not_empty"},
-          mapping: %{"input" => "start.company context content"}
+          condition: %{"field" => "start.company context content", "op" => "not_empty"}
         },
         # No context yet → generate. Rename the spaced sheet columns to snake_case
         # so the prompt can interpolate {{company_official_name}} / {{company_website}}.
