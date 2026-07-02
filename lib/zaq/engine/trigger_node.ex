@@ -5,7 +5,22 @@ defmodule Zaq.Engine.TriggerNode do
   Called by `Engine.EventRegistry` when a known trigger event is received.
   Queries `Workflows.list_workflows_for_trigger/1` for active workflows linked
   to the given event_name, then creates and starts a run for each in parallel
-  via `Task.async_stream`.
+  via `Task.Supervisor.async_stream_nolink/4`. Each run executes as a child of
+  `Zaq.TaskSupervisor`, **not linked** to the process that called `fire/2` (that
+  caller is itself just a bare task spawned by
+  `Engine.EventRegistry.fire_or_register/3`). A bare `Task.async_stream/3` would
+  link every spawned run to that caller, so the caller dying for any reason
+  unrelated to a run in progress (a supervisor restart, a code reload) would
+  take down every in-flight run with it — silently, since a linked `:kill`
+  propagation bypasses `StepRunner`'s own crash logging entirely. Using the
+  `_nolink` variant means an in-flight run's fate is decoupled from its
+  dispatcher's, while `fire/2` still only returns once every triggered run has
+  actually finished — many callers (nested/chained workflow triggers, HITL
+  suspension tests, the run's own `source_event` propagation checks) depend on
+  that synchronous-completion contract. Non-blocking launch without waiting is
+  what `Workflows.start_run_async/2` is for — the manual "Run Now" / resume
+  actions in the BO LiveView use that instead, since their caller already
+  discards the result and relies on PubSub broadcasts for progress.
 
   Propagates the triggering event's payload and trace_id into the run's
   `source_event.assigns.input`, making the event payload available as the
@@ -29,9 +44,10 @@ defmodule Zaq.Engine.TriggerNode do
 
   @spec fire(String.t(), map()) :: :ok
   def fire(event_name, event) when is_binary(event_name) do
-    event_name
-    |> Workflows.list_workflows_for_trigger()
-    |> Task.async_stream(&run_workflow(&1, event),
+    Zaq.TaskSupervisor
+    |> Task.Supervisor.async_stream_nolink(
+      Workflows.list_workflows_for_trigger(event_name),
+      &run_workflow(&1, event),
       ordered: false,
       on_timeout: :kill_task,
       timeout: :infinity

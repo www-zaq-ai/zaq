@@ -52,7 +52,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   @impl true
   def handle_info({:start_run, run}, socket) do
     Task.start(fn ->
-      Event.new(%{module: Zaq.Engine.Workflows, function: :start_run, args: [run]}, :engine)
+      Event.new(%{module: Zaq.Engine.Workflows, function: :start_run_async, args: [run]}, :engine)
       |> NodeRouter.dispatch()
     end)
 
@@ -195,7 +195,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
     Task.start(fn ->
       Event.new(
-        %{module: Zaq.Engine.Workflows, function: :resume_run, args: [run]},
+        %{module: Zaq.Engine.Workflows, function: :resume_run_async, args: [run]},
         :engine
       )
       |> NodeRouter.dispatch()
