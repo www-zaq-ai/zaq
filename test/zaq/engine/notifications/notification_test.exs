@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Notifications.NotificationTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
   use Oban.Testing, repo: Zaq.Repo
 
   import Ecto.Query
@@ -219,7 +219,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
   describe "notify_person/3" do
     setup do
-      from(c in ChannelConfig, where: c.provider == "email:smtp")
+      from(c in ChannelConfig, where: c.provider in ["email:smtp", "mattermost"])
       |> Repo.delete_all()
 
       %ChannelConfig{}
@@ -267,7 +267,9 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
       Oban.Testing.with_testing_mode(:manual, fn ->
         assert {:ok, :dispatched} =
-                 Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"})
+                 Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"},
+                   config: NotificationConfig
+                 )
 
         [job] = all_enqueued(worker: DispatchWorker)
 
@@ -275,6 +277,53 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
                  %{"platform" => "email:smtp", "identifier" => "first@example.com"},
                  %{"platform" => "email:smtp", "identifier" => "second@example.com"}
                ] = job.args["channels"]
+      end)
+    end
+
+    test "uses dm_channel_id as the delivery identifier when present" do
+      {:ok, person} = People.create_person(%{full_name: "DM Person", email: nil})
+
+      Repo.insert!(%PersonChannel{
+        person_id: person.id,
+        platform: "email",
+        channel_identifier: "person@example.com",
+        dm_channel_id: "stored-dm-channel-1",
+        weight: 0
+      })
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, :dispatched} =
+                 Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"},
+                   config: NotificationConfig
+                 )
+
+        [job] = all_enqueued(worker: DispatchWorker)
+
+        assert [%{"platform" => "email:smtp", "identifier" => "stored-dm-channel-1"}] =
+                 job.args["channels"]
+      end)
+    end
+
+    test "falls back to channel_identifier when dm_channel_id is missing" do
+      {:ok, person} = People.create_person(%{full_name: "DM Person", email: nil})
+
+      Repo.insert!(%PersonChannel{
+        person_id: person.id,
+        platform: "email",
+        channel_identifier: "person@example.com",
+        weight: 0
+      })
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, :dispatched} =
+                 Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"},
+                   config: NotificationConfig
+                 )
+
+        [job] = all_enqueued(worker: DispatchWorker)
+
+        assert [%{"platform" => "email:smtp", "identifier" => "person@example.com"}] =
+                 job.args["channels"]
       end)
     end
   end
