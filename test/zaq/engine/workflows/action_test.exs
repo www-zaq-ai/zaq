@@ -256,6 +256,52 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     end
   end
 
+  describe "with_log_trail/5" do
+    test "workflow node (atom :run_id in context) returns the 3-tuple with a log entry" do
+      t0 = Action.log_start()
+
+      assert {:ok, %{output: "hi"}, logs: [entry]} =
+               Action.with_log_trail(
+                 {:ok, %{output: "hi"}},
+                 :thing_happened,
+                 %{key: "value"},
+                 %{run_id: "run-1"},
+                 t0
+               )
+
+      assert entry.event == "thing_happened"
+      assert entry.key == "value"
+      assert is_integer(entry.duration_ms)
+    end
+
+    test "workflow node (string \"run_id\" key in context) also returns the 3-tuple" do
+      t0 = Action.log_start()
+
+      assert {:ok, _result, logs: [%{event: "thing_happened"}]} =
+               Action.with_log_trail(
+                 {:ok, %{}},
+                 :thing_happened,
+                 %{},
+                 %{"run_id" => "run-1"},
+                 t0
+               )
+    end
+
+    test "agent-tool call (no run_id) passes the plain 2-tuple through unchanged" do
+      t0 = Action.log_start()
+
+      assert {:ok, %{output: "hi"}} =
+               Action.with_log_trail({:ok, %{output: "hi"}}, :thing_happened, %{}, %{}, t0)
+    end
+
+    test "an error result passes through unchanged regardless of context" do
+      t0 = Action.log_start()
+
+      assert {:error, "boom"} =
+               Action.with_log_trail({:error, "boom"}, :thing_happened, %{}, %{run_id: "r"}, t0)
+    end
+  end
+
   describe "validate/1" do
     test "returns :ok for a fully conforming action module" do
       assert :ok = Action.validate(OkAction)

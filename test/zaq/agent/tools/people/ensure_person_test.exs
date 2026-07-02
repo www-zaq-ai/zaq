@@ -136,4 +136,46 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
       assert Enum.all?(Map.keys(row), &is_binary/1)
     end
   end
+
+  # A non-email platform with neither channel_id nor email leaves the new
+  # channel's required `channel_identifier` blank, so `add_channel` fails
+  # inside the transaction and `find_or_create_from_channel` rolls back with
+  # `{:error, %Ecto.Changeset{}}`. Shown verbatim in the BO run view, so it must
+  # read as prose — never a raw `#Ecto.Changeset<...>` struct dump.
+  describe "run/2 — data-layer failure" do
+    test "a changeset error is rendered as human-readable prose" do
+      assert {:error, reason} =
+               EnsurePerson.run(%{platform: "mattermost", display_name: "No Identifier"}, @ctx)
+
+      assert is_binary(reason)
+      assert reason =~ "channel_identifier"
+      assert reason =~ "blank"
+      refute reason =~ "#Ecto.Changeset"
+      refute reason =~ "%Ecto.Changeset"
+    end
+  end
+
+  # As a workflow node (context carries :run_id) the action contributes its own
+  # entry to the step's log trail via the `{:ok, result, logs: [...]}` 3-tuple
+  # (see Zaq.Engine.Workflows.StepRunner). As a plain agent tool it must keep
+  # returning a 2-tuple — Jido.Exec would reject the keyword tail as directives.
+  describe "run/2 — action log trail (workflow node)" do
+    test "success in a workflow context returns a person_ensured log entry" do
+      assert {:ok, %{person: %{id: person_id}}, logs: logs} =
+               EnsurePerson.run(
+                 %{platform: "email", email: "trail@example.com"},
+                 %{run_id: "run-1"}
+               )
+
+      assert [%{event: "person_ensured"} = entry] = logs
+      assert entry.person_id == person_id
+      assert entry.platform == "email"
+      assert is_integer(entry.duration_ms)
+    end
+
+    test "returns a plain 2-tuple when invoked as an agent tool (no run_id)" do
+      assert {:ok, %{person: %{}}} =
+               EnsurePerson.run(%{platform: "email", email: "no-trail@example.com"}, @ctx)
+    end
+  end
 end

@@ -114,5 +114,24 @@ defmodule Zaq.Engine.Workflows.ConditionTriggerFailureTest do
       assert run.log_summary["failed_step_count"] == 1
       assert run.log_summary["failed_steps"] == ["check_position"]
     end
+
+    test "log_summary timeline carries the step_failed log with the verbatim reason" do
+      workflow = setup_workflow()
+
+      :ok = fire()
+
+      run = latest_run(workflow)
+
+      assert [entry] = run.log_summary["timeline"]
+      assert entry["step_name"] == "check_position"
+      assert entry["status"] == "failed"
+
+      # The step's log trail holds the timing entry with the human-readable
+      # reason — this is what the run view renders as the failure trail.
+      assert [log] = entry["logs"]
+      assert log["event"] == "step_failed"
+      assert log["reason"] =~ "Condition not met: position must equal"
+      assert is_integer(log["duration_ms"])
+    end
   end
 end

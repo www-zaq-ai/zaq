@@ -99,6 +99,7 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
 
   require Logger
 
+  alias Zaq.Engine.Workflows.Action
   alias Zaq.NodeRouter
 
   # Allowlisted node roles a workflow may dispatch to. String-keyed so a
@@ -136,24 +137,43 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
     request = build_request(input, machine?, ctx)
     event = Zaq.Event.new(request, destination, type: :async, name: event_name)
     node_router = Map.get(ctx, :node_router, NodeRouter)
+    t0 = Action.log_start()
 
     Logger.debug("[dispatch_event] dispatching #{inspect(event.name)} to #{inspect(destination)}")
 
     case node_router.dispatch(event).response do
       {:ok, _} ->
         Logger.debug("[dispatch_event] dispatch succeeded")
-        {:ok, %{dispatched: request}}
+        dispatched_ok(request, event_name, destination, ctx, t0)
 
       nil ->
         # async dispatch — event was published, no sync response expected
         Logger.debug("[dispatch_event] async dispatch enqueued")
-        {:ok, %{dispatched: request}}
+        dispatched_ok(request, event_name, destination, ctx, t0)
 
       {:error, reason} ->
         Logger.warning("[dispatch_event] dispatch failed reason=#{inspect(reason)}")
-        {:error, inspect(reason)}
+
+        # Shown verbatim in the BO run view — name the event and destination
+        # instead of dumping the raw reason term.
+        {:error,
+         ~s(Dispatch of "#{event_name}" to #{destination} failed: #{humanize_reason(reason)})}
     end
   end
+
+  defp dispatched_ok(request, event_name, destination, ctx, t0) do
+    Action.with_log_trail(
+      {:ok, %{dispatched: request}},
+      :event_dispatched,
+      %{event_name: event_name, destination: to_string(destination)},
+      ctx,
+      t0
+    )
+  end
+
+  defp humanize_reason(reason) when is_binary(reason), do: reason
+  defp humanize_reason(reason) when is_atom(reason), do: to_string(reason)
+  defp humanize_reason(reason), do: inspect(reason)
 
   # A scalar `input` (string, number, …) is dispatched verbatim as the request —
   # e.g. a plain channels message. Cascade merging and the machine marker only

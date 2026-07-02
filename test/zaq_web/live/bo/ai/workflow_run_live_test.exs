@@ -875,4 +875,54 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "jt-step-"
     end
   end
+
+  # Unlike the fixture-driven tests above, this drives a REAL run through the
+  # engine (create_run → start_run → StepRunner) and asserts the page shows the
+  # failure trail an operator needs: the failed-run summary, the verbatim
+  # human-readable reason, and the step's log entries.
+  describe "failure log trail — real run through the engine" do
+    test "a halting condition failure renders the full trail", %{conn: conn} do
+      workflow =
+        workflow_fixture(%{
+          status: "active",
+          nodes: [
+            %{
+              name: "check_position",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "on_fail" => "halt",
+                "conditions" => [%{"key" => "position", "op" => "eq", "value" => "CFO"}]
+              },
+              index: 0
+            }
+          ]
+        })
+
+      source_event = %{
+        "request" => nil,
+        "assigns" => %{"trigger_type" => "manual", "input" => %{"position" => "CTO"}},
+        "trace_id" => Ecto.UUID.generate()
+      }
+
+      {:ok, run} = Workflows.create_run(workflow, source_event)
+      _ = Workflows.start_run(run)
+
+      reloaded = Workflows.get_run!(run.id)
+      assert reloaded.status == "failed"
+
+      {:ok, view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      # Failed-run summary and the verbatim field-named reason are visible.
+      assert html =~ "1 step failed"
+      assert html =~ "Condition not met: position must equal"
+
+      # Selecting the failed step reveals its log trail with the timing entry.
+      render_click(view, "select_step", %{"step_name" => "check_position"})
+      selected_html = render(view)
+
+      assert selected_html =~ "step_failed"
+      assert selected_html =~ "Condition not met: position must equal"
+    end
+  end
 end

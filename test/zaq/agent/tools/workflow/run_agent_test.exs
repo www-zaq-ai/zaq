@@ -282,10 +282,10 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
   end
 
   describe "run/2 — successful execution" do
-    test "returns {:ok, %{output: body}} from the dispatch response" do
+    test "returns the agent body as output (with the workflow log trail)" do
       agent = create_agent()
 
-      assert {:ok, %{output: "Hello from agent"}} =
+      assert {:ok, %{output: "Hello from agent"}, logs: _} =
                RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
     end
 
@@ -311,37 +311,78 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     end
   end
 
+  # Failure reasons are shown verbatim in the BO run view (StepRunner stores
+  # binary reasons untouched), so they must be human-readable prose — never an
+  # `agent_failed:<inspect dump>` slug.
   describe "run/2 — failure" do
-    test "returns error when the response Outgoing has metadata[:error]" do
+    test "returns a human-readable error when the response Outgoing has metadata[:error]" do
       agent = create_agent()
       ctx = Map.put(@ctx, :node_router, FailingRouter)
 
-      assert {:error, "agent_failed:llm_timeout"} =
+      assert {:error, "Agent run failed: llm_timeout"} =
                RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
     end
 
-    test "returns agent_failed:unknown when reason is missing" do
+    test "explains an unknown failure when the error reason is missing" do
       agent = create_agent()
       ctx = Map.put(@ctx, :node_router, FailingNoReasonRouter)
 
-      assert {:error, "agent_failed:unknown"} =
+      assert {:error, "Agent run failed: unknown error"} =
                RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
     end
 
-    test "returns agent_failed when the response is an error tuple" do
+    test "humanizes an atom reason from an error-tuple response" do
       agent = create_agent()
       ctx = Map.put(@ctx, :node_router, ErrorResponseRouter)
 
-      assert {:error, "agent_failed:" <> _} =
+      assert {:error, "Agent run failed: boom"} =
                RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
     end
 
-    test "returns agent_failed when the response has an unexpected shape" do
+    test "describes an unexpected response shape in prose" do
       agent = create_agent()
       ctx = Map.put(@ctx, :node_router, UnexpectedResponseRouter)
 
-      assert {:error, "agent_failed::not_an_outgoing_response"} =
-               RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
+      assert {:error, reason} = RunAgent.run(%{agent_id: agent.id, input: "hello"}, ctx)
+      assert reason =~ "Agent run failed:"
+      assert reason =~ "not_an_outgoing_response"
+      refute reason =~ "agent_failed"
+    end
+  end
+
+  # As a workflow node (context carries :run_id) the tool contributes its own
+  # entry to the step's log trail via the `{:ok, result, logs: [...]}` 3-tuple
+  # (see Zaq.Engine.Workflows.StepRunner). As a plain agent tool it must keep
+  # returning a 2-tuple — Jido.Exec would reject the keyword tail as directives.
+  describe "run/2 — action log trail (workflow node)" do
+    test "success in a workflow context returns an agent_run log entry" do
+      agent = create_agent()
+
+      assert {:ok, %{output: "Hello from agent"}, logs: logs} =
+               RunAgent.run(%{agent_id: agent.id, input: "hello"}, ok_ctx())
+
+      assert [%{event: "agent_run"} = entry] = logs
+      assert entry.agent_id == agent.id
+      assert is_integer(entry.duration_ms)
+    end
+
+    test "the logged input is the substituted prompt actually sent to the agent" do
+      agent = create_agent()
+
+      assert {:ok, _result, logs: [entry]} =
+               RunAgent.run(
+                 %{agent_id: agent.id, input: "Draft for {{name}}", name: "Alice"},
+                 ok_ctx()
+               )
+
+      assert entry.input == "Draft for Alice"
+    end
+
+    test "returns a plain 2-tuple when invoked as an agent tool (no run_id)" do
+      agent = create_agent()
+
+      assert {:ok, %{output: "Hello from agent"}} =
+               RunAgent.run(%{agent_id: agent.id, input: "hello"}, %{node_router: OkRouter})
     end
   end
 

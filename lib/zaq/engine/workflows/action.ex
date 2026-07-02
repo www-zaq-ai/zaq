@@ -70,6 +70,21 @@ defmodule Zaq.Engine.Workflows.Action do
   Both helpers are imported automatically by `use Zaq.Engine.Workflows.Action`
   and are also available as `Action.log_start/0` / `Action.log_entry/3` for
   modules that only `alias` this module (e.g. `StepRunner`).
+
+  A third helper, `with_log_trail/5`, wraps an action's own `{:ok, result}` in
+  the `{:ok, result, logs: [...]}` 3-tuple StepRunner reads — but only when
+  running as a workflow node (context carries `:run_id`); an agent-tool call
+  (no `:run_id`) keeps the plain 2-tuple, since `Jido.Exec` would reject the
+  keyword tail as directives:
+
+      def run(params, context) do
+        t0 = log_start()
+        result = do_the_work(params)
+        with_log_trail(result, :thing_happened, %{key: "value"}, context, t0)
+      end
+
+  `{:error, _}` results pass through untouched — StepRunner builds its own
+  `step_failed` entry from the reason.
   """
 
   @doc """
@@ -124,7 +139,8 @@ defmodule Zaq.Engine.Workflows.Action do
     quote do
       @behaviour Zaq.Engine.Workflows.Action
 
-      import Zaq.Engine.Workflows.Action, only: [log_start: 0, log_entry: 2, log_entry: 3]
+      import Zaq.Engine.Workflows.Action,
+        only: [log_start: 0, log_entry: 2, log_entry: 3, with_log_trail: 5]
 
       @impl Zaq.Engine.Workflows.Action
       def on_success(result, _context), do: {:ok, result}
@@ -204,6 +220,34 @@ defmodule Zaq.Engine.Workflows.Action do
       duration_ms: System.monotonic_time(:millisecond) - t0
     })
   end
+
+  @doc """
+  Wraps a successful action result with a workflow-trail log entry when running
+  as a workflow node; passes through untouched for an agent-tool call or an
+  error result.
+
+  - `result` — the action's own `{:ok, map()}` or `{:error, term()}` return.
+  - `event` — atom/string label for the log entry (see `log_entry/3`).
+  - `attrs` — extra fields merged into the entry (e.g. `%{agent_id: 1}`).
+  - `context` — the action's execution context; presence of `:run_id` (atom or
+    string key) is what distinguishes a workflow node from a plain tool call.
+  - `t0` — value returned by `log_start/0`, captured before the work began.
+  """
+  @spec with_log_trail(
+          {:ok, map()} | {:error, term()},
+          atom() | String.t(),
+          map(),
+          map(),
+          integer()
+        ) :: {:ok, map()} | {:ok, map(), logs: [map()]} | {:error, term()}
+  def with_log_trail({:ok, result}, event, attrs, context, t0) do
+    case Map.get(context, :run_id) || Map.get(context, "run_id") do
+      nil -> {:ok, result}
+      _run_id -> {:ok, result, logs: [log_entry(event, t0, attrs)]}
+    end
+  end
+
+  def with_log_trail({:error, _} = error, _event, _attrs, _context, _t0), do: error
 
   @typedoc "A piece of the contract a module failed to satisfy."
   @type missing :: :on_success | :on_failure | :schema | :output_schema

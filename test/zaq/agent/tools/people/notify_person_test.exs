@@ -90,14 +90,32 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
                )
     end
 
-    test "returns a tagged failure when the engine response is unexpected" do
+    # Shown verbatim in the BO run view (StepRunner stores binary reasons
+    # untouched), so an unexpected response must read as prose — never the
+    # `notify_person_failed:<inspect dump>` slug.
+    test "describes an unexpected engine response in prose" do
       person = person_fixture()
 
-      assert {:error, "notify_person_failed:{:ok, :queued}"} =
+      assert {:error, reason} =
                NotifyPerson.run(
                  %{person: person, subject: "Hello", message: "Body"},
                  %{node_router: UnexpectedRouter}
                )
+
+      assert reason =~ "Notify person failed:"
+      assert reason =~ "{:ok, :queued}"
+      refute reason =~ "notify_person_failed:"
+    end
+
+    test "explains a missing/unresolvable person id in prose, not a bare slug" do
+      assert {:error, reason} =
+               NotifyPerson.run(
+                 %{person: %{"email" => "no-id@example.com"}, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter}
+               )
+
+      assert reason =~ "person id"
+      refute reason == "missing_person_id"
     end
 
     test "consumes the person payload returned by EnsurePerson" do
@@ -128,6 +146,36 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
 
       assert_received {:dispatched, event}
       assert event.request.person_id == person.id
+    end
+  end
+
+  # As a workflow node (context carries :run_id) the action contributes its own
+  # entry to the step's log trail via the `{:ok, result, logs: [...]}` 3-tuple
+  # (see Zaq.Engine.Workflows.StepRunner). As a plain agent tool it must keep
+  # returning a 2-tuple — Jido.Exec would reject the keyword tail as directives.
+  describe "run/2 — action log trail (workflow node)" do
+    test "success in a workflow context returns a person_notified log entry" do
+      person = person_fixture()
+
+      assert {:ok, %{notified: true, status: :dispatched}, logs: logs} =
+               NotifyPerson.run(
+                 %{person: person, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter, run_id: "run-1"}
+               )
+
+      assert [%{event: "person_notified"} = entry] = logs
+      assert entry.person_id == person.id
+      assert is_integer(entry.duration_ms)
+    end
+
+    test "returns a plain 2-tuple when invoked as an agent tool (no run_id)" do
+      person = person_fixture()
+
+      assert {:ok, %{notified: true, status: :dispatched}} =
+               NotifyPerson.run(
+                 %{person: person, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter}
+               )
     end
   end
 

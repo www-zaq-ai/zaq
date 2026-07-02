@@ -228,6 +228,50 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
     end
   end
 
+  # As a workflow node (context carries :run_id) the tool contributes its own
+  # entry to the step's log trail via the `{:ok, result, logs: [...]}` 3-tuple
+  # (see Zaq.Engine.Workflows.StepRunner). As a plain agent tool it must keep
+  # returning a 2-tuple — Jido.Exec would reject the keyword tail as directives.
+  describe "run/2 — action log trail (workflow node)" do
+    @wf_ctx %{node_router: StubNodeRouter, run_id: "run-1"}
+
+    test "success in a workflow context returns an event_dispatched log entry" do
+      assert {:ok, %{dispatched: _}, logs: logs} =
+               DispatchEvent.run(
+                 %{input: %{"email" => "a@b.com"}, event_name: "lead_identified"},
+                 @wf_ctx
+               )
+
+      assert [%{event: "event_dispatched"} = entry] = logs
+      assert entry.event_name == "lead_identified"
+      assert entry.destination == "engine"
+      assert is_integer(entry.duration_ms)
+    end
+
+    test "async dispatch (no sync response) also returns the log entry" do
+      ctx = %{node_router: AsyncNodeRouter, run_id: "run-1"}
+
+      assert {:ok, _result, logs: [%{event: "event_dispatched"}]} =
+               DispatchEvent.run(%{event_name: "lead_identified"}, ctx)
+    end
+
+    test "returns a plain 2-tuple when invoked as an agent tool (no run_id)" do
+      assert {:ok, %{dispatched: _}} =
+               DispatchEvent.run(%{event_name: "lead_identified"}, @ctx)
+    end
+
+    test "a failed dispatch names the event and destination in human-readable prose" do
+      assert {:error, reason} =
+               DispatchEvent.run(
+                 %{input: %{}, event_name: "lead_identified"},
+                 %{node_router: FailingNodeRouter, run_id: "run-1"}
+               )
+
+      assert reason =~ ~s(Dispatch of "lead_identified" to engine failed)
+      assert reason =~ "something_went_wrong"
+    end
+  end
+
   describe "schema/0" do
     test "exposes input, event_name, destination and machine, but no raw hop controls" do
       keys = Keyword.keys(DispatchEvent.schema())

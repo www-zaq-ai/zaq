@@ -53,7 +53,11 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
           name: "John", company: "Acme"},
         %{run_id: "run-123"}
       )
-      # => {:ok, %{output: "Hi John..."}}
+      # => {:ok, %{output: "Hi John..."}, logs: [%{event: "agent_run", ...}]}
+
+  As a workflow node (context carries `:run_id`) the return is the 3-tuple above:
+  the `agent_run` entry (agent id + substituted input) joins the step's log trail
+  in the run view. As a plain agent tool the return stays a 2-tuple.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -75,6 +79,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   alias Zaq.Agent.StreamEvents
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Engine.Workflows.Action
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.NodeRouter
@@ -88,6 +93,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     node_router = Map.get(context, :node_router, NodeRouter)
     vars = build_vars(params)
     resolved_input = substitute(input, vars)
+    t0 = Action.log_start()
 
     resolved_input
     |> build_incoming(context)
@@ -95,6 +101,12 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     |> node_router.dispatch()
     |> Map.get(:response)
     |> handle_response()
+    |> Action.with_log_trail(
+      :agent_run,
+      %{agent_id: agent_id, input: resolved_input},
+      context,
+      t0
+    )
   end
 
   # provider: nil keeps this a node-internal request — the agent node's
@@ -199,17 +211,27 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   defp maybe_put_actor(event, nil), do: event
   defp maybe_put_actor(event, actor), do: Map.put(event, :actor, actor)
 
+  # Failure reasons are shown verbatim in the BO run view (StepRunner stores
+  # binary reasons untouched), so they must read as prose, not an
+  # `agent_failed:<slug>` dump.
   defp handle_response(%Outgoing{} = outgoing) do
     if error_metadata?(outgoing.metadata) do
-      reason = outgoing.metadata[:reason] || "unknown"
-      {:error, "agent_failed:#{reason}"}
+      reason = outgoing.metadata[:reason] || "unknown error"
+      {:error, "Agent run failed: #{humanize_reason(reason)}"}
     else
       {:ok, trace_result(outgoing)}
     end
   end
 
-  defp handle_response({:error, reason}), do: {:error, "agent_failed:#{inspect(reason)}"}
-  defp handle_response(other), do: {:error, "agent_failed:#{inspect(other)}"}
+  defp handle_response({:error, reason}),
+    do: {:error, "Agent run failed: #{humanize_reason(reason)}"}
+
+  defp handle_response(other),
+    do: {:error, "Agent run failed: unexpected agent response (#{inspect(other)})"}
+
+  defp humanize_reason(reason) when is_binary(reason), do: reason
+  defp humanize_reason(reason) when is_atom(reason), do: to_string(reason)
+  defp humanize_reason(reason), do: inspect(reason)
 
   defp error_metadata?(metadata), do: is_map(metadata) and metadata[:error]
 

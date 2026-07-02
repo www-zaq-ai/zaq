@@ -38,6 +38,23 @@ defmodule Zaq.Agent.Tools.ErrorTest do
     assert formatted =~ "detail"
   end
 
+  # Ecto.Changeset is not an Exception, so without a dedicated clause it would
+  # fall through to a raw `#Ecto.Changeset<...>` struct dump — unreadable in the
+  # BO run view. Field errors must render as plain prose instead.
+  test "formats an Ecto.Changeset's errors as readable prose, not a struct dump" do
+    changeset =
+      {%{}, %{channel_identifier: :string, platform: :string}}
+      |> Ecto.Changeset.cast(%{}, [:channel_identifier, :platform])
+      |> Ecto.Changeset.validate_required([:channel_identifier, :platform])
+
+    formatted = Error.format(changeset)
+
+    assert formatted =~ "channel_identifier"
+    assert formatted =~ "can't be blank"
+    refute formatted =~ "#Ecto.Changeset"
+    refute formatted =~ "%Ecto.Changeset"
+  end
+
   test "returns binaries trimmed" do
     assert Error.format("  timeout  ") == "timeout"
   end
