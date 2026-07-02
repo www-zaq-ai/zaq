@@ -171,7 +171,11 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
                "op" => "not_empty"
              }
 
-      assert have_context.mapping == %{"input" => "start.company context content"}
+      # No mapping on purpose: the full start fact (a map) flows into the
+      # dispatch node. A scalar mapping would make the dispatched request a
+      # scalar, which cannot carry the `machine: true` flag — see
+      # craft_email_trigger_test.exs.
+      refute Map.has_key?(have_context, :mapping)
 
       # No context yet → generate. Spaced sheet columns are renamed to snake_case
       # targets for {{...}} prompt interpolation; sources keep their spaces.
