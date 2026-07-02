@@ -467,8 +467,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
               Run Interrupted
             </p>
             <p class="font-mono text-[0.82rem] text-black/60">
-              This run was interrupted when the server restarted. Any steps that were
-              in progress have been marked as failed.
+              {interrupted_reason(@step_runs)}
             </p>
           </div>
           <button
@@ -831,6 +830,29 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   defp format_step_error(%{"message" => msg}) when is_binary(msg), do: msg
   defp format_step_error(%{"reason" => reason}) when is_binary(reason), do: reason
   defp format_step_error(errors), do: inspect(errors, pretty: true)
+
+  # The interrupted-run banner used to show a single hardcoded sentence
+  # ("...when the server restarted") regardless of why the run actually
+  # stopped. `interrupt_run/2` bulk-marks every in-flight StepRun with the
+  # *same* errors payload for one interruption event, so any one of them is
+  # representative — pick the first that actually carries a recognized
+  # interruption reason (as opposed to an unrelated step failure that
+  # predates the interruption) and show its real message.
+  @interruption_reasons ["node_shutdown", "process_terminated"]
+
+  defp interrupted_reason(step_runs) do
+    step_runs
+    |> Enum.find(fn sr ->
+      sr.status == "failed" and get_in(sr.errors, ["reason"]) in @interruption_reasons
+    end)
+    |> case do
+      nil ->
+        "This run was interrupted. Any steps that were in progress have been marked as failed."
+
+      step_run ->
+        "#{format_step_error(step_run.errors)} Any steps that were in progress have been marked as failed."
+    end
+  end
 
   defp short_id(nil), do: "?"
   defp short_id(id), do: String.slice(id, 0, 8)

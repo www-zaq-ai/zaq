@@ -732,8 +732,8 @@ defmodule Zaq.Engine.Workflows do
   end
 
   @doc """
-  Marks a workflow run as `"interrupted"` — the node restarted while it was
-  executing.
+  Marks a workflow run as `"interrupted"` — its driving process is gone and it
+  will never reach a terminal state on its own.
 
   Idempotent: returns `{:ok, run}` immediately if the run is already in a
   terminal state (`completed`, `failed`, `cancelled`, `interrupted`).
@@ -741,17 +741,27 @@ defmodule Zaq.Engine.Workflows do
   In a single transaction:
   - Sets run `status: "interrupted"` and `finished_at`.
   - Bulk-marks any in-flight `StepRun` rows (`status: "running"`) as `"failed"`
-    with a `node_shutdown` error.
+    with an error built from `:reason`/`:message` opts.
+
+  Callers that actually observed *why* the driver died (e.g. `RunWatcher`,
+  which monitors the driving process and sees its real `:DOWN` exit reason)
+  should pass `reason:`/`message:` describing that. With no opts, this
+  defaults to `reason: "node_shutdown"` — accurate only for the boot-time
+  sweep (`StartupRecovery`/`RunRecoveryWorker`), which finds a run stuck
+  `"running"` with no driver alive at all because the *entire node* restarted,
+  and genuinely has no other signal to report.
 
   After commit, dispatches a `"run.interrupted"` event (fire-and-forget).
   """
   @spec interrupt_run(WorkflowRun.t(), keyword()) ::
           {:ok, WorkflowRun.t()} | {:error, Ecto.Changeset.t()}
-  def interrupt_run(%WorkflowRun{} = run, _opts \\ []) do
+  def interrupt_run(%WorkflowRun{} = run, opts \\ []) do
     if run.status in ["completed", "failed", "cancelled", "interrupted"] do
       {:ok, run}
     else
       now = DateTime.utc_now(:second)
+      reason = Keyword.get(opts, :reason, "node_shutdown")
+      message = Keyword.get(opts, :message, "Server restarted during execution")
 
       result =
         Repo.transaction(fn ->
@@ -764,7 +774,7 @@ defmodule Zaq.Engine.Workflows do
           |> Repo.update_all(
             set: [
               status: "failed",
-              errors: %{reason: "node_shutdown", message: "Server restarted during execution"},
+              errors: %{reason: reason, message: message},
               finished_at: now,
               updated_at: now
             ]
@@ -793,6 +803,44 @@ defmodule Zaq.Engine.Workflows do
           error
       end
     end
+  end
+
+  @doc """
+  Bulk-fails any `StepRun` rows still `"running"` for `run_id`.
+
+  Used by `WorkflowRunAgent.finalize/2`'s "crash cursor" path: a row stuck at
+  `"running"` after a react cycle means that step's own execution never wrote
+  back an outcome (typically left behind by an earlier interrupted/crashed
+  attempt this run's DAG traversal does not revisit). That's already reason
+  enough to fail the *run* — this closes the other half of the gap by
+  resolving the *step* itself instead of leaving it `"running"` forever
+  alongside a run that shows `"failed"`.
+  """
+  @spec fail_orphaned_step_runs(String.t(), keyword()) :: :ok
+  def fail_orphaned_step_runs(run_id, opts \\ []) do
+    reason = Keyword.get(opts, :reason, "orphaned_step")
+
+    message =
+      Keyword.get(
+        opts,
+        :message,
+        "This step never reported an outcome — it was left running by an earlier, " <>
+          "incomplete execution attempt."
+      )
+
+    now = DateTime.utc_now(:second)
+
+    from(sr in StepRun, where: sr.workflow_run_id == ^run_id and sr.status == "running")
+    |> Repo.update_all(
+      set: [
+        status: "failed",
+        errors: %{reason: reason, message: message},
+        finished_at: now,
+        updated_at: now
+      ]
+    )
+
+    :ok
   end
 
   # --- Step runs ---

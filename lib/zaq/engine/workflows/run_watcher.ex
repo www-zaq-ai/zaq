@@ -109,11 +109,33 @@ defmodule Zaq.Engine.Workflows.RunWatcher do
             "run_id=#{run_id} exit_reason=#{inspect(reason)}"
         )
 
-        Workflows.interrupt_run(run)
+        Workflows.interrupt_run(run,
+          reason: "process_terminated",
+          message:
+            "The process running this workflow was terminated unexpectedly: " <>
+              describe_exit_reason(reason)
+        )
+
         :ok
 
       _ ->
         :ok
     end
   end
+
+  # `:killed` is the special, untrappable reason OTP always reports for
+  # `Process.exit(pid, :kill)` regardless of what the killer intended (an
+  # external `kill -9`, an OOM-kill, etc.) — worth a plain-language gloss
+  # rather than the bare atom. An uncaught `raise` is delivered as
+  # `{exception, stacktrace}`; surface the exception's own message rather than
+  # the raw tuple. Anything else (opaque supervisor/infra exit reasons) is
+  # inspected verbatim — the point is to never collapse an unrecognized reason
+  # into a generic label.
+  defp describe_exit_reason(:killed),
+    do: "the process was killed (e.g. an out-of-memory kill or a forced termination)"
+
+  defp describe_exit_reason({exception, _stacktrace}) when is_exception(exception),
+    do: Exception.message(exception)
+
+  defp describe_exit_reason(reason), do: inspect(reason)
 end

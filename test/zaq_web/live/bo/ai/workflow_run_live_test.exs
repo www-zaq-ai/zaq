@@ -794,6 +794,57 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
   end
 
+  describe "Run Interrupted banner" do
+    test "shows the real termination reason captured by RunWatcher, not a hardcoded 'server restarted' sentence",
+         %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "interrupted"})
+
+      step_run_fixture(run, %{
+        status: "failed",
+        errors: %{
+          "reason" => "process_terminated",
+          "message" =>
+            "The process running this workflow was terminated unexpectedly: " <>
+              "the process was killed (e.g. an out-of-memory kill or a forced termination)."
+        }
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "Run Interrupted"
+      assert html =~ "the process was killed (e.g. an out-of-memory kill or a forced termination)"
+      refute html =~ "when the server restarted"
+    end
+
+    test "falls back to the honest node_shutdown message for a genuine boot-time recovery",
+         %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "interrupted"})
+
+      step_run_fixture(run, %{
+        status: "failed",
+        errors: %{"reason" => "node_shutdown", "message" => "Server restarted during execution"}
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "Run Interrupted"
+      assert html =~ "Server restarted during execution"
+    end
+
+    test "falls back to a generic sentence when no step recorded an interruption reason",
+         %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "interrupted"})
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "Run Interrupted"
+      assert html =~ "This run was interrupted."
+    end
+  end
+
   describe "resume_run event" do
     test "resume_run fires a background task without crashing the view", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
