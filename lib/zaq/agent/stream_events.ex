@@ -315,7 +315,9 @@ defmodule Zaq.Agent.StreamEvents do
 
     entry =
       %{
-        "id" => llm_call_id || "llm:#{iteration || 0}:#{trace_type}",
+        # A reasoning and a content segment can come from the same LLM call, so
+        # the call id alone is not unique per trace entry — suffix the type.
+        "id" => "#{llm_call_id || "llm:#{iteration || 0}"}:#{trace_type}",
         "type" => trace_type,
         "turn_id" => to_string(iteration || 0),
         "llm_call_id" => llm_call_id,
