@@ -401,6 +401,8 @@ defmodule Zaq.Channels.BridgeTest do
   test "provider mapping and bridge resolution helpers" do
     assert Bridge.provider_to_bridge_key("email:smtp") == :email
     assert Bridge.provider_to_bridge_key("email:imap") == :email
+    assert Bridge.provider_to_bridge_key(:"email:smtp") == :email
+    assert Bridge.provider_to_bridge_key(:"email:imap") == :email
     assert is_nil(Bridge.provider_to_bridge_key("unknown-provider"))
 
     assert {:ok, SyncProviderBridge} = Bridge.resolve_bridge(:mattermost)

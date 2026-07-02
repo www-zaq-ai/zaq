@@ -16,7 +16,6 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
   defmodule NotificationConfig do
     def get(:zaq, :channels, _default) do
       %{
-        :"email:imap" => %{bridge: Zaq.Channels.EmailBridge},
         email: %{bridge: Zaq.Channels.EmailBridge}
       }
     end

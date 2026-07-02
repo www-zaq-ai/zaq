@@ -295,6 +295,8 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     test "maps email transport providers to :email bridge" do
       assert Bridge.provider_to_bridge_key("email:smtp") == :email
       assert Bridge.provider_to_bridge_key("email:imap") == :email
+      assert Bridge.provider_to_bridge_key(:"email:smtp") == :email
+      assert Bridge.provider_to_bridge_key(:"email:imap") == :email
       assert Bridge.bridge_for("email:smtp") == StubBridge
       assert Bridge.bridge_for("email:imap") == StubBridge
     end
