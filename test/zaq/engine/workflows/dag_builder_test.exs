@@ -4,10 +4,12 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
 
   alias Zaq.Engine.Workflows.DagBuilder
 
-  @fetch_module "Zaq.Agent.Tools.Email.FetchEmails"
-  @always_condition_module "Zaq.Engine.Workflows.Test.AlwaysCondition"
-  @never_condition_module "Zaq.Engine.Workflows.Test.NeverCondition"
-  @draft_module "Zaq.Agent.Tools.Email.DraftReply"
+  @fetch_module "Zaq.Engine.Workflows.Test.InboxWithResults"
+  @ok_module "Zaq.Engine.Workflows.Test.OkAction"
+  @noop_module "Zaq.Engine.Workflows.Test.Noop"
+  @emit_person_module "Zaq.Engine.Workflows.Test.EmitPerson"
+  @require_person_name_module "Zaq.Engine.Workflows.Test.RequirePersonName"
+  @require_first_name_module "Zaq.Engine.Workflows.Test.RequireFirstName"
 
   defp linear_steps do
     %{
@@ -22,58 +24,14 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         %{
           "name" => "draft",
           "type" => "action",
-          "module" => @draft_module,
+          "module" => @ok_module,
           "params" => %{},
           "index" => 1
         }
       ],
-      "edges" => [
-        %{"from" => "fetch", "to" => "draft"}
-      ]
+      "edges" => [%{"from" => "fetch", "to" => "draft"}]
     }
   end
-
-  defp branching_steps do
-    %{
-      "nodes" => [
-        %{
-          "name" => "fetch",
-          "type" => "action",
-          "module" => @fetch_module,
-          "params" => %{},
-          "index" => 0
-        },
-        %{
-          "name" => "emails_found",
-          "type" => "condition",
-          "module" => @always_condition_module,
-          "params" => %{},
-          "index" => 1
-        },
-        %{
-          "name" => "no_emails",
-          "type" => "condition",
-          "module" => @never_condition_module,
-          "params" => %{},
-          "index" => 1
-        },
-        %{
-          "name" => "draft",
-          "type" => "action",
-          "module" => @draft_module,
-          "params" => %{},
-          "index" => 2
-        }
-      ],
-      "edges" => [
-        %{"from" => "fetch", "to" => "emails_found"},
-        %{"from" => "fetch", "to" => "no_emails"},
-        %{"from" => "emails_found", "to" => "draft"}
-      ]
-    }
-  end
-
-  @ok_module "Zaq.Engine.Workflows.Test.OkAction"
 
   defp single_action_steps(module \\ @ok_module) do
     %{
@@ -84,37 +42,124 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     }
   end
 
-  describe "build/2 — run_id instrumentation" do
-    test "action nodes are wrapped in ActionWrapper when run_id is provided" do
-      {:ok, workflow} = DagBuilder.build(single_action_steps(), run_id: "some-uuid")
-      assert %Runic.Workflow{} = workflow
-    end
-
-    test "condition nodes are NOT wrapped when run_id is provided" do
-      steps = %{
+  describe "Step 1 spike — edge-injection routing (D-1)" do
+    # Scenario: A → B → C (gender==male, name→person_name) → D
+    #                B → F (gender==female, name→first_name)
+    defp user_scenario_steps(gender) do
+      %{
         "nodes" => [
           %{
-            "name" => "fetch",
+            "name" => "A",
             "type" => "action",
-            "module" => @ok_module,
+            "module" => @noop_module,
             "params" => %{},
             "index" => 0
           },
           %{
-            "name" => "cond",
-            "type" => "condition",
-            "module" => @always_condition_module,
-            "params" => %{},
+            "name" => "B",
+            "type" => "action",
+            "module" => @emit_person_module,
+            "params" => %{"gender" => gender},
             "index" => 1
+          },
+          %{
+            "name" => "C",
+            "type" => "action",
+            "module" => @require_person_name_module,
+            "params" => %{},
+            "index" => 2
+          },
+          %{
+            "name" => "D",
+            "type" => "action",
+            "module" => @noop_module,
+            "params" => %{},
+            "index" => 3
+          },
+          %{
+            "name" => "F",
+            "type" => "action",
+            "module" => @require_first_name_module,
+            "params" => %{},
+            "index" => 2
           }
         ],
-        "edges" => [%{"from" => "fetch", "to" => "cond"}]
+        "edges" => [
+          %{"from" => "A", "to" => "B"},
+          %{
+            "from" => "B",
+            "to" => "C",
+            "condition" => %{"field" => "gender", "op" => "eq", "value" => "male"},
+            "mapping" => %{"person_name" => "name"}
+          },
+          %{"from" => "C", "to" => "D"},
+          %{
+            "from" => "B",
+            "to" => "F",
+            "condition" => %{"field" => "gender", "op" => "eq", "value" => "female"},
+            "mapping" => %{"first_name" => "name"}
+          }
+        ]
       }
-
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: "some-uuid")
     end
 
-    test "build/1 with no opts preserves existing behaviour (no ActionWrapper)" do
+    test "gender=male: C runs (receives person_name, not name); F is pruned; run completes" do
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("male"))
+      result = Runic.Workflow.react_until_satisfied(dag, %{})
+      productions = Runic.Workflow.raw_productions(result)
+
+      assert Enum.any?(productions, &Map.has_key?(&1, :c_ran)),
+             "expected C to have run (c_ran key present in productions)"
+
+      refute Enum.any?(productions, &Map.has_key?(&1, :f_ran)),
+             "expected F to be pruned (f_ran key absent from productions)"
+    end
+
+    test "gender=female: F runs (receives first_name, not name); C is pruned; run completes" do
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("female"))
+      result = Runic.Workflow.react_until_satisfied(dag, %{})
+      productions = Runic.Workflow.raw_productions(result)
+
+      assert Enum.any?(productions, &Map.has_key?(&1, :f_ran)),
+             "expected F to have run (f_ran key present in productions)"
+
+      refute Enum.any?(productions, &Map.has_key?(&1, :c_ran)),
+             "expected C to be pruned (c_ran key absent from productions)"
+    end
+
+    test "gender=other: neither C nor F runs; run still completes without error" do
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("other"))
+      result = Runic.Workflow.react_until_satisfied(dag, %{})
+      productions = Runic.Workflow.raw_productions(result)
+
+      refute Enum.any?(productions, &Map.has_key?(&1, :c_ran))
+      refute Enum.any?(productions, &Map.has_key?(&1, :f_ran))
+    end
+
+    test "mapping isolation: C receives person_name but NOT the raw name key" do
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("male"))
+
+      # RequirePersonName.run/2 raises if it receives :name — test passes only if mapping isolated.
+      assert %Runic.Workflow{} = Runic.Workflow.react_until_satisfied(dag, %{})
+    end
+
+    test "mapping isolation: F receives first_name but NOT the raw name key" do
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("female"))
+      assert %Runic.Workflow{} = Runic.Workflow.react_until_satisfied(dag, %{})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # build/2 — run_id instrumentation
+  # ---------------------------------------------------------------------------
+
+  describe "build/2 — run_id instrumentation" do
+    test "action nodes are wrapped in StepRunner when run_id is provided" do
+      {:ok, workflow} = DagBuilder.build(single_action_steps(), run_id: "some-uuid")
+      assert %Runic.Workflow{} = workflow
+    end
+
+    test "build/1 with no opts preserves existing behaviour (no StepRunner)" do
       assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps())
     end
 
@@ -128,14 +173,13 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # build/1 — happy path
+  # ---------------------------------------------------------------------------
+
   describe "build/1 — happy path" do
     test "returns a Runic.Workflow for a linear DAG" do
       assert {:ok, workflow} = DagBuilder.build(linear_steps())
-      assert %Runic.Workflow{} = workflow
-    end
-
-    test "returns a Runic.Workflow for a branching DAG with conditions" do
-      assert {:ok, workflow} = DagBuilder.build(branching_steps())
       assert %Runic.Workflow{} = workflow
     end
 
@@ -156,10 +200,76 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
     end
 
-    test "builds without raising regardless of action parameter overlap" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(branching_steps())
+    test "builds a branching DAG using edge conditions (no condition nodes)" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "root",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "branch_a",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 1
+          },
+          %{
+            "name" => "branch_b",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => [
+          %{
+            "from" => "root",
+            "to" => "branch_a",
+            "condition" => %{"field" => "value", "op" => "eq", "value" => "a"}
+          },
+          %{
+            "from" => "root",
+            "to" => "branch_b",
+            "condition" => %{"field" => "value", "op" => "eq", "value" => "b"}
+          }
+        ]
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "mapping-only edge (no condition) builds and routes" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "src",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "dst",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => [%{"from" => "src", "to" => "dst", "mapping" => %{"output" => "value"}}]
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # build/1 — error cases
+  # ---------------------------------------------------------------------------
 
   describe "build/1 — error cases" do
     test "returns error for empty nodes and edges" do
@@ -183,7 +293,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       assert {:error, {:unknown_module, "Does.Not.Exist"}} = DagBuilder.build(steps)
     end
 
-    test "returns error for unknown condition module" do
+    test "condition node type now returns unknown_node_type error" do
       steps = %{
         "nodes" => [
           %{
@@ -197,7 +307,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:error, {:unknown_module, "Does.Not.Exist"}} = DagBuilder.build(steps)
+      assert {:error, {:unknown_node_type, "condition"}} = DagBuilder.build(steps)
     end
 
     test "returns error when edge references unknown node" do
@@ -217,12 +327,133 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       assert {:error, {:unknown_node, "ghost"}} = DagBuilder.build(steps)
     end
 
+    test "conditional edge with unknown op returns {:error, {:invalid_edge_condition, condition}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "b",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => [
+          %{"from" => "a", "to" => "b", "condition" => %{"field" => "x", "op" => "totally_bogus"}}
+        ]
+      }
+
+      assert {:error, {:invalid_edge_condition, _condition}} = DagBuilder.build(steps)
+    end
+
+    test "conditional edge to unknown node returns {:error, {:unknown_node, target}}" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => [
+          %{
+            "from" => "a",
+            "to" => "ghost",
+            "condition" => %{"field" => "x", "op" => "eq", "value" => 1}
+          }
+        ]
+      }
+
+      assert {:error, {:unknown_node, "ghost"}} = DagBuilder.build(steps)
+    end
+
     test "returns error for missing nodes key" do
       assert {:error, :invalid_steps} = DagBuilder.build(%{"edges" => []})
     end
 
     test "returns error for missing edges key" do
       assert {:error, :invalid_steps} = DagBuilder.build(%{"nodes" => []})
+    end
+  end
+
+  describe "build/2 — start sentinel edge (issue #508)" do
+    defp start_edge_steps(edges) do
+      %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "b",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{},
+            "index" => 1
+          }
+        ],
+        "edges" => edges
+      }
+    end
+
+    test "builds when a start edge carries a mapping" do
+      steps =
+        start_edge_steps([
+          %{"from" => "start", "to" => "a", "mapping" => %{"x" => "start.position"}}
+        ])
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "builds when a start edge carries only a condition" do
+      steps =
+        start_edge_steps([
+          %{
+            "from" => "start",
+            "to" => "a",
+            "condition" => %{"field" => "ok", "op" => "eq", "value" => true}
+          }
+        ])
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "rejects a no-op start edge (no mapping, no condition)" do
+      steps = start_edge_steps([%{"from" => "start", "to" => "a"}])
+
+      assert {:error, {:invalid_start_edge, "a"}} = DagBuilder.build(steps)
+    end
+
+    test "rejects duplicate start edges to the same node" do
+      steps =
+        start_edge_steps([
+          %{"from" => "start", "to" => "a", "mapping" => %{"x" => "start.one"}},
+          %{"from" => "start", "to" => "a", "mapping" => %{"y" => "start.two"}}
+        ])
+
+      assert {:error, {:duplicate_start_edge, "a"}} = DagBuilder.build(steps)
+    end
+
+    test "allows start fan-out to different nodes" do
+      steps =
+        start_edge_steps([
+          %{"from" => "start", "to" => "a", "mapping" => %{"x" => "start.one"}},
+          %{"from" => "start", "to" => "b", "mapping" => %{"y" => "start.two"}}
+        ])
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
     end
   end
 
@@ -313,254 +544,9 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
   end
 
-  # --- Inline conditions ---
-
-  defp inline_cond_steps(op, value \\ nil) do
-    params =
-      if is_nil(value),
-        do: %{"field" => "count", "op" => op},
-        else: %{"field" => "count", "op" => op, "value" => value}
-
-    %{
-      "nodes" => [
-        %{"name" => "check", "type" => "condition", "params" => params, "index" => 0}
-      ],
-      "edges" => []
-    }
-  end
-
-  describe "build/2 — inline condition (no module)" do
-    test "builds inline condition node with nil module" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(inline_cond_steps("eq", 5))
-    end
-
-    test "builds inline condition node with empty string module" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "check",
-            "type" => "condition",
-            "module" => "",
-            "params" => %{"field" => "x", "op" => "eq", "value" => 1},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
-    end
-
-    test "eq operator: runs without error when condition passes" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("eq", 5))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
-    end
-
-    test "eq operator: runs without error when condition fails" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("eq", 5))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 99})
-    end
-
-    test "neq operator" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("neq", 5))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 3})
-    end
-
-    test "gt operator: passes when greater" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("gt", 3))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
-    end
-
-    test "gt operator: fails when not greater" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("gt", 10))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
-    end
-
-    test "lt operator" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("lt", 10))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
-    end
-
-    test "gte operator: passes when equal" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("gte", 5))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
-    end
-
-    test "lte operator: passes when equal" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("lte", 5))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 5})
-    end
-
-    test "not_empty: passes for non-empty list" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("not_empty"))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => [1, 2]})
-    end
-
-    test "not_empty: fails for nil value" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("not_empty"))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => nil})
-    end
-
-    test "not_empty: fails for empty list" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("not_empty"))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => []})
-    end
-
-    test "not_empty: fails for empty string" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("not_empty"))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => ""})
-    end
-
-    test "empty: passes for nil" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("empty"))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => nil})
-    end
-
-    test "empty: passes for empty list" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("empty"))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => []})
-    end
-
-    test "empty: passes for empty string" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("empty"))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => ""})
-    end
-
-    test "empty: fails for non-empty value" do
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("empty"))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => [1]})
-    end
-
-    test "in operator: passes when value is in list" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "check",
-            "type" => "condition",
-            "params" => %{"field" => "status", "op" => "in", "value" => ["active", "pending"]},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      {:ok, dag} = DagBuilder.build(steps)
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"status" => "active"})
-    end
-
-    test "in operator: fails when value is not in list" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "check",
-            "type" => "condition",
-            "params" => %{"field" => "status", "op" => "in", "value" => ["active"]},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      {:ok, dag} = DagBuilder.build(steps)
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"status" => "inactive"})
-    end
-
-    test "field resolved via atom key in fact" do
-      # param/2 falls back to String.to_atom(key) when string key lookup returns nil
-      {:ok, dag} = DagBuilder.build(inline_cond_steps("gt", 0))
-      _result = Runic.Workflow.react_until_satisfied(dag, %{count: 5})
-    end
-
-    test "unknown op raises ArgumentError inside work fn (Runic handles gracefully)" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "check",
-            "type" => "condition",
-            "params" => %{"field" => "x", "op" => "bad_op"},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      {:ok, dag} = DagBuilder.build(steps)
-      # compare_op catch-all raises ArgumentError; Runic catches it and skips downstream
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"x" => 1})
-    end
-
-    test "missing field param raises ArgumentError inside work fn (Runic handles gracefully)" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "check",
-            "type" => "condition",
-            "params" => %{"op" => "eq", "value" => 1},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      {:ok, dag} = DagBuilder.build(steps)
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 1})
-    end
-
-    test "missing op param raises ArgumentError inside work fn (Runic handles gracefully)" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "check",
-            "type" => "condition",
-            "params" => %{"field" => "count"},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      {:ok, dag} = DagBuilder.build(steps)
-      _result = Runic.Workflow.react_until_satisfied(dag, %{"count" => 1})
-    end
-  end
-
-  describe "build/2 — module-backed condition execution" do
-    test "module condition: runs without error when condition passes" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "check",
-            "type" => "condition",
-            "module" => @always_condition_module,
-            "params" => %{},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      {:ok, dag} = DagBuilder.build(steps)
-      _result = Runic.Workflow.react_until_satisfied(dag, %{})
-    end
-
-    test "module condition: runs without error when condition fails (downstream skipped)" do
-      steps = %{
-        "nodes" => [
-          %{
-            "name" => "check",
-            "type" => "condition",
-            "module" => @never_condition_module,
-            "params" => %{},
-            "index" => 0
-          }
-        ],
-        "edges" => []
-      }
-
-      {:ok, dag} = DagBuilder.build(steps)
-      _result = Runic.Workflow.react_until_satisfied(dag, %{})
-    end
-  end
+  # ---------------------------------------------------------------------------
+  # Misc — kept from before
+  # ---------------------------------------------------------------------------
 
   describe "build/2 — agent type nodes" do
     test "builds agent type node the same as action" do
@@ -594,7 +580,6 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
 
   describe "build/2 — param atomization" do
     test "unknown string key in params triggers atomize_keys rescue and falls back gracefully" do
-      # String.to_existing_atom/1 raises for unknown atoms — atomize_keys must rescue
       steps = %{
         "nodes" => [
           %{
@@ -609,6 +594,233 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
       }
 
       assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "atom-keyed params pass through atomize_keys unchanged" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "step",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => %{count: 5},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+
+    test "nil params are passed through atomize_keys as-is" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "step",
+            "type" => "action",
+            "module" => @ok_module,
+            "params" => nil,
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+    end
+  end
+
+  describe "build/1 — nil module" do
+    test "node with nil module returns {:error, {:unknown_module, nil}}" do
+      steps = %{
+        "nodes" => [
+          %{"name" => "step", "type" => "action", "module" => nil, "params" => %{}, "index" => 0}
+        ],
+        "edges" => []
+      }
+
+      assert {:error, {:unknown_module, nil}} = DagBuilder.build(steps)
+    end
+  end
+
+  describe "build/1 — regression: plain edges unchanged" do
+    test "linear DAG with plain edges produces same Runic.Workflow structure" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(linear_steps())
+    end
+
+    test "single-node DAG with no edges builds correctly" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps())
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Batch translator — rewrites a Batch node into a `map` node (no runtime loop)
+  # ---------------------------------------------------------------------------
+
+  @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
+  @sleep_ms_module "Zaq.Engine.Workflows.Test.SleepMs"
+  @non_conforming_module "Zaq.Engine.Workflows.Test.NonConformingAction"
+  @process_contact_module "Zaq.Engine.Workflows.Test.ProcessContact"
+  @batch_module "Zaq.Agent.Tools.Workflow.Batch"
+
+  # A Batch map lowers a body pipeline that runs StepRunner-wrapped per fork; that
+  # needs a run_id (without one, raw adjacent modules can have incompatible ports).
+  defp build_batch(steps), do: DagBuilder.build(steps, run_id: Ecto.UUID.generate())
+
+  defp batch_steps(extra_params \\ %{}) do
+    %{
+      "nodes" => [
+        %{
+          "name" => "get_data",
+          "type" => "action",
+          "module" => @ok_module,
+          "params" => %{},
+          "index" => 0
+        },
+        %{
+          "name" => "batch",
+          "type" => "action",
+          "module" => @batch_module,
+          "params" =>
+            Map.merge(
+              %{
+                "process" => [
+                  %{
+                    "name" => "categorize",
+                    "type" => "action",
+                    "module" => @categorize_module,
+                    "params" => %{}
+                  }
+                ],
+                "post_process" => [
+                  %{
+                    "name" => "sleep",
+                    "type" => "action",
+                    "module" => @sleep_ms_module,
+                    "params" => %{}
+                  }
+                ]
+              },
+              extra_params
+            ),
+          "index" => 1
+        }
+      ],
+      "edges" => [%{"from" => "get_data", "to" => "batch"}]
+    }
+  end
+
+  describe "build — Batch translator (plain process)" do
+    test "valid process + post_process → builds successfully" do
+      assert {:ok, %Runic.Workflow{}} = build_batch(batch_steps())
+    end
+
+    test "process / post_process body nodes are not top-level DAG nodes" do
+      assert {:ok, wf} = build_batch(batch_steps())
+      node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
+      refute "categorize" in node_names
+      refute "sleep" in node_names
+    end
+  end
+
+  describe "build — Batch translator (per-item delivery)" do
+    defp batch_item_delivery_steps do
+      %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{
+              "delivery" => "item",
+              "process" => [
+                %{
+                  "name" => "process_contact",
+                  "type" => "action",
+                  "module" => @process_contact_module,
+                  "params" => %{}
+                }
+              ]
+            },
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+    end
+
+    test "per-item delivery → builds successfully" do
+      assert {:ok, %Runic.Workflow{}} = build_batch(batch_item_delivery_steps())
+    end
+
+    test "the body pipeline nodes are not top-level DAG nodes" do
+      {:ok, wf} = build_batch(batch_item_delivery_steps())
+      node_names = wf.graph |> Map.keys() |> Enum.map(&to_string/1)
+      refute "process_contact" in node_names
+    end
+  end
+
+  describe "build — Batch translator errors" do
+    test "process absent → missing_process_pipeline" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, :missing_process_pipeline} = build_batch(steps)
+    end
+
+    test "process empty list → missing_process_pipeline" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{"process" => []},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, :missing_process_pipeline} = build_batch(steps)
+    end
+
+    test "non-conforming process body module → build error" do
+      steps = %{
+        "nodes" => [
+          %{
+            "name" => "batch",
+            "type" => "action",
+            "module" => @batch_module,
+            "params" => %{
+              "process" => [
+                %{
+                  "name" => "bad",
+                  "type" => "action",
+                  "module" => @non_conforming_module,
+                  "params" => %{}
+                }
+              ]
+            },
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, _} = build_batch(steps)
     end
   end
 end

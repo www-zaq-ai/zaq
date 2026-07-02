@@ -83,6 +83,21 @@ defmodule Zaq.Agent.ApiTest do
     def broadcast(ctx, _stage, _message, _node_router), do: ctx
   end
 
+  defmodule PassthroughIdentityPlug do
+    def call(incoming, _opts), do: incoming
+  end
+
+  defmodule SpyIdentityPlug do
+    def call(incoming, _opts) do
+      send(self(), {:identity_called, incoming})
+      %{incoming | person: %{id: 99}}
+    end
+  end
+
+  defmodule NilPersonIdentityPlug do
+    def call(incoming, _opts), do: %{incoming | person: nil}
+  end
+
   defmodule SpyNodeRouter do
     def dispatch(event) do
       send(self(), {:node_router_dispatch, Keyword.get(event.opts, :action), event})
@@ -166,11 +181,6 @@ defmodule Zaq.Agent.ApiTest do
     def mcp_endpoint_updated(_request), do: {:error, {:invalid_request, :bad_mcp}}
   end
 
-  # Passthrough identity plug (no DB, leaves incoming unchanged)
-  defmodule PassthroughIdentityPlug do
-    def call(incoming, _opts), do: incoming
-  end
-
   # Passthrough server manager (no-op, returns a fake ref)
   defmodule PassthroughServerManager do
     def ensure_server(server_id),
@@ -178,19 +188,6 @@ defmodule Zaq.Agent.ApiTest do
 
     def ensure_server_by_id(_agent, server_id),
       do: {:ok, {:via, Registry, {Zaq.Agent.Jido, server_id}}}
-  end
-
-  # Identity plug that records calls and sets person_id = 99
-  defmodule SpyIdentityPlug do
-    def call(incoming, _opts) do
-      send(self(), {:identity_called, incoming})
-      %{incoming | person_id: 99}
-    end
-  end
-
-  # Identity plug that leaves person_id nil (simulates BO user)
-  defmodule NilPersonIdentityPlug do
-    def call(incoming, _opts), do: %{incoming | person_id: nil}
   end
 
   # StubServerManager records ensure_server calls
@@ -215,7 +212,6 @@ defmodule Zaq.Agent.ApiTest do
           action: :run_pipeline,
           pipeline_module: StubPipeline,
           pipeline_opts: [foo: :bar],
-          identity_plug: PassthroughIdentityPlug,
           node_router: SpyNodeRouter,
           server_manager: PassthroughServerManager
         ]
@@ -227,6 +223,70 @@ defmodule Zaq.Agent.ApiTest do
     assert result.response.body == "ok"
     assert_received {:pipeline_called, ^incoming, opts}
     assert Keyword.get(opts, :foo) == :bar
+  end
+
+  test "run_pipeline normalizes incoming person into actor identity" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      person: %{id: 99, full_name: "Alice", team_ids: [4]}
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.actor == %{provider: :web, person: %{id: 99, full_name: "Alice", team_ids: [4]}}
+    assert_received {:pipeline_called, %{person: %{id: 99}}, opts}
+    assert Keyword.get(opts, :person_id) == 99
+    assert Keyword.get(opts, :team_ids) == [4]
+  end
+
+  test "run_pipeline leaves the actor untouched when identity stays unresolved" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+    actor = %{id: "u1", name: "alice", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        actor: actor,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.actor == actor
+  end
+
+  test "run_pipeline tolerates a nil actor" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert is_nil(result.actor)
   end
 
   test "returns invalid request for run_pipeline with malformed payload" do
@@ -393,6 +453,31 @@ defmodule Zaq.Agent.ApiTest do
     refute_received {:pipeline_called, _, _}
   end
 
+  test "does not pass a custom system_prompt from pipeline_opts to the executor" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: nil}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [system_prompt: "You are a workflow agent.", skip_permissions: true],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{agent_id: "9"}}}
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:executor_called, ^incoming, opts}
+    refute Keyword.has_key?(opts, :system_prompt)
+    assert Keyword.get(opts, :skip_permissions) == true
+  end
+
   test "delegates to executor when agent selection map uses atom key" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
@@ -420,6 +505,38 @@ defmodule Zaq.Agent.ApiTest do
     assert Keyword.get(opts, :agent_id) == 7
     assert Keyword.get(opts, :history) == %{}
     assert Keyword.get(opts, :telemetry_dimensions) == %{}
+  end
+
+  test "delegates to executor when the whole agent_selection map uses atom keys (workflow RunAgent)" do
+    # `Zaq.Agent.Tools.Workflow.RunAgent` dispatches in-process and sets
+    # `assigns: %{agent_selection: %{agent_id: id}}` with atom keys. This must
+    # route to Executor (direct agent run), NOT fall through to the RAG Pipeline.
+    incoming = %Incoming{content: "Draft outreach email", channel_id: "wf", provider: nil}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [system_prompt: "You are a copywriter.", skip_permissions: true],
+          identity_plug: PassthroughIdentityPlug,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    event = %{event | assigns: %{agent_selection: %{agent_id: 42}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.body == "selected"
+
+    assert_received {:executor_called, ^incoming, opts}
+    assert Keyword.get(opts, :agent_id) == 42
+    refute Keyword.has_key?(opts, :system_prompt)
+    refute_received {:pipeline_called, _, _}
   end
 
   test "delegates to executor when selected agent person lookup returns nil" do
@@ -596,20 +713,29 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   test "run_pipeline schedules channels delivery hop from outgoing response" do
-    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :mattermost,
+      metadata: %{"telemetry_dimensions" => %{"channel_config_id" => "cfg-1"}}
+    }
 
     defmodule ReturnHopPipeline do
       def run(%Incoming{} = incoming, _opts) do
         %Outgoing{
           body: "ok",
           channel_id: incoming.channel_id,
-          provider: incoming.provider
+          provider: incoming.provider,
+          metadata: %{"telemetry_dimensions" => %{"channel_config_id" => "unknown"}}
         }
       end
     end
 
+    inbound_name = "channels:message_received.agent_requested.mattermost.cfg_1"
+
     event =
       Event.new(incoming, :agent,
+        name: inbound_name,
         opts: [
           action: :run_pipeline,
           pipeline_module: ReturnHopPipeline,
@@ -635,6 +761,8 @@ defmodule Zaq.Agent.ApiTest do
     assert result.next_hop.destination == :channels
     assert result.next_hop.type == :sync
     assert result.opts[:action] == :deliver_outgoing
+    assert result.name == "channels:agent_response.delivering.mattermost.cfg_1"
+    refute result.name == inbound_name
     assert result.request == result.response
   end
 
@@ -930,12 +1058,8 @@ defmodule Zaq.Agent.ApiTest do
              {:error, {:invalid_request, :bad_update}}
   end
 
-  # ---------------------------------------------------------------------------
-  # New tests: identity resolution + per-person server spawning
-  # ---------------------------------------------------------------------------
-
-  describe "identity resolution" do
-    test "runs before route decision" do
+  describe "channel-resolved identity" do
+    test "does not call the legacy identity plug" do
       incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 
       event =
@@ -952,14 +1076,18 @@ defmodule Zaq.Agent.ApiTest do
 
       Api.handle_event(event, :run_pipeline, nil)
 
-      # identity plug must be called before the pipeline receives the message
-      assert_received {:identity_called, ^incoming}
+      refute_received {:identity_called, ^incoming}
     end
   end
 
   describe "pipeline path" do
-    test "passes identity-resolved incoming to pipeline" do
-      incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+    test "passes channel-resolved incoming to pipeline" do
+      incoming = %Incoming{
+        content: "hi",
+        channel_id: "c1",
+        provider: :web,
+        person: %{id: 99, full_name: "Alice", team_ids: [3]}
+      }
 
       event =
         Event.new(incoming, :agent,
@@ -974,17 +1102,16 @@ defmodule Zaq.Agent.ApiTest do
 
       Api.handle_event(event, :run_pipeline, nil)
 
-      # SpyIdentityPlug sets person_id: 99 — pipeline receives the resolved incoming
       assert_received {:pipeline_called, resolved_incoming, _opts}
-      assert resolved_incoming.person_id == 99
+      assert Incoming.person_id(resolved_incoming) == 99
     end
 
-    test "nil person_id identity plug passes through to pipeline" do
+    test "nil person passes through to pipeline" do
       incoming = %Incoming{
         content: "hi",
         channel_id: "c1",
         provider: :web,
-        person_id: nil,
+        person: nil,
         metadata: %{session_id: "sess_abc"}
       }
 
@@ -994,7 +1121,6 @@ defmodule Zaq.Agent.ApiTest do
             action: :run_pipeline,
             pipeline_module: StubPipeline,
             pipeline_opts: [],
-            identity_plug: NilPersonIdentityPlug,
             node_router: SpyNodeRouter
           ]
         )
@@ -1002,11 +1128,16 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:pipeline_called, resolved_incoming, _opts}
-      assert is_nil(resolved_incoming.person_id)
+      assert is_nil(Incoming.person_id(resolved_incoming))
     end
 
     test "pipeline_opts are passed through to Pipeline.run" do
-      incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+      incoming = %Incoming{
+        content: "hi",
+        channel_id: "c1",
+        provider: :web,
+        person: %{id: 99, full_name: "Alice", team_ids: [3]}
+      }
 
       event =
         Event.new(incoming, :agent,
@@ -1027,8 +1158,13 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   describe "executor path" do
-    test "passes identity-resolved incoming and agent_id to Executor" do
-      incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+    test "passes channel-resolved incoming and agent_id to Executor" do
+      incoming = %Incoming{
+        content: "hi",
+        channel_id: "c1",
+        provider: :web,
+        person: %{id: 99, full_name: "Alice", team_ids: [3]}
+      }
 
       event =
         Event.new(incoming, :agent,
@@ -1048,17 +1184,18 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:executor_called, resolved_incoming, opts}
-      assert resolved_incoming.person_id == 99
+      assert Incoming.person_id(resolved_incoming) == 99
+      assert Keyword.get(opts, :team_ids) == [3]
       assert Keyword.get(opts, :agent_id) == "42"
       refute Keyword.has_key?(opts, :server_id)
     end
 
-    test "nil person_id identity plug passes resolved incoming to Executor" do
+    test "nil person passes incoming to Executor" do
       incoming = %Incoming{
         content: "hi",
         channel_id: "c1",
         provider: :web,
-        person_id: nil,
+        person: nil,
         metadata: %{session_id: "sess_xyz"}
       }
 
@@ -1069,7 +1206,6 @@ defmodule Zaq.Agent.ApiTest do
             pipeline_module: StubPipeline,
             executor_module: StubExecutor,
             pipeline_opts: [],
-            identity_plug: NilPersonIdentityPlug,
             node_router: SpyNodeRouter,
             server_manager: SpyServerManager
           ]
@@ -1080,13 +1216,18 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(event, :run_pipeline, nil)
 
       assert_received {:executor_called, resolved_incoming, opts}
-      assert is_nil(resolved_incoming.person_id)
+      assert is_nil(Incoming.person_id(resolved_incoming))
       assert resolved_incoming.metadata.session_id == "sess_xyz"
       assert Keyword.get(opts, :agent_id) == "7"
     end
 
     test "history and telemetry_dimensions from pipeline_opts are forwarded to Executor.run" do
-      incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+      incoming = %Incoming{
+        content: "hi",
+        channel_id: "c1",
+        provider: :web,
+        person: %{id: 99, full_name: "Alice", team_ids: [3]}
+      }
 
       event =
         Event.new(incoming, :agent,
@@ -1203,8 +1344,13 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   describe "same person messaging twice" do
-    test "identity plug resolves the same person_id on both calls" do
-      incoming = %Incoming{content: "first", channel_id: "c1", provider: :web}
+    test "channel incoming resolves the same person_id on both calls" do
+      incoming = %Incoming{
+        content: "first",
+        channel_id: "c1",
+        provider: :web,
+        person: %{id: 99, full_name: "Alice", team_ids: [3]}
+      }
 
       make_event = fn content ->
         Event.new(%{incoming | content: content}, :agent,
@@ -1221,11 +1367,10 @@ defmodule Zaq.Agent.ApiTest do
       Api.handle_event(make_event.("first"), :run_pipeline, nil)
       Api.handle_event(make_event.("second"), :run_pipeline, nil)
 
-      # Both calls resolve the same person_id via identity plug
       assert_received {:pipeline_called, resolved1, _opts1}
       assert_received {:pipeline_called, resolved2, _opts2}
-      assert resolved1.person_id == 99
-      assert resolved2.person_id == 99
+      assert Incoming.person_id(resolved1) == 99
+      assert Incoming.person_id(resolved2) == 99
     end
   end
 

@@ -82,7 +82,8 @@ defmodule ZaqWeb.Components.SearchableSelect do
         ]}
       >
         <span data-select-label>
-          {Enum.find_value(@options, @empty_label, fn {label, val} ->
+          {Enum.find_value(@options, @empty_label, fn option ->
+            {label, val, _suffix} = normalize_option(option)
             if to_string(val) == to_string(@value || ""), do: label
           end)}
         </span>
@@ -113,12 +114,13 @@ defmodule ZaqWeb.Components.SearchableSelect do
         </div>
         <ul data-select-list class="max-h-52 overflow-y-auto">
           <li
-            :for={{label, value} <- @options}
+            :for={{label, value, suffix} <- Enum.map(@options, &normalize_option/1)}
             data-select-option={label}
             data-select-value={value}
             class="zaq-dropdown-menu-item zaq-dropdown-menu-item--padded"
           >
             {label}
+            <em :if={suffix} class="text-black/35 font-normal">{suffix}</em>
           </li>
         </ul>
         <button
@@ -134,4 +136,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
     </div>
     """
   end
+
+  defp normalize_option({label, value, suffix}), do: {label, value, suffix}
+  defp normalize_option({label, value}), do: {label, value, nil}
 end

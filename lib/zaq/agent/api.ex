@@ -2,14 +2,12 @@ defmodule Zaq.Agent.Api do
   @moduledoc """
   Agent role boundary module used by `Zaq.NodeRouter.dispatch/1`.
 
-  Handles the `:run_pipeline` action by resolving the caller identity via
-  `IdentityPlug`, scoping the request, and dispatching to either `Executor`
+  Handles the `:run_pipeline` action by normalizing caller identity into
+  `Event.actor`, scoping the request, and dispatching to either `Executor`
   (direct agent run when an agent is selected) or `Pipeline` (full RAG pipeline).
 
-  Identity resolution currently lives here as a temporary step: `IdentityPlug`
-  is a BO-specific Phoenix plug and its invocation belongs closer to the HTTP
-  boundary. It will move into `Executor` once a generic identity contract
-  (decoupled from plug concerns) is in place.
+  Channel messages may carry a resolved `%Incoming.person`; this boundary
+  promotes that transport identity into the canonical execution actor.
   """
 
   @behaviour Zaq.InternalBoundaries
@@ -28,8 +26,11 @@ defmodule Zaq.Agent.Api do
     Status
   }
 
+  alias Zaq.Channels.EventNames
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.{Event, EventHop}
+  alias Zaq.Event
+  alias Zaq.EventHop
+  alias Zaq.Identity.ActorNormalizer
   alias Zaq.InternalBoundaries
 
   @doc """
@@ -37,7 +38,7 @@ defmodule Zaq.Agent.Api do
 
   Supported actions:
 
-  - `:run_pipeline` — resolves caller identity via `IdentityPlug`, then routes to
+  - `:run_pipeline` — normalizes caller identity into `Event.actor`, then routes to
     `Pipeline.run/2` (full RAG path) or `Executor.run/2` (direct agent run) depending
     on whether `event.assigns["agent_selection"]` carries a non-nil `agent_id`.
 
@@ -63,6 +64,8 @@ defmodule Zaq.Agent.Api do
   """
   @impl true
   def handle_event(%Event{} = event, :run_pipeline, _context) do
+    event = ActorNormalizer.normalize_event(event)
+
     case event.request do
       %Incoming{} = incoming ->
         status_mod = Keyword.get(event.opts, :status_module, Status)
@@ -235,8 +238,12 @@ defmodule Zaq.Agent.Api do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
 
+  # Channels build assigns from JSON (string keys); in-process callers such as
+  # the workflow `RunAgent` tool set an atom-keyed `:agent_selection`. Accept both
+  # so a selected agent always routes to `Executor.run/2` (direct agent run)
+  # rather than falling through to the RAG `Pipeline`.
   defp selected_agent_id(assigns) when is_map(assigns) do
-    case Map.get(assigns, "agent_selection") do
+    case Map.get(assigns, "agent_selection") || Map.get(assigns, :agent_selection) do
       %{"agent_id" => id} when id not in [nil, ""] -> id
       %{agent_id: id} when id not in [nil, ""] -> id
       _ -> nil
@@ -250,14 +257,6 @@ defmodule Zaq.Agent.Api do
       list when is_list(list) -> list
       _ -> []
     end
-  end
-
-  defp identity_plug_mod(opts) do
-    Keyword.get(
-      opts,
-      :identity_plug,
-      Application.get_env(:zaq, :api_identity_plug_module, Zaq.People.IdentityPlug)
-    )
   end
 
   defp updated_request(%{} = request) do
@@ -314,10 +313,9 @@ defmodule Zaq.Agent.Api do
     pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
     pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
     executor_module = Keyword.get(event.opts, :executor_module, Executor)
-    node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
-    # Identity resolution moves to Executor once a generic contract replaces the BO IdentityPlug.
-    incoming = identity_plug_mod(event.opts).call(incoming, pipeline_opts)
+    person_id = ActorNormalizer.person_id(event.actor)
+    team_ids = ActorNormalizer.team_ids(event.actor)
 
     incoming_dims = incoming.metadata |> Map.get("telemetry_dimensions", %{})
 
@@ -330,31 +328,16 @@ defmodule Zaq.Agent.Api do
           pipeline_module.run(
             incoming,
             pipeline_opts
-            |> Keyword.put(:scope, Executor.derive_scope(incoming))
+            |> Keyword.put(:scope, Executor.derive_scope(incoming, event.actor))
+            |> Keyword.put(:person_id, person_id)
+            |> Keyword.put(:team_ids, team_ids)
             |> Keyword.put(:event, event)
           )
 
         selected_id ->
-          person_id = incoming.person_id
-
-          team_ids =
-            case node_router_mod.dispatch(
-                   Event.new(
-                     %{person_id: person_id},
-                     :engine,
-                     actor: event.actor,
-                     opts: [action: :get_person],
-                     trace_id: event.trace_id
-                   )
-                 ).response do
-              nil -> []
-              %{team_ids: ids} when not is_nil(ids) -> ids
-              _ -> []
-            end
-
           executor_module.run(incoming,
             agent_id: selected_id,
-            scope: Executor.derive_scope(incoming),
+            scope: Executor.derive_scope(incoming, event.actor),
             person_id: person_id,
             team_ids: team_ids,
             source_filter: incoming.content_filter,
@@ -399,6 +382,7 @@ defmodule Zaq.Agent.Api do
       | request: outgoing,
         response: outgoing,
         next_hop: hop,
+        name: EventNames.agent_response_delivering(outgoing, event.request),
         opts: Keyword.put(event.opts, :action, :deliver_outgoing)
     }
   end
@@ -411,7 +395,6 @@ defmodule Zaq.Agent.Api do
        ) do
     persist_event =
       Event.new(%{incoming: incoming, metadata: outgoing.metadata}, :engine,
-        actor: event.actor,
         opts: [action: :persist_from_incoming],
         trace_id: event.trace_id
       )

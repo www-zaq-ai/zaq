@@ -13,6 +13,8 @@ defmodule Zaq.Engine.Messages.Incoming do
   For cross-node routing, this struct is wrapped by `%Zaq.Event{request: %Incoming{...}}`.
   """
 
+  alias Zaq.Identity.ActorNormalizer
+
   @enforce_keys [:content, :channel_id, :provider]
 
   defstruct [
@@ -23,7 +25,7 @@ defmodule Zaq.Engine.Messages.Incoming do
     :thread_id,
     :message_id,
     :provider,
-    :person_id,
+    :person,
     is_dm: false,
     metadata: %{},
     content_filter: []
@@ -37,7 +39,7 @@ defmodule Zaq.Engine.Messages.Incoming do
           thread_id: String.t() | nil,
           message_id: String.t() | integer() | nil,
           provider: atom() | String.t(),
-          person_id: integer() | nil,
+          person: map() | nil,
           is_dm: boolean(),
           metadata: map(),
           content_filter: [String.t()]
@@ -56,7 +58,7 @@ defmodule Zaq.Engine.Messages.Incoming do
       author_name: fetch_optional(attrs, :author_name),
       thread_id: fetch_optional(attrs, :thread_id),
       message_id: fetch_optional(attrs, :message_id),
-      person_id: fetch_optional(attrs, :person_id),
+      person: normalize_person(fetch_optional(attrs, :person)),
       is_dm: fetch_optional(attrs, :is_dm) == true,
       content_filter: normalize_content_filter(fetch_optional(attrs, :content_filter)),
       metadata: metadata
@@ -64,6 +66,14 @@ defmodule Zaq.Engine.Messages.Incoming do
 
     put_telemetry_dimensions(incoming, attrs)
   end
+
+  @doc "Returns the ZAQ Person ID carried by the incoming message, if resolved."
+  @spec person_id(t()) :: integer() | nil
+  def person_id(%__MODULE__{person: person}), do: ActorNormalizer.person_id(%{person: person})
+
+  @doc "Returns resolved team IDs from the incoming message person payload."
+  @spec team_ids(t()) :: [integer()]
+  def team_ids(%__MODULE__{person: person}), do: ActorNormalizer.team_ids(%{person: person})
 
   defp put_telemetry_dimensions(%__MODULE__{} = incoming, attrs) do
     dimensions = build_telemetry_dimensions(incoming, attrs)
@@ -122,6 +132,8 @@ defmodule Zaq.Engine.Messages.Incoming do
 
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
   defp normalize_metadata(_), do: %{}
+
+  defp normalize_person(person), do: ActorNormalizer.person(%{person: person})
 
   defp normalize_content_filter(list) when is_list(list) do
     Enum.filter(list, &is_binary/1)

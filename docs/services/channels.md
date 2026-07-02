@@ -75,9 +75,16 @@ defstruct [
   :thread_id,     # String | nil
   :message_id,    # String | nil
   :provider,      # atom | String — e.g. :mattermost, :web
+  :person,        # %{id: integer, full_name: string | nil, team_ids: [integer]} | nil
   metadata: %{}
 ]
 ```
+
+Channel identity belongs to `Incoming.person` at the channel boundary. Bridges resolve
+the author through `Zaq.People.IdentityResolver` before dispatching onward. Agent and
+Engine boundaries promote that transport identity into canonical `%Zaq.Event.actor`
+via `Zaq.Identity.ActorNormalizer`. The incoming payload is intentionally minimal and
+JSON-safe because `%Incoming{}` may cross nodes.
 
 ### `Zaq.Engine.Messages.Outgoing`
 
@@ -189,6 +196,25 @@ Authentication and signature verification are provider-specific and handled insi
 ## Communication Bridge Helpers
 
 `Zaq.Channels.CommunicationBridge` is the stateless helper boundary used by API/bridge flows for provider-targeted operations.
+
+### Incoming person shape
+
+When a bridge dispatches a `run_pipeline` event, it sets the incoming message `person`
+from the resolved channel author:
+
+```elixir
+%{
+  id: person_id,
+  full_name: full_name,
+  team_ids: team_ids
+}
+```
+
+`author_id` and `author_name` remain provider identity fields on `%Incoming{}`.
+`person.id` is the ZAQ Person ID and is present only when the channel author resolves
+to a Person. Channel-originated events may leave `%Zaq.Event.actor` unset; Agent and
+Engine trigger boundaries derive canonical `actor.person` from `%Incoming.person` early
+in execution.
 
 ### Public API
 

@@ -15,6 +15,13 @@ defmodule Zaq.Agent.Tools.Registry do
 
   @tools [
     %{
+      key: "accounts.fetch_history",
+      label: "Recall conversation history",
+      description:
+        "Search and recall the requesting person's past conversations by topic and/or time period (self-access only; admin runs may target a person via explicit skip_permissions)",
+      module: Zaq.Agent.Tools.Accounts.History
+    },
+    %{
       key: "answering.search_knowledge_base",
       label: "Search knowledge base",
       description: "Search the ZAQ knowledge base with a refined query (answering-only)",
@@ -31,85 +38,85 @@ defmodule Zaq.Agent.Tools.Registry do
       key: "data_source.get_document",
       label: "Get document",
       description: "Get a document by id from a specific datasource provider",
-      module: Zaq.Agent.Tools.GetDocument
+      module: Zaq.Agent.Tools.DataSource.GetDocument
     },
     %{
       key: "data_source.list_documents",
       label: "List documents",
       description: "List document metadata in a specific path for a specific datasource provider",
-      module: Zaq.Agent.Tools.ListDocuments
+      module: Zaq.Agent.Tools.DataSource.ListDocuments
     },
     %{
       key: "data_source.search_documents",
       label: "Search documents",
       description: "Search document metadata for a specific datasource provider",
-      module: Zaq.Agent.Tools.SearchDocuments
+      module: Zaq.Agent.Tools.DataSource.SearchDocuments
     },
     %{
       key: "data_source.download_document",
       label: "Download document",
       description: "Download a document and return a normalized record with content",
-      module: Zaq.Agent.Tools.DownloadDocument
+      module: Zaq.Agent.Tools.DataSource.DownloadDocument
     },
     %{
       key: "data_source.create_document",
       label: "Create document",
       description: "Create a document on a specific datasource provider",
-      module: Zaq.Agent.Tools.CreateDocument
+      module: Zaq.Agent.Tools.DataSource.CreateDocument
     },
     %{
       key: "data_source.update_document",
       label: "Update document",
       description: "Update a document by id on a specific datasource provider",
-      module: Zaq.Agent.Tools.UpdateDocument
+      module: Zaq.Agent.Tools.DataSource.UpdateDocument
     },
     %{
       key: "data_source.get_sheet",
       label: "Get sheet",
       description: "Read spreadsheet data from a specific datasource provider",
-      module: Zaq.Agent.Tools.GetSheet
+      module: Zaq.Agent.Tools.Sheets.GetSheet
     },
     %{
       key: "data_source.inspect_sheet",
       label: "Inspect sheet",
       description: "Inspect spreadsheet metadata from a specific datasource provider",
-      module: Zaq.Agent.Tools.InspectSheet
+      module: Zaq.Agent.Tools.Sheets.InspectSheet
     },
     %{
       key: "data_source.create_sheet",
       label: "Create sheet",
       description: "Create a spreadsheet on a specific datasource provider",
-      module: Zaq.Agent.Tools.CreateSheet
+      module: Zaq.Agent.Tools.Sheets.CreateSheet
     },
     %{
       key: "data_source.add_sheet_tab",
       label: "Add sheet tab",
       description: "Add a tab to a spreadsheet on a specific datasource provider",
-      module: Zaq.Agent.Tools.AddSheetTab
+      module: Zaq.Agent.Tools.Sheets.AddSheetTab
     },
     %{
       key: "data_source.update_sheet_values",
       label: "Update sheet values",
       description: "Update values in a spreadsheet range on a specific datasource provider",
-      module: Zaq.Agent.Tools.UpdateSheetValues
+      module: Zaq.Agent.Tools.Sheets.UpdateSheetValues
     },
     %{
       key: "data_source.append_sheet_values",
       label: "Append sheet values",
       description: "Append rows to a spreadsheet range on a specific datasource provider",
-      module: Zaq.Agent.Tools.AppendSheetValues
+      module: Zaq.Agent.Tools.Sheets.AppendSheetValues
     },
     %{
       key: "data_source.clear_sheet_values",
       label: "Clear sheet values",
       description: "Clear values in a spreadsheet range on a specific datasource provider",
-      module: Zaq.Agent.Tools.ClearSheetValues
+      module: Zaq.Agent.Tools.Sheets.ClearSheetValues
     },
     %{
       key: "data_source.delete_sheet_tab",
       label: "Delete sheet tab",
       description: "Delete a tab in a spreadsheet on a specific datasource provider",
-      module: Zaq.Agent.Tools.DeleteSheetTab
+      module: Zaq.Agent.Tools.Sheets.DeleteSheetTab
     },
     ## Requires permission
     # %{
@@ -243,6 +250,26 @@ defmodule Zaq.Agent.Tools.Registry do
       label: "Square",
       description: "Square a number",
       module: Jido.Tools.Arithmetic.Square
+    },
+    %{
+      key: "workflow.condition",
+      label: "Condition",
+      description: "Checks that all key/value conditions hold on an input map",
+      module: Zaq.Agent.Tools.Workflow.Condition
+    },
+    %{
+      key: "workflow.run_agent",
+      label: "Run agent",
+      description:
+        "Run another configured agent by id with template-variable substitution and return its answer",
+      module: Zaq.Agent.Tools.Workflow.RunAgent
+    },
+    %{
+      key: "workflow.dispatch_event",
+      label: "Dispatch event",
+      description:
+        "Dispatch a workflow event to the Engine node, forwarding prior step outputs plus any extra input fields",
+      module: Zaq.Agent.Tools.Workflow.DispatchEvent
     },
     %{
       key: "advanced.lua_eval",

@@ -20,6 +20,11 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   # ── Stub modules ──────────────────────────────────────────────────────
 
+  defmodule UnresolvedIdentityResolver do
+    def resolve(_incoming, _opts), do: {:error, :not_found}
+    def person_payload(_person), do: raise("unexpected person payload")
+  end
+
   defmodule StubHooks do
     def dispatch_sync(:reply_received, post, _ctx) do
       (Process.whereis(:bridge_test_observer) || self())
@@ -166,6 +171,11 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         end
 
       %{event | response: response}
+    end
+
+    def fire(event) do
+      send(self(), {:node_router_fire_event, event})
+      event
     end
   end
 
@@ -548,6 +558,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     Application.put_env(:zaq, :chat_bridge_conversations_module, StubConversations)
     Application.put_env(:zaq, :chat_bridge_accounts_module, StubAccounts)
     Application.put_env(:zaq, :chat_bridge_permissions_module, StubPermissions)
+    Application.put_env(:zaq, :communication_bridge_identity_resolver, UnresolvedIdentityResolver)
     Application.delete_env(:zaq, :chat_bridge_node_router_module)
     Application.delete_env(:zaq, :chat_bridge_supervisor_module)
     Application.delete_env(:zaq, :chat_bridge_oban_module)
@@ -560,6 +571,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.delete_env(:zaq, :chat_bridge_conversations_module)
       Application.delete_env(:zaq, :chat_bridge_accounts_module)
       Application.delete_env(:zaq, :chat_bridge_permissions_module)
+      Application.delete_env(:zaq, :communication_bridge_identity_resolver)
       Application.delete_env(:zaq, :chat_bridge_node_router_module)
       Application.delete_env(:zaq, :chat_bridge_supervisor_module)
       Application.delete_env(:zaq, :chat_bridge_oban_module)
@@ -1277,6 +1289,33 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
     end
 
+    test "run_pipeline event does not carry an actor" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      Application.put_env(
+        :zaq,
+        :communication_bridge_identity_resolver,
+        UnresolvedIdentityResolver
+      )
+
+      incoming = %ChatIncoming{
+        text: "who am i",
+        external_room_id: "room-actor",
+        external_thread_id: nil,
+        external_message_id: "msg-actor",
+        author: %Author{user_id: "u-actor", user_name: "alice"},
+        metadata: %{}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+      assert_received {:node_router_run_pipeline_event, event}
+
+      assert event.actor == nil
+    end
+
     test "channel assignment wins over provider and global defaults in NodeRouter dispatch" do
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
@@ -1443,6 +1482,50 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
       assert_received {:node_router_run_pipeline_event, event}
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
+    end
+
+    test "NONE channel assignment fires trigger event without agent dispatch" do
+      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
+      Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
+      provider_agent = insert_configured_agent(true)
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          settings: %{"routing" => %{"default_agent_id" => provider_agent.id}}
+        })
+
+      insert_retrieval_channel(config.id,
+        channel_id: "room-none",
+        channel_name: "No Agent",
+        team_id: "team-1",
+        team_name: "Team",
+        agent_routing_mode: "none"
+      )
+
+      incoming = %ChatIncoming{
+        text: "trigger only",
+        external_room_id: "room-none",
+        external_thread_id: nil,
+        external_message_id: "msg-none",
+        author: %Author{user_id: "u1", user_name: "alice"},
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
+      assert_received {:node_router_fire_event, event}
+      assert event.request.content == "trigger only"
+      assert event.name == "channels:message_received.workflow_only.mattermost.#{config.id}"
+      refute Map.has_key?(event.assigns || %{}, "agent_selection")
+      refute_received {:node_router_run_pipeline_event, _}
     end
 
     test "resolve_agent_selection/3 ignores channel assignments when config id is unavailable" do

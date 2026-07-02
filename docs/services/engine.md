@@ -109,7 +109,9 @@ Adapter inbound path:
 - `get_or_create_conversation_for_channel/3` — idempotent; returns the most recent
   active conversation for `{channel_user_id, channel_type, channel_config_id}` or creates one.
 - `list_conversations/1` — filtered list; opts: `user_id`, `channel_user_id`, `channel_type`,
-  `status`, `limit`.
+  `status`, `person_id`, `team_id`, `limit`, `offset`, plus `query` (case-insensitive search
+  across titles and message content, SQL wildcards matched literally) and `from`/`to`
+  (`DateTime` bounds on `updated_at`).
 - `update_conversation/2`, `archive_conversation/1`, `delete_conversation/1` — lifecycle.
 - `persist_from_incoming/2` — convenience: upserts conversation + stores both user and
   assistant messages from a pipeline result in one call.
@@ -147,7 +149,7 @@ Adapter inbound path:
 ### Messages — Incoming (`Zaq.Engine.Messages.Incoming`)
 - Canonical struct for all inbound messages crossing the adapter boundary.
 - Enforce keys: `:content`, `:channel_id`, `:provider`.
-- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person_id`, `:metadata`.
+- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person`, `:metadata`.
 - All channel adapters must map their transport payload to this struct before passing to any
   ZAQ component.
 - When crossing nodes, this payload is carried in `%Zaq.Event.request`.

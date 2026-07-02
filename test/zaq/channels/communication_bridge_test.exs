@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.CommunicationBridgeTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge}
+  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig, CommunicationBridge}
   alias Zaq.Repo
 
   defmodule StubBridge do
@@ -153,6 +153,11 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
       %{event | response: response}
     end
+
+    def fire(event) do
+      send(self(), {:node_router_fire, event})
+      event
+    end
   end
 
   defmodule StubAgent do
@@ -160,6 +165,31 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     def get_conversation_enabled_agent(2), do: {:error, :inactive_agent}
     def get_conversation_enabled_agent(3), do: {:ok, %{id: 3}}
     def get_conversation_enabled_agent(_), do: {:error, :agent_not_found}
+  end
+
+  defmodule StubPipeline do
+    def run(msg, opts) do
+      send(self(), {:stub_pipeline_run, msg, opts})
+      {:ok, msg}
+    end
+  end
+
+  defmodule StubIdentityResolver do
+    def resolve(_incoming, _opts),
+      do: {:ok, %{id: 42, full_name: "Ada Lovelace", team_ids: [7, 9]}}
+
+    def person_payload(person) do
+      %{
+        id: person.id,
+        full_name: person.full_name,
+        team_ids: person.team_ids
+      }
+    end
+  end
+
+  defmodule StubIdentityResolverError do
+    def resolve(_incoming, _opts), do: {:error, :not_found}
+    def person_payload(_person), do: raise("unexpected person_payload call")
   end
 
   setup do
@@ -820,12 +850,271 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     end
   end
 
+  describe "route_incoming_message/5" do
+    test "rejects invalid actor through the generated default opts arity before routing" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+
+      assert_raise FunctionClauseError, fn ->
+        CommunicationBridge.route_incoming_message(msg, [], [], :invalid_actor)
+      end
+    end
+
+    test "dispatches the canonical event when an agent resolves" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert %Zaq.Engine.Messages.Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent,
+                 channel_config_id: 123
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert %{event.request | metadata: %{}} == msg
+      assert event.request.metadata["channel_config_id"] == "123"
+      assert event.request.metadata["telemetry_dimensions"]["channel_config_id"] == "123"
+      assert event.next_hop.destination == :agent
+      assert event.name == "channels:message_received.agent_requested.mattermost.123"
+      assert get_in(event.assigns, ["agent_selection", "agent_id"]) == 3
+      assert get_in(event.assigns, ["agent_selection", "source"]) == "channel_assignment"
+      refute_received {:node_router_fire, _}
+    end
+
+    test "trims and attaches string channel_config_id before delegated pipeline execution" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{
+          "kept" => true,
+          "telemetry_dimensions" => %{"tenant" => "acme"}
+        }
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:ok, routed_msg} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 agent_module: StubAgent,
+                 pipeline_module: StubPipeline,
+                 channel_config_id: "  cfg-7  "
+               )
+
+      assert routed_msg.metadata["channel_config_id"] == "cfg-7"
+      assert routed_msg.metadata["telemetry_dimensions"]["channel_config_id"] == "cfg-7"
+      assert routed_msg.metadata["telemetry_dimensions"]["tenant"] == "acme"
+      assert routed_msg.metadata["kept"] == true
+      assert_received {:stub_pipeline_run, ^routed_msg, []}
+    end
+
+    test "ignores blank string channel_config_id before delegated pipeline execution" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{
+          "kept" => true,
+          "telemetry_dimensions" => %{"tenant" => "acme"}
+        }
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:ok, routed_msg} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 agent_module: StubAgent,
+                 pipeline_module: StubPipeline,
+                 channel_config_id: "   "
+               )
+
+      refute Map.has_key?(routed_msg.metadata || %{}, "channel_config_id")
+      refute get_in(routed_msg.metadata || %{}, ["telemetry_dimensions", "channel_config_id"])
+      assert_received {:stub_pipeline_run, ^routed_msg, []}
+    end
+
+    test "ignores unknown string channel_config_id before delegated pipeline execution" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{
+          "kept" => true,
+          "telemetry_dimensions" => %{"tenant" => "acme"}
+        }
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:ok, routed_msg} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 agent_module: StubAgent,
+                 pipeline_module: StubPipeline,
+                 channel_config_id: " unknown "
+               )
+
+      refute Map.has_key?(routed_msg.metadata || %{}, "channel_config_id")
+      refute get_in(routed_msg.metadata || %{}, ["telemetry_dimensions", "channel_config_id"])
+      assert_received {:stub_pipeline_run, ^routed_msg, []}
+    end
+
+    test "ignores unsupported channel_config_id values before delegated pipeline execution" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{
+          "kept" => true,
+          "telemetry_dimensions" => %{"tenant" => "acme"}
+        }
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:ok, routed_msg} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 agent_module: StubAgent,
+                 pipeline_module: StubPipeline,
+                 channel_config_id: %{id: 123}
+               )
+
+      refute Map.has_key?(routed_msg.metadata || %{}, "channel_config_id")
+      refute get_in(routed_msg.metadata || %{}, ["telemetry_dimensions", "channel_config_id"])
+      assert_received {:stub_pipeline_run, ^routed_msg, []}
+    end
+
+    test "fires without dispatch when NONE resolves" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert :ok =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [
+                   {:channel_assignment, AgentRouting.none_value()},
+                   {:global_default, "3"}
+                 ],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent,
+                 channel_config_id: 123
+               )
+
+      assert_received {:node_router_fire, event}
+      assert %{event.request | metadata: %{}} == msg
+      assert event.request.metadata["channel_config_id"] == "123"
+      assert event.request.metadata["telemetry_dimensions"]["channel_config_id"] == "123"
+      assert event.next_hop.destination == :agent
+      assert event.name == "channels:message_received.workflow_only.mattermost.123"
+      refute Map.has_key?(event.assigns || %{}, "agent_selection")
+      refute_received {:node_router_dispatch, _}
+    end
+
+    test "uses incoming telemetry channel_config_id when option is absent" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        metadata: %{"telemetry_dimensions" => %{"channel_config_id" => "cfg-9"}}
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert %Zaq.Engine.Messages.Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.name == "channels:message_received.agent_requested.mattermost.cfg_9"
+    end
+
+    test "resolves incoming person before dispatching to the agent node" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        author_id: "u1",
+        author_name: "ada"
+      }
+
+      actor = %{id: "u1", name: "ada", provider: :mattermost}
+
+      assert %Zaq.Engine.Messages.Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent,
+                 identity_resolver: StubIdentityResolver
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.request.person == %{id: 42, full_name: "Ada Lovelace", team_ids: [7, 9]}
+      assert event.actor == nil
+    end
+
+    test "keeps incoming person unresolved when person resolution fails" do
+      msg = %Zaq.Engine.Messages.Incoming{
+        content: "hi",
+        provider: :mattermost,
+        channel_id: "c1",
+        author_id: "u1"
+      }
+
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert %Zaq.Engine.Messages.Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 [{:channel_assignment, "3"}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 agent_module: StubAgent,
+                 identity_resolver: StubIdentityResolverError
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.request.person == nil
+      assert event.actor == nil
+    end
+  end
+
   describe "first_active_selection/2" do
     test "returns first conversation-enabled candidate" do
       candidates = [{:channel_assignment, "1"}, {:provider_default, "3"}, {:global_default, "2"}]
 
       assert %{"agent_id" => 3, "source" => "provider_default"} =
-               CommunicationBridge.first_active_selection(candidates, StubAgent)
+               AgentRouting.first_active_selection(candidates, StubAgent)
     end
 
     test "returns nil when no candidate resolves to conversation-enabled agent" do
@@ -835,17 +1124,27 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
         {:global_default, "2"}
       ]
 
-      assert is_nil(CommunicationBridge.first_active_selection(candidates, StubAgent))
+      assert is_nil(AgentRouting.first_active_selection(candidates, StubAgent))
+    end
+
+    test "NONE stops fallback resolution" do
+      candidates = [
+        {:channel_assignment, AgentRouting.none_value()},
+        {:global_default, "3"}
+      ]
+
+      assert is_nil(AgentRouting.first_active_selection(candidates, StubAgent))
+      assert {:ok, :none} = AgentRouting.resolve_selection(candidates, StubAgent)
     end
 
     test "uses default Zaq.Agent module when not provided" do
       candidates = [{:channel_assignment, "999"}]
 
       # Call with 1 arg (uses default Agent module via line 243)
-      assert is_nil(CommunicationBridge.first_active_selection(candidates))
+      assert is_nil(AgentRouting.first_active_selection(candidates))
 
       # Also call with explicit Zaq.Agent to exercise the default resolution path
-      assert is_nil(CommunicationBridge.first_active_selection(candidates, Zaq.Agent))
+      assert is_nil(AgentRouting.first_active_selection(candidates, Zaq.Agent))
     end
   end
 end

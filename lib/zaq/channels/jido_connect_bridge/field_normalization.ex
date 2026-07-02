@@ -23,6 +23,23 @@ defmodule Zaq.Channels.JidoConnectBridge.FieldNormalization do
   defp normalize_entry(provider, action_id, fields_map, field, value)
 
   defp normalize_entry(provider, action_id, fields_map, field, value)
+       when field in [:parent_id, "parent_id"] do
+    cond do
+      not google_drive_create_action?(provider, action_id) ->
+        {field, value}
+
+      map_has_parents?(fields_map) ->
+        {nil, nil}
+
+      parent_id = normalize_parent_id(value) ->
+        {normalize_parents_key(field), [parent_id]}
+
+      true ->
+        {nil, nil}
+    end
+  end
+
+  defp normalize_entry(provider, action_id, fields_map, field, value)
        when field in [:export_mime_type, "export_mime_type"] and is_binary(value) do
     if google_drive_export_file_action?(provider, action_id) and
          not map_has_mime_type?(fields_map) do
@@ -60,11 +77,32 @@ defmodule Zaq.Channels.JidoConnectBridge.FieldNormalization do
     provider_match? and action_id == "google.drive.file.export"
   end
 
+  defp google_drive_create_action?(provider, action_id) do
+    provider_match? = to_string(provider) in ["google_drive", "google", "google.drive"]
+    provider_match? and action_id in ["google.drive.file.create", "google.drive.folder.create"]
+  end
+
   defp normalize_mime_key(field) when is_atom(field), do: :mime_type
   defp normalize_mime_key(_field), do: "mime_type"
 
+  defp normalize_parents_key(field) when is_atom(field), do: :parents
+  defp normalize_parents_key(_field), do: "parents"
+
+  defp normalize_parent_id(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      parent_id -> parent_id
+    end
+  end
+
+  defp normalize_parent_id(_value), do: nil
+
   defp map_has_mime_type?(fields_map) when is_map(fields_map) do
     Map.has_key?(fields_map, :mime_type) or Map.has_key?(fields_map, "mime_type")
+  end
+
+  defp map_has_parents?(fields_map) when is_map(fields_map) do
+    Map.has_key?(fields_map, :parents) or Map.has_key?(fields_map, "parents")
   end
 
   defp plain_text_query?(query) when is_binary(query) do

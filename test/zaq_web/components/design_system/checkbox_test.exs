@@ -63,6 +63,23 @@ defmodule ZaqWeb.Components.DesignSystem.CheckboxTest do
     assert html =~ "checked"
   end
 
+  test "checkbox/1 with form field honors explicit name override" do
+    form = Phoenix.Component.to_form(%{"enabled" => "true"}, as: :settings)
+
+    html =
+      render_component(&Checkbox.checkbox/1,
+        field: form[:enabled],
+        name: "settings[enabled_override]",
+        label: "Enabled"
+      )
+
+    assert html =~ "name=\"settings[enabled_override]\""
+    refute html =~ "name=\"settings[enabled]\""
+    assert html =~ "id=\"settings_enabled\""
+    assert html =~ "Enabled"
+    assert html =~ "checked"
+  end
+
   test "checkbox/1 renders validation errors" do
     html =
       render_component(&Checkbox.checkbox/1,

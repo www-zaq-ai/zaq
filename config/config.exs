@@ -50,6 +50,7 @@ config :zaq,
   generators: [timestamp_type: :utc_datetime]
 
 config :mime, :types, %{
+  "application/jsonc" => ["jsonc"],
   "application/vnd.zaq-license" => ["zaq-license"]
 }
 
@@ -137,7 +138,24 @@ config :logger, :default_formatter,
     :step_count,
     :failed_steps,
     :duration_ms,
-    :error
+    :error,
+    :total_items,
+    :total_chunks,
+    :batch_size,
+    :strategy,
+    :delivery_mode,
+    :field,
+    :process_steps,
+    :post_process_steps,
+    :pipeline_steps,
+    :successful_chunks,
+    :failed_chunks,
+    :successful,
+    :failed,
+    :chunk_index,
+    :chunk_size,
+    :outcome,
+    :reason
   ]
 
 # Use Jason for JSON parsing in Phoenix

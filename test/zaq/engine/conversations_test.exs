@@ -32,6 +32,43 @@ defmodule Zaq.Engine.ConversationsTest do
     )
   end
 
+  defp person_fixture_for_search do
+    {:ok, person} =
+      People.create_person(%{
+        "full_name" => "Search Person",
+        "email" => "search#{System.unique_integer([:positive])}@example.com"
+      })
+
+    person
+  end
+
+  defp set_updated_at(conv, datetime) do
+    {1, _} =
+      Repo.update_all(
+        from(c in Zaq.Engine.Conversations.Conversation, where: c.id == ^conv.id),
+        set: [updated_at: datetime]
+      )
+
+    :ok
+  end
+
+  defp channel_config_fixture(provider) do
+    {:ok, config} =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Config #{provider}",
+        provider: provider,
+        kind: "retrieval",
+        url: "https://#{provider}.example.com",
+        token: "token",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert()
+
+    config
+  end
+
   # ── create_conversation/1 ───────────────────────────────────────────
 
   describe "create_conversation/1" do
@@ -169,6 +206,25 @@ defmodule Zaq.Engine.ConversationsTest do
 
       assert Enum.map(results, & &1.id) == [middle.id, newest.id]
       refute Enum.any?(results, &(&1.id == oldest.id))
+    end
+
+    test "respects offset and ignores unknown opts" do
+      {:ok, first} = Conversations.create_conversation(conv_attrs(%{title: "Offset First"}))
+      {:ok, second} = Conversations.create_conversation(conv_attrs(%{title: "Offset Second"}))
+
+      :ok = set_updated_at(first, ~U[2026-06-01 00:00:00.000000Z])
+      :ok = set_updated_at(second, ~U[2026-06-02 00:00:00.000000Z])
+
+      ids =
+        Conversations.list_conversations(
+          query: "Offset",
+          limit: 1,
+          offset: 1,
+          unsupported: :ignored
+        )
+        |> Enum.map(& &1.id)
+
+      assert ids == [first.id]
     end
   end
 
@@ -550,6 +606,91 @@ defmodule Zaq.Engine.ConversationsTest do
       assert assistant.metadata["model"] == "openai:gpt-4o-mini"
       assert assistant.metadata["agent"] == %{"id" => 12, "name" => "Answering"}
     end
+
+    test "falls back to normalized email thread id then message id then author" do
+      result = %{
+        answer: "Handled.",
+        confidence_score: 0.9,
+        latency_ms: 50,
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3
+      }
+
+      with_thread_id = %Zaq.Engine.Messages.Incoming{
+        content: "Thread id only",
+        channel_id: "email",
+        author_id: "sender@example.com",
+        provider: :email,
+        thread_id: "<thread-only@example.com>",
+        message_id: "<message-a@example.com>",
+        metadata: %{"email" => "not-a-map"}
+      }
+
+      with_message_id = %Zaq.Engine.Messages.Incoming{
+        content: "Message id only",
+        channel_id: "email",
+        author_id: "sender@example.com",
+        provider: :email,
+        message_id: "<message-only@example.com>",
+        metadata: %{}
+      }
+
+      with_author = %Zaq.Engine.Messages.Incoming{
+        content: "Author only",
+        channel_id: "email",
+        author_id: "fallback-author@example.com",
+        provider: :email,
+        metadata: nil
+      }
+
+      assert {:ok, _} = Conversations.persist_from_incoming(with_thread_id, result)
+      assert {:ok, _} = Conversations.persist_from_incoming(with_message_id, result)
+      assert {:ok, _} = Conversations.persist_from_incoming(with_author, result)
+
+      ids =
+        Conversations.list_conversations(channel_type: "email:imap")
+        |> Enum.map(& &1.channel_user_id)
+
+      assert "thread-only@example.com" in ids
+      assert "message-only@example.com" in ids
+      assert "fallback-author@example.com" in ids
+    end
+
+    test "accepts atom-keyed email metadata and defaults unknown providers to api" do
+      result = %{
+        answer: "Handled.",
+        confidence_score: 0.9,
+        latency_ms: 50,
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3
+      }
+
+      email = %Zaq.Engine.Messages.Incoming{
+        content: "Atom metadata",
+        channel_id: "email",
+        author_id: "sender@example.com",
+        provider: :email,
+        metadata: %{email: %{thread_key: "atom-thread"}}
+      }
+
+      api = %Zaq.Engine.Messages.Incoming{
+        content: "Unknown provider",
+        channel_id: "api",
+        author_id: "api-user",
+        provider: 123
+      }
+
+      assert {:ok, _} = Conversations.persist_from_incoming(email, result)
+      assert {:ok, _} = Conversations.persist_from_incoming(api, result)
+
+      [email_conv] = Conversations.list_conversations(channel_user_id: "atom-thread")
+      [api_conv] = Conversations.list_conversations(channel_user_id: "api-user")
+
+      assert email_conv.channel_type == "email:imap"
+      assert api_conv.channel_type == "api"
+    end
   end
 
   # ── add_message/2 ──────────────────────────────────────────────────
@@ -662,6 +803,39 @@ defmodule Zaq.Engine.ConversationsTest do
     end
   end
 
+  # ── list_messages/2 :limit (Comment 56 — push LIMIT into SQL) ────────
+
+  describe "list_messages/2 :limit" do
+    test "limits the number of messages returned via SQL" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      for i <- 1..8 do
+        {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "m#{i}"})
+      end
+
+      assert length(Conversations.list_messages(conv, limit: 3)) == 3
+    end
+
+    test "without :limit returns all messages (back-compat with /1)" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      for i <- 1..4 do
+        {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "m#{i}"})
+      end
+
+      assert length(Conversations.list_messages(conv)) == 4
+      assert length(Conversations.list_messages(conv, [])) == 4
+    end
+
+    test "keeps ascending inserted_at order under the limit" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "first"})
+      {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "second"})
+
+      assert [%{content: "first"}] = Conversations.list_messages(conv, limit: 1)
+    end
+  end
+
   # ── rate_message/2 ──────────────────────────────────────────────────
 
   describe "rate_message/2" do
@@ -756,6 +930,14 @@ defmodule Zaq.Engine.ConversationsTest do
                  user_id: user.id,
                  rating: 3
                })
+    end
+
+    test "returns changeset error for invalid rating on an existing message" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "answer"})
+
+      assert {:error, changeset} = Conversations.rate_message_by_id(msg.id, %{rating: 6})
+      assert %{rating: _} = errors_on(changeset)
     end
   end
 
@@ -938,6 +1120,36 @@ defmodule Zaq.Engine.ConversationsTest do
       assert conv_a.id == conv_a2.id
     end
 
+    test "scopes active lookup by channel_config_id" do
+      config_a = channel_config_fixture("mattermost")
+      config_b = channel_config_fixture("slack")
+      channel_user_id = "scoped_user_#{System.unique_integer([:positive])}"
+
+      {:ok, first} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_a.id
+        )
+
+      {:ok, second} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_b.id
+        )
+
+      {:ok, first_again} =
+        Conversations.get_or_create_conversation_for_channel(
+          channel_user_id,
+          "mattermost",
+          config_a.id
+        )
+
+      assert first.id == first_again.id
+      assert second.id != first.id
+    end
+
     test "does not return archived conversation for existing channel user" do
       channel_user_id = "archived_user_#{System.unique_integer([:positive])}"
 
@@ -996,6 +1208,15 @@ defmodule Zaq.Engine.ConversationsTest do
       {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "reply"})
 
       assert is_nil(Conversations.get_rating(msg, %{user_id: user.id}))
+    end
+
+    test "returns a rating when no rater filter is provided" do
+      user = user_fixture()
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, msg} = Conversations.add_message(conv, %{role: "assistant", content: "reply"})
+      {:ok, rating} = Conversations.rate_message(msg, %{user_id: user.id, rating: 4})
+
+      assert Conversations.get_rating(msg, %{}).id == rating.id
     end
   end
 
@@ -1154,6 +1375,146 @@ defmodule Zaq.Engine.ConversationsTest do
 
       results = Conversations.list_conversations(team_id: team.id)
       assert Enum.any?(results, &(&1.id == conv.id))
+    end
+  end
+
+  # ── list_conversations/1 search and date filters ─────────────────────
+
+  describe "list_conversations/1 search and date filters" do
+    test ":query matches conversation by title, case-insensitively" do
+      {:ok, conv} =
+        Conversations.create_conversation(conv_attrs(%{title: "Company X negotiation"}))
+
+      {:ok, other} = Conversations.create_conversation(conv_attrs(%{title: "Weekly sync"}))
+
+      ids = Conversations.list_conversations(query: "company x") |> Enum.map(& &1.id)
+      assert conv.id in ids
+      refute other.id in ids
+    end
+
+    test ":query matches conversation by message content" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs(%{title: "Untitled"}))
+
+      {:ok, _msg} =
+        Conversations.add_message(conv, %{
+          role: "user",
+          content: "we decided to raise salaries by 5 percent"
+        })
+
+      {:ok, other} = Conversations.create_conversation(conv_attrs(%{title: "Untitled"}))
+      {:ok, _msg} = Conversations.add_message(other, %{role: "user", content: "lunch plans"})
+
+      ids = Conversations.list_conversations(query: "raise salaries") |> Enum.map(& &1.id)
+      assert conv.id in ids
+      refute other.id in ids
+    end
+
+    test ":query does not duplicate a conversation with multiple matching messages" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+      {:ok, _} = Conversations.add_message(conv, %{role: "user", content: "budget question"})
+      {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "budget answer"})
+
+      ids = Conversations.list_conversations(query: "budget") |> Enum.map(& &1.id)
+      assert Enum.count(ids, &(&1 == conv.id)) == 1
+    end
+
+    test ":query treats SQL wildcards literally" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs(%{title: "100% sure"}))
+      {:ok, other} = Conversations.create_conversation(conv_attrs(%{title: "100 reasons"}))
+
+      ids = Conversations.list_conversations(query: "100%") |> Enum.map(& &1.id)
+      assert conv.id in ids
+      refute other.id in ids
+    end
+
+    test "blank :query applies no filter" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      ids = Conversations.list_conversations(query: "   ") |> Enum.map(& &1.id)
+      assert conv.id in ids
+    end
+
+    test ":from and :to bound on updated_at" do
+      now = DateTime.utc_now()
+
+      {:ok, recent} = Conversations.create_conversation(conv_attrs())
+      :ok = set_updated_at(recent, DateTime.add(now, -2, :day))
+
+      {:ok, old} = Conversations.create_conversation(conv_attrs())
+      :ok = set_updated_at(old, DateTime.add(now, -40, :day))
+
+      {:ok, future} = Conversations.create_conversation(conv_attrs())
+      :ok = set_updated_at(future, DateTime.add(now, 2, :day))
+
+      ids =
+        Conversations.list_conversations(
+          from: DateTime.add(now, -7, :day),
+          to: now
+        )
+        |> Enum.map(& &1.id)
+
+      assert recent.id in ids
+      refute old.id in ids
+      refute future.id in ids
+    end
+
+    test ":query composes with :person_id — never leaks another person's match" do
+      person = person_fixture_for_search()
+      other_person = person_fixture_for_search()
+
+      {:ok, mine} =
+        Conversations.create_conversation(
+          conv_attrs(%{person_id: person.id, title: "Project Atlas decision"})
+        )
+
+      {:ok, theirs} =
+        Conversations.create_conversation(
+          conv_attrs(%{person_id: other_person.id, title: "Project Atlas decision"})
+        )
+
+      ids =
+        Conversations.list_conversations(query: "Atlas", person_id: person.id)
+        |> Enum.map(& &1.id)
+
+      assert mine.id in ids
+      refute theirs.id in ids
+    end
+
+    test ":query, :from/:to, :person_id and :limit compose" do
+      now = DateTime.utc_now()
+      person = person_fixture_for_search()
+
+      convs =
+        for i <- 1..3 do
+          {:ok, conv} =
+            Conversations.create_conversation(
+              conv_attrs(%{person_id: person.id, title: "Quarterly review #{i}"})
+            )
+
+          :ok = set_updated_at(conv, DateTime.add(now, -i, :day))
+          conv
+        end
+
+      {:ok, outside_range} =
+        Conversations.create_conversation(
+          conv_attrs(%{person_id: person.id, title: "Quarterly review old"})
+        )
+
+      :ok = set_updated_at(outside_range, DateTime.add(now, -30, :day))
+
+      results =
+        Conversations.list_conversations(
+          query: "Quarterly",
+          person_id: person.id,
+          from: DateTime.add(now, -7, :day),
+          to: now,
+          limit: 2
+        )
+
+      ids = Enum.map(results, & &1.id)
+      assert length(results) == 2
+      refute outside_range.id in ids
+      assert Enum.all?(ids, &(&1 in Enum.map(convs, fn c -> c.id end)))
     end
   end
 

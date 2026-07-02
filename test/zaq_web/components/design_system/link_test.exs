@@ -32,9 +32,10 @@ defmodule ZaqWeb.Components.DesignSystem.LinkTest do
     assert html =~ "Go to Settings →"
   end
 
-  test "nav_link/1 tone default does not add accent shell class" do
+  test "nav_link/1 accepts string default tone" do
     html =
       render_component(&Link.nav_link/1,
+        tone: "default",
         destination: "/bo/ingestion",
         inner_block: [%{inner_block: fn _, _ -> "Browse" end}]
       )
@@ -42,10 +43,10 @@ defmodule ZaqWeb.Components.DesignSystem.LinkTest do
     refute html =~ "zaq-link--accent"
   end
 
-  test "nav_link/1 tone accent adds accent shell class" do
+  test "nav_link/1 accepts string accent tone" do
     html =
       render_component(&Link.nav_link/1,
-        tone: :accent,
+        tone: "accent",
         destination: "/bo/ingestion",
         inner_block: [%{inner_block: fn _, _ -> "root" end}]
       )
@@ -55,12 +56,12 @@ defmodule ZaqWeb.Components.DesignSystem.LinkTest do
     assert html =~ "root"
   end
 
-  test "nav_link/1 with icon keeps underline on label only" do
+  test "nav_link/1 accepts string left icon_position" do
     html =
       render_component(&Link.nav_link/1,
         destination: "/bo/dashboard",
         icon: "hero-arrow-right",
-        icon_position: :left,
+        icon_position: "left",
         inner_block: [%{inner_block: fn _, _ -> "Dashboard" end}]
       )
 
@@ -71,12 +72,12 @@ defmodule ZaqWeb.Components.DesignSystem.LinkTest do
     assert icon_before_label?(html)
   end
 
-  test "nav_link/1 icon_position right renders icon after label" do
+  test "nav_link/1 accepts string right icon_position" do
     html =
       render_component(&Link.nav_link/1,
         destination: "/bo/dashboard",
         icon: "hero-arrow-right",
-        icon_position: :right,
+        icon_position: "right",
         inner_block: [%{inner_block: fn _, _ -> "Dashboard" end}]
       )
 

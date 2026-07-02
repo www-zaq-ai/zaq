@@ -20,7 +20,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Accounts.{Person, PersonChannel}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
-  alias Zaq.Engine.Messages.Measurements
+  alias Zaq.Engine.Messages.{Incoming, Measurements}
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
   alias Zaq.Utils.EmailUtils
@@ -87,7 +87,14 @@ defmodule Zaq.Engine.Conversations do
   @doc """
   Lists conversations with optional filters.
 
-  Supported opts: `user_id`, `channel_user_id`, `status`, `limit`, `offset`.
+  Supported opts:
+
+  - `user_id`, `channel_user_id`, `channel_type`, `status`, `person_id`,
+    `team_id`, `limit`, `offset` — equality/scoping filters.
+  - `query` — case-insensitive text search against the conversation title or
+    any message content. SQL wildcards in the input are matched literally;
+    blank input applies no filter.
+  - `from` / `to` — `DateTime` bounds (inclusive) on `updated_at`.
   """
   def list_conversations(opts \\ []) do
     query = from(c in Conversation, order_by: [desc: c.updated_at])
@@ -113,6 +120,15 @@ defmodule Zaq.Engine.Conversations do
           person_subquery = from(p in Person, where: ^team_id in p.team_ids, select: p.id)
           where(q, [c], c.person_id in subquery(person_subquery))
 
+        {:query, text}, q when is_binary(text) ->
+          apply_search_filter(q, String.trim(text))
+
+        {:from, %DateTime{} = from}, q ->
+          where(q, [c], c.updated_at >= ^from)
+
+        {:to, %DateTime{} = to}, q ->
+          where(q, [c], c.updated_at <= ^to)
+
         {:limit, n}, q ->
           limit(q, ^n)
 
@@ -127,6 +143,23 @@ defmodule Zaq.Engine.Conversations do
     |> Repo.all()
     |> backfill_missing_person_ids()
     |> Repo.preload([:person, :user])
+  end
+
+  defp apply_search_filter(query, ""), do: query
+
+  defp apply_search_filter(query, text) do
+    pattern = "%" <> escape_like_wildcards(text) <> "%"
+
+    matching_messages =
+      from(m in Message, where: ilike(m.content, ^pattern), select: m.conversation_id)
+
+    where(query, [c], ilike(c.title, ^pattern) or c.id in subquery(matching_messages))
+  end
+
+  # ILIKE parameters are injection-safe, but `%`/`_` in user input would act
+  # as wildcards — escape them so search terms match literally.
+  defp escape_like_wildcards(text) do
+    String.replace(text, ~r/([\\%_])/, "\\\\\\1")
   end
 
   @doc "Updates a conversation with the given attrs."
@@ -174,7 +207,8 @@ defmodule Zaq.Engine.Conversations do
 
     with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, channel_type),
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
-         {:ok, conv} <- maybe_assign_person(conv, msg.person_id || Map.get(result, :person_id)),
+         {:ok, conv} <-
+           maybe_assign_person(conv, Incoming.person_id(msg) || Map.get(result, :person_id)),
          {:ok, _} <- add_message(conv, %{role: "user", content: msg.content}),
          {:ok, assistant_msg} <-
            add_message(conv, %{
@@ -407,15 +441,26 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  @doc "Returns all messages for a conversation in insertion order."
-  def list_messages(%Conversation{} = conversation) do
+  @doc """
+  Returns messages for a conversation in insertion order.
+
+  Options:
+  - `:limit` — cap the number of rows at the database level (`LIMIT`). With the
+    ascending `inserted_at` order this returns the oldest `n` messages — pushing
+    the truncation into SQL instead of fetching every row and trimming in memory.
+  """
+  def list_messages(%Conversation{} = conversation, opts \\ []) do
     from(m in Message,
       where: m.conversation_id == ^conversation.id,
       order_by: [asc: m.inserted_at],
       preload: [:ratings]
     )
+    |> maybe_limit(opts[:limit])
     |> Repo.all()
   end
+
+  defp maybe_limit(query, nil), do: query
+  defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)
 
   # ── Ratings ────────────────────────────────────────────────────────
 

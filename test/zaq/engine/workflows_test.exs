@@ -1,13 +1,21 @@
 defmodule Zaq.Engine.WorkflowsTest do
   use Zaq.DataCase, async: true
 
+  import Ecto.Query
+
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Trigger
+  alias Zaq.Repo
+
+  setup do
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
+    :ok
+  end
 
   @valid_node %{
     name: "fetch",
     type: "action",
-    module: "Zaq.Agent.Tools.Email.FetchEmails",
+    module: "Zaq.Engine.Workflows.Test.InboxWithResults",
     params: %{},
     index: 0
   }
@@ -24,6 +32,18 @@ defmodule Zaq.Engine.WorkflowsTest do
   defp create_trigger(attrs \\ %{}) do
     {:ok, t} = Workflows.create_trigger(Map.merge(%{event_name: "manual_trigger"}, attrs))
     t
+  end
+
+  defp create_run(workflow) do
+    source_event = %Zaq.Event{
+      request: nil,
+      next_hop: nil,
+      trace_id: Ecto.UUID.generate(),
+      assigns: %{trigger_type: :manual, input: %{}}
+    }
+
+    {:ok, run} = Workflows.create_run(workflow, source_event)
+    run
   end
 
   # --- list_triggers/1 ---
@@ -80,8 +100,8 @@ defmodule Zaq.Engine.WorkflowsTest do
       create_trigger(%{event_name: "enabled_event_2", enabled: true})
 
       names = Workflows.list_trigger_event_names()
-      assert "enabled_event_1" in names
-      assert "enabled_event_2" in names
+      assert "engine:enabled_event_1" in names
+      assert "engine:enabled_event_2" in names
     end
 
     test "excludes disabled triggers" do
@@ -89,8 +109,8 @@ defmodule Zaq.Engine.WorkflowsTest do
       create_trigger(%{event_name: "disabled_skip", enabled: false})
 
       names = Workflows.list_trigger_event_names()
-      assert "enabled_ok" in names
-      refute "disabled_skip" in names
+      assert "engine:enabled_ok" in names
+      refute "engine:disabled_skip" in names
     end
 
     test "returns empty list when no enabled triggers" do
@@ -99,12 +119,33 @@ defmodule Zaq.Engine.WorkflowsTest do
     end
   end
 
+  # --- get_trigger!/1 ---
+
+  describe "get_trigger!/1" do
+    test "returns trigger with :workflows preloaded (line 819)" do
+      t = create_trigger()
+      w = create_workflow()
+      Workflows.assign_workflow_to_trigger(t, w)
+
+      fetched = Workflows.get_trigger!(t.id)
+      assert fetched.id == t.id
+      assert is_list(fetched.workflows)
+      assert Enum.any?(fetched.workflows, &(&1.id == w.id))
+    end
+
+    test "raises when trigger id does not exist" do
+      assert_raise Ecto.NoResultsError, fn ->
+        Workflows.get_trigger!(Ecto.UUID.generate())
+      end
+    end
+  end
+
   # --- create_trigger/2 ---
 
   describe "create_trigger/2" do
     test "creates a trigger with event_name" do
       assert {:ok, %Trigger{} = t} = Workflows.create_trigger(%{event_name: "order_created"})
-      assert t.event_name == "order_created"
+      assert t.event_name == "engine:order_created"
       assert t.enabled == true
     end
 
@@ -201,5 +242,433 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert {:ok, updated} = Workflows.update_trigger(trigger, %{enabled: true})
       assert updated.enabled == true
     end
+  end
+
+  # --- count_runs/1 ---
+
+  describe "count_runs/1" do
+    test "returns 0 for a workflow with no runs" do
+      w = create_workflow()
+      assert Workflows.count_runs(w.id) == 0
+    end
+
+    test "returns the correct count" do
+      w = create_workflow()
+      create_run(w)
+      create_run(w)
+      assert Workflows.count_runs(w.id) == 2
+    end
+
+    test "counts only runs belonging to the given workflow" do
+      w1 = create_workflow(%{name: "W1"})
+      w2 = create_workflow(%{name: "W2"})
+      create_run(w1)
+      create_run(w1)
+      create_run(w2)
+      assert Workflows.count_runs(w1.id) == 2
+      assert Workflows.count_runs(w2.id) == 1
+    end
+  end
+
+  # --- list_runs/2 pagination ---
+
+  describe "list_runs/2 with pagination opts" do
+    test "returns all runs when no limit given" do
+      w = create_workflow()
+      for _ <- 1..5, do: create_run(w)
+      assert length(Workflows.list_runs(w.id)) == 5
+    end
+
+    test "respects the limit option" do
+      w = create_workflow()
+      for _ <- 1..5, do: create_run(w)
+      assert length(Workflows.list_runs(w.id, limit: 3)) == 3
+    end
+
+    test "pages do not overlap" do
+      w = create_workflow()
+      for _ <- 1..5, do: create_run(w)
+      page1_ids = Workflows.list_runs(w.id, limit: 3, offset: 0) |> Enum.map(& &1.id)
+      page2_ids = Workflows.list_runs(w.id, limit: 3, offset: 3) |> Enum.map(& &1.id)
+      assert length(page1_ids) == 3
+      assert length(page2_ids) == 2
+      assert MapSet.disjoint?(MapSet.new(page1_ids), MapSet.new(page2_ids))
+    end
+
+    test "pages cover all runs" do
+      w = create_workflow()
+      for _ <- 1..5, do: create_run(w)
+      all_ids = Workflows.list_runs(w.id) |> Enum.map(& &1.id) |> MapSet.new()
+      page1_ids = Workflows.list_runs(w.id, limit: 3, offset: 0) |> Enum.map(& &1.id)
+      page2_ids = Workflows.list_runs(w.id, limit: 3, offset: 3) |> Enum.map(& &1.id)
+      paged_ids = MapSet.new(page1_ids ++ page2_ids)
+      assert MapSet.equal?(all_ids, paged_ids)
+    end
+  end
+
+  # --- list_workflows_with_run_counts_and_triggers/0 ---
+
+  describe "list_workflows_with_run_counts_and_triggers/0" do
+    test "returns empty list when no workflows exist" do
+      assert [] = Workflows.list_workflows_with_run_counts_and_triggers()
+    end
+
+    test "returns {workflow, run_count, triggers} tuples" do
+      w = create_workflow()
+      t = create_trigger()
+      Workflows.assign_workflow_to_trigger(t, w)
+      create_run(w)
+
+      [{workflow, count, triggers}] = Workflows.list_workflows_with_run_counts_and_triggers()
+      assert workflow.id == w.id
+      assert count == 1
+      assert [trigger] = triggers
+      assert trigger.id == t.id
+    end
+
+    test "returns zero count and empty triggers when workflow has none" do
+      w = create_workflow()
+      [{workflow, count, triggers}] = Workflows.list_workflows_with_run_counts_and_triggers()
+      assert workflow.id == w.id
+      assert count == 0
+      assert triggers == []
+    end
+
+    test "results are ordered by workflow name ascending" do
+      create_workflow(%{name: "Zebra"})
+      create_workflow(%{name: "Alpha"})
+      create_workflow(%{name: "Middle"})
+      results = Workflows.list_workflows_with_run_counts_and_triggers()
+      names = Enum.map(results, fn {w, _, _} -> w.name end)
+      assert names == Enum.sort(names)
+    end
+
+    test "counts are correct per workflow" do
+      w1 = create_workflow(%{name: "W1"})
+      w2 = create_workflow(%{name: "W2"})
+      create_run(w1)
+      create_run(w1)
+      create_run(w2)
+
+      results =
+        Map.new(Workflows.list_workflows_with_run_counts_and_triggers(), fn {w, c, _} ->
+          {w.id, c}
+        end)
+
+      assert results[w1.id] == 2
+      assert results[w2.id] == 1
+    end
+  end
+
+  # --- export_workflow/1 ---
+
+  describe "export_workflow/1" do
+    test "returns a map with all workflow fields" do
+      w = create_workflow(%{name: "Export Me", description: "desc"})
+      data = Workflows.export_workflow(w)
+      assert data["name"] == "Export Me"
+      assert data["description"] == "desc"
+      assert is_list(data["nodes"])
+      assert is_list(data["edges"])
+      assert is_map(data["settings"])
+    end
+
+    test "includes required node fields" do
+      w = create_workflow()
+      [node] = Workflows.export_workflow(w)["nodes"]
+      assert Map.has_key?(node, "name")
+      assert Map.has_key?(node, "type")
+      assert Map.has_key?(node, "module")
+      assert Map.has_key?(node, "index")
+      assert Map.has_key?(node, "params")
+    end
+
+    test "export output is JSON encodable" do
+      w = create_workflow()
+      data = Workflows.export_workflow(w)
+      assert {:ok, _json} = Jason.encode(data)
+    end
+
+    test "round-trip: export then import recreates the workflow" do
+      original = create_workflow(%{name: "Round Trip", status: "active"})
+      exported = Workflows.export_workflow(original)
+      assert {:ok, imported} = Workflows.import_workflow(exported)
+      assert imported.name == original.name
+    end
+  end
+
+  # --- import_workflow/1 ---
+
+  describe "import_workflow/1" do
+    test "creates a workflow from a valid exported map" do
+      original = create_workflow(%{name: "Import Test", status: "active"})
+      exported = Workflows.export_workflow(original)
+      assert {:ok, imported} = Workflows.import_workflow(exported)
+      assert imported.name == "Import Test"
+    end
+
+    test "always sets status to active regardless of exported status" do
+      w = create_workflow(%{name: "Was Active", status: "active"})
+      exported = Workflows.export_workflow(w)
+      assert {:ok, imported} = Workflows.import_workflow(exported)
+      assert imported.status == "active"
+    end
+
+    test "preserves nodes on import" do
+      w = create_workflow()
+      exported = Workflows.export_workflow(w)
+      assert {:ok, imported} = Workflows.import_workflow(exported)
+      assert length(imported.nodes) == length(w.nodes)
+    end
+
+    test "returns error changeset for missing name" do
+      assert {:error, %Ecto.Changeset{} = cs} =
+               Workflows.import_workflow(%{"nodes" => [], "edges" => []})
+
+      assert "can't be blank" in errors_on(cs).name
+    end
+
+    test "returns error changeset for empty map" do
+      assert {:error, %Ecto.Changeset{}} = Workflows.import_workflow(%{})
+    end
+  end
+
+  # --- list_triggers_with_workflows_and_recent_runs/1 ---
+
+  describe "list_triggers_with_workflows_and_recent_runs/1" do
+    test "returns empty list when no triggers" do
+      assert [] = Workflows.list_triggers_with_workflows_and_recent_runs()
+    end
+
+    test "returns trigger with empty workflows list when none assigned" do
+      t = create_trigger(%{event_name: "evt.none"})
+      result = Workflows.list_triggers_with_workflows_and_recent_runs()
+      assert [{trigger, []}] = result
+      assert trigger.id == t.id
+    end
+
+    test "returns workflows assigned to trigger" do
+      t = create_trigger(%{event_name: "evt.wf"})
+      w = create_workflow(%{name: "WF1"})
+      Workflows.assign_workflow_to_trigger(t, w)
+
+      [{_trigger, enriched}] = Workflows.list_triggers_with_workflows_and_recent_runs()
+      assert [%{workflow: wf, recent_runs: _}] = enriched
+      assert wf.id == w.id
+    end
+
+    test "includes recent runs for each workflow" do
+      t = create_trigger(%{event_name: "evt.runs"})
+      w = create_workflow(%{name: "WF-R"})
+      Workflows.assign_workflow_to_trigger(t, w)
+      run = create_run(w)
+
+      [{_trigger, [%{workflow: _, recent_runs: runs}]}] =
+        Workflows.list_triggers_with_workflows_and_recent_runs()
+
+      assert Enum.any?(runs, &(&1.id == run.id))
+    end
+
+    test "respects limit option" do
+      t = create_trigger(%{event_name: "evt.limit"})
+      w = create_workflow(%{name: "WF-L"})
+      Workflows.assign_workflow_to_trigger(t, w)
+      Enum.each(1..4, fn _ -> create_run(w) end)
+
+      [{_trigger, [%{recent_runs: runs}]}] =
+        Workflows.list_triggers_with_workflows_and_recent_runs(limit: 2)
+
+      assert length(runs) == 2
+    end
+
+    test "includes disabled triggers" do
+      create_trigger(%{event_name: "evt.disabled", enabled: false})
+      result = Workflows.list_triggers_with_workflows_and_recent_runs()
+      assert length(result) == 1
+    end
+
+    test "multiple triggers are returned sorted by inserted_at desc" do
+      t1 = create_trigger(%{event_name: "evt.first"})
+      t2 = create_trigger(%{event_name: "evt.second"})
+
+      # Force t2 to have a strictly later timestamp so ordering is deterministic
+      later = DateTime.add(t1.inserted_at, 1, :second)
+      Repo.update_all(from(t in Trigger, where: t.id == ^t2.id), set: [inserted_at: later])
+
+      [{first, _}, {second, _}] = Workflows.list_triggers_with_workflows_and_recent_runs()
+      assert first.id == t2.id
+      assert second.id == t1.id
+    end
+
+    test "runs appear only for the workflow that has them" do
+      t = create_trigger(%{event_name: "evt.split"})
+      w1 = create_workflow(%{name: "W1"})
+      w2 = create_workflow(%{name: "W2"})
+      Workflows.assign_workflow_to_trigger(t, w1)
+      Workflows.assign_workflow_to_trigger(t, w2)
+      _run = create_run(w1)
+
+      [{_trigger, enriched}] = Workflows.list_triggers_with_workflows_and_recent_runs()
+      w1_entry = Enum.find(enriched, &(&1.workflow.id == w1.id))
+      w2_entry = Enum.find(enriched, &(&1.workflow.id == w2.id))
+
+      assert length(w1_entry.recent_runs) == 1
+      assert w2_entry.recent_runs == []
+    end
+  end
+
+  # --- delete_workflow/1 ---
+
+  describe "delete_workflow/1" do
+    test "removes the workflow" do
+      w = create_workflow()
+      assert {:ok, _} = Workflows.delete_workflow(w)
+      refute Workflows.list_workflows() |> Enum.any?(&(&1.id == w.id))
+    end
+
+    test "does not affect other workflows" do
+      w1 = create_workflow(%{name: "Keep"})
+      w2 = create_workflow(%{name: "Delete"})
+      Workflows.delete_workflow(w2)
+      assert Workflows.list_workflows() |> Enum.any?(&(&1.id == w1.id))
+    end
+
+    test "also removes associated runs and their step records" do
+      w = create_workflow()
+      run = create_run(w)
+      assert {:ok, _} = Workflows.delete_workflow(w)
+      assert is_nil(Workflows.get_run(run.id))
+    end
+  end
+
+  # --- list_stale_runs/0 ---
+
+  describe "list_stale_runs/0" do
+    test "returns running and pending runs" do
+      w = create_workflow()
+      running = create_run(w) |> set_run_status("running")
+      pending = create_run(w)
+
+      stale_ids = Workflows.list_stale_runs() |> Enum.map(& &1.id) |> MapSet.new()
+      assert MapSet.member?(stale_ids, running.id)
+      assert MapSet.member?(stale_ids, pending.id)
+    end
+
+    test "excludes terminal runs" do
+      w = create_workflow()
+      completed = create_run(w) |> set_run_status("completed")
+      failed = create_run(w) |> set_run_status("failed")
+      cancelled = create_run(w) |> set_run_status("cancelled")
+      interrupted = create_run(w) |> set_run_status("interrupted")
+
+      stale_ids = Workflows.list_stale_runs() |> Enum.map(& &1.id) |> MapSet.new()
+      refute MapSet.member?(stale_ids, completed.id)
+      refute MapSet.member?(stale_ids, failed.id)
+      refute MapSet.member?(stale_ids, cancelled.id)
+      refute MapSet.member?(stale_ids, interrupted.id)
+    end
+
+    test "returns empty list when no stale runs" do
+      w = create_workflow()
+      create_run(w) |> set_run_status("completed")
+      assert Workflows.list_stale_runs() == []
+    end
+  end
+
+  # --- interrupt_run/1 ---
+
+  describe "interrupt_run/1" do
+    test "marks a running run as interrupted with finished_at" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      assert {:ok, interrupted} = Workflows.interrupt_run(run)
+      assert interrupted.status == "interrupted"
+      assert %DateTime{} = interrupted.finished_at
+    end
+
+    test "marks a pending run as interrupted" do
+      w = create_workflow()
+      run = create_run(w)
+
+      assert {:ok, interrupted} = Workflows.interrupt_run(run)
+      assert interrupted.status == "interrupted"
+    end
+
+    test "bulk-marks in-flight step_runs as failed with node_shutdown error" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "running",
+          started_at: DateTime.utc_now(:second)
+        })
+
+      assert {:ok, _} = Workflows.interrupt_run(run)
+
+      reloaded = Repo.get!(Zaq.Engine.Workflows.Step.Run, sr.id)
+      assert reloaded.status == "failed"
+      assert reloaded.errors["reason"] == "node_shutdown"
+      assert %DateTime{} = reloaded.finished_at
+    end
+
+    test "does not touch already-completed step_runs" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      {:ok, sr} =
+        Workflows.create_step_run(run, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "completed",
+          started_at: DateTime.utc_now(:second)
+        })
+
+      assert {:ok, _} = Workflows.interrupt_run(run)
+
+      reloaded = Repo.get!(Zaq.Engine.Workflows.Step.Run, sr.id)
+      assert reloaded.status == "completed"
+    end
+
+    test "is idempotent for already-interrupted run" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("interrupted")
+
+      assert {:ok, returned} = Workflows.interrupt_run(run)
+      assert returned.id == run.id
+      assert returned.status == "interrupted"
+    end
+
+    test "is idempotent for completed run" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("completed")
+
+      assert {:ok, returned} = Workflows.interrupt_run(run)
+      assert returned.status == "completed"
+    end
+
+    test "is idempotent for failed run" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("failed")
+
+      assert {:ok, returned} = Workflows.interrupt_run(run)
+      assert returned.status == "failed"
+    end
+
+    test "works when there are no in-flight step_runs" do
+      w = create_workflow()
+      run = create_run(w) |> set_run_status("running")
+
+      assert {:ok, interrupted} = Workflows.interrupt_run(run)
+      assert interrupted.status == "interrupted"
+    end
+  end
+
+  defp set_run_status(run, status) do
+    {:ok, updated} = Workflows.update_run(run, %{status: status})
+    updated
   end
 end

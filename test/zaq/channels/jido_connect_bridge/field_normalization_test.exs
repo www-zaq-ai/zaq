@@ -76,4 +76,39 @@ defmodule Zaq.Channels.JidoConnectBridge.FieldNormalizationTest do
     refute Map.has_key?(result, :export_mime_type)
     refute Map.has_key?(result, "mime_type")
   end
+
+  test "maps parent_id to parents for google drive file create" do
+    params = %{"name" => "Doc", "parent_id" => "folder-1"}
+
+    assert FieldNormalization.normalize_all("google_drive", "google.drive.file.create", params) ==
+             %{"name" => "Doc", "parents" => ["folder-1"]}
+  end
+
+  test "maps parent_id to parents for google drive folder create" do
+    params = %{name: "Folder", parent_id: "folder-1"}
+
+    assert FieldNormalization.normalize_all(:google_drive, "google.drive.folder.create", params) ==
+             %{name: "Folder", parents: ["folder-1"]}
+  end
+
+  test "preserves explicit parents over parent_id for google drive create" do
+    params = %{"name" => "Doc", "parent_id" => "folder-1", "parents" => ["folder-2"]}
+
+    assert FieldNormalization.normalize_all("google_drive", "google.drive.file.create", params) ==
+             %{"name" => "Doc", "parents" => ["folder-2"]}
+  end
+
+  test "does not map parent_id for google drive update" do
+    params = %{"file_id" => "doc-1", "parent_id" => "folder-1"}
+
+    assert FieldNormalization.normalize_all("google_drive", "google.drive.file.update", params) ==
+             params
+  end
+
+  test "drops blank parent_id for google drive create" do
+    params = %{"name" => "Doc", "parent_id" => "  "}
+
+    assert FieldNormalization.normalize_all("google_drive", "google.drive.file.create", params) ==
+             %{"name" => "Doc"}
+  end
 end

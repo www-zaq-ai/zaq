@@ -56,7 +56,13 @@ defmodule Zaq.Engine.Messages.Outgoing do
       author_name: incoming.author_name,
       provider: incoming.provider,
       in_reply_to: incoming.message_id,
-      metadata: incoming.metadata |> Map.merge(result) |> Map.put(:person_id, incoming.person_id)
+      metadata:
+        incoming.metadata
+        |> Map.merge(result)
+        |> put_person(incoming.person)
     }
   end
+
+  defp put_person(metadata, nil), do: metadata
+  defp put_person(metadata, person), do: Map.put(metadata, :person, person)
 end
