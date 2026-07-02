@@ -1,5 +1,7 @@
 defmodule Zaq.ApplicationTest do
-  use ExUnit.Case, async: false
+  use Zaq.DataCase, async: false
+
+  alias Zaq.Engine.Workflows
 
   setup do
     prev_roles = System.get_env("ROLES")
@@ -29,6 +31,81 @@ defmodule Zaq.ApplicationTest do
   test "prep_stop/1 returns same state" do
     state = %{foo: :bar}
     assert Zaq.Application.prep_stop(state) == state
+  end
+
+  @valid_node %{
+    name: "fetch",
+    type: "action",
+    module: "Zaq.Engine.Workflows.Test.InboxWithResults",
+    params: %{},
+    index: 0
+  }
+  @source_event %{
+    "request" => nil,
+    "assigns" => %{"trigger_type" => "manual"},
+    "trace_id" => Ecto.UUID.generate()
+  }
+
+  defp running_run_with_step do
+    {:ok, wf} =
+      Workflows.create_workflow(%{name: "App Stop", status: "active", nodes: [@valid_node]})
+
+    {:ok, run} = Workflows.create_run(wf, @source_event)
+    {:ok, run} = Workflows.update_run(run, %{status: "running"})
+
+    {:ok, step_run} =
+      Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0, status: "running"})
+
+    {run, step_run}
+  end
+
+  describe "prep_stop/1 on an engine-role node" do
+    setup do
+      stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
+      System.delete_env("ROLES")
+      Application.put_env(:zaq, :roles, [:engine])
+      :ok
+    end
+
+    test "proactively interrupts in-flight runs with the graceful_shutdown reason" do
+      {run, step_run} = running_run_with_step()
+
+      assert Zaq.Application.prep_stop(%{}) == %{}
+
+      interrupted = Workflows.get_run!(run.id)
+      assert interrupted.status == "interrupted"
+
+      recovered_step =
+        run.id |> Workflows.list_step_runs() |> Enum.find(&(&1.id == step_run.id))
+
+      assert recovered_step.status == "failed"
+      assert recovered_step.errors["reason"] == "graceful_shutdown"
+    end
+  end
+
+  describe "prep_stop/1 on a non-engine-role node" do
+    setup do
+      stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
+      System.delete_env("ROLES")
+      Application.put_env(:zaq, :roles, [:bo])
+      :ok
+    end
+
+    test "does not touch runs it never executed" do
+      {run, step_run} = running_run_with_step()
+
+      assert Zaq.Application.prep_stop(%{}) == %{}
+
+      # A BO-only node's shutdown must never interrupt a run that could still
+      # be executing on a live engine node elsewhere in the cluster.
+      untouched = Workflows.get_run!(run.id)
+      assert untouched.status == "running"
+
+      untouched_step =
+        run.id |> Workflows.list_step_runs() |> Enum.find(&(&1.id == step_run.id))
+
+      assert untouched_step.status == "running"
+    end
   end
 
   test "start/2 handles ROLES from app config when env var is missing" do

@@ -44,11 +44,27 @@ defmodule Zaq.Engine.Workflows.RunRecoveryWorkerTest do
   end
 
   describe "perform/1" do
-    test "interrupts a stuck run" do
+    test "interrupts a stuck run with the honest unplanned_termination reason" do
       run = create_run(create_workflow(), "running")
 
+      {:ok, step_run} =
+        Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0, status: "running"})
+
       assert :ok = perform_job(RunRecoveryWorker, %{run_id: run.id})
-      assert Workflows.get_run!(run.id).status == "interrupted"
+
+      interrupted = Workflows.get_run!(run.id)
+      assert interrupted.status == "interrupted"
+
+      # This worker only ever runs on a run that `prep_stop/1` never got to —
+      # i.e. a genuine unplanned death, not a graceful restart — and that must
+      # be reflected honestly, distinct from the "graceful_shutdown" label
+      # `prep_stop/1` uses for the common, deliberate-restart case.
+      recovered_step =
+        run.id |> Workflows.list_step_runs() |> Enum.find(&(&1.id == step_run.id))
+
+      assert recovered_step.status == "failed"
+      assert recovered_step.errors["reason"] == "unplanned_termination"
+      refute recovered_step.errors["reason"] == "graceful_shutdown"
     end
 
     test "is a no-op for a run that no longer exists" do
@@ -61,7 +77,7 @@ defmodule Zaq.Engine.Workflows.RunRecoveryWorkerTest do
       defmodule FailingWorkflows do
         alias Zaq.Engine.Workflows
         def list_stale_runs, do: Workflows.list_stale_runs()
-        def interrupt_run(_run), do: {:error, :forced_test_failure}
+        def interrupt_run(_run, _opts), do: {:error, :forced_test_failure}
       end
 
       Application.put_env(:zaq, :startup_recovery_workflows_mod, FailingWorkflows)

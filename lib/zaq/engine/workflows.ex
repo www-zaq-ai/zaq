@@ -806,6 +806,36 @@ defmodule Zaq.Engine.Workflows do
   end
 
   @doc """
+  Proactively interrupts every run still `"running"`/`"pending"` — called from
+  the application's prep_stop callback while it still knows *why* it's
+  stopping (a deliberate restart/deploy), before anything is orphaned.
+
+  No separate "clean shutdown" marker is needed: if this runs to completion,
+  `list_stale_runs/1` finds nothing left at the next boot, so
+  `StartupRecovery`'s sweep legitimately has nothing to recover. Anything it
+  still finds either means this never ran at all (a genuine unplanned crash —
+  `kill -9`, OOM, host loss) or didn't finish before the process died anyway —
+  both cases where the boot-sweep's own honest label is accurate by
+  construction, not by inspecting a flag.
+  """
+  @spec interrupt_in_flight_runs(keyword()) :: :ok
+  def interrupt_in_flight_runs(opts \\ []) do
+    reason = Keyword.get(opts, :reason, "graceful_shutdown")
+
+    message =
+      Keyword.get(
+        opts,
+        :message,
+        "The application was stopped for a restart or deploy while this run was executing."
+      )
+
+    list_stale_runs()
+    |> Enum.each(&interrupt_run(&1, reason: reason, message: message))
+
+    :ok
+  end
+
+  @doc """
   Bulk-fails any `StepRun` rows still `"running"` for `run_id`.
 
   Used by `WorkflowRunAgent.finalize/2`'s "crash cursor" path: a row stuck at
