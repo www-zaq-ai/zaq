@@ -24,9 +24,9 @@
   - You failed to follow the Authenticated Routes guidelines, or failed to pass `current_scope` to `<Layouts.app>`.
   - Fix by moving routes to the proper `live_session` and ensuring `current_scope` is passed.
 - Phoenix v1.8 moved `<.flash_group>` to the `Layouts` module. **Forbidden** from calling `<.flash_group>` outside of `layouts.ex`.
-- **Always** use the `<.icon name="hero-x-mark" class="w-5 h-5"/>` component for icons — **never** use `Heroicons` modules.
-- **Always** use the imported `<.input>` component for form inputs from `core_components.ex`.
-- For revealable password/token/secret fields, use `<.secret_input>` from `core_components.ex` instead of inlining eye-toggle markup.
+- **Always** use the `<.icon name="hero-x-mark" class="w-5 h-5"/>` component for icons — **never** use `Heroicons` modules. **In BO:** use `.zaq-icon-sm` / `.zaq-icon-md` instead of Tailwind sizing (`DESIGN.md`).
+- **BO forms and buttons:** use `ZaqWeb.Components*` per [`DESIGN.md`](../DESIGN.md). Non-BO pages may still use `<.input>` and `<.button>` from `core_components.ex` during migration.
+- For revealable password/token/secret fields, use `DesignSystem.SecretInput` in BO, or `<.secret_input>` elsewhere.
 - For Back Office add/edit popins, use `ZaqWeb.Components.BOModal.form_dialog` so max-height and internal scrolling are enforced by default.
 - For dynamic multi-value form rows (args, headers, env maps), prefer reusable row components over duplicating row markup.
 - If you override default input classes, no default classes are inherited — your custom classes must fully style the input.
@@ -111,7 +111,8 @@
 
 ## JS & CSS
 
-- Use Tailwind CSS classes and custom CSS rules for all styling.
+- **Back Office UI** (`lib/zaq_web/live/bo/`, BO components): follow [`DESIGN.md`](../DESIGN.md) — semantic tokens, `.zaq-*` classes, and `DesignSystem.*` modules. Do not apply generic Tailwind-first guidance below to BO pages.
+- Use Tailwind CSS classes and custom CSS rules for styling **outside BO**, or for BO **layout/spacing only when the ZAQ design system has no class or utility** for the required layout (`.zaq-layout-*`, role CSS, or `styles.css` patterns first — see `DESIGN.md`).
 - Tailwind v4 no longer needs `tailwind.config.js`. Use this import syntax in `app.css`:
 
   ```css
@@ -122,7 +123,7 @@
   ```
 
 - **Never** use `@apply` in raw CSS.
-- **Always** manually write Tailwind-based components — never use daisyUI.
+- **Always** manually write Tailwind-based components — never use daisyUI (BO uses `.zaq-btn`, `.zaq-modal`, `.zaq-card-*` per `DESIGN.md`).
 - Only `app.js` and `app.css` bundles are supported — import vendor deps into them, never reference external scripts/links in layouts.
 - **Never** write inline `<script>custom js</script>` tags within templates.
 

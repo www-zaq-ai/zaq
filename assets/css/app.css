@@ -6,11 +6,13 @@
 @import "./text-styles.css";
 @import "./semantics.css";
 @import "./table.css";
+@import "./layout.css";
 @import "./btn.css";
 @import "./styles.css";
 @source "../css";
 @source "../js";
 @source "../../lib/zaq_web";
+@source "../../storybook";
 
 /* A Tailwind plugin that makes "hero-#{ICON}" classes available.
    The heroicons installation itself is managed by your mix.exs */

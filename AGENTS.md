@@ -22,7 +22,8 @@ This file is your **map**. Read the relevant doc before starting any task.
 | Production testing strategy & property testing  | `docs/testing-approach.md` |
 | E2E tests: running, seeding, helper conventions | `docs/e2e-testing.md`      |
 | Phoenix, LiveView, HTML, JS/CSS, UI/UX          | `docs/phoenix.md`          |
-| BO layout, design tokens, colors, components    | `docs/bo-components.md`    |
+| BO design system (tokens, components, styling)  | `DESIGN.md`                |
+| BO layout, flash, shared modules, PR checklist  | `docs/bo-components.md`    |
 
 ### Planning & Quality
 
@@ -70,6 +71,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 
 - **Follow `docs/WORKFLOW_AGENT.md`** on every task — orient, plan, implement, validate, PR, close out.
 - **Read the relevant doc first** before starting any task.
+- **BO UI styling and components:** read `DESIGN.md` first; use `docs/bo-components.md` for BOLayout, flash, and PR checklist only.
 - **Use `docs/exec-plans/PLAN_STRATEGY.md` for every new complex plan** and represent planning in Beadwork issues (not plan files).
 - **For planned work, create at least one Beadwork issue per step** (split into additional issues when needed) and prefix each planned issue title with `[{issueId}]`.
 - **Always run `mix format`** after any code file change to keep code well formatted

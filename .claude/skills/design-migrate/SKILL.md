@@ -1,6 +1,6 @@
 ---
 name: design-migrate
-description: Migrate ZAQ web UI (components, LiveViews, layouts) styling to the --zaq-* token system. Accepts a Figma frame URL (design-led), a file path (audit), or --audit-all (full sweep). Always reads the CSS catalog (foundations, semantics, text-styles, btn, form, modal, table, styles) before proposing changes; outputs a human-validation table with token check. Enforces text-only scale tokens for typography only — never spacing. Prefers existing role-specific classes over new CSS in styles.css. Full sweep mode writes a backlog file directly.
+description: Migrate legacy ZAQ web UI (components, LiveViews, layouts) styling to the --zaq-* token system. Reads DESIGN.md and CSS catalog (foundations, semantics, text-styles, btn, form, modal, table, layout, styles) before proposing changes. Accepts a Figma frame URL (design-led), a file path (audit), or --audit-all (full sweep). Typical position in workflow: after extract, before replace.
 trigger: when the user types /design-migrate
 ---
 
@@ -18,13 +18,16 @@ You may ONLY write to files in these directories:
 
 | Allowed path | Rule |
 |---|---|
-| `assets/css/styles.css` | The only CSS file you may write to. |
+| `assets/css/modal.css` | Modal shell/backdrop/panel additions only — not generic chrome |
+| `assets/css/form.css` | Form control/field additions only — not generic chrome |
+| `assets/css/table.css` | Table shell/cell additions only — not generic chrome |
+| `assets/css/styles.css` | Generic BO chrome, composites, feature patterns — **not** modal/form/table/btn primitives |
 | `lib/zaq_web/` | All Phoenix web-layer modules: function components, LiveViews, layouts, controllers, HEEX templates, etc. Styling and markup only — do not change business logic, assigns, or event handlers unless the user explicitly asked. |
 
 **Explicitly forbidden (read-only — never edit):**
 - `assets/css/app.css` — legacy/deprecated; no edits, ever
 - `assets/css/foundations.css`, `semantics.css`, `text-styles.css`
-- `assets/css/btn.css`, `form.css`, `modal.css`, `table.css`
+- `assets/css/btn.css`, `layout.css`
 - `lib/zaq/` and any path outside `lib/zaq_web/` (contexts, schemas, Oban workers, etc.)
 
 If an approved diff line requires touching a file outside these allowed paths, stop and say: "This change requires editing [file], which is outside the allowed directories. Consult the project team before proceeding."
@@ -60,9 +63,10 @@ Parse the input after `/design-migrate`:
 **Full sweep (`--audit-all`):**
 - Skip to the Full Sweep section below.
 
-**All modes — mandatory CSS catalog read (before Step 3):**
+**All modes — mandatory read (before Step 3):**
 
-Before proposing any replacement, read the design-system CSS in two layers. **Pick classes from the role-specific file first** — do not duplicate btn/form/modal/table patterns in `styles.css`.
+1. Read **`DESIGN.md`** (CSS catalog, token rules, Do's/Don'ts).
+2. Read the design-system CSS in two layers below. **Pick classes from the role-specific file first** — do not duplicate btn/form/modal/table patterns in `styles.css`.
 
 **Layer 1 — tokens and typography (constraints and vars)**
 
@@ -77,10 +81,11 @@ Before proposing any replacement, read the design-system CSS in two layers. **Pi
 | File | UI role | Agent writes? |
 |------|---------|---------------|
 | `assets/css/btn.css` | Buttons — `.zaq-btn-primary`, `.zaq-btn-secondary`, variants | No — read-only. Never reference internal `--zaq-btn-*` vars outside this file |
-| `assets/css/form.css` | Form controls — labels, `<select>`, text inputs, combobox triggers/panels (`.zaq-control-*`, `.zaq-field-*`) | No — read-only. Form spacing uses layout scales only (`--zaq-scale-8`, `--zaq-scale-16`) per file comments |
-| `assets/css/modal.css` | Modal shell — backdrop, panel (`.zaq-modal`, `.zaq-bo-modal-backdrop`, flush variant) | No — read-only |
-| `assets/css/table.css` | Data tables — `.zaq-table` shell, header/body cells, sticky/dense patterns | No — read-only |
-| `assets/css/styles.css` | **Everything else** — generic BO chrome, cards, feedback, breadcrumbs, feature-composed patterns (e.g. `.zaq-chat-*`), and **new** reusable multi-property utilities when no role file covers the need | **Yes — only writable CSS file** |
+| `assets/css/form.css` | Form controls — labels, `<select>`, text inputs, combobox triggers/panels (`.zaq-control-*`, `.zaq-field-*`) | Yes — role-specific new classes only. Form spacing uses layout scales only (`--zaq-scale-8`, `--zaq-scale-16`) per file comments |
+| `assets/css/modal.css` | Modal shell — backdrop, panel (`.zaq-modal`, `.zaq-bo-modal-backdrop`, flush variant) | Yes — role-specific new classes only |
+| `assets/css/table.css` | Data tables — `.zaq-table` shell, header/body cells, sticky/dense patterns | Yes — role-specific new classes only |
+| `assets/css/layout.css` | Layout utilities — `.zaq-layout-stack`, `.zaq-layout-inline`, gap modifiers | No — read-only. Prefer over new spacing in `styles.css` |
+| `assets/css/styles.css` | Generic BO chrome, cards, feedback, breadcrumbs, feature-composed patterns (e.g. `.zaq-chat-*`), icon sizes (`.zaq-icon-sm/md`), and **new** reusable multi-property utilities when no role file covers the need | Yes — generic/composite patterns only; never modal/form/table/btn primitives |
 
 Apply the **Token usage constraints** section below. **Comments in source CSS override pixel-size guessing** — e.g. `--zaq-scale-10` is 10px but is **not** a spacing token.
 
@@ -119,12 +124,12 @@ Example (shape only — adapt rows to the real audit):
 | `bo_layout.ex:143` | Secondary body copy in sidebar | `text-[0.82rem]` | `.zaq-text-body-sm` | ok |
 | `bo_layout.ex:198` | Accent focus ring on nav | `#03b6d4` | `--zaq-border-color-accent` on appropriate property via token-safe class or inline per property | ok |
 | `bo_layout.ex:220` | Inline monospace snippet | `font-mono text-xs` | `.zaq-text-code` or `.zaq-text-caption` (pick by visual density) | ok |
-| `bo_layout.ex:512` | Error state helper text | `text-red-600` | `(⚠ no --zaq-text-color-error — keep legacy or request token)` | `(⚠ no token for role)` |
+| `bo_layout.ex:512` | Error state helper text | `text-red-600` | `.zaq-text-body-sm` + `style="color: var(--zaq-text-color-body-danger)"` or `(⚠ keep legacy — human decide)` | ok |
 | `some_live.ex:88` | Toolbar row gap | `gap-2.5` / `p-[10px]` | `.zaq-text-caption` for copy; for spacing use `--zaq-scale-8` or `(layout — keep)` — **never** `var(--zaq-scale-10)` on gap/padding | `(⚠ scale-10 is text-only)` |
 
 Optional compact appendix: one-line `file:line  existing → proposed  (reason)` duplicates are fine for grep-friendly logs, but the **table is the source of truth** for approval.
 
-**Class selection discipline (summary — see Invariant Rules):** Match **UI role → CSS file** (btn / form / modal / table / styles). Prefer existing classes from the role file before minting new ones in `styles.css`. Use **feature-prefixed** classes (e.g. `.zaq-chat-*`) **only** inside that feature's templates/components. If the migration is **only** text `color` or surface `background-color` / `bg-*`, use **inline** `style="..."` with the correct `--zaq-*` token — do not add a one-off class in `styles.css`.
+**Class selection discipline (summary — see Invariant Rules):** Match **UI role → CSS file** (btn / form / modal / table / styles). Prefer existing classes from the role file before minting new ones in that role file (`form.css`, `modal.css`, `table.css`) or `styles.css` for generic patterns. Use **feature-prefixed** classes (e.g. `.zaq-chat-*`) **only** inside that feature's templates/components. If the migration is **only** text `color` or surface `background-color` / `bg-*`, use **inline** `style="..."` with the correct `--zaq-*` token — do not add a one-off class in any CSS file.
 
 **Figma scope boundary (design-led mode only):** The proposal covers styling only — token and class replacements. If the Figma frame shows different text content, different icons, different component structure, or different layout from the current code, note them as observations below the table ("ℹ Figma shows X, current code has Y") but do NOT include them in the table and do NOT propose code changes for them. Content and structure differences are outside the scope of this skill.
 
@@ -138,15 +143,22 @@ Present the full validation table (and optional appendix). Then ask: "Approve al
 
 ## Step 4: Apply Changes and Verify
 
-Apply only the approved table rows (or line overrides the user gave). Write to:
+Apply only the approved table rows (or line overrides the user gave). Write to the **role-appropriate CSS file**:
 
-- `assets/css/styles.css` — **only when** the approved solution is a **new reusable class** (multi-property layout, repeated component pattern, or non-trivial bundle that inline would duplicate everywhere). **Do not** add a class when the approved row is a **general existing class** swap or a **color-only** inline `style="color: var(...)"` / `style="background-color: var(...)"`.
+- `assets/css/modal.css` — approved **new** modal shell/backdrop/panel classes
+- `assets/css/form.css` — approved **new** form control/field classes
+- `assets/css/table.css` — approved **new** table shell/cell classes
+- `assets/css/styles.css` — approved **new** generic/composite classes only (not modal/form/table/btn primitives)
+
+**New class gate (all CSS files):** add a class **only when** the approved solution is a **new reusable class** (multi-property layout, repeated component pattern, or non-trivial bundle that inline would duplicate everywhere). **Do not** add a class when the approved row is a **general existing class** swap or a **color-only** inline `style="color: var(...)"` / `style="background-color: var(...)"`.
+
   ```css
   /* <description of role> */
   .<class-name> {
     <property>: var(--zaq-<semantic-token>);
   }
   ```
+
 - `lib/zaq_web/...` — the target file (component, LiveView, layout, etc.) — prefer **general** classes and **inline color vars** per Step 3 / Invariant Rules.
 
 Then run:
@@ -246,7 +258,7 @@ Generated: <date>
 - `bo_layout.ex:198` — **UI role:** focus ring accent — **Existing:** `#03b6d4` — **Proposed:** `border-color: var(--zaq-border-color-accent)` (inline or class per rules)
 
 ## HIGH
-- `bo_layout.ex:201` — **UI role:** dark ink surface — **Existing:** `.zaq-bg-ink` (app.css) — **Proposed:** `var(--zaq-surface-color-dark)` / matching general class
+- `bo_layout.ex:201` — **UI role:** dark ink surface — **Existing:** `.zaq-bg-ink` (app.css) — **Proposed:** `var(--zaq-surface-color-base)` or matching semantic surface token per DESIGN.md
 
 ## MEDIUM
 - `bo_layout.ex:220` — **UI role:** compact monospace — **Existing:** `font-mono text-xs` — **Proposed:** `.zaq-text-caption`
@@ -269,7 +281,7 @@ Then say: "Backlog written to `docs/exec-plans/migration-backlog.md`. Run `/desi
 |------|--------|------------------------|----------------------------|
 | **Text-only** | `--zaq-scale-10`, `--zaq-scale-12`, `--zaq-scale-14`, `--zaq-scale-20` | **`font-size` only**, and only via `.zaq-text-*` in `text-styles.css` — not raw in templates | Use `.zaq-text-caption`, `.zaq-text-body-sm`, `.zaq-text-body`, `.zaq-text-h2`, etc. **Never** `padding`/`margin`/`gap`/`width`/`height`/`border-radius` with these vars |
 | **Special-purpose** | `--zaq-scale-1` (border thickness), `--zaq-scale-999` (pill radius), `--zaq-scale-1440` (max-width) | Matching property only | `--zaq-scale-1` → `border-width` / `outline-width`; `--zaq-scale-999` → full pill `border-radius`; `--zaq-scale-1440` → `max-width` |
-| **Layout (8px grid)** | `--zaq-scale-0`, `--zaq-scale-2`, `--zaq-scale-4`, `--zaq-scale-8`, `--zaq-scale-16`, `--zaq-scale-24`, `--zaq-scale-32`, `--zaq-scale-40`, `--zaq-scale-48`, `--zaq-scale-56`, `--zaq-scale-64`, `--zaq-scale-72`, `--zaq-scale-80`, `--zaq-scale-88`, `--zaq-scale-96`, `--zaq-scale-120` | `padding`, `margin`, `gap`, `width`, `height`, `border-radius`, `outline-offset`, etc. | Use in **new** `styles.css` classes when spacing is reused; do not pick by pixel coincidence |
+| **Layout (8px grid)** | `--zaq-scale-0`, `--zaq-scale-2`, `--zaq-scale-4`, `--zaq-scale-8`, `--zaq-scale-16`, `--zaq-scale-24`, `--zaq-scale-32`, `--zaq-scale-40`, `--zaq-scale-48`, `--zaq-scale-56`, `--zaq-scale-64`, `--zaq-scale-72`, `--zaq-scale-80`, `--zaq-scale-88`, `--zaq-scale-96`, `--zaq-scale-120` | `padding`, `margin`, `gap`, `width`, `height`, `border-radius`, `outline-offset`, etc. | Use in **new** role-file or `styles.css` classes when spacing is reused; do not pick by pixel coincidence |
 
 **Common agent mistake:** mapping `p-2.5`, `gap-[10px]`, or `text-[10px]` to `var(--zaq-scale-10)` for spacing or sizing. **Wrong.** `--zaq-scale-10` exists for BO caption **typography** (`.zaq-text-caption`), not layout.
 
@@ -282,7 +294,7 @@ From `semantics.css` — **never inline in HEEX/templates**:
 - `--zaq-card-gap-default`, `--zaq-card-padding-default`, `--zaq-card-radius-default`
 - `--zaq-border-thickness-default`
 
-Compose via existing classes (e.g. `.zaq-card-default`) or add a reusable class in `styles.css`.
+Compose via existing classes (e.g. `.zaq-card-default`) or add a reusable class in the appropriate role file or `styles.css`.
 
 ### Class scoping (from `text-styles.css`)
 
@@ -304,7 +316,7 @@ IF property = font-size AND value is a scale var
 
 IF token starts with --zaq-card- OR token = --zaq-border-thickness-default
   AND location is template/LiveView inline style
-  → REJECT — use styles.css class
+  → REJECT — use role-file or styles.css class
 ```
 
 ---
@@ -313,7 +325,7 @@ IF token starts with --zaq-card- OR token = --zaq-border-thickness-default
 
 Apply styles in this exact order:
 
-1. **Use an existing class** — look up by UI role (read-only sources; only `styles.css` is writable):
+1. **Use an existing class** — look up by UI role (`form.css`, `modal.css`, `table.css`, and `styles.css` are writable for new role-appropriate classes; `btn.css` and token files are read-only):
 
    | UI role | Look in first |
    |---------|----------------|
@@ -321,6 +333,7 @@ Apply styles in this exact order:
    | Form label, input, select, combobox | `form.css` — `.zaq-control-*`, `.zaq-field-*` |
    | Modal backdrop / panel | `modal.css` — `.zaq-modal`, `.zaq-bo-modal-backdrop` |
    | Data table / dense list grid | `table.css` — `.zaq-table` and related |
+   | Layout spacing (stack, inline, gaps) | `layout.css` — `.zaq-layout-*` |
    | Typography | `text-styles.css` — `.zaq-text-*` |
    | Generic chrome, cards, feedback, composites | `styles.css` — `.zaq-card-*`, `.zaq-border-*`, feature patterns |
    | Token vars (inline color only) | `semantics.css` — never foundation vars |
@@ -329,21 +342,21 @@ Apply styles in this exact order:
 
    **General vs feature-scoped naming:** Prefer **general** utilities whose names describe a **reusable semantic role** across the app (e.g. `.zaq-text-*`, `.zaq-select*`, shared surface/card patterns). Use those before inventing component-local classes. **Feature-prefixed** classes (e.g. `.zaq-chat-*`) apply **only** inside that feature's LiveViews/components — do not use `.zaq-chat-*` outside chat, and do not introduce new `zaq-<feature>-*` classes outside their feature unless the design system already exposes them as shared primitives.
 
-2. **Buttons** → classes from `btn.css` only (`.zaq-btn-primary`, `.zaq-btn-secondary`, documented variants). No new button styles in `styles.css`.
+2. **Buttons** → classes from `btn.css` only (`.zaq-btn-primary`, `.zaq-btn-secondary`, documented variants). `btn.css` is read-only — no new button styles in any writable CSS file.
 
-3. **Form controls** → classes from `form.css` only. No ad-hoc input/select styling in templates or `styles.css` when a `.zaq-control-*` / `.zaq-field-*` class exists or fits.
+3. **Form controls** → classes from `form.css`. No ad-hoc input/select styling in templates or `styles.css` when a `.zaq-control-*` / `.zaq-field-*` class exists or fits. New form patterns go in `form.css`, not `styles.css`.
 
-4. **Modals** → shell classes from `modal.css`. Page-specific modal *content* layout may use `styles.css`; do not re-define backdrop/panel chrome elsewhere.
+4. **Modals** → shell classes from `modal.css`. New backdrop/panel patterns go in `modal.css`. Page-specific modal *content* layout may use `styles.css`; do not re-define backdrop/panel chrome in `styles.css`.
 
-5. **Tables** → shell and cell patterns from `table.css`. Do not duplicate `.zaq-table` rules in `styles.css`.
+5. **Tables** → shell and cell patterns from `table.css`. New table patterns go in `table.css`. Do not duplicate `.zaq-table` rules in `styles.css`.
 
 6. **Text** → closest `.zaq-text-*` from `text-styles.css`. No `text-sm`, `text-lg`, `text-[*]`, no inline `font-size`, no raw `var(--zaq-scale-10|12|14|20)` in templates.
    Text decorations (`uppercase`, `underline`, `tracking-*`) are allowed alongside a `.zaq-text-*` base.
    Those four scale tokens are **typography-only** (see **Token usage constraints**).
 
-7. **Color-only migrations (text or surface):** If the **only** change needed is `color` or `background-color` / `bg-*` mapping to a semantic `--zaq-*` token, use **inline** `style="color: var(--zaq-...)"` or `style="background-color: var(--zaq-...)"` (property-appropriate token — see table below). **Do not** create a dedicated class in `styles.css` for a one-property color swap.
+7. **Color-only migrations (text or surface):** If the **only** change needed is `color` or `background-color` / `bg-*` mapping to a semantic `--zaq-*` token, use **inline** `style="color: var(--zaq-...)"` or `style="background-color: var(--zaq-...)"` (property-appropriate token — see table below). **Do not** create a dedicated class in any CSS file for a one-property color swap.
 
-8. **New class needed** → add to `styles.css` **only** when no class in btn / form / modal / table / text-styles fits **and** inline would duplicate a **multi-property** or **repeated** pattern across many nodes. Never `app.css`. Never duplicate role-file patterns in `styles.css`.
+8. **New class needed** → add to the **matching role file** (`form.css`, `modal.css`, or `table.css`) when the element belongs there; use `styles.css` only for generic/composite patterns. Requires no existing class in btn / form / modal / table / text-styles fits **and** inline would duplicate a **multi-property** or **repeated** pattern. Never `app.css`. Never duplicate role-file patterns in `styles.css` or put modal/form/table primitives in `styles.css`.
 
 9. **No class fits (non-color-only)** → semantic var inline: `--zaq-surface-color-*`, `--zaq-text-color-*`, `--zaq-border-color-*`.
    Never foundation vars (`--zaq-color-blue-*`, `--zaq-color-neutral-*`, `--zaq-color-black-*`).
@@ -356,13 +369,13 @@ Apply styles in this exact order:
    | `--zaq-border-color-*` | `border-color` / `border` / `outline` only |
    | `--zaq-text-color-body-*` | `color` (text) only |
 
-   If no token exists for the correct role (e.g. need a text-error color but only `--zaq-border-color-error` exists): **do not use the wrong-category token**. Mark the table row / appendix line as `(⚠ no token for this role — keep legacy or request new token)` and leave the decision to the human.
+   If no token exists for the correct role (e.g. need destructive text color): use `--zaq-text-color-body-danger` — never `error` naming. Mark `(⚠ no token for this role — keep legacy or request new token)` when no semantic token fits.
 
 10. **Tailwind color and typography** → never use. Layout/spacing Tailwind utilities are allowed only as described in Rule 11 below.
 
 11. **Spacing & sizing** — flag all padding, margin, gap, width, height, and border-radius Tailwind utilities in the proposal table. Propose one of:
    - **Replace with existing general class** if `.zaq-card-default` or another shared pattern already covers the role (avoid new `.zaq-<page>-*` classes for one-off wrappers when a general primitive exists).
-   - **Create new class in `styles.css`** using **layout** `var(--zaq-scale-*)` tokens only (see **Token usage constraints**) when spacing is **reused** across multiple nodes — not for a single unique gap on one toolbar.
+   - **Create new class in the matching role file or `styles.css`** using **layout** `var(--zaq-scale-*)` tokens only (see **Token usage constraints**) when spacing is **reused** across multiple nodes — form/modal/table context → that role file; generic chrome → `styles.css`; not for a single unique gap on one toolbar.
    - **Keep as Tailwind layout utility** (`(layout — keep)`) when the value is one-off sizing with no semantic role (e.g. `w-10 h-10` on an icon button, `p-8` on a page wrapper).
    - **Flag arbitrary values** (`px-[9px]`, `py-[7px]`, `top-[0.5px]`, etc.) as `(⚠ arbitrary spacing — needs design decision)` — do not replace automatically.
    - **Never** map spacing to **text-only** scale tokens (`--zaq-scale-10`, `12`, `14`, `20`) even when the px value matches.
@@ -412,11 +425,12 @@ When ambiguous between adjacent scales, prefer the smaller one. Map by visual ro
 
 | File | Role | Agent can write? |
 |---|---|---|
-| `styles.css` | Generic BO chrome, composites, new reusable utilities | Yes — only when rules require a new multi-property / repeated pattern (not color-only swaps) |
-| `btn.css` | Buttons | No |
-| `form.css` | Form controls | No |
-| `modal.css` | Modal shell | No |
-| `table.css` | Data tables | No |
+| `modal.css` | Modal shell/backdrop/panel | Yes — role-specific new classes only |
+| `form.css` | Form controls | Yes — role-specific new classes only |
+| `table.css` | Data tables | Yes — role-specific new classes only |
+| `styles.css` | Generic BO chrome, composites, new reusable utilities | Yes — generic/composite only (not modal/form/table/btn primitives) |
+| `btn.css` | Buttons | No — read-only |
+| `layout.css` | Layout utilities | No — read-only |
 | `app.css` | Legacy | No |
 | `semantics.css` | Semantic tokens | No |
 | `text-styles.css` | Typography classes | No |
@@ -433,5 +447,5 @@ When ambiguous between adjacent scales, prefer the smaller one. Map by visual ro
 - **Inline `font-size: var(--zaq-scale-*)`** in templates — use `.zaq-text-*` instead
 - **Inline semantic shape tokens** (`--zaq-card-*`, `--zaq-border-thickness-default`) in templates
 - **Scoped classes outside scope** (`.zaq-btn-text_label-default` outside buttons, `.zaq-text-code` on non-code copy)
-- **Role-file duplication** — new btn/form/modal/table styling in `styles.css` when the element belongs in `btn.css`, `form.css`, `modal.css`, or `table.css`
+- **Role-file misplacement** — new form/modal/table styling in `styles.css` when the element belongs in `form.css`, `modal.css`, or `table.css`; new button styling anywhere (`btn.css` is read-only)
 - **`--zaq-btn-*` vars** referenced outside `btn.css`

@@ -63,13 +63,13 @@
   --zaq-border-color-strong:  var(--zaq-color-neutral-300);
   
   
-  /* color-text-body, surface-elevated, surface-accent, border-accent, border-error:
+  /* color-text-body, surface-elevated, surface-accent, border-accent, border-danger:
      no override needed — same foundation tokens as light mode */
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-  ZAQ Semantic Shape Tokens
-  These should never be used inline - only used to create classes in styles.css
+  ZAQ Semantic Shape & Layout Tokens
+  Never use inline in templates — consumed by layout.css, styles.css, and role CSS.
 ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
@@ -81,6 +81,21 @@
   /* ── semantics/border ────────────────────────────────────────────────────── */
   --zaq-border-thickness-default: var(--zaq-scale-1);
   --zaq-border-thickness-strong: var(--zaq-scale-2);
+
+  /* ── semantics/layout ──────────────────────────────────────────────────────
+     Role-based spacing — never use inline in templates.
+     Consumed by .zaq-layout-* utilities in layout.css.
+     Legacy 12px / 20px Tailwind (gap-3, space-y-5, p-5) converge to scale-16.
+     ─────────────────────────────────────────────────────────────────────── */
+  --zaq-layout-page-inset:           var(--zaq-scale-32); /* BOLayout #bo-main p-8 */
+  --zaq-layout-page-bleed:           var(--zaq-scale-32); /* full-bleed under page chrome */
+  --zaq-layout-section-gap:          var(--zaq-scale-24); /* major page blocks, 2-col grids */
+  --zaq-layout-stack-gap:            var(--zaq-scale-16); /* vertical rhythm between siblings */
+  --zaq-layout-stack-gap-tight:      var(--zaq-scale-8);  /* label → value, dense lists */
+  --zaq-layout-inline-gap:           var(--zaq-scale-8);  /* toolbar controls, icon + label */
+  --zaq-layout-inline-gap-compact:   var(--zaq-scale-4);  /* chips, pill clusters */
+  --zaq-layout-content-inset:        var(--zaq-scale-24); /* inner column (chat transcript) */
+  --zaq-layout-grid-gap:             var(--zaq-scale-16); /* card / metric grids */
 }
 
 
