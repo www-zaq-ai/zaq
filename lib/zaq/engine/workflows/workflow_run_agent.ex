@@ -220,6 +220,11 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
             log_summary: log_summary
           })
 
+        # Resolve the stuck row(s) themselves, not just the run's aggregate
+        # status — otherwise a step is left "running" forever alongside a run
+        # that shows "failed".
+        Workflows.fail_orphaned_step_runs(run.id)
+
         dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
         result
 
