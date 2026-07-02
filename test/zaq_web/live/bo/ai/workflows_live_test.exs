@@ -353,6 +353,203 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
 
       assert Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count) == before
     end
+
+    test "shows a human-readable error when a connection points at a nonexistent step",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      dangling =
+        Jason.encode!(%{
+          "name" => "Dangling Edge Import #{System.unique_integer([:positive])}",
+          "nodes" => [
+            %{
+              "name" => "A",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 0
+            },
+            %{
+              "name" => "B",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 1
+            }
+          ],
+          "edges" => [
+            %{"from" => "A", "to" => "B"},
+            %{"from" => "B", "to" => "ghost"}
+          ]
+        })
+
+      before = Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count)
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "dangling.json", content: dangling, type: "application/json"}
+        ])
+
+      assert render_upload(upload, "dangling.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+      # Human-readable guidance, not the raw reason tuple or generic template.
+      assert html =~ "steps that do not exist"
+      assert html =~ "ghost"
+      refute html =~ "unknown_edge_endpoints"
+      refute html =~ "invalid workflow composition"
+
+      assert Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count) == before
+    end
+
+    test "shows a human-readable error when a step is not connected to the rest",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      orphaned =
+        Jason.encode!(%{
+          "name" => "Orphan Import #{System.unique_integer([:positive])}",
+          "nodes" => [
+            %{
+              "name" => "A",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 0
+            },
+            %{
+              "name" => "B",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 1
+            },
+            %{
+              "name" => "orphan",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 2
+            }
+          ],
+          "edges" => [%{"from" => "A", "to" => "B"}]
+        })
+
+      before = Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count)
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "orphan.json", content: orphaned, type: "application/json"}
+        ])
+
+      assert render_upload(upload, "orphan.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+      # Human-readable guidance, not the raw reason tuple or generic template.
+      assert html =~ "not connected to the rest of the workflow"
+      assert html =~ "orphan"
+      refute html =~ "disconnected_nodes"
+      refute html =~ "invalid workflow composition"
+
+      assert Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count) == before
+    end
+
+    test "shows a human-readable error when an action module is not available",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      bad_module =
+        Jason.encode!(%{
+          "name" => "Bad Module Import #{System.unique_integer([:positive])}",
+          "nodes" => [
+            %{
+              "name" => "A",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 0
+            },
+            %{
+              "name" => "B",
+              "type" => "action",
+              "module" => "Zaq.No.Such.Action",
+              "params" => %{},
+              "index" => 1
+            }
+          ],
+          "edges" => [%{"from" => "A", "to" => "B"}]
+        })
+
+      before = Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count)
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "bad-module.json", content: bad_module, type: "application/json"}
+        ])
+
+      assert render_upload(upload, "bad-module.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+      # The nested node error must render as a sentence, not an inspected map.
+      assert html =~ "could not be resolved to a loaded module"
+      refute html =~ "%{module"
+
+      assert Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count) == before
+    end
+
+    test "shows a human-readable error when two steps share a name", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      duplicated =
+        Jason.encode!(%{
+          "name" => "Duplicate Name Import #{System.unique_integer([:positive])}",
+          "nodes" => [
+            %{
+              "name" => "A",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 0
+            },
+            %{
+              "name" => "A",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 1
+            },
+            %{
+              "name" => "B",
+              "type" => "action",
+              "module" => "Zaq.Engine.Workflows.Test.OkAction",
+              "params" => %{},
+              "index" => 2
+            }
+          ],
+          "edges" => [%{"from" => "A", "to" => "B"}]
+        })
+
+      before = Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count)
+
+      upload =
+        file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+          %{name: "duplicate-name.json", content: duplicated, type: "application/json"}
+        ])
+
+      assert render_upload(upload, "duplicate-name.json")
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+      # Human-readable guidance, not the raw reason tuple or generic template.
+      assert html =~ "used by more than one step"
+      refute html =~ "duplicate_node_names"
+      refute html =~ "invalid workflow composition"
+
+      assert Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count) == before
+    end
   end
 
   describe "load_workflows fallback and rendering branches" do
