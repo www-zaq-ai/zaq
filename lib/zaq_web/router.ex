@@ -39,6 +39,13 @@ defmodule ZaqWeb.Router do
     plug :fetch_query_params
   end
 
+  # Chat transport. No BO auth; the bearer token is checked inside
+  # ZaqWeb.UiMessageController against ZAQ_CHAT_TOKEN. Mirrors :api_stream (no
+  # :accepts enforcement) so SSE text/event-stream responses pass.
+  pipeline :chat_bearer_auth do
+    plug :fetch_query_params
+  end
+
   scope "/", ZaqWeb do
     pipe_through :browser
 
@@ -127,6 +134,18 @@ defmodule ZaqWeb.Router do
     get "/health", ChannelsController, :health
     get "/oauth2/:provider/redirect", ChannelsController, :oauth2_redirect
     post "/webhook/:type/:provider", ChannelsController, :webhook
+  end
+
+  # ZAQ emits the Vercel AI SDK UIMessageChunk stream directly (Jido answering
+  # agent over UIMessageStream). Bearer auth (ZAQ_CHAT_TOKEN) enforced in the
+  # controller. Accepts an optional `source_filter` to scope retrieval to
+  # specific documents.
+  scope "/chat", ZaqWeb do
+    pipe_through :chat_bearer_auth
+
+    post "/ui-messages", UiMessageController, :run
+    get "/documents", UiMessageController, :documents
+    get "/documents/:id", UiMessageController, :document
   end
 
   if Application.compile_env(:zaq, :e2e_routes, false) do
