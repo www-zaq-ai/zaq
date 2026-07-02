@@ -363,6 +363,118 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
     end
   end
 
+  describe "import_workflow/1 — action availability" do
+    test "rejects an import whose action module does not exist and persists nothing" do
+      before = Repo.aggregate(Workflow, :count)
+
+      attrs = %{
+        "name" => "Ghost Module #{System.unique_integer()}",
+        "nodes" => [
+          %{
+            "name" => "A",
+            "type" => "action",
+            "module" => "Zaq.No.Such.Action",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert %{nodes: [%{module: [message]}]} = errors_on(changeset)
+      assert message =~ "could not be resolved"
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+
+    test "rejects an import whose module loads but is not a workflow action" do
+      before = Repo.aggregate(Workflow, :count)
+
+      attrs = %{
+        "name" => "Not An Action #{System.unique_integer()}",
+        "nodes" => [
+          %{"name" => "A", "type" => "action", "module" => "Enum", "params" => %{}, "index" => 0}
+        ],
+        "edges" => []
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert %{nodes: [%{module: [message]}]} = errors_on(changeset)
+      assert message =~ "Action contract"
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+  end
+
+  describe "import_workflow/1 — nodes must be connected" do
+    defp connectivity_node(name, index) do
+      %{
+        "name" => name,
+        "type" => "action",
+        "module" => @ok_module,
+        "params" => %{},
+        "index" => index
+      }
+    end
+
+    test "rejects an edge pointing at a nonexistent node and persists nothing" do
+      before = Repo.aggregate(Workflow, :count)
+
+      attrs = %{
+        "name" => "Dangling Edge #{System.unique_integer()}",
+        "nodes" => [connectivity_node("A", 0), connectivity_node("B", 1)],
+        "edges" => [
+          %{"from" => "A", "to" => "B"},
+          %{"from" => "B", "to" => "ghost"}
+        ]
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert {"invalid workflow composition", meta} = changeset.errors[:nodes]
+      assert {:unknown_edge_endpoints, ["ghost"]} = meta[:reason]
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+
+    test "rejects a node not connected to the rest of the graph and persists nothing" do
+      before = Repo.aggregate(Workflow, :count)
+
+      attrs = %{
+        "name" => "Orphan Node #{System.unique_integer()}",
+        "nodes" => [
+          connectivity_node("A", 0),
+          connectivity_node("B", 1),
+          connectivity_node("orphan", 2)
+        ],
+        "edges" => [%{"from" => "A", "to" => "B"}]
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert {"invalid workflow composition", meta} = changeset.errors[:nodes]
+      assert {:disconnected_nodes, ["orphan"]} = meta[:reason]
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+  end
+
+  describe "import_workflow/1 — node names must be unique" do
+    test "rejects duplicate node names and persists nothing" do
+      before = Repo.aggregate(Workflow, :count)
+
+      attrs = %{
+        "name" => "Duplicate Names #{System.unique_integer()}",
+        "nodes" => [
+          connectivity_node("A", 0),
+          connectivity_node("A", 1),
+          connectivity_node("B", 2)
+        ],
+        "edges" => [%{"from" => "A", "to" => "B"}]
+      }
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Workflows.import_workflow(attrs)
+      assert {"invalid workflow composition", meta} = changeset.errors[:nodes]
+      assert {:duplicate_node_names, ["A"]} = meta[:reason]
+      assert Repo.aggregate(Workflow, :count) == before
+    end
+  end
+
   describe "import_workflow/1 — optional trigger" do
     defp import_node do
       %{"name" => "A", "type" => "action", "module" => @ok_module, "params" => %{}, "index" => 0}
