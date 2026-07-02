@@ -76,7 +76,7 @@ defmodule Zaq.Engine.Notifications do
   def notify_person(person_id, attrs, opts \\ []) when is_map(attrs) do
     with {:ok, person} <- fetch_person(person_id, opts),
          {:ok, notification} <- build_person_notification(person, attrs) do
-      notify(notification)
+      notify(notification, opts)
     end
   end
 
@@ -195,8 +195,22 @@ defmodule Zaq.Engine.Notifications do
     |> Enum.map(fn channel ->
       %{
         platform: Map.get(@person_channel_platforms, channel.platform, channel.platform),
-        identifier: channel.channel_identifier
+        identifier: delivery_identifier(channel)
       }
+    end)
+  end
+
+  # `channel_identifier` identifies the person on the provider (for example a
+  # Mattermost user id). `dm_channel_id`, when present, is the deliverable
+  # direct-message channel id and must be preferred for outbound notifications.
+  defp delivery_identifier(channel) do
+    first_present([channel.dm_channel_id, channel.channel_identifier])
+  end
+
+  defp first_present(values) do
+    Enum.find(values, fn
+      value when is_binary(value) -> String.trim(value) != ""
+      value -> not is_nil(value)
     end)
   end
 
