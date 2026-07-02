@@ -1,0 +1,37 @@
+/* Dev-only Tailwind entry — built via `mix tailwind zaq_dev` (see config :tailwind, :zaq_dev).
+   Imports production app.css, then scans storybook/ and adds preview-only helpers.
+   Production deploy uses app.css directly (`mix tailwind zaq`). */
+
+@import "./app.css";
+@source "../../storybook";
+
+/* ── Storybook sandbox base styles ── */
+.zaq-sandbox {
+  font-family: var(--zaq-font-family-body);
+  color: var(--zaq-text-color-body-default);
+  background: var(--zaq-surface-color-base);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Contain `fixed` modals inside bounded Storybook preview frames */
+.zaq-modal-preview {
+  position: relative;
+  height: 22rem;
+  overflow: hidden;
+  border-radius: var(--zaq-scale-16);
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-base);
+}
+
+.zaq-modal-preview--tall {
+  height: 28rem;
+}
+
+.zaq-modal-preview--short {
+  height: 16rem;
+}
+
+.zaq-modal-preview .fixed {
+  position: absolute !important;
+}

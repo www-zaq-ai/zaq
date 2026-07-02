@@ -103,7 +103,7 @@ config :zaq, ZaqWeb.Endpoint,
   secret_key_base: "LQsyDCz226Q0u9cBQuDXhOBf09HwGPydTPfHPtYjMEGhPXZkXlalT73FrQ+fj5hq",
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:zaq, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:zaq, ~w(--watch)]}
+    tailwind: {Tailwind, :install_and_run, [:zaq_dev, ~w(--watch)]}
   ]
 
 # ## SSL Support

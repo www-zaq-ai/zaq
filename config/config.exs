@@ -121,6 +121,13 @@ config :tailwind,
       --output=priv/static/assets/css/app.css
     ),
     cd: Path.expand("..", __DIR__)
+  ],
+  zaq_dev: [
+    args: ~w(
+      --input=assets/css/app.dev.css
+      --output=priv/static/assets/css/app.css
+    ),
+    cd: Path.expand("..", __DIR__)
   ]
 
 # Configure Elixir's Logger

@@ -12,7 +12,6 @@
 @source "../css";
 @source "../js";
 @source "../../lib/zaq_web";
-@source "../../storybook";
 
 /* A Tailwind plugin that makes "hero-#{ICON}" classes available.
    The heroicons installation itself is managed by your mix.exs */
@@ -384,12 +383,3 @@
   75% { transform: translateX(4px); }
 }
 .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
-
-/* ── Storybook sandbox base styles ── */
-.zaq-sandbox {
-  font-family: var(--zaq-font-family-body);
-  color: var(--zaq-text-color-body-default);
-  background: var(--zaq-surface-color-base);
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
