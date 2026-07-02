@@ -154,6 +154,12 @@ Slug: {slug}
 Scope: [screens / states from feedback matrix]
 ```
 
+**Update-mode DS rules (same as full `/prototype`):**
+
+- UX plan **`[NEW COMPONENT]`** rows → extend or add `DesignSystem.*` — never a LiveView `defp` picker/form shell
+- Reuse existing panel chrome (`SearchableSelect` / `form.css` classes) before Tailwind `border` or `divide-*`
+- Run **prototype §8 design system audit** on all touched `lib/zaq_web/**` and `assets/css/**` files before summarizing
+
 ### 6. Verify and summarize
 
 1. Confirm PRD ↔ UX plan ↔ prototype alignment on changed items
@@ -203,6 +209,7 @@ Before delivering:
 - [ ] UX plan revision log entry added when UX edited
 - [ ] **`/ux-design`** invoked when PRD or UX-affecting feedback (update mode)
 - [ ] **`/prototype`** invoked when UX or prototype-affecting feedback (update mode)
+- [ ] Prototype update: **`[NEW COMPONENT]` → `DesignSystem.*`**, not LiveView `defp`; §8 audit passed on touched files
 - [ ] No backend, Storybook, or `lib/zaq/` changes
 - [ ] Iteration summary lists what to review at `/bo/{slug}`
 

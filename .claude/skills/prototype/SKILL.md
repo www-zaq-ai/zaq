@@ -119,8 +119,21 @@ Resolve open questions with sensible static defaults; note assumptions in fixtur
 |-------------|----------|
 | Named `DesignSystem.*` / `ZaqWeb.*` module, no gap | **Import** that module — no raw markup equivalent |
 | Partial fit / variant noted | **Extend** existing `DesignSystem.*` or shared component |
-| **`[NEW COMPONENT]`** or **`[GAP]`** | **New or extended** `DesignSystem.*` stub — flag for **`/design`** |
+| **`[NEW COMPONENT]`** or **`[GAP]`** | **New `DesignSystem.*` module** in `components/design_system/` — **never** a private `defp *_picker` in the LiveView | Flag for **`/design`** |
 | Form field maps to a control type | Use the module named in UX plan; if **`[GAP]`**, use documented DSM field shell (`.zaq-field-row-block`, `.zaq-bo-checkbox`) — never invent classes |
+
+**`[NEW COMPONENT]` rule (mandatory):** When the UX plan names a new component (e.g. `WorkflowLinkPicker`), create `lib/zaq_web/components/design_system/{name}.ex`. Reuse existing role CSS from `assets/css/form.css` / `styles.css` / `table.css`. Do **not** implement the same UI as a LiveView private function — that bypasses the audit and causes DS drift.
+
+**Chrome reuse map (before inventing borders or list shells):**
+
+| UI pattern | Reuse from DS |
+|------------|----------------|
+| Searchable dropdown / list panel | `.zaq-searchable-select-panel`, `.zaq-searchable-select-search-row`, `.zaq-dropdown-menu-item--padded` (`SearchableSelect`, `form.css`) |
+| Bordered container | `.zaq-border-default` + surface role class (e.g. `.zaq-card-default`, `.zaq-searchable-select-panel`) — not Tailwind `border` + inline `border-color` |
+| Row hover in lists | `.zaq-dropdown-menu-item` — not `hover:bg-[var(...)]` or `divide-y` |
+| Selected chips / tags | `.zaq-pill` + `.zaq-pill--elevated` (or tone variant) |
+| Field helper text | `.zaq-field-helper` — not inline `color: var(--zaq-text-color-body-tertiary)` on one-off `<p>` |
+| Table row separators | `DesignSystem.Table` / `table.css` — not Tailwind `divide-*` |
 
 **Form composition rule (mandatory):**
 
@@ -202,6 +215,9 @@ Grep touched files for violations:
 | Raw `<input`, `<select`, `<textarea` in `live/bo/*` (outside `DesignSystem.*`) | **Fail** |
 | Invented form classes (`zaq-input`, etc.) | **Fail** |
 | Form screen (`phx-submit` / `<.form`) with **no** `DesignSystem.Input`, `Select`, `SearchableSelect`, or `Checkbox` import | **Fail** |
+| Tailwind `border`, `border-b`, `border-t`, `divide-*`, `outline-*` on BO chrome when a `.zaq-*` role class exists | **Fail** |
+| Inline `style=` setting `border`, `border-color`, `divide-color`, or `background` on panels/lists/chips | **Fail** |
+| `[NEW COMPONENT]` in UX plan implemented as LiveView `defp` instead of `DesignSystem.*` | **Fail** |
 | UX plan §5 row implemented with a different pattern than mapped (unless documented `[GAP]` in `@moduledoc`) | **Fail** |
 
 ### 9. Verify
@@ -247,7 +263,9 @@ Grep touched files for violations:
 - [ ] Fixture params normalized (string scenarios); scenario switcher tested per scenario
 - [ ] LiveView and Fixtures `@moduledoc` note `@prototype true` + list `[NEW]` / `[GAP]` for `/design`
 - [ ] Route registered in `router.ex`; sidebar entry when needed
-- [ ] Design system audit passes
+- [ ] **`[NEW COMPONENT]` rows** → `DesignSystem.*` module exists (not LiveView `defp`)
+- [ ] **No Tailwind border/divide chrome** — panels/lists use `form.css` / `table.css` role classes
+- [ ] **Design system audit passes** (§8 grep, including border/divide/inline-style checks)
 
 ---
 
