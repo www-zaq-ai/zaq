@@ -1,6 +1,6 @@
 # Component extraction — review table & phased plan
 
-This document captures the **candidate BO/UI slices** from the `/extract` analysis, plus a **two-phase plan**: strengthen E2E where coverage is missing or partial, then **extract only rows you approve** (per [`.claude/skills/extract/SKILL.md`](.claude/skills/extract/SKILL.md)).
+This document captures the **candidate BO/UI slices** from the `/extract` analysis, plus a **two-phase plan**: strengthen E2E where coverage is missing or partial, then **extract only rows you approve** (per [`.agents/skills/extract/SKILL.md`](.agents/skills/extract/SKILL.md)).
 
 ---
 

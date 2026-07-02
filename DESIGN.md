@@ -72,7 +72,7 @@ Target users: internal operators, knowledge managers, and IT admins. The UI must
 **Companion docs:**
 
 - `docs/bo-components.md` — BO operational rules only (BOLayout, flash, shared modules, PR checklist). **Not** the styling source of truth.
-- `.claude/skills/design/SKILL.md` — agent entry point for new BO UI
+- `.agents/skills/design/SKILL.md` — agent entry point for new BO UI
 - `/extract` — copy inline UI into `DesignSystem.*` modules
 - `/design-migrate` — token enforcement and migration workflow
 - `/replace` — wire existing components into LiveViews (human confirmation)
