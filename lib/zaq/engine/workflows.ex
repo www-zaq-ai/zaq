@@ -90,6 +90,27 @@ defmodule Zaq.Engine.Workflows do
   def start_run(%WorkflowRun{} = run), do: start_run(run, [])
 
   @doc """
+  Starts `run` in a supervised background task, decoupled from the calling
+  process. Returns `:ok` immediately — the run's progress is observable via
+  the existing `broadcast_run/1`/`broadcast_step/1` PubSub events, not this
+  call's return value.
+
+  This is **the** sanctioned way to kick off execution without blocking the
+  caller — do not spawn ad-hoc `Task`s around `start_run/2` elsewhere. Every
+  caller that wants non-blocking execution (event/cron triggers via
+  `Engine.TriggerNode`, manual "Run Now" via the BO `NodeRouter` dispatch)
+  goes through here, so there is exactly one place responsible for safe,
+  non-linking, supervised launch semantics — see
+  `Zaq.Engine.Workflows.RunWatcher` for the orphan-recovery guarantee this
+  gives every run regardless of how it was launched.
+  """
+  @spec start_run_async(WorkflowRun.t(), keyword()) :: :ok
+  def start_run_async(%WorkflowRun{} = run, opts \\ []) do
+    {:ok, _pid} = Task.Supervisor.start_child(Zaq.TaskSupervisor, fn -> start_run(run, opts) end)
+    :ok
+  end
+
+  @doc """
   Creates a pending workflow run and immediately starts it.
 
   Use this for synchronous trigger paths that do not need to inspect or persist
@@ -260,6 +281,17 @@ defmodule Zaq.Engine.Workflows do
       _ ->
         {:error, :not_paused}
     end
+  end
+
+  @doc """
+  Resumes `run` in a supervised background task, decoupled from the calling
+  process. See `start_run_async/2` — same launch semantics, same reason for
+  existing.
+  """
+  @spec resume_run_async(WorkflowRun.t(), keyword()) :: :ok
+  def resume_run_async(%WorkflowRun{} = run, opts \\ []) do
+    {:ok, _pid} = Task.Supervisor.start_child(Zaq.TaskSupervisor, fn -> resume_run(run, opts) end)
+    :ok
   end
 
   @doc """

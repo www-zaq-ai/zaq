@@ -959,3 +959,69 @@ defmodule Zaq.Engine.Workflows.Test.Decrement do
     {:ok, %{number: number - 1}}
   end
 end
+
+defmodule Zaq.Engine.Workflows.Test.SelfDestruct do
+  @moduledoc """
+  Kills its own process with an untrappable `:kill` signal instead of
+  returning or raising — simulates a hard crash (OOM kill, unrelated
+  supervisor action) mid-step, which bypasses `StepRunner`'s `rescue` entirely
+  (unlike a normal `raise`, which Runic's `Invokable.execute/2` catches and
+  turns into a failed runnable). Used to prove `RunWatcher` recovers a run
+  even when nothing in the call stack ever gets a chance to run cleanup code.
+  """
+
+  use Jido.Action,
+    name: "test_self_destruct",
+    schema: [input: [type: :any]],
+    output_schema: [never: [type: :boolean, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context) do
+    Process.exit(self(), :kill)
+    {:ok, %{never: true}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.RaiseOnEven do
+  @moduledoc """
+  Map/Batch body step: raises (not `{:error, _}`) on even `n`, succeeds on odd —
+  reproduces a body action that crashes instead of returning a controlled error.
+  """
+
+  use Jido.Action,
+    name: "test_raise_on_even",
+    schema: [n: [type: :any, required: true]],
+    output_schema: [doubled: [type: :integer, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(%{n: n}, _context) do
+    if rem(n, 2) == 0 do
+      raise "boom_even_n:#{n}"
+    else
+      {:ok, %{doubled: n * 2}}
+    end
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.AlwaysRaise do
+  @moduledoc """
+  Map/Batch step that always raises — used as a `post_process` tail step that
+  crashes instead of returning a controlled `{:error, _}`.
+  """
+
+  use Jido.Action,
+    name: "test_always_raise",
+    schema: [doubled: [type: :any]],
+    output_schema: [noop: [type: :boolean, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context) do
+    raise "boom_post_process"
+  end
+end

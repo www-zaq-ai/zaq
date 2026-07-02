@@ -64,6 +64,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
   alias Runic.Workflow
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.RunWatcher
   alias Zaq.Engine.Workflows.WorkflowRun
   alias Zaq.Event
 
@@ -77,6 +78,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
   def execute(%WorkflowRun{prepared_dag: dag} = run, _opts) do
     Registry.register(Zaq.Engine.Workflows.RunRegistry, run.id, self())
+    watcher = start_watcher(run.id)
 
     now = DateTime.utc_now(:second)
     started_ms = System.monotonic_time(:millisecond)
@@ -93,7 +95,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
     case workflows_mod().update_run(run, start_attrs) do
       {:ok, run} ->
         dispatch_workflow_event("run.started", %{run_id: run.id, workflow_id: run.workflow_id})
-        execute_dag_with_pause(dag, run, started_ms)
+        execute_dag_with_pause(dag, run, started_ms, watcher)
 
       {:error, reason} ->
         Logger.error("[workflow] run failed to start",
@@ -107,11 +109,30 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
           finished_at: DateTime.utc_now(:second)
         })
 
+        RunWatcher.done(watcher)
         {:error, reason}
     end
   end
 
-  defp execute_dag_with_pause(dag, %WorkflowRun{} = run, started_ms) do
+  # Failure to arm the watcher does not fail the run — it is a reliability
+  # backstop, not a correctness gate. `nil` flows harmlessly through
+  # `RunWatcher.done/1`.
+  defp start_watcher(run_id) do
+    case RunWatcher.watch(run_id, self()) do
+      {:ok, pid} ->
+        pid
+
+      {:error, reason} ->
+        Logger.warning("[workflow] failed to start orphan watcher",
+          run_id: run_id,
+          reason: inspect(reason)
+        )
+
+        nil
+    end
+  end
+
+  defp execute_dag_with_pause(dag, %WorkflowRun{} = run, started_ms, watcher) do
     input = fetch_input(run.source_event)
     checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
 
@@ -130,13 +151,18 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
       # writes a failed StepRun (so `finalize/2` already marked the run "failed")
       # and skips its downstream fan-out via Runic. Surface the precise reason to
       # the caller rather than a generic failed run.
-      case Workflows.map_over_limit(run.id) do
-        {node, count, cap} -> {:error, {:map_over_limit, node, count, cap}}
-        nil -> result
-      end
+      outcome =
+        case Workflows.map_over_limit(run.id) do
+          {node, count, cap} -> {:error, {:map_over_limit, node, count, cap}}
+          nil -> result
+        end
+
+      RunWatcher.done(watcher)
+      outcome
     catch
       :throw, :pause_requested ->
         Logger.info("[workflow] run paused", run_id: run.id)
+        RunWatcher.done(watcher)
         {:ok, Workflows.get_run!(run.id)}
     end
   end
