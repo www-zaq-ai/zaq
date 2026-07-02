@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.14.0](https://github.com/www-zaq-ai/zaq/compare/v0.13.0...v0.14.0) (2026-07-02)
+
+
+### Features
+
+* add ZaqWeb.Select component with zaq-control-select styling ([efebe54](https://github.com/www-zaq-ai/zaq/commit/efebe54a9bde3801283fa35384c2a5d3b9b90708))
+* **datasources:** connect data source records to ingestion UI to list docs and navigate - phase 2 of [Ingestion] Generic UI for external Data Sources [#486](https://github.com/www-zaq-ai/zaq/issues/486) ([3bc8ab3](https://github.com/www-zaq-ai/zaq/commit/3bc8ab33c94187c51db14d9a69de7dc08d97a46b))
+* replace native select with searchable_select panel (searchable=false) for styled dropdown ([d1e869f](https://github.com/www-zaq-ai/zaq/commit/d1e869fef16fb09c70ab9df291913782f7867b9d))
+
+
+### Bug Fixes
+
+* **channels:** display errors on BO on gateway failures ([75399f4](https://github.com/www-zaq-ai/zaq/commit/75399f410f079194e6893c4862689ce05edd2840))
+* **mattermost:** indicate bot should join a team, support private, dm and grouped dm channel types ([891d3d1](https://github.com/www-zaq-ai/zaq/commit/891d3d1f744532eee40816b32e101952a5450c56))
+
+
+### Refactoring
+
+* (BO) design migrate Metric card ([3b29b0e](https://github.com/www-zaq-ai/zaq/commit/3b29b0e73ea86a1f800dfb2e2d6cc3cddb2fa070))
+* (BO) design migrate theme toggle in header ([33b6ef2](https://github.com/www-zaq-ai/zaq/commit/33b6ef21602210406c5528ba8b20b28bddfd7766))
+* (BO) design migration and unification of component upsell card ([32fafe1](https://github.com/www-zaq-ai/zaq/commit/32fafe1d81dc743740c1637173d4581366eccf64))
+* (BO) design migration diagnostic card ([c0f5ede](https://github.com/www-zaq-ai/zaq/commit/c0f5ede845b9871140bbd2e814c6125b0cf7b7a6))
+* (Storybook) component organisation - removing unused components. ([91fefd8](https://github.com/www-zaq-ai/zaq/commit/91fefd8cb8a48aa7e5e597388f1af96fb3b15f19))
+* (Storybook) fix dashboard service status table ([0140ae7](https://github.com/www-zaq-ai/zaq/commit/0140ae7c08e124cdc6db126bffff615149f89e49))
+* add hover and active (open) states to combobox trigger and select controls ([c50dd45](https://github.com/www-zaq-ai/zaq/commit/c50dd45111a800c1aef236a7d9111226fef12488))
+* align zaq-control-select height and padding with combobox trigger ([b045b65](https://github.com/www-zaq-ai/zaq/commit/b045b658b8b794f91fb5ef3e2858009ef704b635))
+* **channels:** implement a process to monitor supervised listener and surface errors if any to feed listener status indication ([30deb94](https://github.com/www-zaq-ai/zaq/commit/30deb949691039aea5c767f71ac3faed8afa5338))
+* clean input component to keep select a stand alone component ([13d9f80](https://github.com/www-zaq-ai/zaq/commit/13d9f8043232b53cfafe9da8dbb938ab58b143a1))
+* consolidate Input and SecretInput Storybook under Forms ([54deae7](https://github.com/www-zaq-ai/zaq/commit/54deae7113b05e408b78862d374651005449f65a))
+* design migration for input to match design system ([8b154f3](https://github.com/www-zaq-ai/zaq/commit/8b154f30ab196f5d4a127c17ca4f95a19d852582))
+* **ENV:** introduce new injectable Config module to load ENV and stabilize async tests ([a98cddd](https://github.com/www-zaq-ai/zaq/commit/a98cddd556fd8c029adf31f26c628efa5679da48))
+* extract Checkbox as standalone DesignSystem component ([e5bd495](https://github.com/www-zaq-ai/zaq/commit/e5bd495552da7ad93d76691b8cbaa83f81b65ed3))
+* extract components from dashboard page ([a1e9195](https://github.com/www-zaq-ai/zaq/commit/a1e9195be0c8cae45a942997d06581fa0cb2edac))
+* extract DesignSystem.Link with accent tone and storybook ([b783852](https://github.com/www-zaq-ai/zaq/commit/b783852f3a485f21cceca0a16e805e0b07533120))
+* extract DesignSystem.MetricCard with optional link maps ([f029728](https://github.com/www-zaq-ai/zaq/commit/f029728d96cee0970ec4670c8aadedc241dbd735))
+* extract Input and SecretInput from CoreComponents to DesignSystem ([83504ef](https://github.com/www-zaq-ai/zaq/commit/83504ef7bd758847ef6330771ef738f8897a9559))
+* extract TabNav, SimplePagination, and EmptyState from people page ([fa4dd82](https://github.com/www-zaq-ai/zaq/commit/fa4dd82ffca2497dd60c97e63073d645ae6b8e13))
+* extracting diagnostic card and status badge from bo_layout ([1d2a8d3](https://github.com/www-zaq-ai/zaq/commit/1d2a8d335205379efe06fe18af6239575f5ea301))
+* fix design of tab nav component ([5374fb0](https://github.com/www-zaq-ai/zaq/commit/5374fb091a0684e5ce9225cd4d9a3d7d94106eac))
+* fix documentation story of app_layout ([1132a1e](https://github.com/www-zaq-ai/zaq/commit/1132a1e162feb86a188eaedf9160507841b54845))
+* **Ingestion:** convert Zaq local items to Record struct. Phase 1 of supporting multiple data sources for ingestion ([59a63ad](https://github.com/www-zaq-ai/zaq/commit/59a63ad4a549ae2dde29477a48424934ba855ba1))
+* **ingestion:** keep one path based on %Record{} and normalize at edges ([70b5a5e](https://github.com/www-zaq-ai/zaq/commit/70b5a5edec1cc45fc4ca141380e46cc314eb6940))
+* **ingestion:** normalize sidecar inside Record attributes, surface errors, specs and docs ([0a11227](https://github.com/www-zaq-ai/zaq/commit/0a11227c6f19c7eaf1e14036782fce8610547172))
+* migrate checkbox component to design system tokens ([fdf4995](https://github.com/www-zaq-ai/zaq/commit/fdf49953077153b4f7940fa48c324a455fdb9ffe))
+* migrate DesignSystem.Input textarea to zaq-control-text tokens ([8606c29](https://github.com/www-zaq-ai/zaq/commit/8606c29d7f53717b538d6890cd6fbaa906bc0125))
+* migrate SecretInput to design tokens and drop password from Input ([50e600e](https://github.com/www-zaq-ai/zaq/commit/50e600e587e433e61db2c4bc2fd0ede7021166be))
+* migrate TabNav to zaq design tokens and component Storybook ([c1012ab](https://github.com/www-zaq-ai/zaq/commit/c1012ab64de855b864967d37c35b8a5fb5d037eb))
+* moving css classes to forms.css for cleaner documentation ([3f7f611](https://github.com/www-zaq-ai/zaq/commit/3f7f611495629029015d9216cfb821a10eeffe8b))
+* neon animated border and soft focus glow on form controls ([d36eee1](https://github.com/www-zaq-ai/zaq/commit/d36eee180ca94ccf2d2bb76df4906aeb5af96eec))
+* redesign the hover effect on drop downs ([c17bbd2](https://github.com/www-zaq-ai/zaq/commit/c17bbd292680731910b764aeb5e043d579b23bfe))
+* reduce focus ring on combobox search input to accent border only ([b6041f8](https://github.com/www-zaq-ai/zaq/commit/b6041f8d32c48e76a5908704719f08a4e7b801b9))
+* remove py-1 padding from searchable select options list ([629b11c](https://github.com/www-zaq-ai/zaq/commit/629b11c04c8e1bec4ed608f40eaf74480c631675))
+* unify searchable select with form primitives and label layouts ([896aaab](https://github.com/www-zaq-ai/zaq/commit/896aaabfb726367611ff837e8ca1f45d5a306de4))
+* update hover effect design on tertiary buttons ([d246d64](https://github.com/www-zaq-ai/zaq/commit/d246d643f1f73b9a01a977e2ba5de0ef5416e5aa))
+* updating designs of input and select (including a compact version) ([d7fea4b](https://github.com/www-zaq-ai/zaq/commit/d7fea4b498b928fd1f956857d4fe5ac97015a862))
+* wire DesignSystem.Link into metric overview sub-metric CTAs ([f01d727](https://github.com/www-zaq-ai/zaq/commit/f01d727b27bfd5d0d39721af3fed95704b616823))
+* wire MetricOverview to DesignSystem.MetricCard ([122991b](https://github.com/www-zaq-ai/zaq/commit/122991b07c03f40bb527e3ad2eaf9134a11a92de))
+
 ## [0.13.0](https://github.com/www-zaq-ai/zaq/compare/v0.12.0...v0.13.0) (2026-06-18)
 
 
