@@ -8,11 +8,6 @@
 import Config
 
 config :zaq, :channels, %{
-  :"email:imap" => %{
-    bridge: Zaq.Channels.EmailBridge,
-    adapter: Zaq.Channels.EmailBridge.ImapAdapter,
-    message_format: :html
-  },
   mattermost: %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Mattermost.Adapter,
@@ -41,7 +36,11 @@ config :zaq, :channels, %{
     bridge: Zaq.Channels.JidoConnectBridge,
     integration: Jido.Connect.Sharepoint
   },
-  email: %{bridge: Zaq.Channels.EmailBridge},
+  email: %{
+    bridge: Zaq.Channels.EmailBridge,
+    adapter: Zaq.Channels.EmailBridge.ImapAdapter,
+    message_format: :html
+  },
   web: %{bridge: Zaq.Channels.WebBridge}
 }
 

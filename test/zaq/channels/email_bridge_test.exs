@@ -355,7 +355,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: DynamicAdapterStub}
+        :email => %{adapter: DynamicAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1022,7 +1022,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: MailboxTupleAdapterStub}
+        :email => %{adapter: MailboxTupleAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1035,7 +1035,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: LegacyMailboxTupleAdapterStub}
+        :email => %{adapter: LegacyMailboxTupleAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1052,7 +1052,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: MailboxErrorAdapterStub}
+        :email => %{adapter: MailboxErrorAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1101,7 +1101,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: CaptureMailboxAdapterStub}
+        :email => %{adapter: CaptureMailboxAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1117,7 +1117,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: CaptureMailboxAdapterStub}
+        :email => %{adapter: CaptureMailboxAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1133,7 +1133,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: CaptureMailboxAdapterStub}
+        :email => %{adapter: CaptureMailboxAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1149,7 +1149,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: MailboxTupleAdapterStub}
+        :email => %{adapter: MailboxTupleAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1162,7 +1162,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       previous = Application.get_env(:zaq, :channels)
 
       Application.put_env(:zaq, :channels, %{
-        :"email:imap" => %{adapter: MixedMailboxAdapterStub}
+        :email => %{adapter: MixedMailboxAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -1387,7 +1387,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       Application.put_env(:zaq, :channels, %{
         :email => %{adapter: RuntimeCaptureAdapterStub},
-        :"email:imap" => %{adapter: RuntimeCaptureAdapterStub}
+        :email => %{adapter: RuntimeCaptureAdapterStub}
       })
 
       config_id = System.unique_integer([:positive])
@@ -1422,7 +1422,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       Application.put_env(:zaq, :channels, %{
         :email => %{adapter: RuntimeAdapterStub},
-        :"email:imap" => %{adapter: RuntimeAdapterStub}
+        :email => %{adapter: RuntimeAdapterStub}
       })
 
       config_id = System.unique_integer([:positive])
@@ -1463,7 +1463,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       Application.put_env(:zaq, :channels, %{
         :email => %{adapter: RuntimeErrorAdapterStub},
-        :"email:imap" => %{adapter: RuntimeErrorAdapterStub}
+        :email => %{adapter: RuntimeErrorAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous_channels) end)
@@ -1481,7 +1481,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       Application.put_env(:zaq, :channels, %{
         :email => %{adapter: RuntimeInvalidSpecAdapterStub},
-        :"email:imap" => %{adapter: RuntimeInvalidSpecAdapterStub}
+        :email => %{adapter: RuntimeInvalidSpecAdapterStub}
       })
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous_channels) end)
