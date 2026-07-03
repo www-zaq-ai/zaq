@@ -103,11 +103,15 @@ defmodule Zaq.Engine.Workflows do
   non-linking, supervised launch semantics — see
   `Zaq.Engine.Workflows.RunWatcher` for the orphan-recovery guarantee this
   gives every run regardless of how it was launched.
+
+  Returns `:ok` when the supervised task is spawned, or `{:error, reason}` if
+  `Zaq.TaskSupervisor` refuses the child (e.g. restart-intensity saturation).
+  Callers that discard the result still get the failure logged rather than a
+  silent `MatchError` in the dispatching process.
   """
-  @spec start_run_async(WorkflowRun.t(), keyword()) :: :ok
+  @spec start_run_async(WorkflowRun.t(), keyword()) :: :ok | {:error, term()}
   def start_run_async(%WorkflowRun{} = run, opts \\ []) do
-    {:ok, _pid} = Task.Supervisor.start_child(Zaq.TaskSupervisor, fn -> start_run(run, opts) end)
-    :ok
+    launch_async(fn -> start_run(run, opts) end, run.id)
   end
 
   @doc """
@@ -285,13 +289,32 @@ defmodule Zaq.Engine.Workflows do
 
   @doc """
   Resumes `run` in a supervised background task, decoupled from the calling
-  process. See `start_run_async/2` — same launch semantics, same reason for
-  existing.
+  process. See `start_run_async/2` — same launch semantics, same return
+  contract (`:ok` or `{:error, reason}`), same reason for existing.
   """
-  @spec resume_run_async(WorkflowRun.t(), keyword()) :: :ok
+  @spec resume_run_async(WorkflowRun.t(), keyword()) :: :ok | {:error, term()}
   def resume_run_async(%WorkflowRun{} = run, opts \\ []) do
-    {:ok, _pid} = Task.Supervisor.start_child(Zaq.TaskSupervisor, fn -> resume_run(run, opts) end)
-    :ok
+    launch_async(fn -> resume_run(run, opts) end, run.id)
+  end
+
+  # Shared supervised-launch helper for `start_run_async/2`/`resume_run_async/2`.
+  # A refused child (supervisor saturation, restart intensity) is logged and
+  # returned as `{:error, reason}` rather than crashing the caller with a
+  # `MatchError` on a strict `{:ok, _}` match — these launches are reliability
+  # backstops whose failure must be observable, not silent.
+  defp launch_async(fun, run_id) when is_function(fun, 0) do
+    case Task.Supervisor.start_child(Zaq.TaskSupervisor, fun) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("[workflow] failed to launch supervised run task",
+          run_id: run_id,
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
   end
 
   @doc """
@@ -806,17 +829,26 @@ defmodule Zaq.Engine.Workflows do
   end
 
   @doc """
-  Proactively interrupts every run still `"running"`/`"pending"` — called from
-  the application's prep_stop callback while it still knows *why* it's
-  stopping (a deliberate restart/deploy), before anything is orphaned.
+  Proactively interrupts the runs **this node is actively driving** that are
+  still `"running"`/`"pending"` — called from the application's prep_stop
+  callback while it still knows *why* it's stopping (a deliberate
+  restart/deploy), before anything is orphaned.
+
+  Scoped to locally-driven runs on purpose. `list_stale_runs/1` is a *global*
+  query, but a driving process only ever registers itself in the node-local
+  `RunRegistry`. In a multi-`:engine`-node deployment (e.g. a rolling deploy),
+  interrupting every stale run globally would wrongly kill runs still executing
+  on peer nodes and fail their step rows out from under a live driver. So we
+  intersect the global stale set with the runs whose driver lives on *this*
+  node; peer-node and undriven runs are left untouched (they are the boot-sweep
+  or the owning node's responsibility).
 
   No separate "clean shutdown" marker is needed: if this runs to completion,
-  `list_stale_runs/1` finds nothing left at the next boot, so
-  `StartupRecovery`'s sweep legitimately has nothing to recover. Anything it
-  still finds either means this never ran at all (a genuine unplanned crash —
-  `kill -9`, OOM, host loss) or didn't finish before the process died anyway —
-  both cases where the boot-sweep's own honest label is accurate by
-  construction, not by inspecting a flag.
+  the next boot's `StartupRecovery` sweep legitimately has nothing of ours left
+  to recover. Anything it still finds either means this never ran at all (a
+  genuine unplanned crash — `kill -9`, OOM, host loss) or didn't finish before
+  the process died anyway — both cases where the boot-sweep's own honest label
+  is accurate by construction, not by inspecting a flag.
   """
   @spec interrupt_in_flight_runs(keyword()) :: :ok
   def interrupt_in_flight_runs(opts \\ []) do
@@ -829,10 +861,22 @@ defmodule Zaq.Engine.Workflows do
         "The application was stopped for a restart or deploy while this run was executing."
       )
 
+    local_run_ids = locally_driven_run_ids()
+
     list_stale_runs()
+    |> Enum.filter(&MapSet.member?(local_run_ids, &1.id))
     |> Enum.each(&interrupt_run(&1, reason: reason, message: message))
 
     :ok
+  end
+
+  # Run ids whose driving process is registered on *this* node. `RunRegistry` is
+  # a node-local `:unique` Registry (see `Zaq.Engine.Supervisor`), so its keys
+  # are exactly the runs this node drives — never a peer's.
+  defp locally_driven_run_ids do
+    Zaq.Engine.Workflows.RunRegistry
+    |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
+    |> MapSet.new()
   end
 
   @doc """
