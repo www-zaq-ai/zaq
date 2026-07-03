@@ -25,25 +25,31 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
     ]
 
   alias Zaq.Accounts.Person
+  alias Zaq.Engine.Workflows.Action
   alias Zaq.Event
   alias Zaq.NodeRouter
 
   @spec run(%{person: Person.t() | map(), subject: String.t(), message: String.t()}, map()) ::
-          {:ok, %{notified: boolean(), status: atom()}} | {:error, String.t()}
+          {:ok, %{notified: boolean(), status: atom()}}
+          | {:ok, %{notified: boolean(), status: atom()}, logs: [map()]}
+          | {:error, String.t()}
   @impl Jido.Action
   def run(%{person: person, subject: subject, message: message}, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
 
     case person_id(person) do
       id when is_integer(id) ->
+        t0 = Action.log_start()
+
         %{person_id: id, subject: subject, message: message}
         |> Event.new(:engine, opts: [action: :notify_person])
         |> node_router.dispatch()
         |> Map.get(:response)
         |> handle_response()
+        |> Action.with_log_trail(:person_notified, %{person_id: id}, context, t0)
 
       _ ->
-        {:error, "missing_person_id"}
+        {:error, "Notify person failed: could not resolve a person id from the payload."}
     end
   end
 
@@ -58,5 +64,5 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
 
   defp handle_response({:error, reason}) when is_binary(reason), do: {:error, reason}
   defp handle_response({:error, reason}), do: {:error, inspect(reason)}
-  defp handle_response(other), do: {:error, "notify_person_failed:#{inspect(other)}"}
+  defp handle_response(other), do: {:error, "Notify person failed: #{inspect(other)}"}
 end

@@ -9,6 +9,23 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
 
   @ctx %{}
 
+  # Returns a real `{:error, %Ecto.Changeset{}}` for a blank required
+  # channel_identifier — the shape `People.find_or_create_from_channel/2` would
+  # roll back with if `create_partial_person/2` checked its `add_channel` return
+  # (see the tracked bug in the plan). Injected via `ctx[:people]` so the error
+  # branch is exercised with a genuine changeset while the persistence hop is
+  # doubled, not the humanization seam under test.
+  defmodule ChangesetErrorPeople do
+    def find_or_create_from_channel(_platform, _attrs) do
+      changeset =
+        {%{}, %{channel_identifier: :string, platform: :string}}
+        |> Ecto.Changeset.cast(%{}, [:channel_identifier, :platform])
+        |> Ecto.Changeset.validate_required([:channel_identifier])
+
+      {:error, changeset}
+    end
+  end
+
   describe "run/2 — email platform, existing person" do
     test "returns existing person matched by email" do
       {:ok, person} =
@@ -137,15 +154,19 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
     end
   end
 
-  # A non-email platform with neither channel_id nor email leaves the new
-  # channel's required `channel_identifier` blank, so `add_channel` fails
-  # inside the transaction and `find_or_create_from_channel` rolls back with
-  # `{:error, %Ecto.Changeset{}}`. Shown verbatim in the BO run view, so it must
-  # read as prose — never a raw `#Ecto.Changeset<...>` struct dump.
+  # A `{:error, %Ecto.Changeset{}}` from the data layer is shown verbatim in the
+  # BO run view, so it must read as prose — never a raw `#Ecto.Changeset<...>`
+  # struct dump. The changeset is produced by an injected `People` double
+  # (`ctx[:people]`): the real `create_partial_person/2` currently swallows its
+  # `add_channel` failure and commits anyway (tracked bug), so this exact branch
+  # is unreachable through the live persistence path today.
   describe "run/2 — data-layer failure" do
     test "a changeset error is rendered as human-readable prose" do
       assert {:error, reason} =
-               EnsurePerson.run(%{platform: "mattermost", display_name: "No Identifier"}, @ctx)
+               EnsurePerson.run(
+                 %{platform: "mattermost", display_name: "No Identifier"},
+                 %{people: ChangesetErrorPeople}
+               )
 
       assert is_binary(reason)
       assert reason =~ "channel_identifier"

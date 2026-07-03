@@ -30,6 +30,25 @@ defmodule Zaq.Agent.Tools.Error do
   defp to_message(%{message: message}) when is_binary(message), do: message
   defp to_message(%{"message" => message}) when is_binary(message), do: message
 
+  # An Ecto.Changeset is a struct but not an Exception, so it must be caught
+  # before the generic `%_{}` clause below — otherwise `Exception.message/1`
+  # raises and it falls through to a raw `#Ecto.Changeset<...>` dump. Field
+  # errors are rendered as prose (e.g. "channel_identifier can't be blank").
+  #
+  # The minimal traversal is replicated here on purpose: core code (`lib/zaq/`)
+  # must not depend on the web layer's `ZaqWeb.ChangesetErrors`.
+  defp to_message(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {key, value}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+      end)
+    end)
+    |> Enum.map_join("; ", fn {field, messages} ->
+      "#{field} #{Enum.join(messages, ", ")}"
+    end)
+  end
+
   defp to_message(%_{} = exception) do
     Exception.message(exception)
   rescue

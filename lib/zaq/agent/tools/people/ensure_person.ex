@@ -74,11 +74,15 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.Person
+  alias Zaq.Agent.Tools.Error
+  alias Zaq.Engine.Workflows.Action
 
   @spec run(map(), map()) ::
-          {:ok, %{person: map(), row: map()}} | {:error, String.t()}
+          {:ok, %{person: map(), row: map()}}
+          | {:ok, %{person: map(), row: map()}, logs: [map()]}
+          | {:error, String.t()}
   @impl Jido.Action
-  def run(%{platform: platform} = params, _ctx) do
+  def run(%{platform: platform} = params, ctx) do
     email = params[:email] || Map.get(params, "email")
 
     display_name =
@@ -94,15 +98,24 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
     }
 
     row = build_row(params)
+    people = Map.get(ctx, :people, People)
+    t0 = Action.log_start()
 
-    case People.find_or_create_from_channel(platform, attrs) do
+    case people.find_or_create_from_channel(platform, attrs) do
       {:ok, person} ->
         Logger.info("[EnsurePerson] resolved person_id=#{person.id} platform=#{platform}")
+
         {:ok, %{person: person_payload(person), row: row}}
+        |> Action.with_log_trail(
+          :person_ensured,
+          %{platform: platform, person_id: person.id},
+          ctx,
+          t0
+        )
 
       {:error, reason} ->
         Logger.warning("[EnsurePerson] failed platform=#{platform} reason=#{inspect(reason)}")
-        {:error, inspect(reason)}
+        {:error, Error.format(reason)}
     end
   end
 
