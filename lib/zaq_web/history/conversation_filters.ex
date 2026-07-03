@@ -19,10 +19,10 @@ defmodule ZaqWeb.History.ConversationFilters do
 
   def conversation_filters(assigns) do
     ~H"""
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <p class="font-mono text-sm text-black/50">{@conversation_count} conversations</p>
 
-      <form phx-change="filter" class="flex items-center gap-3">
+      <form phx-change="filter" class="flex flex-wrap items-center gap-3">
         <div :if={@is_admin} class="flex items-center gap-1 p-0.5 bg-black/5 rounded-lg">
           <button
             type="button"
