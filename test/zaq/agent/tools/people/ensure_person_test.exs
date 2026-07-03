@@ -9,6 +9,10 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
 
   @ctx %{}
 
+  defmodule FailingPeople do
+    def find_or_create_from_channel(_platform, _attrs), do: {:error, :people_down}
+  end
+
   describe "run/2 — email platform, existing person" do
     test "returns existing person matched by email" do
       {:ok, person} =
@@ -109,6 +113,18 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
 
       channels = Repo.all(from c in PersonChannel, where: c.person_id == ^person_id)
       assert Enum.any?(channels, &(&1.channel_identifier == "implicit@example.com"))
+    end
+  end
+
+  describe "run/2 — invalid channel payload" do
+    test "returns an error when the people context rejects channel creation" do
+      assert {:error, message} =
+               EnsurePerson.run(
+                 %{platform: "email", email: "bad@example.com"},
+                 %{people_module: FailingPeople}
+               )
+
+      assert message == ":people_down"
     end
   end
 

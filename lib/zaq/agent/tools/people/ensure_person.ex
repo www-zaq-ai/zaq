@@ -78,7 +78,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   @spec run(map(), map()) ::
           {:ok, %{person: map(), row: map()}} | {:error, String.t()}
   @impl Jido.Action
-  def run(%{platform: platform} = params, _ctx) do
+  def run(%{platform: platform} = params, ctx) do
     email = params[:email] || Map.get(params, "email")
 
     display_name =
@@ -95,7 +95,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
 
     row = build_row(params)
 
-    case People.find_or_create_from_channel(platform, attrs) do
+    case people_module(ctx).find_or_create_from_channel(platform, attrs) do
       {:ok, person} ->
         Logger.info("[EnsurePerson] resolved person_id=#{person.id} platform=#{platform}")
         {:ok, %{person: person_payload(person), row: row}}
@@ -113,6 +113,10 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
     |> Map.drop([:platform])
     |> Map.new(fn {k, v} -> {to_string(k), v} end)
   end
+
+  defp people_module(%{people_module: module}), do: module
+  defp people_module(%{"people_module" => module}), do: module
+  defp people_module(_ctx), do: People
 
   defp person_payload(%Person{} = person) do
     %{

@@ -113,8 +113,11 @@ defmodule Zaq.Engine.TriggerNode do
   # actor must never imply it (nil is not a grant), and only the boolean `true`
   # grants it. Reading `assigns` (not the request) means a scalar payload can
   # never crash the trigger.
-  defp machine_marked?(%{assigns: assigns}) when is_map(assigns) do
-    Map.get(assigns, :machine) == true or Map.get(assigns, "machine") == true
+  defp machine_marked?(incoming_event) when is_map(incoming_event) do
+    assigns = Map.get(incoming_event, :assigns) || Map.get(incoming_event, "assigns")
+
+    is_map(assigns) and
+      (Map.get(assigns, :machine) == true or Map.get(assigns, "machine") == true)
   end
 
   defp machine_marked?(_incoming_event), do: false

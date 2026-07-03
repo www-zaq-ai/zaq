@@ -81,5 +81,58 @@ defmodule ZaqWeb.Components.AgentTracePanelTest do
       assert html =~ "data-testid=\"trace-details-llm-1:reasoning\""
       refute html =~ "data-testid=\"trace-details-llm-1:content\""
     end
+
+    test "renders fallback values for non-map message_info" do
+      html =
+        render_component(&AgentTracePanel.agent_trace_panel/1,
+          message_info: "not telemetry",
+          toggle_event: "toggle_trace_details"
+        )
+
+      assert html =~ "n/a"
+      assert html =~ "No measurements available."
+      assert html =~ "Traces (0)"
+    end
+
+    test "formats legacy tool traces, float durations, blank measurements, and fallback JSON" do
+      message_info = %{
+        "agent" => "",
+        "model" => "",
+        "measurements" => %{"blank" => "", "none" => nil, "ok" => "ready"},
+        "traces" => [
+          %{
+            "tool_name" => "lookup.user",
+            "tool_call_id" => "call-1",
+            "duration_ms" => 12.345,
+            "started_at_ms" => 10.5,
+            "bad" => self()
+          },
+          %{
+            "id" => 123,
+            "type" => nil,
+            "duration_ms" => nil,
+            "started_at" => "2026-07-03T10:00:00Z"
+          },
+          %{}
+        ]
+      }
+
+      html =
+        render_component(&AgentTracePanel.agent_trace_panel/1,
+          message_info: message_info,
+          expanded_ids: MapSet.new(["call-1"]),
+          toggle_event: "toggle_trace_details"
+        )
+
+      assert html =~ "Tool Call · Lookup User"
+      assert html =~ "12.35 ms"
+      assert html =~ "Trace"
+      assert html =~ "data-testid=\"trace-row-123\""
+      assert html =~ "data-testid=\"trace-details-call-1\""
+      assert html =~ "blank"
+      assert html =~ "ready"
+      assert html =~ "n/a"
+      assert html =~ "#PID"
+    end
   end
 end

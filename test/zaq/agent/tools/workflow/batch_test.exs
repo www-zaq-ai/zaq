@@ -12,6 +12,7 @@ defmodule Zaq.Agent.Tools.Workflow.BatchTest do
   @categorize_module "Zaq.Engine.Workflows.Test.CategorizeBySize"
   @sleep_module "Zaq.Engine.Workflows.Test.Sleep"
   @nonconforming_module "Zaq.Engine.Workflows.Test.NonConformingAction"
+  @ok_module "Zaq.Engine.Workflows.Test.OkAction"
 
   defp batch_node(params) do
     %{
@@ -117,6 +118,62 @@ defmodule Zaq.Agent.Tools.Workflow.BatchTest do
         assert {:error, "batch_size must be a positive integer"} = Batch.validate(node),
                "expected batch_size #{inspect(bad)} to be rejected"
       end
+    end
+
+    test "rejects an unsupported delivery mode" do
+      node =
+        batch_node(%{
+          "delivery" => "stream",
+          "process" => [
+            %{
+              "name" => "categorize",
+              "type" => "action",
+              "module" => @categorize_module,
+              "params" => %{}
+            }
+          ]
+        })
+
+      assert {:error, ~s(delivery must be "item" or "list")} = Batch.validate(node)
+    end
+
+    test "rejects a process entry that cannot expose a batch field" do
+      node = batch_node(%{"process" => [%{"name" => "missing_module"}]})
+
+      assert {:error, :missing_process_pipeline} = Batch.validate(node)
+    end
+
+    test "accepts a valid Batch node without batch_size" do
+      node =
+        batch_node(%{
+          "process" => [
+            %{
+              "name" => "categorize",
+              "type" => "action",
+              "module" => @categorize_module,
+              "params" => %{}
+            }
+          ]
+        })
+
+      assert :ok = Batch.validate(node)
+    end
+
+    test "returns the batch-field detection error for resolvable modules without required fields" do
+      node =
+        batch_node(%{
+          "process" => [
+            %{
+              "name" => "ok",
+              "type" => "action",
+              "module" => @ok_module,
+              "params" => %{}
+            }
+          ]
+        })
+
+      assert {:error, {:no_batch_field, Zaq.Engine.Workflows.Test.OkAction}} =
+               Batch.validate(node)
     end
   end
 end

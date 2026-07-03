@@ -128,5 +128,23 @@ defmodule Zaq.Engine.Workflows.RunRecoveryWorkerTest do
         assert all_enqueued(worker: RunRecoveryWorker) == []
       end)
     end
+
+    test "does not count stale runs whose recovery job cannot be inserted" do
+      defmodule OneStaleRunWorkflows do
+        def list_stale_runs, do: [%{id: Ecto.UUID.generate()}]
+      end
+
+      Application.put_env(:zaq, :startup_recovery_workflows_mod, OneStaleRunWorkflows)
+      on_exit(fn -> Application.delete_env(:zaq, :startup_recovery_workflows_mod) end)
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert 0 =
+                 RunRecoveryWorker.enqueue_all(
+                   insert_fun: fn %Ecto.Changeset{} -> {:error, :down} end
+                 )
+
+        assert all_enqueued(worker: RunRecoveryWorker) == []
+      end)
+    end
   end
 end

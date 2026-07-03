@@ -124,6 +124,14 @@ defmodule Zaq.Engine.Workflows.FactLookupTest do
       assert :error = FactLookup.fetch(%{"__cascade__" => %{}}, "cascade")
     end
 
+    test "non-string map keys are ignored by the fuzzy fallback" do
+      assert {:ok, "value"} =
+               FactLookup.fetch(
+                 %{123 => "ignored", "Company Context" => "value"},
+                 "company context"
+               )
+    end
+
     test "does not bridge genuinely different words" do
       assert :error = FactLookup.fetch(%{"content" => "c"}, "file")
     end

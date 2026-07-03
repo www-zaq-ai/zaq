@@ -164,5 +164,21 @@ defmodule Zaq.Engine.Workflows.CraftEmailTriggerTest do
       assert [_run] = Workflows.list_runs(workflow.id),
              "a map payload lets TriggerNode create the SendLeadsEmail run"
     end
+
+    test "an event-like map without assigns does not grant machine permissions" do
+      assert {:ok, workflow} = SendLeadsEmail.create()
+
+      event = %{
+        request: %{"content" => "## Company Summary"},
+        trace_id: Ecto.UUID.generate()
+      }
+
+      :ok = TriggerNode.fire("engine:craft_email", event)
+
+      assert [run] = Workflows.list_runs(workflow.id)
+
+      refute Map.get(run.source_event.assigns, :skip_permissions) ||
+               Map.get(run.source_event.assigns, "skip_permissions")
+    end
   end
 end

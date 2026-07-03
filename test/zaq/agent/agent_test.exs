@@ -38,6 +38,9 @@ defmodule Zaq.AgentTest do
     assert created.id == Agent.get_agent!(to_string(created.id)).id
     assert created.id == Agent.get_agent(created.id).id
     assert created.id == Agent.get_agent(to_string(created.id)).id
+    assert {:ok, found_by_name} = Agent.get_agent_by_name(created.name)
+    assert found_by_name.id == created.id
+    assert {:error, :agent_not_found} = Agent.get_agent_by_name("missing-agent-name")
     assert Agent.get_agent("not-an-id") == :error
 
     assert_raise ArgumentError, ~r/invalid id/, fn ->

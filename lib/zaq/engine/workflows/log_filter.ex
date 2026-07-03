@@ -27,8 +27,9 @@ defmodule Zaq.Engine.Workflows.LogFilter do
   the same VM) is a no-op rather than an error.
   """
   @spec install() :: :ok
-  def install do
-    case :logger.add_primary_filter(@filter_id, {&__MODULE__.filter/2, []}) do
+  @spec install((atom(), term() -> :ok | {:error, term()})) :: :ok
+  def install(add_primary_filter \\ &:logger.add_primary_filter/2) do
+    case add_primary_filter.(@filter_id, {&__MODULE__.filter/2, []}) do
       :ok -> :ok
       {:error, {:already_exist, @filter_id}} -> :ok
       # Never let logging setup crash boot; a filter that fails to install just

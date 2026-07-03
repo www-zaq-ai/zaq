@@ -107,8 +107,6 @@ defmodule Zaq.Engine.Workflows.FactLookup do
     end
   end
 
-  defp flat_fetch(_map, _key), do: :error
-
   # Exact fetch: interned-atom form first, then the raw string, so both
   # atom-keyed (in-memory) and string-keyed (JSONB) maps resolve. Never interns a
   # new atom (avoids atom-table exhaustion on attacker-controlled keys).

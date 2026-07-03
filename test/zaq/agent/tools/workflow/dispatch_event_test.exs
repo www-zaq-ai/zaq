@@ -1,5 +1,7 @@
 defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+
+  require Logger
 
   alias Zaq.Agent.Tools.Workflow.DispatchEvent
   alias Zaq.Event
@@ -25,6 +27,11 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
   end
 
   @ctx %{node_router: StubNodeRouter}
+
+  setup_all do
+    Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: :warning) end)
+  end
 
   describe "run/2" do
     test "dispatches an allowlisted event to the engine asynchronously" do
@@ -138,6 +145,17 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
       refute Map.has_key?(dispatched, "__map_index__")
     end
 
+    test "ignores non-map prior step outputs when merging the cascade" do
+      ctx =
+        Map.put(@ctx, :__cascade__, %{
+          "step_a" => "sent",
+          "step_b" => %{email: "a@b.com"}
+        })
+
+      assert {:ok, %{dispatched: %{"email" => "a@b.com"}}} =
+               DispatchEvent.run(%{event_name: "lead_identified"}, ctx)
+    end
+
     test "explicit input is layered on top of prior outputs and wins on conflicts" do
       ctx = Map.put(@ctx, :__cascade__, %{"step_a" => %{"foo" => 1, "bar" => 2}})
 
@@ -233,6 +251,25 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
                DispatchEvent.run(%{input: %{}, event_name: "   "}, @ctx)
 
       assert reason =~ "must not be blank"
+    end
+
+    test "rejects a non-string event name before dispatching" do
+      assert {:error, reason} =
+               DispatchEvent.run(%{input: %{}, event_name: :lead_identified}, @ctx)
+
+      assert reason == "event_name must be a string, got: :lead_identified"
+      refute_received {:dispatched, _}
+    end
+
+    test "rejects a non-string destination before dispatching" do
+      assert {:error, reason} =
+               DispatchEvent.run(
+                 %{input: %{}, event_name: "lead_identified", destination: 123},
+                 @ctx
+               )
+
+      assert reason == "destination must be a string, got: 123"
+      refute_received {:dispatched, _}
     end
   end
 

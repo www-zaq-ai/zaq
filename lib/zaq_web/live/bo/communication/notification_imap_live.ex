@@ -491,8 +491,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   defp parse_int(_value, default), do: default
 
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value) when value in [nil, ""], do: nil
   defp blank_to_nil(value), do: value
 
   defp channels_module,

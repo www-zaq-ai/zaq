@@ -121,9 +121,7 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
     machine? = Map.get(params, :machine, false) == true
     destination = Map.get(params, :destination) || "engine"
 
-    Logger.debug(
-      "[dispatch_event] run called event_name=#{inspect(event_name)} destination=#{inspect(destination)} machine=#{machine?} input=#{inspect(input)}"
-    )
+    Logger.debug(run_debug_message(event_name, destination, machine?, input))
 
     with :ok <- validate_event_name(event_name),
          {:ok, dest} <- resolve_destination(destination) do
@@ -239,4 +237,8 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
 
   defp resolve_destination(other),
     do: {:error, "destination must be a string, got: #{inspect(other)}"}
+
+  defp run_debug_message(event_name, destination, machine?, input) do
+    "[dispatch_event] run called event_name=#{inspect(event_name)} destination=#{inspect(destination)} machine=#{machine?} input=#{inspect(input)}"
+  end
 end
