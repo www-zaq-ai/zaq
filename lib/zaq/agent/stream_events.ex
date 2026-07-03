@@ -315,9 +315,7 @@ defmodule Zaq.Agent.StreamEvents do
 
     entry =
       %{
-        # A reasoning and a content segment can come from the same LLM call, so
-        # the call id alone is not unique per trace entry — suffix the type.
-        "id" => "#{llm_call_id || "llm:#{iteration || 0}"}:#{trace_type}",
+        "id" => llm_call_id || "llm:#{iteration || 0}:#{trace_type}",
         "type" => trace_type,
         "turn_id" => to_string(iteration || 0),
         "llm_call_id" => llm_call_id,
@@ -497,6 +495,33 @@ defmodule Zaq.Agent.StreamEvents do
     case Jason.encode(safe) do
       {:ok, _encoded} -> safe
       {:error, _reason} -> inspect(value)
+    end
+  end
+
+  @doc """
+  Sources the trace/agent/model/measurements fields from an `Outgoing`'s
+  metadata, so chat results (`Zaq.Agent.Pipeline`) and workflow step results
+  (`Zaq.Agent.Tools.Workflow.RunAgent`) surface the same telemetry fields.
+
+  With `json_safe: true`, present values are passed through `json_safe/1` for
+  persistence in JSON/map database fields. Absent values stay `nil` either
+  way — `json_safe/1` would stringify the atom `nil` to `"nil"`.
+  """
+  def telemetry_fields(metadata, opts \\ []) when is_map(metadata) do
+    fields = %{
+      trace: Map.get(metadata, :trace, []),
+      measurements: Map.get(metadata, :measurements, %{}),
+      model: Map.get(metadata, :model),
+      agent: Map.get(metadata, :agent)
+    }
+
+    if Keyword.get(opts, :json_safe, false) do
+      Map.new(fields, fn
+        {key, nil} -> {key, nil}
+        {key, value} -> {key, json_safe(value)}
+      end)
+    else
+      fields
     end
   end
 

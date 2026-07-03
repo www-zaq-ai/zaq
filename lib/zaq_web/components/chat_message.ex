@@ -414,10 +414,8 @@ defmodule ZaqWeb.Components.ChatMessage do
   end
 
   @doc """
-  Agent/Model tiles, Measurements grid, and an expandable Traces list —
-  the same content `message_info_popin/1` shows in a modal, extracted so it can
-  also be rendered inline (e.g. always-visible inside a workflow step card,
-  with no modal chrome and no "i" icon click needed to reveal it).
+  Agent/Model tiles, Measurements grid, and expandable Traces list — extracted
+  from `message_info_popin/1` so workflow step cards can render it inline.
   """
   attr :message_info, :map, default: %{}
   attr :expanded_ids, :any, default: nil
@@ -786,10 +784,10 @@ defmodule ZaqWeb.Components.ChatMessage do
 
   defp legacy_trace_type(_), do: nil
 
-  # Traces persisted before segment ids carried a type suffix can collide (a
-  # reasoning and a content segment of the same LLM call share its call id), so
-  # toggling one row would expand/collapse the other. Suffix only colliding ids
-  # to keep every already-persisted unique id (and its testid) unchanged.
+  # A reasoning and a content segment of the same LLM call share its call id,
+  # so trace ids can collide and toggling one row would expand/collapse the
+  # other. Suffix only colliding ids so every unique id (and its testid) keeps
+  # its persisted shape.
   defp trace_rows(traces) do
     sorted = sort_traces_chronologically(traces)
     ids = Enum.map(sorted, &trace_id/1)
