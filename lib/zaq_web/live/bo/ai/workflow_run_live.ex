@@ -653,7 +653,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                         }
                         class="border-b border-black/[0.06] px-5 py-3"
                       >
-                        <ZaqWeb.Components.ChatMessage.agent_trace_panel
+                        <ZaqWeb.Components.AgentTracePanel.agent_trace_panel
                           message_info={agent_trace_info(step.results)}
                           expanded_ids={Map.get(@expanded_trace_ids, step.id, MapSet.new())}
                           toggle_event="toggle_step_trace_details"

@@ -14,7 +14,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowResultHelpers do
 
   @doc """
   Shapes a `Step.Run.results` map into the `%{agent:, model:, measurements:,
-  traces:}` shape `ZaqWeb.Components.ChatMessage.agent_trace_panel/1` expects.
+  traces:}` shape `ZaqWeb.Components.AgentTracePanel.agent_trace_panel/1` expects.
 
   Deliberately self-contained rather than routed through
   `ZaqWeb.Live.BO.Communication.MessageHelpers.message_info_from_runtime/1` —
