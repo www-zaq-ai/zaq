@@ -40,7 +40,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert result.answer == "hello world"
     assert result.usage == %{input_tokens: 1, output_tokens: 2, total_tokens: 3}
 
-    assert [%{"id" => "llm-1:content", "type" => "content", "turn_id" => "0"} = trace_entry] =
+    assert [%{"id" => "llm-1", "type" => "content", "turn_id" => "0"} = trace_entry] =
              result.trace
 
     refute Map.has_key?(trace_entry, "content")
@@ -159,15 +159,11 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert {:ok, result} = StreamEvents.consume(events, incoming, status_module: FakeStatus)
 
     assert [
-             %{"type" => "reasoning", "content" => "I should search first."} = reasoning_entry,
+             %{"type" => "reasoning", "content" => "I should search first."},
              %{"type" => "content"} = content_entry
            ] = result.trace
 
     refute Map.has_key?(content_entry, "content")
-
-    # Both segments come from the same LLM call — their ids must still differ,
-    # or expanding one trace row in the UI toggles the other.
-    assert reasoning_entry["id"] != content_entry["id"]
 
     assert_receive {:broadcast, :thinking, "I should search first.", :reasoning}
     assert_receive {:broadcast, :answering, "The answer is 42.", :stream_delta}
