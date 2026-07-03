@@ -38,7 +38,17 @@ defmodule Zaq.Engine.Workflows.FactLookup do
   for references that already resolve, and reserved internal keys (`__*`) never
   fuzzy-match. It does **not** bridge genuinely different words (e.g. `content` vs
   `file`).
+
+  If two or more stored keys canonicalize identically to the reference and hold
+  **different** values (e.g. a fact carrying both `"company context"` and
+  `"company_context"`), the fallback refuses to guess: it logs a warning and
+  reports `:error` (an unresolved reference) rather than silently returning
+  whichever key the map happened to enumerate first. Exact matches are never
+  affected, and identical values under several canonically-equal keys resolve
+  normally.
   """
+
+  require Logger
 
   @cascade_keys [:__cascade__, "__cascade__"]
 
@@ -126,9 +136,25 @@ defmodule Zaq.Engine.Workflows.FactLookup do
   defp normalized_fetch(map, key) do
     target = canonical(key)
 
-    Enum.find_value(map, :error, fn {k, v} ->
-      if canonical_map_key(k) == target, do: {:ok, v}, else: nil
-    end)
+    matches =
+      for {k, v} <- map, canonical_map_key(k) == target, do: v
+
+    case Enum.uniq(matches) do
+      [] ->
+        :error
+
+      [value] ->
+        {:ok, value}
+
+      _ambiguous ->
+        Logger.warning(
+          "[workflow] ambiguous format-insensitive field lookup for #{inspect(key)} — " <>
+            "multiple stored keys canonicalize identically to different values; " <>
+            "refusing to guess (treating reference as unresolved)"
+        )
+
+        :error
+    end
   end
 
   defp canonical_map_key(k) when is_binary(k) do

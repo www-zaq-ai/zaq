@@ -59,6 +59,13 @@ defmodule Zaq.ApplicationTest do
     {run, step_run}
   end
 
+  # Marks `run` as driven by *this* node, mirroring `WorkflowRunAgent.execute/2`,
+  # so prep_stop's node-scoped sweep treats it as locally owned.
+  defp register_local_driver(run) do
+    {:ok, _} = Registry.register(Zaq.Engine.Workflows.RunRegistry, run.id, nil)
+    run
+  end
+
   describe "prep_stop/1 on an engine-role node" do
     setup do
       stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
@@ -67,8 +74,9 @@ defmodule Zaq.ApplicationTest do
       :ok
     end
 
-    test "proactively interrupts in-flight runs with the graceful_shutdown reason" do
+    test "proactively interrupts in-flight runs it is driving with the graceful_shutdown reason" do
       {run, step_run} = running_run_with_step()
+      register_local_driver(run)
 
       assert Zaq.Application.prep_stop(%{}) == %{}
 
@@ -80,6 +88,21 @@ defmodule Zaq.ApplicationTest do
 
       assert recovered_step.status == "failed"
       assert recovered_step.errors["reason"] == "graceful_shutdown"
+    end
+
+    test "does not interrupt a stale run being driven by a peer engine node" do
+      # Running in the DB but not registered in *this* node's RunRegistry, i.e.
+      # another engine node owns it — a rolling deploy must leave it executing.
+      {peer_run, peer_step} = running_run_with_step()
+
+      assert Zaq.Application.prep_stop(%{}) == %{}
+
+      assert Workflows.get_run!(peer_run.id).status == "running"
+
+      untouched_step =
+        peer_run.id |> Workflows.list_step_runs() |> Enum.find(&(&1.id == peer_step.id))
+
+      assert untouched_step.status == "running"
     end
   end
 
