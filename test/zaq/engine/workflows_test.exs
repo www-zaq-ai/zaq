@@ -670,10 +670,10 @@ defmodule Zaq.Engine.WorkflowsTest do
   # --- interrupt_in_flight_runs/1 ---
 
   describe "interrupt_in_flight_runs/1" do
-    test "interrupts every running/pending run with the graceful_shutdown reason by default" do
+    test "interrupts every locally-driven running/pending run with the graceful_shutdown reason by default" do
       w = create_workflow()
-      running = create_run(w) |> set_run_status("running")
-      pending = create_run(w)
+      running = create_run(w) |> set_run_status("running") |> register_local_driver()
+      pending = create_run(w) |> register_local_driver()
       completed = create_run(w) |> set_run_status("completed")
 
       {:ok, running_step} =
@@ -692,9 +692,39 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert reloaded_step.errors["message"] =~ "restart or deploy"
     end
 
+    test "leaves a stale run this node is not driving untouched (peer-node run during a rolling deploy)" do
+      w = create_workflow()
+      # Running in the DB, but no driver registered in *this* node's RunRegistry —
+      # i.e. another engine node owns it. A local prep_stop must not touch it.
+      peer_run = create_run(w) |> set_run_status("running")
+
+      {:ok, peer_step} =
+        Workflows.create_step_run(peer_run, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "running"
+        })
+
+      assert :ok = Workflows.interrupt_in_flight_runs()
+
+      assert Workflows.get_run!(peer_run.id).status == "running"
+      assert Repo.get!(Zaq.Engine.Workflows.Step.Run, peer_step.id).status == "running"
+    end
+
+    test "interrupts only the locally-driven run when a peer-node run is also stale" do
+      w = create_workflow()
+      local = create_run(w) |> set_run_status("running") |> register_local_driver()
+      peer = create_run(w) |> set_run_status("running")
+
+      assert :ok = Workflows.interrupt_in_flight_runs()
+
+      assert Workflows.get_run!(local.id).status == "interrupted"
+      assert Workflows.get_run!(peer.id).status == "running"
+    end
+
     test "accepts a custom reason/message" do
       w = create_workflow()
-      run = create_run(w) |> set_run_status("running")
+      run = create_run(w) |> set_run_status("running") |> register_local_driver()
 
       assert :ok =
                Workflows.interrupt_in_flight_runs(
@@ -718,5 +748,14 @@ defmodule Zaq.Engine.WorkflowsTest do
   defp set_run_status(run, status) do
     {:ok, updated} = Workflows.update_run(run, %{status: status})
     updated
+  end
+
+  # Registers the current process as `run`'s driver in the node-local
+  # RunRegistry, mirroring what `WorkflowRunAgent.execute/2` does — so
+  # `interrupt_in_flight_runs/1` sees the run as locally driven. The entry is
+  # auto-removed when the test process exits.
+  defp register_local_driver(run) do
+    {:ok, _} = Registry.register(Zaq.Engine.Workflows.RunRegistry, run.id, nil)
+    run
   end
 end

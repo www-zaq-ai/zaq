@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.Workflows.FactLookupTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Zaq.Engine.Workflows.FactLookup
 
   describe "fetch/2 — top-level keys" do
@@ -78,6 +80,72 @@ defmodule Zaq.Engine.Workflows.FactLookupTest do
       }
 
       assert {:ok, "CASCADE"} = FactLookup.fetch(fact, "profile.position")
+    end
+  end
+
+  describe "fetch/2 — format-insensitive fallback" do
+    test "resolves a reference against a differently-cased stored key" do
+      assert {:ok, "v"} =
+               FactLookup.fetch(%{"Company Context Content" => "v"}, "company context content")
+    end
+
+    test "bridges spaces vs underscores vs hyphens" do
+      assert {:ok, "u"} =
+               FactLookup.fetch(%{"company_context_content" => "u"}, "company context content")
+
+      assert {:ok, "h"} =
+               FactLookup.fetch(%{"company-context-content" => "h"}, "company context content")
+    end
+
+    test "tolerates stray leading/trailing padding on the stored key" do
+      assert {:ok, "pad"} =
+               FactLookup.fetch(%{"company context content " => "pad"}, "company context content")
+    end
+
+    test "resolves a spaced segment inside a dotted start reference (issue #539)" do
+      # Exact-match path: the spaced segment must survive dotted-path resolution.
+      exact = %{__cascade__: %{"start" => %{"company context content" => "hello"}}}
+      assert {:ok, "hello"} = FactLookup.fetch(exact, "start.company context content")
+
+      # Fuzzy path: a human-authored header ("Company Context Content") still
+      # resolves the lower/spaced reference through the fallback.
+      fuzzy = %{__cascade__: %{"start" => %{"Company Context Content" => "hi"}}}
+      assert {:ok, "hi"} = FactLookup.fetch(fuzzy, "start.company context content")
+    end
+
+    test "an exact match always wins over a fuzzy candidate" do
+      fact = %{"company context" => "exact", "Company_Context" => "fuzzy"}
+      assert {:ok, "exact"} = FactLookup.fetch(fact, "company context")
+    end
+
+    test "reserved internal keys never fuzzy-match" do
+      # A reference that would canonicalize toward a "__cascade__"-like key must
+      # not resolve it via the fuzzy path.
+      assert :error = FactLookup.fetch(%{"__cascade__" => %{}}, "cascade")
+    end
+
+    test "does not bridge genuinely different words" do
+      assert :error = FactLookup.fetch(%{"content" => "c"}, "file")
+    end
+
+    test "resolves normally when several canonically-equal keys hold the same value" do
+      # Reference misses both keys exactly (different case), so both reach the
+      # fuzzy path; identical values collapse to one, so no ambiguity.
+      fact = %{"company context" => "same", "company_context" => "same"}
+      assert {:ok, "same"} = FactLookup.fetch(fact, "Company Context")
+    end
+
+    test "refuses to guess (returns :error and warns) when canonically-equal keys disagree" do
+      # "Company Context" matches neither key exactly, so both are fuzzy
+      # candidates and their differing values make the match ambiguous.
+      fact = %{"company context" => "a", "company_context" => "b"}
+
+      log =
+        capture_log(fn ->
+          assert :error = FactLookup.fetch(fact, "Company Context")
+        end)
+
+      assert log =~ "ambiguous format-insensitive field lookup"
     end
   end
 end
