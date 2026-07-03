@@ -678,6 +678,30 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       # map nodes get the iteration treatment in the run-graph (MAP badge)
       assert html =~ "MAP"
     end
+
+    # Regression: an interrupted batch node has no aggregate row, so the view
+    # synthesizes one — its status must mirror the terminal run, not hardcode "running".
+    test "synthetic batch step is not 'running' once the run is terminal", %{conn: conn} do
+      workflow = map_workflow_fixture()
+      run = run_fixture(workflow, %{status: "interrupted", finished_at: DateTime.utc_now()})
+
+      # Only a fork sub-step row exists — its in-flight fork was failed on interrupt.
+      # No aggregate "m" row, so the node card must be synthesized.
+      step_run_fixture(run, %{
+        step_name: "m/ok[0]",
+        step_index: 0,
+        status: "failed",
+        errors: %{"reason" => "process_terminated"}
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      html = render_click(view, "select_step", %{"step_name" => "m"})
+
+      # The synthesized node badge reflects the interrupted run (failed), and no
+      # "running" badge (blue pill) is shown anywhere on the terminated run.
+      assert html =~ "failed"
+      refute html =~ "bg-blue-100"
+    end
   end
 
   describe "cancel_run event" do

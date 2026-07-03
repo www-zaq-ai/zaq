@@ -164,13 +164,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
 
         case node_router().dispatch(run_event).response do
           {:ok, run} ->
-            start_event =
-              Event.new(
-                %{module: Zaq.Engine.Workflows, function: :start_run, args: [run]},
-                :engine
-              )
-
-            node_router().dispatch(start_event)
+            # Only create + navigate; the run page's mount owns starting it (like the
+            # detail page). Starting here too would race that mount and double-start.
             {:noreply, push_navigate(socket, to: ~p"/bo/workflows/#{workflow_id}/runs/#{run.id}")}
 
           _ ->

@@ -181,6 +181,41 @@ defmodule Zaq.Engine.Workflows.RunWatcherTest do
     send(driver_b, :die_normally)
   end
 
+  # Reproduces the screenshot: the driver killed by Phoenix with
+  # `{:shutdown, :duplicate_join}` → RunWatcher interrupts the run and fails the
+  # in-flight step with the real reason in the banner message.
+  test "driver killed with {:shutdown, :duplicate_join} interrupts the run and surfaces the reason" do
+    run = new_run()
+    driver = spawn_fake_driver()
+
+    # An in-flight step — like the batch's `sleep_between[0]` in the screenshot.
+    step_name = "process_rows/sleep_between[0]"
+
+    {:ok, _in_flight} =
+      Workflows.create_step_run(run, %{
+        step_name: step_name,
+        step_index: 0,
+        status: "running"
+      })
+
+    {:ok, _watcher} = RunWatcher.watch(run.id, driver)
+
+    Process.exit(driver, {:shutdown, :duplicate_join})
+
+    assert :ok =
+             wait_until(fn -> Workflows.get_run!(run.id).status != "running" end, 1_000)
+
+    recovered = Workflows.get_run!(run.id)
+    assert recovered.status == "interrupted"
+    refute is_nil(recovered.finished_at)
+
+    failed = Workflows.get_step_run_by_name(run.id, step_name)
+    assert failed.status == "failed"
+    assert failed.errors["reason"] == "process_terminated"
+    # The banner shows the real exit reason verbatim, not a generic sentence.
+    assert failed.errors["message"] =~ "{:shutdown, :duplicate_join}"
+  end
+
   test "a run that is already terminal when the driver dies is left alone" do
     run = new_run("completed")
     driver = spawn_fake_driver()

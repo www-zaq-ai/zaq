@@ -738,6 +738,51 @@ defmodule Zaq.Engine.Workflows.Test.EmitItems do
   end
 end
 
+defmodule Zaq.Engine.Workflows.Test.SignalListener do
+  @moduledoc """
+  Named mailbox so an action running in a driver process can signal a test without
+  touching the DB. Register the test pid via `listen/1`; actions call `notify/1`.
+  """
+  use Agent
+
+  def start_link(_), do: Agent.start_link(fn -> nil end, name: __MODULE__)
+  def listen(pid), do: Agent.update(__MODULE__, fn _ -> pid end)
+
+  def notify(msg) do
+    case Agent.get(__MODULE__, & &1) do
+      pid when is_pid(pid) -> send(pid, msg)
+      _ -> :ok
+    end
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.NotifyThenBlock do
+  @moduledoc """
+  Signals `{:fork_running, self()}` (self = the driver process) then blocks until the
+  driver receives `:release`. Lets a test catch a batch mid-fork, then unblock it.
+  """
+
+  use Jido.Action,
+    name: "test_notify_then_block",
+    schema: [input: [type: :any]],
+    output_schema: [ok: [type: :boolean, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  alias Zaq.Engine.Workflows.Test.SignalListener
+
+  @impl Jido.Action
+  def run(_params, _context) do
+    SignalListener.notify({:fork_running, self()})
+
+    receive do
+      :release -> {:ok, %{ok: true}}
+    after
+      30_000 -> {:ok, %{ok: true}}
+    end
+  end
+end
+
 defmodule Zaq.Engine.Workflows.Test.FailEvenN do
   @moduledoc "Map body step: succeeds on odd `n`, fails on even `n` — for strategy tests."
 

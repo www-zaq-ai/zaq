@@ -34,6 +34,7 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.Test.SignalListener
   alias Zaq.Engine.Workflows.WorkflowRunAgent
 
   @source_event %{
@@ -44,6 +45,56 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
 
   @sleep_module "Zaq.Agent.Tools.Workflow.Sleep"
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
+  @run_registry Zaq.Engine.Workflows.RunRegistry
+
+  # The screenshot's workflow in miniature: EmitItems → a `Batch` node ("process_rows")
+  # whose `post_process` (`block_between`) signals the test and blocks, catching the run
+  # mid-fan-out deterministically.
+  defp batch_block_workflow do
+    {:ok, wf} =
+      Workflows.create_workflow(%{
+        name: "Batch DuplicateJoin #{System.unique_integer()}",
+        status: "active",
+        nodes: [
+          %{
+            name: "emit",
+            type: "action",
+            module: "Zaq.Engine.Workflows.Test.EmitItems",
+            params: %{},
+            index: 0
+          },
+          %{
+            name: "process_rows",
+            type: "action",
+            module: "Zaq.Agent.Tools.Workflow.Batch",
+            params: %{
+              "delivery" => "list",
+              "strategy" => "skip_and_continue",
+              "process" => [
+                %{
+                  "name" => "categorize",
+                  "type" => "action",
+                  "module" => "Zaq.Engine.Workflows.Test.CategorizeBySize",
+                  "params" => %{}
+                }
+              ],
+              "post_process" => [
+                %{
+                  "name" => "block_between",
+                  "type" => "action",
+                  "module" => "Zaq.Engine.Workflows.Test.NotifyThenBlock",
+                  "params" => %{}
+                }
+              ]
+            },
+            index: 1
+          }
+        ],
+        edges: [%{from: "emit", to: "process_rows"}]
+      })
+
+    wf
+  end
 
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
@@ -315,6 +366,49 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
     finished = Workflows.get_run!(run.id)
     assert finished.status == "completed"
     refute finished.status == "interrupted"
+  end
+
+  # `:duplicate_join` is not a Runic/Jido bug: it exists only in Phoenix.Socket
+  # (killing a channel on a duplicate join). ZAQ runs the DAG synchronously in ONE
+  # process (`react/2` is serial, not `Task.async_stream`), so FanIn/FanOut spawn
+  # nothing — the batch died only because it ran inside the LiveView channel. This
+  # proves the single-process fact through the real Batch machinery (no kill, so it
+  # stays reliable); the kill→interrupt reproduction lives in `run_watcher_test.exs`.
+  describe "a real Batch/FanIn run executes in a single process (refutes the duplicate-process theory)" do
+    setup do
+      start_supervised!(SignalListener)
+      SignalListener.listen(self())
+      :ok
+    end
+
+    test "every fork of a real batch runs in the one driver process; Runic spawns none" do
+      wf = batch_block_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+
+      # `spawn_driver` runs the batch inline in `pid`, as the buggy sync path did in
+      # the LiveView channel.
+      pid = spawn_driver(run)
+      ref = Process.monitor(pid)
+
+      # The first post_process fork signals from inside the driver, then blocks.
+      assert_receive {:fork_running, fork_pid}, 3_000
+
+      # Single process: the fork runs in the same pid the run is registered under —
+      # no second, library-spawned process for a stray exit to land on.
+      assert fork_pid == pid
+      assert [{^pid, _}] = Registry.lookup(@run_registry, run.id)
+
+      # Release each fork (EmitItems yields 3 ⇒ forks 1 and 2 remain) to finish cleanly.
+      send(pid, :release)
+
+      Enum.each(1..2, fn _ ->
+        assert_receive {:fork_running, ^pid}, 2_000
+        send(pid, :release)
+      end)
+
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
+      assert Workflows.get_run!(run.id).status == "completed"
+    end
   end
 
   # `RunWatcher.handle_driver_down/2` already receives the driving process's

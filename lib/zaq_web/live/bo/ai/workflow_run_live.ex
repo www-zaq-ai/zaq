@@ -509,7 +509,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
         <%!-- DAG + optional step detail panel --%>
         <% all_visible = visible_steps(@step_runs) %>
-        <% visible = selected_step_cards(@selected_step, all_visible, @node_info, @step_runs) %>
+        <% visible = selected_step_cards(@selected_step, all_visible, @node_info, @step_runs, @run) %>
         <div class={[
           "flex gap-6 items-start transition-all duration-300",
           if(@selected_step, do: "", else: "")
@@ -764,23 +764,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   defp edge_step?(step_name),
     do: String.contains?(step_name, "__to__") and String.ends_with?(step_name, "__edge")
 
-  # The StepRun(s) to render for the selected node. Normally the node's own row(s);
-  # but while a map/Batch node is still fanning out, its aggregate row does not exist
-  # yet (it is written last, by MapCollect), so synthesize a "running" batch step from
-  # the live fork sub-step rows — keeping the iteration inside the batch card.
-  defp selected_step_cards(nil, _all_visible, _node_info, _step_runs), do: []
-  defp selected_step_cards("start", _all_visible, _node_info, _step_runs), do: []
+  # The StepRun(s) for the selected node — its own row(s), or a synthesized batch step
+  # from the fork rows while a map/Batch node's aggregate row (written last) is missing.
+  defp selected_step_cards(nil, _all_visible, _node_info, _step_runs, _run), do: []
+  defp selected_step_cards("start", _all_visible, _node_info, _step_runs, _run), do: []
 
-  defp selected_step_cards(selected, all_visible, node_info, step_runs) do
+  defp selected_step_cards(selected, all_visible, node_info, step_runs, run) do
     case Enum.filter(all_visible, &(&1.step_name == selected)) do
-      [] -> List.wrap(synthetic_batch_step(selected, node_info, step_runs))
+      [] -> List.wrap(synthetic_batch_step(selected, node_info, step_runs, run))
       found -> found
     end
   end
 
-  # A live placeholder for a map/Batch node whose aggregate row hasn't been written
-  # yet but whose forks are already running. `nil` for any other node.
-  defp synthetic_batch_step(node_name, node_info, step_runs) do
+  # Placeholder for a map/Batch node whose aggregate row isn't written yet (`nil`
+  # otherwise). Status mirrors the run so a terminal run shows "failed", not "running".
+  defp synthetic_batch_step(node_name, node_info, step_runs, run) do
     info = Map.get(node_info, node_name, %{})
 
     forks =
@@ -790,20 +788,28 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
       )
 
     if (Map.get(info, :is_batch) or Map.get(info, :is_map)) and forks != [] do
+      status = synthetic_batch_status(run.status)
+
       %{
         id: "live-#{node_name}",
         step_name: node_name,
         step_index: Map.get(info, :index, 0),
-        status: "running",
+        status: status,
         logs: [],
         input: nil,
         results: nil,
         errors: nil,
         started_at: earliest_started_at(forks),
-        finished_at: nil
+        finished_at: if(status == "running", do: nil, else: run.finished_at)
       }
     end
   end
+
+  # A terminal run never reached MapCollect, so the fanning-out node was interrupted
+  # mid-fan-out → "failed", not a stuck "running" badge.
+  defp synthetic_batch_status(status) when status in ["running", "pending"], do: "running"
+  defp synthetic_batch_status("paused"), do: "paused"
+  defp synthetic_batch_status(_terminal), do: "failed"
 
   defp earliest_started_at(forks) do
     forks
