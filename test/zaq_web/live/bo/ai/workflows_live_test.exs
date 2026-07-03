@@ -165,6 +165,40 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
       assert actor["provider"] == "bo"
       assert is_nil(actor["person"])
     end
+
+    # The list page must only create + navigate, never start the run — starting is
+    # owned by the run page's mount (like the detail page), avoiding a double-start.
+    test "manual run only creates + navigates; it never dispatches a start", %{conn: conn} do
+      workflow = workflow_fixture(%{name: "Unified Start", nodes: [@valid_node]})
+      trigger_fixture(workflow, %{type: "manual", enabled: true})
+
+      {:ok, dispatched} = Agent.start_link(fn -> [] end)
+      on_exit(fn -> if Process.alive?(dispatched), do: Agent.stop(dispatched) end)
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+            Agent.update(dispatched, &[fun | &1])
+            %{event | response: apply(mod, fun, args)}
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+
+      # Creating a run and navigating away is a live redirect.
+      assert {:error, {:live_redirect, %{to: path}}} =
+               render_click(view, "run_workflow", %{"workflow_id" => workflow.id})
+
+      assert path =~ "/bo/workflows/#{workflow.id}/runs/"
+
+      dispatched_funs = Agent.get(dispatched, & &1)
+      assert :create_run in dispatched_funs
+      refute :start_run in dispatched_funs
+      refute :start_run_async in dispatched_funs
+    end
   end
 
   describe "import workflow event" do
