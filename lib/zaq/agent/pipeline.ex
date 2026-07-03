@@ -42,6 +42,7 @@ defmodule Zaq.Agent.Pipeline do
   require Logger
   alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
+  alias Zaq.Agent.StreamEvents
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
@@ -300,7 +301,9 @@ defmodule Zaq.Agent.Pipeline do
   end
 
   defp result_from_answering(%Outgoing{} = outgoing, answer, confidence_score) do
-    %{
+    outgoing.metadata
+    |> StreamEvents.telemetry_fields()
+    |> Map.merge(%{
       answer: answer,
       confidence_score: confidence_score,
       latency_ms: outgoing.metadata[:latency_ms],
@@ -308,12 +311,8 @@ defmodule Zaq.Agent.Pipeline do
       completion_tokens: outgoing.metadata[:completion_tokens],
       total_tokens: outgoing.metadata[:total_tokens],
       tool_calls: Map.get(outgoing.metadata, :tool_calls, []),
-      trace: Map.get(outgoing.metadata, :trace, []),
-      measurements: Map.get(outgoing.metadata, :measurements, %{}),
-      model: Map.get(outgoing.metadata, :model),
-      agent: Map.get(outgoing.metadata, :agent),
       error: Map.get(outgoing.metadata, :error, false)
-    }
+    })
   end
 
   @spec build_sources(list()) :: [String.t()]

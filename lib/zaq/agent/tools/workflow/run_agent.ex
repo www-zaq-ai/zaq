@@ -213,30 +213,15 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   defp error_metadata?(metadata), do: is_map(metadata) and metadata[:error]
 
-  # Mirrors Zaq.Agent.Pipeline.result_from_answering/3's field sourcing so the
-  # same trace/agent/model/measurements shown for chat messages is available on
-  # a run_agent step's StepRun.results — StepRunner persists this map verbatim,
-  # and Jido's output validation merges undeclared keys through untouched, so
-  # this needs no output_schema change. json_safe/1 is applied per-field (not to
-  # the whole map) so the top-level `:output` key stays an atom — output_schema
-  # matches known keys by atom, and stringifying it would make Jido treat the
-  # required `output` field as missing.
+  # StepRunner persists this map verbatim, and Jido's output validation merges
+  # undeclared keys through untouched, so no output_schema change is needed.
+  # Top-level keys stay atoms — output_schema matches known keys by atom, and
+  # stringifying `output` would make Jido treat the required field as missing.
   defp trace_result(outgoing) do
-    %{
-      output: outgoing.body,
-      trace: outgoing.metadata |> Map.get(:trace, []) |> StreamEvents.json_safe(),
-      agent: outgoing.metadata |> Map.get(:agent) |> json_safe_or_nil(),
-      model: Map.get(outgoing.metadata, :model),
-      measurements: outgoing.metadata |> Map.get(:measurements, %{}) |> StreamEvents.json_safe()
-    }
+    outgoing.metadata
+    |> StreamEvents.telemetry_fields(json_safe: true)
+    |> Map.put(:output, outgoing.body)
   end
-
-  # json_safe/1 treats `nil` as an atom (stringifying it to "nil") before it
-  # reaches the is_nil clause — guard it out here rather than in the shared
-  # helper, matching how Conversations.assistant_metadata/1 avoids the same
-  # pitfall by rejecting nil values before calling json_safe.
-  defp json_safe_or_nil(nil), do: nil
-  defp json_safe_or_nil(value), do: StreamEvents.json_safe(value)
 
   # Build substitution vars from all params except the action-level ones.
   #
