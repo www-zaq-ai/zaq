@@ -364,7 +364,6 @@ defmodule ZaqWeb.Components.BOLayout do
       </aside>
       
     <!-- Main -->
-      <%!-- min-w-0: keeps wide content from forcing a BO-wide horizontal scrollbar --%>
       <main id="bo-main" class="flex-1 min-w-0">
         <!-- Header -->
         <header
