@@ -117,6 +117,16 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLiveTest do
       assert html =~ "- not saved yet"
     end
 
+    test "ignores blank temporary event selections", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/bo/triggers")
+      lv |> element("button", "+ New Trigger") |> render_click()
+
+      render_click(lv, "set_event_name", %{"name" => ""})
+
+      assert render(lv) =~ "New Trigger"
+      assert Workflows.list_triggers() == []
+    end
+
     test "cancelling after adding a temporary event does not create or register it", %{conn: conn} do
       event_name = "cancelled.event.#{System.unique_integer([:positive])}"
       registry_name = "engine:#{event_name}"

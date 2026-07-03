@@ -18,6 +18,13 @@ defmodule Zaq.Engine.Workflows.TriggerTest do
       cs = Trigger.changeset(%Trigger{}, %{event_name: ""})
       assert "can't be blank" in errors_on(cs).event_name
     end
+
+    test "normalizes whitespace-only event_name to blank before validation" do
+      cs = Trigger.changeset(%Trigger{}, %{event_name: "   "})
+
+      assert "can't be blank" in errors_on(cs).event_name
+      assert Ecto.Changeset.get_field(cs, :event_name) == nil
+    end
   end
 
   describe "changeset/2 — enabled field" do

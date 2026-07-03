@@ -1128,6 +1128,32 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert html =~ "mc#{ts}@example.com"
   end
 
+  test "merge modal can search survivor candidates when opened from incomplete row", %{conn: conn} do
+    ts = System.unique_integer([:positive])
+    loser = person_fixture(%{"full_name" => "MergeLoser#{ts}"})
+
+    survivor =
+      person_fixture(%{
+        "full_name" => "MergeKeep#{ts}",
+        "email" => "keep#{ts}@example.com"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    render_click(view, "open_merge_modal", %{
+      "id" => to_string(loser.id),
+      "role" => "loser"
+    })
+
+    view
+    |> form("[phx-change='merge_search']", %{"merge_search" => "MergeKeep#{ts}"})
+    |> render_change()
+
+    html = render(view)
+    assert html =~ survivor.full_name
+    assert html =~ "keep#{ts}@example.com"
+  end
+
   # ── switch_tab resets selected person ────────────────────────────────────
 
   test "switching to People tab after Teams clears selected state", %{conn: conn} do

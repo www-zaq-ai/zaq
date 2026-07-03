@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
   alias Zaq.Accounts
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Repo
+  alias ZaqWeb.Live.BO.Communication.NotificationImapLive
 
   defmodule RouterStubOk do
     def list_mailboxes("email:imap", _config), do: {:ok, ["INBOX", "Support", "Sales"]}
@@ -96,6 +97,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
     assert has_element?(view, "#imap-provider-default-agent-select")
     assert has_element?(view, "#imap-mailbox-agent-assignments")
+  end
+
+  test "mailbox_agent_value falls back to blank for malformed assignment maps" do
+    assert NotificationImapLive.mailbox_agent_value(nil, "INBOX") == ""
   end
 
   test "agent routing options exclude conversation-disabled agents", %{conn: conn} do
@@ -200,6 +205,36 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
            )
   end
 
+  test "save accepts blank optional username and parses positive strings", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{
+      "imap_config" => %{
+        "enabled" => "false",
+        "url" => "imap.example.com",
+        "port" => "1143",
+        "ssl_depth" => "2",
+        "ssl" => "false",
+        "username" => "",
+        "password" => "secret",
+        "selected_mailboxes" => ["INBOX"],
+        "mark_as_read" => "false",
+        "poll_interval" => "45000",
+        "idle_timeout" => "900000"
+      }
+    })
+
+    channel = ChannelConfig.get_any_by_provider("email:imap")
+    assert channel.url == "imap.example.com"
+    assert channel.settings["imap"]["username"] == nil
+    assert channel.settings["imap"]["port"] == 1143
+    assert channel.settings["imap"]["ssl_depth"] == 2
+    assert channel.settings["imap"]["poll_interval"] == 45_000
+    assert channel.settings["imap"]["idle_timeout"] == 900_000
+  end
+
   test "save persists provider default, filters mailbox agent ids, and mounts with decrypted fallback defaults",
        %{conn: conn} do
     insert_smtp_enabled()
@@ -254,6 +289,36 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
     assert get_in(updated.settings, ["imap", "agent_routing", "mailboxes"]) ==
              %{"INBOX" => enabled_agent.id}
+  end
+
+  test "save ignores malformed mailbox agent params", %{conn: conn} do
+    enabled_agent = create_conversation_agent(true, "imap-default-enabled")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{
+      "imap_config" => %{
+        "enabled" => "false",
+        "url" => "imap.example.com",
+        "port" => "993",
+        "ssl_depth" => "3",
+        "ssl" => "true",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "provider_default_agent_id" => to_string(enabled_agent.id),
+        "mailbox_agent_ids" => "bad",
+        "selected_mailboxes" => ["INBOX"],
+        "mark_as_read" => "true",
+        "poll_interval" => "30000",
+        "idle_timeout" => "1500000"
+      }
+    })
+
+    channel = ChannelConfig.get_any_by_provider("email:imap")
+    assert ChannelConfig.get_provider_default_agent_id(channel) == enabled_agent.id
+    assert get_in(channel.settings, ["imap", "agent_routing", "mailboxes"]) == %{}
   end
 
   test "handle_info formats generic binary and atom reasons", %{conn: conn} do

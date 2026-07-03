@@ -64,6 +64,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
     t
   end
 
+  defp upload_minimal_workflow(view) do
+    upload =
+      file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+        %{name: "workflow.json", content: ~s({"name":"Imported"}), type: "application/json"}
+      ])
+
+    assert render_upload(upload, "workflow.json")
+  end
+
+  defp composition_changeset(reason) do
+    {%{}, %{nodes: :string}}
+    |> Ecto.Changeset.cast(%{}, [])
+    |> Ecto.Changeset.add_error(:nodes, "invalid workflow composition", reason: reason)
+  end
+
   describe "mount" do
     test "renders the workflows list page with page title 'Workflows'", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/workflows")
@@ -1057,6 +1072,150 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
       assert render_upload(upload, "good.json")
       html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
       assert html =~ "Import failed. Please try again."
+    end
+  end
+
+  describe "import composition error formatting branches" do
+    test "formats multi-entry/multi-exit composition errors with none placeholders", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :import_workflow} ->
+            %{event | response: {:error, composition_changeset({:multi_entry_exit, [], []})}}
+
+          %{module: mod, function: fun, args: args} ->
+            %{event | response: apply(mod, fun, args)}
+
+          _ ->
+            event
+        end
+      end)
+
+      upload_minimal_workflow(view)
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+      assert html =~ "exactly one starting step"
+      assert html =~ "Starting steps found: none"
+      assert html =~ "ending steps found: none"
+    end
+
+    test "formats workflow cycle, convergence, and unknown composition reasons", %{conn: conn} do
+      for {reason, expected} <- [
+            {{:workflow_cycle, "wf-1"}, "eventually references itself"},
+            {{:convergence_not_supported, ["merge"]}, "more than one connection"},
+            {{:something_else, %{bad: true}}, "The workflow structure is invalid"}
+          ] do
+        {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+        view |> element("button", "Import Workflow") |> render_click()
+
+        stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+          case event.request do
+            %{function: :import_workflow} ->
+              %{event | response: {:error, composition_changeset(reason)}}
+
+            %{module: mod, function: fun, args: args} ->
+              %{event | response: apply(mod, fun, args)}
+
+            _ ->
+              event
+          end
+        end)
+
+        upload_minimal_workflow(view)
+        html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+        assert html =~ expected
+      end
+    end
+
+    test "stringifies structured non-composition error options", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+      view |> element("button", "Import Workflow") |> render_click()
+
+      changeset =
+        {%{}, %{name: :string}}
+        |> Ecto.Changeset.cast(%{}, [])
+        |> Ecto.Changeset.add_error(:name, "bad %{reason}", reason: {:tuple, :reason})
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :import_workflow} -> %{event | response: {:error, changeset}}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
+
+      upload_minimal_workflow(view)
+      html = view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+      assert html =~ "name: bad {:tuple, :reason}"
+    end
+  end
+
+  describe "pagination and latest run edge rendering" do
+    test "renders leading, middle, and trailing pagination windows from stubbed workflow lists",
+         %{
+           conn: conn
+         } do
+      workflows =
+        for i <- 1..170 do
+          workflow = %Zaq.Engine.Workflows.Workflow{
+            id: Ecto.UUID.generate(),
+            name: "Stub Workflow #{i}",
+            status: "draft",
+            description: nil
+          }
+
+          {workflow, 0, [], nil}
+        end
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :list_workflows_with_details} -> %{event | response: workflows}
+          %{module: mod, function: fun, args: args} -> %{event | response: apply(mod, fun, args)}
+          _ -> event
+        end
+      end)
+
+      {:ok, view, html} = live(conn, ~p"/bo/workflows")
+      assert html =~ "8"
+
+      middle = render_click(view, "goto_page", %{"page" => "5"})
+      assert middle =~ "4"
+      assert middle =~ "6"
+
+      trailing = render_click(view, "goto_page", %{"page" => "99"})
+      assert trailing =~ "8"
+    end
+
+    test "renders an empty latest-run timestamp without crashing", %{conn: conn} do
+      workflow = %Zaq.Engine.Workflows.Workflow{
+        id: Ecto.UUID.generate(),
+        name: "Nil Timestamp Workflow",
+        status: "draft",
+        description: nil
+      }
+
+      run = %Zaq.Engine.Workflows.WorkflowRun{id: Ecto.UUID.generate(), status: "completed"}
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{function: :list_workflows_with_details} ->
+            %{event | response: [{workflow, 1, [], run}]}
+
+          %{module: mod, function: fun, args: args} ->
+            %{event | response: apply(mod, fun, args)}
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows")
+      assert html =~ "Nil Timestamp Workflow"
+      assert html =~ "1"
     end
   end
 end

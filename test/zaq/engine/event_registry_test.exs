@@ -5,8 +5,15 @@ defmodule Zaq.Engine.EventRegistryTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Event
 
+  require Logger
+
   @pubsub Zaq.PubSub
   @topic "node_router:events"
+
+  setup_all do
+    Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: :warning) end)
+  end
 
   # Helper: broadcast an event to the topic as NodeRouter would.
   defp broadcast(event) do
@@ -84,6 +91,20 @@ defmodule Zaq.Engine.EventRegistryTest do
       pid = start_registry()
       refute Map.has_key?(get_events(pid), "engine:disabled_event")
     end
+
+    test "keeps the registry alive with existing state when loading trigger state fails" do
+      {:ok, pid} =
+        start_supervised(
+          {EventRegistry,
+           [
+             name: :"event_registry_failing_load_#{System.unique_integer([:positive])}",
+             trigger_event_names_fn: fn -> raise "db unavailable" end
+           ]}
+        )
+
+      assert get_events(pid) == %{}
+      assert Process.alive?(pid)
+    end
   end
 
   describe "handle_info/2 — ignored events (no name, no action)" do
@@ -157,6 +178,21 @@ defmodule Zaq.Engine.EventRegistryTest do
       :sys.get_state(pid)
 
       assert Map.get(get_events(pid), "engine:workflow_test") == false
+    end
+
+    test "ignores events when neither next_hop nor last hop has an atom destination" do
+      pid = start_registry()
+      initial_events = get_events(pid)
+
+      event =
+        Event.new(%{}, :engine, opts: [action: :workflow_test])
+        |> Map.put(:next_hop, nil)
+        |> Map.put(:hops, [%{destination: "engine"}])
+
+      broadcast(event)
+      :sys.get_state(pid)
+
+      assert get_events(pid) == initial_events
     end
   end
 

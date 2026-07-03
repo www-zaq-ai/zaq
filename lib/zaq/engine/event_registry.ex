@@ -60,7 +60,12 @@ defmodule Zaq.Engine.EventRegistry do
   def init(opts) do
     Phoenix.PubSub.subscribe(@pubsub, @topic)
     fire_fn = Keyword.get(opts, :trigger_node_fn, &TriggerNode.fire/2)
-    {:ok, %{events: %{}, fire_fn: fire_fn}, {:continue, :load_triggers}}
+
+    trigger_event_names_fn =
+      Keyword.get(opts, :trigger_event_names_fn, &Workflows.list_trigger_event_names/0)
+
+    {:ok, %{events: %{}, fire_fn: fire_fn, trigger_event_names_fn: trigger_event_names_fn},
+     {:continue, :load_triggers}}
   end
 
   # Trigger state is loaded after init returns so a DB failure (e.g. a
@@ -70,7 +75,7 @@ defmodule Zaq.Engine.EventRegistry do
   def handle_continue(:load_triggers, state) do
     events =
       try do
-        load_trigger_state()
+        load_trigger_state(state.trigger_event_names_fn)
       rescue
         error ->
           Logger.warning(
@@ -140,8 +145,12 @@ defmodule Zaq.Engine.EventRegistry do
 
   defp derive_event_key(event) do
     case {derive_destination(event), derive_base_name(event)} do
-      {destination, base} when is_atom(destination) and is_binary(base) ->
+      {destination, base}
+      when is_atom(destination) and not is_nil(destination) and is_binary(base) ->
         maybe_prefix_destination(base, destination)
+
+      {_destination, base} when is_binary(base) ->
+        if String.contains?(base, ":"), do: base, else: nil
 
       _ ->
         nil
@@ -162,8 +171,8 @@ defmodule Zaq.Engine.EventRegistry do
 
   defp derive_base_name(_), do: nil
 
-  defp load_trigger_state do
-    Workflows.list_trigger_event_names()
+  defp load_trigger_state(trigger_event_names_fn) do
+    trigger_event_names_fn.()
     |> Enum.into(%{}, &{&1, true})
   end
 
@@ -172,8 +181,11 @@ defmodule Zaq.Engine.EventRegistry do
 
   defp derive_destination(%{hops: hops}) when is_list(hops) do
     case List.last(hops) do
-      %{destination: destination} when is_atom(destination) -> destination
-      _ -> nil
+      %{destination: destination} when is_atom(destination) and not is_nil(destination) ->
+        destination
+
+      _ ->
+        nil
     end
   end
 

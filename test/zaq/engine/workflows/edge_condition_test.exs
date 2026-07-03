@@ -147,6 +147,12 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
       assert EdgeCondition.evaluate(:not_empty, record, nil)
       refute EdgeCondition.evaluate(:empty, record, nil)
     end
+
+    test "runtime_empty?/1 honors Ecto's function-based empty values" do
+      assert EdgeCondition.runtime_empty?([])
+      assert EdgeCondition.runtime_empty?("   ")
+      refute EdgeCondition.runtime_empty?("value")
+    end
   end
 
   describe "evaluate/3 — :in" do

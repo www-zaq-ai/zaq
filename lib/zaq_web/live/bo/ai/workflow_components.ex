@@ -413,54 +413,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             >
               {sn.sub_label}
             </text>
-            <%!-- Iterate sub-node: separator + full-size stacked pipeline nodes --%>
-            <line
-              :if={sn.mini_nodes != []}
-              x1={n.x + 12}
-              y1={n.y + n.separator_y + sn.y_offset + 24}
-              x2={n.x + n.w - 12}
-              y2={n.y + n.separator_y + sn.y_offset + 24}
-              stroke="#0ea5e9"
-              stroke-width="0.5"
-              opacity="0.4"
-            />
-            <g :if={sn.mini_nodes != []}>
-              <g :for={mn <- sn.mini_nodes}>
-                <% node_y = n.y + n.separator_y + sn.y_offset + 24 + mn.y_in_section %>
-                <% node_x = n.x + 12 %>
-                <% node_w = n.w - 24 %>
-                <rect
-                  x={node_x}
-                  y={node_y}
-                  width={node_w}
-                  height={36}
-                  rx="5"
-                  fill="#f0f9ff"
-                  stroke="#0ea5e9"
-                  stroke-width="1"
-                />
-                <text
-                  x={node_x + div(node_w, 2)}
-                  y={node_y + 22}
-                  text-anchor="middle"
-                  font-family="ui-monospace, 'Courier New', monospace"
-                  font-size="10"
-                  fill="#0369a1"
-                >
-                  {mn.label}
-                </text>
-                <line
-                  :if={mn.has_arrow_below}
-                  x1={node_x + div(node_w, 2)}
-                  y1={node_y + 36}
-                  x2={node_x + div(node_w, 2)}
-                  y2={node_y + 46}
-                  stroke="#0ea5e9"
-                  stroke-width="1.5"
-                  marker-end="url(#dag-arr)"
-                />
-              </g>
-            </g>
           </g>
           <%!-- Standalone iterate: full-size stacked pipeline nodes --%>
           <g :if={n.inner.type == :iterate and n.inner.mini_nodes != []}>
@@ -1293,23 +1245,23 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   end
 
   defp batch_pct(%{current: c, total: t}) when t > 0, do: min(100, round(c / t * 100))
-  defp batch_pct(_), do: 0
 
   # Returns step names from a nested inline params list (process/post_process/pipeline).
   defp get_inner_step_names(params, key) when is_map(params) do
-    steps = Map.get(params, key) || Map.get(params, String.to_existing_atom(key)) || []
+    steps = Map.get(params, key) || get_existing_atom_key(params, key) || []
 
     Enum.map(steps, fn step ->
       Map.get(step, "name") || Map.get(step, :name) || "?"
     end)
-  rescue
-    _ -> []
   end
 
   defp get_inner_step_names(_, _), do: []
 
   # Strips cascade keys from results before rendering in JsonTree.
-  defp clean_results(results), do: WorkflowResultHelpers.clean_results(results)
+  defp clean_results(results) when is_map(results),
+    do: WorkflowResultHelpers.clean_results(results)
+
+  defp clean_results(_results), do: %{}
 
   defp results_list(nil), do: []
   defp results_list(r) when is_map(r), do: Map.get(r, "results", Map.get(r, :results, []))
@@ -1464,9 +1416,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp nf(nil, _key), do: nil
 
   defp nf(%{} = m, key) when is_binary(key) do
-    Map.get(m, key) || Map.get(m, String.to_existing_atom(key))
-  rescue
-    _ -> Map.get(m, key)
+    Map.get(m, key) || get_existing_atom_key(m, key)
   end
 
   # Node colour selection: status colours override type colours so a running batch
@@ -1598,8 +1548,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   end
 
   # Returns total pixel height of a stacked full-node section (8px top + nodes + gaps + 8px bottom).
-  defp full_nodes_h([]), do: 0
-
   defp full_nodes_h(nodes) do
     n = length(nodes)
     8 + n * @full_node_h + (n - 1) * @full_node_gap + 8
@@ -1612,8 +1560,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   # Computes full-size vertical node layout for an iterate pipeline.
   # Each step becomes a proper node box stacked top-to-bottom with downward arrows.
   # Returns a list of %{label, y_in_section, has_arrow_below}.
-  defp compute_iter_full_nodes([]), do: []
-
   defp compute_iter_full_nodes(names) do
     n = length(names)
 
@@ -1626,5 +1572,27 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         has_arrow_below: i < n - 1
       }
     end)
+  end
+
+  @existing_atom_keys %{
+    "body" => :body,
+    "from" => :from,
+    "index" => :index,
+    "module" => :module,
+    "name" => :name,
+    "params" => :params,
+    "post_process" => :post_process,
+    "process" => :process,
+    "status" => :status,
+    "step_name" => :step_name,
+    "to" => :to,
+    "type" => :type
+  }
+
+  defp get_existing_atom_key(map, key) do
+    case Map.fetch(@existing_atom_keys, key) do
+      {:ok, atom_key} -> Map.get(map, atom_key)
+      :error -> nil
+    end
   end
 end

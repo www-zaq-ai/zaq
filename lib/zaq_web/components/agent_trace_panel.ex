@@ -18,7 +18,7 @@ defmodule ZaqWeb.Components.AgentTracePanel do
   def agent_trace_panel(assigns) do
     assigns =
       assigns
-      |> assign_new(:expanded_ids, fn -> MapSet.new() end)
+      |> assign(:expanded_ids, assigns[:expanded_ids] || MapSet.new())
       |> assign(:traces, traces(assigns.message_info))
       |> assign(:measurements, measurements(assigns.message_info))
       |> assign(:agent_name, agent_name(assigns.message_info))
@@ -181,8 +181,6 @@ defmodule ZaqWeb.Components.AgentTracePanel do
     end
   end
 
-  defp legacy_trace_type(_), do: nil
-
   # A reasoning and a content segment of the same LLM call share its call id,
   # so trace ids can collide and toggling one row would expand/collapse the
   # other. Suffix only colliding ids so every unique id (and its testid) keeps
@@ -229,8 +227,6 @@ defmodule ZaqWeb.Components.AgentTracePanel do
   defp format_detail_value(value) when is_binary(value), do: value
   defp format_detail_value(value), do: inspect(value)
 
-  defp pretty_json(nil), do: "null"
-
   defp pretty_json(value) do
     case Jason.encode(value, pretty: true) do
       {:ok, json} -> json
@@ -241,8 +237,6 @@ defmodule ZaqWeb.Components.AgentTracePanel do
   defp sort_traces_chronologically(traces) when is_list(traces) do
     Enum.sort_by(traces, &trace_timestamp_sort_key/1, :asc)
   end
-
-  defp sort_traces_chronologically(_), do: []
 
   defp trace_timestamp_sort_key(trace) when is_map(trace) do
     ms = trace_value(trace, [:started_at_ms, "started_at_ms", :ended_at_ms, "ended_at_ms"])
@@ -260,16 +254,11 @@ defmodule ZaqWeb.Components.AgentTracePanel do
     numeric_timestamp_sort_key(ms) || iso8601_timestamp_sort_key(timestamp)
   end
 
-  defp trace_timestamp_sort_key(_), do: {1, 0}
-
   defp trace_duration_ms(trace) when is_map(trace) do
     trace_value(trace, [:duration_ms, "duration_ms", :response_time_ms, "response_time_ms"])
   end
 
-  defp trace_duration_ms(_), do: nil
-
   defp trace_value(map, keys) when is_map(map), do: Enum.find_value(keys, &Map.get(map, &1))
-  defp trace_value(_map, _keys), do: nil
 
   defp numeric_timestamp_sort_key(ms) when is_integer(ms), do: {0, ms}
   defp numeric_timestamp_sort_key(ms) when is_float(ms), do: {0, trunc(ms)}

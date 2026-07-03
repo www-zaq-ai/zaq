@@ -125,11 +125,6 @@ defmodule Zaq.Engine.Workflows.EdgeCondition do
   def runtime_empty?(value) when is_struct(value), do: false
   def runtime_empty?(value) when is_list(value) or is_map(value), do: Enum.empty?(value)
 
-  def runtime_empty?(value) do
-    Enum.any?(Ecto.Changeset.empty_values(), fn
-      empty_value when is_function(empty_value, 1) -> empty_value.(value)
-      empty_value when is_function(empty_value, 2) -> empty_value.(value, :string)
-      empty_value -> empty_value == value
-    end)
-  end
+  def runtime_empty?(value) when is_binary(value), do: String.trim(value) == ""
+  def runtime_empty?(_value), do: false
 end

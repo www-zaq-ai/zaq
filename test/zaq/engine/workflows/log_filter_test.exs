@@ -51,12 +51,23 @@ defmodule Zaq.Engine.Workflows.LogFilterTest do
     test "never raises on a malformed message (fails open)" do
       assert LogFilter.filter(%{level: :error, msg: {:weird, :shape}}, []) == :ignore
     end
+
+    test "fails open when rendering format args or chardata raises" do
+      assert LogFilter.filter(%{level: :error, msg: {~c"~ts ~ts", ["one"]}}, []) == :ignore
+      assert LogFilter.filter(%{level: :error, msg: {:string, {:not_chardata}}}, []) == :ignore
+    end
   end
 
   describe "install/0" do
     test "is idempotent" do
       assert LogFilter.install() == :ok
       assert LogFilter.install() == :ok
+    end
+
+    test "swallows unexpected logger registration errors" do
+      assert LogFilter.install(fn :zaq_workflow_condition_not_met, {_fun, []} ->
+               {:error, :handler_not_added}
+             end) == :ok
     end
   end
 

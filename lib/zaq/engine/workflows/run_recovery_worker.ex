@@ -36,10 +36,12 @@ defmodule Zaq.Engine.Workflows.RunRecoveryWorker do
   counted).
   """
   @spec enqueue_all(keyword()) :: non_neg_integer()
-  def enqueue_all(_opts \\ []) do
+  def enqueue_all(opts \\ []) do
+    insert_fun = Keyword.get(opts, :insert_fun, &Oban.insert/1)
+
     workflows_mod().list_stale_runs()
     |> Enum.reduce(0, fn run, acc ->
-      case %{run_id: run.id} |> new() |> Oban.insert() do
+      case %{run_id: run.id} |> new() |> insert_fun.() do
         {:ok, %Oban.Job{conflict?: true}} -> acc
         {:ok, %Oban.Job{}} -> acc + 1
         {:error, _} -> acc

@@ -39,6 +39,12 @@ defmodule Zaq.Agent.Tools.Workflow.ConcatTest do
       assert {:ok, %{result: "J"}} = Concat.run(%{parts: ["{{column}}{{row}}"], column: "J"}, %{})
     end
 
+    test "renders a never-interned missing placeholder as an empty string" do
+      key = "concat_missing_#{System.unique_integer([:positive])}"
+
+      assert {:ok, %{result: ""}} = Concat.run(%{parts: ["{{#{key}}}"]}, %{})
+    end
+
     test "does not return a matrix unless as_matrix is set" do
       assert {:ok, result} = Concat.run(%{parts: ["a"]}, %{})
       refute Map.has_key?(result, :matrix)

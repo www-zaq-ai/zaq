@@ -129,6 +129,22 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
       assert_received {:dispatched, event}
       assert event.request.person_id == person.id
     end
+
+    test "rejects person payloads without an integer id" do
+      assert {:error, "missing_person_id"} =
+               NotifyPerson.run(
+                 %{person: %{id: "123"}, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter}
+               )
+
+      assert {:error, "missing_person_id"} =
+               NotifyPerson.run(
+                 %{person: :missing, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter}
+               )
+
+      refute_received {:dispatched, _event}
+    end
   end
 
   defp person_fixture do

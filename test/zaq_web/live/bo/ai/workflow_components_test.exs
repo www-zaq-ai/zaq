@@ -493,6 +493,39 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
     end
   end
 
+  describe "start_input_card/1" do
+    test "renders trigger input and trigger type from persisted string-key assigns" do
+      run = %{
+        source_event: %{
+          assigns: %{
+            "input" => %{"company" => "Acme"},
+            "trigger_type" => "event"
+          }
+        }
+      }
+
+      html = render_component(&WorkflowComponents.start_input_card/1, run: run)
+
+      assert html =~ "event trigger"
+      assert html =~ "Acme"
+    end
+
+    test "renders empty state when source input is not a map" do
+      run = %{source_event: %{assigns: %{input: "scalar", trigger_type: ""}}}
+
+      html = render_component(&WorkflowComponents.start_input_card/1, run: run)
+
+      assert html =~ "No trigger input recorded."
+      refute html =~ "trigger</span>"
+    end
+
+    test "renders empty state when source event is absent" do
+      html = render_component(&WorkflowComponents.start_input_card/1, run: %{})
+
+      assert html =~ "No trigger input recorded."
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # trigger_type_icon/1 — additional variants
   # ---------------------------------------------------------------------------
@@ -931,6 +964,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
 
       paused_step = %{running_step | id: "sr-b9", status: "paused"}
       completed_nil = %{running_step | id: "sr-b10", status: "completed", results: nil}
+      completed_non_map = %{running_step | id: "sr-b10b", status: "completed", results: "bad"}
 
       completed_empty = %{
         running_step
@@ -963,6 +997,14 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
           node_params: %{}
         )
 
+      completed_non_map_html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: completed_non_map,
+          batch_progress: nil,
+          step_runs: [],
+          node_params: %{}
+        )
+
       completed_empty_html =
         render_component(&WorkflowComponents.batch_step_card/1,
           step: completed_empty,
@@ -974,7 +1016,47 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert running_html =~ "initializing"
       refute paused_html =~ "Batches"
       refute completed_nil_html =~ "Batches"
+      refute completed_non_map_html =~ "Batches"
       refute completed_empty_html =~ "Batches"
+    end
+
+    test "derives running progress from terminal fork rows when live progress is absent" do
+      step = %{
+        id: "sr-b13",
+        step_name: "batch_terminal",
+        step_index: 0,
+        status: "running",
+        logs: [],
+        results: %{},
+        input: %{},
+        errors: nil,
+        started_at: DateTime.utc_now(),
+        finished_at: nil
+      }
+
+      step_runs = [
+        %{step_name: "batch_terminal/process[0]", status: "completed", started_at: nil, logs: []},
+        %{
+          step_name: "batch_terminal/process[1]",
+          status: "failed_fatal",
+          started_at: nil,
+          logs: []
+        },
+        %{step_name: "batch_terminal/process[2]", status: "running", started_at: nil, logs: []}
+      ]
+
+      html =
+        render_component(&WorkflowComponents.batch_step_card/1,
+          step: step,
+          batch_progress: nil,
+          step_runs: step_runs,
+          node_params: %{}
+        )
+
+      assert html =~ "2 done"
+      assert html =~ "✓ 1"
+      assert html =~ "✗ 1"
+      assert html =~ "Batch #2"
     end
 
     test "handles atom process key safely" do

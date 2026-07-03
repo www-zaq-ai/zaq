@@ -897,6 +897,73 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       run = run_with_snapshot(snapshot)
       assert {:error, {:invalid_edge_condition, _}} = Workflows.start_run(run)
     end
+
+    test "format_build_error({:invalid_start_edge, to}) — no-op start edge" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => "Zaq.Engine.Workflows.Test.InboxWithResults",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => [%{"from" => "start", "to" => "a"}]
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:invalid_start_edge, "a"}} = Workflows.start_run(run)
+
+      failed = Workflows.get_run!(run.id)
+      assert failed.log_summary["error"] =~ ~s(The "start" edge to node "a")
+    end
+
+    test "format_build_error({:duplicate_start_edge, to}) — repeated start edge" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => "Zaq.Engine.Workflows.Test.InboxWithResults",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => [
+          %{"from" => "start", "to" => "a", "mapping" => %{"one" => "start.one"}},
+          %{"from" => "start", "to" => "a", "mapping" => %{"two" => "start.two"}}
+        ]
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:duplicate_start_edge, "a"}} = Workflows.start_run(run)
+
+      failed = Workflows.get_run!(run.id)
+      assert failed.log_summary["error"] =~ ~s(Multiple "start" edges target node "a")
+    end
+
+    test "format_build_error({:contract_violation, mod, missing}) — non-action module" do
+      snapshot = %{
+        "nodes" => [
+          %{
+            "name" => "a",
+            "type" => "action",
+            "module" => "String",
+            "params" => %{},
+            "index" => 0
+          }
+        ],
+        "edges" => []
+      }
+
+      run = run_with_snapshot(snapshot)
+      assert {:error, {:contract_violation, String, missing}} = Workflows.start_run(run)
+      assert :schema in missing
+
+      failed = Workflows.get_run!(run.id)
+      assert failed.log_summary["error"] =~ "Module String does not satisfy the Action contract"
+    end
   end
 
   # ---------------------------------------------------------------------------
