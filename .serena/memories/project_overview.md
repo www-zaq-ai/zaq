@@ -1,1 +1,0 @@
-ZAQ is an AI-powered company knowledge platform built as a single Elixir/OTP app with Phoenix and LiveView. It has role-based internal services (engine, agent, ingestion, channels, and back-office web UI) and includes a license subsystem under lib/zaq/license for loading, verifying, and feature-gating licenses.
