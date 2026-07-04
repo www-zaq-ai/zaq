@@ -9,12 +9,24 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
   defmodule OkRouter do
     def dispatch(event) do
       send(self(), {:dispatched, event})
-      %{event | response: {:ok, :dispatched}}
+
+      %{
+        event
+        | response:
+            {:ok,
+             %{
+               status: :sent,
+               channel: "email:smtp",
+               channel_identifier: "person@example.com",
+               notification_log_id: 123
+             }}
+      }
     end
   end
 
   defmodule SkippedRouter do
-    def dispatch(event), do: %{event | response: {:ok, :skipped}}
+    def dispatch(event),
+      do: %{event | response: {:ok, %{status: :skipped, notification_log_id: 456}}}
   end
 
   defmodule ErrorRouter do
@@ -48,7 +60,14 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
     test "dispatches a notify_person event to the engine" do
       person = person_fixture()
 
-      assert {:ok, %{notified: true, status: :dispatched}} =
+      assert {:ok,
+              %{
+                notified: true,
+                status: :sent,
+                channel: "email:smtp",
+                channel_identifier: "person@example.com",
+                notification_log_id: 123
+              }} =
                NotifyPerson.run(
                  %{person: person, subject: "Hello", message: "Body"},
                  %{node_router: OkRouter}
@@ -63,7 +82,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
     test "treats skipped notifications as successful no-op dispatches" do
       person = person_fixture()
 
-      assert {:ok, %{notified: true, status: :skipped}} =
+      assert {:ok, %{notified: false, status: :skipped, notification_log_id: 456}} =
                NotifyPerson.run(
                  %{person: person, subject: "Hello", message: "Body"},
                  %{node_router: SkippedRouter}
@@ -107,7 +126,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
                  %{}
                )
 
-      assert {:ok, %{notified: true, status: :dispatched}} =
+      assert {:ok, %{notified: true, status: :sent}} =
                NotifyPerson.run(
                  %{person: person, subject: "Hello", message: "Body"},
                  %{node_router: OkRouter}
@@ -120,7 +139,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
     test "consumes a string-keyed person payload after JSONB round-trip" do
       person = person_fixture()
 
-      assert {:ok, %{notified: true, status: :dispatched}} =
+      assert {:ok, %{notified: true, status: :sent}} =
                NotifyPerson.run(
                  %{person: %{"id" => person.id}, subject: "Hello", message: "Body"},
                  %{node_router: OkRouter}

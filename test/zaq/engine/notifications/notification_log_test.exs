@@ -5,6 +5,7 @@ defmodule Zaq.Engine.Notifications.NotificationLogTest do
 
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Repo
+  import ExUnit.CaptureLog
 
   @valid_attrs %{
     sender: "system",
@@ -61,10 +62,21 @@ defmodule Zaq.Engine.Notifications.NotificationLogTest do
   end
 
   # ---------------------------------------------------------------------------
-  # append_attempt/3
+  # append_attempt/4
   # ---------------------------------------------------------------------------
 
-  describe "append_attempt/3" do
+  describe "append_attempt/4" do
+    test "returns ok and logs warning when log id does not exist" do
+      missing_log_id = -1
+
+      log =
+        capture_log([level: :warning], fn ->
+          assert :ok = NotificationLog.append_attempt(missing_log_id, "email", :ok)
+        end)
+
+      assert log =~ "[NotificationLog] append_attempt: log -1 not found"
+    end
+
     test "appends a successful attempt entry" do
       {:ok, log} = NotificationLog.create_log(@valid_attrs)
       :ok = NotificationLog.append_attempt(log.id, "email", :ok)
@@ -72,6 +84,7 @@ defmodule Zaq.Engine.Notifications.NotificationLogTest do
       reloaded = Repo.get!(NotificationLog, log.id)
       [entry] = reloaded.channels_tried
       assert entry["platform"] == "email"
+      assert entry["identifier"] == nil
       assert entry["status"] == "ok"
       assert entry["error"] == nil
       assert entry["attempted_at"] != nil
@@ -86,6 +99,15 @@ defmodule Zaq.Engine.Notifications.NotificationLogTest do
       assert entry["platform"] == "email"
       assert entry["status"] == "error"
       assert entry["error"] =~ "smtp_unreachable"
+    end
+
+    test "records the attempted channel identifier" do
+      {:ok, log} = NotificationLog.create_log(@valid_attrs)
+      :ok = NotificationLog.append_attempt(log.id, "email", "person@example.com", :ok)
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      [entry] = reloaded.channels_tried
+      assert entry["identifier"] == "person@example.com"
     end
 
     test "atomic append — two sequential calls produce two distinct entries" do
@@ -115,6 +137,21 @@ defmodule Zaq.Engine.Notifications.NotificationLogTest do
   # ---------------------------------------------------------------------------
 
   describe "transition_status/2" do
+    test "returns stale_record when the row status changed before update" do
+      {:ok, log} = NotificationLog.create_log(@valid_attrs)
+
+      {1, _} =
+        Repo.update_all(
+          from(l in NotificationLog, where: l.id == ^log.id),
+          set: [status: "sent"]
+        )
+
+      assert {:error, :stale_record} = NotificationLog.transition_status(log, "failed")
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      assert reloaded.status == "sent"
+    end
+
     test "allows pending → sent" do
       {:ok, log} = NotificationLog.create_log(@valid_attrs)
       assert {:ok, updated} = NotificationLog.transition_status(log, "sent")

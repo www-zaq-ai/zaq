@@ -7,9 +7,9 @@ communication — email, Mattermost, or any future channel. Callers build a
 `%Notification{}` struct and call `Notifications.notify/1`. Everything else
 (routing, filtering, logging, delivery) is handled internally.
 
-Delivery is asynchronous: `notify/1` inserts an Oban job and returns
-immediately. The Oban worker resolves adapters, tries each channel in sequence,
-and records all outcomes in `notification_logs`.
+Delivery is inline: `notify/1` resolves adapters, tries each channel in sequence,
+records all outcomes in `notification_logs`, and returns the final selected
+channel when delivery succeeds.
 
 ---
 
@@ -19,11 +19,10 @@ and records all outcomes in `notification_logs`.
 Caller
   → Notification.build/1              ← validates and constructs struct
   → Notifications.notify/1            ← filters to configured channels,
-                                         creates NotificationLog (status: pending),
-                                         inserts DispatchWorker Oban job
-  → DispatchWorker.perform/1          ← reads log, tries each channel sequentially
-      → NotificationAdapter.send_notification/3  ← platform-specific delivery
-      → NotificationLog.append_attempt/3         ← records each attempt atomically
+                                          creates NotificationLog (status: pending),
+                                          tries each channel sequentially
+      → Channels.Api :deliver_outgoing           ← platform-specific delivery
+      → NotificationLog.append_attempt/4         ← records each attempt
   → NotificationLog.transition_status/2          ← sets final status: sent/skipped/failed
 ```
 
@@ -36,15 +35,13 @@ Caller
 The public API. All callers go through this module.
 
 ```elixir
-@spec notify(Notification.t()) :: {:ok, :dispatched} | {:ok, :skipped}
-@spec adapter_for(String.t()) :: module() | nil
+@spec notify(Notification.t()) :: {:ok, notification_result()} | {:error, notification_result()}
 ```
 
 - `notify/1` — only accepts a `%Notification{}` struct (use `Notification.build/1` first)
-  - Returns `{:ok, :skipped}` when `recipient_channels` is empty or no channels
-    are configured/enabled
-  - Returns `{:ok, :dispatched}` when an Oban job is successfully enqueued
-- `adapter_for/1` — returns the adapter module for a given platform string, or `nil`
+  - Returns `{:ok, %{status: :skipped}}` when `recipient_channels` is empty or no channels are configured/enabled
+  - Returns `{:ok, %{status: :sent, channel: platform, channel_identifier: identifier}}` when a channel succeeds
+  - Returns `{:error, %{status: :failed}}` when all configured channels fail
 
 Channel eligibility: a channel is included only if its platform appears in
 `channel_configs` with `kind: "retrieval"` and `enabled: true`, AND an adapter
@@ -74,32 +71,22 @@ Empty `recipient_channels` is valid.
 
 ### `Zaq.Engine.Notifications.NotificationLog` — Ecto schema
 
-Audit log for every `notify/1` call. The full payload (subject + body) lives
-here; Oban job args carry only `log_id`.
+Audit log for every notification that has recipient channels. The full payload
+(subject + body) lives here.
 
 Status lifecycle: `pending → sent | skipped | failed`
 
 ```elixir
 @spec create_log(map()) :: {:ok, %NotificationLog{}} | {:error, Ecto.Changeset.t()}
-@spec append_attempt(integer(), String.t(), :ok | {:error, term()}) :: :ok
+@spec append_attempt(integer(), term(), term(), :ok | {:error, term()}) :: :ok
 @spec transition_status(%NotificationLog{}, String.t()) ::
         {:ok, %NotificationLog{}} | {:error, :invalid_transition | :stale_record}
 ```
 
 - `create_log/1` — inserts a new log record (status defaults to `"pending"`)
-- `append_attempt/3` — atomically appends to `channels_tried` using a Postgres
-  JSONB `||` fragment; safe for concurrent Oban retries
+- `append_attempt/4` — atomically appends platform, identifier, status, error, and timestamp to `channels_tried`
 - `transition_status/2` — enforces state machine; uses `update_all` with a
   `WHERE status = current_status` guard to handle concurrent updates
-
-### `Zaq.Engine.Notifications.DispatchWorker` — Oban worker
-
-Queue: `:notifications`. `max_attempts: 1`.
-
-Reads the `NotificationLog` by `log_id`, then tries each channel sequentially.
-Stops on the first successful delivery. Adapter module names are stored as
-strings in job args and resolved at runtime via `String.to_existing_atom/1` +
-`Code.ensure_loaded?/1`.
 
 ### `Zaq.Engine.NotificationAdapter` — behaviour
 
@@ -125,7 +112,7 @@ adapter).
 ### `Zaq.Engine.Notifications.WelcomeEmail`
 
 ```elixir
-@spec deliver(Accounts.User.t()) :: {:ok, :dispatched} | {:ok, :skipped}
+@spec deliver(Accounts.User.t()) :: {:ok, Notifications.notification_result()} | {:error, Notifications.notification_result()}
 ```
 
 Sends a welcome email to a newly created user. Skipped silently if the user has
@@ -134,7 +121,7 @@ no email address. Reads `base_url` from `Application.get_env(:zaq, :base_url)`.
 ### `Zaq.Engine.Notifications.PasswordResetEmail`
 
 ```elixir
-@spec deliver(Accounts.User.t(), String.t()) :: {:ok, :dispatched} | {:ok, :skipped}
+@spec deliver(Accounts.User.t(), String.t()) :: {:ok, Notifications.notification_result()} | {:error, Notifications.notification_result()}
 ```
 
 Sends a password reset email with a reset URL. Skipped if the user has no email
@@ -175,8 +162,7 @@ lib/zaq/engine/
 └── notifications/
     ├── notification.ex                  # Struct + build/1 validation
     ├── notification_log.ex              # Ecto schema + status lifecycle
-    ├── email_notification.ex            # SMTP adapter (implements NotificationAdapter)
-    ├── dispatch_worker.ex               # Oban worker (queue: notifications)
+    ├── email_notification.ex            # SMTP delivery helper
     ├── welcome_email.ex                 # Welcome email helper
     └── password_reset_email.ex          # Password reset email helper
 ```
@@ -186,7 +172,6 @@ lib/zaq/engine/
 ## What's Left
 
 ### Should Do
-- [ ] `DispatchWorker` runs with `max_attempts: 1` — no automatic retry on delivery failure; failed channels are simply skipped
 - [ ] Platform eligibility check queries `channel_configs` with `kind: "retrieval"` — a `kind: "notification"` concept does not exist yet
 
 ### Nice to Have

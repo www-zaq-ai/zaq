@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Notifications do
 
   The single exit point for all outbound communication from ZAQ to any user or
   person, across any channel. Other modules fire-and-forget. The notification
-  center handles routing, filtering, retrying, and logging.
+  center handles routing, filtering, fallback delivery, and logging.
 
   ## Usage
 
@@ -15,7 +15,7 @@ defmodule Zaq.Engine.Notifications do
         body: "World"
       })
       Notifications.notify(notification)
-      # => {:ok, :dispatched} | {:ok, :skipped}
+      # => {:ok, %{status: :sent, channel: "email:smtp", channel_identifier: "u@example.com"}}
 
   ## SMTP Configuration (env vars)
 
@@ -36,7 +36,8 @@ defmodule Zaq.Engine.Notifications do
 
   alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Engine.Notifications.DispatchWorker
+  alias Zaq.Channels.Events, as: ChannelEvents
+  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Event
@@ -45,6 +46,14 @@ defmodule Zaq.Engine.Notifications do
   @person_channel_platforms %{
     "email" => "email:smtp"
   }
+
+  @type notification_result :: %{
+          required(:status) => :sent | :skipped | :failed,
+          required(:notification_log_id) => integer() | nil,
+          optional(:channel) => String.t() | nil,
+          optional(:channel_identifier) => String.t() | nil,
+          optional(:reason) => term()
+        }
 
   @doc """
   Returns true if a bridge is configured for the given platform string.
@@ -72,7 +81,7 @@ defmodule Zaq.Engine.Notifications do
   `PersonChannel.weight`; unavailable channels are filtered by `notify/1`.
   """
   @spec notify_person(term(), map(), keyword()) ::
-          {:ok, :dispatched | :skipped} | {:error, term()}
+          {:ok, notification_result()} | {:error, term()}
   def notify_person(person_id, attrs, opts \\ []) when is_map(attrs) do
     with {:ok, person} <- fetch_person(person_id, opts),
          {:ok, notification} <- build_person_notification(person, attrs) do
@@ -83,13 +92,14 @@ defmodule Zaq.Engine.Notifications do
   @doc """
   Dispatches a validated `%Notification{}` struct.
 
-  - Empty `recipient_channels` → logs `:skipped`, returns `{:ok, :skipped}`
-  - Non-empty channels → enqueues an Oban `DispatchWorker` job, returns `{:ok, :dispatched}`
+  - Empty `recipient_channels` → returns a skipped result without creating a log
+  - Non-empty channels → creates a log, tries each configured channel inline, and returns the final delivery result
 
   Only accepts a `%Notification{}` struct — pass a plain map to
   `Notification.build/1` first.
   """
-  @spec notify(Notification.t(), keyword()) :: {:ok, :dispatched} | {:ok, :skipped}
+  @spec notify(Notification.t(), keyword()) ::
+          {:ok, notification_result()} | {:error, notification_result()}
   def notify(notification, opts \\ [])
 
   def notify(%Notification{recipient_channels: []} = notification, _opts) do
@@ -98,13 +108,13 @@ defmodule Zaq.Engine.Notifications do
 
     Logger.info(message)
 
-    {:ok, :skipped}
+    {:ok, %{status: :skipped, notification_log_id: nil, reason: :no_recipient_channels}}
   end
 
   def notify(%Notification{} = notification, opts) do
     configured_platforms = configured_platforms()
 
-    {channels, skipped_platforms} =
+    {channels, skipped_channels} =
       Enum.reduce(notification.recipient_channels, {[], []}, fn ch, {configured, skipped} ->
         platform = Map.get(ch, :platform)
         identifier = Map.get(ch, :identifier)
@@ -113,7 +123,7 @@ defmodule Zaq.Engine.Notifications do
           entry = %{"platform" => platform, "identifier" => identifier}
           {configured ++ [entry], skipped}
         else
-          {configured, skipped ++ [platform]}
+          {configured, skipped ++ [ch]}
         end
       end)
 
@@ -136,8 +146,13 @@ defmodule Zaq.Engine.Notifications do
         }
       })
 
-    Enum.each(skipped_platforms, fn platform ->
-      NotificationLog.append_attempt(log.id, platform, {:error, "not configured"})
+    Enum.each(skipped_channels, fn channel ->
+      NotificationLog.append_attempt(
+        log.id,
+        Map.get(channel, :platform),
+        Map.get(channel, :identifier),
+        {:error, "not configured"}
+      )
     end)
 
     if channels == [] do
@@ -148,14 +163,97 @@ defmodule Zaq.Engine.Notifications do
 
       Logger.info(message)
 
-      {:ok, :skipped}
+      {:ok, %{status: :skipped, notification_log_id: log.id, reason: :no_configured_channels}}
     else
-      %{"log_id" => log.id, "channels" => channels, "metadata" => notification.metadata}
-      |> DispatchWorker.new()
-      |> Oban.insert!()
-
-      {:ok, :dispatched}
+      dispatch_inline(log, channels, notification.metadata, opts)
     end
+  end
+
+  defp dispatch_inline(log, [], _metadata, _opts) do
+    NotificationLog.transition_status(log, "failed")
+
+    Logger.warning("[Notifications] log #{log.id} failed — all channels exhausted")
+
+    {:error, %{status: :failed, notification_log_id: log.id, reason: :all_channels_failed}}
+  end
+
+  defp dispatch_inline(log, [channel | rest], metadata, opts) do
+    platform = channel["platform"]
+    identifier = channel["identifier"]
+
+    case platform_to_atom(platform) do
+      nil ->
+        Logger.warning("[Notifications] unknown platform #{inspect(platform)}, skipping")
+        dispatch_inline(log, rest, metadata, opts)
+
+      provider ->
+        outgoing = %Outgoing{
+          body: Map.get(log.payload, "body", ""),
+          channel_id: identifier,
+          provider: provider,
+          metadata:
+            Map.merge(metadata, %{
+              "subject" => Map.get(log.payload, "subject"),
+              "html_body" => Map.get(log.payload, "html_body")
+            })
+        }
+
+        result = deliver_via_channels(outgoing, opts)
+        NotificationLog.append_attempt(log.id, platform, identifier, result)
+
+        case result do
+          :ok -> mark_sent(log, platform, identifier)
+          {:error, _reason} -> dispatch_inline(log, rest, metadata, opts)
+        end
+    end
+  end
+
+  defp mark_sent(log, platform, identifier) do
+    case NotificationLog.transition_status(log, "sent") do
+      {:ok, _} ->
+        {:ok,
+         %{
+           status: :sent,
+           notification_log_id: log.id,
+           channel: platform,
+           channel_identifier: identifier
+         }}
+
+      {:error, reason} ->
+        Logger.warning(
+          "[Notifications] log #{log.id} sent but status update failed: #{inspect(reason)}"
+        )
+
+        {:ok,
+         %{
+           status: :sent,
+           notification_log_id: log.id,
+           channel: platform,
+           channel_identifier: identifier,
+           reason: reason
+         }}
+    end
+  end
+
+  defp platform_to_atom(platform) when is_binary(platform) do
+    case platform do
+      "email:smtp" -> :email
+      "email:imap" -> :email
+      _other -> String.to_existing_atom(platform)
+    end
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp platform_to_atom(_), do: nil
+
+  defp deliver_via_channels(%Outgoing{} = outgoing, opts) do
+    outgoing
+    |> ChannelEvents.build_and_dispatch_deliver_outgoing_event(
+      node_router: node_router_module(),
+      event_opts: channels_event_opts(opts)
+    )
+    |> Map.get(:response)
   end
 
   defp configured_platforms do
@@ -225,4 +323,6 @@ defmodule Zaq.Engine.Notifications do
       do: Keyword.put(event_opts, :config, Keyword.fetch!(opts, :config)),
       else: event_opts
   end
+
+  defp channels_event_opts(opts), do: Keyword.get(opts, :channels_event_opts, [])
 end

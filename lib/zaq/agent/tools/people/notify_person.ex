@@ -21,7 +21,14 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
     ],
     output_schema: [
       notified: [type: :boolean, required: true],
-      status: [type: :atom, required: true]
+      status: [type: :atom, required: true],
+      channel: [type: :string, required: false, doc: "Final channel platform used for delivery."],
+      channel_identifier: [
+        type: :string,
+        required: false,
+        doc: "Final channel identifier used for delivery."
+      ],
+      notification_log_id: [type: :integer, required: false, doc: "Notification audit log id."]
     ]
 
   alias Zaq.Accounts.Person
@@ -52,8 +59,15 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
   defp person_id(%{"id" => id}), do: id
   defp person_id(_), do: nil
 
-  defp handle_response({:ok, status}) when status in [:dispatched, :skipped] do
-    {:ok, %{notified: true, status: status}}
+  defp handle_response({:ok, %{status: status} = result}) when status in [:sent, :skipped] do
+    {:ok,
+     %{
+       notified: status == :sent,
+       status: status,
+       channel: Map.get(result, :channel),
+       channel_identifier: Map.get(result, :channel_identifier),
+       notification_log_id: Map.get(result, :notification_log_id)
+     }}
   end
 
   defp handle_response({:error, reason}) when is_binary(reason), do: {:error, reason}

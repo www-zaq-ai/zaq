@@ -62,7 +62,6 @@ config :zaq, Oban,
     conversations: 5,
     telemetry: 5,
     telemetry_remote: 3,
-    notifications: 5,
     channels: 10
   ],
   crontab: [],
