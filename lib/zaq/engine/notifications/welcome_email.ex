@@ -9,11 +9,14 @@ defmodule Zaq.Engine.Notifications.WelcomeEmail do
 
   @doc """
   Sends a welcome email to the user with their login URL through the notification center.
-  Returns `{:ok, :dispatched}`, `{:ok, :skipped}`, or `{:ok, :skipped}` when the user
-  has no email address.
+  Returns the notification center result, or `{:ok, %{status: :skipped}}` when the
+  user has no email address.
   """
-  @spec deliver(Accounts.User.t()) :: {:ok, :dispatched} | {:ok, :skipped}
-  def deliver(%{email: email}) when email in [nil, ""], do: {:ok, :skipped}
+  @spec deliver(Accounts.User.t()) ::
+          {:ok, Notifications.notification_result()}
+          | {:error, Notifications.notification_result()}
+  def deliver(%{email: email}) when email in [nil, ""],
+    do: {:ok, %{status: :skipped, notification_log_id: nil, reason: :missing_email}}
 
   def deliver(user) do
     base_url = Application.get_env(:zaq, :base_url, "http://localhost:4000")

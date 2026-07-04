@@ -128,9 +128,8 @@ Persists every Q&A exchange as a structured Conversation with Messages.
 All BO calls go through `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 ### Notifications (`lib/zaq/engine/notifications/`)
-Email notifications, dispatch workers, notification logs.
+Email notifications, inline fallback delivery, notification logs.
 - `Zaq.Engine.Notifications` — public context
-- `Zaq.Engine.Notifications.DispatchWorker` — Oban worker for async delivery
 - `Zaq.Engine.Notifications.NotificationLog` — persisted delivery log
 
 ### Telemetry (`lib/zaq/engine/telemetry/`)

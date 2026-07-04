@@ -31,7 +31,7 @@ defmodule Zaq.Engine.ApiTest do
   defmodule StubNotifications do
     def notify_person(person_id, attrs) do
       send(self(), {:notify_person_called, person_id, attrs})
-      {:ok, :dispatched}
+      {:ok, %{status: :sent, channel: "email:smtp", channel_identifier: "person@example.com"}}
     end
   end
 
@@ -85,7 +85,10 @@ defmodule Zaq.Engine.ApiTest do
 
     result = Api.handle_event(event, :notify_person, nil)
 
-    assert result.response == {:ok, :dispatched}
+    assert result.response ==
+             {:ok,
+              %{status: :sent, channel: "email:smtp", channel_identifier: "person@example.com"}}
+
     assert_received {:notify_person_called, 123, %{subject: "Hello", message: "Body"}}
   end
 
