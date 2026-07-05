@@ -42,9 +42,18 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   - `agent_id` — required. ID of the configured agent (same identifier channels use).
   - `input`    — required. The user message / task prompt (supports `{{variable}}`).
+  - `context`  — optional. Ordered list of prior turns to seed the agent, each
+    `%{type, content, ...}` where `type` is `"user_message"`, `"assistant_message"`,
+    or `"tool_result"`. `content` supports `{{variable}}`. Carried as data on
+    `metadata.context_messages` — **this tool only carries the turns**; the agent
+    layer (Executor/Factory) is responsible for injecting them into the run.
+  - `context_max_size` — optional positive integer. Token budget for the seeded
+    context, overriding the agent's `memory_context_max_size` (default 5000) for
+    this run. Carried as data on `metadata.context_max_size`; the budget is
+    **enforced by the agent layer**, not here.
 
   All other params in the accumulated workflow state are available as
-  `{{variable_name}}` substitutions in `input`.
+  `{{variable_name}}` substitutions in `input` (and in each context turn's `content`).
 
   ## Example
 
@@ -65,6 +74,26 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
         type: :string,
         required: true,
         doc: "Task/user message. Supports {{variable}} substitution."
+      ],
+      context: [
+        # {:list, :any}, not {:list, :map}: as an LLM tool, args arrive as
+        # string-keyed maps decoded from JSON, and NimbleOptions' :map type rejects
+        # non-atom keys. Each entry's shape is validated in normalize_context_entry/2.
+        type: {:list, :any},
+        required: false,
+        default: [],
+        doc:
+          "Ordered prior turns to seed the agent. Each entry is " <>
+            "%{type, content, ...} where type is \"user_message\", " <>
+            "\"assistant_message\", or \"tool_result\". content supports {{variable}}."
+      ],
+      context_max_size: [
+        type: :integer,
+        required: false,
+        doc:
+          "Optional token budget for the seeded context. Overrides the agent's " <>
+            "memory_context_max_size (default 5000) for this run. Carried as data; " <>
+            "the budget is enforced by the agent layer."
       ]
     ],
     output_schema: [
@@ -80,17 +109,29 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   alias Zaq.NodeRouter
 
   @impl Jido.Action
-  def run(%{agent_id: agent_id, input: input} = params, context) do
-    dispatch_agent_run(agent_id, input, params, context)
+  # Params may arrive atom- OR string-keyed. The workflow DAG builder atomizes a
+  # node's top-level param keys only when EVERY key is an existing atom; a single
+  # non-atom key makes it leave the whole map string-keyed
+  # (`DagBuilder.atomize_keys/1`). Read both shapes so a stray param key never
+  # crashes the tool with a FunctionClauseError.
+  def run(params, context) when is_map(params) do
+    dispatch_agent_run(
+      fetch_param(params, :agent_id),
+      fetch_param(params, :input),
+      params,
+      context
+    )
   end
 
   defp dispatch_agent_run(agent_id, input, params, context) do
-    node_router = Map.get(context, :node_router, NodeRouter)
+    node_router = node_router(context)
     vars = build_vars(params)
     resolved_input = substitute(input, vars)
+    context_messages = build_context_messages(params, vars)
+    context_max_size = context_max_size(params)
 
     resolved_input
-    |> build_incoming(context)
+    |> build_incoming(context, context_messages, context_max_size)
     |> build_event(agent_id, context)
     |> node_router.dispatch()
     |> Map.get(:response)
@@ -105,13 +146,13 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # metadata.run_id (and metadata.step_index) carry the run/step identity as data
   # only. The scope decision belongs to Executor.derive_scope/2, which maps them to
   # "workflow:run:<run_id>:step:<step_index>" — one isolated agent server per step.
-  defp build_incoming(content, context) do
+  defp build_incoming(content, context, context_messages, context_max_size) do
     %Incoming{
       content: content,
       channel_id: channel_id(context),
       author_id: author_id(context),
       provider: nil,
-      metadata: incoming_metadata(context)
+      metadata: incoming_metadata(context, context_messages, context_max_size)
     }
   end
 
@@ -120,12 +161,33 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # applies, and B != A by name). The step index lets `derive_scope/2` give each
   # `run_agent` step its own server (`"workflow:run:<run_id>:step:<step_index>"`), so
   # two run_agent steps in one run never contend on a shared server.
-  defp incoming_metadata(context) do
+  defp incoming_metadata(context, context_messages, context_max_size) do
+    context
+    |> run_markers()
+    |> maybe_put_context_messages(context_messages)
+    |> maybe_put_context_max_size(context_max_size)
+  end
+
+  defp run_markers(context) do
     case run_id(context) do
       nil -> %{}
       run_id -> maybe_put_step_index(%{run_id: run_id}, context)
     end
   end
+
+  # Context turns ride on the incoming as data only; the agent layer decides how
+  # they enter a run (they never appear when the caller supplies none).
+  defp maybe_put_context_messages(metadata, []), do: metadata
+
+  defp maybe_put_context_messages(metadata, messages) when is_list(messages),
+    do: Map.put(metadata, :context_messages, messages)
+
+  # Only a positive integer is carried; the agent layer resolves the effective
+  # budget as `context_max_size || memory_context_max_size || 5000`.
+  defp maybe_put_context_max_size(metadata, nil), do: metadata
+
+  defp maybe_put_context_max_size(metadata, size) when is_integer(size) and size > 0,
+    do: Map.put(metadata, :context_max_size, size)
 
   defp maybe_put_step_index(metadata, context) do
     case step_index(context) do
@@ -190,6 +252,15 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   defp context_actor(context), do: Map.get(context, :actor) || Map.get(context, "actor")
 
+  # An explicit `:node_router` in the step context always wins (agent-tool-call
+  # path, unit tests). Workflow steps carry no router in context — StepRunner does
+  # not inject one — so fall back to the app-env seam (mirrors Pipeline/Executor)
+  # and finally the live NodeRouter.
+  defp node_router(context) do
+    Map.get(context, :node_router) ||
+      Application.get_env(:zaq, :run_agent_node_router_module, NodeRouter)
+  end
+
   # skip_permissions is an explicit opt-in flowing from the execution context
   # (machine event runs set it; human-triggered runs do not). Never granted
   # implicitly — a missing flag means the child runs with the caller's permissions.
@@ -223,15 +294,111 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     |> Map.put(:output, outgoing.body)
   end
 
+  # Normalise the optional `context` param into an ordered list of typed turn maps
+  # (`user_message` / `assistant_message` / `tool_result`). This tool only carries
+  # them as data on the incoming — the agent layer (Executor/Factory) decides how
+  # they enter a run. `content` gets the same {{variable}} substitution as `input`;
+  # entries with an unsupported/missing type, or non-map entries, are dropped rather
+  # than failing the run.
+  defp build_context_messages(params, vars) do
+    params
+    |> fetch_param(:context, [])
+    |> List.wrap()
+    |> Enum.flat_map(&normalize_context_entry(&1, vars))
+  end
+
+  defp normalize_context_entry(entry, vars) when is_map(entry) do
+    content = entry |> entry_field(:content) |> to_string_safe() |> substitute(vars)
+
+    case normalize_type(entry_field(entry, :type)) do
+      "user_message" ->
+        [%{type: "user_message", content: content}]
+
+      "assistant_message" ->
+        [
+          %{
+            type: "assistant_message",
+            content: content,
+            tool_calls: entry_field(entry, :tool_calls)
+          }
+        ]
+
+      "tool_result" ->
+        [
+          %{
+            type: "tool_result",
+            content: content,
+            tool_call_id: entry_field(entry, :tool_call_id),
+            name: entry_field(entry, :name)
+          }
+        ]
+
+      other ->
+        Logger.warning(
+          "[RunAgent] dropping context turn with unsupported type: #{inspect(other)}"
+        )
+
+        []
+    end
+  end
+
+  defp normalize_context_entry(other, _vars) do
+    Logger.warning("[RunAgent] dropping non-map context turn: #{inspect(other)}")
+    []
+  end
+
+  # Accept an integer, or a numeric string (JSONB/tool-call args may deliver either).
+  # Anything non-positive or unparseable becomes nil so the agent layer falls back to
+  # the agent's configured budget.
+  defp context_max_size(params) do
+    case fetch_param(params, :context_max_size) do
+      n when is_integer(n) and n > 0 -> n
+      n when is_binary(n) -> parse_positive_int(n)
+      _ -> nil
+    end
+  end
+
+  defp parse_positive_int(string) do
+    case Integer.parse(string) do
+      {n, ""} when n > 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp normalize_type(type) when is_binary(type), do: type
+  defp normalize_type(type) when is_atom(type) and not is_nil(type), do: Atom.to_string(type)
+  defp normalize_type(_), do: nil
+
+  # Accept both atom and string keys (workflow data is atom-keyed in-process,
+  # string-keyed after a JSONB round-trip).
+  defp entry_field(entry, key) when is_atom(key),
+    do: Map.get(entry, key) || Map.get(entry, Atom.to_string(key))
+
+  defp fetch_param(params, key), do: fetch_param(params, key, nil)
+
+  defp fetch_param(params, key, default) when is_atom(key),
+    do: Map.get(params, key) || Map.get(params, Atom.to_string(key)) || default
+
   # Build substitution vars from all params except the action-level ones.
   #
   # Nested maps (e.g. `row` as set by EnsurePerson) are spread one level deep
   # so their keys become top-level {{variable}} substitutions. Flat keys always
   # win over keys that came from a nested map. Internal workflow keys
-  # (__cascade__) are excluded entirely.
+  # (__cascade__) and the structured `context` param are excluded entirely.
   defp build_vars(params) do
     dropped =
-      Map.drop(params, [:agent_id, :input, :__cascade__, "__cascade__"])
+      Map.drop(params, [
+        :agent_id,
+        :input,
+        :context,
+        :context_max_size,
+        :__cascade__,
+        "agent_id",
+        "input",
+        "context",
+        "context_max_size",
+        "__cascade__"
+      ])
 
     nested_vars =
       dropped

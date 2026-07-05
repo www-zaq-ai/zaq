@@ -61,6 +61,41 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     end
   end
 
+  # X's LLM calls run_agent(Y) WITH a `context` argument on the first turn, then
+  # returns a final answer once the tool result comes back. Y never runs — the
+  # CaptureIncomingRouter intercepts the run_agent dispatch — so no MARKER_AGENT_Y
+  # branch is needed.
+  defp context_tool_call_handler(test_pid, y_id_ref) do
+    fn _conn, body ->
+      send(test_pid, {:llm_request, body})
+
+      sse =
+        if MultiAgentOpenAIStub.tool_result?(body) do
+          MultiAgentOpenAIStub.text_sse("X_FINAL_OK", "gpt-4.1-mini")
+        else
+          MultiAgentOpenAIStub.tool_call_sse(
+            "run_agent",
+            %{
+              agent_id: :atomics.get(y_id_ref, 1),
+              input: "ask Y",
+              context: [
+                %{type: "user_message", content: "earlier user turn"},
+                %{
+                  type: "tool_result",
+                  content: "earlier tool output",
+                  tool_call_id: "t1",
+                  name: "lookup"
+                }
+              ]
+            },
+            model: "gpt-4.1-mini"
+          )
+        end
+
+      {200, sse}
+    end
+  end
+
   defp create_x_and_y(endpoint) do
     credential =
       ai_credential_fixture(%{
@@ -148,6 +183,95 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     Enum.filter(spawned_server_ids(), &String.starts_with?(&1, agent_name <> ":"))
   end
 
+  # Captures the %Incoming{} a `run_agent` dispatch carries (the `:run_pipeline`
+  # event), and returns a canned %Outgoing{} so the caller completes without a live
+  # target agent. Every other event (typing, status, the parent agent's own hops) is
+  # delegated to the real router so the surrounding flow behaves normally. The target
+  # pid comes from app env so it works regardless of which process dispatches.
+  defmodule CaptureIncomingRouter do
+    @moduledoc false
+    alias Zaq.Engine.Messages.{Incoming, Outgoing}
+
+    def dispatch(%Zaq.Event{request: %Incoming{} = incoming, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :run_pipeline do
+        pid = Application.get_env(:zaq, :run_agent_capture_pid)
+        if is_pid(pid), do: send(pid, {:captured_incoming, incoming})
+
+        %{
+          event
+          | response: %Outgoing{body: "captured", channel_id: incoming.channel_id, provider: nil}
+        }
+      else
+        Zaq.NodeRouter.dispatch(event)
+      end
+    end
+
+    def dispatch(%Zaq.Event{} = event), do: Zaq.NodeRouter.dispatch(event)
+  end
+
+  # Carrier-only (Issue 1): the `context` param must survive the REAL workflow seam
+  # — schema validation of a `{:list, :map}` param, the JSONB round-trip, and
+  # StepRunner — and land normalised on `incoming.metadata[:context_messages]`.
+  # Feeding those turns to the LLM is Issue 2, so we intercept at the node router
+  # instead of running a live agent.
+  test "T1 carrier: run_agent node delivers normalised context turns onto the dispatched incoming" do
+    Application.put_env(:zaq, :run_agent_node_router_module, CaptureIncomingRouter)
+    Application.put_env(:zaq, :run_agent_capture_pid, self())
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :run_agent_node_router_module)
+      Application.delete_env(:zaq, :run_agent_capture_pid)
+    end)
+
+    {:ok, workflow} =
+      Workflows.create_workflow(%{
+        name: "Ctx Carrier WF #{System.unique_integer()}",
+        status: "active",
+        nodes: [
+          %{
+            name: "run_agent",
+            type: "action",
+            module: "Zaq.Agent.Tools.Workflow.RunAgent",
+            params: %{
+              "agent_id" => 4242,
+              "input" => "hello {{who}}",
+              "who" => "world",
+              # String-keyed, all three roles + optional fields — the JSONB shape.
+              "context" => [
+                %{"type" => "user_message", "content" => "earlier question about {{who}}"},
+                %{"type" => "assistant_message", "content" => "earlier answer"},
+                %{
+                  "type" => "tool_result",
+                  "content" => "42",
+                  "tool_call_id" => "c1",
+                  "name" => "calc"
+                },
+                %{"type" => "system_message", "content" => "should be dropped"}
+              ]
+            },
+            index: 0
+          }
+        ],
+        edges: []
+      })
+
+    assert {:ok, run} = Workflows.create_and_start_run(workflow, source_event())
+    assert run.status == "completed"
+
+    assert_received {:captured_incoming, %Incoming{} = incoming}
+
+    # Unknown-type entry dropped; the three valid turns are normalised in order,
+    # with {{variable}} substitution applied to content.
+    assert [
+             %{type: "user_message", content: "earlier question about world"},
+             %{type: "assistant_message", content: "earlier answer"},
+             %{type: "tool_result", content: "42", tool_call_id: "c1", name: "calc"}
+           ] = incoming.metadata[:context_messages]
+
+    # The run's own user message is still substituted independently of the turns.
+    assert incoming.content == "hello world"
+  end
+
   test "T1: workflow → agent(X) → tool call run_agent(Y)" do
     {agent_x, agent_y} = setup_nested(self())
 
@@ -216,5 +340,57 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     assert [y_server] = server_ids_for(agent_y.name)
     assert x_server == "#{agent_x.name}:bo:person:7"
     assert x_server != y_server
+  end
+
+  # Carrier through the agent-tool-call seam (Issue 1): when Agent X's LLM calls
+  # `run_agent(Y)` WITH a `context` argument, those turns must be normalised and
+  # carried onto the %Incoming{} dispatched to Y. We intercept the run_agent
+  # dispatch (Y never runs) and assert Y's incoming metadata; consuming the turns
+  # is Issue 2.
+  test "T2 carrier: agent(X)'s run_agent tool call carries context onto agent(Y)'s incoming" do
+    y_id_ref = :atomics.new(1, [])
+
+    {child_spec, endpoint} =
+      OpenAIStub.server(context_tool_call_handler(self(), y_id_ref), self())
+
+    start_supervised!(child_spec)
+
+    {agent_x, agent_y} = create_x_and_y(endpoint)
+    :atomics.put(y_id_ref, 1, agent_y.id)
+
+    on_exit(fn ->
+      _ = ServerManager.stop_server(agent_x)
+      _ = ServerManager.stop_server(agent_y)
+    end)
+
+    Application.put_env(:zaq, :run_agent_capture_pid, self())
+    on_exit(fn -> Application.delete_env(:zaq, :run_agent_capture_pid) end)
+
+    incoming = %Incoming{
+      content: "consult Y for me",
+      channel_id: "chan-1",
+      provider: :web,
+      person: %{id: 7}
+    }
+
+    # Route X's run through the capture router so the nested run_agent(Y) dispatch is
+    # intercepted; every other hop (typing/status) is delegated to the real router.
+    outgoing =
+      Executor.run(incoming, agent_id: to_string(agent_x.id), node_router: CaptureIncomingRouter)
+
+    assert outgoing.metadata.error == false
+    assert outgoing.body =~ "X_FINAL_OK"
+
+    assert_received {:captured_incoming, %Incoming{} = y_incoming}
+
+    assert [
+             %{type: "user_message", content: "earlier user turn"},
+             %{
+               type: "tool_result",
+               content: "earlier tool output",
+               tool_call_id: "t1",
+               name: "lookup"
+             }
+           ] = y_incoming.metadata[:context_messages]
   end
 end

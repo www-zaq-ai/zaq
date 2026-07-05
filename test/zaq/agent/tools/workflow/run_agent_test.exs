@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   import Zaq.SystemConfigFixtures
 
@@ -112,6 +113,9 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
   end
 
   defp ok_ctx(extra \\ %{}), do: @ctx |> Map.put(:node_router, OkRouter) |> Map.merge(extra)
+
+  defp stringify_keys(map) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
 
   # ── Tests ──────────────────────────────────────────────────────────────────────
 
@@ -266,6 +270,34 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
       assert event.request.channel_id == "workflow:anon"
+    end
+
+    test "accepts fully string-keyed params without crashing (atomize_keys fallback shape)" do
+      # When a workflow node carries a param key with no existing atom, the DAG
+      # builder leaves the whole param map string-keyed. run/2 must still resolve
+      # agent_id/input and keep substitution working.
+      agent = create_agent()
+
+      RunAgent.run(
+        %{"agent_id" => agent.id, "input" => "hello {{who}}", "who" => "world"},
+        %{node_router: OkRouter}
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.content == "hello world"
+      assert event.assigns["agent_selection"]["agent_id"] == agent.id
+    end
+
+    test "does not expose string-keyed agent_id/input as substitution vars" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{"agent_id" => agent.id, "input" => "{{agent_id}} and {{input}} are empty"},
+        %{node_router: OkRouter}
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.content == " and  are empty"
     end
 
     test "accepts run_id from string context key" do
@@ -546,6 +578,398 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
       assert event.request.content == "Jane — Beirut"
+    end
+  end
+
+  describe "run/2 — context messages" do
+    test "carries normalised context turns on the incoming metadata, order preserved" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "continue",
+          context: [
+            %{type: "user_message", content: "first"},
+            %{type: "assistant_message", content: "second"},
+            %{type: "tool_result", content: "third"}
+          ]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [
+               %{type: "user_message", content: "first"},
+               %{type: "assistant_message", content: "second"},
+               %{type: "tool_result", content: "third"}
+             ] = event.request.metadata[:context_messages]
+    end
+
+    test "preserves tool_calls on an assistant_message turn" do
+      agent = create_agent()
+      tool_calls = [%{"id" => "call_1", "name" => "search"}]
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{type: "assistant_message", content: "calling", tool_calls: tool_calls}]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [turn] = event.request.metadata[:context_messages]
+      assert turn.type == "assistant_message"
+      assert turn.tool_calls == tool_calls
+    end
+
+    test "preserves tool_call_id and name on a tool_result turn" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{type: "tool_result", content: "42", tool_call_id: "call_1", name: "search"}]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [turn] = event.request.metadata[:context_messages]
+      assert turn.type == "tool_result"
+      assert turn.content == "42"
+      assert turn.tool_call_id == "call_1"
+      assert turn.name == "search"
+    end
+
+    test "accepts string-keyed context entries (JSONB round-trip shape)" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{"type" => "user_message", "content" => "hello"}]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [%{type: "user_message", content: "hello"}] =
+               event.request.metadata[:context_messages]
+    end
+
+    test "accepts an atom-valued type" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "go", context: [%{type: :user_message, content: "hi"}]},
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [%{type: "user_message", content: "hi"}] = event.request.metadata[:context_messages]
+    end
+
+    test "substitutes {{variable}} inside context turn content" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{type: "user_message", content: "Hi {{name}} from {{company}}"}],
+          name: "Alice",
+          company: "Acme"
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [%{content: "Hi Alice from Acme"}] = event.request.metadata[:context_messages]
+    end
+
+    test "drops entries with an unknown type but still dispatches the run" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [
+            %{type: "user_message", content: "keep me"},
+            %{type: "system_message", content: "drop me"},
+            %{type: "nonsense", content: "also drop"}
+          ]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [%{type: "user_message", content: "keep me"}] =
+               event.request.metadata[:context_messages]
+    end
+
+    test "drops non-map context entries" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{type: "user_message", content: "ok"}, "not a map", 42]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [%{content: "ok"}] = event.request.metadata[:context_messages]
+    end
+
+    test "omits :context_messages from metadata when context is an empty list" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "go", context: []}, ok_ctx())
+
+      assert_received {:dispatched, event}
+      refute Map.has_key?(event.request.metadata, :context_messages)
+    end
+
+    test "omits :context_messages from metadata when context is absent" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "go"}, ok_ctx())
+
+      assert_received {:dispatched, event}
+      refute Map.has_key?(event.request.metadata, :context_messages)
+    end
+
+    test "does not expose the context list as a {{context}} substitution var" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "before {{context}} after",
+          context: [%{type: "user_message", content: "x"}]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.content == "before  after"
+    end
+
+    test "stringifies non-string content in a context turn" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [
+            %{type: "tool_result", content: 42},
+            %{type: "user_message", content: %{"nested" => "value"}}
+          ]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [
+               %{type: "tool_result", content: "42"},
+               %{type: "user_message", content: content}
+             ] = event.request.metadata[:context_messages]
+
+      assert content =~ "nested"
+    end
+
+    test "sets optional turn fields to nil when absent" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [
+            %{type: "assistant_message", content: "no tools"},
+            %{type: "tool_result", content: "result only"}
+          ]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [
+               %{type: "assistant_message", content: "no tools", tool_calls: nil},
+               %{type: "tool_result", content: "result only", tool_call_id: nil, name: nil}
+             ] = event.request.metadata[:context_messages]
+    end
+
+    test "wraps a single context map into a one-element list" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "go", context: %{type: "user_message", content: "solo"}},
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [%{type: "user_message", content: "solo"}] =
+               event.request.metadata[:context_messages]
+    end
+
+    test "keeps a turn whose content is missing or resolves to empty as an empty string" do
+      # Carrier is a mechanical normaliser: it does not drop empty turns — deciding
+      # what to do with an empty message is the consumer's job (Issue 2).
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [
+            %{type: "user_message"},
+            %{type: "tool_result", content: "{{missing}}"}
+          ]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [
+               %{type: "user_message", content: ""},
+               %{type: "tool_result", content: ""}
+             ] = event.request.metadata[:context_messages]
+    end
+  end
+
+  describe "run/2 — context_max_size" do
+    test "carries a positive integer context_max_size on the incoming metadata" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "go", context_max_size: 2000},
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.metadata[:context_max_size] == 2000
+    end
+
+    test "parses a numeric string context_max_size (JSONB / tool-arg shape)" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{"agent_id" => agent.id, "input" => "go", "context_max_size" => "1500"},
+        %{node_router: OkRouter}
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.metadata[:context_max_size] == 1500
+    end
+
+    test "omits context_max_size when absent" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "go"}, ok_ctx())
+
+      assert_received {:dispatched, event}
+      refute Map.has_key?(event.request.metadata, :context_max_size)
+    end
+
+    test "ignores a non-positive context_max_size" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "go", context_max_size: 0}, ok_ctx())
+
+      assert_received {:dispatched, event}
+      refute Map.has_key?(event.request.metadata, :context_max_size)
+    end
+
+    test "ignores an unparseable context_max_size" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "go", context_max_size: "lots"}, ok_ctx())
+
+      assert_received {:dispatched, event}
+      refute Map.has_key?(event.request.metadata, :context_max_size)
+    end
+
+    test "does not expose context_max_size as a substitution var" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "budget {{context_max_size}} here", context_max_size: 3000},
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.content == "budget  here"
+    end
+  end
+
+  describe "run/2 — context messages (property)" do
+    @valid_types ["user_message", "assistant_message", "tool_result"]
+
+    property "any list of valid entries round-trips to the same ordered type sequence" do
+      agent = create_agent()
+
+      check all(
+              types <- StreamData.list_of(StreamData.member_of(@valid_types), max_length: 10),
+              string_keys? <- StreamData.boolean()
+            ) do
+        entries =
+          Enum.map(types, fn type ->
+            entry = %{type: type, content: "content-#{type}"}
+            if string_keys?, do: stringify_keys(entry), else: entry
+          end)
+
+        RunAgent.run(%{agent_id: agent.id, input: "go", context: entries}, ok_ctx())
+
+        assert_received {:dispatched, event}
+        messages = event.request.metadata[:context_messages] || []
+        assert Enum.map(messages, & &1.type) == types
+      end
+    end
+
+    @invalid_types ["system_message", "developer", "bogus", ""]
+
+    property "invalid-type entries are dropped while valid ones keep their order" do
+      agent = create_agent()
+
+      check all(
+              specs <-
+                StreamData.list_of(
+                  StreamData.tuple(
+                    {StreamData.member_of(@valid_types ++ @invalid_types),
+                     StreamData.string(:alphanumeric, min_length: 1, max_length: 6)}
+                  ),
+                  max_length: 12
+                )
+            ) do
+        entries = Enum.map(specs, fn {type, content} -> %{type: type, content: content} end)
+
+        RunAgent.run(%{agent_id: agent.id, input: "go", context: entries}, ok_ctx())
+
+        assert_received {:dispatched, event}
+        got = event.request.metadata[:context_messages] || []
+
+        expected_types =
+          specs |> Enum.map(&elem(&1, 0)) |> Enum.filter(&(&1 in @valid_types))
+
+        assert Enum.map(got, & &1.type) == expected_types
+      end
     end
   end
 end
