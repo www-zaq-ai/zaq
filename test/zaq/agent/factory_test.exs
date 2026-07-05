@@ -10,6 +10,8 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent.Factory
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.ServerManager
+  alias Zaq.Agent.Skills
+  alias Zaq.Agent.Tools.Registry
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Agent.Tools.Web.Browsing
   alias Zaq.Engine.Messages.Incoming
@@ -116,6 +118,56 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert {:error, {:unknown_tools, ["files.missing"]}} =
              Factory.runtime_config(configured_agent)
+  end
+
+  test "runtime_config unions skill tools and appends skill instructions to the prompt" do
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "kb-skill",
+        description: "Knowledge base usage",
+        body: "Always search the knowledge base before answering.",
+        tool_keys: ["answering.search_knowledge_base"]
+      })
+
+    configured_agent = %Agent.ConfiguredAgent{
+      job: "You are a ZAQ agent.",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [skill.id],
+      credential: nil
+    }
+
+    {:ok, [kb_tool]} =
+      Registry.resolve_modules(["answering.search_knowledge_base"])
+
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+    assert kb_tool in config.tools
+
+    assert config.system_prompt =~
+             "You are a ZAQ agent.\n\nYou have access to the following skills:"
+
+    assert config.system_prompt =~ "## kb-skill"
+    assert config.system_prompt =~ "Always search the knowledge base before answering."
+  end
+
+  test "runtime_config ignores inactive and ghost skills" do
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "disabled-skill",
+        body: "Should not appear.",
+        active: false,
+        tool_keys: ["answering.search_knowledge_base"]
+      })
+
+    configured_agent = %Agent.ConfiguredAgent{
+      job: "Plain job.",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [skill.id, 999_999],
+      credential: nil
+    }
+
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+    assert config.tools == []
+    assert config.system_prompt == "Plain job."
   end
 
   test "runtime_config returns standard config fields when max iterations is unset" do
@@ -300,6 +352,72 @@ defmodule Zaq.Agent.FactoryTest do
     # The overridden prompt must appear in the request — not the original DB prompt.
     assert body =~ "personalized prompt for John at Acme"
     refute body =~ "original system prompt"
+  end
+
+  test "ask_with_config injects attached skill instructions and tools end-to-end" do
+    handler = fn conn, _body ->
+      {200, streamed_reply(conn.request_path, "Skill-aware reply", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Skill E2E Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "factory-key"
+      })
+
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "e2e-sleep-skill",
+        description: "Sleeping on demand",
+        body: "When asked to wait, always use the sleep tool.",
+        tool_keys: ["basic.sleep"]
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Skill E2E Agent #{System.unique_integer([:positive])}",
+        job: "You are a helper",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_skill_ids: [skill.id]
+      })
+
+    on_exit(fn ->
+      _ = ServerManager.stop_server(configured_agent)
+    end)
+
+    assert {:ok, server} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    assert {:ok, status} = Jido.AgentServer.status(server)
+
+    assert status.raw_state.runtime_config.system_prompt =~ configured_agent.job
+    assert status.raw_state.runtime_config.system_prompt =~ "## e2e-sleep-skill"
+
+    assert status.raw_state.runtime_config.system_prompt =~
+             "When asked to wait, always use the sleep tool."
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server, "please wait a moment", configured_agent,
+               timeout: 35_000
+             )
+
+    assert {:ok, answer} = Factory.await(request, timeout: 45_000)
+    assert is_binary(answer)
+
+    assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
+    assert body =~ "When asked to wait, always use the sleep tool."
+    assert body =~ "sleep_action"
   end
 
   test "ask_with_config merges DB tools with runtime-synced MCP tools" do

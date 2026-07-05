@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   alias Zaq.Accounts
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
+  alias Zaq.Agent.Skills
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
@@ -1255,6 +1256,126 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     after_html = render(view)
 
     refute before == after_html
+  end
+
+  describe "skills picker" do
+    defp create_skill!(attrs) do
+      {:ok, skill} =
+        %{body: "Instructions.", tool_keys: [], tags: []}
+        |> Map.merge(attrs)
+        |> Skills.create_skill()
+
+      skill
+    end
+
+    test "attaches a skill via the picker and persists it on save", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      skill = create_skill!(%{name: "picker-skill", tags: ["math"]})
+      agent_name = "Skill Picker Agent #{:erlang.unique_integer([:positive])}"
+
+      {:ok, view, _html} = live(conn, ~p"/bo/agents")
+      render_click(element(view, "#new-agent-button"))
+
+      render_click(element(view, "#add-skills-button"))
+      assert has_element?(view, "#agent-skills-picker-modal")
+
+      render_change(view, "add_skill_from_picker", %{"skill_id" => to_string(skill.id)})
+
+      assert has_element?(view, "[data-selected-skill-id='#{skill.id}']")
+
+      view
+      |> form("#configured-agent-form",
+        configured_agent: %{
+          "name" => agent_name,
+          "description" => "",
+          "job" => "You are a helper",
+          "model" => "gpt-4.1-mini",
+          "credential_id" => to_string(credential.id),
+          "strategy" => "react",
+          "enabled_tool_keys" => [""],
+          "advanced_options_json" => "{}",
+          "active" => "true"
+        }
+      )
+      |> render_submit()
+
+      assert render(view) =~ "Agent created"
+
+      created = Enum.find(Zaq.Agent.list_agents(), &(&1.name == agent_name))
+      assert created.enabled_skill_ids == [skill.id]
+    end
+
+    test "removes an attached skill", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      skill = create_skill!(%{name: "removable-skill"})
+
+      {:ok, agent} =
+        Zaq.Agent.create_agent(%{
+          name: "Skill Remove Agent #{:erlang.unique_integer([:positive])}",
+          job: "test",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_skill_ids: [skill.id]
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/agents")
+      render_click(element(view, "#agent-row-#{agent.id}"))
+
+      assert has_element?(view, "[data-selected-skill-id='#{skill.id}']")
+
+      view
+      |> element("[data-selected-skill-id='#{skill.id}'] button[phx-click=remove_skill]")
+      |> render_click()
+
+      refute has_element?(view, "[data-selected-skill-id='#{skill.id}']")
+    end
+
+    test "shows ghost warning for a deleted skill still referenced by the agent", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      skill = create_skill!(%{name: "ghosted-skill"})
+
+      {:ok, agent} =
+        Zaq.Agent.create_agent(%{
+          name: "Skill Ghost Agent #{:erlang.unique_integer([:positive])}",
+          job: "test",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_skill_ids: [skill.id]
+        })
+
+      {:ok, _} = Skills.delete_skill(skill)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/agents")
+      render_click(element(view, "#agent-row-#{agent.id}"))
+
+      html = render(view)
+      assert html =~ "Unknown skill ##{skill.id}"
+      assert html =~ "Removed"
+    end
+
+    test "picker offers only active unattached skills, searchable by tag", %{conn: conn} do
+      _credential =
+        ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      create_skill!(%{name: "taggy-skill", tags: ["finance"]})
+      create_skill!(%{name: "inactive-skill", active: false})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/agents")
+      render_click(element(view, "#new-agent-button"))
+      render_click(element(view, "#add-skills-button"))
+
+      html = render(view)
+      assert html =~ "taggy-skill (finance)"
+      refute html =~ "inactive-skill"
+    end
   end
 
   defp attach_repo_query_telemetry(test_pid) do

@@ -43,7 +43,7 @@ defmodule Zaq.Agent.Factory do
     tools: []
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, ProviderSpec}
+  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, ProviderSpec, Skills}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
 
@@ -66,9 +66,10 @@ defmodule Zaq.Agent.Factory do
   @doc """
   Resolves the runtime configuration map for a configured agent.
 
-  Resolves tool modules from `enabled_tool_keys` via `Tools.Registry`, merges system-level
+  Resolves tool modules from `enabled_tool_keys` unioned with attached skill tools
+  (`Zaq.Agent.Skills.effective_tool_keys/2`) via `Tools.Registry`, merges system-level
   LLM sampling opts with any per-agent overrides from `ProviderSpec`, and returns the
-  agent's `job` field as the system prompt.
+  agent's `job` field plus rendered skill instructions as the system prompt.
 
   Returns `{:ok, %{tools: [...], llm_opts: [...], system_prompt: binary()}}` or
   `{:error, reason}` if tool resolution fails.
@@ -78,14 +79,17 @@ defmodule Zaq.Agent.Factory do
   """
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent) do
-    with {:ok, tools} <- Registry.resolve_modules(configured_agent.enabled_tool_keys || []) do
+    skills = Skills.enabled_for_agent(configured_agent)
+
+    with {:ok, tools} <-
+           Registry.resolve_modules(Skills.effective_tool_keys(configured_agent, skills)) do
       {:ok,
        %{
          tools: tools,
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
          llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
-         system_prompt: configured_agent.job || ""
+         system_prompt: Skills.effective_system_prompt(configured_agent, skills)
        }}
     end
   end
@@ -150,7 +154,7 @@ defmodule Zaq.Agent.Factory do
   def ask_with_config(server, query, %ConfiguredAgent{} = configured_agent, opts \\ [])
       when is_binary(query) do
     with {:ok, config} <- server_runtime_config(server, configured_agent),
-         :ok <- ensure_system_prompt(server, configured_agent.job || "") do
+         :ok <- ensure_system_prompt(server, effective_system_prompt(configured_agent)) do
       ask_opts =
         opts
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
@@ -199,6 +203,13 @@ defmodule Zaq.Agent.Factory do
   @spec await(term(), keyword()) :: {:ok, term()} | {:error, term()}
   def await(%{request: request}, opts), do: await(request, opts)
   def await(request, opts), do: super(request, opts)
+
+  # Recomputed on every ask so skill body/description edits propagate to live
+  # servers through the existing compare-and-set in ensure_system_prompt/2.
+  defp effective_system_prompt(configured_agent) do
+    skills = Skills.enabled_for_agent(configured_agent)
+    Skills.effective_system_prompt(configured_agent, skills)
+  end
 
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do

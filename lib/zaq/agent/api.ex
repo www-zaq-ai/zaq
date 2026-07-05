@@ -56,6 +56,12 @@ defmodule Zaq.Agent.Api do
   - `:mcp_endpoint_updated` — delegates to `RuntimeSync.mcp_endpoint_updated/2`.
     Expects `event.request` to be a map with an `:action` key.
 
+  - `:agent_skill_updated` — delegates to `RuntimeSync.agent_skill_updated/3`.
+    Expects `event.request` to carry `:id` (integer) and `:attrs` (map).
+
+  - `:agent_skill_deleted` — delegates to `RuntimeSync.agent_skill_deleted/2`.
+    Expects `event.request` to carry `:id` (integer).
+
   - Any other action — returns `{:error, {:unsupported_action, action}}`.
 
   All clauses return the event struct with `response` set. Runtime errors from
@@ -183,6 +189,36 @@ defmodule Zaq.Agent.Api do
         %{
           event
           | response: normalize_action_error(runtime_sync_module.mcp_endpoint_updated(request))
+        }
+
+      other ->
+        invalid_request_response(event, other)
+    end
+  end
+
+  def handle_event(%Event{} = event, :agent_skill_updated, _context) do
+    runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
+
+    case updated_request(event.request) do
+      {:ok, id, attrs} ->
+        %{
+          event
+          | response: normalize_action_error(runtime_sync_module.agent_skill_updated(id, attrs))
+        }
+
+      other ->
+        invalid_request_response(event, other)
+    end
+  end
+
+  def handle_event(%Event{} = event, :agent_skill_deleted, _context) do
+    runtime_sync_module = Keyword.get(event.opts, :runtime_sync_module, RuntimeSync)
+
+    case deleted_request(event.request) do
+      {:ok, id} ->
+        %{
+          event
+          | response: normalize_action_error(runtime_sync_module.agent_skill_deleted(id))
         }
 
       other ->

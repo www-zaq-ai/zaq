@@ -4,6 +4,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP.Endpoint
   alias Zaq.Agent.RuntimeSync
+  alias Zaq.Agent.Skills
 
   defmodule StubMCP do
     def get_mcp_endpoint(id) when is_integer(id) do
@@ -1115,5 +1116,133 @@ defmodule Zaq.Agent.RuntimeSyncTest do
 
     assert runtime.impacted_agent_ids == [88]
     assert runtime.results == [{:ok, %{removed_count: 1, failed_count: 0}}]
+  end
+
+  defmodule StubServerManagerForSkillPatch do
+    def sync_runtime(%ConfiguredAgent{id: id}) do
+      send(self(), {:skill_sync_runtime_called, id})
+
+      {:ok,
+       %{
+         server_ref: :server_ref,
+         runtime: %{tools: %{added_tools: []}, mcp: %{results: [], warnings: []}}
+       }}
+    end
+  end
+
+  defmodule StubAgentWithSkillModule do
+    def list_agents_with_skill(skill_id) do
+      [
+        %ConfiguredAgent{id: 91, active: true, enabled_skill_ids: [skill_id]},
+        %ConfiguredAgent{id: 92, active: false, enabled_skill_ids: [skill_id]}
+      ]
+    end
+  end
+
+  defmodule StubServerManagerSkillError do
+    def sync_runtime(_agent), do: {:error, :sync_runtime_failed}
+  end
+
+  test "sync_agent_configured_tools registers tools contributed by attached skills" do
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "sleepy-skill",
+        body: "Use the sleep tool.",
+        tool_keys: ["basic.sleep"]
+      })
+
+    agent = %ConfiguredAgent{
+      enabled_tool_keys: [],
+      enabled_mcp_endpoint_ids: [],
+      enabled_skill_ids: [skill.id]
+    }
+
+    list_tools_fn = fn :server_ref -> {:ok, []} end
+
+    register_tool_fn = fn :server_ref, module ->
+      send(self(), {:register_tool_called, module})
+      {:ok, :agent}
+    end
+
+    assert {:ok, result} =
+             RuntimeSync.sync_agent_configured_tools(agent, :server_ref,
+               list_tools_fn: list_tools_fn,
+               register_tool_fn: register_tool_fn
+             )
+
+    assert "sleep_action" in result.added_tools
+    assert_receive {:register_tool_called, Jido.Tools.Basic.Sleep}
+  end
+
+  test "agent_skill_updated persists changes and re-syncs active agents using the skill" do
+    {:ok, skill} = Skills.create_skill(%{name: "updatable-skill", body: "Old body."})
+
+    assert {:ok, %{skill: updated, runtime: runtime}} =
+             RuntimeSync.agent_skill_updated(
+               skill.id,
+               %{body: "New body."},
+               agent_module: StubAgentWithSkillModule,
+               server_manager_module: StubServerManagerForSkillPatch
+             )
+
+    assert updated.body == "New body."
+    assert runtime.strategy == :hot_runtime_patch
+    assert runtime.skill_id == skill.id
+    assert runtime.impacted_agent_ids == [91]
+    assert_receive {:skill_sync_runtime_called, 91}
+    refute_receive {:skill_sync_runtime_called, 92}
+  end
+
+  test "agent_skill_updated returns changeset error without touching runtime" do
+    {:ok, skill} = Skills.create_skill(%{name: "stays-put", body: "b"})
+
+    assert {:error, %Ecto.Changeset{}} =
+             RuntimeSync.agent_skill_updated(
+               skill.id,
+               %{name: "INVALID NAME"},
+               agent_module: StubAgentWithSkillModule,
+               server_manager_module: StubServerManagerForSkillPatch
+             )
+
+    refute_receive {:skill_sync_runtime_called, _}
+  end
+
+  test "agent_skill_updated propagates sync_runtime failures" do
+    {:ok, skill} = Skills.create_skill(%{name: "sync-fails", body: "b"})
+
+    assert {:error, {:skill_sync_failed, %{agent_id: 91, reason: :sync_runtime_failed}}} =
+             RuntimeSync.agent_skill_updated(
+               skill.id,
+               %{body: "changed"},
+               agent_module: StubAgentWithSkillModule,
+               server_manager_module: StubServerManagerSkillError
+             )
+  end
+
+  test "agent_skill_deleted removes the skill and re-syncs active agents" do
+    {:ok, skill} = Skills.create_skill(%{name: "doomed-skill", body: "b"})
+
+    assert {:ok, %{skill: deleted, runtime: runtime}} =
+             RuntimeSync.agent_skill_deleted(
+               skill.id,
+               agent_module: StubAgentWithSkillModule,
+               server_manager_module: StubServerManagerForSkillPatch
+             )
+
+    assert deleted.id == skill.id
+    assert Skills.get_skill(skill.id) == nil
+    assert runtime.impacted_agent_ids == [91]
+    assert_receive {:skill_sync_runtime_called, 91}
+  end
+
+  test "configured_agent_updated treats enabled_skill_ids change as runtime change" do
+    assert {:ok, %{runtime: %{strategy: :hot_runtime_patch}}} =
+             RuntimeSync.configured_agent_updated(
+               79,
+               %{enabled_skill_ids: [123]},
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapter
+             )
   end
 end

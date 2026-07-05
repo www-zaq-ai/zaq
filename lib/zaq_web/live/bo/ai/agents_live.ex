@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -50,6 +51,9 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> assign(:mcp_picker_value, "")
       |> assign(:mcp_notice, nil)
       |> assign(:mcp_endpoints, MCP.list_mcp_endpoints())
+      |> assign(:skills_picker_open, false)
+      |> assign(:skills_picker_value, "")
+      |> assign(:skills_catalog, Skills.list_skills())
       |> refresh_agents()
 
     {:ok, assign_new_changeset(socket)}
@@ -80,6 +84,35 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   def handle_event("close_tools_picker", _params, socket) do
     {:noreply, assign(socket, :tools_picker_open, false)}
+  end
+
+  def handle_event("open_skills_picker", _params, socket) do
+    {:noreply, assign(socket, :skills_picker_open, true)}
+  end
+
+  def handle_event("close_skills_picker", _params, socket) do
+    {:noreply, assign(socket, :skills_picker_open, false)}
+  end
+
+  def handle_event("add_skill_from_picker", %{"skill_id" => ""}, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("add_skill_from_picker", %{"skill_id" => skill_id}, socket) do
+    selected_ids = selected_skill_ids(socket)
+
+    {:noreply,
+     socket
+     |> put_selected_skill_ids([skill_id | selected_ids])
+     |> assign(:skills_picker_value, "")}
+  end
+
+  def handle_event("remove_skill", %{"id" => skill_id}, socket) do
+    selected_ids = selected_skill_ids(socket)
+    normalized_id = normalize_skill_id(skill_id)
+    next_ids = Enum.reject(selected_ids, &(&1 == normalized_id))
+
+    {:noreply, put_selected_skill_ids(socket, next_ids)}
   end
 
   def handle_event("open_mcp_picker", _params, socket) do
@@ -463,6 +496,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     |> assign(:tools_picker_value, "")
     |> assign(:mcp_picker_open, false)
     |> assign(:mcp_picker_value, "")
+    |> assign(:skills_picker_open, false)
+    |> assign(:skills_picker_value, "")
   end
 
   defp save_action(socket) do
@@ -492,6 +527,19 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
     changeset =
       Changeset.put_change(socket.assigns.changeset, :enabled_mcp_endpoint_ids, normalized_ids)
+
+    assign_changeset(socket, changeset)
+  end
+
+  defp selected_skill_ids(socket) do
+    socket.assigns.form[:enabled_skill_ids].value || []
+  end
+
+  defp put_selected_skill_ids(socket, skill_ids) do
+    normalized_ids = normalize_skill_ids(skill_ids)
+
+    changeset =
+      Changeset.put_change(socket.assigns.changeset, :enabled_skill_ids, normalized_ids)
 
     assign_changeset(socket, changeset)
   end
@@ -526,6 +574,13 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
         attrs,
         "enabled_mcp_endpoint_ids",
         normalize_mcp_endpoint_ids(Map.get(attrs, "enabled_mcp_endpoint_ids", []))
+      )
+
+    attrs =
+      Map.put(
+        attrs,
+        "enabled_skill_ids",
+        normalize_skill_ids(Map.get(attrs, "enabled_skill_ids", []))
       )
 
     case parse_advanced_options(Map.get(attrs, "advanced_options_json", "{}")) do
@@ -575,6 +630,26 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   defp normalize_mcp_endpoint_id(_), do: nil
+
+  defp normalize_skill_ids(ids) when is_list(ids) do
+    ids
+    |> Enum.map(&normalize_skill_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_skill_ids(id), do: normalize_skill_ids([id])
+
+  defp normalize_skill_id(id) when is_integer(id) and id > 0, do: id
+
+  defp normalize_skill_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int_id, ""} when int_id > 0 -> int_id
+      _ -> nil
+    end
+  end
+
+  defp normalize_skill_id(_), do: nil
 
   defp model_options_from_attrs(attrs, socket) do
     attrs
@@ -701,6 +776,88 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
             type="button"
             phx-click="remove_tool"
             phx-value-key={tool.key}
+            class="w-6 h-6 rounded border border-black/15 text-black/35 hover:bg-black/5"
+          >
+            <svg
+              class="w-3.5 h-3.5 mx-auto"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :skills_catalog, :list, required: true
+  attr :selected_skill_ids, :list, required: true
+
+  defp selected_skills_panel(assigns) do
+    skill_index = Map.new(assigns.skills_catalog, &{&1.id, &1})
+
+    selected_skills =
+      Enum.map(assigns.selected_skill_ids, fn skill_id ->
+        case Map.get(skill_index, skill_id) do
+          nil ->
+            %{
+              id: skill_id,
+              name: "Unknown skill ##{skill_id}",
+              description: "This skill has been removed.",
+              active: false,
+              ghost: true
+            }
+
+          skill ->
+            skill
+        end
+      end)
+
+    assigns = assign(assigns, :selected_skills, selected_skills)
+
+    ~H"""
+    <div class="rounded-lg border border-[#efece6]">
+      <div :if={@selected_skills == []} class="px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]">
+        No skills attached.
+      </div>
+      <div :if={@selected_skills != []} class="max-h-44 overflow-y-auto divide-y divide-[#efece6]">
+        <div
+          :for={skill <- @selected_skills}
+          data-selected-skill-id={skill.id}
+          class={[
+            "flex items-start justify-between gap-3 px-3 py-2",
+            if(Map.get(skill, :ghost), do: "bg-red-50 hover:bg-red-100", else: "hover:bg-[#faf8f5]")
+          ]}
+        >
+          <div>
+            <p class={[
+              "font-mono text-[0.72rem]",
+              if(Map.get(skill, :ghost), do: "text-red-600", else: "text-[#3e3b36]")
+            ]}>
+              {skill.name}
+              <span
+                :if={Map.get(skill, :ghost)}
+                class="ml-1.5 inline-block rounded bg-red-100 px-1 py-px font-mono text-[0.58rem] text-red-600"
+              >
+                Removed
+              </span>
+              <span
+                :if={!Map.get(skill, :ghost) and !skill.active}
+                class="ml-1.5 inline-block rounded bg-black/5 px-1 py-px font-mono text-[0.58rem] text-black/40"
+              >
+                Inactive
+              </span>
+            </p>
+            <p class="font-mono text-[0.64rem] text-[#8f8a82]">{skill.description}</p>
+          </div>
+          <button
+            type="button"
+            phx-click="remove_skill"
+            phx-value-id={skill.id}
             class="w-6 h-6 rounded border border-black/15 text-black/35 hover:bg-black/5"
           >
             <svg

@@ -12,6 +12,11 @@ defmodule Zaq.Agent.RuntimeSync do
     (create, update, enable predefined, delete) and fans out the runtime effect to
     all active agents that reference the endpoint.
 
+  - **Skill lifecycle** — `agent_skill_updated/3` and `agent_skill_deleted/2` persist
+    skill changes and fan out a tool re-sync to all active agents that reference the
+    skill. Skill prompt changes need no fan-out: the effective system prompt is
+    recomputed on every ask by `Zaq.Agent.Factory`.
+
   - **Runtime sync primitives** — `sync_agent_runtime/3`,
     `sync_agent_configured_tools/3`, and `sync_agent_mcp_assignments/3` reconcile
     a live agent server's tool set and MCP endpoint registrations against the current
@@ -27,6 +32,7 @@ defmodule Zaq.Agent.RuntimeSync do
   alias Zaq.Agent.MCP.Runtime
   alias Zaq.Agent.MCP.SignalAdapter
   alias Zaq.Agent.ServerManager
+  alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Registry
 
   @doc """
@@ -104,7 +110,8 @@ defmodule Zaq.Agent.RuntimeSync do
   end
 
   @doc """
-  Reconciles the tool set on a running agent server against the agent's `enabled_tool_keys`.
+  Reconciles the tool set on a running agent server against the agent's `enabled_tool_keys`
+  unioned with the tool keys of its attached skills (`Skills.effective_tool_keys/2`).
 
   Adds tools that are desired but not registered, and removes tools that are registered but
   no longer desired (only those owned by the managed registry). Returns `{:ok, map}` with
@@ -113,7 +120,12 @@ defmodule Zaq.Agent.RuntimeSync do
   @spec sync_agent_configured_tools(ConfiguredAgent.t(), GenServer.server(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def sync_agent_configured_tools(%ConfiguredAgent{} = agent, server_ref, opts \\ []) do
-    with {:ok, desired_tools} <- Registry.resolve_modules(agent.enabled_tool_keys || []),
+    skills_module = Keyword.get(opts, :skills_module, Skills)
+
+    desired_keys =
+      skills_module.effective_tool_keys(agent, skills_module.enabled_for_agent(agent))
+
+    with {:ok, desired_tools} <- Registry.resolve_modules(desired_keys),
          {:ok, current_tools} <- list_tools(server_ref, opts) do
       managed_tools = managed_tool_modules()
 
@@ -187,6 +199,42 @@ defmodule Zaq.Agent.RuntimeSync do
     case agent_module.delete_agent(agent) do
       {:ok, deleted} -> {:ok, %{agent: deleted, runtime: %{strategy: :drain_and_stop}}}
       other -> other
+    end
+  end
+
+  @doc """
+  Persists updates to an agent skill and re-syncs tools on all active agents using it.
+
+  Prompt-only changes (body, description) also go through here — the fan-out is a no-op
+  for tools and the effective system prompt self-heals on each agent's next ask.
+  Returns `{:ok, %{skill: updated, runtime: runtime}}` or `{:error, reason}`.
+  """
+  @spec agent_skill_updated(integer(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def agent_skill_updated(id, attrs, opts \\ []) when is_integer(id) and is_map(attrs) do
+    skills_module = Keyword.get(opts, :skills_module, Skills)
+    skill = skills_module.get_skill!(id)
+
+    with {:ok, updated} <- skills_module.update_skill(skill, attrs),
+         {:ok, runtime} <- patch_skill_runtime(updated.id, opts) do
+      {:ok, %{skill: updated, runtime: runtime}}
+    end
+  end
+
+  @doc """
+  Deletes an agent skill and re-syncs tools on all active agents that referenced it.
+
+  Agents keep the ghost id in `enabled_skill_ids`; runtime resolution drops it, so the
+  fan-out removes the skill's tools from live servers. Returns
+  `{:ok, %{skill: deleted, runtime: runtime}}` or `{:error, reason}`.
+  """
+  @spec agent_skill_deleted(integer(), keyword()) :: {:ok, map()} | {:error, term()}
+  def agent_skill_deleted(id, opts \\ []) when is_integer(id) do
+    skills_module = Keyword.get(opts, :skills_module, Skills)
+    skill = skills_module.get_skill!(id)
+
+    with {:ok, deleted} <- skills_module.delete_skill(skill),
+         {:ok, runtime} <- patch_skill_runtime(skill.id, opts) do
+      {:ok, %{skill: deleted, runtime: runtime}}
     end
   end
 
@@ -302,6 +350,38 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
+  defp patch_skill_runtime(skill_id, opts) do
+    agent_module = Keyword.get(opts, :agent_module, Agent)
+    server_manager = Keyword.get(opts, :server_manager_module, ServerManager)
+
+    impacted_agents =
+      agent_module.list_agents_with_skill(skill_id)
+      |> Enum.filter(&(&1.active == true))
+
+    Enum.reduce_while(impacted_agents, {:ok, []}, fn agent, {:ok, acc} ->
+      case server_manager.sync_runtime(agent) do
+        {:ok, result} ->
+          {:cont, {:ok, [{agent.id, result} | acc]}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:skill_sync_failed, %{agent_id: agent.id, reason: reason}}}}
+      end
+    end)
+    |> case do
+      {:ok, results} ->
+        {:ok,
+         %{
+           strategy: :hot_runtime_patch,
+           skill_id: skill_id,
+           impacted_agent_ids: Enum.map(impacted_agents, & &1.id),
+           results: Enum.reverse(results)
+         }}
+
+      error ->
+        error
+    end
+  end
+
   defp patch_mcp_endpoint_runtime(endpoint, opts) do
     agent_module = Keyword.get(opts, :agent_module, Agent)
 
@@ -364,6 +444,7 @@ defmodule Zaq.Agent.RuntimeSync do
       :credential_id,
       :enabled_tool_keys,
       :enabled_mcp_endpoint_ids,
+      :enabled_skill_ids,
       :advanced_options,
       :active,
       :job,

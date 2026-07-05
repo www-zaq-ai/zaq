@@ -160,18 +160,28 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
   - `:configured_agent_updated`
   - `:configured_agent_deleted`
   - `:mcp_endpoint_updated`
+  - `:agent_skill_updated`
+  - `:agent_skill_deleted`
 
 ### Configured Agents (`Zaq.Agent` context)
 - Schema: `Zaq.Agent.ConfiguredAgent` (`configured_agents` table)
 - BO CRUD route: `/bo/agents`
 - Chat selector route: `/bo/chat` top bar dropdown
-- Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+- Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `enabled_skill_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+
+### Skills (`Zaq.Agent.Skills` context)
+- Schema: `Zaq.Agent.Skill` (`agent_skills` table) — `name` (lowercase kebab-case, unique), `description`, `body` (markdown instructions), `tool_keys` (validated against `Tools.Registry`), `tags` (normalized, GIN-indexed), `active`
+- BO CRUD route: `/bo/skills`; agents attach skills via `enabled_skill_ids` (array, no FK — ghost ids are dropped at runtime)
+- **Effective config has one home:** `Zaq.Agent.Skills` composes the agent's runtime view of skills — `enabled_for_agent/1` (active skills only), `effective_tool_keys/2` (agent keys ∪ skill keys, registry-ghost keys filtered), `effective_system_prompt/2` (`job` + rendered `## name` skill blocks). `Factory` and `RuntimeSync` consume these; nothing else re-derives skill semantics.
+- **Hot runtime patch tier (no restart):** skill changes propagate like `enabled_tool_keys`/`enabled_mcp_endpoint_ids` — tools reconcile through `RuntimeSync.sync_agent_configured_tools/3`; the system prompt is recomputed on every ask in `Factory.ask_with_config/4`, so body edits self-heal on the next question. Skills are deliberately excluded from the `ServerManager` restart fingerprint.
+- Skill record mutations (update/delete) fan out a tool re-sync to all active agents referencing the skill (`Zaq.Agent.list_agents_with_skill/1`) via the `:agent_skill_updated` / `:agent_skill_deleted` events.
 
 ### Runtime Sync (`Zaq.Agent.RuntimeSync`)
-- Owns runtime orchestration after configured-agent and MCP endpoint mutations.
+- Owns runtime orchestration after configured-agent, MCP endpoint, and skill mutations.
 - Responsibilities:
   - configured agent create/update/delete runtime handling
   - MCP endpoint update fanout to impacted configured agents
+  - skill update/delete fanout (tool re-sync) to impacted configured agents
   - hydration/sync of MCP assignments into running agent runtimes
   - unsync of MCP assignments when endpoint is disabled/deleted
 - Exposes a single orchestration boundary so BO code dispatches events and does not call low-level runtime modules directly.

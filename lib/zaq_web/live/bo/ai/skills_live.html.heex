@@ -1,0 +1,288 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title="Skills"
+  current_path={@current_path}
+  features_version={@features_version}
+>
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <p class="font-mono text-lg font-bold text-black">Agent Skills</p>
+      <p class="font-mono text-[0.75rem] text-black/40">
+        Reusable instruction + tool bundles attachable to any agent
+      </p>
+    </div>
+    <button
+      id="new-skill-button"
+      type="button"
+      phx-click="new_skill"
+      class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+    >
+      + New skill
+    </button>
+  </div>
+  
+<!-- Filters -->
+  <form id="skills-filter-form" phx-change="filter" class="grid grid-cols-2 gap-4 mb-6">
+    <div>
+      <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+        Search
+      </label>
+      <input
+        type="text"
+        name="filters[q]"
+        value={@filters["q"]}
+        placeholder="Name or description..."
+        phx-debounce="300"
+        class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+      />
+    </div>
+    <div>
+      <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+        Tags
+      </label>
+      <input
+        type="text"
+        name="filters[tag]"
+        value={@filters["tag"]}
+        placeholder="Comma-separated tags, matches any..."
+        phx-debounce="300"
+        class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+      />
+    </div>
+  </form>
+  
+<!-- Skill list -->
+  <div
+    :if={@skills == []}
+    class="rounded-lg border border-dashed border-[#e6e2db] px-4 py-6 font-mono text-[0.75rem] text-[#9a958c] mb-6"
+  >
+    No skills found.
+  </div>
+
+  <div :if={@skills != []} class="rounded-lg border border-black/10 overflow-hidden mb-6">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-black/10 bg-black/[0.02]">
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-4 py-2.5">
+            Name
+          </th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-4 py-2.5">
+            Tags
+          </th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-4 py-2.5">
+            Tools
+          </th>
+          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-4 py-2.5">
+            Status
+          </th>
+          <th class="px-4 py-2.5"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          :for={skill <- @skills}
+          id={"skill-row-#{skill.id}"}
+          class={[
+            "border-b border-black/5 last:border-b-0 cursor-pointer transition-colors",
+            if(@selected_skill && @selected_skill.id == skill.id,
+              do: "bg-[#03b6d4]/5",
+              else: "hover:bg-black/[0.02]"
+            )
+          ]}
+          phx-click="select_skill"
+          phx-value-id={skill.id}
+        >
+          <td class="px-4 py-3">
+            <p class="font-mono text-sm font-bold text-black">{skill.name}</p>
+            <p :if={skill.description} class="font-mono text-[0.7rem] text-black/40 truncate">
+              {skill.description}
+            </p>
+          </td>
+          <td class="px-4 py-3">
+            <span
+              :for={tag <- skill.tags}
+              class="inline-block font-mono text-[0.65rem] px-1.5 py-0.5 mr-1 rounded bg-black/5 text-black/50"
+            >
+              {tag}
+            </span>
+          </td>
+          <td class="px-4 py-3 font-mono text-[0.75rem] text-black/50">
+            {length(skill.tool_keys)}
+          </td>
+          <td class="px-4 py-3">
+            <span class={[
+              "font-mono text-[0.65rem] px-1.5 py-0.5 rounded",
+              if(skill.active,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4]",
+                else: "bg-black/5 text-black/30"
+              )
+            ]}>
+              {if skill.active, do: "active", else: "inactive"}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-right">
+            <button
+              id={"delete-skill-#{skill.id}"}
+              type="button"
+              phx-click="delete_skill"
+              phx-value-id={skill.id}
+              data-confirm="Delete this skill? Agents using it will lose its tools and instructions."
+              class="font-mono text-[0.7rem] text-red-400 hover:text-red-600 transition-colors"
+            >
+              Delete
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  
+<!-- Skill form -->
+  <div :if={@mode != :idle} class="rounded-lg border border-black/10 p-6">
+    <p class="font-mono text-sm font-bold text-black mb-4">
+      {if @mode == :new, do: "New Skill", else: "Edit Skill"}
+    </p>
+    
+<!-- Tools (own form: assigns-backed, injected into attrs on save) -->
+    <div class="mb-5">
+      <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+        Tools
+      </label>
+      <div class="flex flex-wrap gap-1.5 mb-2">
+        <span
+          :for={tool_key <- @form_tool_keys}
+          class="inline-flex items-center gap-1.5 font-mono text-[0.68rem] px-2 py-1 rounded-lg bg-black/5 text-black/60"
+        >
+          {tool_label(@tools, tool_key)}
+          <button
+            type="button"
+            phx-click="remove_tool"
+            phx-value-key={tool_key}
+            class="text-black/30 hover:text-red-500 transition-colors"
+          >
+            &times;
+          </button>
+        </span>
+        <span :if={@form_tool_keys == []} class="font-mono text-[0.68rem] text-black/30">
+          No tools attached
+        </span>
+      </div>
+      <form id="skill-tool-picker" phx-change="add_tool">
+        <select
+          id="skill-tool-select"
+          name="tool_key"
+          class="font-mono text-[0.75rem] bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+        >
+          <option value="">Add a tool...</option>
+          <option :for={tool <- @tools} :if={tool.key not in @form_tool_keys} value={tool.key}>
+            {tool.label}
+          </option>
+        </select>
+      </form>
+    </div>
+
+    <.form for={@form} id="skill-form" phx-change="validate" phx-submit="save" class="space-y-5">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+            Name
+          </label>
+          <input
+            type="text"
+            name="skill[name]"
+            value={@form[:name].value}
+            placeholder="lowercase-kebab-case"
+            class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+          />
+          <p
+            :for={error <- field_errors(@form[:name])}
+            class="font-mono text-[0.68rem] text-red-500 mt-1"
+          >
+            {error}
+          </p>
+        </div>
+        <div>
+          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+            Tags
+          </label>
+          <input
+            type="text"
+            name="skill[tags]"
+            value={tags_to_string(@form[:tags].value)}
+            placeholder="math, utility"
+            class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+          Description
+        </label>
+        <input
+          type="text"
+          name="skill[description]"
+          value={@form[:description].value}
+          class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+        />
+        <p
+          :for={error <- field_errors(@form[:description])}
+          class="font-mono text-[0.68rem] text-red-500 mt-1"
+        >
+          {error}
+        </p>
+      </div>
+
+      <div>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+          Instructions
+        </label>
+        <textarea
+          id="skill-body-input"
+          name="skill[body]"
+          rows="10"
+          placeholder="Markdown instructions injected into the agent's system prompt..."
+          class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4] resize-y"
+        >{@form[:body].value}</textarea>
+        <p
+          :for={error <- field_errors(@form[:body])}
+          class="font-mono text-[0.68rem] text-red-500 mt-1"
+        >
+          {error}
+        </p>
+      </div>
+      
+<!-- Active -->
+      <label class="flex items-center gap-2 font-mono text-[0.75rem] text-black/60">
+        <input type="hidden" name="skill[active]" value="false" />
+        <input
+          type="checkbox"
+          name="skill[active]"
+          value="true"
+          checked={@form[:active].value in [true, "true"]}
+          class="rounded border-black/20"
+        /> Active
+      </label>
+      
+<!-- Actions -->
+      <div class="flex items-center justify-end gap-3 pt-2">
+        <button
+          type="button"
+          phx-click="cancel_form"
+          class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/15 text-black/50 hover:bg-black/5 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          id="save-skill-button"
+          type="submit"
+          class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+        >
+          Save
+        </button>
+      </div>
+    </.form>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

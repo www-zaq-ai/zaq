@@ -243,6 +243,18 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
     assert Ecto.Changeset.get_field(changeset, :enabled_mcp_endpoint_ids) == [1, 2]
   end
 
+  test "changeset normalizes enabled_skill_ids" do
+    changeset =
+      ConfiguredAgent.changeset(%ConfiguredAgent{}, %{enabled_skill_ids: [3, 1, 3]})
+
+    assert Ecto.Changeset.get_field(changeset, :enabled_skill_ids) == [3, 1]
+  end
+
+  test "enabled_skill_ids defaults to an empty list" do
+    changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{})
+    assert Ecto.Changeset.get_field(changeset, :enabled_skill_ids) == []
+  end
+
   test "database constraints are surfaced by the changeset" do
     credential =
       ai_credential_fixture(%{

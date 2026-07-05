@@ -46,6 +46,14 @@ defmodule Zaq.Agent do
     end)
   end
 
+  @spec list_agents_with_skill(integer()) :: [ConfiguredAgent.t()]
+  def list_agents_with_skill(skill_id) when is_integer(skill_id) do
+    list_agents()
+    |> Enum.filter(fn %ConfiguredAgent{} = agent ->
+      skill_id in (agent.enabled_skill_ids || [])
+    end)
+  end
+
   @spec filter_agents(map(), keyword()) :: {[ConfiguredAgent.t()], non_neg_integer()}
   def filter_agents(filters, opts \\ []) do
     page = Keyword.get(opts, :page, 1)

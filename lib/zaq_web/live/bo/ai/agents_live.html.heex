@@ -112,6 +112,19 @@
           |> Enum.filter(&(&1.status == "enabled"))
           |> Enum.reject(&(&1.id in selected_mcp_ids))
           |> Enum.map(&{"#{&1.name} (##{&1.id})", &1.id}) %>
+        <% selected_agent_skill_ids = @form[:enabled_skill_ids].value || [] %>
+        <% unselected_skill_options =
+          @skills_catalog
+          |> Enum.filter(& &1.active)
+          |> Enum.reject(&(&1.id in selected_agent_skill_ids))
+          |> Enum.map(fn skill ->
+            label =
+              if skill.tags == [],
+                do: skill.name,
+                else: "#{skill.name} (#{Enum.join(skill.tags, ", ")})"
+
+            {label, skill.id}
+          end) %>
 
         <section class="rounded-xl border border-[#e6e2db] bg-white p-4">
           <div class="flex items-center justify-between">
@@ -429,6 +442,50 @@
               </p>
             </div>
 
+            <div>
+              <div class="mb-2 flex items-center justify-between">
+                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82]">
+                  Skills
+                </label>
+                <button
+                  id="add-skills-button"
+                  type="button"
+                  phx-click="open_skills_picker"
+                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
+                  disabled={unselected_skill_options == []}
+                >
+                  + Add skills
+                </button>
+              </div>
+              <input type="hidden" name="configured_agent[enabled_skill_ids][]" value="" />
+              <input
+                :for={skill_id <- selected_agent_skill_ids}
+                type="hidden"
+                name="configured_agent[enabled_skill_ids][]"
+                value={skill_id}
+              />
+              <div
+                :if={@skills_catalog == [] and selected_agent_skill_ids == []}
+                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+              >
+                No skills defined yet. Create one on the
+                <a href={~p"/bo/skills"} class="underline hover:text-[#3e3b36]">Skills</a>
+                page.
+              </div>
+              <.selected_skills_panel
+                :if={@skills_catalog != [] or selected_agent_skill_ids != []}
+                skills_catalog={@skills_catalog}
+                selected_skill_ids={selected_agent_skill_ids}
+              />
+              <p
+                :for={msg <- error_messages(@changeset, :enabled_skill_ids)}
+                data-error-message
+                class="mt-1 font-mono text-[0.64rem] text-red-500"
+              >
+                {msg}
+              </p>
+            </div>
+
             <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.42fr)_minmax(0,1fr)]">
               <div>
                 <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
@@ -738,6 +795,61 @@
 
           <p class="mt-3 font-mono text-[0.64rem] text-[#8f8a82]">
             Pick one tool at a time. This modal stays open to add multiple tools quickly.
+          </p>
+        </ZaqWeb.Components.BOModal.modal_shell>
+
+        <ZaqWeb.Components.BOModal.modal_shell
+          :if={@skills_picker_open}
+          id="agent-skills-picker-modal"
+          cancel_event="close_skills_picker"
+          max_width_class="max-w-lg"
+          panel_class="p-6"
+        >
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+              Add skills
+            </h3>
+            <button
+              type="button"
+              phx-click="close_skills_picker"
+              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <form phx-change="add_skill_from_picker">
+            <.searchable_select
+              id="agent-skills-picker-select"
+              name="skill_id"
+              value={@skills_picker_value}
+              options={unselected_skill_options}
+              placeholder="Search by skill name or tag..."
+              empty_label="Choose a skill to add..."
+              compact={true}
+            />
+          </form>
+
+          <div class="mt-4">
+            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+              Attached skills
+            </p>
+            <.selected_skills_panel
+              skills_catalog={@skills_catalog}
+              selected_skill_ids={selected_agent_skill_ids}
+            />
+          </div>
+
+          <p class="mt-3 font-mono text-[0.64rem] text-[#8f8a82]">
+            Pick one skill at a time. This modal stays open to add multiple skills quickly.
           </p>
         </ZaqWeb.Components.BOModal.modal_shell>
       </:detail>
