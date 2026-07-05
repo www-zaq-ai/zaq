@@ -220,6 +220,13 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
   passes derived `ctx[:person_id]`); the `person_id` parameter is honored only on `skip_permissions` runs
 - Doubles as a workflow action (`use Zaq.Engine.Workflows.Action`)
 
+### Message History Persistence Tool (`Zaq.Agent.Tools.Conversations.PersistMessageHistory`, key `conversation.persist_message_history`)
+- Persists one user or assistant message into the Engine conversation history via `NodeRouter.dispatch/1`.
+- Accepts either an existing `%Zaq.Engine.Messages.Incoming{}` routing envelope or generic routing fields (`channel_id`, `provider`, `author_id`, `thread_id`, `message_id`, `metadata`).
+- Also accepts delivery aliases from notification workflows (`channel`, `channel_identifier`, `message`, `sent_message`). When an `Incoming` struct is supplied, other routing fields are not required.
+- Defaults the stored message role to `"assistant"` so workflows can persist assistant-initiated notifications or follow-ups without creating a fake user turn.
+- Conversation creation/reuse is delegated to `Zaq.Engine.Conversations.persist_message_history/2`, which uses the same channel and email topic grouping rules as `persist_from_incoming/2`.
+
 ### Runtime Factory (`Zaq.Agent.Factory`)
 - Standard runtime agent for all configured agents
 - Supports per-request runtime tool/module selection and LLM options

@@ -113,6 +113,11 @@ Adapter inbound path:
 - `update_conversation/2`, `archive_conversation/1`, `delete_conversation/1` — lifecycle.
 - `persist_from_incoming/2` — convenience: upserts conversation + stores both user and
   assistant messages from a pipeline result in one call.
+- `persist_message_history/2` — upserts/resolves a conversation from an Incoming routing
+  envelope and stores one message, defaulting to assistant messages for initiated follow-ups.
+  Email delivery providers such as `email:smtp` normalize to the existing `email:imap`
+  conversation type; email grouping is resolved centrally from `metadata.email.thread_key`,
+  `metadata.thread_key`, `metadata.topic`, `metadata.subject`, then thread/message ids.
 - `add_message/2` — inserts a message, records telemetry, enqueues token aggregation,
   triggers async title generation on first user message.
 - `list_messages/1` — all messages for a conversation in insertion order, preloads ratings.

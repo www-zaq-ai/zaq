@@ -28,6 +28,14 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
         required: false,
         doc: "Final channel identifier used for delivery."
       ],
+      provider: [type: :string, required: false, doc: "Alias for the final delivery channel."],
+      channel_id: [type: :string, required: false, doc: "Alias for the final channel identifier."],
+      author_id: [type: :string, required: false, doc: "Alias for the final channel identifier."],
+      person: [type: :map, required: false, doc: "Person payload that was notified."],
+      person_id: [type: :integer, required: false, doc: "Person id that was notified."],
+      subject: [type: :string, required: false, doc: "Notification subject."],
+      message: [type: :string, required: false, doc: "Notification body text."],
+      content: [type: :string, required: false, doc: "Alias for the notification body text."],
       notification_log_id: [type: :integer, required: false, doc: "Notification audit log id."]
     ]
 
@@ -47,7 +55,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
         |> Event.new(:engine, opts: [action: :notify_person])
         |> node_router.dispatch()
         |> Map.get(:response)
-        |> handle_response()
+        |> handle_response(subject, message, person)
 
       _ ->
         {:error, "missing_person_id"}
@@ -59,18 +67,47 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
   defp person_id(%{"id" => id}), do: id
   defp person_id(_), do: nil
 
-  defp handle_response({:ok, %{status: status} = result}) when status in [:sent, :skipped] do
+  defp handle_response({:ok, %{status: status} = result}, subject, message, person)
+       when status in [:sent, :skipped] do
+    channel = Map.get(result, :channel)
+    channel_identifier = Map.get(result, :channel_identifier)
+    person_payload = person_payload(person)
+
     {:ok,
      %{
        notified: status == :sent,
        status: status,
-       channel: Map.get(result, :channel),
-       channel_identifier: Map.get(result, :channel_identifier),
+       channel: channel,
+       channel_identifier: channel_identifier,
+       provider: channel,
+       channel_id: channel_identifier,
+       author_id: channel_identifier,
+       person: person_payload,
+       person_id: person_payload[:id],
+       subject: subject,
+       message: message,
+       content: message,
        notification_log_id: Map.get(result, :notification_log_id)
      }}
   end
 
-  defp handle_response({:error, reason}) when is_binary(reason), do: {:error, reason}
-  defp handle_response({:error, reason}), do: {:error, inspect(reason)}
-  defp handle_response(other), do: {:error, "notify_person_failed:#{inspect(other)}"}
+  defp handle_response({:error, reason}, _subject, _message, _person) when is_binary(reason),
+    do: {:error, reason}
+
+  defp handle_response({:error, reason}, _subject, _message, _person),
+    do: {:error, inspect(reason)}
+
+  defp handle_response(other, _subject, _message, _person),
+    do: {:error, "notify_person_failed:#{inspect(other)}"}
+
+  defp person_payload(%Person{} = person) do
+    person
+    |> Map.from_struct()
+    |> Map.take([:id, :full_name, :email, :phone, :role, :status, :incomplete])
+  end
+
+  defp person_payload(person) when is_map(person) do
+    [:id, :full_name, :email, :phone, :role, :status, :incomplete]
+    |> Map.new(fn key -> {key, Map.get(person, key) || Map.get(person, to_string(key))} end)
+  end
 end

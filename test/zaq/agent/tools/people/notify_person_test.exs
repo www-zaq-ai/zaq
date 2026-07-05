@@ -66,6 +66,14 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
                 status: :sent,
                 channel: "email:smtp",
                 channel_identifier: "person@example.com",
+                provider: "email:smtp",
+                channel_id: "person@example.com",
+                author_id: "person@example.com",
+                person: %{id: person_id},
+                person_id: person_id,
+                subject: "Hello",
+                message: "Body",
+                content: "Body",
                 notification_log_id: 123
               }} =
                NotifyPerson.run(

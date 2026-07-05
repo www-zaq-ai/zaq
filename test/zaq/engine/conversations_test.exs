@@ -693,6 +693,180 @@ defmodule Zaq.Engine.ConversationsTest do
     end
   end
 
+  describe "persist_message_history/2" do
+    test "creates a conversation and stores exactly one assistant message by default" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Routing envelope content",
+        channel_id: "chan-history",
+        author_id: "history-user-#{System.unique_integer([:positive])}",
+        provider: :mattermost
+      }
+
+      assert {:ok, %{conversation_id: conversation_id, message_id: message_id}} =
+               Conversations.persist_message_history(incoming, %{
+                 content: "Assistant initiated follow-up"
+               })
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_type == "mattermost"
+      assert conversation.channel_user_id == incoming.author_id
+
+      [message] = Conversations.list_messages(conversation)
+      assert message.id == message_id
+      assert message.role == "assistant"
+      assert message.content == "Assistant initiated follow-up"
+    end
+
+    test "appends to an existing conversation when metadata carries conversation_id" do
+      {:ok, existing} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "persist-history-existing-#{System.unique_integer([:positive])}"
+        })
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "ignored",
+        channel_id: "chan-existing",
+        author_id: "author-existing",
+        provider: :mattermost,
+        metadata: %{conversation_id: existing.id}
+      }
+
+      existing_id = existing.id
+
+      assert {:ok, %{conversation_id: ^existing_id, message_id: _}} =
+               Conversations.persist_message_history(incoming, %{
+                 role: "user",
+                 content: "Manual user note"
+               })
+
+      [message] = Conversations.list_messages(existing)
+      assert message.role == "user"
+      assert message.content == "Manual user note"
+    end
+
+    test "reuses email topic grouping for assistant-initiated messages" do
+      thread_key = "history-thread-#{System.unique_integer([:positive])}@example.com"
+
+      first = %Zaq.Engine.Messages.Incoming{
+        content: "First follow-up",
+        channel_id: "sender@example.com",
+        author_id: "sender@example.com",
+        provider: :email,
+        metadata: %{"email" => %{"thread_key" => thread_key}}
+      }
+
+      second = %Zaq.Engine.Messages.Incoming{
+        content: "Second follow-up",
+        channel_id: "sender@example.com",
+        author_id: "sender@example.com",
+        provider: :email,
+        metadata: %{"email" => %{"thread_key" => thread_key}}
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_message_history(first, %{content: "First assistant message"})
+
+      assert {:ok, %{conversation_id: ^conversation_id}} =
+               Conversations.persist_message_history(second, %{
+                 content: "Second assistant message"
+               })
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_type == "email:imap"
+      assert conversation.channel_user_id == thread_key
+
+      assert Enum.map(Conversations.list_messages(conversation), & &1.content) == [
+               "First assistant message",
+               "Second assistant message"
+             ]
+    end
+
+    test "normalizes email:smtp delivery provider and groups by subject metadata" do
+      subject = "Quarterly check-in #{System.unique_integer([:positive])}"
+
+      first = %Zaq.Engine.Messages.Incoming{
+        content: "First outbound",
+        channel_id: "recipient@example.com",
+        author_id: "recipient@example.com",
+        provider: "email:smtp",
+        metadata: %{"subject" => subject}
+      }
+
+      second = %Zaq.Engine.Messages.Incoming{
+        content: "Second outbound",
+        channel_id: "recipient@example.com",
+        author_id: "recipient@example.com",
+        provider: "email:smtp",
+        metadata: %{"subject" => subject}
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_message_history(first, %{content: "First assistant message"})
+
+      assert {:ok, %{conversation_id: ^conversation_id}} =
+               Conversations.persist_message_history(second, %{
+                 content: "Second assistant message"
+               })
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_type == "email:imap"
+      assert conversation.channel_user_id == subject
+    end
+
+    test "assigns explicit person_id to assistant-initiated history conversation" do
+      {:ok, person} = People.create_person(%{full_name: "History Person"})
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Outbound body",
+        channel_id: "mattermost-dm-#{System.unique_integer([:positive])}",
+        author_id: "mattermost-dm-#{System.unique_integer([:positive])}",
+        provider: "mattermost"
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_message_history(incoming, %{
+                 content: "Outbound body",
+                 person_id: person.id
+               })
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.person_id == person.id
+    end
+
+    test "sets title from metadata subject and does not overwrite existing title" do
+      subject = "Your team's AI-powered company brain"
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Outbound body",
+        channel_id: "mattermost-title-#{System.unique_integer([:positive])}",
+        author_id: "mattermost-title-#{System.unique_integer([:positive])}",
+        provider: "mattermost",
+        metadata: %{"subject" => subject}
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_message_history(incoming, %{
+                 content: "Outbound body",
+                 metadata: %{"subject" => subject}
+               })
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.title == subject
+
+      assert {:ok, _} =
+               Conversations.persist_message_history(
+                 %{
+                   incoming
+                   | metadata: %{"subject" => "Replacement", conversation_id: conversation_id}
+                 },
+                 %{content: "Second body", metadata: %{"subject" => "Replacement"}}
+               )
+
+      assert Conversations.get_conversation!(conversation_id).title == subject
+    end
+  end
+
   # ── add_message/2 ──────────────────────────────────────────────────
 
   describe "add_message/2" do

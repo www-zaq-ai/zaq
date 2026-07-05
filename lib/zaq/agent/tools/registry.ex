@@ -35,6 +35,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.KnowledgeBaseOverview
     },
     %{
+      key: "conversation.persist_message_history",
+      label: "Persist message history",
+      description:
+        "Persist one user or assistant message into the correct conversation history, creating the conversation when needed",
+      module: Zaq.Agent.Tools.Conversations.PersistMessageHistory
+    },
+    %{
       key: "data_source.get_document",
       label: "Get document",
       description: "Get a document by id from a specific datasource provider",

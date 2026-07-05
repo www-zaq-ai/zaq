@@ -228,6 +228,28 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
+  @doc """
+  Persists one message into the conversation resolved from an incoming routing envelope.
+
+  Unlike `persist_from_incoming/2`, this stores exactly one message and defaults
+  the message role to `"assistant"`, which supports assistant-initiated follow-ups
+  or notifications without fabricating a user turn.
+  """
+  def persist_message_history(%Incoming{} = msg, attrs) when is_map(attrs) do
+    channel_type = normalize_channel_type(msg.provider)
+    channel_user_id = conversation_channel_user_id(msg, channel_type) || msg.channel_id
+    message_attrs = message_history_attrs(attrs, msg)
+
+    with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, channel_type),
+         {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
+         {:ok, conv} <-
+           maybe_assign_person(conv, Incoming.person_id(msg) || map_get(attrs, "person_id")),
+         {:ok, conv} <- maybe_assign_history_title(conv, message_history_title(attrs, msg)),
+         {:ok, message} <- add_message(conv, message_attrs) do
+      {:ok, %{conversation_id: conv.id, message_id: message.id}}
+    end
+  end
+
   defp conversation_for_persistence(msg, channel_user_id, channel_type) do
     case metadata_conversation_id(msg.metadata) do
       id when is_binary(id) and id != "" ->
@@ -271,6 +293,50 @@ defmodule Zaq.Engine.Conversations do
     |> Map.get(:trace, Map.get(result, "trace", []))
     |> StreamEvents.json_safe()
   end
+
+  defp message_history_attrs(attrs, %Incoming{} = incoming) do
+    %{
+      role: map_get(attrs, "role") || "assistant",
+      content: map_get(attrs, "content") || incoming.content,
+      confidence_score: map_get(attrs, "confidence_score"),
+      latency_ms: map_get(attrs, "latency_ms"),
+      prompt_tokens: map_get(attrs, "prompt_tokens"),
+      completion_tokens: map_get(attrs, "completion_tokens"),
+      total_tokens: map_get(attrs, "total_tokens"),
+      model: map_get(attrs, "model"),
+      sources: (map_get(attrs, "sources") || []) |> StreamEvents.json_safe(),
+      metadata: (map_get(attrs, "metadata") || %{}) |> StreamEvents.json_safe(),
+      trace: (map_get(attrs, "trace") || []) |> StreamEvents.json_safe()
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp message_history_title(attrs, %Incoming{} = incoming) do
+    message_metadata = map_get(attrs, "metadata")
+
+    first_present([
+      map_get(message_metadata, "topic"),
+      map_get(message_metadata, "subject"),
+      map_get(incoming.metadata, "topic"),
+      map_get(incoming.metadata, "subject")
+    ])
+  end
+
+  defp maybe_assign_history_title(%Conversation{title: nil} = conv, title)
+       when is_binary(title) do
+    case String.trim(title) do
+      "" ->
+        {:ok, conv}
+
+      title ->
+        conv
+        |> Conversation.changeset(%{title: title})
+        |> Repo.update()
+    end
+  end
+
+  defp maybe_assign_history_title(conv, _title), do: {:ok, conv}
 
   defp touch_conversation(%Conversation{} = conv) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
@@ -369,6 +435,7 @@ defmodule Zaq.Engine.Conversations do
   defp normalize_channel_type(provider) when is_binary(provider) do
     case provider do
       "email" -> "email:imap"
+      "email:smtp" -> "email:imap"
       "web" -> "bo"
       other -> other
     end
@@ -387,7 +454,12 @@ defmodule Zaq.Engine.Conversations do
 
     # thread_key groups the whole email conversation by root reference.
     # thread_id remains useful for reply continuity, but grouping should stay stable.
-    map_get(email_meta, "thread_key") ||
+    first_present([
+      map_get(email_meta, "thread_key"),
+      map_get(msg.metadata, "thread_key"),
+      map_get(msg.metadata, "topic"),
+      map_get(msg.metadata, "subject")
+    ]) ||
       EmailUtils.normalize_message_id(msg.thread_id) ||
       EmailUtils.normalize_message_id(msg.message_id) ||
       msg.author_id
@@ -400,6 +472,13 @@ defmodule Zaq.Engine.Conversations do
   end
 
   defp map_get(_map, _key), do: nil
+
+  defp first_present(values) when is_list(values) do
+    Enum.find(values, fn
+      value when is_binary(value) -> String.trim(value) != ""
+      value -> not is_nil(value)
+    end)
+  end
 
   defp atom_key_for_string(map, key) do
     Enum.find_value(map, fn

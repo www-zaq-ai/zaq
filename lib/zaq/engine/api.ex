@@ -30,6 +30,17 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :persist_message_history, _context) do
+    case event.request do
+      %{incoming: %Incoming{} = incoming, message: message} when is_map(message) ->
+        conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
+        %{event | response: conversations_module.persist_message_history(incoming, message)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :noop, _context), do: event
 
   def handle_event(%Event{} = event, :invoke, _context),

@@ -17,6 +17,11 @@ defmodule Zaq.Engine.ApiTest do
       send(self(), {:persist_called, incoming, metadata})
       :ok
     end
+
+    def persist_message_history(incoming, message) do
+      send(self(), {:persist_message_history_called, incoming, message})
+      {:ok, %{conversation_id: "conversation-1", message_id: "message-1"}}
+    end
   end
 
   defmodule StubConnect do
@@ -57,6 +62,32 @@ defmodule Zaq.Engine.ApiTest do
     result = Api.handle_event(event, :persist_from_incoming, nil)
 
     assert result.response == {:error, {:invalid_request, %{incoming: :bad, metadata: %{}}}}
+  end
+
+  test "handles persist_message_history action" do
+    incoming = %Incoming{content: "route", channel_id: "c1", provider: :mattermost}
+    message = %{content: "Follow up", role: "assistant"}
+
+    event =
+      Event.new(%{incoming: incoming, message: message}, :engine,
+        opts: [action: :persist_message_history, conversations_module: StubConversations]
+      )
+
+    result = Api.handle_event(event, :persist_message_history, nil)
+
+    assert result.response == {:ok, %{conversation_id: "conversation-1", message_id: "message-1"}}
+    assert_received {:persist_message_history_called, ^incoming, ^message}
+  end
+
+  test "returns invalid request for malformed persist_message_history payload" do
+    event =
+      Event.new(%{incoming: :bad, message: %{}}, :engine,
+        opts: [action: :persist_message_history]
+      )
+
+    result = Api.handle_event(event, :persist_message_history, nil)
+
+    assert result.response == {:error, {:invalid_request, %{incoming: :bad, message: %{}}}}
   end
 
   test "handles people_command action" do

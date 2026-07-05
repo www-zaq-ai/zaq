@@ -10,6 +10,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "accounts.fetch_history",
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
+             "conversation.persist_message_history",
              "data_source.get_document",
              "data_source.list_documents",
              "data_source.search_documents",
@@ -92,11 +93,19 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              Registry.resolve_modules(["workflow.run_agent"])
   end
 
+  test "conversation.persist_message_history resolves to the message history tool" do
+    assert Registry.valid_tool_key?("conversation.persist_message_history")
+
+    assert {:ok, [Zaq.Agent.Tools.Conversations.PersistMessageHistory]} =
+             Registry.resolve_modules(["conversation.persist_message_history"])
+  end
+
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
              "accounts.fetch_history",
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
+             "conversation.persist_message_history",
              "data_source.get_document",
              "data_source.list_documents",
              "data_source.search_documents",
