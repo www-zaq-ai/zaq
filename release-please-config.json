@@ -5,7 +5,6 @@
     ".": {
       "release-type": "elixir",
       "changelog-path": "CHANGELOG.md",
-      "release-as": "0.14.0",
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },
