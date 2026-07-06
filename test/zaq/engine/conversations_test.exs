@@ -226,7 +226,33 @@ defmodule Zaq.Engine.ConversationsTest do
 
       assert ids == [first.id]
     end
+
+    test "search_in scopes the query to title, content, or all" do
+      {:ok, title_hit} = Conversations.create_conversation(conv_attrs(%{title: "Falcon roadmap"}))
+
+      {:ok, content_hit} =
+        Conversations.create_conversation(conv_attrs(%{title: "Standup notes"}))
+
+      {:ok, _msg} =
+        Conversations.add_message(content_hit, %{role: "user", content: "ship Falcon"})
+
+      title_ids =
+        Conversations.list_conversations(query: "Falcon", search_in: :title) |> ids()
+
+      content_ids =
+        Conversations.list_conversations(query: "Falcon", search_in: :content) |> ids()
+
+      all_ids = Conversations.list_conversations(query: "Falcon", search_in: :all) |> ids()
+      default_ids = Conversations.list_conversations(query: "Falcon") |> ids()
+
+      assert title_ids == [title_hit.id]
+      assert content_ids == [content_hit.id]
+      assert Enum.sort(all_ids) == Enum.sort([title_hit.id, content_hit.id])
+      assert Enum.sort(default_ids) == Enum.sort([title_hit.id, content_hit.id])
+    end
   end
+
+  defp ids(conversations), do: Enum.map(conversations, & &1.id)
 
   # ── update_conversation/2 ───────────────────────────────────────────
 

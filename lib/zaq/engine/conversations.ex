@@ -91,12 +91,14 @@ defmodule Zaq.Engine.Conversations do
 
   - `user_id`, `channel_user_id`, `channel_type`, `status`, `person_id`,
     `team_id`, `limit`, `offset` — equality/scoping filters.
-  - `query` — case-insensitive text search against the conversation title or
-    any message content. SQL wildcards in the input are matched literally;
-    blank input applies no filter.
+  - `query` — case-insensitive text search. SQL wildcards in the input are
+    matched literally; blank input applies no filter.
+  - `search_in` — scopes `query` to `:title`, `:content`, or `:all` (default).
+    Ignored when `query` is absent.
   - `from` / `to` — `DateTime` bounds (inclusive) on `updated_at`.
   """
   def list_conversations(opts \\ []) do
+    search_in = Keyword.get(opts, :search_in, :all)
     query = from(c in Conversation, order_by: [desc: c.updated_at])
 
     query =
@@ -121,7 +123,7 @@ defmodule Zaq.Engine.Conversations do
           where(q, [c], c.person_id in subquery(person_subquery))
 
         {:query, text}, q when is_binary(text) ->
-          apply_search_filter(q, String.trim(text))
+          apply_search_filter(q, String.trim(text), search_in)
 
         {:from, %DateTime{} = from}, q ->
           where(q, [c], c.updated_at >= ^from)
@@ -145,16 +147,24 @@ defmodule Zaq.Engine.Conversations do
     |> Repo.preload([:person, :user])
   end
 
-  defp apply_search_filter(query, ""), do: query
+  defp apply_search_filter(query, "", _scope), do: query
 
-  defp apply_search_filter(query, text) do
+  defp apply_search_filter(query, text, scope) do
     pattern = "%" <> escape_like_wildcards(text) <> "%"
-
-    matching_messages =
-      from(m in Message, where: ilike(m.content, ^pattern), select: m.conversation_id)
-
-    where(query, [c], ilike(c.title, ^pattern) or c.id in subquery(matching_messages))
+    apply_scoped_search(query, pattern, scope)
   end
+
+  defp apply_scoped_search(query, pattern, :title),
+    do: where(query, [c], ilike(c.title, ^pattern))
+
+  defp apply_scoped_search(query, pattern, :content),
+    do: where(query, [c], c.id in subquery(content_matches(pattern)))
+
+  defp apply_scoped_search(query, pattern, _all),
+    do: where(query, [c], ilike(c.title, ^pattern) or c.id in subquery(content_matches(pattern)))
+
+  defp content_matches(pattern),
+    do: from(m in Message, where: ilike(m.content, ^pattern), select: m.conversation_id)
 
   # ILIKE parameters are injection-safe, but `%`/`_` in user input would act
   # as wildcards — escape them so search terms match literally.

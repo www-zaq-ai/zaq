@@ -79,9 +79,9 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
               agent_id: :atomics.get(y_id_ref, 1),
               input: "ask Y",
               context: [
-                %{type: "user_message", content: "earlier user turn"},
+                %{role: "user", content: "earlier user turn"},
                 %{
-                  type: "tool_result",
+                  role: "tool",
                   content: "earlier tool output",
                   tool_call_id: "t1",
                   name: "lookup"
@@ -215,13 +215,11 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
   # Feeding those turns to the LLM is Issue 2, so we intercept at the node router
   # instead of running a live agent.
   test "T1 carrier: run_agent node delivers normalised context turns onto the dispatched incoming" do
-    Application.put_env(:zaq, :run_agent_node_router_module, CaptureIncomingRouter)
+    # The router double is injected through the run's opts (StepRunner threads it
+    # onto each step's context), not a global app-env seam. Only the capture pid —
+    # benign test plumbing, not routing — rides app-env.
     Application.put_env(:zaq, :run_agent_capture_pid, self())
-
-    on_exit(fn ->
-      Application.delete_env(:zaq, :run_agent_node_router_module)
-      Application.delete_env(:zaq, :run_agent_capture_pid)
-    end)
+    on_exit(fn -> Application.delete_env(:zaq, :run_agent_capture_pid) end)
 
     {:ok, workflow} =
       Workflows.create_workflow(%{
@@ -238,15 +236,15 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
               "who" => "world",
               # String-keyed, all three roles + optional fields — the JSONB shape.
               "context" => [
-                %{"type" => "user_message", "content" => "earlier question about {{who}}"},
-                %{"type" => "assistant_message", "content" => "earlier answer"},
+                %{"role" => "user", "content" => "earlier question about {{who}}"},
+                %{"role" => "assistant", "content" => "earlier answer"},
                 %{
-                  "type" => "tool_result",
+                  "role" => "tool",
                   "content" => "42",
                   "tool_call_id" => "c1",
                   "name" => "calc"
                 },
-                %{"type" => "system_message", "content" => "should be dropped"}
+                %{"role" => "system", "content" => "should be dropped"}
               ]
             },
             index: 0
@@ -255,17 +253,21 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
         edges: []
       })
 
-    assert {:ok, run} = Workflows.create_and_start_run(workflow, source_event())
+    assert {:ok, run} =
+             Workflows.create_and_start_run(workflow, source_event(), %{},
+               node_router: CaptureIncomingRouter
+             )
+
     assert run.status == "completed"
 
     assert_received {:captured_incoming, %Incoming{} = incoming}
 
-    # Unknown-type entry dropped; the three valid turns are normalised in order,
+    # Unknown-role entry dropped; the three valid turns are normalised in order,
     # with {{variable}} substitution applied to content.
     assert [
-             %{type: "user_message", content: "earlier question about world"},
-             %{type: "assistant_message", content: "earlier answer"},
-             %{type: "tool_result", content: "42", tool_call_id: "c1", name: "calc"}
+             %{role: "user", content: "earlier question about world"},
+             %{role: "assistant", content: "earlier answer"},
+             %{role: "tool", content: "42", tool_call_id: "c1", name: "calc"}
            ] = incoming.metadata[:context_messages]
 
     # The run's own user message is still substituted independently of the turns.
@@ -384,9 +386,9 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     assert_received {:captured_incoming, %Incoming{} = y_incoming}
 
     assert [
-             %{type: "user_message", content: "earlier user turn"},
+             %{role: "user", content: "earlier user turn"},
              %{
-               type: "tool_result",
+               role: "tool",
                content: "earlier tool output",
                tool_call_id: "t1",
                name: "lookup"

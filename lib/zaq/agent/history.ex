@@ -11,12 +11,18 @@ defmodule Zaq.Agent.History do
   For example:
 
       "2026-03-24T10:30:00.000000Z_1_user"
-      "2026-03-24T10:30:00.000000Z_2_bot"
+      "2026-03-24T10:30:00.000000Z_2_assistant"
 
-  The `<index>` (`1` for user, `2` for bot) guarantees that within a turn
-  the user message sorts before the bot reply when keys share the same
+  The `<index>` (`1` for user, `2` for assistant) guarantees that within a turn
+  the user message sorts before the assistant reply when keys share the same
   timestamp. Use `entry_key/2` to produce keys so the format stays consistent
   across producers.
+
+  ## Value format
+
+  Each entry value is a string-keyed map `%{"role" => role, "content" => body}`,
+  where `role` is `"user"` or `"assistant"` — the same `role`/`content` vocabulary
+  ReqLLM (`ReqLLM.Message`) and Jido.AI (`Jido.AI.Context.Entry`) use downstream.
   """
 
   alias ReqLLM.Context
@@ -24,14 +30,14 @@ defmodule Zaq.Agent.History do
   @doc """
   Returns the history map key for a turn entry.
 
-  `datetime` must be a `DateTime` struct; `role` is `:user` or `:bot`.
+  `datetime` must be a `DateTime` struct; `role` is `:user` or `:assistant`.
 
       iex> History.entry_key(~U[2026-03-24 10:30:00Z], :user)
       "2026-03-24T10:30:00Z_1_user"
   """
-  @spec entry_key(DateTime.t(), :user | :bot) :: String.t()
+  @spec entry_key(DateTime.t(), :user | :assistant) :: String.t()
   def entry_key(datetime, :user), do: "#{DateTime.to_iso8601(datetime)}_1_user"
-  def entry_key(datetime, :bot), do: "#{DateTime.to_iso8601(datetime)}_2_bot"
+  def entry_key(datetime, :assistant), do: "#{DateTime.to_iso8601(datetime)}_2_assistant"
 
   @doc """
   Converts a conversation history map into a list of `ReqLLM.Message` structs,
@@ -51,11 +57,11 @@ defmodule Zaq.Agent.History do
       end
     end)
     |> Enum.map(fn
-      {_timestamp, %{"body" => msg, "type" => "bot"}} ->
+      {_timestamp, %{"content" => msg, "role" => "assistant"}} ->
         msg = if is_binary(msg), do: msg, else: Jason.encode!(msg)
         Context.assistant(msg)
 
-      {_timestamp, %{"body" => msg, "type" => "user"}} ->
+      {_timestamp, %{"content" => msg, "role" => "user"}} ->
         msg = if is_binary(msg), do: msg, else: Jason.encode!(msg)
         Context.user(msg)
     end)

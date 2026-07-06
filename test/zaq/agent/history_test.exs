@@ -68,21 +68,24 @@ defmodule Zaq.Agent.HistoryTest do
     end
 
     test "converts user message to Context.user" do
-      history = %{"2026-01-01T00:00:00Z_1_user" => %{"body" => "Hello", "type" => "user"}}
+      history = %{"2026-01-01T00:00:00Z_1_user" => %{"role" => "user", "content" => "Hello"}}
       [msg] = History.build(history)
       assert msg == Context.user("Hello")
     end
 
-    test "converts bot message to Context.assistant" do
-      history = %{"2026-01-01T00:00:00Z_2_bot" => %{"body" => "Hi there", "type" => "bot"}}
+    test "converts assistant message to Context.assistant" do
+      history = %{
+        "2026-01-01T00:00:00Z_2_assistant" => %{"role" => "assistant", "content" => "Hi there"}
+      }
+
       [msg] = History.build(history)
       assert msg == Context.assistant("Hi there")
     end
 
     test "sorts messages chronologically" do
       history = %{
-        "2026-01-01T00:00:00Z_2_bot" => %{"body" => "answer", "type" => "bot"},
-        "2026-01-01T00:00:00Z_1_user" => %{"body" => "question", "type" => "user"}
+        "2026-01-01T00:00:00Z_2_assistant" => %{"role" => "assistant", "content" => "answer"},
+        "2026-01-01T00:00:00Z_1_user" => %{"role" => "user", "content" => "question"}
       }
 
       [first, second] = History.build(history)
