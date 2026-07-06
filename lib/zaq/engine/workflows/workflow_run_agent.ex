@@ -24,8 +24,10 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
      whether the run was reloaded from the DB. Arbitrary payload/assigns values are
      preserved verbatim. Feeds this as the initial fact into
      `Runic.Workflow.react_until_satisfied/3`.
-  4. After execution, checks `StepRun` rows: any `"failed"` row → run becomes
-     `"failed"`, otherwise `"completed"`.
+  4. After execution, checks `StepRun` rows: any `"failed"`/`"running"` row → run
+     becomes `"failed"`; else if no terminal (leaf) step of the authored DAG
+     completed (a branch was pruned or starved) → `"incomplete"`; otherwise
+     `"completed"`.
 
   ## Pause / Resume
 
@@ -50,6 +52,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   |---|---|
   | `"run.started"` | After run is transitioned to `"running"` |
   | `"run.completed"` | After `finalize/2` marks the run `"completed"` |
+  | `"run.incomplete"` | After `finalize/2` marks the run `"incomplete"` — quiescence reached with no terminal (leaf) step completed |
   | `"run.failed"` | After `finalize/2` marks the run `"failed"` (a *build* failure emits `run.failed` from the run module, before this module runs) |
 
   All events carry `%{action: action, run_id: id, workflow_id: wid}` in `request`.
@@ -228,6 +231,42 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
         dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
         result
 
+      # No step errored, yet no terminal (leaf) step of the authored DAG completed.
+      # Execution reached quiescence short of the workflow's end — a branch was
+      # pruned by a false edge condition (EdgeStep leaves the downstream subgraph
+      # rowless) or otherwise starved. This is the silent "stopped with no reason"
+      # case: not a failure, but not a success. Mark it "incomplete" so it is
+      # visible instead of masquerading as "completed".
+      not completed_leaf?(run, step_runs) ->
+        unreached = unreached_leaves(run, step_runs)
+
+        log_summary =
+          step_runs
+          |> build_log_summary([], duration_ms)
+          |> Map.put(:unreached_leaves, unreached)
+          |> Map.put(
+            :incomplete_reason,
+            "no terminal (leaf) step completed — a branch was pruned or starved " <>
+              "before reaching the workflow's end"
+          )
+
+        Logger.warning("[workflow] run incomplete — no terminal step completed",
+          workflow_id: run.workflow_id,
+          run_id: run.id,
+          unreached_leaves: unreached,
+          duration_ms: duration_ms
+        )
+
+        result =
+          Workflows.update_run(run, %{
+            status: "incomplete",
+            finished_at: DateTime.utc_now(:second),
+            log_summary: log_summary
+          })
+
+        dispatch_workflow_event("run.incomplete", %{run_id: run.id, workflow_id: run.workflow_id})
+        result
+
       true ->
         log_summary = build_log_summary(step_runs, [], duration_ms)
 
@@ -249,6 +288,69 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
         result
     end
   end
+
+  # True when at least one terminal (leaf) node of the authored DAG has a
+  # "completed" StepRun row — i.e. execution reached the end of some branch.
+  #
+  # Leaves are read from `run.steps_snapshot` (the composition-expanded, authored
+  # graph frozen at run creation) rather than the Runic `prepared_dag`, whose
+  # graph also carries infrastructure nodes (EdgeStep guards, FanOut/FanIn) that
+  # do not map 1:1 to StepRun `step_name`s. When the snapshot cannot be reasoned
+  # about (e.g. a hand-injected garbage snapshot in tests), we return `true` so a
+  # run is never downgraded on incomplete information.
+  defp completed_leaf?(%WorkflowRun{} = run, step_runs) do
+    case leaf_node_names(run.steps_snapshot) do
+      :unknown ->
+        true
+
+      [] ->
+        true
+
+      leaves ->
+        completed =
+          for sr <- step_runs, sr.status == "completed", into: MapSet.new(), do: sr.step_name
+
+        Enum.any?(leaves, &MapSet.member?(completed, &1))
+    end
+  end
+
+  defp unreached_leaves(%WorkflowRun{} = run, step_runs) do
+    case leaf_node_names(run.steps_snapshot) do
+      names when is_list(names) ->
+        completed =
+          for sr <- step_runs, sr.status == "completed", into: MapSet.new(), do: sr.step_name
+
+        Enum.reject(names, &MapSet.member?(completed, &1))
+
+      _ ->
+        []
+    end
+  end
+
+  # Leaf = authored node whose name never appears as an edge `from`. Tolerates the
+  # JSONB string-key shape (post-reload) and in-memory atom keys. Returns
+  # `:unknown` when the snapshot has no usable `nodes`/`edges` lists.
+  defp leaf_node_names(%{} = snapshot) do
+    nodes = snapshot_field(snapshot, "nodes")
+    edges = snapshot_field(snapshot, "edges")
+
+    if is_list(nodes) and is_list(edges) do
+      froms = MapSet.new(edges, &snapshot_field(&1, "from"))
+
+      nodes
+      |> Enum.map(&snapshot_field(&1, "name"))
+      |> Enum.reject(&(is_nil(&1) or MapSet.member?(froms, &1)))
+    else
+      :unknown
+    end
+  end
+
+  defp leaf_node_names(_), do: :unknown
+
+  defp snapshot_field(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, String.to_existing_atom(key))
+
+  defp snapshot_field(_map, _key), do: nil
 
   defp build_log_summary(step_runs, failed_steps, duration_ms) do
     %{

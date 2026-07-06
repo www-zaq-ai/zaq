@@ -1245,7 +1245,7 @@ defmodule Zaq.Engine.Workflows.WorkflowsCoreTest do
   describe "WorkflowRun.statuses/0" do
     test "returns the expected status list" do
       assert WorkflowRun.statuses() ==
-               ~w(pending running waiting paused completed failed cancelled interrupted)
+               ~w(pending running waiting paused completed incomplete failed cancelled interrupted)
     end
   end
 

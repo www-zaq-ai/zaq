@@ -61,7 +61,8 @@ Trigger fires → Workflows.create_run/4   # snapshot steps + settings → Workf
               └─ finalize/2
                    ├─ any Step.Run "waiting"  → run = "waiting" + dispatch "run.waiting"
                    ├─ any Step.Run "failed" or "running" → run = "failed" + dispatch "run.failed"
-                   └─ all Step.Run "completed" → run = "completed" + dispatch "run.completed"
+                   ├─ no leaf (terminal) node completed → run = "incomplete" + dispatch "run.incomplete"
+                   └─ a leaf node completed → run = "completed" + dispatch "run.completed"
 ```
 
 ---
@@ -148,6 +149,7 @@ On resume, `StepRunner` first calls `get_terminal_step_run/2` for the `(run_id, 
 
 ```
 pending → running → completed
+                 → incomplete
                  → failed
                  → waiting → running (on approve → resume)
                                → completed
@@ -160,6 +162,7 @@ pending → running → completed
 ```
 
 - `waiting` means a `HumanInTheLoop` step has suspended execution pending approval. Call `Engine.Api.handle_event(event, :workflow, ctx)` with `action: "run.approve"` or `action: "run.reject"` to proceed.
+- `incomplete` means execution reached quiescence without any terminal (leaf) node of the authored DAG completing — a branch was pruned by a false edge condition (`EdgeStep` leaves the downstream subgraph rowless) or otherwise starved. No step errored, so it is not `failed`; but the run stopped short of its end, so it is not `completed` either. `finalize/2` records the unreached leaves in `log_summary.unreached_leaves`. Note: a guarded "nothing to do" terminal step (e.g. `notify` behind `count > 0` when `count == 0`) also yields `incomplete` — give such workflows an explicit else-branch to a real leaf if a `completed` outcome is desired.
 - A run can also reach `cancelled` (via `Workflows.cancel_run/2`) or `interrupted`. On engine boot, `Zaq.Engine.Workflows.StartupRecovery` finds runs stuck in `"running"`/`"pending"` (node restarted mid-flight) and enqueues one `RunRecoveryWorker` Oban job per run, which marks each run `"interrupted"` via `Workflows.interrupt_run/1`.
 
 ---
@@ -173,6 +176,7 @@ All workflow lifecycle changes are broadcast as a single `:workflow` `NodeRouter
 | `"workflow.created"` | `Zaq.Engine.Workflows` | `workflow_id` |
 | `"run.started"` | `Zaq.Engine.Workflows.WorkflowRunAgent` | `run_id`, `workflow_id` |
 | `"run.completed"` | `Zaq.Engine.Workflows.WorkflowRunAgent` | `run_id`, `workflow_id` |
+| `"run.incomplete"` | `Zaq.Engine.Workflows.WorkflowRunAgent` | `run_id`, `workflow_id` |
 | `"run.failed"` | `Zaq.Engine.Workflows.WorkflowRunAgent` (runtime) / `Zaq.Engine.Workflows.ensure_prepared_dag/1` (build failure, before `run.started`) | `run_id`, `workflow_id` |
 | `"run.waiting"` | `Zaq.Engine.Workflows.WorkflowRunAgent` | `run_id`, `workflow_id` |
 

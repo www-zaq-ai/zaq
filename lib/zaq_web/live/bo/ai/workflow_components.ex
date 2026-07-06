@@ -1113,6 +1113,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp status_class(_), do: "bg-amber-100 text-amber-700"
 
   defp run_status_class("completed"), do: "bg-emerald-100 text-emerald-700"
+  defp run_status_class("incomplete"), do: "bg-amber-100 text-amber-800"
   defp run_status_class("failed"), do: "bg-red-100 text-red-600"
   defp run_status_class("running"), do: "bg-blue-100 text-blue-600"
   defp run_status_class("waiting"), do: "bg-amber-100 text-amber-700"

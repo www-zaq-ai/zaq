@@ -390,6 +390,7 @@ defmodule Zaq.Engine.Api do
       when action in [
              "run.started",
              "run.completed",
+             "run.incomplete",
              "run.failed",
              "run.waiting",
              "run.cancelled"

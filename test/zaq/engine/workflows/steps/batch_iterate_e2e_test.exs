@@ -346,7 +346,10 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
       {:ok, run} = Workflows.create_run(wf, source_event())
       {:ok, finished} = WorkflowRunAgent.execute(run)
 
-      assert finished.status == "completed"
+      # `batch_contacts` is the sole leaf and it was pruned by the edge condition,
+      # so no terminal step completed — the run is "incomplete", not a silent
+      # "completed".
+      assert finished.status == "incomplete"
 
       step_names = finished |> step_runs() |> Enum.map(& &1.step_name)
 
