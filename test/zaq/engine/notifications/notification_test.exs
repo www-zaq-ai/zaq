@@ -37,6 +37,12 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
     def send_reply(%Outgoing{}, _connection_details), do: {:error, :delivery_failed}
   end
 
+  defmodule NilCommunicationBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+    def send_reply(%Outgoing{}, _connection_details), do: nil
+  end
+
   defmodule FirstFailCommunicationBridge do
     def bridge_for(_provider), do: __MODULE__
     def fetch_connection_details(_provider), do: %{}
@@ -216,7 +222,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
       end)
 
       from(c in ChannelConfig,
-        where: c.provider in ["email:smtp", "email:imap", "unknown-platform"]
+        where: c.provider in ["email:smtp", "email:imap", "telegram", "unknown-platform"]
       )
       |> Repo.delete_all()
 
@@ -399,6 +405,53 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
              ]
     end
 
+    test "telegram maps through channel bridge configuration and delivers" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      Repo.insert_all(ChannelConfig, [
+        %{
+          name: "Telegram",
+          provider: "telegram",
+          kind: "retrieval",
+          url: "https://telegram.test",
+          token: "test-token",
+          enabled: true,
+          inserted_at: now,
+          updated_at: now
+        }
+      ])
+
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [%{platform: "telegram", identifier: "chat-123"}]
+        })
+
+      assert {:ok,
+              %{
+                status: :sent,
+                channel: "telegram",
+                channel_identifier: "chat-123",
+                notification_log_id: log_id
+              }} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: OkCommunicationBridge]
+               )
+
+      assert_receive {:delivered, :telegram, "chat-123"}
+
+      reloaded = Repo.get!(NotificationLog, log_id)
+      assert reloaded.status == "sent"
+
+      assert Enum.map(
+               reloaded.channels_tried,
+               &Map.take(&1, ["platform", "identifier", "status"])
+             ) == [
+               %{"platform" => "telegram", "identifier" => "chat-123", "status" => "ok"}
+             ]
+    end
+
     test "delivery succeeds but stale status prevents mark_sent from transitioning" do
       {:ok, n} = Notification.build(@valid_attrs)
 
@@ -510,6 +563,24 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
       assert [%{"status" => "error", "identifier" => "test@example.com"}] =
                reloaded.channels_tried
+    end
+
+    test "unexpected dispatch response is treated as a failed channel attempt" do
+      {:ok, n} = Notification.build(@valid_attrs)
+
+      assert {:error, %{status: :failed, notification_log_id: log_id}} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: NilCommunicationBridge]
+               )
+
+      reloaded = Repo.get!(NotificationLog, log_id)
+      assert reloaded.status == "failed"
+
+      assert [%{"status" => "error", "error" => error, "identifier" => "test@example.com"}] =
+               reloaded.channels_tried
+
+      assert error =~ "unexpected_response"
     end
 
     test "rejects a plain map — only %Notification{} accepted" do

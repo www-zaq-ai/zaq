@@ -76,7 +76,6 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
            UPDATE notification_logs
            SET channels_tried = channels_tried || jsonb_build_array(
             jsonb_build_object(
-              'platform', $1::text,
                'platform', $1::text,
                'identifier', $2::text,
                'status',   $3::text,

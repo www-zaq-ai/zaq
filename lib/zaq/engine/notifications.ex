@@ -35,6 +35,7 @@ defmodule Zaq.Engine.Notifications do
   import Ecto.Query
 
   alias Zaq.Accounts.People
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Engine.Messages.Outgoing
@@ -236,24 +237,20 @@ defmodule Zaq.Engine.Notifications do
   end
 
   defp platform_to_atom(platform) when is_binary(platform) do
-    case platform do
-      "email:smtp" -> :email
-      "email:imap" -> :email
-      _other -> String.to_existing_atom(platform)
-    end
-  rescue
-    ArgumentError -> nil
+    Bridge.provider_to_bridge_key(platform)
   end
 
   defp platform_to_atom(_), do: nil
 
   defp deliver_via_channels(%Outgoing{} = outgoing, opts) do
-    outgoing
-    |> ChannelEvents.build_and_dispatch_deliver_outgoing_event(
-      node_router: node_router_module(),
-      event_opts: channels_event_opts(opts)
-    )
-    |> Map.get(:response)
+    case ChannelEvents.build_and_dispatch_deliver_outgoing_event(outgoing,
+           node_router: node_router_module(),
+           event_opts: channels_event_opts(opts)
+         ) do
+      %{response: :ok} -> :ok
+      %{response: {:error, _reason} = error} -> error
+      _other -> {:error, :unexpected_response}
+    end
   end
 
   defp configured_platforms do
