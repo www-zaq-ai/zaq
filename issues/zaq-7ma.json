@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-06T16:51:05Z",
+  "description": "Enable external data-source Record ingestion through the shared record ingestion path: materialize provider files into ZAQ-owned hidden sidecars, preserve stable source references, recursively ingest folders, import provider permissions, and enrich provider UI status.",
+  "id": "zaq-7ma",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[phase-3] Ingest external data-source records",
+  "type": "task",
+  "updated_at": "2026-07-06T16:51:05Z"
+}
