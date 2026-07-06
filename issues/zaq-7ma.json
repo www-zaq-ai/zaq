@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-07-06T16:51:05Z",
@@ -7,7 +7,7 @@
   "id": "zaq-7ma",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[phase-3] Ingest external data-source records",
   "type": "task",
   "updated_at": "2026-07-06T16:51:05Z"
