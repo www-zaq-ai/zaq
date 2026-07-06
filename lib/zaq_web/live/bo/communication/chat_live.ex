@@ -605,8 +605,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       now = DateTime.utc_now()
 
       history
-      |> Map.put(History.entry_key(now, :user), %{"body" => user_msg, "type" => "user"})
-      |> Map.put(History.entry_key(now, :bot), %{"body" => normalized_body, "type" => "bot"})
+      |> Map.put(History.entry_key(now, :user), %{"role" => "user", "content" => user_msg})
+      |> Map.put(History.entry_key(now, :assistant), %{
+        "role" => "assistant",
+        "content" => normalized_body
+      })
     end
   end
 
@@ -969,10 +972,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
           updated =
             history
-            |> Map.put(History.entry_key(now, :user), %{"body" => last_user, "type" => "user"})
-            |> Map.put(History.entry_key(now, :bot), %{
-              "body" => trim_body(msg.content || ""),
-              "type" => "bot"
+            |> Map.put(History.entry_key(now, :user), %{"role" => "user", "content" => last_user})
+            |> Map.put(History.entry_key(now, :assistant), %{
+              "role" => "assistant",
+              "content" => trim_body(msg.content || "")
             })
 
           {updated, nil}

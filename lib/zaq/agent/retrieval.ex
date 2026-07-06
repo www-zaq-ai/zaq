@@ -22,7 +22,7 @@ defmodule Zaq.Agent.Retrieval do
 
     * `:system_prompt` — override the DB prompt (useful for tests).
       Defaults to the active `"retrieval"` prompt template.
-    * `:history` — conversation history (map of `{timestamp, %{"body" => ..., "type" => ...}}`).
+    * `:history` — conversation history (map of `{timestamp, %{"role" => ..., "content" => ...}}`).
 
   Returns `{:ok, decoded_json}` on success.
   """

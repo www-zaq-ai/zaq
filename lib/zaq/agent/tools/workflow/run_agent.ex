@@ -42,10 +42,15 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   - `agent_id` — required. ID of the configured agent (same identifier channels use).
   - `input`    — required. The user message / task prompt (supports `{{variable}}`).
-  - `context`  — optional. Ordered list of prior turns to seed the agent, each
-    `%{type, content, ...}` where `type` is `"user_message"`, `"assistant_message"`,
-    or `"tool_result"`. `content` supports `{{variable}}`. Carried as data on
-    `metadata.context_messages` — **this tool only carries the turns**; the agent
+  - `context`  — optional. Ordered list of prior turns to seed the agent. Each turn
+    is a **string-keyed map** (not a tuple), e.g.
+    `%{"role" => "user", "content" => "hi"}`, where `"role"` is `"user"`,
+    `"assistant"`, or `"tool"` and `"content"` supports `{{variable}}` — the unified
+    role/content vocabulary shared with `Zaq.Agent.History` / ReqLLM / Jido.AI, and
+    the exact shape `Accounts.History` emits in its `messages` field. Role-specific
+    extra keys: `"assistant"` may add `"tool_calls"`; `"tool"` may add
+    `"tool_call_id"` and `"name"` (see `normalize_context_entry/2`). Carried as data
+    on `metadata.context_messages` — **this tool only carries the turns**; the agent
     layer (Executor/Factory) is responsible for injecting them into the run.
   - `context_max_size` — optional positive integer. Token budget for the seeded
     context, overriding the agent's `memory_context_max_size` (default 5000) for
@@ -83,9 +88,11 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
         required: false,
         default: [],
         doc:
-          "Ordered prior turns to seed the agent. Each entry is " <>
-            "%{type, content, ...} where type is \"user_message\", " <>
-            "\"assistant_message\", or \"tool_result\". content supports {{variable}}."
+          ~s|Ordered prior turns to seed the agent. Each entry is a string-keyed map | <>
+            ~s|whose "role" is "user", "assistant", or "tool", plus "content" | <>
+            ~s|(supports {{variable}}). Extra keys depend on the role: "assistant" may | <>
+            ~s|add "tool_calls"; "tool" may add "tool_call_id" and "name". | <>
+            ~s|E.g. %{"role" => "user", "content" => "hi"}.|
       ],
       context_max_size: [
         type: :integer,
@@ -253,13 +260,12 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   defp context_actor(context), do: Map.get(context, :actor) || Map.get(context, "actor")
 
   # An explicit `:node_router` in the step context always wins (agent-tool-call
-  # path, unit tests). Workflow steps carry no router in context — StepRunner does
-  # not inject one — so fall back to the app-env seam (mirrors Pipeline/Executor)
-  # and finally the live NodeRouter.
-  defp node_router(context) do
-    Map.get(context, :node_router) ||
-      Application.get_env(:zaq, :run_agent_node_router_module, NodeRouter)
-  end
+  # path, unit tests); otherwise the live `NodeRouter` is used. This mirrors how the
+  # other agent tools resolve their router (`search_knowledge_base`,
+  # `knowledge_base_overview`) — injection through the step context as data, never an
+  # app-env seam. Workflow steps carry no router (StepRunner injects none) and so use
+  # the live `NodeRouter`.
+  defp node_router(context), do: Map.get(context, :node_router, NodeRouter)
 
   # skip_permissions is an explicit opt-in flowing from the execution context
   # (machine event runs set it; human-triggered runs do not). Never granted
@@ -294,12 +300,13 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     |> Map.put(:output, outgoing.body)
   end
 
-  # Normalise the optional `context` param into an ordered list of typed turn maps
-  # (`user_message` / `assistant_message` / `tool_result`). This tool only carries
-  # them as data on the incoming — the agent layer (Executor/Factory) decides how
-  # they enter a run. `content` gets the same {{variable}} substitution as `input`;
-  # entries with an unsupported/missing type, or non-map entries, are dropped rather
-  # than failing the run.
+  # Normalise the optional `context` param into an ordered list of role-keyed turn
+  # maps (`role: "user" | "assistant" | "tool"`) — the unified role/content
+  # vocabulary shared with `Zaq.Agent.History`, ReqLLM, and Jido.AI. This tool only
+  # carries them as data on the incoming — the agent layer (Executor/Factory) decides
+  # how they enter a run. `content` gets the same {{variable}} substitution as
+  # `input`; entries with an unsupported/missing role, or non-map entries, are dropped
+  # rather than failing the run.
   defp build_context_messages(params, vars) do
     params
     |> fetch_param(:context, [])
@@ -310,23 +317,17 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   defp normalize_context_entry(entry, vars) when is_map(entry) do
     content = entry |> entry_field(:content) |> to_string_safe() |> substitute(vars)
 
-    case normalize_type(entry_field(entry, :type)) do
-      "user_message" ->
-        [%{type: "user_message", content: content}]
+    case normalize_role(entry_field(entry, :role)) do
+      "user" ->
+        [%{role: "user", content: content}]
 
-      "assistant_message" ->
+      "assistant" ->
+        [%{role: "assistant", content: content, tool_calls: entry_field(entry, :tool_calls)}]
+
+      "tool" ->
         [
           %{
-            type: "assistant_message",
-            content: content,
-            tool_calls: entry_field(entry, :tool_calls)
-          }
-        ]
-
-      "tool_result" ->
-        [
-          %{
-            type: "tool_result",
+            role: "tool",
             content: content,
             tool_call_id: entry_field(entry, :tool_call_id),
             name: entry_field(entry, :name)
@@ -335,7 +336,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
       other ->
         Logger.warning(
-          "[RunAgent] dropping context turn with unsupported type: #{inspect(other)}"
+          "[RunAgent] dropping context turn with unsupported role: #{inspect(other)}"
         )
 
         []
@@ -365,9 +366,9 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     end
   end
 
-  defp normalize_type(type) when is_binary(type), do: type
-  defp normalize_type(type) when is_atom(type) and not is_nil(type), do: Atom.to_string(type)
-  defp normalize_type(_), do: nil
+  defp normalize_role(role) when is_binary(role), do: role
+  defp normalize_role(role) when is_atom(role) and not is_nil(role), do: Atom.to_string(role)
+  defp normalize_role(_), do: nil
 
   # Accept both atom and string keys (workflow data is atom-keyed in-process,
   # string-keyed after a JSONB round-trip).

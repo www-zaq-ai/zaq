@@ -76,8 +76,8 @@ defmodule Zaq.Agent.RetrievalTest do
       OpenAIStub.seed_llm_config(endpoint)
 
       history = %{
-        "1" => %{"body" => %{"step" => "done"}, "type" => "bot"},
-        "2" => %{"body" => %{"q" => "hello"}, "type" => "user"}
+        "1" => %{"role" => "assistant", "content" => %{"step" => "done"}},
+        "2" => %{"role" => "user", "content" => %{"q" => "hello"}}
       }
 
       assert {:ok, %{"query" => "hello query"}} =

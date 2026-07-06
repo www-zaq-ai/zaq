@@ -58,6 +58,16 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
     :ok
   end
 
+  defp set_message_inserted_at(message, datetime) do
+    {1, _} =
+      Repo.update_all(
+        from(m in Zaq.Engine.Conversations.Message, where: m.id == ^message.id),
+        set: [inserted_at: datetime]
+      )
+
+    :ok
+  end
+
   defp conversation_ids(result), do: Enum.map(result.conversations, & &1.id)
 
   # ── schema validity (chat-path output validation) ───────────────────
@@ -79,7 +89,8 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
                    metadata: %{
                      total: %{},
                      current_window: %{}
-                   }
+                   },
+                   messages: [%{role: "user", content: "hi"}]
                  },
                  History
                )
@@ -193,13 +204,33 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       assert conversation_ids(result) == [conv.id]
     end
 
-    test "returns missing_person_id when no identity at all" do
-      assert {:error, :missing_person_id} = History.run(%{}, %{skip_permissions: true})
+    test "searches all people when no identity resolves (admin global grant)" do
+      alice = create_person("machine_all_alice@example.com")
+      bob = create_person("machine_all_bob@example.com")
+      alice_conv = create_conversation(alice.id)
+      bob_conv = create_conversation(bob.id)
+      add_messages(alice_conv, 1)
+      add_messages(bob_conv, 1)
+
+      assert {:ok, result} = History.run(%{}, %{skip_permissions: true})
+
+      assert alice_conv.id in conversation_ids(result)
+      assert bob_conv.id in conversation_ids(result)
     end
 
-    test "returns missing_person_id for non-numeric person_id param" do
-      assert {:error, :missing_person_id} =
+    test "an unresolvable person_id param falls through to the all-people search" do
+      alice = create_person("machine_bad_alice@example.com")
+      bob = create_person("machine_bad_bob@example.com")
+      alice_conv = create_conversation(alice.id)
+      bob_conv = create_conversation(bob.id)
+      add_messages(alice_conv, 1)
+      add_messages(bob_conv, 1)
+
+      assert {:ok, result} =
                History.run(%{person_id: %{invalid: true}}, %{skip_permissions: true})
+
+      assert alice_conv.id in conversation_ids(result)
+      assert bob_conv.id in conversation_ids(result)
     end
   end
 
@@ -275,6 +306,49 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
 
       assert {:ok, result} = History.run(%{query: "Atlas"}, %{person_id: me.id})
       assert conversation_ids(result) == [mine.id]
+    end
+
+    test "search_in title matches only the title, not message content" do
+      person = create_person("q_scope_title@example.com")
+      title_hit = create_conversation(person.id, %{title: "Falcon launch plan"})
+      add_messages(title_hit, 1, "unrelated chatter")
+      content_only = create_conversation(person.id, %{title: "Standup"})
+      add_messages(content_only, 1, "we should ship Falcon soon")
+
+      assert {:ok, result} =
+               History.run(%{query: "Falcon", search_in: "title"}, %{person_id: person.id})
+
+      assert conversation_ids(result) == [title_hit.id]
+      refute content_only.id in conversation_ids(result)
+    end
+
+    test "search_in content matches only message text, not the title" do
+      person = create_person("q_scope_content@example.com")
+      title_only = create_conversation(person.id, %{title: "Falcon launch plan"})
+      add_messages(title_only, 1, "unrelated chatter")
+      content_hit = create_conversation(person.id, %{title: "Standup"})
+      add_messages(content_hit, 1, "we should ship Falcon soon")
+
+      assert {:ok, result} =
+               History.run(%{query: "Falcon", search_in: "content"}, %{person_id: person.id})
+
+      assert conversation_ids(result) == [content_hit.id]
+      refute title_only.id in conversation_ids(result)
+    end
+
+    test "unknown search_in falls back to matching title or content" do
+      person = create_person("q_scope_all@example.com")
+      title_hit = create_conversation(person.id, %{title: "Falcon launch plan"})
+      add_messages(title_hit, 1, "unrelated chatter")
+      content_hit = create_conversation(person.id, %{title: "Standup"})
+      add_messages(content_hit, 1, "we should ship Falcon soon")
+
+      assert {:ok, result} =
+               History.run(%{query: "Falcon", search_in: "sideways"}, %{person_id: person.id})
+
+      ids = conversation_ids(result)
+      assert title_hit.id in ids
+      assert content_hit.id in ids
     end
   end
 
@@ -393,6 +467,34 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       assert %DateTime{} = entry.updated_at
       assert [%{role: "user", content: _, inserted_at: _} | _] = entry.messages
       assert length(entry.messages) == 2
+    end
+
+    test "flattens all conversations' messages into a chronological role/content list" do
+      person = create_person("flat_msgs@example.com")
+      conv1 = create_conversation(person.id, %{title: "Older"})
+      conv2 = create_conversation(person.id, %{title: "Newer"})
+
+      first = add_message(conv1, "user", "first")
+      second = add_message(conv2, "assistant", "second")
+      third = add_message(conv1, "user", "third")
+
+      # Force a known chronological order across conversations.
+      :ok = set_message_inserted_at(first, ~U[2026-06-01 09:00:00.000000Z])
+      :ok = set_message_inserted_at(second, ~U[2026-06-01 10:00:00.000000Z])
+      :ok = set_message_inserted_at(third, ~U[2026-06-01 11:00:00.000000Z])
+
+      assert {:ok, %{messages: messages}} = History.run(%{}, %{person_id: person.id})
+
+      assert messages == [
+               %{role: "user", content: "first"},
+               %{role: "assistant", content: "second"},
+               %{role: "user", content: "third"}
+             ]
+    end
+
+    test "messages field is [] when the person has no history" do
+      person = create_person("flat_empty@example.com")
+      assert {:ok, %{messages: []}} = History.run(%{}, %{person_id: person.id})
     end
 
     test "includes metadata for total and current message windows" do

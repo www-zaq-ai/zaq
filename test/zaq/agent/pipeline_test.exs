@@ -403,8 +403,11 @@ defmodule Zaq.Agent.PipelineTest do
 
     test "question opt in executor opts equals incoming content when history is present" do
       history = %{
-        "2026-01-01T00:00:00Z_1_user" => %{"body" => "previous question", "type" => "user"},
-        "2026-01-01T00:00:00Z_2_bot" => %{"body" => "previous answer", "type" => "bot"}
+        "2026-01-01T00:00:00Z_1_user" => %{"role" => "user", "content" => "previous question"},
+        "2026-01-01T00:00:00Z_2_assistant" => %{
+          "role" => "assistant",
+          "content" => "previous answer"
+        }
       }
 
       opts =
