@@ -15,7 +15,12 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
   - `running`      — agent actively executing steps
   - `waiting`      — a `HumanInTheLoop` step suspended execution pending approval
   - `paused`       — externally paused; resume via `Workflows.resume_run/2`
-  - `completed`    — all steps finished successfully
+  - `completed`    — all steps finished successfully and a terminal (leaf) step completed
+  - `incomplete`   — execution reached quiescence without any terminal (leaf) step
+                     completing: a branch was pruned by a false edge condition or
+                     starved before reaching the workflow's end. Not a failure (no
+                     step errored) but not a success either — the run stopped short
+                     of its end. See `WorkflowRunAgent.finalize/2`.
   - `failed`       — a step exceeded retries or a fatal error occurred
   - `cancelled`    — explicitly cancelled before completion
   - `interrupted`  — node restarted while run was executing; use
@@ -30,7 +35,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRun do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @statuses ~w(pending running waiting paused completed failed cancelled interrupted)
+  @statuses ~w(pending running waiting paused completed incomplete failed cancelled interrupted)
 
   @type t :: %__MODULE__{}
 

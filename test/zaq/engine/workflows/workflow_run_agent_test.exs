@@ -436,7 +436,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       refute Map.has_key?(by_name, "D")
     end
 
-    test "absent step name in cascade condition → branch pruned, run still completes" do
+    test "absent step name in cascade condition → terminal branch pruned, run is incomplete" do
       {:ok, wf} =
         Workflows.create_workflow(%{
           name: "WA Cascade Missing #{System.unique_integer()}",
@@ -452,7 +452,10 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
 
       {:ok, run} = Workflows.create_run(wf, @source_event)
       assert {:ok, finished} = WorkflowRunAgent.execute(run)
-      assert finished.status == "completed"
+      # B is the sole leaf and it was pruned: no terminal step completed, so the
+      # run is "incomplete" rather than a silent "completed".
+      assert finished.status == "incomplete"
+      assert "B" in Workflows.get_run!(run.id).log_summary["unreached_leaves"]
 
       step_runs = Workflows.list_step_runs(run.id)
       names = Enum.map(step_runs, & &1.step_name)

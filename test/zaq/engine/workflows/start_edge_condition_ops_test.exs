@@ -116,7 +116,9 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
       test "#{label}" do
         run = fire_with_guard(unquote(Macro.escape(condition)), unquote(Macro.escape(request)))
 
-        assert run.status == "completed"
+        # A passing guard runs `matched` (the sole leaf) → completed; a failing
+        # guard prunes it, so no terminal step completes → incomplete.
+        assert run.status == unquote(if expected, do: "completed", else: "incomplete")
         assert matched?(run) == unquote(expected)
       end
     end
@@ -137,13 +139,14 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
 
     test "not_empty is pruned when the content is a blank string" do
       run = fire_with_guard(cnd(@spaced_field, "not_empty"), %{"company context content" => ""})
-      assert run.status == "completed"
+      # Sole leaf `matched` pruned → no terminal step completed → incomplete.
+      assert run.status == "incomplete"
       refute matched?(run)
     end
 
     test "not_empty is pruned when the field is absent entirely" do
       run = fire_with_guard(cnd(@spaced_field, "not_empty"), %{"row_index" => 5})
-      assert run.status == "completed"
+      assert run.status == "incomplete"
       refute matched?(run)
     end
 
@@ -161,7 +164,8 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
 
     test "empty is pruned when the content is present" do
       run = fire_with_guard(cnd(@spaced_field, "empty"), %{"company context content" => "# Doc"})
-      assert run.status == "completed"
+      # Sole leaf `matched` pruned → no terminal step completed → incomplete.
+      assert run.status == "incomplete"
       refute matched?(run)
     end
   end

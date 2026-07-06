@@ -154,10 +154,16 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
   end
 
   describe "gender = other — neither branch taken" do
-    test "run completes with status 'completed' (pruned branches never fail the run)" do
+    test "run is 'incomplete' — both terminal branches pruned, no leaf completed" do
       run = create_run("other")
       assert {:ok, finished} = WorkflowRunAgent.execute(run)
-      assert finished.status == "completed"
+      # Pruned branches never *fail* the run, but with both B→C and B→F pruned no
+      # terminal (leaf) step (D or F) ever runs — the run stops short of its end,
+      # which is "incomplete" rather than a silent "completed".
+      assert finished.status == "incomplete"
+      unreached = Workflows.get_run!(run.id).log_summary["unreached_leaves"]
+      assert "D" in unreached
+      assert "F" in unreached
     end
 
     test "only B has a StepRun" do
