@@ -95,6 +95,7 @@ jobs:
         uses: anomalyco/opencode/github@latest
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
         with:
           model: openrouter/deepseek/deepseek-v4-pro
           mentions: /zaq
