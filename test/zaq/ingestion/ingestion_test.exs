@@ -15,6 +15,7 @@ defmodule Zaq.IngestionTest do
     Document,
     DocumentAccess,
     DocumentChunker,
+    ExternalSource,
     FileExplorer,
     IngestChunkJob,
     IngestJob,
@@ -232,11 +233,11 @@ defmodule Zaq.IngestionTest do
       assert sidecar_doc.metadata["source_document_source"] == source
       assert source_doc.metadata["provider_url"] == "https://drive.example/file-123"
 
-      assert sidecar_doc.metadata["sidecar_file_path"] ==
-               ".external-sidecars/google_drive/42/file-123.md"
+      sidecar_path = ExternalSource.sidecar_relative_path(record)
 
-      assert File.read!(Path.join(tmp_dir, ".external-sidecars/google_drive/42/file-123.md")) =~
-               "Generated markdown"
+      assert sidecar_doc.metadata["sidecar_file_path"] == sidecar_path
+
+      assert File.read!(Path.join(tmp_dir, sidecar_path)) =~ "Generated markdown"
 
       assert Repo.get!(IngestJob, job.id).document_id == source_doc.id
 
@@ -273,7 +274,7 @@ defmodule Zaq.IngestionTest do
       assert [materialized.path] == materialized.cleanup_paths
 
       assert materialized.processor_opts[:sidecar_metadata]["sidecar_file_path"] ==
-               ".external-sidecars/google_drive/42/pdf-123.md"
+               ExternalSource.sidecar_relative_path(record)
     end
 
     test "base64 external PDFs store canonical data-source document rows" do
@@ -484,7 +485,7 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "ingest_folder/2" do
-    test "creates one job per file and skips directories" do
+    test "creates one job per file and recursively expands directories" do
       unique = System.unique_integer([:positive])
       folder = "ingestion_test_#{unique}"
 
@@ -492,17 +493,18 @@ defmodule Zaq.IngestionTest do
       assert :ok = FileExplorer.create_directory(Path.join(folder, "nested"))
       assert {:ok, _} = FileExplorer.upload(Path.join(folder, "one.md"), "# one")
       assert {:ok, _} = FileExplorer.upload(Path.join(folder, "two.md"), "# two")
+      assert {:ok, _} = FileExplorer.upload(Path.join([folder, "nested", "three.md"]), "# three")
 
       on_exit(fn ->
         _ = FileExplorer.delete_directory(folder)
       end)
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 2, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, 3, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
       assert {:ok, jobs} = Ingestion.ingest_folder(folder, :inline)
-      assert length(jobs) == 2
+      assert length(jobs) == 3
       assert Enum.all?(jobs, &(&1.status == "completed"))
     end
 

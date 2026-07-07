@@ -11,7 +11,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Chunk, Document, IngestJob}
+  alias Zaq.Ingestion.{Chunk, Document, ExternalSource, IngestJob}
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -100,6 +100,27 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       end
 
       Application.get_env(:zaq, :provider_browser_response, {:error, :timeout})
+    end
+  end
+
+  defmodule ProviderBrowserCustomBridgeStub do
+    def list_files(provider, params) do
+      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+        send(pid, {:list_files, provider, params})
+      end
+
+      response = Application.get_env(:zaq, :provider_browser_response, [])
+      records = if is_list(response), do: response, else: Map.get(response, :records, [])
+
+      {:ok,
+       %RecordPage{
+         resource_type: :item,
+         records: records,
+         pagination: %{cursor: nil, has_more?: false},
+         stats: %{scanned: length(records), returned: length(records)},
+         filters: Map.get(params, "filters", %{}),
+         metadata: %{}
+       }}
     end
   end
 
@@ -306,6 +327,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       source = "data_source/google_drive/#{config.id}/file-1"
       sidecar_source = source <> ".md"
+
       sidecar_path = ".external-sidecars/google_drive/#{config.id}/file-1.md"
 
       documents_root
@@ -327,7 +349,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
           content: "# Budget",
           metadata: %{
             "source_document_source" => source,
-            "sidecar_file_path" => ".external-sidecars/google_drive/#{config.id}/file-1.pdf"
+            "sidecar_file_path" => sidecar_path
           }
         })
 
@@ -427,6 +449,81 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       end
     end
 
+    test "provider read-only share modal events are no-ops", %{
+      conn: conn,
+      tmp_dir: tmp_dir,
+      provider_config: config
+    } do
+      source = "data_source/google_drive/#{config.id}/file-1"
+      sidecar_source = source <> ".md"
+      sidecar_path = ".external-sidecars/google_drive/#{config.id}/file-1.md"
+
+      sidecar_file = Path.join(tmp_dir, sidecar_path)
+      File.mkdir_p!(Path.dirname(sidecar_file))
+      File.write!(sidecar_file, "# Budget")
+
+      source_doc =
+        create_document_with_chunk(source, %{
+          metadata: %{"sidecar_source" => sidecar_source}
+        })
+
+      create_document_with_chunk(sidecar_source, %{
+        metadata: %{
+          "source_document_source" => source,
+          "sidecar_file_path" => sidecar_path
+        }
+      })
+
+      {:ok, person} =
+        People.find_or_create_from_channel("email", %{
+          "channel_id" => "reader@example.com",
+          "email" => "reader@example.com",
+          "display_name" => "Reader"
+        })
+
+      {:ok, permission} =
+        Ingestion.set_document_permission(source_doc.id, :person, person.id, ["read"])
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      view
+      |> element(~s(button[phx-click="view_provider_permissions"]), "shared")
+      |> render_click()
+
+      before_state = :sys.get_state(view.pid)
+      before_permissions = before_state.socket.assigns.share_modal_permissions
+      before_pending = before_state.socket.assigns.share_modal_pending
+      before_public = before_state.socket.assigns.share_modal_is_public
+
+      render_hook(view, "toggle_public", %{})
+      render_hook(view, "add_permission_target", %{"value" => "person:#{person.id}"})
+      render_hook(view, "toggle_permission_right", %{"index" => "0", "right" => "write"})
+      render_hook(view, "remove_pending", %{"index" => "0"})
+      render_hook(view, "remove_permission", %{"id" => to_string(permission.id)})
+      render_hook(view, "confirm_share", %{})
+
+      after_state = :sys.get_state(view.pid)
+
+      assert after_state.socket.assigns.share_modal_read_only == true
+      assert after_state.socket.assigns.share_modal_is_public == before_public
+      assert after_state.socket.assigns.share_modal_pending == before_pending
+      assert after_state.socket.assigns.share_modal_permissions == before_permissions
+
+      assert Enum.map(Ingestion.list_document_permissions(source_doc.id), & &1.id) ==
+               [permission.id]
+    end
+
+    test "provider_permissions_info explains provider-managed permissions", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "provider_permissions_info", %{})
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+               "Permissions are managed in the data source. Update sharing there, then refresh ingestion to import the latest permissions."
+    end
+
     test "provider load errors render empty state and detailed provider_error", %{conn: conn} do
       Application.put_env(
         :zaq,
@@ -490,6 +587,25 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert after_missing.socket.assigns.breadcrumbs == before_missing.socket.assigns.breadcrumbs
     end
 
+    test "provider go_back from nested folder returns to parent folder", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+      render_hook(view, "navigate", %{"path" => "child-folder"})
+      render_hook(view, "go_back", %{})
+
+      state = :sys.get_state(view.pid)
+
+      assert state.socket.assigns.current_dir == "folder-1"
+
+      assert state.socket.assigns.provider_folder_stack == [
+               %{id: "folder-1", name: "Project Docs"}
+             ]
+
+      assert state.socket.assigns.breadcrumbs == [%{name: "Project Docs", path: "folder-1"}]
+      assert render(view) =~ "Project Docs"
+    end
+
     test "provider preview errors when a record has no URL", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
 
@@ -502,6 +618,253 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
                "Preview unavailable for this provider record."
 
       assert state.socket.assigns.modal != :preview
+    end
+
+    test "provider preview does not fall back to local preview for missing records", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "open_preview", %{"path" => "data_source/google_drive/missing"})
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :error) ==
+               "Preview is unavailable for this provider record."
+
+      assert state.socket.assigns.modal != :preview
+    end
+
+    test "provider preview with filename still errors for missing provider record", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "open_preview", %{
+        "path" => "missing-provider-id",
+        "filename" => "Missing.pdf"
+      })
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :error) ==
+               "Preview is unavailable for this provider record."
+
+      assert state.socket.assigns.modal != :preview
+    end
+
+    test "provider sidecar falls back to sidecar metadata filename when provider record has no name",
+         %{
+           conn: conn,
+           tmp_dir: tmp_dir,
+           provider_config: config
+         } do
+      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+      original_response = Application.get_env(:zaq, :provider_browser_response)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+
+        case original_bridge do
+          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+          value -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, value)
+        end
+
+        case original_response do
+          nil -> Application.delete_env(:zaq, :provider_browser_response)
+          value -> Application.put_env(:zaq, :provider_browser_response, value)
+        end
+      end)
+
+      documents_root = Path.join(tmp_dir, "documents")
+      archives_root = Path.join(tmp_dir, "archives")
+
+      File.mkdir_p!(documents_root)
+      File.mkdir_p!(archives_root)
+
+      Application.put_env(:zaq, Zaq.Ingestion,
+        base_path: documents_root,
+        volumes: %{"archives" => archives_root, "documents" => documents_root}
+      )
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        ProviderBrowserCustomBridgeStub
+      )
+
+      source = "data_source/google_drive/#{config.id}/fallback-1"
+      sidecar_source = source <> ".md"
+      sidecar_path = ".external-sidecars/google_drive/#{config.id}/fallback-name.md"
+      sidecar_file = Path.join(documents_root, sidecar_path)
+
+      File.mkdir_p!(Path.dirname(sidecar_file))
+      File.write!(sidecar_file, "# fallback")
+
+      create_document_with_chunk(source, %{})
+
+      create_document_with_chunk(sidecar_source, %{
+        metadata: %{
+          "source_document_source" => source,
+          "sidecar_file_path" => sidecar_path
+        }
+      })
+
+      Application.put_env(:zaq, :provider_browser_response, [
+        %Record{
+          id: "fallback-1",
+          kind: :file,
+          name: "",
+          path: "fallback-1",
+          url: "https://drive.example/fallback-1"
+        }
+      ])
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      state = :sys.get_state(view.pid)
+      entry = hd(state.socket.assigns.entries)
+      related = entry.attributes["related_record"]
+
+      assert related["name"] == "fallback-name.md"
+      assert related["path"] == sidecar_path
+      assert related["preview_path"] == "documents/#{sidecar_path}"
+    end
+
+    test "external provider sidecar derives preview and relative paths when metadata path is absent",
+         %{
+           conn: conn,
+           tmp_dir: tmp_dir,
+           provider_config: config
+         } do
+      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+      original_response = Application.get_env(:zaq, :provider_browser_response)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+
+        case original_bridge do
+          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+          value -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, value)
+        end
+
+        case original_response do
+          nil -> Application.delete_env(:zaq, :provider_browser_response)
+          value -> Application.put_env(:zaq, :provider_browser_response, value)
+        end
+      end)
+
+      documents_root = Path.join(tmp_dir, "documents")
+      archives_root = Path.join(tmp_dir, "archives")
+
+      File.mkdir_p!(documents_root)
+      File.mkdir_p!(archives_root)
+
+      Application.put_env(:zaq, Zaq.Ingestion,
+        base_path: documents_root,
+        volumes: %{"archives" => archives_root, "documents" => documents_root}
+      )
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        ProviderBrowserCustomBridgeStub
+      )
+
+      record = %Record{
+        id: "external-1",
+        kind: :file,
+        name: "External source",
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => to_string(config.id),
+          "provider_record_id" => "external-1"
+        },
+        url: "https://drive.example/external-1"
+      }
+
+      source = ExternalSource.source(record)
+      sidecar_source = ExternalSource.sidecar_source(record)
+      expected_relative_path = ExternalSource.sidecar_relative_path(record, ".md")
+      sidecar_file = Path.join(documents_root, expected_relative_path)
+
+      File.mkdir_p!(Path.dirname(sidecar_file))
+      File.write!(sidecar_file, "# external")
+
+      create_document_with_chunk(source, %{})
+
+      create_document_with_chunk(sidecar_source, %{
+        metadata: %{
+          "source_document_source" => source
+        }
+      })
+
+      Application.put_env(:zaq, :provider_browser_response, [record])
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      state = :sys.get_state(view.pid)
+      entry = hd(state.socket.assigns.entries)
+      related = entry.attributes["related_record"]
+
+      assert related["name"] == "External source.md"
+      assert related["path"] == expected_relative_path
+      assert related["preview_path"] == "documents/#{expected_relative_path}"
+    end
+
+    test "provider record is stale when source modified_at is newer than document updated_at", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+      original_response = Application.get_env(:zaq, :provider_browser_response)
+
+      on_exit(fn ->
+        case original_bridge do
+          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+          value -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, value)
+        end
+
+        case original_response do
+          nil -> Application.delete_env(:zaq, :provider_browser_response)
+          value -> Application.put_env(:zaq, :provider_browser_response, value)
+        end
+      end)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        ProviderBrowserCustomBridgeStub
+      )
+
+      record = %Record{
+        id: "stale-1",
+        kind: :file,
+        name: "Stale.pdf",
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => to_string(config.id),
+          "provider_record_id" => "stale-1"
+        },
+        url: "https://drive.example/stale-1",
+        modified_at: ~U[2025-01-01 00:00:00Z]
+      }
+
+      source = ExternalSource.source(record)
+      create_document_with_chunk(source, %{})
+
+      doc = Document.get_by_source(source)
+
+      Repo.update_all(
+        from(d in Document, where: d.id == ^doc.id),
+        set: [updated_at: ~U[2024-01-01 00:00:00Z]]
+      )
+
+      Application.put_env(:zaq, :provider_browser_response, [record])
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      state = :sys.get_state(view.pid)
+
+      assert state.socket.assigns.ingestion_map["Stale.pdf"].stale? == true
     end
   end
 
@@ -559,6 +922,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     render_hook(view, "close_preview_modal", %{})
     refute has_element?(view, "#file-preview-modal")
+  end
+
+  test "local preview ignores blank filename override", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "open_preview", %{"path" => "alpha.md", "filename" => ""})
+
+    state = :sys.get_state(view.pid)
+
+    assert state.socket.assigns.modal == :preview
+    assert state.socket.assigns.preview.relative_path == "alpha.md"
+    assert state.socket.assigns.preview.filename == "alpha.md"
   end
 
   test "creates folders with validation and error handling", %{conn: conn, tmp_dir: tmp_dir} do

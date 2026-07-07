@@ -3,10 +3,13 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
 
   @moduletag capture_log: true
 
+  import ExUnit.CaptureLog
   import Mox
   import Ecto.Query
 
+  alias Zaq.Contracts.Record
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob, IngestWorker}
+  alias Zaq.Ingestion.RecordSource
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -84,6 +87,24 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     %Document{}
     |> Document.changeset(Map.merge(default, attrs))
     |> Repo.insert!()
+  end
+
+  defmodule ExternalDataSourceBridgeStub do
+    def download_document(provider, params) do
+      send(self(), {:download_document, provider, params})
+
+      {:ok,
+       %{
+         record: %Zaq.Contracts.Record{
+           id: params["file_id"],
+           kind: :file,
+           name: params["file_id"] <> ".pdf",
+           mime_type: "application/pdf",
+           content: Base.encode64("PDF bytes"),
+           attributes: %{"encoding" => "base64"}
+         }
+       }}
+    end
   end
 
   describe "perform/1" do
@@ -169,6 +190,158 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       assert updated.status == "pending"
       assert updated.error =~ "external_sidecar_requires_source_record"
       refute Repo.exists?(from d in Document, where: like(d.source, "%external-sidecars%"))
+    end
+
+    @tag :skip
+    test "processes non-binary unresolved paths as non-sidecar paths" do
+      job = create_job()
+
+      Repo.query!("ALTER TABLE ingest_jobs ALTER COLUMN file_path DROP NOT NULL")
+
+      on_exit(fn ->
+        Repo.query!("ALTER TABLE ingest_jobs ALTER COLUMN file_path SET NOT NULL")
+      end)
+
+      {1, nil} =
+        Repo.update_all(
+          from(j in IngestJob, where: j.id == ^job.id),
+          set: [file_path: nil, volume_name: "missing-volume"]
+        )
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+        assert path == nil
+        {:error, :missing_path}
+      end)
+
+      assert {:error, :missing_path} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "pending"
+      assert updated.error == "Attempt 1 failed: missing_path"
+    end
+
+    test "ignores already removed materialized external files during cleanup" do
+      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        __MODULE__.ExternalDataSourceBridgeStub
+      )
+
+      on_exit(fn ->
+        case original_bridge do
+          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+          module -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, module)
+        end
+      end)
+
+      record = %Record{
+        id: "pdf-enoent",
+        kind: :file,
+        name: "Missing Cleanup.pdf",
+        mime_type: "application/pdf",
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => "cfg-cleanup",
+          "provider_record_id" => "pdf-enoent"
+        }
+      }
+
+      source_record = RecordSource.to_storage_map(record)
+      job = create_job(%{source_record: source_record})
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+        assert File.exists?(path)
+        File.rm!(path)
+        refute File.exists?(path)
+
+        {:ok, create_document(%{source: "data_source/google_drive/cfg-cleanup/pdf-enoent"})}
+      end)
+
+      assert :ok =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "completed"
+      assert updated.completed_at != nil
+    end
+
+    test "logs cleanup failures for materialized external files" do
+      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        __MODULE__.ExternalDataSourceBridgeStub
+      )
+
+      on_exit(fn ->
+        case original_bridge do
+          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+          module -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, module)
+        end
+      end)
+
+      record = %Record{
+        id: "pdf-cleanup-warning",
+        kind: :file,
+        name: "Cleanup Warning.pdf",
+        mime_type: "application/pdf",
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => "cfg-cleanup",
+          "provider_record_id" => "pdf-cleanup-warning"
+        }
+      }
+
+      source_record = RecordSource.to_storage_map(record)
+      job = create_job(%{source_record: source_record})
+
+      cleanup_dir_ref = make_ref()
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+        assert File.exists?(path)
+
+        File.rm!(path)
+        File.mkdir_p!(path)
+
+        send(self(), {cleanup_dir_ref, path})
+
+        {:ok,
+         create_document(%{source: "data_source/google_drive/cfg-cleanup/pdf-cleanup-warning"})}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   IngestWorker.perform(%Oban.Job{
+                     args: %{"job_id" => job.id},
+                     attempt: 1,
+                     max_attempts: 3
+                   })
+        end)
+
+      assert_receive {^cleanup_dir_ref, cleanup_dir}
+
+      on_exit(fn ->
+        File.rm_rf(cleanup_dir)
+      end)
+
+      assert log =~ "Failed to remove materialized ingestion file"
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "completed"
+      assert updated.completed_at != nil
     end
 
     test "cancels immediately for structural string errors" do

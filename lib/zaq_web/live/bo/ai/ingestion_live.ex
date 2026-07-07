@@ -672,18 +672,34 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("open_preview", %{"path" => path, "filename" => filename}, socket) do
-    if provider_mode?(socket) and Map.has_key?(socket.assigns.records_by_path, path) do
-      {:noreply, open_provider_preview(socket, path)}
-    else
-      {:noreply, open_local_preview(socket, path, filename)}
+    cond do
+      provider_mode?(socket) and Map.has_key?(socket.assigns.records_by_path, path) ->
+        {:noreply, open_provider_preview(socket, path)}
+
+      provider_mode?(socket) and external_sidecar_preview?(path) ->
+        {:noreply, open_local_preview(socket, path, filename)}
+
+      provider_mode?(socket) ->
+        {:noreply, put_flash(socket, :error, "Preview is unavailable for this provider record.")}
+
+      true ->
+        {:noreply, open_local_preview(socket, path, filename)}
     end
   end
 
   def handle_event("open_preview", %{"path" => path}, socket) do
-    if provider_mode?(socket) and Map.has_key?(socket.assigns.records_by_path, path) do
-      {:noreply, open_provider_preview(socket, path)}
-    else
-      {:noreply, PreviewHelpers.open_preview(socket, path, :modal)}
+    cond do
+      provider_mode?(socket) and Map.has_key?(socket.assigns.records_by_path, path) ->
+        {:noreply, open_provider_preview(socket, path)}
+
+      provider_mode?(socket) and external_sidecar_preview?(path) ->
+        {:noreply, PreviewHelpers.open_preview(socket, path, :modal)}
+
+      provider_mode?(socket) ->
+        {:noreply, put_flash(socket, :error, "Preview is unavailable for this provider record.")}
+
+      true ->
+        {:noreply, PreviewHelpers.open_preview(socket, path, :modal)}
     end
   end
 
@@ -1237,17 +1253,28 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp records_by_path(entries), do: Map.new(entries, &{record_path(&1), &1})
 
   defp enrich_provider_records(records) do
+    documents_by_source = provider_documents_by_source(records)
+
     Enum.map_reduce(records, %{}, fn record, acc ->
       source = ExternalSource.source(record)
       sidecar_source = ExternalSource.sidecar_source(record)
-      doc = Document.get_by_source(source)
-      sidecar_doc = Document.get_by_source(sidecar_source)
+      doc = Map.get(documents_by_source, source)
+      sidecar_doc = Map.get(documents_by_source, sidecar_source)
 
       record = maybe_attach_sidecar_record(record, sidecar_doc)
       status = provider_record_status(record, doc)
 
       {record, Map.put(acc, record.name, status)}
     end)
+  end
+
+  defp provider_documents_by_source(records) do
+    records
+    |> Enum.flat_map(fn record ->
+      [ExternalSource.source(record), ExternalSource.sidecar_source(record)]
+    end)
+    |> Document.list_by_sources()
+    |> Map.new(&{&1.source, &1})
   end
 
   defp maybe_attach_sidecar_record(record, nil), do: record
@@ -1273,20 +1300,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp sidecar_preview_path(record, sidecar_doc) do
-    if ExternalSource.external?(record) do
-      record
-      |> ExternalSource.sidecar_relative_path(".md")
-      |> external_sidecar_preview_path()
-    else
-      sidecar_doc.metadata["sidecar_file_path"]
+    sidecar_file_path = sidecar_doc.metadata["sidecar_file_path"]
+
+    cond do
+      is_binary(sidecar_file_path) and sidecar_file_path != "" ->
+        external_sidecar_preview_path(sidecar_file_path)
+
+      ExternalSource.external?(record) ->
+        record
+        |> ExternalSource.sidecar_relative_path(".md")
+        |> external_sidecar_preview_path()
+
+      true ->
+        sidecar_file_path
     end
   end
 
   defp sidecar_relative_path(record, sidecar_doc) do
-    if ExternalSource.external?(record) do
-      ExternalSource.sidecar_relative_path(record, ".md")
-    else
-      sidecar_doc.metadata["sidecar_file_path"]
+    sidecar_file_path = sidecar_doc.metadata["sidecar_file_path"]
+
+    cond do
+      is_binary(sidecar_file_path) and sidecar_file_path != "" -> sidecar_file_path
+      ExternalSource.external?(record) -> ExternalSource.sidecar_relative_path(record, ".md")
+      true -> sidecar_file_path
     end
   end
 
@@ -1304,6 +1340,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       nil -> relative_path
     end
   end
+
+  defp external_sidecar_preview?(path) when is_binary(path) do
+    path |> Path.split() |> Enum.member?(".external-sidecars")
+  end
+
+  defp external_sidecar_preview?(_path), do: false
 
   defp open_local_preview(socket, path, filename) do
     socket = PreviewHelpers.open_preview(socket, path, :modal)

@@ -100,6 +100,16 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @doc """
+  Returns documents for the given sources.
+  """
+  def list_by_sources(sources) when is_list(sources) do
+    sources = Enum.uniq(sources)
+
+    from(d in __MODULE__, where: d.source in ^sources)
+    |> Repo.all()
+  end
+
+  @doc """
   Lists all documents, ordered by most recently updated.
   """
   def list do
