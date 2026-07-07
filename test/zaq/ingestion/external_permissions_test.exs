@@ -9,6 +9,7 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
   alias Zaq.Repo
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   defp create_document do
     unique = System.unique_integer([:positive])
@@ -77,7 +78,14 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
       permissions: ["not-a-principal"]
     }
 
-    assert :ok = ExternalPermissions.apply(record, [doc])
+    log =
+      capture_log(fn ->
+        assert :ok = ExternalPermissions.apply(record, [doc])
+      end)
+
+    assert log =~ "Skipped external permission principal"
+    assert log =~ ~s(record "file-2")
+    assert log =~ ":unmappable_principal"
     assert permissions_for(doc) == []
   end
 
@@ -91,7 +99,15 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
       permissions: [%{"id" => "", "display_name" => "Blank Id", "role" => "reader"}]
     }
 
-    assert :ok = ExternalPermissions.apply(record, [doc])
+    log =
+      capture_log(fn ->
+        assert :ok = ExternalPermissions.apply(record, [doc])
+      end)
+
+    assert log =~ "Skipped external permission principal"
+    assert log =~ ~s(record "file-3")
+    assert log =~ ":unmappable_principal"
+    assert log =~ ~s(role="reader")
     assert permissions_for(doc) == []
   end
 

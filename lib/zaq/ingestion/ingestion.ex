@@ -362,6 +362,17 @@ defmodule Zaq.Ingestion do
     |> Repo.all()
   end
 
+  def count_document_permissions(document_ids) when is_list(document_ids) do
+    resource_ids = document_ids |> Enum.map(&to_string/1) |> Enum.uniq()
+
+    Permission
+    |> where([p], p.resource_type == "document" and p.resource_id in ^resource_ids)
+    |> group_by([p], p.resource_id)
+    |> select([p], {p.resource_id, count(p.id)})
+    |> Repo.all()
+    |> Map.new()
+  end
+
   def list_person_permissions(person_id) do
     perms =
       Permission

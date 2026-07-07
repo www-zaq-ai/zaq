@@ -7,6 +7,8 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion
 
+  require Logger
+
   @spec apply(Record.t(), [map() | struct()]) :: :ok
   def apply(%Record{} = record, documents) when is_list(documents) do
     record
@@ -18,10 +20,25 @@ defmodule Zaq.Ingestion.ExternalPermissions do
           documents,
           &Ingestion.set_document_permission(&1.id, :person, person.id, rights)
         )
+      else
+        {:error, reason} ->
+          log_skipped_principal(record, principal, reason)
+
+        [] ->
+          log_skipped_principal(record, principal, :no_rights)
       end
     end)
 
     :ok
+  end
+
+  defp log_skipped_principal(%Record{} = record, principal, reason) do
+    role = principal["role"] || principal[:role]
+
+    Logger.warning(
+      "Skipped external permission principal for record #{inspect(record.id)} " <>
+        "from #{provider(record)}: #{inspect(reason)} role=#{inspect(role)}"
+    )
   end
 
   defp principals(%Record{} = record) do
