@@ -187,6 +187,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :share_modal_permissions, :list, required: true
   attr :share_modal_targets_options, :list, required: true
   attr :share_modal_pending, :list, required: true
+  attr :share_modal_read_only, :boolean, default: false
+  attr :share_modal_notice, :string, default: nil
 
   def modal_share(assigns) do
     ModalShare.modal_share(assigns)

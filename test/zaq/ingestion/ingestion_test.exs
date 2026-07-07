@@ -18,6 +18,7 @@ defmodule Zaq.IngestionTest do
     FileExplorer,
     IngestChunkJob,
     IngestJob,
+    IngestWorker,
     RecordSource,
     SourcePath,
     VolumeRecords
@@ -25,6 +26,46 @@ defmodule Zaq.IngestionTest do
 
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
+
+  defmodule ExternalDataSourceBridgeStub do
+    def download_document(provider, params) do
+      send(self(), {:download_document, provider, params})
+
+      if params["file_id"] == "pdf-123" do
+        {:ok,
+         %{
+           record: %Record{
+             id: params["file_id"],
+             kind: :file,
+             name: "External Deck.pdf",
+             mime_type: "application/pdf",
+             content: Base.encode64("pdf bytes"),
+             attributes: %{"encoding" => "base64"}
+           }
+         }}
+      else
+        {:ok,
+         %{
+           record: %Record{
+             id: params["file_id"],
+             kind: :file,
+             name: "External Doc.md",
+             mime_type: "text/markdown",
+             content: "# External Doc\n\nGenerated markdown",
+             attributes: %{"encoding" => "utf-8"}
+           }
+         }}
+      end
+    end
+  end
+
+  defmodule ExternalPdfPipelineStub do
+    def run(pdf_path, _opts \\ []) do
+      md_path = Path.rootname(pdf_path) <> ".md"
+      File.write!(md_path, "# External Deck\n\nGenerated PDF markdown")
+      {:ok, md_path}
+    end
+  end
 
   setup do
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
@@ -84,6 +125,199 @@ defmodule Zaq.IngestionTest do
     end
 
     document
+  end
+
+  describe "external data-source record ingestion" do
+    setup do
+      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+      original_processor = Application.get_env(:zaq, :document_processor)
+      original_pdf_pipeline = Application.get_env(:zaq, :pdf_pipeline_module)
+
+      tmp_dir =
+        Path.join(
+          System.tmp_dir!(),
+          "zaq_external_ingestion_#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp_dir)
+
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir)
+      Application.put_env(:zaq, :document_processor, Zaq.Ingestion.DocumentProcessor)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        ExternalDataSourceBridgeStub
+      )
+
+      on_exit(fn ->
+        restore_ingestion_env(original_ingestion)
+
+        case original_bridge do
+          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+          module -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, module)
+        end
+
+        case original_processor do
+          nil -> Application.delete_env(:zaq, :document_processor)
+          module -> Application.put_env(:zaq, :document_processor, module)
+        end
+
+        case original_pdf_pipeline do
+          nil -> Application.delete_env(:zaq, :pdf_pipeline_module)
+          module -> Application.put_env(:zaq, :pdf_pipeline_module, module)
+        end
+
+        File.rm_rf!(tmp_dir)
+      end)
+
+      {:ok, tmp_dir: tmp_dir}
+    end
+
+    test "materializes a ZAQ sidecar, stores canonical sources, and imports permissions", %{
+      tmp_dir: tmp_dir
+    } do
+      record = %Record{
+        id: "file-123",
+        kind: :file,
+        name: "External Doc",
+        url: "https://drive.example/file-123",
+        mime_type: "application/vnd.google-apps.document",
+        owners: [%{"email" => "owner@example.com", "display_name" => "Owner Person"}],
+        permissions: [
+          %Record{
+            id: "perm-reader",
+            kind: :permission,
+            name: "Reader Person",
+            raw: %{"emailAddress" => "reader@example.com", "role" => "reader"}
+          },
+          %Record{
+            id: "perm-writer",
+            kind: :permission,
+            name: "Writer Person",
+            raw: %{"emailAddress" => "writer@example.com", "role" => "writer"}
+          }
+        ],
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => 42,
+          "provider_record_id" => "file-123"
+        },
+        content: "must not be stored",
+        raw: %{"content" => "must not be stored"}
+      }
+
+      job =
+        Oban.Testing.with_testing_mode(:manual, fn ->
+          assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "async"})
+          assert :ok = IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
+          Repo.get!(IngestJob, job.id)
+        end)
+
+      assert_received {:download_document, "google_drive",
+                       %{
+                         "config_id" => "42",
+                         "file_id" => "file-123",
+                         "document_mime_type" => "application/vnd.google-apps.document"
+                       }}
+
+      source = "data_source/google_drive/42/file-123"
+      sidecar_source = source <> ".md"
+
+      assert %Document{} = source_doc = Document.get_by_source(source)
+      assert %Document{} = sidecar_doc = Document.get_by_source(sidecar_source)
+      assert source_doc.title == "External Doc"
+      assert source_doc.metadata["sidecar_source"] == sidecar_source
+      assert sidecar_doc.metadata["source_document_source"] == source
+      assert source_doc.metadata["provider_url"] == "https://drive.example/file-123"
+
+      assert sidecar_doc.metadata["sidecar_file_path"] ==
+               ".external-sidecars/google_drive/42/file-123.md"
+
+      assert File.read!(Path.join(tmp_dir, ".external-sidecars/google_drive/42/file-123.md")) =~
+               "Generated markdown"
+
+      assert Repo.get!(IngestJob, job.id).document_id == source_doc.id
+
+      assert Repo.aggregate(from(c in IngestChunkJob, where: c.ingest_job_id == ^job.id), :count) >
+               0
+
+      stored_record = Repo.get!(IngestJob, job.id).source_record
+      refute Map.has_key?(stored_record, "content")
+      refute Map.has_key?(stored_record, "raw")
+
+      source_perms = Ingestion.list_document_permissions(source_doc.id)
+      sidecar_perms = Ingestion.list_document_permissions(sidecar_doc.id)
+
+      assert permission_rights(source_perms, "owner@example.com") == ["read", "write"]
+      assert permission_rights(source_perms, "reader@example.com") == ["read"]
+      assert permission_rights(source_perms, "writer@example.com") == ["read", "write"]
+      assert permission_rights(sidecar_perms, "owner@example.com") == ["read", "write"]
+    end
+
+    test "base64 external originals keep markdown sidecar metadata" do
+      record = %Record{
+        id: "pdf-123",
+        kind: :file,
+        name: "External Deck.pdf",
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => 42,
+          "provider_record_id" => "pdf-123"
+        }
+      }
+
+      assert {:ok, materialized} = RecordSource.materialize(record)
+      assert String.ends_with?(materialized.path, ".pdf")
+      assert [materialized.path] == materialized.cleanup_paths
+
+      assert materialized.processor_opts[:sidecar_metadata]["sidecar_file_path"] ==
+               ".external-sidecars/google_drive/42/pdf-123.md"
+    end
+
+    test "base64 external PDFs store canonical data-source document rows" do
+      Application.put_env(:zaq, :pdf_pipeline_module, ExternalPdfPipelineStub)
+
+      record = %Record{
+        id: "pdf-123",
+        kind: :file,
+        name: "External Deck.pdf",
+        url: "https://drive.example/pdf-123",
+        mime_type: "application/pdf",
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => 42,
+          "provider_record_id" => "pdf-123"
+        }
+      }
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "async"})
+        assert :ok = IngestWorker.perform(%Oban.Job{args: %{"job_id" => job.id}})
+      end)
+
+      source = "data_source/google_drive/42/pdf-123"
+      sidecar_source = source <> ".md"
+
+      assert %Document{} = source_doc = Document.get_by_source(source)
+      assert %Document{} = sidecar_doc = Document.get_by_source(sidecar_source)
+      assert source_doc.title == "External Deck.pdf"
+      assert source_doc.metadata["sidecar_source"] == sidecar_source
+      assert source_doc.metadata["provider_url"] == "https://drive.example/pdf-123"
+      assert sidecar_doc.metadata["source_document_source"] == source
+
+      refute Repo.exists?(
+               from d in Document,
+                 where: like(d.source, "%external-sidecars%")
+             )
+    end
+  end
+
+  defp permission_rights(permissions, email) do
+    permissions
+    |> Enum.find(fn permission -> permission.person && permission.person.email == email end)
+    |> then(fn permission -> if permission, do: permission.access_rights, else: nil end)
   end
 
   defmodule RetryChunkProcessor do

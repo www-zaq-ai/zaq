@@ -15,6 +15,7 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   alias Zaq.Ingestion.{
     Chunk,
+    ExternalPermissions,
     FileExplorer,
     IngestChunkJob,
     IngestChunkWorker,
@@ -31,22 +32,38 @@ defmodule Zaq.Ingestion.IngestWorker do
 
     updated_job = JobLifecycle.mark_processing!(job)
 
-    file_path = resolve_file_path(updated_job)
+    materialized = materialize_job(updated_job)
     telemetry_dimensions = %{mode: updated_job.mode, volume: updated_job.volume_name || "default"}
 
     if Map.get(args, "retry_failed_chunks", false) do
       requeue_failed_chunk_jobs(updated_job, telemetry_dimensions)
     else
-      case prepare_chunks(file_path, updated_job) do
-        {:ok, document, :legacy_completed} ->
-          finalize_legacy_job(updated_job, document, telemetry_dimensions)
+      try do
+        case materialized do
+          {:ok, input} ->
+            process_materialized_input(input, updated_job, telemetry_dimensions, attempt, max)
 
-        {:ok, document, indexed_payloads} ->
-          schedule_chunk_jobs(updated_job, document, indexed_payloads, telemetry_dimensions)
-
-        {:error, reason} ->
-          handle_error(updated_job, reason, attempt, max, telemetry_dimensions)
+          {:error, reason} ->
+            handle_error(updated_job, reason, attempt, max, telemetry_dimensions)
+        end
+      after
+        cleanup_materialized(materialized)
       end
+    end
+  end
+
+  defp process_materialized_input(input, job, telemetry_dimensions, attempt, max) do
+    case prepare_chunks(input.path, job, input.processor_opts || []) do
+      {:ok, document, :legacy_completed} ->
+        import_external_permissions(input, document)
+        finalize_legacy_job(job, document, telemetry_dimensions)
+
+      {:ok, document, indexed_payloads} ->
+        import_external_permissions(input, document)
+        schedule_chunk_jobs(job, document, indexed_payloads, telemetry_dimensions)
+
+      {:error, reason} ->
+        handle_error(job, reason, attempt, max, telemetry_dimensions)
     end
   end
 
@@ -87,11 +104,12 @@ defmodule Zaq.Ingestion.IngestWorker do
     end
   end
 
-  defp prepare_chunks(file_path, job) do
+  defp prepare_chunks(file_path, job, opts) do
     proc = processor()
+    opts = Keyword.merge(opts, on_progress: progress_reporter(job))
 
     if function_exported?(proc, :prepare_file_chunks, 2) do
-      proc.prepare_file_chunks(file_path, on_progress: progress_reporter(job))
+      proc.prepare_file_chunks(file_path, opts)
     else
       case proc.process_single_file(file_path) do
         {:ok, document} ->
@@ -113,6 +131,47 @@ defmodule Zaq.Ingestion.IngestWorker do
       Logger.error("Ingestion caught #{kind}: #{inspect(reason)}")
       {:error, inspect(reason)}
   end
+
+  defp materialize_job(%IngestJob{source_record: source_record}) when is_map(source_record) do
+    with {:ok, record} <- RecordSource.from_storage_map(source_record) do
+      RecordSource.materialize(record)
+    end
+  end
+
+  defp materialize_job(%IngestJob{} = job) do
+    path = resolve_file_path(job)
+
+    if external_sidecar_path?(path) do
+      {:error, :external_sidecar_requires_source_record}
+    else
+      {:ok, %{path: path, processor_opts: [], cleanup_paths: []}}
+    end
+  end
+
+  defp external_sidecar_path?(path) when is_binary(path),
+    do: path |> Path.split() |> Enum.member?(".external-sidecars")
+
+  defp external_sidecar_path?(_path), do: false
+
+  defp cleanup_materialized({:ok, %{cleanup_paths: paths}}) when is_list(paths) do
+    Enum.each(paths, &File.rm/1)
+  end
+
+  defp cleanup_materialized(_), do: :ok
+
+  defp import_external_permissions(%{record: record, processor_opts: opts}, document) do
+    sidecar_source = Keyword.get(opts, :sidecar_source_override)
+
+    docs =
+      [document, sidecar_source && Repo.get_by(Zaq.Ingestion.Document, source: sidecar_source)]
+      |> Enum.reject(&is_nil/1)
+
+    if docs != [] and record do
+      ExternalPermissions.apply(record, docs)
+    end
+  end
+
+  defp import_external_permissions(_input, _document), do: :ok
 
   defp schedule_chunk_jobs(job, document, indexed_payloads, telemetry_dimensions) do
     Chunk.delete_by_document(document.id)

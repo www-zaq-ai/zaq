@@ -78,6 +78,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
          metadata: %{}
        }}
     end
+
+    def download_document(_provider, %{"file_id" => file_id}) do
+      {:ok,
+       %{
+         record: %Record{
+           id: file_id,
+           kind: :file,
+           name: "Budget.pdf",
+           content: "Provider document content",
+           mime_type: "text/plain"
+         }
+       }}
+    end
   end
 
   defmodule ProviderBrowserErrorBridgeStub do
@@ -239,7 +252,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert has_element?(view, "span", "No Preview.txt")
     end
 
-    test "previews provider records by URL and blocks external ingestion", %{conn: conn} do
+    test "previews provider records by URL and queues external ingestion", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
       assert_received {:list_files, "google_drive", _params}
 
@@ -258,7 +271,110 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       |> element("#ingest-selected-button")
       |> render_click()
 
-      assert render(view) =~ "Provider ingestion will be enabled in phase 3."
+      assert render(view) =~ "Ingestion started."
+
+      job = Repo.one!(from j in IngestJob, order_by: [desc: j.inserted_at], limit: 1)
+
+      assert job.file_path ==
+               "data_source/google_drive/#{job.source_record["attributes"]["config_id"]}/file-1"
+
+      assert job.source_record["attributes"]["provider"] == "google_drive"
+      assert job.source_record["attributes"]["provider_record_id"] == "file-1"
+      refute Map.has_key?(job.source_record, "content")
+      refute Map.has_key?(job.source_record, "raw")
+    end
+
+    test "shows provider sidecar with current provider title and data-source permissions guidance",
+         %{
+           conn: conn,
+           tmp_dir: tmp_dir,
+           provider_config: config
+         } do
+      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      documents_root = Path.join(tmp_dir, "documents")
+      archives_root = Path.join(tmp_dir, "archives")
+
+      File.mkdir_p!(documents_root)
+      File.mkdir_p!(archives_root)
+
+      Application.put_env(:zaq, Zaq.Ingestion,
+        base_path: documents_root,
+        volumes: %{"archives" => archives_root, "documents" => documents_root}
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || []) end)
+
+      source = "data_source/google_drive/#{config.id}/file-1"
+      sidecar_source = source <> ".md"
+      sidecar_path = ".external-sidecars/google_drive/#{config.id}/file-1.md"
+
+      documents_root
+      |> Path.join(Path.dirname(sidecar_path))
+      |> File.mkdir_p!()
+
+      File.write!(Path.join(documents_root, sidecar_path), "# Budget")
+
+      {:ok, source_doc} =
+        Document.create(%{
+          source: source,
+          content: "source content",
+          metadata: %{"sidecar_source" => sidecar_source}
+        })
+
+      {:ok, _sidecar_doc} =
+        Document.create(%{
+          source: sidecar_source,
+          content: "# Budget",
+          metadata: %{
+            "source_document_source" => source,
+            "sidecar_file_path" => ".external-sidecars/google_drive/#{config.id}/file-1.pdf"
+          }
+        })
+
+      {:ok, person} =
+        People.find_or_create_from_channel("email", %{
+          "channel_id" => "reader@example.com",
+          "email" => "reader@example.com",
+          "display_name" => "Reader"
+        })
+
+      assert {:ok, _permission} =
+               Ingestion.set_document_permission(source_doc.id, :person, person.id, ["read"])
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      assert render(view) =~ "Budget.md"
+      refute render(view) =~ "file-1.pdf"
+
+      assert has_element?(
+               view,
+               ~s(button[phx-click="open_preview"][phx-value-path="documents/#{sidecar_path}"][phx-value-filename="Budget.md"]),
+               ""
+             )
+
+      view
+      |> element(~s(button[phx-click="open_preview"][phx-value-filename="Budget.md"]))
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "Budget.md"
+      assert html =~ "documents/#{sidecar_path}"
+      refute html =~ "file-1.pdf"
+
+      render_hook(view, "close_preview_modal", %{})
+
+      view
+      |> element(~s(button[phx-click="view_provider_permissions"]), "shared")
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "Share with People &amp; Teams"
+      assert html =~ "Permissions are imported from Google Drive"
+      assert html =~ "reader@example.com"
+      refute html =~ "share-target-select"
+      refute html =~ "Save Permissions"
+      refute html =~ "remove_permission"
     end
 
     test "uses any enabled provider from the URL without an ingestion allowlist", %{conn: conn} do

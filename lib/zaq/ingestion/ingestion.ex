@@ -55,7 +55,6 @@ defmodule Zaq.Ingestion do
       :folder ->
         with {:ok, children} <- RecordSource.list_children(record) do
           children
-          |> Enum.filter(&(RecordSource.kind(&1) == :file))
           |> ingest_records(%{mode: mode})
         end
 
@@ -699,7 +698,7 @@ defmodule Zaq.Ingestion do
   defp ingest_file_record(record, mode) do
     volume = RecordSource.volume(record)
 
-    with path when is_binary(path) <- RecordSource.relative_path(record),
+    with path when is_binary(path) <- RecordSource.job_path(record),
          {:ok, job} <- create_job(path, mode, volume, RecordSource.to_storage_map(record)) do
       run_job(job, mode)
     else

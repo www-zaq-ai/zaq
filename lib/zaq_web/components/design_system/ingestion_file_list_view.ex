@@ -326,10 +326,20 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                 <%= if record_file?(entry) do %>
                   <% status = file_ingestion_status(@ingestion_map, entry.name) %>
                   <div class="flex items-center gap-1 flex-wrap">
-                    <span
+                    <button
                       :if={status.permissions_count > 0}
+                      type="button"
+                      phx-click={
+                        if @provider_mode, do: "view_provider_permissions", else: "share_item"
+                      }
+                      phx-value-path={record_path(entry)}
                       class="zaq-pill zaq-pill--shared zaq-text-caption"
-                      title={"Shared with #{status.permissions_count} person(s)/team(s)"}
+                      title={
+                        if @provider_mode,
+                          do:
+                            "Permissions are managed in the data source. Refresh ingestion after changing them there.",
+                          else: "Shared with #{status.permissions_count} person(s)/team(s)"
+                      }
                     >
                       <svg
                         class="w-3 h-3 shrink-0"
@@ -345,7 +355,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                         />
                       </svg>
                       shared
-                    </span>
+                    </button>
                     <span
                       :if={Map.get(status, :is_public, false)}
                       class="zaq-pill zaq-pill--public zaq-text-caption cursor-default"
@@ -405,12 +415,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                 <button
                   type="button"
                   phx-click="open_preview"
-                  phx-value-path={
-                    Path.join([
-                      @current_volume,
-                      related_record_path(related_record(entry))
-                    ])
-                  }
+                  phx-value-filename={related_record_name(related_record(entry))}
+                  phx-value-path={related_record_preview_path(related_record(entry), @current_volume)}
                   class="zaq-table-sidecar-preview"
                   title="Preview converted markdown"
                 >

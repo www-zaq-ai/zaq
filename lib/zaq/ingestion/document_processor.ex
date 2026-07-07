@@ -143,11 +143,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Logger.info("Preparing file chunks: #{file_path}")
 
     with {:ok, content} <- read_as_markdown(file_path, opts),
-         {:ok, source} <- extract_source(content, file_path),
-         {:ok, sidecar_source} <- extract_sidecar_source(file_path),
+         {:ok, source} <- extract_source(content, file_path, opts),
+         {:ok, sidecar_source} <- extract_sidecar_source(file_path, opts),
          {:ok, document} <-
-           store_document(content, source, Sidecar.source_metadata(sidecar_source)),
-         :ok <- maybe_store_sidecar_document(content, source, sidecar_source) do
+           store_document(
+             content,
+             source,
+             source_metadata(sidecar_source, opts),
+             document_title(opts)
+           ),
+         :ok <- maybe_store_sidecar_document(content, source, sidecar_source, opts) do
       sections = DocumentChunker.parse_layout(content, format: :markdown)
       chunks = DocumentChunker.chunk_sections(sections)
 
@@ -171,11 +176,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Logger.info("Processing file: #{file_path}")
 
     with {:ok, content} <- read_as_markdown(file_path, opts),
-         {:ok, source} <- extract_source(content, file_path),
-         {:ok, sidecar_source} <- extract_sidecar_source(file_path),
+         {:ok, source} <- extract_source(content, file_path, opts),
+         {:ok, sidecar_source} <- extract_sidecar_source(file_path, opts),
          {:ok, document} <-
-           store_document(content, source, Sidecar.source_metadata(sidecar_source)),
-         :ok <- maybe_store_sidecar_document(content, source, sidecar_source),
+           store_document(
+             content,
+             source,
+             source_metadata(sidecar_source, opts),
+             document_title(opts)
+           ),
+         :ok <- maybe_store_sidecar_document(content, source, sidecar_source, opts),
          {:ok, report} <- process_and_store_chunks_report(content, document.id, opts) do
       Logger.info("Successfully processed: #{source}")
       {:ok, document, report}
@@ -486,25 +496,38 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   Example: "/zaq/volumes/docs/guide.md" => "docs/guide.md"
   """
+  def extract_source(content, file_path, opts) do
+    case Keyword.get(opts, :source_override) do
+      source when is_binary(source) and source != "" -> {:ok, source}
+      _ -> extract_source(content, file_path)
+    end
+  end
+
   def extract_source(_content, file_path) do
     SourcePath.absolute_to_source(file_path)
   end
 
-  defp extract_sidecar_source(file_path) do
-    case Sidecar.sidecar_path_for(file_path) do
-      nil -> {:ok, nil}
-      path -> extract_source("", path)
+  defp extract_sidecar_source(file_path, opts) do
+    case Keyword.get(opts, :sidecar_source_override) do
+      source when is_binary(source) and source != "" ->
+        {:ok, source}
+
+      _ ->
+        case Sidecar.sidecar_path_for(file_path) do
+          nil -> {:ok, nil}
+          path -> extract_source("", path, opts)
+        end
     end
   end
 
-  defp maybe_store_sidecar_document(_content, _source, nil), do: :ok
+  defp maybe_store_sidecar_document(_content, _source, nil, _opts), do: :ok
 
-  defp maybe_store_sidecar_document(content, source, sidecar_source) do
+  defp maybe_store_sidecar_document(content, source, sidecar_source, opts) do
     attrs = %{
       source: sidecar_source,
       content: content,
       content_type: "markdown",
-      metadata: Sidecar.sidecar_metadata(source)
+      metadata: sidecar_metadata(source, opts)
     }
 
     case Document.upsert(attrs) do
@@ -513,11 +536,25 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
+  defp source_metadata(sidecar_source, opts) do
+    opts
+    |> Keyword.get(:document_metadata, %{})
+    |> Map.merge(Sidecar.source_metadata(sidecar_source))
+  end
+
+  defp sidecar_metadata(source, opts) do
+    opts
+    |> Keyword.get(:sidecar_metadata, %{})
+    |> Map.merge(Sidecar.sidecar_metadata(source))
+  end
+
   @doc """
   Upserts a `Zaq.Ingestion.Document` record.
   """
-  def store_document(content, source, metadata \\ %{}) do
-    attrs = %{content: content, source: source, metadata: metadata}
+  def store_document(content, source, metadata \\ %{}, title \\ nil) do
+    attrs =
+      %{content: content, source: source, metadata: metadata}
+      |> maybe_put_title(title)
 
     case Document.upsert(attrs) do
       {:ok, document} ->
@@ -529,6 +566,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         {:error, changeset}
     end
   end
+
+  defp document_title(opts), do: Keyword.get(opts, :document_title)
+
+  defp maybe_put_title(attrs, title) when is_binary(title) and title != "",
+    do: Map.put(attrs, :title, title)
+
+  defp maybe_put_title(attrs, _title), do: attrs
 
   @doc """
   Chunks the content using `DocumentChunker`, generates embeddings,

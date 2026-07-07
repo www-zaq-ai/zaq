@@ -65,7 +65,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
         >
           <div class="flex items-start justify-between gap-2">
             <p class="zaq-text-body-sm font-medium truncate" title={job.file_path}>
-              {Path.basename(job.file_path)}
+              {job_display_name(job)}
             </p>
             <span class={StatusPill.status_pill_classes(job.status)}>
               {job.status}
@@ -196,4 +196,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
 
   defp prep_total(%{"total" => t}) when is_integer(t) and t > 0, do: t
   defp prep_total(_), do: 1
+
+  defp job_display_name(%{source_record: %{"name" => name}}) when is_binary(name) and name != "",
+    do: name
+
+  defp job_display_name(%{file_path: path}) when is_binary(path), do: Path.basename(path)
+  defp job_display_name(_job), do: "Unknown file"
 end
