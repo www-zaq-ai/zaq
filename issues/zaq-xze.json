@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-07-07T18:36:13Z",
   "created": "2026-07-07T18:20:41Z",
   "description": "Fix review findings for external ingestion branch: batch provider document lookup, shared badge wiring, provider preview guard, cleanup error handling, safe markdown fallback, collision-resistant sidecar paths, and recursive folder ingestion test intent.",
   "id": "zaq-xze",
@@ -13,7 +14,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[review-fix] Address external ingestion code review comments",
   "type": "task",
   "updated_at": "2026-07-07T18:36:13Z"
