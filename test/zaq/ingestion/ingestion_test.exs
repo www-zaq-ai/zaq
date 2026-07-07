@@ -1268,6 +1268,23 @@ defmodule Zaq.IngestionTest do
       assert updated.access_rights == ["read", "write"]
       assert length(Ingestion.list_document_permissions(doc.id)) == 1
     end
+
+    test "counts document permissions for multiple documents" do
+      doc1 = create_doc_with_source("perm-count-1.md")
+      doc2 = create_doc_with_source("perm-count-2.md")
+      doc3 = create_doc_with_source("perm-count-3.md")
+      person = create_person()
+      team = create_team()
+
+      {:ok, _} = Ingestion.set_document_permission(doc1.id, :person, person.id, ["read"])
+      {:ok, _} = Ingestion.set_document_permission(doc1.id, :team, team.id, ["read"])
+      {:ok, _} = Ingestion.set_document_permission(doc2.id, :person, person.id, ["read"])
+
+      assert Ingestion.count_document_permissions([doc1.id, doc2.id, doc3.id]) == %{
+               to_string(doc1.id) => 2,
+               to_string(doc2.id) => 1
+             }
+    end
   end
 
   describe "delete_document_permission/1" do
