@@ -6,9 +6,15 @@
   "description": "Fix review findings for external ingestion branch: batch provider document lookup, shared badge wiring, provider preview guard, cleanup error handling, safe markdown fallback, collision-resistant sidecar paths, and recursive folder ingestion test intent.",
   "id": "zaq-xze",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented review fixes: batch provider document lookup, shared badge reuse with path attr, provider preview guard, explicit cleanup handling, safe row markdown conversion, collision-resistant sidecar paths, and recursive folder ingestion test coverage. Validation: mix format; targeted tests for external_source, record_source, ingestion_components, ingestion, changed ingestion_live scenarios; mix q passed.",
+      "timestamp": "2026-07-07T18:36:13Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[review-fix] Address external ingestion code review comments",
   "type": "task",
-  "updated_at": "2026-07-07T18:20:56Z"
+  "updated_at": "2026-07-07T18:36:13Z"
 }
