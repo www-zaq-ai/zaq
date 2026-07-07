@@ -154,10 +154,25 @@ defmodule Zaq.Ingestion.IngestWorker do
   defp external_sidecar_path?(_path), do: false
 
   defp cleanup_materialized({:ok, %{cleanup_paths: paths}}) when is_list(paths) do
-    Enum.each(paths, &File.rm/1)
+    Enum.each(paths, &cleanup_materialized_path/1)
   end
 
   defp cleanup_materialized(_), do: :ok
+
+  defp cleanup_materialized_path(path) do
+    case File.rm(path) do
+      :ok ->
+        :ok
+
+      {:error, :enoent} ->
+        # Cleanup is best-effort; another process may have already removed it.
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to remove materialized ingestion file #{path}: #{inspect(reason)}")
+        :ok
+    end
+  end
 
   defp import_external_permissions(%{record: record, processor_opts: opts}, document) do
     sidecar_source = Keyword.get(opts, :sidecar_source_override)

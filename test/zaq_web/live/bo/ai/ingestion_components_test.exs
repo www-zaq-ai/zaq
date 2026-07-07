@@ -164,30 +164,33 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       html =
         render_component(&IngestionFileStatus.shared_badge/1,
           provider_mode: true,
-          permissions_count: 7
+          permissions_count: 7,
+          path: "provider-file-1"
         )
 
       assert html =~ ~s(<button)
       assert html =~ ~s(type="button")
       assert html =~ ~s(phx-click="view_provider_permissions")
+      assert html =~ ~s(phx-value-path="provider-file-1")
       assert html =~ "Permissions are managed in the data source"
       assert html =~ "shared"
       refute html =~ "Shared with 7 person(s)/team(s)"
-      refute html =~ ~s(<span)
     end
 
-    test "renders local shared badge as static span with permissions title" do
+    test "renders local shared badge as share button with permissions title" do
       html =
         render_component(&IngestionFileStatus.shared_badge/1,
           provider_mode: false,
-          permissions_count: 3
+          permissions_count: 3,
+          path: "local-file.md"
         )
 
-      assert html =~ ~s(<span)
+      assert html =~ ~s(<button)
       assert html =~ "zaq-pill zaq-pill--shared zaq-text-caption"
+      assert html =~ ~s(phx-click="share_item")
+      assert html =~ ~s(phx-value-path="local-file.md")
       assert html =~ ~s[title="Shared with 3 person(s)/team(s)"]
       assert html =~ "shared"
-      refute html =~ ~s(<button)
       refute html =~ ~s(phx-click="view_provider_permissions")
       refute html =~ "Permissions are managed in the data source"
     end

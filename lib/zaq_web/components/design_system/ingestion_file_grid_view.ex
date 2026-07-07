@@ -269,23 +269,11 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                       <span class={StatusPill.status_pill_classes("ingested")}>
                         ingested
                       </span>
-                      <button
-                        :if={status.permissions_count > 0}
-                        type="button"
-                        phx-click={
-                          if @provider_mode, do: "view_provider_permissions", else: "share_item"
-                        }
-                        phx-value-path={record_path(entry)}
-                        class="zaq-pill zaq-pill--shared zaq-text-caption"
-                        title={
-                          if @provider_mode,
-                            do:
-                              "Permissions are managed in the data source. Refresh ingestion after changing them there.",
-                            else: "Shared with #{status.permissions_count} person(s)/team(s)"
-                        }
-                      >
-                        shared
-                      </button>
+                      <.shared_badge
+                        provider_mode={@provider_mode}
+                        permissions_count={status.permissions_count}
+                        path={record_path(entry)}
+                      />
                       <span
                         :if={Map.get(status, :is_public, false)}
                         class="zaq-pill zaq-pill--public zaq-text-caption"
@@ -296,23 +284,11 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
                     </div>
                   <% true -> %>
                     <div class="flex flex-row flex-wrap items-center justify-center gap-1 mt-1">
-                      <button
-                        :if={status.permissions_count > 0}
-                        type="button"
-                        phx-click={
-                          if @provider_mode, do: "view_provider_permissions", else: "share_item"
-                        }
-                        phx-value-path={record_path(entry)}
-                        class="zaq-pill zaq-pill--shared zaq-text-caption"
-                        title={
-                          if @provider_mode,
-                            do:
-                              "Permissions are managed in the data source. Refresh ingestion after changing them there.",
-                            else: "Shared with #{status.permissions_count} person(s)/team(s)"
-                        }
-                      >
-                        shared
-                      </button>
+                      <.shared_badge
+                        provider_mode={@provider_mode}
+                        permissions_count={status.permissions_count}
+                        path={record_path(entry)}
+                      />
                       <span
                         :if={Map.get(status, :is_public, false)}
                         class="zaq-pill zaq-pill--public zaq-text-caption"

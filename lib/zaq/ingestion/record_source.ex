@@ -238,12 +238,49 @@ defmodule Zaq.Ingestion.RecordSource do
 
     ([headers, divider] ++
        Enum.map(rows, fn row ->
-         Enum.map(headers, &to_string(Map.get(row, &1) || Map.get(row, String.to_atom(&1)) || ""))
+         Enum.map(headers, fn header -> row |> row_value(header) |> markdown_value() end)
        end))
     |> Enum.map_join("\n", fn columns -> "| " <> Enum.join(columns, " | ") <> " |" end)
   end
 
-  defp rows_to_markdown(rows), do: Enum.map_join(rows, "\n", &inspect/1)
+  defp rows_to_markdown(rows), do: Enum.map_join(rows, "\n", &markdown_value/1)
+
+  defp row_value(row, header) do
+    Enum.find_value(row, "", fn {key, value} ->
+      if to_string(key) == header, do: value, else: false
+    end)
+  end
+
+  defp markdown_value(nil), do: ""
+  defp markdown_value(value) when is_binary(value), do: value
+  defp markdown_value(value) when is_number(value) or is_boolean(value), do: to_string(value)
+
+  defp markdown_value(value) when is_list(value) or is_map(value) do
+    value
+    |> json_safe_value()
+    |> Jason.encode!()
+  end
+
+  defp markdown_value(value), do: safe_to_string(value)
+
+  defp json_safe_value(%_{} = value), do: value |> Map.from_struct() |> json_safe_value()
+
+  defp json_safe_value(value) when is_map(value) do
+    Map.new(value, fn {key, value} -> {to_string(key), json_safe_value(value)} end)
+  end
+
+  defp json_safe_value(value) when is_list(value), do: Enum.map(value, &json_safe_value/1)
+
+  defp json_safe_value(value)
+       when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value), do: value
+
+  defp json_safe_value(value), do: safe_to_string(value)
+
+  defp safe_to_string(value) do
+    to_string(value)
+  rescue
+    Protocol.UndefinedError -> ""
+  end
 
   defp extension_for(%Record{name: name}) when is_binary(name) do
     case Path.extname(name) do

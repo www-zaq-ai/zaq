@@ -5,7 +5,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
-  alias Zaq.Ingestion.RecordSource
+  alias Zaq.Ingestion.{ExternalSource, RecordSource}
 
   setup do
     {Zaq.NodeRouter, node_router_binary, node_router_path} =
@@ -210,7 +210,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert materialized.processor_opts[:document_metadata]["provider"] == "google_drive"
 
     assert materialized.processor_opts[:sidecar_metadata]["sidecar_file_path"] ==
-             ".external-sidecars/google_drive/cfg-1/sheet-1.md"
+             ExternalSource.sidecar_relative_path(record)
   end
 
   test "materialize/1 handles empty row downloads as empty markdown" do
@@ -227,7 +227,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert materialized.cleanup_paths == []
   end
 
-  test "materialize/1 stringifies non-map row downloads" do
+  test "materialize/1 converts non-map row downloads without Elixir inspect syntax" do
     record = external_record(%{"provider_record_id" => "rows"})
 
     downloaded = %Record{id: "rows", kind: :file, content: ["alpha", 123, %{bad: :shape}]}
@@ -237,7 +237,75 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     end)
 
     assert {:ok, materialized} = RecordSource.materialize(record)
-    assert File.read!(materialized.path) == "\"alpha\"\n123\n%{bad: :shape}"
+    assert File.read!(materialized.path) == "alpha\n123\n{\"bad\":\"shape\"}"
+  end
+
+  test "materialize/1 propagates sidecar markdown write errors", %{tmp_dir: tmp_dir} do
+    bad_base = Path.join(tmp_dir, "not-a-dir")
+    File.write!(bad_base, "not a directory")
+
+    Application.put_env(:zaq, Zaq.Ingestion, base_path: bad_base, volumes: %{})
+
+    record = external_record(%{"provider_record_id" => "md"})
+
+    downloaded = %Record{id: "md", kind: :file, content: "markdown"}
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:error, reason} = RecordSource.materialize(record)
+    assert reason in [:enotdir, :enoent, :eacces]
+  end
+
+  test "materialize/1 renders nullable and nested row values as json-safe markdown" do
+    record = external_record(%{"provider_record_id" => "json-safe"})
+
+    downloaded = %Record{
+      id: "json-safe",
+      kind: :file,
+      content: [
+        %{
+          "Name" => nil,
+          "Tags" => ["elixir", 42, true, nil],
+          "Meta" => %{uri: URI.parse("https://example.test/a"), active: false}
+        }
+      ]
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(record)
+
+    content = File.read!(materialized.path)
+
+    assert content =~ "|  |"
+    assert content =~ "[\"elixir\",42,true,null]"
+    assert content =~ "\"host\":\"example.test\""
+    refute content =~ "%URI{"
+  end
+
+  test "materialize/1 safely stringifies unsupported markdown row values" do
+    record = external_record(%{"provider_record_id" => "unsupported-rows"})
+
+    downloaded = %Record{
+      id: "unsupported-rows",
+      kind: :file,
+      content: [:draft, {:unsupported, :tuple}]
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(record)
+
+    content = File.read!(materialized.path)
+
+    assert content == "draft\n"
+    refute content =~ "{:unsupported, :tuple}"
   end
 
   test "materialize/1 stores base64 downloads as original file and schedules cleanup" do
@@ -277,6 +345,28 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
     assert {:ok, materialized} = RecordSource.materialize(blob_record)
     assert String.ends_with?(materialized.path, ".bin")
+    assert materialized.cleanup_paths == [materialized.path]
+  end
+
+  test "materialize/1 uses bin extension for unnamed non-pdf base64 downloads" do
+    record = external_record(%{"provider_record_id" => "raw"})
+
+    downloaded = %Record{
+      id: "raw",
+      kind: :file,
+      name: nil,
+      mime_type: "application/octet-stream",
+      content: Base.encode64("raw bytes"),
+      attributes: %{"encoding" => "base64"}
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert String.ends_with?(materialized.path, ".bin")
+    assert File.read!(materialized.path) == "raw bytes"
     assert materialized.cleanup_paths == [materialized.path]
   end
 

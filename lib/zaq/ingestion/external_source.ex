@@ -74,8 +74,10 @@ defmodule Zaq.Ingestion.ExternalSource do
   defp attr(%Record{}, _key), do: nil
 
   defp safe_segment(value) do
-    value
-    |> to_string()
-    |> String.replace(~r/[^A-Za-z0-9._-]/, "_")
+    raw = to_string(value)
+    sanitized = String.replace(raw, ~r/[^A-Za-z0-9._-]/, "_")
+    hash = :crypto.hash(:sha256, raw) |> Base.url_encode64(padding: false) |> binary_part(0, 8)
+
+    if sanitized == "", do: hash, else: sanitized <> "-" <> hash
   end
 end
