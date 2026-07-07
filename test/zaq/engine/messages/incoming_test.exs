@@ -171,6 +171,77 @@ defmodule Zaq.Engine.Messages.IncomingTest do
     assert Incoming.team_ids(msg) == [7, 8]
   end
 
+  describe "records" do
+    alias Zaq.Contracts.Record
+
+    test "preserves records list passed to new/1" do
+      records = [
+        %Record{
+          id: "r1",
+          kind: :file,
+          content: "hello",
+          name: "doc.txt",
+          mime_type: "text/plain"
+        },
+        %Record{id: "r2", kind: :file, content: nil, name: "img.png", mime_type: "image/png"}
+      ]
+
+      msg =
+        Incoming.new(%{
+          content: "check these",
+          channel_id: "ch1",
+          provider: :telegram,
+          records: records
+        })
+
+      assert length(msg.records) == 2
+      assert Enum.at(msg.records, 0).id == "r1"
+      assert Enum.at(msg.records, 0).content == "hello"
+      assert Enum.at(msg.records, 1).id == "r2"
+      assert Enum.at(msg.records, 1).content == nil
+    end
+
+    test "records is empty list when records field is nil" do
+      msg =
+        Incoming.new(%{
+          content: "no records",
+          channel_id: "ch1",
+          provider: :telegram,
+          records: nil
+        })
+
+      assert msg.records == []
+    end
+
+    test "records is empty list when records field is not a list" do
+      msg =
+        Incoming.new(%{
+          content: "bad records",
+          channel_id: "ch1",
+          provider: :telegram,
+          records: "not-a-list"
+        })
+
+      assert msg.records == []
+    end
+
+    test "records defaults to empty list when not provided" do
+      msg =
+        Incoming.new(%{
+          content: "default",
+          channel_id: "ch1",
+          provider: :telegram
+        })
+
+      assert msg.records == []
+    end
+
+    test "struct defaults records to empty list" do
+      msg = %Incoming{content: "hi", channel_id: "ch1", provider: :telegram}
+      assert msg.records == []
+    end
+  end
+
   describe "new/1 required keys" do
     test "raises ArgumentError when :content key is missing" do
       attrs = %{channel_id: "ch1", provider: :mattermost}

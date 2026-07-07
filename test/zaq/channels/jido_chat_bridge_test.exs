@@ -4,12 +4,15 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   alias Jido.Chat
   alias Jido.Chat.Author
+  alias Jido.Chat.Media
+
   alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
+
   alias Zaq.Channels.Supervisor
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -604,6 +607,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert msg.author_name == "alice"
       assert msg.provider == :mattermost
       assert msg.metadata[:raw] == "data"
+      assert msg.records == []
 
       assert msg.metadata["telemetry_dimensions"] == %{
                "channel_id" => "room1",
@@ -677,6 +681,178 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                "provider" => "mattermost"
              }
     end
+  end
+
+  test "maps media attachments from Chat.Incoming" do
+    incoming = %ChatIncoming{
+      text: "check this file",
+      external_room_id: "room1",
+      external_thread_id: nil,
+      external_message_id: "msg1",
+      author: %Author{user_id: "u1", user_name: "alice"},
+      metadata: %{},
+      media: [
+        %Media{
+          kind: :file,
+          url: "https://example.com/report.pdf",
+          filename: "report.pdf",
+          media_type: "application/pdf",
+          size_bytes: 1024
+        },
+        %Media{
+          kind: :image,
+          url: "https://example.com/photo.png",
+          filename: "photo.png",
+          media_type: "image/png",
+          size_bytes: 2048,
+          width: 800,
+          height: 600
+        }
+      ]
+    }
+
+    msg = JidoChatBridge.to_internal(incoming, :mattermost)
+
+    assert length(msg.records) == 2
+
+    first = Enum.at(msg.records, 0)
+    assert first.url == "https://example.com/report.pdf"
+    assert first.name == "report.pdf"
+    assert first.mime_type == "application/pdf"
+    assert first.size == 1024
+    assert first.kind == :file
+
+    second = Enum.at(msg.records, 1)
+    assert second.url == "https://example.com/photo.png"
+    assert second.name == "photo.png"
+    assert second.mime_type == "image/png"
+    assert second.size == 2048
+    assert second.kind == :file
+  end
+
+  test "handles nil media gracefully" do
+    incoming = %ChatIncoming{
+      text: "no files",
+      external_room_id: "room1",
+      external_thread_id: nil,
+      external_message_id: "msg1",
+      author: nil,
+      metadata: %{},
+      media: nil
+    }
+
+    msg = JidoChatBridge.to_internal(incoming, :mattermost)
+    assert msg.records == []
+  end
+
+  test "handles empty media list" do
+    incoming = %ChatIncoming{
+      text: "no files",
+      external_room_id: "room1",
+      external_thread_id: nil,
+      external_message_id: "msg1",
+      author: nil,
+      metadata: %{},
+      media: []
+    }
+
+    msg = JidoChatBridge.to_internal(incoming, :mattermost)
+    assert msg.records == []
+  end
+
+  test "maps single media attachment to single record" do
+    incoming = %ChatIncoming{
+      text: "single file",
+      external_room_id: "room1",
+      external_thread_id: nil,
+      external_message_id: "msg1",
+      author: nil,
+      metadata: %{},
+      media: [
+        %Media{
+          kind: :file,
+          url: "telegram://file/doc1",
+          filename: "report.pdf",
+          media_type: "application/pdf",
+          size_bytes: 42_000
+        }
+      ]
+    }
+
+    msg = JidoChatBridge.to_internal(incoming, :telegram)
+
+    assert length(msg.records) == 1
+    record = Enum.at(msg.records, 0)
+    assert record.url == "telegram://file/doc1"
+    assert record.name == "report.pdf"
+    assert record.mime_type == "application/pdf"
+    assert record.size == 42_000
+    assert record.kind == :file
+  end
+
+  test "maps media with file_id in metadata to record id" do
+    incoming = %ChatIncoming{
+      text: "file with metadata",
+      external_room_id: "room1",
+      external_thread_id: nil,
+      external_message_id: "msg1",
+      author: nil,
+      metadata: %{},
+      media: [
+        %Media{
+          kind: :file,
+          url: "telegram://file/abc123",
+          filename: "doc.pdf",
+          media_type: "application/pdf",
+          metadata: %{file_id: "abc123"}
+        }
+      ]
+    }
+
+    msg = JidoChatBridge.to_internal(incoming, :telegram)
+
+    assert length(msg.records) == 1
+    record = Enum.at(msg.records, 0)
+    assert record.id == "telegram_abc123"
+  end
+
+  test "records always have kind :file regardless of media kind" do
+    incoming = %ChatIncoming{
+      text: "various media",
+      external_room_id: "room1",
+      external_thread_id: nil,
+      external_message_id: "msg1",
+      author: nil,
+      metadata: %{},
+      media: [
+        %Media{kind: :image, url: "tg://img1", filename: "photo.jpg", media_type: "image/jpeg"},
+        %Media{kind: :video, url: "tg://vid1", filename: "clip.mp4", media_type: "video/mp4"}
+      ]
+    }
+
+    msg = JidoChatBridge.to_internal(incoming, :mattermost)
+
+    assert length(msg.records) == 2
+    assert Enum.all?(msg.records, &(&1.kind == :file))
+  end
+
+  test "record attributes include channel_attachment source" do
+    incoming = %ChatIncoming{
+      text: "attached file",
+      external_room_id: "room1",
+      external_thread_id: nil,
+      external_message_id: "msg1",
+      author: nil,
+      metadata: %{},
+      media: [
+        %Media{kind: :file, url: "tg://doc", filename: "notes.txt", media_type: "text/plain"}
+      ]
+    }
+
+    msg = JidoChatBridge.to_internal(incoming, :mattermost)
+
+    record = Enum.at(msg.records, 0)
+    assert record.attributes["source"] == "channel_attachment"
   end
 
   # ── resolve_roles/1 ───────────────────────────────────────────────────

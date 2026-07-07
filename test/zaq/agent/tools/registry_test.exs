@@ -42,7 +42,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "workflow.condition",
              "workflow.run_agent",
              "workflow.dispatch_event",
-             "advanced.lua_eval"
+             "advanced.lua_eval",
+             "conversations.download_attachment"
            ]
   end
 
@@ -137,7 +138,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "workflow.condition",
              "workflow.run_agent",
              "workflow.dispatch_event",
-             "advanced.lua_eval"
+             "advanced.lua_eval",
+             "conversations.download_attachment"
            ]
   end
 

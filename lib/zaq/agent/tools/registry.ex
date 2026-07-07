@@ -283,6 +283,13 @@ defmodule Zaq.Agent.Tools.Registry do
       label: "Lua eval",
       description: "Evaluate Lua code in a sandbox",
       module: Jido.Tools.LuaEval
+    },
+    %{
+      key: "conversations.download_attachment",
+      label: "Download Chat Attachment",
+      description:
+        "Downloads a file from a chat channel by file_id and returns a MaterializedRecord",
+      module: Zaq.Agent.Tools.Conversations.DownloadAttachment
     }
   ]
 

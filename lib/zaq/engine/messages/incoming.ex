@@ -13,6 +13,7 @@ defmodule Zaq.Engine.Messages.Incoming do
   For cross-node routing, this struct is wrapped by `%Zaq.Event{request: %Incoming{...}}`.
   """
 
+  alias Zaq.Contracts.Record
   alias Zaq.Identity.ActorNormalizer
 
   @enforce_keys [:content, :channel_id, :provider]
@@ -28,7 +29,8 @@ defmodule Zaq.Engine.Messages.Incoming do
     :person,
     is_dm: false,
     metadata: %{},
-    content_filter: []
+    content_filter: [],
+    records: []
   ]
 
   @type t :: %__MODULE__{
@@ -42,7 +44,8 @@ defmodule Zaq.Engine.Messages.Incoming do
           person: map() | nil,
           is_dm: boolean(),
           metadata: map(),
-          content_filter: [String.t()]
+          content_filter: [String.t()],
+          records: [Record.t()]
         }
 
   @doc "Builds the canonical incoming payload and injects telemetry dimensions into metadata."
@@ -61,7 +64,8 @@ defmodule Zaq.Engine.Messages.Incoming do
       person: normalize_person(fetch_optional(attrs, :person)),
       is_dm: fetch_optional(attrs, :is_dm) == true,
       content_filter: normalize_content_filter(fetch_optional(attrs, :content_filter)),
-      metadata: metadata
+      metadata: metadata,
+      records: normalize_records(fetch_optional(attrs, :records))
     }
 
     put_telemetry_dimensions(incoming, attrs)
@@ -140,6 +144,8 @@ defmodule Zaq.Engine.Messages.Incoming do
   end
 
   defp normalize_content_filter(_), do: []
+  defp normalize_records(list) when is_list(list), do: list
+  defp normalize_records(_), do: []
 
   defp fetch_required!(attrs, key) do
     if Map.has_key?(attrs, key) || Map.has_key?(attrs, Atom.to_string(key)) do

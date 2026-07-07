@@ -21,6 +21,7 @@ defmodule Zaq.Channels.Api do
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Channels.MessageFormatter
+
   alias Zaq.Engine.Messages.Outgoing
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
@@ -140,6 +141,23 @@ defmodule Zaq.Channels.Api do
       %{event | response: bridge.open_dm_channel(author_id, details)}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
+    end
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider} = request} = event,
+        :download_chat_attachment,
+        _context
+      ) do
+    bridge_module = bridge_module(event)
+
+    case resolve_bridge(bridge_module, provider) do
+      {:ok, bridge} ->
+        result = bridge.download_media(request, provider: provider)
+        %{event | response: result}
+
+      {:error, reason} ->
+        %{event | response: {:error, reason}}
     end
   end
 

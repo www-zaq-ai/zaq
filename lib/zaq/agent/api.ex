@@ -80,13 +80,13 @@ defmodule Zaq.Agent.Api do
           )
 
         prompt_guard_mod = Keyword.get(event.opts, :prompt_guard, PromptGuard)
+        content = incoming.content
+        has_attachments = incoming.records not in [nil, []]
 
-        case prompt_guard_mod.validate(incoming.content) do
-          {:error, _reason} ->
-            maybe_dispatch_return_hop(event, incoming, guard_error_outgoing(incoming))
-
-          {:ok, _} ->
-            dispatch_pipeline(event, incoming)
+        if is_nil(content) and not has_attachments do
+          maybe_dispatch_return_hop(event, incoming, guard_error_outgoing(incoming))
+        else
+          validate_and_dispatch(prompt_guard_mod, content, event, incoming)
         end
 
       other ->
@@ -256,6 +256,16 @@ defmodule Zaq.Agent.Api do
     case Keyword.get(opts, :mcp_test_opts, []) do
       list when is_list(list) -> list
       _ -> []
+    end
+  end
+
+  defp validate_and_dispatch(mod, content, event, incoming) do
+    case mod.validate(content || "") do
+      {:error, _reason} ->
+        maybe_dispatch_return_hop(event, incoming, guard_error_outgoing(incoming))
+
+      {:ok, _} ->
+        dispatch_pipeline(event, incoming)
     end
   end
 

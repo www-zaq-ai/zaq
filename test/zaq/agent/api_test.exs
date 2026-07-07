@@ -1343,6 +1343,83 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  test "rejects nil content without records (no text + no file)" do
+    incoming = %Incoming{content: nil, channel_id: "c1", provider: :telegram}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          prompt_guard: PassthroughPromptGuard,
+          status_module: NoopStatus,
+          node_router: SpyNodeRouter
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.response.metadata.error == true
+    refute_received {:pipeline_called, _, _}
+  end
+
+  test "allows nil content when records are present (Telegram file without caption)" do
+    incoming = %Incoming{
+      content: nil,
+      channel_id: "c1",
+      provider: :telegram,
+      records: [%Zaq.Contracts.Record{id: "r1", kind: :file}]
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          prompt_guard: PassthroughPromptGuard,
+          status_module: SpyStatus,
+          node_router: SpyNodeRouter
+        ]
+      )
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:pipeline_called, _, _}
+  end
+
+  test "allows text content with records" do
+    incoming = %Incoming{
+      content: "check this file",
+      channel_id: "c1",
+      provider: :telegram,
+      records: [%Zaq.Contracts.Record{id: "r1", kind: :file}]
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [],
+          identity_plug: PassthroughIdentityPlug,
+          prompt_guard: PassthroughPromptGuard,
+          status_module: SpyStatus,
+          node_router: SpyNodeRouter
+        ]
+      )
+
+    Api.handle_event(event, :run_pipeline, nil)
+
+    assert_received {:pipeline_called, _, _}
+  end
+
   describe "same person messaging twice" do
     test "channel incoming resolves the same person_id on both calls" do
       incoming = %Incoming{

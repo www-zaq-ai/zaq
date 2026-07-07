@@ -18,6 +18,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   @behaviour Zaq.Channels.CommunicationBridge
   use Zaq.Channels.Bridge
   use Zaq.Channels.CommunicationBridge
+  alias Zaq.Channels.JidoChatBridge.Media
 
   require Logger
 
@@ -40,6 +41,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
+  alias(Zaq.Contracts.MaterializedRecord)
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -201,6 +203,20 @@ defmodule Zaq.Channels.JidoChatBridge do
     with {:ok, adapter} <- adapter_for(config.provider) do
       adapter.send_message(channel_id, @test_message, url: config.url, token: config.token)
     end
+  end
+
+  @impl Zaq.Channels.CommunicationBridge
+  def download_media(%{provider: provider, file_id: file_id} = params, _opts) do
+    record =
+      MaterializedRecord.new(%{
+        id: params[:record_id] || "#{provider}_#{file_id}",
+        content: nil,
+        name: nil,
+        mime_type: nil,
+        size: nil
+      })
+
+    {:ok, %{materialized_record: record}}
   end
 
   @impl true
@@ -533,6 +549,15 @@ defmodule Zaq.Channels.JidoChatBridge do
   @doc "Converts a `Jido.Chat.Incoming` struct to the internal `Incoming` message format."
   @impl true
   def to_internal(%Chat.Incoming{} = incoming, provider) do
+    config = fetch_connection_details(provider)
+
+    records =
+      Media.build_records(
+        incoming.media,
+        provider,
+        config
+      )
+
     Incoming.new(%{
       content: incoming.text,
       channel_id: incoming.external_room_id,
@@ -543,7 +568,8 @@ defmodule Zaq.Channels.JidoChatBridge do
       provider: provider,
       channel_config_id: provider,
       is_dm: (incoming.channel_meta && Map.get(incoming.channel_meta, :is_dm)) == true,
-      metadata: incoming.metadata || %{}
+      metadata: incoming.metadata || %{},
+      records: records
     })
   end
 

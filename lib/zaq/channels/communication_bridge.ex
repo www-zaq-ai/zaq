@@ -19,7 +19,8 @@ defmodule Zaq.Channels.CommunicationBridge do
 
   alias Zaq.{Agent, Event, NodeRouter}
   alias Zaq.Channels.{AgentRouting, Bridge, EventNames}
-  alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Contracts.MaterializedRecord
+  alias(Zaq.Engine.Messages.{Incoming, Outgoing})
   alias Zaq.People.IdentityResolver
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
 
@@ -70,7 +71,8 @@ defmodule Zaq.Channels.CommunicationBridge do
                       open_dm_channel: 2,
                       fetch_profile: 2,
                       list_mailboxes: 2,
-                      resolve_agent_selection: 3
+                      resolve_agent_selection: 3,
+                      download_media: 2
 
   defmacro __using__(_opts) do
     quote do
@@ -467,4 +469,7 @@ defmodule Zaq.Channels.CommunicationBridge do
        when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
     Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
   end
+
+  @callback download_media(params :: map(), opts :: keyword()) ::
+              {:ok, %{materialized_record: MaterializedRecord.t()}} | {:error, term()}
 end
