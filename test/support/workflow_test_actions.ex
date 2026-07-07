@@ -247,6 +247,28 @@ defmodule Zaq.Engine.Workflows.Test.EmitGender do
   end
 end
 
+defmodule Zaq.Engine.Workflows.Test.EmitDate do
+  @moduledoc false
+  use Jido.Action,
+    name: "test_emit_date",
+    schema: [due_date: [type: :string, required: true]],
+    output_schema: [due_date: [type: :string, required: true]]
+
+  @behaviour Zaq.Engine.Workflows.Action
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_success(result, _context), do: {:ok, result}
+
+  @impl Zaq.Engine.Workflows.Action
+  def on_failure(_error, _context), do: :ok
+
+  @impl true
+  def run(params, _context) do
+    due_date = Map.get(params, :due_date) || Map.get(params, "due_date")
+    {:ok, %{due_date: due_date}}
+  end
+end
+
 # ---------------------------------------------------------------------------
 # Human-in-the-loop test support
 # ---------------------------------------------------------------------------

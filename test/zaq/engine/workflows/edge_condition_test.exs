@@ -4,6 +4,9 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
 
   alias Zaq.Engine.Workflows.EdgeCondition
 
+  # Fixed clock injected via opts[:now] — async-safe, resolves sentinels/relative maps.
+  @now ~U[2026-07-06 15:30:00Z]
+
   describe "ops/0" do
     test "returns the full operator vocabulary" do
       ops = EdgeCondition.ops()
@@ -231,6 +234,163 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
         assert_raise ArgumentError, fn ->
           EdgeCondition.evaluate(op, "x", "y")
         end
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Date conditions — an optional `type` ("date"/"datetime") switches comparison
+  # ops from `Kernel` term order to chronological `Date`/`DateTime.compare/2`.
+  # ---------------------------------------------------------------------------
+  describe "changeset/1 — date type" do
+    test "accepts a valid type with a resolvable value" do
+      assert EdgeCondition.changeset(%{
+               "field" => "due_date",
+               "op" => "lt",
+               "value" => "today",
+               "type" => "date"
+             }).valid?
+
+      assert EdgeCondition.changeset(%{
+               "field" => "sent_at",
+               "op" => "lt",
+               "value" => %{"from" => "now", "days" => -7},
+               "type" => "datetime"
+             }).valid?
+    end
+
+    test "accepts a plain ISO8601 string value" do
+      assert EdgeCondition.changeset(%{
+               "field" => "due_date",
+               "op" => "gte",
+               "value" => "2026-07-06",
+               "type" => "date"
+             }).valid?
+    end
+
+    test "rejects an unknown type" do
+      changeset =
+        EdgeCondition.changeset(%{
+          "field" => "d",
+          "op" => "lt",
+          "value" => "today",
+          "type" => "instant"
+        })
+
+      refute changeset.valid?
+      assert {:type, {"is invalid", _}} = List.keyfind(changeset.errors, :type, 0)
+    end
+
+    test "rejects a value that does not resolve to the declared type" do
+      changeset =
+        EdgeCondition.changeset(%{
+          "field" => "d",
+          "op" => "lt",
+          "value" => "not-a-date",
+          "type" => "date"
+        })
+
+      refute changeset.valid?
+      assert {:value, {"does not resolve to a date", []}} in changeset.errors
+    end
+
+    test "empty / not_empty need no resolvable value even with a type" do
+      assert EdgeCondition.changeset(%{"field" => "d", "op" => "not_empty", "type" => "date"}).valid?
+
+      assert EdgeCondition.changeset(%{"field" => "d", "op" => "empty", "type" => "datetime"}).valid?
+    end
+  end
+
+  describe "evaluate/4 — date semantics" do
+    test "term-order regression: Kernel comparison of %Date{} disagrees with chronology" do
+      # ~D[2020-12-31] is chronologically BEFORE ~D[2021-01-01], but Erlang term order
+      # compares %Date{} structs by map-key order (calendar, day, month, year) — so it
+      # sorts by `day` first: 31 > 1. The legacy Kernel path is therefore wrong.
+      older = ~D[2020-12-31]
+      newer = ~D[2021-01-01]
+
+      # Legacy path (type: nil): term order says older > newer — the bug.
+      assert EdgeCondition.evaluate(:gt, older, newer)
+
+      # Date-aware path: chronology wins. The authored/expected side is an ISO8601
+      # string (as it always is in persisted JSONB), coerced via DateOperand.
+      refute EdgeCondition.evaluate(:gt, older, "2021-01-01", type: "date")
+      assert EdgeCondition.evaluate(:lt, older, "2021-01-01", type: "date")
+    end
+
+    test "eq / neq over dates" do
+      assert EdgeCondition.evaluate(:eq, ~D[2026-07-06], "2026-07-06", type: "date")
+      refute EdgeCondition.evaluate(:eq, ~D[2026-07-06], "2026-07-07", type: "date")
+      assert EdgeCondition.evaluate(:neq, ~D[2026-07-06], "2026-07-07", type: "date")
+    end
+
+    test "gte / lte are inclusive at the boundary" do
+      assert EdgeCondition.evaluate(:gte, ~D[2026-07-06], "2026-07-06", type: "date")
+      assert EdgeCondition.evaluate(:lte, ~D[2026-07-06], "2026-07-06", type: "date")
+      refute EdgeCondition.evaluate(:gte, ~D[2026-07-05], "2026-07-06", type: "date")
+    end
+
+    test "datetime comparison honors time-of-day" do
+      actual = ~U[2026-07-06 09:00:00Z]
+      assert EdgeCondition.evaluate(:lt, actual, "2026-07-06T10:00:00Z", type: "datetime")
+      refute EdgeCondition.evaluate(:lt, actual, "2026-07-06T08:00:00Z", type: "datetime")
+    end
+
+    test "relative expected: 'older than 7 days' via lt against today-7d" do
+      # Field 10 days before the fixed clock ⇒ older than 7 days ⇒ lt is true.
+      assert EdgeCondition.evaluate(:lt, ~D[2026-06-26], %{"from" => "today", "days" => -7},
+               type: "date",
+               now: @now
+             )
+
+      # Field 3 days before ⇒ NOT older than 7 days ⇒ lt is false.
+      refute EdgeCondition.evaluate(:lt, ~D[2026-07-03], %{"from" => "today", "days" => -7},
+               type: "date",
+               now: @now
+             )
+    end
+
+    test "sentinel expected: 'today' / 'now'" do
+      assert EdgeCondition.evaluate(:lt, ~D[2026-07-05], "today", type: "date", now: @now)
+
+      assert EdgeCondition.evaluate(:lt, ~U[2026-07-06 15:00:00Z], "now",
+               type: "datetime",
+               now: @now
+             )
+    end
+
+    test "empty / not_empty ignore type" do
+      assert EdgeCondition.evaluate(:empty, nil, "today", type: "date")
+      assert EdgeCondition.evaluate(:not_empty, ~D[2026-07-06], "today", type: "date")
+    end
+
+    test "an unresolvable operand yields false (branch pruned), never a crash" do
+      refute EdgeCondition.evaluate(:lt, "not-a-date", "today", type: "date", now: @now)
+      refute EdgeCondition.evaluate(:lt, ~D[2026-07-06], "garbage", type: "date", now: @now)
+      refute EdgeCondition.evaluate(:lt, nil, "today", type: "date", now: @now)
+    end
+
+    test "type: nil is the legacy Kernel path unchanged" do
+      assert EdgeCondition.evaluate(:gt, 5, 3, type: nil)
+      assert EdgeCondition.evaluate(:eq, "male", "male", [])
+    end
+
+    property "date gt/lt/eq agree with Date.compare/2" do
+      base = ~D[2020-01-01]
+
+      check all(
+              da <- integer(-3650..3650),
+              db <- integer(-3650..3650)
+            ) do
+        a = Date.add(base, da)
+        b = Date.add(base, db)
+        cmp = Date.compare(a, b)
+        # actual is a %Date{} fact; expected is the authored ISO8601 string.
+        expected = Date.to_iso8601(b)
+
+        assert EdgeCondition.evaluate(:gt, a, expected, type: "date") == (cmp == :gt)
+        assert EdgeCondition.evaluate(:lt, a, expected, type: "date") == (cmp == :lt)
+        assert EdgeCondition.evaluate(:eq, a, expected, type: "date") == (cmp == :eq)
       end
     end
   end

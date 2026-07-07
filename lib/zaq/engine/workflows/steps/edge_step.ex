@@ -58,9 +58,10 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     field = condition["field"] || condition[:field]
     op = to_op(condition["op"] || condition[:op])
     expected = Map.get(condition, "value", Map.get(condition, :value))
+    type = condition["type"] || condition[:type]
     actual = lookup(fact, field)
 
-    unless EdgeCondition.evaluate(op, actual, expected) do
+    unless EdgeCondition.evaluate(op, actual, expected, type: type) do
       write_skip_trace(run_id, edge_name, source_index, field, op, actual, expected)
 
       raise ConditionNotMet,

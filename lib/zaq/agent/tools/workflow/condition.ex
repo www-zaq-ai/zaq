@@ -24,10 +24,22 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
 
   ## Condition format
 
-  Each condition is a map with a `"key"` and `"value"` entry:
+  Each condition is a map with a `"key"` and `"value"` entry, plus an optional
+  `"op"` (defaults to `"eq"`) and optional `"type"`:
 
       %{"key" => "active", "value" => true}
       %{"key" => "flagged", "value" => false}
+
+  ## Date conditions
+
+  Set `"type" => "date"` or `"type" => "datetime"` to compare `%Date{}` /
+  `%DateTime{}` values chronologically (via `Zaq.Engine.Workflows.EdgeCondition`
+  / `DateOperand`) instead of by term order. The `"value"` accepts an ISO8601
+  string, a sentinel (`"today"` / `"now"`), or a relative map — so "last email
+  older than 7 days" is:
+
+      %{"key" => "last_sent_at", "type" => "datetime", "op" => "lt",
+        "value" => %{"from" => "now", "days" => -7}}
 
   Keys are resolved through `Zaq.Engine.Workflows.FactLookup` — the same cascade-aware
   resolver edges use — so besides plain top-level keys a `"key"` may reference a
@@ -61,7 +73,7 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
         required: false,
         default: [],
         doc:
-          ~s(List of conditions. Each must have "key" and "value"; optional "op" defaults to "eq". Supported ops: eq, neq, gt, lt, gte, lte, not_empty, empty, in.)
+          ~s|List of conditions. Each must have "key" and "value"; optional "op" defaults to "eq". Supported ops: eq, neq, gt, lt, gte, lte, not_empty, empty, in. Optional "type" ("date"/"datetime") compares chronologically; "value" then accepts an ISO8601 string, "today"/"now", or a relative map like %{"from" => "now", "days" => -7}.|
       ],
       on_fail: [
         type: {:in, [:halt, :continue]},
@@ -135,8 +147,15 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   defp describe_failure(condition, eval_map) do
     field = get_field(condition, "key") || "field"
     op = (get_field(condition, "op") || "eq") |> to_op()
+    type = get_field(condition, "type")
     expected = get_field(condition, "value")
-    phrase(field, op, expected, actual_value(condition, eval_map))
+    actual = actual_value(condition, eval_map)
+
+    if type in ["date", "datetime"] and op not in [:empty, :not_empty] do
+      "#{field} #{date_op_phrase(op)} #{render(expected)} but was #{render(actual)}"
+    else
+      phrase(field, op, expected, actual)
+    end
   end
 
   defp actual_value(condition, eval_map) do
@@ -162,6 +181,15 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   defp op_phrase(:lte), do: "must be at most"
   defp op_phrase(:in), do: "must be one of"
   defp op_phrase(op), do: "must satisfy #{op}"
+
+  # Date/datetime conditions read more naturally as before/after than gt/lt.
+  defp date_op_phrase(:eq), do: "must be"
+  defp date_op_phrase(:neq), do: "must not be"
+  defp date_op_phrase(:gt), do: "must be after"
+  defp date_op_phrase(:lt), do: "must be before"
+  defp date_op_phrase(:gte), do: "must be on or after"
+  defp date_op_phrase(:lte), do: "must be on or before"
+  defp date_op_phrase(op), do: op_phrase(op)
 
   defp render(nil), do: "empty"
   defp render(value), do: inspect(value)
@@ -209,14 +237,15 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     key = get_field(condition, "key")
     value = get_field(condition, "value")
     op = (get_field(condition, "op") || "eq") |> to_op()
+    opts = [type: get_field(condition, "type")]
 
     case FactLookup.fetch(eval_map, key) do
       {:ok, actual} ->
-        EdgeCondition.evaluate(op, actual, value)
+        EdgeCondition.evaluate(op, actual, value, opts)
 
       :error ->
         default = get_field(condition, "default")
-        not is_nil(default) and EdgeCondition.evaluate(op, default, value)
+        not is_nil(default) and EdgeCondition.evaluate(op, default, value, opts)
     end
   end
 

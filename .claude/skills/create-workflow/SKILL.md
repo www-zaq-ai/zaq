@@ -99,6 +99,11 @@ canonical shape. Mirror its structure exactly:
   `identify_leads_from_google_sheet.ex`.
 - Each edge: `%{from:, to:, condition: %{"field" =>, "op" =>, "value" =>}, mapping: %{"target_param" => "source_node.output.path"}}`.
   `condition` and `mapping` are both optional per edge.
+  - Ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. For date
+    comparisons add `"type" => "date" | "datetime"` — then `"value"` accepts an ISO8601
+    string, a `"today"` / `"now"` sentinel, or a relative map like
+    `%{"from" => "now", "days" => -7}` (e.g. "older than 7 days" ⇒ `op: "lt"`). The same
+    `"type"` works on `Condition` node per-condition maps.
 
 ---
 

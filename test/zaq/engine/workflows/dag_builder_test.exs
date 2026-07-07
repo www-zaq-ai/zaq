@@ -149,6 +149,125 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
   end
 
+  describe "build/1 — date edge conditions route end-to-end" do
+    @emit_date_module "Zaq.Engine.Workflows.Test.EmitDate"
+
+    # A → B(EmitDate due_date) → C   (due_date `lt` 2021-01-01 ⇒ overdue) person_name←due_date
+    #                          → F   (due_date `gte` 2021-01-01)          first_name←due_date
+    # The two conditions are complementary, so exactly one branch survives. The bound
+    # and the overdue value (~D2020-12-31 vs 2021-01-01) are chosen so the legacy
+    # `Kernel` term order (day 31 > day 1) would route the WRONG way — this asserts the
+    # `type: "date"` fix threads through DagBuilder → EdgeStep → EdgeCondition.
+    defp date_scenario_steps(due_date) do
+      %{
+        "nodes" => [
+          %{
+            "name" => "A",
+            "type" => "action",
+            "module" => @noop_module,
+            "params" => %{},
+            "index" => 0
+          },
+          %{
+            "name" => "B",
+            "type" => "action",
+            "module" => @emit_date_module,
+            "params" => %{"due_date" => due_date},
+            "index" => 1
+          },
+          %{
+            "name" => "C",
+            "type" => "action",
+            "module" => @require_person_name_module,
+            "params" => %{},
+            "index" => 2
+          },
+          %{
+            "name" => "F",
+            "type" => "action",
+            "module" => @require_first_name_module,
+            "params" => %{},
+            "index" => 2
+          }
+        ],
+        "edges" => [
+          %{"from" => "A", "to" => "B"},
+          %{
+            "from" => "B",
+            "to" => "C",
+            "condition" => %{
+              "field" => "due_date",
+              "type" => "date",
+              "op" => "lt",
+              "value" => "2021-01-01"
+            },
+            "mapping" => %{"person_name" => "due_date"}
+          },
+          %{
+            "from" => "B",
+            "to" => "F",
+            "condition" => %{
+              "field" => "due_date",
+              "type" => "date",
+              "op" => "gte",
+              "value" => "2021-01-01"
+            },
+            "mapping" => %{"first_name" => "due_date"}
+          }
+        ]
+      }
+    end
+
+    test "overdue date (term-order trap: 2020-12-31 < 2021-01-01) routes to C; F pruned" do
+      {:ok, dag} = DagBuilder.build(date_scenario_steps("2020-12-31"))
+
+      productions =
+        dag |> Runic.Workflow.react_until_satisfied(%{}) |> Runic.Workflow.raw_productions()
+
+      assert Enum.any?(productions, &Map.has_key?(&1, :c_ran)),
+             "expected C (overdue branch) to run"
+
+      refute Enum.any?(productions, &Map.has_key?(&1, :f_ran)),
+             "expected F to be pruned"
+    end
+
+    test "future date routes to F; C pruned" do
+      {:ok, dag} = DagBuilder.build(date_scenario_steps("2021-06-01"))
+
+      productions =
+        dag |> Runic.Workflow.react_until_satisfied(%{}) |> Runic.Workflow.raw_productions()
+
+      assert Enum.any?(productions, &Map.has_key?(&1, :f_ran)),
+             "expected F (not-overdue branch) to run"
+
+      refute Enum.any?(productions, &Map.has_key?(&1, :c_ran)),
+             "expected C to be pruned"
+    end
+
+    test "a date edge condition passes build-time validation" do
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(date_scenario_steps("2020-12-31"))
+    end
+
+    test "an edge condition with an unparseable date value is rejected at build time" do
+      steps =
+        put_in(date_scenario_steps("2020-12-31")["edges"], [
+          %{"from" => "A", "to" => "B"},
+          %{
+            "from" => "B",
+            "to" => "C",
+            "condition" => %{
+              "field" => "due_date",
+              "type" => "date",
+              "op" => "lt",
+              "value" => "not-a-date"
+            }
+          }
+        ])
+
+      assert {:error, _reason} = DagBuilder.build(steps)
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # build/2 — run_id instrumentation
   # ---------------------------------------------------------------------------

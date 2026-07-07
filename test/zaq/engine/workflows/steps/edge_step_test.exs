@@ -410,6 +410,144 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Date conditions through the runtime routing seam: proves `edge_step.ex` reads
+  # `"type"` from the stored condition and threads it into `EdgeCondition.evaluate/4`,
+  # so a branch is kept/pruned by *chronological* comparison — not `Kernel` term
+  # order. EdgeStep does not inject a clock, so sentinel/relative values resolve
+  # against the real clock; tests stay deterministic by using unambiguous instants.
+  # ---------------------------------------------------------------------------
+  describe "condition — date type (routing seam)" do
+    test "keeps the branch when a date field is chronologically before the bound" do
+      fact = %{due_date: "2026-07-01"}
+
+      params =
+        Map.merge(
+          %{
+            __edge_condition__: %{
+              "field" => "due_date",
+              "type" => "date",
+              "op" => "lt",
+              "value" => "2026-07-10"
+            },
+            __edge_mapping__: %{},
+            __edge_name__: "e"
+          },
+          fact
+        )
+
+      assert {:ok, ^fact} = run(params)
+    end
+
+    test "prunes the branch when a date field is not before the bound" do
+      fact = %{due_date: "2026-07-10"}
+
+      params =
+        Map.merge(
+          %{
+            __edge_condition__: %{
+              "field" => "due_date",
+              "type" => "date",
+              "op" => "lt",
+              "value" => "2026-07-01"
+            },
+            __edge_mapping__: %{},
+            __edge_name__: "e"
+          },
+          fact
+        )
+
+      assert_raise ConditionNotMet, fn -> run(params) end
+    end
+
+    test "term-order regression: %Date{} branch prunes by chronology, not map-key order" do
+      # ~D[2020-12-31] is chronologically BEFORE ~D[2021-01-01], so `gt` is false and
+      # the branch must prune. The legacy Kernel path would compare the structs by
+      # map key (day 31 > day 1) and *wrongly keep* the branch — this asserts the fix
+      # reaches all the way through EdgeStep.
+      fact = %{created: ~D[2020-12-31]}
+
+      params =
+        Map.merge(
+          %{
+            __edge_condition__: %{
+              "field" => "created",
+              "type" => "date",
+              "op" => "gt",
+              "value" => "2021-01-01"
+            },
+            __edge_mapping__: %{},
+            __edge_name__: "e"
+          },
+          fact
+        )
+
+      assert_raise ConditionNotMet, fn -> run(params) end
+    end
+
+    test "relative map ('older than 7 days') keeps the branch for a far-past datetime" do
+      # A fixed far-past instant is unambiguously older than now-7d regardless of the
+      # wall clock, so this stays deterministic without a clock override.
+      fact = %{last_sent_at: "2000-01-01T00:00:00Z"}
+
+      params =
+        Map.merge(
+          %{
+            __edge_condition__: %{
+              "field" => "last_sent_at",
+              "type" => "datetime",
+              "op" => "lt",
+              "value" => %{"from" => "now", "days" => -7}
+            },
+            __edge_mapping__: %{},
+            __edge_name__: "e"
+          },
+          fact
+        )
+
+      assert {:ok, ^fact} = run(params)
+    end
+
+    test "atom-keyed :type on the stored condition also threads through" do
+      # `edge_step.ex` reads `condition["type"] || condition[:type]` — cover the atom
+      # branch (an in-memory, non-JSONB condition map).
+      fact = %{created: ~D[2026-07-01]}
+
+      params =
+        Map.merge(
+          %{
+            __edge_condition__: %{field: "created", type: "date", op: :lt, value: "2026-07-10"},
+            __edge_mapping__: %{},
+            __edge_name__: "e"
+          },
+          fact
+        )
+
+      assert {:ok, ^fact} = run(params)
+    end
+
+    test "an unresolvable date operand prunes the branch (never crashes)" do
+      fact = %{due_date: "not-a-date"}
+
+      params =
+        Map.merge(
+          %{
+            __edge_condition__: %{
+              "field" => "due_date",
+              "type" => "date",
+              "op" => "lt",
+              "value" => "2026-07-10"
+            },
+            __edge_mapping__: %{},
+            __edge_name__: "e"
+          },
+          fact
+        )
+
+      assert_raise ConditionNotMet, fn -> run(params) end
+    end
+  end
+
   describe "Step.Run trace — condition failure with run_id" do
     defp create_run_for_edge_step do
       {:ok, wf} =
@@ -490,6 +628,33 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
       assert step_run.step_name == "b_to_c_edge"
       assert step_run.step_index == 2
       assert step_run.status == "completed"
+    end
+
+    test "date condition fails + run_id present → skipped Step.Run records the date operands" do
+      run = create_run_for_edge_step()
+
+      params = %{
+        __edge_condition__: %{
+          "field" => "due_date",
+          "type" => "date",
+          "op" => "lt",
+          "value" => "2026-07-01"
+        },
+        __edge_mapping__: %{},
+        __edge_name__: "overdue_edge",
+        run_id: run.id,
+        due_date: "2026-07-10"
+      }
+
+      assert_raise ConditionNotMet, fn -> EdgeStep.run(params, %{}) end
+
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.step_name == "overdue_edge"
+      assert step_run.status == "skipped"
+      assert step_run.results["field"] == "due_date"
+      assert step_run.results["op"] == "lt"
+      assert step_run.results["actual"] == "\"2026-07-10\""
+      assert step_run.results["expected"] == "\"2026-07-01\""
     end
 
     test "run_id is stripped from the output fact" do
