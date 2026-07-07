@@ -3,6 +3,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
   Shared ingestion status defaults for ingestion file browser views (grid and list).
   """
 
+  use Phoenix.Component
+
   @doc false
   def file_ingestion_status(ingestion_map, name) do
     Map.merge(
@@ -54,7 +56,42 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
 
   def related_record_name(record), do: Map.get(record, "name") || Map.get(record, :name) || ""
   def related_record_path(record), do: Map.get(record, "path") || Map.get(record, :path) || ""
+
+  def related_record_preview_path(record),
+    do: Map.get(record, "preview_path") || Map.get(record, :preview_path)
+
   def related_record_size(record), do: Map.get(record, "size") || Map.get(record, :size)
+
+  def related_record_preview_path(record, current_volume) do
+    case related_record_preview_path(record) do
+      path when is_binary(path) and path != "" -> path
+      _ -> Path.join([current_volume, related_record_path(record)])
+    end
+  end
+
+  attr :provider_mode, :boolean, default: false
+  attr :permissions_count, :integer, required: true
+
+  def shared_badge(assigns) do
+    ~H"""
+    <button
+      :if={@provider_mode}
+      type="button"
+      phx-click="view_provider_permissions"
+      class="zaq-pill zaq-pill--shared zaq-text-caption"
+      title="Permissions are managed in the data source. Refresh ingestion after changing them there."
+    >
+      shared
+    </button>
+    <span
+      :if={not @provider_mode}
+      class="zaq-pill zaq-pill--shared zaq-text-caption"
+      title={"Shared with #{@permissions_count} person(s)/team(s)"}
+    >
+      shared
+    </span>
+    """
+  end
 
   defp record_kind(%{kind: :folder}), do: :folder
   defp record_kind(%{kind: "folder"}), do: :folder

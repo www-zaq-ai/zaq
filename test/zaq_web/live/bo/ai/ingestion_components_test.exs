@@ -160,6 +160,38 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       refute status.can_share?
     end
 
+    test "renders provider-mode shared badge as permission button" do
+      html =
+        render_component(&IngestionFileStatus.shared_badge/1,
+          provider_mode: true,
+          permissions_count: 7
+        )
+
+      assert html =~ ~s(<button)
+      assert html =~ ~s(type="button")
+      assert html =~ ~s(phx-click="view_provider_permissions")
+      assert html =~ "Permissions are managed in the data source"
+      assert html =~ "shared"
+      refute html =~ "Shared with 7 person(s)/team(s)"
+      refute html =~ ~s(<span)
+    end
+
+    test "renders local shared badge as static span with permissions title" do
+      html =
+        render_component(&IngestionFileStatus.shared_badge/1,
+          provider_mode: false,
+          permissions_count: 3
+        )
+
+      assert html =~ ~s(<span)
+      assert html =~ "zaq-pill zaq-pill--shared zaq-text-caption"
+      assert html =~ ~s[title="Shared with 3 person(s)/team(s)"]
+      assert html =~ "shared"
+      refute html =~ ~s(<button)
+      refute html =~ ~s(phx-click="view_provider_permissions")
+      refute html =~ "Permissions are managed in the data source"
+    end
+
     test "record helpers support fallback shapes and related record variants" do
       assert IngestionFileStatus.record_path(%{name: "fallback.md"}) == "fallback.md"
       assert IngestionFileStatus.record_file?(%{kind: :file})
@@ -210,7 +242,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
 
       assert html =~ "2.0 KB"
       assert html =~ "3/3"
-      assert html =~ "—"
+      assert html =~ <<0xE2, 0x80, 0x94>>
       assert html =~ "zaq-ingestion-file-grid-card--selected"
     end
 
@@ -321,7 +353,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
         )
 
       refute html =~ "Skipped"
-      refute html =~ "data-testid=\"skipped-files\""
+      refute html =~ ~s/data-testid="skipped-files"/
     end
 
     test "renders catch-all 'skipped' text for unknown reason" do
@@ -398,8 +430,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
     end
 
     test "catch-all returns 'skipped' for unknown reasons" do
-      assert IngestionComponents.skip_reason("some_unknown_reason") == "skipped"
-      assert IngestionComponents.skip_reason("another_weird_thing") == "skipped"
+      assert IngestionComponents.skip_reason(~s/some_unknown_reason/) == ~s/skipped/
+      assert IngestionComponents.skip_reason(~s/another_weird_thing/) == ~s/skipped/
     end
   end
 end

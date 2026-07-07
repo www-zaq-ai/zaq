@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Event
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.{Document, ExternalSource, FileExplorer}
   alias Zaq.NodeRouter
   alias Zaq.System
   alias ZaqWeb.Live.BO.PreviewHelpers
@@ -77,6 +78,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        share_modal_all_targets: build_share_targets_options(),
        share_modal_targets_options: build_share_targets_options(),
        share_modal_pending: [],
+       share_modal_read_only: false,
+       share_modal_notice: nil,
        # View mode
        view_mode: "list",
        # Modal state
@@ -133,8 +136,47 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        share_modal_document_id: nil,
        share_modal_permissions: permissions,
        share_modal_pending: [],
-       share_modal_targets_options: filtered_targets(all_targets, permissions, [])
+       share_modal_targets_options: filtered_targets(all_targets, permissions, []),
+       share_modal_read_only: false,
+       share_modal_notice: nil
      )}
+  end
+
+  def handle_event("view_provider_permissions", %{"path" => path}, socket) do
+    record = Map.get(socket.assigns.records_by_path, path)
+
+    with %{} <- record,
+         record <- with_provider_attrs(record, socket),
+         %Document{} = doc <- Document.get_by_source(ExternalSource.source(record)) do
+      permissions = ingestion_call(:list_document_permissions, [doc.id])
+
+      {:noreply,
+       assign(socket,
+         modal: :share,
+         modal_path: path,
+         modal_name: record.name || path,
+         modal_error: nil,
+         share_modal_is_folder: false,
+         share_modal_is_public: "public" in doc.tags,
+         share_modal_original_is_public: "public" in doc.tags,
+         share_modal_folder_path: nil,
+         share_modal_document_id: doc.id,
+         share_modal_permissions: permissions,
+         share_modal_pending: [],
+         share_modal_targets_options: [],
+         share_modal_read_only: true,
+         share_modal_notice:
+           "Permissions are imported from #{provider_label(socket.assigns.provider)} and must be managed in the data source. Refresh ingestion to update this list."
+       )}
+    else
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :info,
+           "No imported permissions are available yet. Ingest this provider record to review ZAQ access."
+         )}
+    end
   end
 
   def handle_event("share_item", %{"path" => path}, socket) do
@@ -157,13 +199,25 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        share_modal_document_id: doc.id,
        share_modal_permissions: permissions,
        share_modal_pending: [],
-       share_modal_targets_options: filtered_targets(all_targets, permissions, [])
+       share_modal_targets_options: filtered_targets(all_targets, permissions, []),
+       share_modal_read_only: false,
+       share_modal_notice: nil
      )}
   end
+
+  def handle_event("toggle_public", _params, %{assigns: %{share_modal_read_only: true}} = socket),
+    do: {:noreply, socket}
 
   def handle_event("toggle_public", _params, socket) do
     {:noreply, assign(socket, share_modal_is_public: not socket.assigns.share_modal_is_public)}
   end
+
+  def handle_event(
+        "add_permission_target",
+        _params,
+        %{assigns: %{share_modal_read_only: true}} = socket
+      ),
+      do: {:noreply, socket}
 
   def handle_event("add_permission_target", %{"value" => value}, socket) do
     case parse_share_target(value, socket.assigns.share_modal_targets_options) do
@@ -195,6 +249,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
+  def handle_event(
+        "toggle_permission_right",
+        _params,
+        %{assigns: %{share_modal_read_only: true}} = socket
+      ),
+      do: {:noreply, socket}
+
   def handle_event("toggle_permission_right", %{"index" => idx_str, "right" => right}, socket) do
     idx = String.to_integer(idx_str)
 
@@ -212,6 +273,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     {:noreply, assign(socket, share_modal_pending: updated)}
   end
 
+  def handle_event(
+        "remove_pending",
+        _params,
+        %{assigns: %{share_modal_read_only: true}} = socket
+      ),
+      do: {:noreply, socket}
+
   def handle_event("remove_pending", %{"index" => idx_str}, socket) do
     idx = String.to_integer(idx_str)
     updated = List.delete_at(socket.assigns.share_modal_pending, idx)
@@ -227,6 +295,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
          )
      )}
   end
+
+  def handle_event(
+        "remove_permission",
+        _params,
+        %{assigns: %{share_modal_read_only: true}} = socket
+      ),
+      do: {:noreply, socket}
 
   def handle_event("remove_permission", %{"id" => id_str}, socket) do
     id = String.to_integer(id_str)
@@ -260,6 +335,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
          )
      )}
   end
+
+  def handle_event("confirm_share", _params, %{assigns: %{share_modal_read_only: true}} = socket),
+    do: {:noreply, socket}
 
   def handle_event("confirm_share", _params, socket) do
     pending = socket.assigns.share_modal_pending
@@ -593,12 +671,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     {:noreply, assign(socket, modal: nil, modal_error: nil)}
   end
 
+  def handle_event("open_preview", %{"path" => path, "filename" => filename}, socket) do
+    if provider_mode?(socket) and Map.has_key?(socket.assigns.records_by_path, path) do
+      {:noreply, open_provider_preview(socket, path)}
+    else
+      {:noreply, open_local_preview(socket, path, filename)}
+    end
+  end
+
   def handle_event("open_preview", %{"path" => path}, socket) do
-    if provider_mode?(socket) do
+    if provider_mode?(socket) and Map.has_key?(socket.assigns.records_by_path, path) do
       {:noreply, open_provider_preview(socket, path)}
     else
       {:noreply, PreviewHelpers.open_preview(socket, path, :modal)}
     end
+  end
+
+  def handle_event("provider_permissions_info", _params, socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :info,
+       "Permissions are managed in the data source. Update sharing there, then refresh ingestion to import the latest permissions."
+     )}
   end
 
   def handle_event("close_preview_modal", _params, socket) do
@@ -674,20 +769,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("ingest_selected", _params, socket) do
-    if provider_mode?(socket) do
-      {:noreply, put_flash(socket, :info, "Provider ingestion will be enabled in phase 3.")}
-    else
-      records = selected_records(socket)
-      result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode})
+    records = selected_records(socket)
+    result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode})
 
-      socket =
-        socket
-        |> assign(selected: MapSet.new())
-        |> load_jobs()
-        |> put_ingest_result_flash(result)
+    socket =
+      socket
+      |> assign(selected: MapSet.new())
+      |> load_jobs()
+      |> put_ingest_result_flash(result)
 
-      {:noreply, socket}
-    end
+    {:noreply, socket}
   end
 
   def handle_event("retry_job", %{"id" => id}, socket) do
@@ -901,12 +992,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp load_provider_entries(socket) do
     case dispatch_list_files(socket.assigns.provider, provider_list_params(socket)) do
       {:ok, %Zaq.Contracts.RecordPage{} = page} ->
-        records = page.records || []
+        records = Enum.map(page.records || [], &with_provider_attrs(&1, socket))
+        {records, ingestion_map} = enrich_provider_records(records)
 
         socket
         |> assign(entries: records)
         |> assign(records_by_path: records_by_path(records))
-        |> assign(ingestion_map: %{})
+        |> assign(ingestion_map: ingestion_map)
         |> assign(provider_page: page)
         |> assign(provider_page_token: get_in(page.pagination, [:cursor]))
         |> assign(provider_error: nil)
@@ -1139,15 +1231,143 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     socket.assigns.selected
     |> Enum.map(&Map.get(socket.assigns.records_by_path, &1))
     |> Enum.reject(&is_nil/1)
+    |> Enum.map(&with_provider_attrs(&1, socket))
   end
 
   defp records_by_path(entries), do: Map.new(entries, &{record_path(&1), &1})
+
+  defp enrich_provider_records(records) do
+    Enum.map_reduce(records, %{}, fn record, acc ->
+      source = ExternalSource.source(record)
+      sidecar_source = ExternalSource.sidecar_source(record)
+      doc = Document.get_by_source(source)
+      sidecar_doc = Document.get_by_source(sidecar_source)
+
+      record = maybe_attach_sidecar_record(record, sidecar_doc)
+      status = provider_record_status(record, doc)
+
+      {record, Map.put(acc, record.name, status)}
+    end)
+  end
+
+  defp maybe_attach_sidecar_record(record, nil), do: record
+
+  defp maybe_attach_sidecar_record(record, sidecar_doc) do
+    attrs = Map.get(record, :attributes, %{})
+
+    related = %{
+      "name" => sidecar_display_name(record, sidecar_doc),
+      "path" => sidecar_relative_path(record, sidecar_doc),
+      "preview_path" => sidecar_preview_path(record, sidecar_doc),
+      "size" => byte_size(sidecar_doc.content || "")
+    }
+
+    %{record | attributes: Map.put(attrs, "related_record", related)}
+  end
+
+  defp sidecar_display_name(record, sidecar_doc) do
+    case record.name do
+      name when is_binary(name) and name != "" -> Path.rootname(name) <> ".md"
+      _ -> Path.basename(sidecar_doc.metadata["sidecar_file_path"] || sidecar_doc.source)
+    end
+  end
+
+  defp sidecar_preview_path(record, sidecar_doc) do
+    if ExternalSource.external?(record) do
+      record
+      |> ExternalSource.sidecar_relative_path(".md")
+      |> external_sidecar_preview_path()
+    else
+      sidecar_doc.metadata["sidecar_file_path"]
+    end
+  end
+
+  defp sidecar_relative_path(record, sidecar_doc) do
+    if ExternalSource.external?(record) do
+      ExternalSource.sidecar_relative_path(record, ".md")
+    else
+      sidecar_doc.metadata["sidecar_file_path"]
+    end
+  end
+
+  defp external_sidecar_preview_path(relative_path) do
+    volumes = FileExplorer.list_volumes()
+    base_path = Path.expand(FileExplorer.base_path())
+
+    existing_volume =
+      Enum.find(volumes, fn {_name, path} -> File.exists?(Path.join(path, relative_path)) end)
+
+    base_volume = Enum.find(volumes, fn {_name, path} -> Path.expand(path) == base_path end)
+
+    case existing_volume || base_volume do
+      {volume, _path} -> Path.join(volume, relative_path)
+      nil -> relative_path
+    end
+  end
+
+  defp open_local_preview(socket, path, filename) do
+    socket = PreviewHelpers.open_preview(socket, path, :modal)
+
+    case socket.assigns.preview do
+      %{filename: _} = preview when is_binary(filename) and filename != "" ->
+        assign(socket, preview: %{preview | filename: filename})
+
+      _ ->
+        socket
+    end
+  end
+
+  defp provider_record_status(%{kind: kind}, _doc) when kind in [:folder, "folder"] do
+    %{type: :directory, total_size: 0, file_count: 0, ingested_count: 0, is_public: false}
+  end
+
+  defp provider_record_status(_record, nil) do
+    %{ingested_at: nil, stale?: false, permissions_count: 0, is_public: false, can_share?: false}
+  end
+
+  defp provider_record_status(record, doc) do
+    stale? =
+      record.modified_at && doc.updated_at &&
+        DateTime.compare(record.modified_at, doc.updated_at) == :gt
+
+    %{
+      ingested_at: doc.updated_at,
+      stale?: stale? || false,
+      permissions_count: length(Ingestion.list_document_permissions(doc.id)),
+      is_public: "public" in doc.tags,
+      can_share?: false
+    }
+  end
+
+  defp with_provider_attrs(record, %{assigns: %{provider: "local"}}), do: record
+
+  defp with_provider_attrs(record, socket) do
+    attrs =
+      record
+      |> Map.get(:attributes, %{})
+      |> Map.put("provider", socket.assigns.provider)
+      |> Map.put("config_id", socket.assigns.provider_config_id)
+      |> Map.put("provider_record_id", record.id)
+      |> Map.put("provider_url", record.url)
+      |> Map.put("provider_mime_type", record.mime_type)
+
+    %{record | attributes: attrs}
+  end
 
   defp normalize_provider(nil), do: "local"
   defp normalize_provider(""), do: "local"
   defp normalize_provider("local"), do: "local"
   defp normalize_provider("zaq_local"), do: "local"
   defp normalize_provider(provider) when is_binary(provider), do: provider
+
+  defp provider_label(provider) when is_binary(provider) do
+    provider
+    |> String.replace("_", " ")
+    |> String.split(" ", trim: true)
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  defp provider_label(_provider), do: "the data source"
 
   defp ingestion_path("local"), do: "/bo/ingestion"
   defp ingestion_path(provider), do: "/bo/ingestion/#{provider}"

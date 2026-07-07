@@ -90,7 +90,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
           class="zaq-btn zaq-btn-primary zaq-btn-text_label-default"
         >
           <%= if @provider_mode do %>
-            Ingestion in Phase 3
+            Ingest Selected ({MapSet.size(@selected)})
           <% else %>
             Ingest Selected ({MapSet.size(@selected)})
           <% end %>

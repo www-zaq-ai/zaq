@@ -146,6 +146,30 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanelTest do
   end
 
   describe "jobs_panel/1 job details" do
+    test "uses source record name for external data-source jobs" do
+      job = %IngestJob{
+        id: Ecto.UUID.generate(),
+        file_path: "data_source/google_drive/42/file-1",
+        source_record: %{"name" => "Budget.pdf"},
+        status: "pending",
+        mode: "async",
+        total_chunks: 0,
+        ingested_chunks: 0,
+        failed_chunks: 0,
+        chunks_count: 0
+      }
+
+      html =
+        render_component(&IngestionJobsPanel.jobs_panel/1,
+          jobs: [job],
+          status_filter: "all",
+          prep_progress: %{}
+        )
+
+      assert html =~ "Budget.pdf"
+      refute html =~ ">file-1<"
+    end
+
     test "renders chunk progress, failed chunks, embedding error link, and retry action" do
       job = %IngestJob{
         id: Ecto.UUID.generate(),

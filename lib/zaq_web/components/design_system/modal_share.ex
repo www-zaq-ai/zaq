@@ -15,6 +15,8 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
   attr :share_modal_permissions, :list, required: true
   attr :share_modal_targets_options, :list, required: true
   attr :share_modal_pending, :list, required: true
+  attr :share_modal_read_only, :boolean, default: false
+  attr :share_modal_notice, :string, default: nil
 
   def modal_share(assigns) do
     ~H"""
@@ -32,6 +34,12 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
               class="font-mono text-[0.68rem] zaq-text-accent mt-0.5"
             >
               Permissions will apply to all documents inside this folder
+            </p>
+            <p
+              :if={@share_modal_read_only}
+              class="font-mono text-[0.68rem] zaq-text-accent mt-0.5"
+            >
+              Review imported access
             </p>
           </div>
           <button
@@ -52,8 +60,18 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
 
         <%!-- Scrollable: existing permissions + pending list --%>
         <div class="px-6 py-5 space-y-4 overflow-y-auto max-h-[40vh]">
+          <div
+            :if={@share_modal_notice}
+            class="px-3 py-3 rounded-xl border border-[var(--zaq-color-accent-border)] zaq-bg-accent-faint"
+          >
+            <p class="font-mono text-[0.72rem] zaq-text-accent">
+              {@share_modal_notice}
+            </p>
+          </div>
+
           <%!-- Public access toggle --%>
           <div
+            :if={not @share_modal_read_only}
             class="flex items-center justify-between gap-3 px-3 py-3 rounded-xl border border-black/10 bg-[#fafafa]"
             data-testid="public-toggle"
           >
@@ -123,6 +141,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
                   </div>
                 </div>
                 <button
+                  :if={not @share_modal_read_only}
                   phx-click="remove_permission"
                   phx-value-id={perm.id}
                   class="text-black/20 hover:text-red-400 transition-colors shrink-0"
@@ -142,7 +161,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
           </div>
 
           <%!-- Pending list --%>
-          <div :if={@share_modal_pending != []}>
+          <div :if={not @share_modal_read_only and @share_modal_pending != []}>
             <p class="font-mono text-[0.72rem] text-black/40 mb-2 uppercase tracking-wide">
               To be added
             </p>
@@ -197,7 +216,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
         </div>
 
         <%!-- Add target — outside scroll so dropdown overflows freely --%>
-        <div class="px-6 pb-4 shrink-0">
+        <div :if={not @share_modal_read_only} class="px-6 pb-4 shrink-0">
           <p class="font-mono text-[0.72rem] text-black/40 mb-2 uppercase tracking-wide">
             Add person or team
           </p>
@@ -223,6 +242,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
             Cancel
           </button>
           <button
+            :if={not @share_modal_read_only}
             phx-click="confirm_share"
             class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)] transition-all disabled:opacity-40"
             disabled={
