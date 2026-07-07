@@ -63,9 +63,14 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   ## Edge attributes (both optional)
 
   - `"condition"` — map with `"field"`, `"op"`, and optionally `"value"`. Supported
-    ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. When
-    present, an `EdgeStep` is injected between the two nodes; a false condition
-    prunes the downstream branch (`ConditionNotMet` → `skip_downstream_subgraph`).
+    ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. An
+    optional `"type"` (`"date"` / `"datetime"`) makes the comparison ops resolve
+    both operands through `DateOperand` and compare chronologically (fixing
+    `%Date{}`/`%DateTime{}` term order); `"value"` then accepts an ISO8601 string, a
+    `"today"` / `"now"` sentinel, or a relative map like `%{"from" => "now", "days"
+    => -7}` (e.g. "older than 7 days" = `type: "date", op: "lt"`). When present, an
+    `EdgeStep` is injected between the two nodes; a false condition prunes the
+    downstream branch (`ConditionNotMet` → `skip_downstream_subgraph`).
   - `"mapping"` — map of `target_key => source_key` string pairs. The EdgeStep
     renames upstream fact keys before delivering them to the downstream node.
     Source keys that appear in the mapping are consumed (not passed through).

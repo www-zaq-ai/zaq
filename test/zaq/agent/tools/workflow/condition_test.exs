@@ -455,6 +455,87 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
     end
   end
 
+  describe "run/2 — date conditions (type: date/datetime)" do
+    test "passes when a date field is chronologically before the expected date" do
+      input = %{"due_date" => "2026-07-01"}
+
+      conditions = [
+        %{"key" => "due_date", "type" => "date", "op" => "lt", "value" => "2026-07-10"}
+      ]
+
+      assert {:ok, %{passed: true, input: ^input}} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "fails with a date-phrased message when the date is not before the bound" do
+      input = %{"due_date" => "2026-07-10"}
+
+      conditions = [
+        %{"key" => "due_date", "type" => "date", "op" => "lt", "value" => "2026-07-01"}
+      ]
+
+      assert {:error, reason} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+
+      assert reason ==
+               ~s(Condition not met: due_date must be before "2026-07-01" but was "2026-07-10")
+    end
+
+    test "regression: two dates where term order disagrees with chronology" do
+      # ~D[2020-12-31] < ~D[2021-01-01] chronologically, but term order (day-first)
+      # sorts it as greater. With type: "date" the node compares chronologically.
+      input = %{"created" => ~D[2020-12-31]}
+
+      conditions = [
+        %{"key" => "created", "type" => "date", "op" => "lt", "value" => "2021-01-01"}
+      ]
+
+      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "relative age: last_sent_at older than 7 days (datetime, relative map)" do
+      # A fixed far-past instant is unambiguously older than now-7d regardless of the
+      # wall clock, so this stays deterministic without injecting a clock.
+      input = %{"last_sent_at" => "2000-01-01T00:00:00Z"}
+
+      conditions = [
+        %{
+          "key" => "last_sent_at",
+          "type" => "datetime",
+          "op" => "lt",
+          "value" => %{"from" => "now", "days" => -7}
+        }
+      ]
+
+      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
+    test "routes (continue) on a failing date condition" do
+      input = %{"due_date" => "2026-07-10"}
+
+      conditions = [
+        %{"key" => "due_date", "type" => "date", "op" => "lt", "value" => "2026-07-01"}
+      ]
+
+      assert {:ok, %{passed: false, failed_conditions: [_]}} =
+               Condition.run(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
+    end
+
+    test "resolves a node-qualified date key from the cascade" do
+      ctx = %{__cascade__: %{"store_context" => %{record: %{created_at: "2026-01-01"}}}}
+
+      conditions = [
+        %{
+          "key" => "store_context.record.created_at",
+          "type" => "date",
+          "op" => "lt",
+          "value" => "2026-06-01"
+        }
+      ]
+
+      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+    end
+  end
+
   describe "Action lifecycle hooks (contract defaults)" do
     test "on_success passes the result through and on_failure returns :ok" do
       assert {:ok, %{a: 1}} = Condition.on_success(%{a: 1}, %{})
