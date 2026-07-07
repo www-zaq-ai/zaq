@@ -1254,6 +1254,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp enrich_provider_records(records) do
     documents_by_source = provider_documents_by_source(records)
+    permission_counts = provider_document_permission_counts(documents_by_source)
 
     Enum.map_reduce(records, %{}, fn record, acc ->
       source = ExternalSource.source(record)
@@ -1262,7 +1263,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       sidecar_doc = Map.get(documents_by_source, sidecar_source)
 
       record = maybe_attach_sidecar_record(record, sidecar_doc)
-      status = provider_record_status(record, doc)
+      status = provider_record_status(record, doc, permission_counts)
 
       {record, Map.put(acc, record.name, status)}
     end)
@@ -1275,6 +1276,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end)
     |> Document.list_by_sources()
     |> Map.new(&{&1.source, &1})
+  end
+
+  defp provider_document_permission_counts(documents_by_source) do
+    documents_by_source
+    |> Map.values()
+    |> Enum.map(& &1.id)
+    |> Ingestion.count_document_permissions()
   end
 
   defp maybe_attach_sidecar_record(record, nil), do: record
@@ -1359,15 +1367,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp provider_record_status(%{kind: kind}, _doc) when kind in [:folder, "folder"] do
+  defp provider_record_status(%{kind: kind}, _doc, _permission_counts)
+       when kind in [:folder, "folder"] do
     %{type: :directory, total_size: 0, file_count: 0, ingested_count: 0, is_public: false}
   end
 
-  defp provider_record_status(_record, nil) do
+  defp provider_record_status(_record, nil, _permission_counts) do
     %{ingested_at: nil, stale?: false, permissions_count: 0, is_public: false, can_share?: false}
   end
 
-  defp provider_record_status(record, doc) do
+  defp provider_record_status(record, doc, permission_counts) do
     stale? =
       record.modified_at && doc.updated_at &&
         DateTime.compare(record.modified_at, doc.updated_at) == :gt
@@ -1375,7 +1384,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     %{
       ingested_at: doc.updated_at,
       stale?: stale? || false,
-      permissions_count: length(Ingestion.list_document_permissions(doc.id)),
+      permissions_count: Map.get(permission_counts, to_string(doc.id), 0),
       is_public: "public" in doc.tags,
       can_share?: false
     }
