@@ -364,6 +364,20 @@ defmodule Zaq.Engine.Workflows.EdgeConditionTest do
       assert EdgeCondition.evaluate(:not_empty, ~D[2026-07-06], "today", type: "date")
     end
 
+    test "atom type and string operators are normalized for date comparisons" do
+      assert EdgeCondition.evaluate("gte", ~D[2026-07-06], "2026-07-06", type: :date)
+      refute EdgeCondition.evaluate("lte", ~D[2026-07-07], "2026-07-06", type: :date)
+    end
+
+    test "unknown types use the legacy evaluation path" do
+      assert EdgeCondition.evaluate(:gt, 5, 3, type: "unknown")
+    end
+
+    test "non-date operators with a date type use legacy semantics" do
+      assert EdgeCondition.evaluate(:in, "open", ["open", "closed"], type: "date")
+      refute EdgeCondition.evaluate(:in, "archived", ["open", "closed"], type: "date")
+    end
+
     test "an unresolvable operand yields false (branch pruned), never a crash" do
       refute EdgeCondition.evaluate(:lt, "not-a-date", "today", type: "date", now: @now)
       refute EdgeCondition.evaluate(:lt, ~D[2026-07-06], "garbage", type: "date", now: @now)
