@@ -480,6 +480,44 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
                ~s(Condition not met: due_date must be before "2026-07-01" but was "2026-07-10")
     end
 
+    test "date failure messages use chronological comparison phrases" do
+      input = %{"due_date" => "2026-07-10"}
+
+      cases = [
+        {"eq", "2026-07-11", ~s(must be "2026-07-11")},
+        {"neq", "2026-07-10", ~s(must not be "2026-07-10")},
+        {"gt", "2026-07-11", ~s(must be after "2026-07-11")},
+        {"gte", "2026-07-11", ~s(must be on or after "2026-07-11")},
+        {"lte", "2026-07-09", ~s(must be on or before "2026-07-09")}
+      ]
+
+      for {op, expected, phrase} <- cases do
+        conditions = [
+          %{"key" => "due_date", "type" => "date", "op" => op, "value" => expected}
+        ]
+
+        assert {:error, reason} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+        assert reason == ~s(Condition not met: due_date #{phrase} but was "2026-07-10")
+      end
+    end
+
+    test "date condition with non-date operator falls back to the operator phrase" do
+      input = %{"due_date" => "2026-07-10"}
+
+      conditions = [
+        %{
+          "key" => "due_date",
+          "type" => "date",
+          "op" => "in",
+          "value" => ["2026-07-08", "2026-07-09"]
+        }
+      ]
+
+      assert {:error,
+              ~s(Condition not met: due_date must be one of ["2026-07-08", "2026-07-09"] but was "2026-07-10")} =
+               Condition.run(%{input: input, conditions: conditions}, @ctx)
+    end
+
     test "regression: two dates where term order disagrees with chronology" do
       # ~D[2020-12-31] < ~D[2021-01-01] chronologically, but term order (day-first)
       # sorts it as greater. With type: "date" the node compares chronologically.
