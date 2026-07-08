@@ -41,6 +41,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
+  alias Zaq.Engine.Conversations
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -312,6 +313,9 @@ defmodule Zaq.Channels.JidoChatBridge do
           handle_message_event(config, thread, incoming)
         end
       end)
+      |> Chat.on_reaction(fn _thread, reaction ->
+        handle_reaction_event(config, reaction)
+      end)
 
     Enum.reduce(message_patterns, chat, fn pattern, acc ->
       Chat.on_new_message(acc, pattern, fn thread, incoming ->
@@ -324,6 +328,50 @@ defmodule Zaq.Channels.JidoChatBridge do
     unless incoming.channel_meta.is_dm do
       handle_message_event(config, thread, incoming)
     end
+  end
+
+  defp handle_reaction_event(config, reaction) do
+    if reaction.added do
+      rating = emoji_to_rating(reaction.emoji)
+      user_id = reaction.user.user_id
+
+      if rating do
+        case Conversations.get_message_by_external_id(to_string(reaction.message_id)) do
+          nil ->
+            :ok
+
+          message ->
+            Conversations.rate_message_by_id(message.id, %{
+              channel_user_id: user_id,
+              rating: rating
+            })
+
+            if rating == 1 do
+              send_followup(config, reaction, message)
+            end
+        end
+      end
+    end
+  end
+
+  # ð
+  defp emoji_to_rating("\u{1F44D}"), do: 5
+  # ð¥
+  defp emoji_to_rating("\u{1F525}"), do: 5
+  defp emoji_to_rating("thumbsup"), do: 5
+  defp emoji_to_rating("thumbs_up"), do: 5
+  defp emoji_to_rating("+1"), do: 5
+  # ð
+  defp emoji_to_rating("\u{1F44E}"), do: 1
+  defp emoji_to_rating("thumbsdown"), do: 1
+  defp emoji_to_rating("thumbs_down"), do: 1
+  defp emoji_to_rating("-1"), do: 1
+  defp emoji_to_rating(_), do: nil
+
+  defp send_followup(config, reaction, _message) do
+    text = "Thanks for your feedback! Could you tell us more about what we could improve?"
+    thread = %{reaction.thread | metadata: Map.put(reaction.thread.metadata, :url, config.url)}
+    Jido.Chat.Thread.post(thread, text, url: config.url, token: config.token)
   end
 
   @doc "Processes a normalized incoming message from the listener pipeline."
@@ -1449,6 +1497,7 @@ defmodule Zaq.Channels.JidoChatBridge do
              metadata
            ) do
       dispatch_on_reply(outgoing.metadata, post_id)
+      Conversations.store_external_message_id_by_outgoing(outgoing, to_string(post_id))
       :ok
     end
   end

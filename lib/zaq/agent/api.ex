@@ -449,8 +449,14 @@ defmodule Zaq.Agent.Api do
        when is_map(persisted) do
     metadata =
       outgoing.metadata
-      |> maybe_put_persisted(:conversation_id, Map.get(persisted, :conversation_id))
-      |> maybe_put_persisted(:assistant_message_id, Map.get(persisted, :assistant_message_id))
+      |> maybe_put_persisted(
+        :conversation_id,
+        Map.get(persisted, :conversation_id) || Map.get(persisted, "conversation_id")
+      )
+      |> maybe_put_persisted(
+        :assistant_message_id,
+        Map.get(persisted, :assistant_message_id) || Map.get(persisted, "assistant_message_id")
+      )
 
     %{outgoing | metadata: metadata}
   end
