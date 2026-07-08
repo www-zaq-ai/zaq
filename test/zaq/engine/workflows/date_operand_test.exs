@@ -152,6 +152,27 @@ defmodule Zaq.Engine.Workflows.DateOperandTest do
       assert DateTime.compare(dt, ~U[2026-07-06 00:00:00Z]) == :eq
     end
 
+    test "parses an offset-aware ISO8601 datetime string" do
+      assert {:ok, dt} = DateOperand.coerce_actual("2026-07-08T12:56:12.280911Z", "datetime")
+      assert DateTime.compare(dt, ~U[2026-07-08 12:56:12.280911Z]) == :eq
+    end
+
+    test "parses an offset-LESS (naive) ISO8601 datetime string as UTC" do
+      # Exactly what NaiveDateTime.to_iso8601/1 emits (no trailing Z). Previously
+      # this failed to coerce (:error), which silently routed a recency gate as
+      # "condition not met" and let the workflow proceed when it should have stopped.
+      assert {:ok, dt} = DateOperand.coerce_actual("2026-07-08T12:56:12.280911", "datetime")
+      assert DateTime.compare(dt, ~U[2026-07-08 12:56:12.280911Z]) == :eq
+
+      assert {:ok, dt2} = DateOperand.coerce_actual("2026-07-08T12:56:12", "datetime")
+      assert DateTime.compare(dt2, ~U[2026-07-08 12:56:12Z]) == :eq
+    end
+
+    test "parses a date-only string as midnight UTC for type datetime" do
+      assert {:ok, dt} = DateOperand.coerce_actual("2026-07-08", "datetime")
+      assert DateTime.compare(dt, ~U[2026-07-08 00:00:00Z]) == :eq
+    end
+
     test "returns :error for garbage and unknown type" do
       assert :error = DateOperand.coerce_actual("nope", "date")
       assert :error = DateOperand.coerce_actual(:atom, "datetime")

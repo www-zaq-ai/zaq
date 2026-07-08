@@ -538,6 +538,41 @@ defmodule Zaq.Agent.FactoryTest do
     assert AIContext.empty?(result)
   end
 
+  test "build_initial_context seeds caller-supplied context_messages onto an empty context" do
+    configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
+
+    # A per-step workflow scope loads no DB history, so the seeded turns are the
+    # agent's entire starting context — this is where RunAgent's `context` lands.
+    context_messages = [
+      %{role: "user", content: "Company summary: Acme builds widgets."},
+      %{role: "assistant", content: "Understood."}
+    ]
+
+    result =
+      Factory.build_initial_context(
+        configured_agent,
+        "agent:workflow:run:abc:step:4",
+        context_messages
+      )
+
+    assert %AIContext{} = result
+    refute AIContext.empty?(result)
+    assert AIContext.length(result) == 2
+
+    messages = AIContext.to_messages(result)
+    assert Enum.any?(messages, &(&1.role == :user and &1.content =~ "Acme builds widgets"))
+    assert Enum.any?(messages, &(&1.role == :assistant and &1.content =~ "Understood"))
+  end
+
+  test "build_initial_context with no context_messages stays empty (backward compatible)" do
+    configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
+
+    result = Factory.build_initial_context(configured_agent, "agent:workflow:run:abc:step:4", [])
+
+    assert %AIContext{} = result
+    assert AIContext.empty?(result)
+  end
+
   describe "spawn_opts_from_server_id/1" do
     test "parses conversation-scoped ids" do
       assert Factory.spawn_opts_from_server_id("agent:web:conv:123") == %{

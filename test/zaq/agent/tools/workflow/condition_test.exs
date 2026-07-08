@@ -574,6 +574,56 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
     end
   end
 
+  describe "run/2 — string input as a cascade reference" do
+    setup do
+      cascade = %{
+        "build_history" => %{
+          "metadata" => %{"total" => %{"last_message_date" => "2026-07-08T12:56:12.280911Z"}}
+        }
+      }
+
+      {:ok, ctx: %{__cascade__: cascade}}
+    end
+
+    test "resolves a dotted string input to the referenced map, then reads keys from it",
+         %{ctx: ctx} do
+      conditions = [
+        %{
+          "key" => "total.last_message_date",
+          "type" => "datetime",
+          "op" => "gte",
+          "value" => %{"from" => "today", "days" => -3}
+        }
+      ]
+
+      # last_message_date is today → today >= today-3d → passes. Without reference
+      # resolution the string input would make the key miss and pin passed to false.
+      assert {:ok, %{passed: true}} =
+               Condition.run(
+                 %{input: "build_history.metadata", conditions: conditions, on_fail: :continue},
+                 ctx
+               )
+    end
+
+    test "an unresolvable reference falls back to the raw string (keys miss, no crash)",
+         %{ctx: ctx} do
+      conditions = [%{"key" => "total.last_message_date", "op" => "not_empty"}]
+
+      assert {:ok, %{passed: false, failed_conditions: [_]}} =
+               Condition.run(
+                 %{input: "does_not.exist", conditions: conditions, on_fail: :continue},
+                 ctx
+               )
+    end
+
+    test "a map input is still used directly (regression)", %{ctx: ctx} do
+      conditions = [%{"key" => "flag", "value" => true}]
+
+      assert {:ok, %{passed: true}} =
+               Condition.run(%{input: %{"flag" => true}, conditions: conditions}, ctx)
+    end
+  end
+
   describe "Action lifecycle hooks (contract defaults)" do
     test "on_success passes the result through and on_failure returns :ok" do
       assert {:ok, %{a: 1}} = Condition.on_success(%{a: 1}, %{})

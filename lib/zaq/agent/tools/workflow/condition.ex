@@ -60,13 +60,16 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     description: "Checks that all key/value conditions hold on an input map.",
     schema: [
       input: [
-        type: :map,
+        type: {:or, [:map, :string]},
         required: true,
         doc:
           "Map to evaluate conditions against. Normally delivered by the upstream node " <>
-            "or by Batch/Iterate (this is the batch delivery field). When absent — e.g. a " <>
-            "Condition that is the first node off a trigger — `run/2` falls back to the " <>
-            "incoming fact at root; `start.<field>` dotted keys reach the trigger payload."
+            "or by Batch/Iterate (this is the batch delivery field). May also be a dotted " <>
+            "reference string (e.g. \"build_history.metadata\") resolved against the run " <>
+            "cascade — useful because node params are not engine-resolved and a Condition " <>
+            "must keep its own `input` to fire. When absent — e.g. a Condition that is the " <>
+            "first node off a trigger — `run/2` falls back to the incoming fact at root; " <>
+            "`start.<field>` dotted keys reach the trigger payload."
       ],
       conditions: [
         type: {:list, :map},
@@ -109,7 +112,7 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   def run(params, context) do
     conditions = Map.get(params, :conditions, [])
     on_fail = normalize_on_fail(Map.get(params, :on_fail))
-    input = resolve_input(params)
+    input = resolve_input(params, context)
     eval_map = eval_map(input, context)
 
     failed = Enum.reject(conditions, &condition_passes?(&1, eval_map))
@@ -195,14 +198,32 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   defp render(value), do: inspect(value)
 
   # The map to evaluate conditions against:
-  #   - an explicit `:input` (mid-DAG: the upstream node produced it), else
-  #   - the incoming fact at root (first node off a trigger), minus this action's
-  #     own config keys. The persistent `start` namespace rides along in either
-  #     case and is reachable via `start.<field>` dotted keys.
-  defp resolve_input(params) do
+  #   - an explicit `:input` map (mid-DAG: the upstream node delivered it), used as-is;
+  #   - an explicit `:input` **string** — a dotted reference (e.g.
+  #     `"build_history.metadata"`) resolved against the run cascade. Node params are
+  #     NOT resolved by the engine (only edge mappings are), and a Condition must keep
+  #     its own `input` param to be scheduled/fire, so a reference authored on the node
+  #     lands here as a raw string; resolve it so keys read the real map instead of
+  #     missing against the bare string (which pins `passed` to false);
+  #   - absent → the incoming fact at root (first node off a trigger), minus this
+  #     action's own config keys.
+  # The persistent `start` namespace rides along via the cascade in every case and is
+  # reachable through `start.<field>` dotted keys.
+  defp resolve_input(params, context) do
     case Map.fetch(params, :input) do
+      {:ok, ref} when is_binary(ref) -> resolve_reference(ref, context)
       {:ok, input} -> input
       :error -> Map.drop(params, [:conditions, :on_fail])
+    end
+  end
+
+  # Resolve a dotted `input` reference against the run cascade. Falls back to the raw
+  # string when it does not resolve, so an unrelated literal never crashes the run
+  # (its conditions simply miss, as before).
+  defp resolve_reference(ref, context) do
+    case FactLookup.fetch(%{__cascade__: cascade(context)}, ref) do
+      {:ok, value} -> value
+      :error -> ref
     end
   end
 

@@ -11,6 +11,7 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
     * `get_sheet`        — Google datasource read → returns a fixture `%Record{}`
     * `draft_email`      — LLM agent call → returns a deterministic draft string
     * `send_email`       — notification dispatch → records the message
+    * `update_history`   — message-history persistence → records nothing (NodeRouter boundary)
     * `update_sheet_row` — Google datasource write → records the update
     * `sleep_between`    — duration shortened to 0 so the run is instant
 
@@ -114,16 +115,29 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
       schema: [
         agent_id: [type: :integer, required: false],
         input: [type: :string, required: false],
-        row: [type: :any, required: false]
+        name: [type: :any, required: false],
+        company: [type: :any, required: false],
+        language: [type: :any, required: false],
+        context: [type: :any, required: false]
       ],
       output_schema: [output: [type: :string, required: true]]
 
     @impl Jido.Action
     def run(params, _ctx) do
-      row = params[:row] || params["row"] || %{}
-      name = Map.get(row, "name") || Map.get(row, :name) || "there"
-      company = Map.get(row, "company") || Map.get(row, :company) || "your company"
-      {:ok, %{output: "Hi #{name}, excited to connect about #{company}."}}
+      # Mirrors RunAgent: the prompt template arrives as `input`, and the
+      # per-lead `name`/`company`/`language` are flattened onto the node by the
+      # incoming edge so the agent's `{{name}}`-style placeholders resolve. The
+      # lead's name flows end-to-end via `start.input.name`; `company`/`language`
+      # are only populated by the GenerateCompanyContext enrichment step, which
+      # this producer→consumer test deliberately bypasses, so they may be nil.
+      name = params[:name] || params["name"] || "there"
+
+      # The real agent writes the email SUBJECT on the first line and the body
+      # after it; `split_draft` relies on that newline to separate subject from
+      # body, so the stubbed draft reproduces the same two-part shape.
+      subject = "Connecting with #{name}"
+      body = "Hi #{name}, excited to connect."
+      {:ok, %{output: subject <> "\n" <> body}}
     end
   end
 
@@ -171,6 +185,31 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
 
     @impl Jido.Action
     def run(_params, _ctx), do: {:ok, %{status: "updated"}}
+  end
+
+  # Message-history persistence. Mirrors `PersistMessageHistory`'s output
+  # contract; the real tool dispatches through `NodeRouter` (a channel/provider
+  # boundary), so it is stubbed like the other external leaves.
+  defmodule HistoryStub do
+    @moduledoc false
+    use Zaq.Engine.Workflows.Action,
+      name: "history_stub",
+      schema: [
+        person: [type: :any, required: false],
+        topic: [type: :any, required: false],
+        subject: [type: :any, required: false],
+        message: [type: :any, required: false],
+        sent_message: [type: :any, required: false]
+      ],
+      output_schema: [
+        persisted: [type: :boolean, required: true],
+        conversation_id: [type: :string, required: true],
+        message_id: [type: :string, required: true]
+      ]
+
+    @impl Jido.Action
+    def run(_params, _ctx),
+      do: {:ok, %{persisted: true, conversation_id: "stub-conv", message_id: "stub-msg"}}
   end
 
   # Captures the event the real `DispatchEvent` builds so the consumer can be
@@ -273,12 +312,14 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
     Map.put(node, :params, params)
   end
 
-  # Swap the three external leaf steps; keep ensure_person, build_history,
-  # and the real HumanInTheLoop review step.
+  # Swap the external boundary steps (LLM draft, notify, history persist, sheet
+  # write); keep ensure_person, build_history, the pure Concat/Condition/Split
+  # nodes, and the real HumanInTheLoop review step.
   defp swap_consumer_modules(build) do
     swaps = %{
       "draft_email" => DraftStub,
       "send_email" => NotifyStub,
+      "update_history" => HistoryStub,
       "update_sheet_row" => UpdateStub
     }
 
@@ -432,8 +473,14 @@ defmodule Zaq.Engine.Workflows.LeadPipelineE2ETest do
       assert c_steps["ensure_person"].status == "completed"
       assert c_steps["build_history"].status == "completed"
       assert c_steps["draft_email"].status == "completed"
+      # The lead's name propagated end-to-end into the draft (via start.input.name,
+      # flattened onto the RunAgent node by the build_agent_context → draft_email
+      # edge). Company/language enrichment is GenerateCompanyContext's concern and
+      # is not exercised by this producer→consumer pipeline.
       assert c_steps["draft_email"].results["output"] =~ "John Doe"
-      assert c_steps["draft_email"].results["output"] =~ "Acme Corp"
+      # The draft carries a subject line + body separated by a newline, which
+      # split_draft depends on to peel the subject off before send_email.
+      assert c_steps["draft_email"].results["output"] =~ "\n"
       assert c_steps["review_email"].status == "waiting"
       refute Map.has_key?(c_steps, "send_email")
 
