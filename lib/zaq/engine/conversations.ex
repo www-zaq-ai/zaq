@@ -24,6 +24,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
   alias Zaq.Utils.EmailUtils
+  alias Zaq.Engine.Messages.Outgoing
 
   # ── Conversations ──────────────────────────────────────────────────
 
@@ -220,6 +221,9 @@ defmodule Zaq.Engine.Conversations do
 
   defp assistant_metadata(result) when is_map(result) do
     %{
+      "external_message_id" =>
+        Map.get(result, :status_message_id) || Map.get(result, :message_id) ||
+          Map.get(result, "status_message_id") || Map.get(result, "message_id"),
       "measurements" =>
         result
         |> Map.get(:measurements, Map.get(result, "measurements", %{}))
@@ -415,6 +419,46 @@ defmodule Zaq.Engine.Conversations do
       preload: [:ratings]
     )
     |> Repo.all()
+  end
+
+  def store_external_message_id_by_outgoing(%Outgoing{} = outgoing, post_id)
+      when is_binary(post_id) do
+    thread_id = outgoing.thread_id
+    channel_id = outgoing.channel_id
+
+    if thread_id && channel_id do
+      message =
+        Repo.one(
+          from m in Message,
+            join: c in assoc(m, :conversation),
+            where:
+              c.channel_id == ^channel_id and
+                fragment("?->>'thread_id' = ?", c.metadata, ^thread_id) and
+                m.role == "assistant",
+            order_by: [desc: m.inserted_at],
+            limit: 1
+        )
+
+      if message, do: update_message_metadata(message.id, %{external_message_id: post_id})
+    end
+  end
+
+  def get_message_by_external_id(external_id) do
+    Repo.one(
+      from m in Message, where: fragment("metadata->>'external_message_id' = ?", ^external_id)
+    )
+  end
+
+  def update_message_metadata(message_id, attrs) when is_map(attrs) do
+    Repo.get(Message, message_id)
+    |> case do
+      nil ->
+        {:error, :not_found}
+
+      msg ->
+        new_metadata = Map.merge(msg.metadata || %{}, attrs)
+        msg |> Message.changeset(%{metadata: new_metadata}) |> Repo.update()
+    end
   end
 
   # ── Ratings ────────────────────────────────────────────────────────

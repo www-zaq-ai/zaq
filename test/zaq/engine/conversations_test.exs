@@ -552,6 +552,62 @@ defmodule Zaq.Engine.ConversationsTest do
     end
   end
 
+  test "stores external_message_id when result has status_message_id" do
+    incoming = %Zaq.Engine.Messages.Incoming{
+      content: "Rate this",
+      channel_id: "chan-rate",
+      author_id: "user-rate",
+      provider: :telegram
+    }
+
+    result = %{
+      answer: "OK.",
+      confidence_score: 0.95,
+      latency_ms: 50,
+      prompt_tokens: 5,
+      completion_tokens: 10,
+      total_tokens: 15,
+      status_message_id: 194
+    }
+
+    assert {:ok, %{conversation_id: conv_id}} =
+             Conversations.persist_from_incoming(incoming, result)
+
+    conv = Conversations.get_conversation!(conv_id)
+    messages = Conversations.list_messages(conv)
+    assistant = Enum.find(messages, &(&1.role == "assistant"))
+
+    assert assistant.metadata["external_message_id"] == 194
+  end
+
+  test "stores external_message_id when result has message_id" do
+    incoming = %Zaq.Engine.Messages.Incoming{
+      content: "Rate this too",
+      channel_id: "chan-rate-2",
+      author_id: "user-rate-2",
+      provider: :telegram
+    }
+
+    result = %{
+      answer: "OK.",
+      confidence_score: 0.95,
+      latency_ms: 50,
+      prompt_tokens: 5,
+      completion_tokens: 10,
+      total_tokens: 15,
+      message_id: 195
+    }
+
+    assert {:ok, %{conversation_id: conv_id}} =
+             Conversations.persist_from_incoming(incoming, result)
+
+    conv = Conversations.get_conversation!(conv_id)
+    messages = Conversations.list_messages(conv)
+    assistant = Enum.find(messages, &(&1.role == "assistant"))
+
+    assert assistant.metadata["external_message_id"] == 195
+  end
+
   # ── add_message/2 ──────────────────────────────────────────────────
 
   describe "add_message/2" do
@@ -756,6 +812,38 @@ defmodule Zaq.Engine.ConversationsTest do
                  user_id: user.id,
                  rating: 3
                })
+    end
+  end
+
+  # ── get_message_by_external_id/1 ────────────────────────────────────────────
+
+  describe "get_message_by_external_id/1" do
+    test "returns the message when external_message_id matches" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      {:ok, msg} =
+        Conversations.add_message(conv, %{
+          role: "assistant",
+          content: "answer",
+          metadata: %{"external_message_id" => "194"}
+        })
+
+      result = Conversations.get_message_by_external_id("194")
+
+      assert result.id == msg.id
+      assert result.metadata["external_message_id"] == "194"
+    end
+
+    test "returns nil when external_message_id does not match" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      Conversations.add_message(conv, %{
+        role: "assistant",
+        content: "answer",
+        metadata: %{"external_message_id" => "999"}
+      })
+
+      assert Conversations.get_message_by_external_id("000") == nil
     end
   end
 
