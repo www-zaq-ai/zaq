@@ -444,6 +444,15 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   # Recursively converts action_params to a JSON-safe structure for Postgres JSONB.
   # Tuples (e.g. {Module, params} pipeline steps) become lists; atoms become strings.
+  #
+  # Temporal structs serialize to their ISO8601 string form (never the generic
+  # `Map.from_struct` field-map) so date/datetime `Condition`s downstream can coerce
+  # them via `DateOperand`. Mirrors `Zaq.Agent.StreamEvents.json_safe/1`.
+  defp json_safe(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp json_safe(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
+  defp json_safe(%Date{} = d), do: Date.to_iso8601(d)
+  defp json_safe(%Time{} = t), do: Time.to_iso8601(t)
+
   defp json_safe(%_{} = struct) do
     struct |> Map.from_struct() |> json_safe()
   end

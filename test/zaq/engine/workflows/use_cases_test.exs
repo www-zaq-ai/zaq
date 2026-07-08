@@ -79,10 +79,15 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
 
       assert Enum.map(attrs.nodes, & &1.name) == [
                "ensure_person",
+               "build_subject",
                "build_history",
+               "check_last_message_date",
+               "build_agent_context",
                "draft_email",
                "review_email",
+               "split_draft",
                "send_email",
+               "update_history",
                "increment_email_state",
                "build_range",
                "build_values",
@@ -91,7 +96,7 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
 
       draft_email = Enum.find(attrs.nodes, &(&1.name == "draft_email"))
       assert draft_email.params["agent_id"] == 7
-      assert draft_email.params["input"] =~ "Draft outreach email"
+      assert draft_email.params["input"] =~ "outreach email"
 
       build_range = Enum.find(attrs.nodes, &(&1.name == "build_range"))
       assert build_range.params["column"] == "K"
@@ -105,11 +110,16 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
       assert update_sheet_row.params["provider"] == "custom_drive"
 
       assert Enum.map(attrs.edges, &{&1.from, &1.to}) == [
-               {"ensure_person", "build_history"},
-               {"build_history", "draft_email"},
+               {"ensure_person", "build_subject"},
+               {"build_subject", "build_history"},
+               {"build_history", "check_last_message_date"},
+               {"check_last_message_date", "build_agent_context"},
+               {"build_agent_context", "draft_email"},
                {"draft_email", "review_email"},
-               {"review_email", "send_email"},
-               {"send_email", "increment_email_state"},
+               {"review_email", "split_draft"},
+               {"split_draft", "send_email"},
+               {"send_email", "update_history"},
+               {"update_history", "increment_email_state"},
                {"increment_email_state", "build_range"},
                {"build_range", "build_values"},
                {"build_values", "update_sheet_row"}

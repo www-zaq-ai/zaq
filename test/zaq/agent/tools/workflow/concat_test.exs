@@ -96,6 +96,30 @@ defmodule Zaq.Agent.Tools.Workflow.ConcatTest do
 
       assert {:ok, %{result: "J"}} = Concat.run(%{parts: ["{{column}}"], column: "J"}, context)
     end
+
+    # `FactLookup` already resolves keys with spaces (human-authored sheet headers
+    # like "Company Context Content"); the placeholder regex must extract them too,
+    # otherwise `{{start.company context content}}` is emitted verbatim.
+    test "resolves a dotted reference whose final segment contains spaces" do
+      context = %{__cascade__: %{start: %{"company context content" => "ACME summary"}}}
+
+      assert {:ok, %{result: "ctx: ACME summary"}} =
+               Concat.run(%{parts: ["ctx: {{start.company context content}}"]}, context)
+    end
+
+    test "resolves a spaced-key sole placeholder nested inside a list part (list mode)" do
+      context = %{__cascade__: %{start: %{"company context content" => "ACME summary"}}}
+
+      assert {:ok, %{list: [%{"role" => "assistant", "content" => "ACME summary"}]}} =
+               Concat.run(
+                 %{
+                   parts: [
+                     [%{"role" => "assistant", "content" => "{{start.company context content}}"}]
+                   ]
+                 },
+                 context
+               )
+    end
   end
 
   describe "sole-placeholder type preservation" do

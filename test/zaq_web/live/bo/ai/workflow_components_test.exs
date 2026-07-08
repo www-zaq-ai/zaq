@@ -439,6 +439,54 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ ~s(phx-value-step_name="start")
     end
 
+    test "always injects a clickable start origin even without explicit start edges" do
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [@node, @node2],
+          edges: [@edge],
+          on_node_click: true
+        )
+
+      # The virtual origin renders with its indigo trigger styling and is
+      # selectable, so the input entry point is always visible on the run page.
+      assert html =~ "#eef2ff"
+      assert html =~ "#6366f1"
+      assert html =~ ~s(phx-value-step_name="start")
+    end
+
+    test "wires the start origin to every entry root" do
+      # Two disjoint roots (root_a, root_b); only root_a leads into a child.
+      root_a = %{name: "root_a", type: "action", module: "M", params: %{}, index: 0}
+      root_b = %{name: "root_b", type: "action", module: "M", params: %{}, index: 1}
+      child = %{name: "child", type: "action", module: "M", params: %{}, index: 2}
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [root_a, root_b, child],
+          edges: [%{from: "root_a", to: "child"}]
+        )
+
+      # start origin present, and both roots still render below it.
+      assert html =~ "#eef2ff"
+      assert html =~ "root_a"
+      assert html =~ "root_b"
+      assert html =~ "child"
+    end
+
+    test "does not inject a second start node when one already exists" do
+      start_node = %{name: "start", type: "action", module: "M", params: %{}, index: 0}
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [start_node, @node],
+          edges: [%{from: "start", to: "fetch"}],
+          on_node_click: true
+        )
+
+      # Exactly one selectable node named "start" (the real one) — no synthetic duplicate.
+      assert length(String.split(html, ~s(phx-value-step_name="start"))) - 1 == 1
+    end
+
     test "renders batch node with empty params as plain batch shell" do
       node = %{
         name: "batch",

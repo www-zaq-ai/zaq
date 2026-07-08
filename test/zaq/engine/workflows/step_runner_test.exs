@@ -3,6 +3,7 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
+  alias Zaq.Engine.Workflows.DateOperand
   alias Zaq.Engine.Workflows.StepRunner
 
   import ExUnit.CaptureLog
@@ -97,6 +98,37 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert [%{"event" => "step_completed"} | action_logs] = ar.logs
       assert length(action_logs) == 1
       assert hd(action_logs)["message"] == "step log"
+    end
+  end
+
+  describe "run/2 — JSON-safe serialization of temporal params" do
+    # A prior step (e.g. `History`) hands a `%DateTime{}` down the cascade
+    # (metadata.total.last_message_date). StepRunner json-safes step params for the
+    # JSONB `input` column. The generic struct path (`Map.from_struct`) explodes a
+    # DateTime into %{"calendar" => ..., "year" => ..., ...}, which `DateOperand`
+    # cannot coerce — so a `type: "datetime"` Condition (check_last_message_date)
+    # silently fails to compare. It must serialize to an ISO8601 string instead,
+    # exactly as the sibling `StreamEvents.json_safe/1` already does.
+    test "serializes a DateTime param as an ISO8601 string a date condition can consume" do
+      run = create_run()
+      dt = ~U[2026-07-08 12:57:29Z]
+
+      params =
+        run
+        |> wp(OkAction, "check_last_message_date", 0)
+        |> Map.put(:metadata, %{"total" => %{"last_message_date" => dt}})
+
+      assert {:ok, _} = StepRunner.run(params, %{})
+
+      [ar] = Workflows.list_step_runs(run.id)
+      serialized = ar.input["metadata"]["total"]["last_message_date"]
+
+      # Must be a plain ISO8601 string — not the exploded struct field-map.
+      assert serialized == "2026-07-08T12:57:29Z"
+
+      # And that serialized form must round-trip through the date comparator used by
+      # the `check_last_message_date` gate.
+      assert {:ok, ^dt} = DateOperand.coerce_actual(serialized, "datetime")
     end
   end
 

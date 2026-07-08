@@ -8,7 +8,7 @@ defmodule Zaq.Agent.ServerManager do
 
   Key concerns handled here:
 
-  - Ensure/create semantics (`ensure_server/2`) with fingerprint-based reuse or
+  - Ensure/create semantics (`ensure_server/3`) with fingerprint-based reuse or
     replacement.
   - Initial spawn wiring through `Zaq.Agent.Factory` +
     `Zaq.Agent.ProviderSpec` (model spec, runtime config, initial context).
@@ -22,7 +22,7 @@ defmodule Zaq.Agent.ServerManager do
   Interaction boundaries:
 
   - Used by `Zaq.Agent.Executor` to obtain a server reference before execution.
-  - Uses `Factory.runtime_config/1` and `Factory.build_initial_context/2` to
+  - Uses `Factory.runtime_config/1` and `Factory.build_initial_context/3` to
     initialize agent state.
   - Uses `ProviderSpec.build/1` as the single source of provider/model runtime
     spec assembly.
@@ -62,7 +62,7 @@ defmodule Zaq.Agent.ServerManager do
 
   For each tracked `server_id`, this function:
 
-  1. Ensures a live server exists for the current config (`do_ensure_server/3`).
+  1. Ensures a live server exists for the current config (`do_ensure_server/4`).
   2. Re-hydrates runtime state (configured tools + MCP assignments).
 
   ## Field update behavior (as implemented today)
@@ -91,11 +91,11 @@ defmodule Zaq.Agent.ServerManager do
     GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
   end
 
-  @spec ensure_server(ConfiguredAgent.t(), String.t()) ::
+  @spec ensure_server(ConfiguredAgent.t(), String.t(), [map()]) ::
           {:ok, GenServer.server()} | {:error, term()}
-  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id)
-      when is_binary(server_id) do
-    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id})
+  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, context_messages \\ [])
+      when is_binary(server_id) and is_list(context_messages) do
+    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, context_messages})
   end
 
   @spec stop_server(ConfiguredAgent.t()) :: :ok
@@ -115,14 +115,24 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   @impl true
+  # Backward-compatible 3-tuple form (no seeded context) — delegates to the
+  # 4-tuple clause with an empty context list.
   def handle_call(
         {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id},
+        from,
+        state
+      ) do
+    handle_call({:ensure_server, configured_agent, server_id, []}, from, state)
+  end
+
+  def handle_call(
+        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id, context_messages},
         _from,
         state
       ) do
     state = clear_stale_drain(state, server_id)
 
-    case do_ensure_server(configured_agent, state, server_id) do
+    case do_ensure_server(configured_agent, state, server_id, context_messages) do
       {:ok, server_id, next_state} ->
         {:reply, {:ok, server_ref(server_id)}, next_state}
 
@@ -162,7 +172,11 @@ defmodule Zaq.Agent.ServerManager do
     {:reply, :ok, next_state}
   end
 
-  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id) do
+  # `context_messages` (caller-seeded prior turns) are consumed only when a server
+  # is cold-started below — a warm/reused server keeps the context it spawned with.
+  # This is exactly right for `run_agent`: each step derives a unique per-step scope,
+  # so its first (and only) ask always cold-starts and seeds fresh.
+  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, context_messages) do
     fingerprint = fingerprint(configured_agent)
 
     case {Map.get(state.fingerprints, server_id), safe_whereis(server_id)} do
@@ -172,10 +186,10 @@ defmodule Zaq.Agent.ServerManager do
 
       {_previous, pid} when is_pid(pid) ->
         _ = stop_server_if_running(server_id)
-        start_server(configured_agent, server_id, state, fingerprint)
+        start_server(configured_agent, server_id, state, fingerprint, context_messages)
 
       _ ->
-        start_server(configured_agent, server_id, state, fingerprint)
+        start_server(configured_agent, server_id, state, fingerprint, context_messages)
     end
   end
 
@@ -183,9 +197,10 @@ defmodule Zaq.Agent.ServerManager do
          %ConfiguredAgent{} = configured_agent,
          server_id,
          state,
-         fingerprint
+         fingerprint,
+         context_messages
        ) do
-    case spawn_agent_server(configured_agent, server_id) do
+    case spawn_agent_server(configured_agent, server_id, context_messages) do
       :ok ->
         _ = hydrate_mcp_assignments(configured_agent, server_id)
 
@@ -229,14 +244,14 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id) do
+  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, context_messages) do
     with {:ok, model_spec} <- ProviderSpec.build(configured_agent),
          {:ok, runtime_config} <- Factory.runtime_config(configured_agent) do
       spawn_server(server_id, configured_agent, %{
         model: model_spec,
         runtime_config: runtime_config,
         tool_context: %{configured_agent_id: configured_agent.id},
-        context: Factory.build_initial_context(configured_agent, server_id)
+        context: Factory.build_initial_context(configured_agent, server_id, context_messages)
       })
     end
   end

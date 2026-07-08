@@ -11,8 +11,8 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(configured_agent, server_id) do
-      send(self(), {:ensure_server, configured_agent, server_id})
+    def ensure_server(configured_agent, server_id, context_messages \\ []) do
+      send(self(), {:ensure_server, configured_agent, server_id, context_messages})
       {:ok, :stub_server_scoped}
     end
   end
@@ -34,8 +34,8 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule CoverageStubServerManager do
-    def ensure_server(configured_agent, server_id) do
-      send(self(), {:coverage_ensure_server, configured_agent, server_id})
+    def ensure_server(configured_agent, server_id, context_messages \\ []) do
+      send(self(), {:coverage_ensure_server, configured_agent, server_id, context_messages})
       {:ok, :coverage_stub_server}
     end
   end
@@ -236,7 +236,7 @@ defmodule Zaq.Agent.ExecutorTest do
 
   describe "run/2 — answering agent (no agent_id)" do
     defmodule StubSMAnswering do
-      def ensure_server(_agent, server_id) do
+      def ensure_server(_agent, server_id, _context_messages \\ []) do
         send(self(), {:ensure_server, server_id})
         {:ok, {:via, Registry, {Zaq.Agent.Jido, server_id}}}
       end
@@ -381,14 +381,36 @@ defmodule Zaq.Agent.ExecutorTest do
 
       Executor.run(@incoming, opts)
 
-      assert_received {:ensure_server, _configured_agent, "Stub Agent:99"}
+      assert_received {:ensure_server, _configured_agent, "Stub Agent:99", _context_messages}
     end
 
     test "without :scope derives scope from incoming (channel:identity)" do
       # @incoming has provider: :web → "bo", no person_id → "anonymous"
       Executor.run(@incoming, @base_opts)
 
-      assert_received {:ensure_server, _configured_agent, "Stub Agent:anonymous"}
+      assert_received {:ensure_server, _configured_agent, "Stub Agent:anonymous",
+                       _context_messages}
+    end
+  end
+
+  describe "run/2 — seeded context_messages" do
+    test "forwards incoming.metadata.context_messages to ensure_server" do
+      seed = [
+        %{role: "user", content: "Company summary"},
+        %{role: "assistant", content: "ok"}
+      ]
+
+      incoming = %{@incoming | metadata: %{context_messages: seed}}
+
+      Executor.run(incoming, @base_opts)
+
+      assert_received {:ensure_server, _configured_agent, _server_id, ^seed}
+    end
+
+    test "passes an empty list when no context_messages are present" do
+      Executor.run(@incoming, @base_opts)
+
+      assert_received {:ensure_server, _configured_agent, _server_id, []}
     end
   end
 

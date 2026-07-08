@@ -99,8 +99,12 @@ defmodule Zaq.Agent.Tools.Workflow.Concat do
   alias Zaq.Engine.Workflows.FactLookup
 
   @reserved_keys [:parts, :separator, :as_matrix, "parts", "separator", "as_matrix"]
-  @placeholder ~r/\{\{\s*([\w.]+)\s*\}\}/
-  @sole_placeholder ~r/^\s*\{\{\s*([\w.]+)\s*\}\}\s*$/
+  # The key class matches what `FactLookup` resolves: dotted segments that may
+  # contain spaces/hyphens (human-authored sheet headers like "Company Context
+  # Content"). Non-greedy + the trailing `\s*` keep surrounding padding out of the
+  # captured key, and `[^{}]` never crosses a `}}` boundary.
+  @placeholder ~r/\{\{\s*([\w.][\w.\s-]*?)\s*\}\}/
+  @sole_placeholder ~r/^\s*\{\{\s*([\w.][\w.\s-]*?)\s*\}\}\s*$/
 
   @impl Jido.Action
   def run(params, context) do

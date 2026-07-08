@@ -1355,15 +1355,20 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   # `Zaq.Engine.Workflows.DagBuilder`'s start sentinel.
   @start_sentinel "start"
 
-  # When the DAG branches off `from: "start"` edges there is no real node behind
-  # them, so neither the origin nor its edges render. Inject a synthetic origin
-  # node (index -1 → leveled above its targets) so the trigger is shown and can
-  # be selected to reveal the run's input payload.
+  # The virtual `start` origin (the trigger/input entry point) has no real node
+  # behind it, so it never renders on its own. Always inject a synthetic origin
+  # node (index -1 → leveled above its targets) so the entry point is visible in
+  # the DAG and can be selected to reveal the run's input payload.
+  #
+  # When the graph already fans out from explicit `from: "start"` edges those
+  # edges wire the origin in; otherwise we connect `start` to every entry root
+  # (a node with no incoming edge) so the origin sits above the real roots.
   defp maybe_inject_start_node(nodes, edges) do
-    fans_from_start? = Enum.any?(edges, &(&1.from == @start_sentinel))
     has_start_node? = Enum.any?(nodes, &(&1.name == @start_sentinel))
 
-    if fans_from_start? and not has_start_node? do
+    if nodes == [] or has_start_node? do
+      {nodes, edges}
+    else
       start_node = %{
         name: @start_sentinel,
         type: @start_sentinel,
@@ -1375,9 +1380,23 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         params: %{}
       }
 
-      {[start_node | nodes], edges}
+      {[start_node | nodes], start_edges(nodes, edges) ++ edges}
+    end
+  end
+
+  # Edges wiring the virtual `start` origin into the graph. If the workflow
+  # already declares `from: "start"` edges we leave them as-is; otherwise we
+  # synthesize one edge from `start` to each entry root (a node that is never a
+  # target), so the origin leads into the real entry points.
+  defp start_edges(nodes, edges) do
+    if Enum.any?(edges, &(&1.from == @start_sentinel)) do
+      []
     else
-      {nodes, edges}
+      targets = MapSet.new(edges, & &1.to)
+
+      nodes
+      |> Enum.reject(&MapSet.member?(targets, &1.name))
+      |> Enum.map(&%{from: @start_sentinel, to: &1.name})
     end
   end
 

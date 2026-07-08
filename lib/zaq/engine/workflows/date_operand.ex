@@ -143,18 +143,42 @@ defmodule Zaq.Engine.Workflows.DateOperand do
   defp to_datetime(str) when is_binary(str), do: parse_datetime_string(str)
   defp to_datetime(_), do: :error
 
-  # Parses a full datetime string, falling back to a date-only string
-  # interpreted as midnight UTC. Returns `{:ok, %DateTime{}}` (UTC) or `:error`.
+  # Parses a datetime string to a UTC `%DateTime{}`, in order of specificity:
+  #   1. offset-aware ISO8601 (`…Z` / `…+02:00`) — the offset is honored;
+  #   2. offset-less ISO8601 (`2026-07-08T12:56:12[.us]`) — a naive datetime,
+  #      interpreted as UTC. This is exactly what `NaiveDateTime.to_iso8601/1`
+  #      emits, so a fact serialized from a naive timestamp still coerces instead
+  #      of silently failing (which, in a routing gate, would wrongly proceed);
+  #   3. date-only (`2026-07-08`) — midnight UTC.
+  # Returns `{:ok, %DateTime{}}` (UTC) or `:error`.
   defp parse_datetime_string(str) do
-    case DateTime.from_iso8601(str) do
-      {:ok, dt, _offset} ->
-        {:ok, dt}
+    with {:error, _} <- offset_datetime(str),
+         {:error, _} <- naive_datetime(str),
+         {:error, _} <- date_only(str) do
+      :error
+    else
+      {:ok, %DateTime{} = dt} -> {:ok, dt}
+    end
+  end
 
-      _ ->
-        case Date.from_iso8601(str) do
-          {:ok, d} -> {:ok, DateTime.new!(d, ~T[00:00:00], "Etc/UTC")}
-          _ -> :error
-        end
+  defp offset_datetime(str) do
+    case DateTime.from_iso8601(str) do
+      {:ok, dt, _offset} -> {:ok, dt}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp naive_datetime(str) do
+    case NaiveDateTime.from_iso8601(str) do
+      {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp date_only(str) do
+    case Date.from_iso8601(str) do
+      {:ok, d} -> {:ok, DateTime.new!(d, ~T[00:00:00], "Etc/UTC")}
+      {:error, reason} -> {:error, reason}
     end
   end
 
