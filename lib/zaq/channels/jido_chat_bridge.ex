@@ -328,7 +328,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp handle_reaction_event(config, reaction) do
+  def handle_reaction_event(config, reaction) do
     if reaction.added do
       rating = emoji_to_rating(reaction.emoji)
       user_id = reaction.user.user_id

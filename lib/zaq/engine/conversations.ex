@@ -228,6 +228,7 @@ defmodule Zaq.Engine.Conversations do
         result
         |> Map.get(:measurements, Map.get(result, "measurements", %{}))
         |> Measurements.metadata_measurements(),
+      "provider" => Map.get(result, :provider) || Map.get(result, "provider"),
       "model" => Map.get(result, :model) || Map.get(result, "model"),
       "agent" => Map.get(result, :agent) || Map.get(result, "agent")
     }
