@@ -9,6 +9,7 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   Row primary action: pass `navigate`, `patch`, or `click` on `table_row/1` (or `grid_card/1`).
   Row surface hover and `cursor-pointer` apply only when a destination is set.
   Checkboxes and `table_actions/1` stop propagation so nested controls do not trigger the row.
+  Bulk selection: `table_selection_bar/1` above the table; page tracks `selected_count` and passes actions.
   """
 
   use Phoenix.Component
@@ -256,6 +257,34 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
       @class
     ]}>
       {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  @doc """
+  Bulk selection bar — visible when `selected_count > 0`.
+
+  `:actions` slot accepts up to three `Button` / `Link` children (e.g. deselect all, delete).
+  """
+  attr :selected_count, :integer, required: true
+  attr :class, :any, default: nil
+  slot :actions
+
+  def table_selection_bar(assigns) do
+    ~H"""
+    <div
+      :if={@selected_count > 0}
+      class={["zaq-table-selection-bar", @class]}
+    >
+      <span
+        class="zaq-text-body-sm"
+        style="color: var(--zaq-text-color-body-secondary)"
+      >
+        {@selected_count} selected
+      </span>
+      <div :if={@actions != []} class="zaq-table-selection-bar__actions">
+        {render_slot(@actions)}
+      </div>
     </div>
     """
   end
