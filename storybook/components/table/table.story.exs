@@ -14,7 +14,7 @@ defmodule Storybook.Components.Table.Story do
 
   def description do
     "Reusable BO table system — `DesignSystem.Table` (list) + `Table.Grid` (card grid). " <>
-      "Shared helpers: checkbox, text, badge, datetime, actions, media."
+      "Shared helpers: checkbox, text, badge, datetime, actions, media, selection bar."
   end
 
   def render(assigns) do
@@ -47,6 +47,45 @@ defmodule Storybook.Components.Table.Story do
               </.table_cell>
               <.table_cell align={:right}>
                 <.table_text label={row.role} tone={:tertiary} />
+              </.table_cell>
+            </.table_row>
+          </:body>
+        </.table>
+      </.story_section>
+
+      <.story_section
+        title="Bulk selection bar"
+        description="Visible when one or more rows are selected. `:actions` slot accepts up to three Button / Link children."
+      >
+        <.table_selection_bar selected_count={2}>
+          <:actions>
+            <.button variant={:tertiary} phx-click="deselect_all">Deselect all</.button>
+            <.button variant={:tertiary} danger phx-click="delete_selected">Delete selected</.button>
+          </:actions>
+        </.table_selection_bar>
+        <.table id="story-table-selection">
+          <:head>
+            <.table_head_row>
+              <.table_cell element={:th} width="w-10" />
+              <.table_cell element={:th}>
+                <.table_text label="Name" tone={:tertiary} />
+              </.table_cell>
+            </.table_head_row>
+          </:head>
+          <:body>
+            <.table_row
+              :for={row <- conversation_rows()}
+              variant={if(row.selected, do: :selected, else: :default)}
+            >
+              <.table_cell width="w-10">
+                <.table_checkbox
+                  checked={row.selected}
+                  phx-click="toggle_select"
+                  phx-value-id={row.id}
+                />
+              </.table_cell>
+              <.table_cell>
+                <.table_text label={row.title} />
               </.table_cell>
             </.table_row>
           </:body>
