@@ -241,8 +241,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     {:ok, view, html} = live(conn, ~p"/bo/agents")
 
     refute html =~ "Delete"
-    assert has_element?(view, "#agent-row-#{active_agent.id} span.bg-emerald-500")
-    assert has_element?(view, "#agent-row-#{inactive_agent.id} span.bg-red-500")
+    assert has_element?(view, "#agent-row-#{active_agent.id} .zaq-status-dot--active")
+    assert has_element?(view, "#agent-row-#{inactive_agent.id} .zaq-status-dot--inactive")
     assert html =~ "Conversation"
   end
 

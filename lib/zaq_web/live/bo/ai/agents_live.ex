@@ -2,6 +2,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   use ZaqWeb, :live_view
 
   import ZaqWeb.Components.SearchableSelect
+  import ZaqWeb.Live.BO.AI.AgentsTable, only: [agents_table: 1]
 
   alias Ecto.Changeset
   alias Zaq.Agent
