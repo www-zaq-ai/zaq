@@ -118,6 +118,35 @@ defmodule Zaq.Agent.SkillTest do
     end
   end
 
+  describe "changeset/2 enabled_mcp_endpoint_ids" do
+    test "casts, dedupes, and keeps positive integer ids" do
+      changeset =
+        Skill.changeset(
+          %Skill{},
+          Map.put(@valid_attrs, :enabled_mcp_endpoint_ids, [2, 2, "3", 1])
+        )
+
+      assert changeset.valid?
+      assert get_field(changeset, :enabled_mcp_endpoint_ids) == [2, 3, 1]
+    end
+
+    test "drops non-positive ids" do
+      changeset =
+        Skill.changeset(%Skill{}, Map.put(@valid_attrs, :enabled_mcp_endpoint_ids, [0, -1, 5]))
+
+      assert get_field(changeset, :enabled_mcp_endpoint_ids) == [5]
+    end
+
+    test "defaults to empty list when absent and persists" do
+      assert {:ok, skill} =
+               %Skill{}
+               |> Skill.changeset(Map.delete(@valid_attrs, :enabled_mcp_endpoint_ids))
+               |> Repo.insert()
+
+      assert skill.enabled_mcp_endpoint_ids == []
+    end
+  end
+
   describe "changeset/2 tag normalization" do
     test "downcases, trims, and dedupes tags" do
       changeset =

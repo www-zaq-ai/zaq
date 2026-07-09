@@ -30,6 +30,7 @@ import ContentFilter from "./hooks/content_filter"
 import FolderDrop from "./hooks/folder_drop"
 import { WorkflowExport } from "./hooks/workflow_export"
 import JsonTree from "./hooks/json_tree"
+import MarkdownHighlight from "./hooks/markdown_highlight"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -43,6 +44,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
     FolderDrop,
     WorkflowExport,
     JsonTree,
+    MarkdownHighlight,
     DownloadFile: {
       mounted() {
         this.handleEvent("download_file", ({ filename, content, content_type }) => {

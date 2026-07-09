@@ -1,0 +1,173 @@
+/* Syntax highlighting for rendered markdown code blocks.
+ *
+ * GitHub light/dark token palettes for highlight.js v11, scoped to
+ * `.markdown-preview` so they never leak into the rest of the BO. The
+ * highlighter itself is vendored at `assets/vendor/highlight.js` (core +
+ * common languages, plus Elixir/Erlang) and applied client-side by the
+ * `MarkdownHighlight` LiveView hook.
+ *
+ * Backgrounds are intentionally transparent: the surrounding `<pre>` container
+ * owns the block chrome (border, radius, padding), so highlighting only colors
+ * the tokens. Dark palette activates under `[data-zaq-theme="dark"]`.
+ */
+
+.markdown-preview pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0;
+  background: transparent;
+}
+
+/* ── Light palette (GitHub) ───────────────────────────────────────────── */
+.markdown-preview .hljs {
+  color: #24292e;
+  background: transparent;
+}
+.markdown-preview .hljs-doctag,
+.markdown-preview .hljs-keyword,
+.markdown-preview .hljs-meta .hljs-keyword,
+.markdown-preview .hljs-template-tag,
+.markdown-preview .hljs-template-variable,
+.markdown-preview .hljs-type,
+.markdown-preview .hljs-variable.language_ {
+  color: #d73a49;
+}
+.markdown-preview .hljs-title,
+.markdown-preview .hljs-title.class_,
+.markdown-preview .hljs-title.class_.inherited__,
+.markdown-preview .hljs-title.function_ {
+  color: #6f42c1;
+}
+.markdown-preview .hljs-attr,
+.markdown-preview .hljs-attribute,
+.markdown-preview .hljs-literal,
+.markdown-preview .hljs-meta,
+.markdown-preview .hljs-number,
+.markdown-preview .hljs-operator,
+.markdown-preview .hljs-selector-attr,
+.markdown-preview .hljs-selector-class,
+.markdown-preview .hljs-selector-id,
+.markdown-preview .hljs-variable {
+  color: #005cc5;
+}
+.markdown-preview .hljs-meta .hljs-string,
+.markdown-preview .hljs-regexp,
+.markdown-preview .hljs-string {
+  color: #032f62;
+}
+.markdown-preview .hljs-built_in,
+.markdown-preview .hljs-symbol {
+  color: #e36209;
+}
+.markdown-preview .hljs-code,
+.markdown-preview .hljs-comment,
+.markdown-preview .hljs-formula {
+  color: #6a737d;
+}
+.markdown-preview .hljs-name,
+.markdown-preview .hljs-quote,
+.markdown-preview .hljs-selector-pseudo,
+.markdown-preview .hljs-selector-tag {
+  color: #22863a;
+}
+.markdown-preview .hljs-subst {
+  color: #24292e;
+}
+.markdown-preview .hljs-section {
+  color: #005cc5;
+  font-weight: 700;
+}
+.markdown-preview .hljs-bullet {
+  color: #735c0f;
+}
+.markdown-preview .hljs-emphasis {
+  color: #24292e;
+  font-style: italic;
+}
+.markdown-preview .hljs-strong {
+  color: #24292e;
+  font-weight: 700;
+}
+.markdown-preview .hljs-addition {
+  color: #22863a;
+  background-color: #f0fff4;
+}
+.markdown-preview .hljs-deletion {
+  color: #b31d28;
+  background-color: #ffeef0;
+}
+
+/* ── Dark palette (GitHub Dark) ───────────────────────────────────────── */
+[data-zaq-theme="dark"] .markdown-preview .hljs {
+  color: #c9d1d9;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-doctag,
+[data-zaq-theme="dark"] .markdown-preview .hljs-keyword,
+[data-zaq-theme="dark"] .markdown-preview .hljs-meta .hljs-keyword,
+[data-zaq-theme="dark"] .markdown-preview .hljs-template-tag,
+[data-zaq-theme="dark"] .markdown-preview .hljs-template-variable,
+[data-zaq-theme="dark"] .markdown-preview .hljs-type,
+[data-zaq-theme="dark"] .markdown-preview .hljs-variable.language_ {
+  color: #ff7b72;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-title,
+[data-zaq-theme="dark"] .markdown-preview .hljs-title.class_,
+[data-zaq-theme="dark"] .markdown-preview .hljs-title.class_.inherited__,
+[data-zaq-theme="dark"] .markdown-preview .hljs-title.function_ {
+  color: #d2a8ff;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-attr,
+[data-zaq-theme="dark"] .markdown-preview .hljs-attribute,
+[data-zaq-theme="dark"] .markdown-preview .hljs-literal,
+[data-zaq-theme="dark"] .markdown-preview .hljs-meta,
+[data-zaq-theme="dark"] .markdown-preview .hljs-number,
+[data-zaq-theme="dark"] .markdown-preview .hljs-operator,
+[data-zaq-theme="dark"] .markdown-preview .hljs-selector-attr,
+[data-zaq-theme="dark"] .markdown-preview .hljs-selector-class,
+[data-zaq-theme="dark"] .markdown-preview .hljs-selector-id,
+[data-zaq-theme="dark"] .markdown-preview .hljs-variable {
+  color: #79c0ff;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-meta .hljs-string,
+[data-zaq-theme="dark"] .markdown-preview .hljs-regexp,
+[data-zaq-theme="dark"] .markdown-preview .hljs-string {
+  color: #a5d6ff;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-built_in,
+[data-zaq-theme="dark"] .markdown-preview .hljs-symbol {
+  color: #ffa657;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-code,
+[data-zaq-theme="dark"] .markdown-preview .hljs-comment,
+[data-zaq-theme="dark"] .markdown-preview .hljs-formula {
+  color: #8b949e;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-name,
+[data-zaq-theme="dark"] .markdown-preview .hljs-quote,
+[data-zaq-theme="dark"] .markdown-preview .hljs-selector-pseudo,
+[data-zaq-theme="dark"] .markdown-preview .hljs-selector-tag {
+  color: #7ee787;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-subst {
+  color: #c9d1d9;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-section {
+  color: #1f6feb;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-bullet {
+  color: #f2cc60;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-emphasis {
+  color: #c9d1d9;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-strong {
+  color: #c9d1d9;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+[data-zaq-theme="dark"] .markdown-preview .hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
+}

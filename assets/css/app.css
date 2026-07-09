@@ -9,6 +9,8 @@
 @import "./layout.css";
 @import "./btn.css";
 @import "./styles.css";
+@import "./markdown_editor.css";
+@import "./highlight.css";
 @source "../css";
 @source "../js";
 @source "../../lib/zaq_web";

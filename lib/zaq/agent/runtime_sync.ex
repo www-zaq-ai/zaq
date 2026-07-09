@@ -13,9 +13,11 @@ defmodule Zaq.Agent.RuntimeSync do
     all active agents that reference the endpoint.
 
   - **Skill lifecycle** — `agent_skill_updated/3` and `agent_skill_deleted/2` persist
-    skill changes and fan out a tool re-sync to all active agents that reference the
-    skill. Skill prompt changes need no fan-out: the effective system prompt is
-    recomputed on every ask by `Zaq.Agent.Factory`.
+    skill changes and fan out a tool + MCP re-sync to all active agents that reference the
+    skill. MCP endpoints a skill stops providing are unsynced per agent (overlap-safe —
+    endpoints still supplied by the agent or another skill are left in place). Skill prompt
+    changes need no fan-out: the effective system prompt is recomputed on every ask by
+    `Zaq.Agent.Factory`.
 
   - **Runtime sync primitives** — `sync_agent_runtime/3`,
     `sync_agent_configured_tools/3`, and `sync_agent_mcp_assignments/3` reconcile
@@ -51,17 +53,24 @@ defmodule Zaq.Agent.RuntimeSync do
   end
 
   @doc """
-  Syncs MCP endpoint assignments from the agent's `enabled_mcp_endpoint_ids` to a running server.
+  Syncs MCP endpoint assignments to a running server from the agent's
+  `enabled_mcp_endpoint_ids` unioned with the endpoint ids of its attached skills
+  (`Skills.effective_mcp_endpoint_ids/2`).
 
   Iterates each endpoint ID and registers + syncs tools for enabled endpoints, skipping
-  disabled or missing ones. Returns `{:ok, map}` with `synced_endpoint_ids`,
-  `skipped_endpoint_ids`, `warnings`, and `results`. Halts and returns `{:error, reason}`
-  on the first hard failure.
+  disabled or missing ones. This path is additive; removals are handled by the diff-driven
+  unsync in `patch_agent_runtime/3` (agent edits) and `patch_skill_runtime/3` (skill edits).
+  Returns `{:ok, map}` with `synced_endpoint_ids`, `skipped_endpoint_ids`, `warnings`, and
+  `results`. Halts and returns `{:error, reason}` on the first hard failure.
   """
   @spec sync_agent_mcp_assignments(ConfiguredAgent.t(), GenServer.server(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def sync_agent_mcp_assignments(%ConfiguredAgent{} = agent, server_ref, opts \\ []) do
-    endpoint_ids = agent.enabled_mcp_endpoint_ids || []
+    skills_module = Keyword.get(opts, :skills_module, Skills)
+
+    endpoint_ids =
+      skills_module.effective_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
+
     mcp_module = Keyword.get(opts, :mcp_module, MCP)
 
     reduce_result =
@@ -213,9 +222,11 @@ defmodule Zaq.Agent.RuntimeSync do
   def agent_skill_updated(id, attrs, opts \\ []) when is_integer(id) and is_map(attrs) do
     skills_module = Keyword.get(opts, :skills_module, Skills)
     skill = skills_module.get_skill!(id)
+    previous_mcp_ids = skill.enabled_mcp_endpoint_ids || []
 
     with {:ok, updated} <- skills_module.update_skill(skill, attrs),
-         {:ok, runtime} <- patch_skill_runtime(updated.id, opts) do
+         removed_mcp_ids <- previous_mcp_ids -- (updated.enabled_mcp_endpoint_ids || []),
+         {:ok, runtime} <- patch_skill_runtime(updated.id, removed_mcp_ids, opts) do
       {:ok, %{skill: updated, runtime: runtime}}
     end
   end
@@ -231,9 +242,10 @@ defmodule Zaq.Agent.RuntimeSync do
   def agent_skill_deleted(id, opts \\ []) when is_integer(id) do
     skills_module = Keyword.get(opts, :skills_module, Skills)
     skill = skills_module.get_skill!(id)
+    removed_mcp_ids = skill.enabled_mcp_endpoint_ids || []
 
     with {:ok, deleted} <- skills_module.delete_skill(skill),
-         {:ok, runtime} <- patch_skill_runtime(skill.id, opts) do
+         {:ok, runtime} <- patch_skill_runtime(skill.id, removed_mcp_ids, opts) do
       {:ok, %{skill: deleted, runtime: runtime}}
     end
   end
@@ -296,7 +308,9 @@ defmodule Zaq.Agent.RuntimeSync do
         {:ok, %{strategy: :drain_and_stop}}
 
       true ->
-        {added, removed} = mcp_assignment_diff(previous, agent)
+        {added, removed_raw} = mcp_assignment_diff(previous, agent)
+        # Overlap-safe: never unsync an endpoint still provided by an attached skill.
+        removed = removed_raw -- still_effective_mcp_endpoint_ids(agent, opts)
 
         case server_manager.sync_runtime(agent) do
           {:ok, %{server_ref: server_ref, runtime: runtime} = sync_result} ->
@@ -350,19 +364,27 @@ defmodule Zaq.Agent.RuntimeSync do
     end
   end
 
-  defp patch_skill_runtime(skill_id, opts) do
+  defp patch_skill_runtime(skill_id, removed_mcp_endpoint_ids, opts) do
     agent_module = Keyword.get(opts, :agent_module, Agent)
     server_manager = Keyword.get(opts, :server_manager_module, ServerManager)
+    skills_module = Keyword.get(opts, :skills_module, Skills)
 
     impacted_agents =
       agent_module.list_agents_with_skill(skill_id)
       |> Enum.filter(&(&1.active == true))
 
     Enum.reduce_while(impacted_agents, {:ok, []}, fn agent, {:ok, acc} ->
-      case server_manager.sync_runtime(agent) do
-        {:ok, result} ->
-          {:cont, {:ok, [{agent.id, result} | acc]}}
-
+      with {:ok, result} <- server_manager.sync_runtime(agent),
+           {:ok, unsync_results} <-
+             unsync_skill_removed_endpoints(
+               agent,
+               result,
+               removed_mcp_endpoint_ids,
+               skills_module,
+               opts
+             ) do
+        {:cont, {:ok, [{agent.id, Map.put(result, :unsync_results, unsync_results)} | acc]}}
+      else
         {:error, reason} ->
           {:halt, {:error, {:skill_sync_failed, %{agent_id: agent.id, reason: reason}}}}
       end
@@ -437,6 +459,32 @@ defmodule Zaq.Agent.RuntimeSync do
     current_ids = agent.enabled_mcp_endpoint_ids || []
     {current_ids -- previous_ids, previous_ids -- current_ids}
   end
+
+  defp still_effective_mcp_endpoint_ids(agent, opts) do
+    skills_module = Keyword.get(opts, :skills_module, Skills)
+    skills_module.effective_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
+  end
+
+  # Unsyncs the endpoints a skill stopped providing from an impacted agent's live server,
+  # but only those no longer in that agent's effective set (still-provided endpoints — via the
+  # agent itself or another attached skill — are left in place).
+  defp unsync_skill_removed_endpoints(_agent, _result, [], _skills_module, _opts), do: {:ok, []}
+
+  defp unsync_skill_removed_endpoints(
+         agent,
+         %{server_ref: server_ref},
+         removed_ids,
+         skills_module,
+         opts
+       ) do
+    still_effective =
+      skills_module.effective_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
+
+    unsync_removed_endpoints(server_ref, removed_ids -- still_effective, opts)
+  end
+
+  defp unsync_skill_removed_endpoints(_agent, _result, _removed_ids, _skills_module, _opts),
+    do: {:ok, []}
 
   defp no_runtime_change?(previous, current) do
     fields = [

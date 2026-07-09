@@ -3,9 +3,10 @@ defmodule Zaq.Agent.Skill do
   Schema for BO-managed agent skills.
 
   A skill bundles a markdown instruction `body` with a set of tool keys from
-  `Zaq.Agent.Tools.Registry` and searchable `tags`. Skills are attached to
-  configured agents and take effect at runtime through the same hot-patch path
-  as `enabled_tool_keys` (tool sync + per-ask system prompt injection).
+  `Zaq.Agent.Tools.Registry`, a set of MCP endpoint ids (`enabled_mcp_endpoint_ids`),
+  and searchable `tags`. Skills are attached to configured agents and take effect at
+  runtime through the same hot-patch path as `enabled_tool_keys` /
+  `enabled_mcp_endpoint_ids` (tool + MCP sync + per-ask system prompt injection).
 
   Name constraints mirror the agentskills.io format enforced by
   `Jido.AI.Skill.Loader` (lowercase kebab-case, max 64 chars) so records stay
@@ -29,6 +30,7 @@ defmodule Zaq.Agent.Skill do
     field :description, :string
     field :body, :string
     field :tool_keys, {:array, :string}, default: []
+    field :enabled_mcp_endpoint_ids, {:array, :integer}, default: []
     field :tags, {:array, :string}, default: []
     field :active, :boolean, default: true
 
@@ -36,7 +38,7 @@ defmodule Zaq.Agent.Skill do
   end
 
   @required_fields ~w(name body)a
-  @optional_fields ~w(description tool_keys tags active)a
+  @optional_fields ~w(description tool_keys enabled_mcp_endpoint_ids tags active)a
 
   def changeset(skill, attrs) do
     skill
@@ -48,8 +50,20 @@ defmodule Zaq.Agent.Skill do
     )
     |> validate_length(:description, max: @max_description_length)
     |> validate_tool_keys()
+    |> normalize_mcp_endpoint_ids()
     |> normalize_tags()
     |> unique_constraint(:name)
+  end
+
+  defp normalize_mcp_endpoint_ids(changeset) do
+    ids =
+      changeset
+      |> get_field(:enabled_mcp_endpoint_ids)
+      |> List.wrap()
+      |> Enum.filter(&(is_integer(&1) and &1 > 0))
+      |> Enum.uniq()
+
+    put_change(changeset, :enabled_mcp_endpoint_ids, ids)
   end
 
   defp normalize_tags(changeset) do

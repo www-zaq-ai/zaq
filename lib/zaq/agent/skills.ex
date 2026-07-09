@@ -4,8 +4,9 @@ defmodule Zaq.Agent.Skills do
 
   CRUD and search for `Zaq.Agent.Skill` records, plus the single home for
   composing an agent's *effective* runtime configuration from its attached
-  skills: `effective_tool_keys/2` (agent tools ∪ skill tools) and
-  `effective_system_prompt/2` (job + rendered skill instructions).
+  skills: `effective_tool_keys/2` (agent tools ∪ skill tools),
+  `effective_mcp_endpoint_ids/2` (agent MCP endpoints ∪ skill MCP endpoints),
+  and `effective_system_prompt/2` (job + rendered skill instructions).
 
   Runtime propagation of skill changes to live agent servers is handled by
   `Zaq.Agent.RuntimeSync`, not here.
@@ -85,6 +86,21 @@ defmodule Zaq.Agent.Skills do
       |> Enum.filter(&Registry.valid_tool_key?/1)
 
     Enum.uniq((agent.enabled_tool_keys || []) ++ skill_keys)
+  end
+
+  @doc """
+  Unions the agent's own `enabled_mcp_endpoint_ids` with the MCP endpoint ids of
+  the given skills.
+
+  Ids are deduped; ordering keeps the agent's own ids first. Endpoints that are
+  disabled or deleted are tolerated here (they are skipped at runtime sync), so
+  a removed endpoint cannot break every agent using the skill.
+  """
+  @spec effective_mcp_endpoint_ids(ConfiguredAgent.t(), [Skill.t()]) :: [integer()]
+  def effective_mcp_endpoint_ids(%ConfiguredAgent{} = agent, skills) when is_list(skills) do
+    skill_ids = Enum.flat_map(skills, &(&1.enabled_mcp_endpoint_ids || []))
+
+    Enum.uniq((agent.enabled_mcp_endpoint_ids || []) ++ skill_ids)
   end
 
   @doc """

@@ -204,6 +204,27 @@ defmodule Zaq.Agent.SkillsTest do
     end
   end
 
+  describe "effective_mcp_endpoint_ids/2" do
+    test "unions agent endpoint ids with skill endpoint ids, deduped, agent first" do
+      skill_a = %Skill{enabled_mcp_endpoint_ids: [2, 3]}
+      skill_b = %Skill{enabled_mcp_endpoint_ids: [3, 4]}
+      agent = %ConfiguredAgent{enabled_mcp_endpoint_ids: [1, 2]}
+
+      assert Skills.effective_mcp_endpoint_ids(agent, [skill_a, skill_b]) == [1, 2, 3, 4]
+    end
+
+    test "returns the agent's own ids when there are no skills" do
+      agent = %ConfiguredAgent{enabled_mcp_endpoint_ids: [7, 8]}
+      assert Skills.effective_mcp_endpoint_ids(agent, []) == [7, 8]
+    end
+
+    test "handles nil id lists" do
+      agent = %ConfiguredAgent{enabled_mcp_endpoint_ids: nil}
+      skill = %Skill{enabled_mcp_endpoint_ids: nil}
+      assert Skills.effective_mcp_endpoint_ids(agent, [skill]) == []
+    end
+  end
+
   describe "effective_system_prompt/2 and render_prompt_block/1" do
     test "returns the bare job when there are no skills" do
       agent = %ConfiguredAgent{job: "You are helpful."}

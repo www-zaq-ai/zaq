@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Agent.MCP
   alias Zaq.Agent.Skills
 
   setup :verify_on_exit!
@@ -81,9 +82,10 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     render_click(element(view, "#new-skill-button"))
     assert has_element?(view, "#skill-form")
 
-    view
-    |> form("#skill-tool-picker", %{"tool_key" => "answering.search_knowledge_base"})
-    |> render_change()
+    render_click(element(view, "#add-tools-button"))
+    assert has_element?(view, "#skill-tools-picker-modal")
+
+    render_change(view, "add_tool_from_picker", %{"tool_key" => "answering.search_knowledge_base"})
 
     view
     |> form("#skill-form",
@@ -146,6 +148,54 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert updated.tags == ["updated"]
   end
 
+  test "toggles the instructions markdown preview and renders the body", %{conn: conn} do
+    skill = create_skill!(%{name: "previewable-skill", body: "# Heading\n\n- one\n- two"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    render_click(element(view, "#skill-row-#{skill.id}"))
+
+    # Write mode by default: textarea present, no rendered preview.
+    assert has_element?(view, "#skill-body-input")
+    refute render(view) =~ "<h1>"
+
+    # Switch to Preview: markdown is rendered to HTML.
+    html = render_click(element(view, "button[phx-value-mode='preview']"))
+    assert html =~ "<h1>"
+    assert html =~ "Heading</h1>"
+    assert html =~ "<ul>"
+
+    # Switch back to Write: rendered preview gone, textarea back.
+    html = render_click(element(view, "button[phx-value-mode='write']"))
+    refute html =~ "<h1>"
+    assert has_element?(view, "#skill-body-input")
+  end
+
+  test "preview reflects unsaved edits via validate", %{conn: conn} do
+    skill = create_skill!(%{name: "live-preview-skill", body: "Old body."})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    render_click(element(view, "#skill-row-#{skill.id}"))
+
+    view
+    |> form("#skill-form", skill: %{"name" => "live-preview-skill", "body" => "**bold draft**"})
+    |> render_change()
+
+    html = render_click(element(view, "button[phx-value-mode='preview']"))
+    assert html =~ "<strong>bold draft</strong>"
+    refute html =~ "Old body."
+  end
+
+  test "preview shows a placeholder when the body is empty", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    render_click(element(view, "#new-skill-button"))
+
+    html = render_click(element(view, "button[phx-value-mode='preview']"))
+    assert html =~ "Nothing to preview."
+  end
+
   test "adds and removes tools via the picker", %{conn: conn} do
     skill = create_skill!(%{name: "toolable", tool_keys: ["answering.search_knowledge_base"]})
 
@@ -154,12 +204,14 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
     assert render(view) =~ "Search knowledge base"
 
-    view
-    |> form("#skill-tool-picker", %{"tool_key" => "data_source.get_document"})
-    |> render_change()
+    render_click(element(view, "#add-tools-button"))
+    assert has_element?(view, "#skill-tools-picker-modal")
+    render_change(view, "add_tool_from_picker", %{"tool_key" => "data_source.get_document"})
 
     view
-    |> element("button[phx-click=remove_tool][phx-value-key='answering.search_knowledge_base']")
+    |> element(
+      "#skill-tools-picker-modal button[phx-click=remove_tool][phx-value-key='answering.search_knowledge_base']"
+    )
     |> render_click()
 
     view
@@ -175,6 +227,63 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     |> render_submit()
 
     assert Skills.get_skill!(skill.id).tool_keys == ["data_source.get_document"]
+  end
+
+  test "adds and removes MCP endpoints via the picker", %{conn: conn} do
+    {:ok, endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Skill MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    render_click(element(view, "#new-skill-button"))
+
+    # picker button is enabled once endpoints exist, and the modal opens
+    refute has_element?(view, "#add-mcp-button[disabled]")
+    assert has_element?(view, "#add-mcp-button")
+
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => to_string(endpoint.id)})
+    assert has_element?(view, ~s([data-selected-mcp-endpoint-id="#{endpoint.id}"]))
+
+    view
+    |> form("#skill-form",
+      skill: %{
+        "name" => "mcp-skill",
+        "description" => "",
+        "body" => "Instructions.",
+        "tags" => "",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "Skill created"
+    assert [skill] = Skills.search_skills(%{q: "mcp-skill"})
+    assert skill.enabled_mcp_endpoint_ids == [endpoint.id]
+
+    # remove it again from the selected panel and re-save
+    view
+    |> element(~s(button[phx-click="remove_mcp"][phx-value-id="#{endpoint.id}"]))
+    |> render_click()
+
+    view
+    |> form("#skill-form",
+      skill: %{
+        "name" => "mcp-skill",
+        "description" => "",
+        "body" => "Instructions.",
+        "tags" => "",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert Skills.get_skill!(skill.id).enabled_mcp_endpoint_ids == []
   end
 
   test "deletes a skill", %{conn: conn} do

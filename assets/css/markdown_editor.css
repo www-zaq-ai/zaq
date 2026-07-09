@@ -1,0 +1,165 @@
+/* Markdown editor — GitHub-style Write / Preview field.
+ *
+ * All colors come from `--zaq-*` semantic tokens, so the whole component
+ * (chrome, textarea, preview, code) flips automatically with the global theme
+ * picker (which stamps `data-zaq-theme="dark"` on <html>). Syntax-highlight
+ * token colors live in `highlight.css`; this file owns the shell, prose, and
+ * inline/fenced code chrome.
+ */
+
+.zaq-md-editor {
+  border: 1px solid var(--zaq-border-color-default);
+  border-radius: var(--zaq-scale-8);
+  background: var(--zaq-surface-color-raised);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+.zaq-md-editor:focus-within {
+  border-color: var(--zaq-border-color-accent);
+}
+
+/* ── Write / Preview tabs ─────────────────────────────────────────────── */
+.zaq-md-editor__tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+  padding: var(--zaq-scale-8);
+  background: var(--zaq-surface-color-base);
+  border-bottom: 1px solid var(--zaq-border-color-default);
+}
+.zaq-md-editor__tab {
+  font-family: var(--zaq-font-family-code);
+  font-size: var(--zaq-scale-12);
+  padding: var(--zaq-scale-4) var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-4);
+  color: var(--zaq-text-color-body-tertiary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.zaq-md-editor__tab:hover {
+  color: var(--zaq-text-color-body-secondary);
+}
+.zaq-md-editor__tab--active {
+  background: var(--zaq-surface-color-raised);
+  color: var(--zaq-text-color-body-default);
+  border-color: var(--zaq-border-color-default);
+}
+
+/* ── Write textarea ───────────────────────────────────────────────────── */
+.zaq-md-editor__textarea {
+  display: block;
+  width: 100%;
+  font-family: var(--zaq-font-family-code);
+  font-size: var(--zaq-scale-14);
+  line-height: 1.6;
+  color: var(--zaq-text-color-body-default);
+  background: var(--zaq-surface-color-raised);
+  border: 0;
+  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  resize: vertical;
+}
+.zaq-md-editor__textarea::placeholder {
+  color: var(--zaq-text-color-body-tertiary);
+}
+.zaq-md-editor__textarea:focus {
+  outline: none;
+}
+.zaq-md-editor__textarea--hidden {
+  display: none;
+}
+
+/* ── Preview ──────────────────────────────────────────────────────────── */
+.zaq-md-editor__preview {
+  padding: var(--zaq-scale-16);
+  min-height: var(--zaq-scale-120);
+  overflow: auto;
+  font-size: var(--zaq-scale-14);
+  line-height: 1.6;
+  color: var(--zaq-text-color-body-default);
+}
+.zaq-md-editor__empty {
+  font-family: var(--zaq-font-family-code);
+  font-size: var(--zaq-scale-12);
+  font-style: italic;
+  color: var(--zaq-text-color-body-tertiary);
+}
+
+/* Prose */
+.zaq-md-editor__preview > p {
+  margin-bottom: var(--zaq-scale-8);
+}
+.zaq-md-editor__preview > p:last-child {
+  margin-bottom: 0;
+}
+.zaq-md-editor__preview > h1,
+.zaq-md-editor__preview > h2,
+.zaq-md-editor__preview > h3 {
+  font-family: var(--zaq-font-family-heading);
+  font-weight: var(--zaq-font-weight-semibold);
+  margin-bottom: var(--zaq-scale-8);
+}
+.zaq-md-editor__preview > h1 {
+  font-size: var(--zaq-scale-20);
+}
+.zaq-md-editor__preview > h2,
+.zaq-md-editor__preview > h3 {
+  font-size: var(--zaq-scale-14);
+}
+.zaq-md-editor__preview > ul {
+  list-style: disc;
+  padding-left: var(--zaq-scale-24);
+  margin-bottom: var(--zaq-scale-8);
+}
+.zaq-md-editor__preview > ol {
+  list-style: decimal;
+  padding-left: var(--zaq-scale-24);
+  margin-bottom: var(--zaq-scale-8);
+}
+.zaq-md-editor__preview a {
+  color: var(--zaq-text-color-body-accent);
+  text-decoration: underline;
+}
+.zaq-md-editor__preview > blockquote {
+  border-left: 2px solid var(--zaq-border-color-default);
+  padding-left: var(--zaq-scale-16);
+  color: var(--zaq-text-color-body-secondary);
+}
+
+/* Inline code chips — GitHub-style: light-red box + red ink in light mode,
+ * neutral gray box + default ink in dark mode. */
+.zaq-md-editor__preview :not(pre) > code {
+  font-family: var(--zaq-font-family-code);
+  font-size: 0.85em;
+  padding: var(--zaq-scale-2) var(--zaq-scale-4);
+  border-radius: var(--zaq-scale-4);
+  background: var(--zaq-surface-color-danger);
+  color: var(--zaq-text-color-body-danger);
+}
+[data-zaq-theme="dark"] .zaq-md-editor__preview :not(pre) > code {
+  /* GitHub dark: a visible translucent gray chip (not the near-black elevated
+     surface, which vanishes against the block) + normal light ink. */
+  background: rgba(110, 118, 129, 0.4);
+  color: var(--zaq-text-color-body-default);
+}
+
+/* Fenced code blocks — token container; highlight.css colors the tokens. */
+.zaq-md-editor__preview pre {
+  background: var(--zaq-surface-color-base);
+  border: 1px solid var(--zaq-border-color-default);
+  border-radius: var(--zaq-scale-8);
+  padding: var(--zaq-scale-16);
+  overflow-x: auto;
+  margin-bottom: var(--zaq-scale-16);
+}
+.zaq-md-editor__preview pre > code {
+  display: block;
+  font-family: var(--zaq-font-family-code);
+  font-size: var(--zaq-scale-12);
+  line-height: 1.6;
+  color: var(--zaq-text-color-body-default);
+  white-space: pre;
+}

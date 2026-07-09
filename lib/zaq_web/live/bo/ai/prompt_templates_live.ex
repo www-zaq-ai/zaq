@@ -1,6 +1,8 @@
 defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
   use ZaqWeb, :live_view
 
+  import ZaqWeb.Components.MarkdownEditor
+
   alias Zaq.Agent.PromptTemplate
   alias ZaqWeb.ChangesetErrors
 
@@ -13,7 +15,8 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
        current_path: "/bo/prompt-templates",
        templates: templates,
        active_tab: first_tab,
-       new_form: new_changeset(),
+       form: build_form(first_tab, templates),
+       body_preview: false,
        delete_confirm: nil,
        delete_confirm_name: nil
      )}
@@ -21,7 +24,24 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
 
   def handle_event("switch_tab", %{"id" => id}, socket) do
     tab = if id == "new", do: :new, else: String.to_integer(id)
-    {:noreply, assign(socket, active_tab: tab, delete_confirm: nil, delete_confirm_name: nil)}
+
+    {:noreply,
+     assign(socket,
+       active_tab: tab,
+       form: build_form(tab, socket.assigns.templates),
+       body_preview: false,
+       delete_confirm: nil,
+       delete_confirm_name: nil
+     )}
+  end
+
+  def handle_event("validate", %{"prompt_template" => params}, socket) do
+    changeset = PromptTemplate.changeset(current_base(socket), params)
+    {:noreply, assign(socket, form: to_form(changeset, as: :prompt_template))}
+  end
+
+  def handle_event("toggle_body_preview", %{"mode" => mode}, socket) do
+    {:noreply, assign(socket, body_preview: mode == "preview")}
   end
 
   def handle_event("save", %{"prompt_template" => params}, socket) do
@@ -31,10 +51,16 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
     case PromptTemplate.update(template, params) do
       {:ok, updated} ->
         {:noreply,
-         socket |> apply_update(updated) |> put_flash(:info, "\"#{updated.name}\" saved.")}
+         socket
+         |> apply_update(updated)
+         |> assign(form: to_form(PromptTemplate.changeset(updated, %{}), as: :prompt_template))
+         |> put_flash(:info, "\"#{updated.name}\" saved.")}
 
       {:error, changeset} ->
-        {:noreply, put_flash(socket, :error, "Save failed: #{format_errors(changeset)}")}
+        {:noreply,
+         socket
+         |> assign(form: to_form(changeset, as: :prompt_template))
+         |> put_flash(:error, "Save failed: #{format_errors(changeset)}")}
     end
   end
 
@@ -45,13 +71,18 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
 
         {:noreply,
          socket
-         |> assign(templates: templates, active_tab: created.id, new_form: new_changeset())
+         |> assign(
+           templates: templates,
+           active_tab: created.id,
+           form: build_form(created.id, templates),
+           body_preview: false
+         )
          |> put_flash(:info, "\"#{created.name}\" created.")}
 
       {:error, changeset} ->
         {:noreply,
          socket
-         |> assign(new_form: changeset)
+         |> assign(form: to_form(changeset, as: :prompt_template))
          |> put_flash(:error, "Create failed: #{format_errors(changeset)}")}
     end
   end
@@ -116,8 +147,21 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
     assign(socket, templates: templates)
   end
 
-  defp new_changeset do
-    PromptTemplate.changeset(%PromptTemplate{}, %{})
+  defp build_form(tab, templates) do
+    tab
+    |> base_template(templates)
+    |> PromptTemplate.changeset(%{})
+    |> to_form(as: :prompt_template)
+  end
+
+  defp current_base(socket) do
+    base_template(socket.assigns.active_tab, socket.assigns.templates)
+  end
+
+  defp base_template(:new, _templates), do: %PromptTemplate{}
+
+  defp base_template(id, templates) do
+    Enum.find(templates, &(&1.id == id)) || %PromptTemplate{}
   end
 
   defp format_errors(changeset) do

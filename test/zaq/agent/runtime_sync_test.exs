@@ -1235,6 +1235,112 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     assert_receive {:skill_sync_runtime_called, 91}
   end
 
+  test "sync_agent_mcp_assignments syncs endpoints contributed by attached skills" do
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "mcp-contributing-skill",
+        body: "Use the endpoint.",
+        enabled_mcp_endpoint_ids: [2]
+      })
+
+    agent = %ConfiguredAgent{
+      id: 7,
+      enabled_tool_keys: [],
+      enabled_mcp_endpoint_ids: [1],
+      enabled_skill_ids: [skill.id]
+    }
+
+    assert {:ok, result} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: StubMCP,
+               endpoint_count_fn: fn -> 0 end,
+               signal_adapter_module: StubSignalAdapter,
+               stub_sync_result:
+                 {:ok,
+                  %{
+                    discovered_count: 1,
+                    registered_count: 1,
+                    failed_count: 0,
+                    failed: [],
+                    warnings: []
+                  }}
+             )
+
+    assert result.synced_endpoint_ids == [1, 2]
+  end
+
+  defmodule StubSignalAdapterSkillUnsync do
+    def unsync_tools(_server_ref, runtime_endpoint_id, _opts) do
+      send(self(), {:unsync_tools_called, runtime_endpoint_id})
+      {:ok, %{removed_count: 1, failed_count: 0}}
+    end
+
+    def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+  end
+
+  defmodule StubAgentWithSkillOwningEndpoint do
+    def list_agents_with_skill(skill_id) do
+      [
+        %ConfiguredAgent{
+          id: 91,
+          active: true,
+          enabled_skill_ids: [skill_id],
+          enabled_mcp_endpoint_ids: [66]
+        }
+      ]
+    end
+  end
+
+  test "agent_skill_updated unsyncs MCP endpoints the skill stopped providing" do
+    {:ok, skill} =
+      Skills.create_skill(%{name: "mcp-shrinking", body: "b", enabled_mcp_endpoint_ids: [66]})
+
+    assert {:ok, %{skill: updated, runtime: runtime}} =
+             RuntimeSync.agent_skill_updated(
+               skill.id,
+               %{enabled_mcp_endpoint_ids: []},
+               agent_module: StubAgentWithSkillModule,
+               server_manager_module: StubServerManagerForSkillPatch,
+               signal_adapter_module: StubSignalAdapterSkillUnsync
+             )
+
+    assert updated.enabled_mcp_endpoint_ids == []
+    assert runtime.impacted_agent_ids == [91]
+    assert_receive {:unsync_tools_called, :mcp_66}
+  end
+
+  test "agent_skill_updated does not unsync an endpoint the agent still provides itself" do
+    {:ok, skill} =
+      Skills.create_skill(%{name: "overlap-skill", body: "b", enabled_mcp_endpoint_ids: [66]})
+
+    assert {:ok, _} =
+             RuntimeSync.agent_skill_updated(
+               skill.id,
+               %{enabled_mcp_endpoint_ids: []},
+               agent_module: StubAgentWithSkillOwningEndpoint,
+               server_manager_module: StubServerManagerForSkillPatch,
+               signal_adapter_module: StubSignalAdapterSkillUnsync
+             )
+
+    refute_receive {:unsync_tools_called, :mcp_66}
+  end
+
+  test "agent_skill_deleted unsyncs the deleted skill's MCP endpoints from active agents" do
+    {:ok, skill} =
+      Skills.create_skill(%{name: "mcp-doomed", body: "b", enabled_mcp_endpoint_ids: [66]})
+
+    assert {:ok, %{runtime: runtime}} =
+             RuntimeSync.agent_skill_deleted(
+               skill.id,
+               agent_module: StubAgentWithSkillModule,
+               server_manager_module: StubServerManagerForSkillPatch,
+               signal_adapter_module: StubSignalAdapterSkillUnsync
+             )
+
+    assert runtime.impacted_agent_ids == [91]
+    assert_receive {:unsync_tools_called, :mcp_66}
+  end
+
   test "configured_agent_updated treats enabled_skill_ids change as runtime change" do
     assert {:ok, %{runtime: %{strategy: :hot_runtime_patch}}} =
              RuntimeSync.configured_agent_updated(

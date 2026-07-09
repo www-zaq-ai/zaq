@@ -1,6 +1,8 @@
 defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   use ZaqWeb, :live_view
 
+  import ZaqWeb.Components.AgentToolsPicker
+  import ZaqWeb.Components.MarkdownEditor
   import ZaqWeb.Components.SearchableSelect
   import ZaqWeb.Live.BO.AI.AgentsTable, only: [agents_table: 1]
 
@@ -13,6 +15,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.System
+  alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
 
   @impl true
   def mount(_params, _session, socket) do
@@ -38,6 +41,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> assign(:page, 1)
       |> assign(:per_page, 20)
       |> assign(:mode, :idle)
+      |> assign(:job_preview, false)
       |> assign(:selected_agent_id, nil)
       |> assign(:selected_agent, nil)
       |> assign(:model_options, [])
@@ -72,6 +76,10 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   def handle_event("new_agent", _params, socket) do
     {:noreply, open_new_form(socket)}
+  end
+
+  def handle_event("toggle_job_preview", %{"mode" => mode}, socket) do
+    {:noreply, assign(socket, :job_preview, mode == "preview")}
   end
 
   def handle_event("cancel_agent_form", _params, socket) do
@@ -219,6 +227,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     {:noreply,
      socket
      |> assign(:mode, :edit)
+     |> assign(:job_preview, false)
      |> assign(:selected_agent_id, agent.id)
      |> assign(:selected_agent, agent)
      |> assign(:model_options, model_options_for_credential(agent.credential_id, socket))
@@ -486,6 +495,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   defp reset_form_state(socket, mode) when mode in [:new, :idle] do
     socket
     |> assign(:mode, mode)
+    |> assign(:job_preview, false)
     |> assign(:selected_agent_id, nil)
     |> assign(:selected_agent, nil)
     |> assign(:model_options, [])
@@ -724,76 +734,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     if show_field_errors?(changeset), do: translate_errors(changeset.errors, field), else: []
   end
 
-  attr :tools, :list, required: true
-  attr :selected_keys, :list, required: true
-
-  defp selected_tools_panel(assigns) do
-    tool_index = Map.new(assigns.tools, &{&1.key, &1})
-
-    selected_tools =
-      Enum.map(assigns.selected_keys, fn key ->
-        Map.get(tool_index, key) ||
-          %{
-            key: key,
-            label: key,
-            description: "This tool has been removed from the system.",
-            ghost: true
-          }
-      end)
-
-    assigns = assign(assigns, :selected_tools, selected_tools)
-
-    ~H"""
-    <div class="rounded-lg border border-[#efece6]">
-      <div :if={@selected_tools == []} class="px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]">
-        No tools selected.
-      </div>
-      <div :if={@selected_tools != []} class="max-h-44 overflow-y-auto divide-y divide-[#efece6]">
-        <div
-          :for={tool <- @selected_tools}
-          data-selected-tool-key={tool.key}
-          class={[
-            "flex items-start justify-between gap-3 px-3 py-2",
-            if(Map.get(tool, :ghost), do: "bg-red-50 hover:bg-red-100", else: "hover:bg-[#faf8f5]")
-          ]}
-        >
-          <div>
-            <p class={[
-              "font-mono text-[0.72rem]",
-              if(Map.get(tool, :ghost), do: "text-red-600", else: "text-[#3e3b36]")
-            ]}>
-              {tool.label}
-              <span
-                :if={Map.get(tool, :ghost)}
-                class="ml-1.5 inline-block rounded bg-red-100 px-1 py-px font-mono text-[0.58rem] text-red-600"
-              >
-                Removed
-              </span>
-            </p>
-            <p class="font-mono text-[0.64rem] text-[#8f8a82]">{tool.description}</p>
-          </div>
-          <button
-            type="button"
-            phx-click="remove_tool"
-            phx-value-key={tool.key}
-            class="w-6 h-6 rounded border border-black/15 text-black/35 hover:bg-black/5"
-          >
-            <svg
-              class="w-3.5 h-3.5 mx-auto"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
   attr :skills_catalog, :list, required: true
   attr :selected_skill_ids, :list, required: true
 
@@ -858,68 +798,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
             type="button"
             phx-click="remove_skill"
             phx-value-id={skill.id}
-            class="w-6 h-6 rounded border border-black/15 text-black/35 hover:bg-black/5"
-          >
-            <svg
-              class="w-3.5 h-3.5 mx-auto"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  attr :mcp_endpoints, :list, required: true
-  attr :selected_endpoint_ids, :list, required: true
-
-  defp selected_mcp_panel(assigns) do
-    endpoint_index = Map.new(assigns.mcp_endpoints, &{&1.id, &1})
-
-    selected_mcp_endpoints =
-      Enum.map(assigns.selected_endpoint_ids, fn endpoint_id ->
-        Map.get(endpoint_index, endpoint_id) ||
-          %{id: endpoint_id, name: "Unknown MCP ##{endpoint_id}", status: "disabled"}
-      end)
-
-    assigns = assign(assigns, :selected_mcp_endpoints, selected_mcp_endpoints)
-
-    ~H"""
-    <div class="rounded-lg border border-[#efece6]">
-      <div
-        :if={@selected_mcp_endpoints == []}
-        class="px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
-      >
-        No MCP endpoints selected.
-      </div>
-      <div
-        :if={@selected_mcp_endpoints != []}
-        class="max-h-44 overflow-y-auto divide-y divide-[#efece6]"
-      >
-        <div
-          :for={endpoint <- @selected_mcp_endpoints}
-          data-selected-mcp-endpoint-id={endpoint.id}
-          class="flex items-start justify-between gap-3 px-3 py-2 hover:bg-[#faf8f5]"
-        >
-          <div>
-            <p class="flex items-center gap-2 font-mono text-[0.72rem] text-[#3e3b36]">
-              <span class={[
-                "h-2 w-2 rounded-full",
-                if(endpoint.status == "enabled", do: "bg-emerald-500", else: "bg-red-500")
-              ]} />
-              {endpoint.name}
-            </p>
-          </div>
-          <button
-            type="button"
-            phx-click="remove_mcp"
-            phx-value-id={endpoint.id}
             class="w-6 h-6 rounded border border-black/15 text-black/35 hover:bg-black/5"
           >
             <svg

@@ -48,7 +48,12 @@
   
 <!-- Existing template panels -->
   <div :for={tpl <- @templates} :if={@active_tab == tpl.id}>
-    <form id={"prompt-template-edit-form-#{tpl.id}"} phx-submit="save" class="space-y-6">
+    <form
+      id={"prompt-template-edit-form-#{tpl.id}"}
+      phx-change="validate"
+      phx-submit="save"
+      class="space-y-6"
+    >
       <input type="hidden" name="prompt_template[id]" value={tpl.id} />
       
 <!-- Header row -->
@@ -87,7 +92,7 @@
           <input
             type="text"
             name="prompt_template[name]"
-            value={tpl.name}
+            value={@form[:name].value}
             class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
           />
         </div>
@@ -98,7 +103,7 @@
           <input
             type="text"
             name="prompt_template[description]"
-            value={tpl.description}
+            value={@form[:description].value}
             class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
           />
         </div>
@@ -108,13 +113,14 @@
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
           Body
         </label>
-        <textarea
+        <.markdown_editor
           id={"prompt-template-body-#{tpl.id}"}
-          name="prompt_template[body]"
-          rows="16"
-          style="color: #000000 !important; -webkit-text-fill-color: #000000 !important;"
-          class="w-full font-mono text-sm bg-white border border-black/15 rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4] resize-y"
-        ><%= tpl.body %></textarea>
+          field={@form[:body]}
+          preview={@body_preview}
+          toggle_event="toggle_body_preview"
+          rows={16}
+          placeholder="Write the system prompt here…"
+        />
       </div>
       
 <!-- Actions -->
@@ -145,7 +151,12 @@
   
 <!-- New template panel -->
   <div :if={@active_tab == :new}>
-    <form id="prompt-template-create-form" phx-submit="create" class="space-y-6">
+    <form
+      id="prompt-template-create-form"
+      phx-change="validate"
+      phx-submit="create"
+      class="space-y-6"
+    >
       <p class="font-mono text-lg font-bold text-black">New Template</p>
 
       <div class="grid grid-cols-2 gap-4">
@@ -157,6 +168,7 @@
             id="prompt-template-slug-input"
             type="text"
             name="prompt_template[slug]"
+            value={@form[:slug].value}
             placeholder="e.g. retrieval"
             class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
           />
@@ -169,6 +181,7 @@
             id="prompt-template-name-input"
             type="text"
             name="prompt_template[name]"
+            value={@form[:name].value}
             placeholder="e.g. Retrieval Agent"
             class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
           />
@@ -183,6 +196,7 @@
           id="prompt-template-description-input"
           type="text"
           name="prompt_template[description]"
+          value={@form[:description].value}
           placeholder="Optional description"
           class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
         />
@@ -192,14 +206,14 @@
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
           Body <span class="text-red-400">*</span>
         </label>
-        <textarea
+        <.markdown_editor
           id="prompt-template-body-input"
-          name="prompt_template[body]"
-          rows="16"
+          field={@form[:body]}
+          preview={@body_preview}
+          toggle_event="toggle_body_preview"
+          rows={16}
           placeholder="Write the system prompt here…"
-          style="color: #111 !important;"
-          class="w-full font-mono text-sm bg-white border border-black/15 rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4] resize-y"
-        ></textarea>
+        />
       </div>
 
       <div class="flex justify-end pt-2">

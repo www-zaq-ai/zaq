@@ -53,236 +53,388 @@
     </div>
   </form>
   
-<!-- Skill list -->
-  <div
-    :if={@skills == []}
-    class="rounded-lg border border-dashed border-[#e6e2db] px-4 py-6 font-mono text-[0.75rem] text-[#9a958c] mb-6"
+<!-- Skill list + form (master/detail) -->
+  <ZaqWeb.Components.MasterDetailLayout.master_detail
+    show_detail={@mode != :idle}
+    master_id="skills-master-pane"
+    detail_id="skills-detail-pane"
   >
-    No skills found.
-  </div>
-
-  <div :if={@skills != []} class="rounded-lg border border-black/10 overflow-hidden mb-6">
-    <table class="w-full">
-      <thead>
-        <tr class="border-b border-black/10 bg-black/[0.02]">
-          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-4 py-2.5">
-            Name
-          </th>
-          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-4 py-2.5">
-            Tags
-          </th>
-          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-4 py-2.5">
-            Tools
-          </th>
-          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-4 py-2.5">
-            Status
-          </th>
-          <th class="px-4 py-2.5"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          :for={skill <- @skills}
-          id={"skill-row-#{skill.id}"}
-          class={[
-            "border-b border-black/5 last:border-b-0 cursor-pointer transition-colors",
-            if(@selected_skill && @selected_skill.id == skill.id,
-              do: "bg-[#03b6d4]/5",
-              else: "hover:bg-black/[0.02]"
-            )
-          ]}
-          phx-click="select_skill"
-          phx-value-id={skill.id}
-        >
-          <td class="px-4 py-3">
-            <p class="font-mono text-sm font-bold text-black">{skill.name}</p>
-            <p :if={skill.description} class="font-mono text-[0.7rem] text-black/40 truncate">
-              {skill.description}
-            </p>
-          </td>
-          <td class="px-4 py-3">
-            <span
-              :for={tag <- skill.tags}
-              class="inline-block font-mono text-[0.65rem] px-1.5 py-0.5 mr-1 rounded bg-black/5 text-black/50"
-            >
-              {tag}
-            </span>
-          </td>
-          <td class="px-4 py-3 font-mono text-[0.75rem] text-black/50">
-            {length(skill.tool_keys)}
-          </td>
-          <td class="px-4 py-3">
-            <span class={[
-              "font-mono text-[0.65rem] px-1.5 py-0.5 rounded",
-              if(skill.active,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4]",
-                else: "bg-black/5 text-black/30"
+    <:master>
+      <DSTable.table id="skills-table" scrollable>
+        <:caption>Skills ({length(@skills)})</:caption>
+        <:head>
+          <DSTable.table_head_row>
+            <DSTable.table_cell element={:th}>Name</DSTable.table_cell>
+            <DSTable.table_cell element={:th}>Tags</DSTable.table_cell>
+            <DSTable.table_cell element={:th}>Tools</DSTable.table_cell>
+            <DSTable.table_cell element={:th}>Status</DSTable.table_cell>
+            <DSTable.table_cell element={:th} />
+          </DSTable.table_head_row>
+        </:head>
+        <:body>
+          <DSTable.table_empty :if={@skills == []} colspan={5}>
+            No skills found.
+          </DSTable.table_empty>
+          <DSTable.table_row
+            :for={skill <- @skills}
+            id={"skill-row-#{skill.id}"}
+            variant={
+              if(@selected_skill != nil and @selected_skill.id == skill.id,
+                do: :selected,
+                else: :default
               )
-            ]}>
-              {if skill.active, do: "active", else: "inactive"}
-            </span>
-          </td>
-          <td class="px-4 py-3 text-right">
-            <button
-              id={"delete-skill-#{skill.id}"}
-              type="button"
-              phx-click="delete_skill"
-              phx-value-id={skill.id}
-              data-confirm="Delete this skill? Agents using it will lose its tools and instructions."
-              class="font-mono text-[0.7rem] text-red-400 hover:text-red-600 transition-colors"
+            }
+            click="select_skill"
+            click_values={%{id: skill.id}}
+          >
+            <DSTable.table_cell>
+              <p
+                class="zaq-text-body-sm truncate"
+                style="color: var(--zaq-text-color-body-default)"
+              >
+                {skill.name}
+              </p>
+              <p
+                :if={skill.description}
+                class="zaq-text-caption truncate"
+                style="color: var(--zaq-text-color-body-tertiary)"
+              >
+                {skill.description}
+              </p>
+            </DSTable.table_cell>
+            <DSTable.table_cell>
+              <span
+                :for={tag <- skill.tags}
+                class="zaq-pill zaq-text-caption zaq-pill--elevated mr-1"
+              >
+                {tag}
+              </span>
+            </DSTable.table_cell>
+            <DSTable.table_cell>
+              <span class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+                {length(skill.tool_keys)}
+              </span>
+            </DSTable.table_cell>
+            <DSTable.table_cell>
+              <span class={[
+                "zaq-pill zaq-text-caption",
+                if(skill.active, do: "zaq-pill--success", else: "zaq-pill--elevated")
+              ]}>
+                {if skill.active, do: "active", else: "inactive"}
+              </span>
+            </DSTable.table_cell>
+            <DSTable.table_cell align={:right}>
+              <DSTable.table_actions>
+                <button
+                  id={"delete-skill-#{skill.id}"}
+                  type="button"
+                  phx-click="delete_skill"
+                  phx-value-id={skill.id}
+                  data-confirm="Delete this skill? Agents using it will lose its tools and instructions."
+                  class="zaq-text-caption transition-colors"
+                  style="color: var(--zaq-text-color-body-danger)"
+                >
+                  Delete
+                </button>
+              </DSTable.table_actions>
+            </DSTable.table_cell>
+          </DSTable.table_row>
+        </:body>
+      </DSTable.table>
+    </:master>
+
+    <:detail>
+      <!-- Skill form -->
+      <div class="rounded-lg border border-black/10 p-6">
+        <p class="font-mono text-sm font-bold text-black mb-4">
+          {if @mode == :new, do: "New Skill", else: "Edit Skill"}
+        </p>
+        
+<!-- Tools + MCP endpoints (assigns-backed, injected into attrs on save) -->
+        <% unselected_tool_options =
+          @tools
+          |> Enum.reject(&(&1.key in @form_tool_keys))
+          |> Enum.map(&{"#{&1.label} (#{&1.key})", &1.key}) %>
+        <% unselected_mcp_options =
+          @mcp_endpoints
+          |> Enum.reject(&(&1.id in @form_mcp_endpoint_ids))
+          |> Enum.map(&{"#{&1.name} (##{&1.id})", &1.id}) %>
+
+        <.form
+          for={@form}
+          id="skill-form"
+          phx-change="validate"
+          phx-submit="save"
+          class="space-y-5"
+        >
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+                Name
+              </label>
+              <input
+                type="text"
+                name="skill[name]"
+                value={@form[:name].value}
+                placeholder="lowercase-kebab-case"
+                class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+              />
+              <p
+                :for={error <- field_errors(@form[:name])}
+                class="font-mono text-[0.68rem] text-red-500 mt-1"
+              >
+                {error}
+              </p>
+            </div>
+            <div>
+              <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+                Tags
+              </label>
+              <input
+                type="text"
+                name="skill[tags]"
+                value={tags_to_string(@form[:tags].value)}
+                placeholder="math, utility"
+                class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+              Description
+            </label>
+            <input
+              type="text"
+              name="skill[description]"
+              value={@form[:description].value}
+              class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+            />
+            <p
+              :for={error <- field_errors(@form[:description])}
+              class="font-mono text-[0.68rem] text-red-500 mt-1"
             >
-              Delete
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  
-<!-- Skill form -->
-  <div :if={@mode != :idle} class="rounded-lg border border-black/10 p-6">
-    <p class="font-mono text-sm font-bold text-black mb-4">
-      {if @mode == :new, do: "New Skill", else: "Edit Skill"}
-    </p>
-    
-<!-- Tools (own form: assigns-backed, injected into attrs on save) -->
-    <div class="mb-5">
-      <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
-        Tools
-      </label>
-      <div class="flex flex-wrap gap-1.5 mb-2">
-        <span
-          :for={tool_key <- @form_tool_keys}
-          class="inline-flex items-center gap-1.5 font-mono text-[0.68rem] px-2 py-1 rounded-lg bg-black/5 text-black/60"
-        >
-          {tool_label(@tools, tool_key)}
-          <button
-            type="button"
-            phx-click="remove_tool"
-            phx-value-key={tool_key}
-            class="text-black/30 hover:text-red-500 transition-colors"
-          >
-            &times;
-          </button>
-        </span>
-        <span :if={@form_tool_keys == []} class="font-mono text-[0.68rem] text-black/30">
-          No tools attached
-        </span>
-      </div>
-      <form id="skill-tool-picker" phx-change="add_tool">
-        <select
-          id="skill-tool-select"
-          name="tool_key"
-          class="font-mono text-[0.75rem] bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
-        >
-          <option value="">Add a tool...</option>
-          <option :for={tool <- @tools} :if={tool.key not in @form_tool_keys} value={tool.key}>
-            {tool.label}
-          </option>
-        </select>
-      </form>
-    </div>
+              {error}
+            </p>
+          </div>
+          
+<!-- Tools + MCP endpoints (assigns-backed, injected into attrs on save) -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <div class="mb-2 flex items-center justify-between">
+                <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block">
+                  Tools
+                </label>
+                <button
+                  id="add-tools-button"
+                  type="button"
+                  phx-click="open_tools_picker"
+                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[#03b6d4] text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors"
+                  disabled={@tools == [] or unselected_tool_options == []}
+                >
+                  + Add tools
+                </button>
+              </div>
+              <div
+                :if={@tools == []}
+                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+              >
+                No tools are currently registered in code.
+              </div>
+              <.selected_tools_panel
+                :if={@tools != []}
+                tools={@tools}
+                selected_keys={@form_tool_keys}
+              />
+            </div>
 
-    <.form for={@form} id="skill-form" phx-change="validate" phx-submit="save" class="space-y-5">
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
-            Name
-          </label>
-          <input
-            type="text"
-            name="skill[name]"
-            value={@form[:name].value}
-            placeholder="lowercase-kebab-case"
-            class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
-          />
-          <p
-            :for={error <- field_errors(@form[:name])}
-            class="font-mono text-[0.68rem] text-red-500 mt-1"
-          >
-            {error}
-          </p>
-        </div>
-        <div>
-          <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
-            Tags
-          </label>
-          <input
-            type="text"
-            name="skill[tags]"
-            value={tags_to_string(@form[:tags].value)}
-            placeholder="math, utility"
-            class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
-          />
-        </div>
-      </div>
+            <div>
+              <div class="mb-2 flex items-center justify-between">
+                <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block">
+                  MCP Endpoints
+                </label>
+                <button
+                  id="add-mcp-button"
+                  type="button"
+                  phx-click="open_mcp_picker"
+                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[#03b6d4] text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors"
+                  disabled={unselected_mcp_options == []}
+                >
+                  + Add MCP
+                </button>
+              </div>
+              <div
+                :if={@mcp_endpoints == []}
+                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+              >
+                No MCP endpoints are configured. Add one in System Config.
+              </div>
+              <.selected_mcp_panel
+                :if={@mcp_endpoints != []}
+                mcp_endpoints={@mcp_endpoints}
+                selected_endpoint_ids={@form_mcp_endpoint_ids}
+              />
+            </div>
+          </div>
 
-      <div>
-        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
-          Description
-        </label>
-        <input
-          type="text"
-          name="skill[description]"
-          value={@form[:description].value}
-          class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
-        />
-        <p
-          :for={error <- field_errors(@form[:description])}
-          class="font-mono text-[0.68rem] text-red-500 mt-1"
-        >
-          {error}
-        </p>
-      </div>
-
-      <div>
-        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
-          Instructions
-        </label>
-        <textarea
-          id="skill-body-input"
-          name="skill[body]"
-          rows="10"
-          placeholder="Markdown instructions injected into the agent's system prompt..."
-          class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4] resize-y"
-        >{@form[:body].value}</textarea>
-        <p
-          :for={error <- field_errors(@form[:body])}
-          class="font-mono text-[0.68rem] text-red-500 mt-1"
-        >
-          {error}
-        </p>
-      </div>
-      
+          <div>
+            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+              Instructions
+            </label>
+            <.markdown_editor
+              id="skill-body-input"
+              field={@form[:body]}
+              preview={@body_preview}
+              toggle_event="toggle_body_preview"
+              rows={10}
+              placeholder="Markdown instructions injected into the agent's system prompt..."
+            />
+            <p
+              :for={error <- field_errors(@form[:body])}
+              class="font-mono text-[0.68rem] text-red-500 mt-1"
+            >
+              {error}
+            </p>
+          </div>
+          
 <!-- Active -->
-      <label class="flex items-center gap-2 font-mono text-[0.75rem] text-black/60">
-        <input type="hidden" name="skill[active]" value="false" />
-        <input
-          type="checkbox"
-          name="skill[active]"
-          value="true"
-          checked={@form[:active].value in [true, "true"]}
-          class="rounded border-black/20"
-        /> Active
-      </label>
-      
+          <label class="flex items-center gap-2 font-mono text-[0.75rem] text-black/60">
+            <input type="hidden" name="skill[active]" value="false" />
+            <input
+              type="checkbox"
+              name="skill[active]"
+              value="true"
+              checked={@form[:active].value in [true, "true"]}
+              class="rounded border-black/20"
+            /> Active
+          </label>
+          
 <!-- Actions -->
-      <div class="flex items-center justify-end gap-3 pt-2">
-        <button
-          type="button"
-          phx-click="cancel_form"
-          class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/15 text-black/50 hover:bg-black/5 transition-colors"
+          <div class="flex items-center justify-end gap-3 pt-2">
+            <button
+              type="button"
+              phx-click="cancel_form"
+              class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/15 text-black/50 hover:bg-black/5 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              id="save-skill-button"
+              type="submit"
+              class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        </.form>
+
+        <ZaqWeb.Components.BOModal.modal_shell
+          :if={@tools_picker_open}
+          id="skill-tools-picker-modal"
+          cancel_event="close_tools_picker"
+          max_width_class="max-w-lg"
+          panel_class="p-6"
         >
-          Cancel
-        </button>
-        <button
-          id="save-skill-button"
-          type="submit"
-          class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+              Add tools
+            </h3>
+            <button
+              type="button"
+              phx-click="close_tools_picker"
+              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <form phx-change="add_tool_from_picker">
+            <.searchable_select
+              id="skill-tools-picker-select"
+              name="tool_key"
+              value={@tools_picker_value}
+              options={unselected_tool_options}
+              placeholder="Search by tool name..."
+              empty_label="Choose a tool to add..."
+              compact={true}
+            />
+          </form>
+
+          <div class="mt-4">
+            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+              Enabled tools
+            </p>
+            <.selected_tools_panel tools={@tools} selected_keys={@form_tool_keys} />
+          </div>
+
+          <p class="mt-3 font-mono text-[0.64rem] text-[#8f8a82]">
+            Pick one tool at a time. This modal stays open to add multiple tools quickly.
+          </p>
+        </ZaqWeb.Components.BOModal.modal_shell>
+
+        <ZaqWeb.Components.BOModal.modal_shell
+          :if={@mcp_picker_open}
+          id="skill-mcp-picker-modal"
+          cancel_event="close_mcp_picker"
+          max_width_class="max-w-lg"
+          panel_class="p-6"
         >
-          Save
-        </button>
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+              Add MCP endpoints
+            </h3>
+            <button
+              type="button"
+              phx-click="close_mcp_picker"
+              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <form phx-change="add_mcp_from_picker">
+            <.searchable_select
+              id="skill-mcp-picker-select"
+              name="endpoint_id"
+              value={@mcp_picker_value}
+              options={unselected_mcp_options}
+              placeholder="Search by endpoint name..."
+              empty_label="Choose an MCP endpoint to add..."
+              compact={true}
+            />
+          </form>
+
+          <div class="mt-4">
+            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+              Attached MCP endpoints
+            </p>
+            <.selected_mcp_panel
+              mcp_endpoints={@mcp_endpoints}
+              selected_endpoint_ids={@form_mcp_endpoint_ids}
+            />
+          </div>
+
+          <p class="mt-3 font-mono text-[0.64rem] text-[#8f8a82]">
+            Pick one endpoint at a time. This modal stays open to add multiple endpoints quickly.
+          </p>
+        </ZaqWeb.Components.BOModal.modal_shell>
       </div>
-    </.form>
-  </div>
+    </:detail>
+  </ZaqWeb.Components.MasterDetailLayout.master_detail>
 </ZaqWeb.Components.BOLayout.bo_layout>

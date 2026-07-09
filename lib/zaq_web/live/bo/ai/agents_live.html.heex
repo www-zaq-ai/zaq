@@ -247,17 +247,14 @@
               <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
                 Job Prompt
               </label>
-              <textarea
-                name="configured_agent[job]"
-                rows="4"
-                class={[
-                  "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
-                  if(error_messages(@changeset, :job) != [],
-                    do: "border-red-500",
-                    else: "border-[#e6e2db]"
-                  )
-                ]}
-              >{@form[:job].value}</textarea>
+              <.markdown_editor
+                id="configured-agent-job-input"
+                field={@form[:job]}
+                preview={@job_preview}
+                toggle_event="toggle_job_preview"
+                rows={4}
+                placeholder="Markdown job prompt injected into the agent's system prompt..."
+              />
               <p
                 :for={msg <- error_messages(@changeset, :job)}
                 data-error-message
