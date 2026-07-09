@@ -370,7 +370,7 @@ defmodule ZaqWeb.Components.BOLayout do
           class="h-16 border-b flex items-center px-8 gap-6"
           style="background: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default);"
         >
-          <h1 class="zaq-text-h3 shrink-0" style="color: var(--zaq-text-color-body-default);">
+          <h1 class="zaq-text-body-lg shrink-0" style="color: var(--zaq-text-color-body-default);">
             {@page_title}
           </h1>
 

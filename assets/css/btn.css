@@ -79,9 +79,9 @@
   
   /* btn/tertiary/color/bg */
   --zaq-btn-tertiary-color-bg-resting: var(--zaq-surface-color-elevated);
-  --zaq-btn-tertiary-color-bg-hover:   var(--zaq-surface-color-accent);
+  --zaq-btn-tertiary-color-bg-hover:   var(--zaq-surface-color-raised);
   --zaq-btn-tertiary-color-bg-disabled: var(--zaq-surface-color-base);
-  --zaq-btn-tertiary-color-bg-active: var(--zaq-surface-color-accent);
+  --zaq-btn-tertiary-color-bg-active: var(--zaq-surface-color-base);
 
   /* btn/tertiary/color/text */
   --zaq-btn-tertiary-color-text-resting: var(--zaq-text-color-body-tertiary);
@@ -93,7 +93,7 @@
   --zaq-btn-tertiary-color-border-resting: transparent;
   --zaq-btn-tertiary-color-border-hover: var(--zaq-border-color-accent);
   --zaq-btn-tertiary-color-border-disabled: transparent;
-  --zaq-btn-tertiary-color-border-active: var(--zaq-border-color-accent);
+  --zaq-btn-tertiary-color-border-active: var(--zaq-border-color-default);
 
   /*
    * btn/danger — internal tokens for `.zaq-btn-danger` (see Danger section below).

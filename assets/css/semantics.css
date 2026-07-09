@@ -62,7 +62,7 @@
 
   /* ── semantics/colors/border ─────────────────────────────────────────────── */
   --zaq-border-color-default: var(--zaq-color-neutral-400);
-  --zaq-border-color-strong:  var(--zaq-color-neutral-300);
+
   
   
   /* color-text-body, surface-elevated, surface-accent, border-accent, border-danger:
