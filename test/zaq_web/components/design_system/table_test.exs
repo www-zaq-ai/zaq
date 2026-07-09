@@ -31,6 +31,29 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
     assert String.contains?(html, "Jana")
   end
 
+  test "table_row/1 with click and values binds phx-click for row selection" do
+    html =
+      render_component(&Table.table_row/1,
+        click: "select_agent",
+        click_values: %{id: 42},
+        id: "agent-row-42",
+        inner_block: [
+          %{
+            inner_block: fn _, _ ->
+              Table.table_cell(%{
+                inner_block: [%{inner_block: fn _, _ -> "Row" end}]
+              })
+            end
+          }
+        ]
+      )
+
+    assert String.contains?(html, "phx-click")
+    assert String.contains?(html, "select_agent")
+    assert String.contains?(html, ~s(phx-value-id="42"))
+    assert String.contains?(html, ~s(id="agent-row-42"))
+  end
+
   test "table_row/1 with navigate adds cursor-pointer and phx-click" do
     html =
       render_component(&Table.table_row/1,
@@ -91,11 +114,22 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
     assert String.contains?(html, "selected")
   end
 
-  test "table_checkbox/1 stops row click propagation" do
+  test "table_checkbox/1 renders checkbox with phx-click passthrough" do
     html = render_component(&Table.table_checkbox/1, checked: true, "phx-click": "toggle")
 
     assert String.contains?(html, "zaq-bo-checkbox")
-    assert String.contains?(html, "stopPropagation")
+    assert String.contains?(html, ~s(phx-click="toggle"))
+    refute String.contains?(html, "stopPropagation")
+  end
+
+  test "table_actions/1 does not stop propagation on wrapper (phx-click children must reach LiveView)" do
+    html =
+      render_component(&Table.table_actions/1,
+        reveal: :hover,
+        inner_block: [%{inner_block: fn _, _ -> "Action" end}]
+      )
+
+    refute String.contains?(html, "stopPropagation")
   end
 
   test "table_actions/1 hover reveal adds CSS reveal class" do

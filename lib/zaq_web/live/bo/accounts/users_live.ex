@@ -1,6 +1,16 @@
 defmodule ZaqWeb.Live.BO.Accounts.UsersLive do
   use ZaqWeb, :live_view
 
+  import ZaqWeb.Components.DesignSystem.Table,
+    only: [
+      table_actions: 1,
+      table_badge: 1,
+      table_cell: 1,
+      table_head_row: 1,
+      table_row: 1,
+      table_text: 1
+    ]
+
   alias Zaq.Accounts
   alias ZaqWeb.Live.BO.Accounts.ListFlow
 
