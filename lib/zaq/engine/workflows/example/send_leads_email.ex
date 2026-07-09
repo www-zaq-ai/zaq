@@ -76,7 +76,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   @increment_module "Zaq.Agent.Tools.Workflow.Increment"
   @update_sheet_module "Zaq.Agent.Tools.Sheets.UpdateSheetValues"
 
-  @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
+  @sheet_id "1sYIdoX6KWDCyapowvfrfebE71gUWQo3A5S_GqpXXarI"
   @event_name "craft_email"
 
   # Fallback email subject. The real per-lead subject comes from the trigger row as

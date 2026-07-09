@@ -46,17 +46,17 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
       start ──(company context content empty)──────> extract_company_summary
         → map_business_to_zaq          ← RunAgent: list ZAQ services + benefits
         → build_context_document       ← Concat: summary + mapping into one markdown doc
+        → produce_email_topic          ← RunAgent: short, catchy email topic from the doc
         → review_summary               ← HumanInTheLoop: approve before storing
-        → build_range                  ← Concat: A1 range string for the writeback cell
-        → build_values                 ← Concat: wrap the doc content as a [[value]] matrix
-        → update_sheet_row             ← UpdateSheetValues: write the doc back to the sheet
-        → craft_email_after_write      ← DispatchEvent: hand off to the email-drafting workflow
+        → build_range                  ← Concat: A1 range spanning both writeback cells (L:M)
+        → build_values                 ← Concat: [[email topic, context doc]] matrix
+        → update_sheet_row             ← UpdateSheetValues: write topic (L) + doc (M) to the sheet
+        → craft_email                  ← DispatchEvent: hand off to the email-drafting workflow
 
   Both branches hand off to the email-drafting workflow by dispatching the same
-  `craft_email` event (as a machine/actorless run) — the generation branch maps the
-  context document as `input`, the short-circuit branch forwards the start fact
-  containing it — but through **two separate single-parent nodes** (`craft_email_direct`
-  and `craft_email_after_write`), NOT one shared convergence node. A Runic Step with
+  `craft_email` event (as a machine/actorless run) — both forward the fact reaching
+  the dispatch node — but through **two separate single-parent nodes** (`craft_email_direct`
+  and `craft_email`), NOT one shared convergence node. A Runic Step with
   two inbound edges fires nondeterministically (only the parent that wins the
   reaction race triggers it), so a shared node would dispatch only intermittently.
   One dispatch node per branch keeps each single-parent and deterministic; the
@@ -70,9 +70,18 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
   - `{{variable}}` substitution matches `\\w+` only (no spaces), so edge `mapping`
     renames spaced sheet columns to snake_case targets (`company_official_name`) that
     the prompts interpolate as `{{company_official_name}}`.
-  - The writeback writes `build_context_document.result` back to the row's
-    "company context content" column, so the next run's `start` guard sees a
+  - The writeback writes the email topic (`produce_email_topic.output`) to column L
+    and the context document (`build_context_document.result`) to the "company context
+    content" column (M) in one range update, so the next run's `start` guard sees a
     non-empty value and takes the `craft_email` short-circuit instead of regenerating.
+    The topic column feeds `SendLeadsEmail` as `start.email topic`.
+  - On the **generation** branch the current run's trigger row still carries an empty
+    `email topic` / `company context content` (they were empty when the sheet was
+    read), so `craft_email` overrides both via its `DispatchEvent` `input` with the
+    freshly generated values (`produce_email_topic.output` / `build_context_document.result`).
+    Without this override `SendLeadsEmail` would see the empty originals until the
+    *next* scan re-read the sheet. The short-circuit branch (`craft_email_direct`)
+    needs no override — it forwards the already-populated stored row.
 
   ## Usage
 
@@ -89,17 +98,21 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
   @update_sheet_module "Zaq.Agent.Tools.Sheets.UpdateSheetValues"
 
   # Same lead sheet the producer (IdentifyLeadsFromGoogleSheet) scans.
-  @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
+  @sheet_id "1sYIdoX6KWDCyapowvfrfebE71gUWQo3A5S_GqpXXarI"
   # Bind to the event IdentifyLeadsFromGoogleSheet already dispatches.
   @event_name "lead_identified"
   # Event dispatched to hand off to the email-drafting workflow.
   @craft_email_event "craft_email"
-  # Column letter of the "Company context content" cell we write the doc back to.
-  @context_file_column "K"
+  # Column letters written back to the lead sheet in one range: the short/catchy
+  # email topic → L, the full context document → M.
+  @email_topic_column "L"
+  @summary_column "M"
   # Configured agent that researches + summarizes the company.
-  @summary_agent_id 4
+  @summary_agent_id 5
   # Configured agent that maps the summary to ZAQ services.
-  @mapping_agent_id 5
+  @mapping_agent_id 4
+  # Configured agent that writes the short, catchy email topic.
+  @topic_agent_id 6
 
   @doc """
   Creates the workflow and wires it to the `lead_identified` trigger.
@@ -108,9 +121,11 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
   Options (all optional):
   - `:sheet_id`            — Google Spreadsheet ID (default: the shared lead sheet)
   - `:provider`            — datasource provider key (default: `"google_drive"`)
-  - `:summary_agent_id`    — ID of the configured summary agent (default: `1`)
-  - `:mapping_agent_id`    — ID of the configured service-mapping agent (default: `6`)
-  - `:context_file_column` — sheet column letter for the writeback (default: `"K"`)
+  - `:summary_agent_id`    — ID of the configured summary agent (default: `4`)
+  - `:mapping_agent_id`    — ID of the configured service-mapping agent (default: `5`)
+  - `:topic_agent_id`      — ID of the configured email-topic agent (default: `1`)
+  - `:email_topic_column`  — sheet column letter for the email topic (default: `"L"`)
+  - `:summary_column`      — sheet column letter for the context doc (default: `"M"`)
   """
   @spec create(keyword()) :: {:ok, Workflows.Workflow.t()} | {:error, term()}
   def create(opts \\ []) do
@@ -127,7 +142,9 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
     provider = Keyword.get(opts, :provider, "google_drive")
     summary_agent_id = Keyword.get(opts, :summary_agent_id, @summary_agent_id)
     mapping_agent_id = Keyword.get(opts, :mapping_agent_id, @mapping_agent_id)
-    context_file_column = Keyword.get(opts, :context_file_column, @context_file_column)
+    topic_agent_id = Keyword.get(opts, :topic_agent_id, @topic_agent_id)
+    email_topic_column = Keyword.get(opts, :email_topic_column, @email_topic_column)
+    summary_column = Keyword.get(opts, :summary_column, @summary_column)
 
     %{
       name: "Generate Company Context",
@@ -145,21 +162,26 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
         # exclusive). `machine: true` marks the dispatched run as actorless so its
         # trusted-context steps accept their mapped person_id.
         #
-        # Short-circuit branch (context already present).
+        # Short-circuit branch (context already present). Here `produce_email_topic`
+        # and `build_context_document` never run, so the two keys come from the STORED
+        # sheet row (`start.email topic` / `start.company context content`, written by a
+        # prior run). They already flatten into the payload from the `start` cascade
+        # entry; setting them explicitly via `input` gives both dispatch nodes an
+        # identical payload contract and pins the two keys `SendLeadsEmail` depends on
+        # against any future cascade-key collision on this branch.
         %{
           name: "craft_email_direct",
           type: "action",
           module: @dispatch_event_module,
-          params: %{"event_name" => @craft_email_event, "machine" => true},
-          index: 13
-        },
-        # Post-generation branch (after the writeback).
-        %{
-          name: "craft_email_after_write",
-          type: "action",
-          module: @dispatch_event_module,
-          params: %{"event_name" => @craft_email_event, "machine" => true},
-          index: 14
+          params: %{
+            "event_name" => @craft_email_event,
+            "machine" => true,
+            "input" => %{
+              "email topic" => "{{start.email topic}}",
+              "company context content" => "{{start.company context content}}"
+            }
+          },
+          index: 1
         },
         # No context yet → research + summarize the company.
         %{
@@ -173,7 +195,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
                 "{{company_official_name}} operates in. You can also use their official " <>
                 "website at {{company_website}}. Craft a clear, concise summary of this company."
           },
-          index: 1
+          index: 2
         },
         %{
           name: "map_business_to_zaq",
@@ -186,7 +208,7 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
                 "top services ZAQ can provide to this business. For each, give a clear benefit and " <>
                 "a short explanation of why it is relevant."
           },
-          index: 2
+          index: 3
         },
         # Concatenate summary + service mapping into a single markdown document.
         %{
@@ -200,7 +222,26 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             ],
             "separator" => "\n\n"
           },
-          index: 3
+          index: 4
+        },
+        # Distil the context doc into a short, catchy email topic. Written back to the
+        # sheet (column L) and later read by SendLeadsEmail as `start.email topic`.
+        %{
+          name: "produce_email_topic",
+          type: "action",
+          module: @run_agent_module,
+          params: %{
+            "agent_id" => topic_agent_id,
+            "input" =>
+              "Write ONE email subject line for a cold outreach email to this company. " <>
+                "Requirements: short and catchy (aim for 4–8 words, under 60 characters); " <>
+                "lead with the single most compelling value proposition ZAQ offers THIS " <>
+                "specific company; reference their actual business (no generic filler); and " <>
+                "make it curiosity-driving so the recipient opens the email. Output ONLY the " <>
+                "subject line as plain text — no surrounding quotes, no \"Subject:\" prefix, " <>
+                "and no commentary. Company context:\n\n{{document}}"
+          },
+          index: 5
         },
         %{
           name: "review_summary",
@@ -210,26 +251,33 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             "message" =>
               "Review and approve the company summary and ZAQ service mapping before storing them."
           },
-          index: 4
+          index: 6
         },
-        # Build the A1 range for the writeback cell, e.g. "Sheet1!K5".
+        # Build the A1 range spanning both writeback cells, e.g. "Sheet1!L5:M5"
+        # (L = email topic, M = context doc).
         %{
           name: "build_range",
           type: "action",
           module: @concat_module,
           params: %{
-            "parts" => ["Sheet1!{{column}}{{row}}"],
-            "column" => context_file_column
+            "parts" => ["Sheet1!{{column_email}}{{row}}:{{column_summary}}{{row}}"],
+            "column_email" => email_topic_column,
+            "column_summary" => summary_column
           },
-          index: 8
+          index: 9
         },
-        # Wrap the document content as a 1x1 matrix for the range update.
+        # Wrap the email topic + document content as a 1x2 matrix ([[topic, summary]])
+        # for the range update. `as_matrix` is NOT used: it joins all parts into ONE
+        # string and wraps a 1x1 matrix, which would drop both values into a single
+        # cell. Instead we use Concat's list mode — a single part that is a nested row
+        # list. Concat flattens one level over `parts`, so the row is nested one extra
+        # deep here; the whole-string placeholders keep each cell's raw value.
         %{
           name: "build_values",
           type: "action",
           module: @concat_module,
-          params: %{"parts" => ["{{value}}"], "as_matrix" => true},
-          index: 9
+          params: %{"parts" => [[["{{email_topic}}", "{{summary}}"]]]},
+          index: 10
         },
         %{
           name: "update_sheet_row",
@@ -240,7 +288,29 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             "spreadsheet_id" => sheet_id,
             "value_input_option" => "USER_ENTERED"
           },
-          index: 10
+          index: 11
+        },
+        # Post-generation branch (after the writeback). The dispatched payload is the
+        # flattened run cascade, in which the trigger row's `email topic` and `company
+        # context content` are still EMPTY (they were empty when the sheet was read),
+        # and the freshly generated values live under colliding generic keys
+        # (`produce_email_topic.output`, `build_context_document.result`). `input`
+        # overrides both keys with the actual generated values (cascade-aware
+        # placeholder resolution, wins on merge) so `SendLeadsEmail` reads a real
+        # `start.email topic` / `start.company context content` on this same run.
+        %{
+          name: "craft_email",
+          type: "action",
+          module: @dispatch_event_module,
+          params: %{
+            "event_name" => @craft_email_event,
+            "machine" => true,
+            "input" => %{
+              "email topic" => "{{produce_email_topic.output}}",
+              "company context content" => "{{build_context_document.result}}"
+            }
+          },
+          index: 12
         }
       ],
       edges: [
@@ -278,10 +348,20 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
             "mapping" => "map_business_to_zaq.output"
           }
         },
+        # Deliver the context doc as a flat `{{document}}` var — RunAgent substitution
+        # only matches `\\w+`, so a dotted `{{build_context_document.result}}` would not
+        # resolve. The mapping renames the cascade path to a plain var the prompt uses.
         %{
           from: "build_context_document",
+          to: "produce_email_topic",
+          condition: %{"field" => "result", "op" => "not_empty"},
+          mapping: %{"document" => "build_context_document.result"}
+        },
+        # RunAgent emits `output` (not `result`); gate the HITL on it.
+        %{
+          from: "produce_email_topic",
           to: "review_summary",
-          condition: %{"field" => "result", "op" => "not_empty"}
+          condition: %{"field" => "output", "op" => "not_empty"}
         },
         %{
           from: "review_summary",
@@ -289,21 +369,24 @@ defmodule Zaq.Engine.Workflows.UseCases.GenerateCompanyContext do
           condition: %{"field" => "approved", "op" => "eq", "value" => true},
           mapping: %{"row" => "start.row_index"}
         },
+        # Write the email topic (L) and the context document (M) in one range update.
         %{
           from: "build_range",
           to: "build_values",
-          mapping: %{"value" => "build_context_document.result"}
+          mapping: %{
+            "email_topic" => "produce_email_topic.output",
+            "summary" => "build_context_document.result"
+          }
         },
         %{
           from: "build_values",
           to: "update_sheet_row",
-          mapping: %{"range" => "build_range.result", "values" => "build_values.matrix"}
+          mapping: %{"range" => "build_range.result", "values" => "build_values.list"}
         },
-        # Writeback done → hand off to email drafting with the generated document.
+        # Writeback done → hand off to email drafting.
         %{
           from: "update_sheet_row",
-          to: "craft_email_after_write",
-          mapping: %{"input" => "build_context_document.result"}
+          to: "craft_email"
         }
       ]
     }

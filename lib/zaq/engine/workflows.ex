@@ -436,18 +436,47 @@ defmodule Zaq.Engine.Workflows do
   Deletes all `WorkflowRun` rows for the workflow (which cascades to step runs
   and approvals via DB FK), then deletes the workflow itself (which cascades to
   trigger_workflow join rows).
+
+  Any trigger whose **only** linked workflow was this one is deleted too (via
+  `delete_trigger/1`, so its cron schedule is cleaned up). Triggers still shared
+  with other workflows are left intact.
   """
   @spec delete_workflow(Workflow.t(), keyword()) :: {:ok, Workflow.t()} | {:error, term()}
   def delete_workflow(%Workflow{} = workflow, _opts \\ []) do
-    Repo.transaction(fn ->
-      from(r in WorkflowRun, where: r.workflow_id == ^workflow.id)
-      |> Repo.delete_all()
+    # Snapshot triggers that would be orphaned before the delete cascades their
+    # join rows away — a trigger linked only to this workflow should go with it.
+    orphaned_triggers = list_triggers_only_linked_to(workflow.id)
 
-      case Repo.delete(workflow) do
-        {:ok, deleted} -> deleted
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+    result =
+      Repo.transaction(fn ->
+        from(r in WorkflowRun, where: r.workflow_id == ^workflow.id)
+        |> Repo.delete_all()
+
+        case Repo.delete(workflow) do
+          {:ok, deleted} -> deleted
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    with {:ok, deleted} <- result do
+      Enum.each(orphaned_triggers, &delete_trigger/1)
+      {:ok, deleted}
+    end
+  end
+
+  # Triggers linked to `workflow_id` whose only linked workflow is that one, so
+  # deleting the workflow would leave them dangling with no workflows.
+  defp list_triggers_only_linked_to(workflow_id) do
+    workflow_id
+    |> list_triggers_for_workflow()
+    |> Enum.filter(&(count_workflows_for_trigger(&1.id) == 1))
+  end
+
+  defp count_workflows_for_trigger(trigger_id) do
+    Repo.aggregate(
+      from(tw in "trigger_workflows", where: type(tw.trigger_id, :binary_id) == ^trigger_id),
+      :count
+    )
   end
 
   @doc """

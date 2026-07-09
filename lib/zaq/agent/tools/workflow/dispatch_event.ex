@@ -36,6 +36,16 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   on key conflicts — use it to add or override fields. With no prior steps and no
   `input`, an empty request (`%{}`) is dispatched.
 
+  String values inside a map `input` may contain `{{key}}` placeholders, resolved
+  cascade-aware through `Zaq.Engine.Workflows.FactLookup` (the same resolver edges,
+  `Condition`, and `Concat` use). A `{{step.field}}` placeholder therefore reads a
+  specific upstream node's output, letting a `DispatchEvent` override a colliding
+  or empty cascade key with the value that was actually produced — e.g.
+  `input: %{"email topic" => "{{produce_email_topic.output}}"}` replaces an empty
+  `"email topic"` inherited from the trigger row. Substitution descends into nested
+  lists/maps; an unresolved placeholder becomes `""`. Scalar `input` is dispatched
+  verbatim (see below) and is **not** substituted.
+
   A **scalar `input`** (e.g. a string) is dispatched **verbatim** as the request,
   bypassing the cascade merge — handy for a plain message payload, e.g.
   `input: "seeds ready"` with `destination: "channels"`. The machine marker still
@@ -102,7 +112,12 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
 
   require Logger
 
+  alias Zaq.Engine.Workflows.FactLookup
   alias Zaq.NodeRouter
+
+  # Matches Concat's placeholder class: dotted segments that may carry spaces or
+  # hyphens (human-authored sheet headers). Resolved cascade-aware via FactLookup.
+  @placeholder ~r/\{\{\s*([\w.][\w.\s-]*?)\s*\}\}/
 
   # Allowlisted node roles a workflow may dispatch to. String-keyed so a
   # workflow/LLM-supplied name resolves without `String.to_atom` (atom-exhaustion
@@ -179,10 +194,39 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   # try_to_atom, leaving a mixed map that the engine rejects as
   # {:invalid_request, ...}.
   defp build_request(input, ctx) do
+    resolved_input = resolve_placeholders(input || %{}, %{__cascade__: cascade(ctx)})
+
     ctx
     |> prior_step_outputs()
-    |> Map.merge(string_keyed(input || %{}))
+    |> Map.merge(string_keyed(resolved_input))
   end
+
+  defp cascade(ctx),
+    do: Map.get(ctx, :__cascade__, Map.get(ctx, "__cascade__", %{}))
+
+  # Cascade-aware `{{key}}` substitution over a map `input`, descending nested
+  # lists/maps (structs are opaque leaves). Values are stringified in place — an
+  # override key is a domain scalar (subject line, document), not a container — and
+  # an unresolved reference collapses to "". Mirrors `Concat`'s resolver so the two
+  # tools read placeholders identically.
+  defp resolve_placeholders(value, _fact) when is_struct(value), do: value
+
+  defp resolve_placeholders(map, fact) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {k, resolve_placeholders(v, fact)} end)
+
+  defp resolve_placeholders(list, fact) when is_list(list),
+    do: Enum.map(list, &resolve_placeholders(&1, fact))
+
+  defp resolve_placeholders(str, fact) when is_binary(str) do
+    Regex.replace(@placeholder, str, fn _full, key ->
+      case FactLookup.fetch(fact, key) do
+        {:ok, value} -> to_string(value)
+        :error -> ""
+      end
+    end)
+  end
+
+  defp resolve_placeholders(other, _fact), do: other
 
   # Flattens the run's cascade (`%{step_name => result}`) into a single
   # string-keyed map of every prior step's output. Internal plumbing keys
