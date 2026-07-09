@@ -1,13 +1,11 @@
 services:
-  postgres:
-    image: pgvector/pgvector:pg18
-    container_name: zaq-postgres
+  paradedb:
+    image: paradedb/paradedb:0.24.0-pg16
+    container_name: zaq-paradedb
     environment:
       POSTGRES_DB: zaq_prod
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -15,14 +13,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    ports:
+      - "5432:5432"
     restart: unless-stopped
   zaq:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: zaq-app
+    image: ghcr.io/www-zaq-ai/zaq:latest
+    container_name: zaq-os
     depends_on:
-      postgres:
+      paradedb:
         condition: service_healthy
     ports:
       - "4000:4000"
@@ -30,18 +28,18 @@ services:
       PHX_SERVER: "true"
       PORT: "4000"
       PHX_HOST: "localhost"
-      DATABASE_URL: "${DATABASE_URL:-ecto://postgres:postgres@postgres:5432/zaq_prod}"
+      DATABASE_URL: "${DATABASE_URL:-ecto://postgres:postgres@paradedb:5432/zaq_prod}"
       SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
-      # LLM, Embedding, Image-to-Text, and Ingestion settings are configured
-      # via the back-office UI at /bo/system-config (persisted in the database).
-      INGESTION_VOLUMES: "${INGESTION_VOLUMES:-/}"
+      INGESTION_VOLUMES: "${INGESTION_VOLUMES:-documents}"
       INGESTION_VOLUMES_BASE: "${INGESTION_VOLUMES_BASE:-/zaq/volumes}"
       SYSTEM_CONFIG_ENCRYPTION_KEY: "${SYSTEM_CONFIG_ENCRYPTION_KEY}"
+      RELEASE_VSN: "0.14.0"
     volumes:
-      - ./ingestion-volumes:/zaq/volumes
+      - ingestion_data:/zaq/volumes
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:
   pgdata:
+  ingestion_data:

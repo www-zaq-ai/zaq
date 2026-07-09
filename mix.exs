@@ -1,6 +1,15 @@
 defmodule Zaq.MixProject do
   use Mix.Project
 
+  # lingua ships no precompiled NIF for x86_64-apple-darwin; its macro only
+  # force-builds when LINGUA_BUILD is set (rustler_precompiled :force_build config
+  # does not override lingua's explicit force_build: false).
+  if System.get_env("LINGUA_BUILD") not in ["1", "true"] and
+       match?({:unix, :darwin}, :os.type()) and
+       String.starts_with?(to_string(:erlang.system_info(:system_architecture)), "x86_64") do
+    System.put_env("LINGUA_BUILD", "1")
+  end
+
   def project do
     [
       app: :zaq,
@@ -102,6 +111,7 @@ defmodule Zaq.MixProject do
       {:nimble_csv, "~> 1.2"},
       {:mailroom, "~> 0.7.1"},
       {:lingua, "~> 0.3.6"},
+      {:rustler, "~> 0.37", optional: true},
       {:stream_data, "~> 1.3"},
       {:sage, "~> 0.6.3"},
 
