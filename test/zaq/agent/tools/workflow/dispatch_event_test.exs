@@ -168,6 +168,51 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
       assert dispatched == %{"foo" => 1, "bar" => 99, "extra" => "added"}
     end
 
+    test "resolves cascade-aware {{step.field}} placeholders in a map input" do
+      ctx =
+        Map.put(@ctx, :__cascade__, %{
+          "start" => %{"email topic" => "", "company context content" => ""},
+          "produce_email_topic" => %{"output" => "Unlock AI for Acme"},
+          "build_context_document" => %{"result" => "## Company Summary\n\nAcme builds rockets."}
+        })
+
+      input = %{
+        "email topic" => "{{produce_email_topic.output}}",
+        "company context content" => "{{build_context_document.result}}"
+      }
+
+      assert {:ok, %{dispatched: dispatched}} =
+               DispatchEvent.run(%{input: input, event_name: "craft_email"}, ctx)
+
+      # The generated values override the empty ones inherited from the start row.
+      assert dispatched["email topic"] == "Unlock AI for Acme"
+      assert dispatched["company context content"] == "## Company Summary\n\nAcme builds rockets."
+    end
+
+    test "an unresolved placeholder in a map input collapses to an empty string" do
+      ctx = Map.put(@ctx, :__cascade__, %{"step_a" => %{"foo" => 1}})
+
+      assert {:ok, %{dispatched: dispatched}} =
+               DispatchEvent.run(
+                 %{input: %{"topic" => "{{missing.field}}"}, event_name: "craft_email"},
+                 ctx
+               )
+
+      assert dispatched["topic"] == ""
+    end
+
+    test "leaves a map input without placeholders untouched" do
+      ctx = Map.put(@ctx, :__cascade__, %{"step_a" => %{"foo" => 1}})
+
+      assert {:ok, %{dispatched: dispatched}} =
+               DispatchEvent.run(
+                 %{input: %{"plain" => "no placeholders here"}, event_name: "craft_email"},
+                 ctx
+               )
+
+      assert dispatched["plain"] == "no placeholders here"
+    end
+
     test "stringifies atom-keyed input" do
       input = %{email: "a@b.com", active: true}
 

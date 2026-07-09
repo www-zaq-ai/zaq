@@ -539,6 +539,36 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert {:ok, _} = Workflows.delete_workflow(w)
       assert is_nil(Workflows.get_run(run.id))
     end
+
+    test "deletes a trigger linked only to the deleted workflow" do
+      w = create_workflow()
+      {:ok, trigger} = Workflows.create_trigger(%{event_name: "solo_evt", enabled: true})
+      {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, w)
+
+      assert {:ok, _} = Workflows.delete_workflow(w)
+      assert is_nil(Workflows.get_trigger(trigger.id))
+    end
+
+    test "keeps a trigger still linked to another workflow" do
+      w1 = create_workflow(%{name: "Delete"})
+      w2 = create_workflow(%{name: "Keep"})
+      {:ok, trigger} = Workflows.create_trigger(%{event_name: "shared_evt", enabled: true})
+      {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, w1)
+      {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, w2)
+
+      assert {:ok, _} = Workflows.delete_workflow(w1)
+      refute is_nil(Workflows.get_trigger(trigger.id))
+      assert [kept] = Workflows.list_triggers_for_workflow(w2.id)
+      assert kept.id == trigger.id
+    end
+
+    test "leaves triggers untouched when the workflow has none" do
+      w = create_workflow()
+      {:ok, trigger} = Workflows.create_trigger(%{event_name: "unlinked_evt", enabled: true})
+
+      assert {:ok, _} = Workflows.delete_workflow(w)
+      refute is_nil(Workflows.get_trigger(trigger.id))
+    end
   end
 
   # --- list_stale_runs/0 ---

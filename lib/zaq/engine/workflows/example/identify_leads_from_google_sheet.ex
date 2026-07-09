@@ -33,7 +33,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
   @sleep_module "Zaq.Agent.Tools.Workflow.Sleep"
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
 
-  @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
+  @sheet_id "1sYIdoX6KWDCyapowvfrfebE71gUWQo3A5S_GqpXXarI"
   @lead_identified_event "lead_identified"
   @trigger_event "identify_leads_scan"
   @cron_schedule "0 9 * * *"
@@ -147,7 +147,7 @@ defmodule Zaq.Engine.Workflows.UseCases.IdentifyLeadsFromGoogleSheet do
                 "name" => "sleep_between",
                 "type" => "action",
                 "module" => @sleep_module,
-                "params" => %{"duration_ms" => 10_000}
+                "params" => %{"duration_ms" => 40_000}
               }
             ]
           },

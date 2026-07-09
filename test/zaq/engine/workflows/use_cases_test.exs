@@ -156,19 +156,16 @@ defmodule Zaq.Engine.Workflows.UseCasesTest do
 
       # Context already present → short-circuit to craft_email_direct (a DispatchEvent).
       # The dispatch is split into two single-parent nodes (craft_email_direct /
-      # craft_email_after_write) so neither is a nondeterministic convergence node.
+      # craft_email) so neither is a nondeterministic convergence node.
       craft_email_direct = Enum.find(attrs.nodes, &(&1.name == "craft_email_direct"))
       assert craft_email_direct.module == "Zaq.Agent.Tools.Workflow.DispatchEvent"
 
-      craft_email_after = Enum.find(attrs.nodes, &(&1.name == "craft_email_after_write"))
+      craft_email_after = Enum.find(attrs.nodes, &(&1.name == "craft_email"))
       assert craft_email_after.module == "Zaq.Agent.Tools.Workflow.DispatchEvent"
 
-      # No node named plain "craft_email" — that was the flaky convergence node.
-      refute Enum.any?(attrs.nodes, &(&1.name == "craft_email"))
-
-      # Each dispatch node has exactly one inbound edge.
+      # Each dispatch node has exactly one inbound edge (single-parent, deterministic).
       assert Enum.count(attrs.edges, &(&1.to == "craft_email_direct")) == 1
-      assert Enum.count(attrs.edges, &(&1.to == "craft_email_after_write")) == 1
+      assert Enum.count(attrs.edges, &(&1.to == "craft_email")) == 1
 
       have_context = Enum.find(start_edges, &(&1.to == "craft_email_direct"))
 
