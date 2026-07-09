@@ -720,6 +720,42 @@ html[data-theme="dark"] .zaq-toggle-group-pill > button:nth-of-type(3) {
   animation: zaq-pill-pulse 1s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
 
+/* Status dot (`ZaqWeb.Components.DesignSystem.StatusDot`) — active/inactive + optional counter */
+.zaq-status-dot {
+  display: inline-block;
+  width: var(--zaq-scale-8);
+  height: var(--zaq-scale-8);
+  border-radius: var(--zaq-scale-999);
+  flex-shrink: 0;
+}
+
+.zaq-status-dot--active {
+  background-color: var(--zaq-icon-color-success);
+}
+
+.zaq-status-dot--inactive {
+  background-color: var(--zaq-icon-color-danger);
+}
+
+.zaq-status-dot-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zaq-scale-4);
+}
+
+.zaq-status-dot-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--zaq-scale-16);
+  height: var(--zaq-scale-16);
+  padding: 0 var(--zaq-scale-4);
+  border-radius: var(--zaq-scale-999);
+  background-color: var(--zaq-border-color-danger);
+  color: var(--zaq-text-color-body-invert);
+  line-height: 1;
+}
+
 /* Jobs panel — <progress> webkit / moz pseudo-elements cannot be set inline */
 .zaq-jobs-panel-progress::-webkit-progress-bar {
   background: var(--zaq-surface-color-elevated);
