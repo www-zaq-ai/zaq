@@ -62,13 +62,13 @@ defmodule Zaq.People.IdentityPlugTest do
   # ── Fast path ────────────────────────────────────────────────────────────
 
   describe "call/2 fast path" do
-    test "sets person_id when author matches a complete person" do
+    test "sets person when author matches a complete person" do
       person = create_complete_person()
       msg = incoming(%{author_id: "U123", provider: :slack})
 
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      assert result.person_id == person.id
+      assert Incoming.person_id(result) == person.id
     end
 
     test "does not call channels router for complete persons" do
@@ -78,7 +78,7 @@ defmodule Zaq.People.IdentityPlugTest do
       # StubRouterRaise raises if called — verifies fast path skips enrichment.
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      refute is_nil(result.person_id)
+      refute is_nil(Incoming.person_id(result))
     end
   end
 
@@ -90,8 +90,8 @@ defmodule Zaq.People.IdentityPlugTest do
 
       result = IdentityPlug.call(msg, channels_router: StubRouterError)
 
-      refute is_nil(result.person_id)
-      person = People.get_person_with_channels!(result.person_id)
+      refute is_nil(Incoming.person_id(result))
+      person = People.get_person_with_channels!(Incoming.person_id(result))
       assert person.incomplete == true
       assert Enum.any?(person.channels, &(&1.channel_identifier == "U_new"))
     end
@@ -101,8 +101,8 @@ defmodule Zaq.People.IdentityPlugTest do
 
       result = IdentityPlug.call(msg, channels_router: StubRouterOk)
 
-      refute is_nil(result.person_id)
-      person = People.get_person_with_channels!(result.person_id)
+      refute is_nil(Incoming.person_id(result))
+      person = People.get_person_with_channels!(Incoming.person_id(result))
       assert person.full_name == "Enriched Name"
     end
 
@@ -112,7 +112,7 @@ defmodule Zaq.People.IdentityPlugTest do
 
       result = IdentityPlug.call(msg, channels_router: StubRouterTimeout)
 
-      refute is_nil(result.person_id)
+      refute is_nil(Incoming.person_id(result))
     end
   end
 
@@ -142,7 +142,7 @@ defmodule Zaq.People.IdentityPlugTest do
       msg = incoming(%{author_id: "U_DM_SET", provider: :slack, channel_id: "DM_NEW"})
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      refute is_nil(result.person_id)
+      refute is_nil(Incoming.person_id(result))
     end
 
     test "records interaction when message channel_id is nil (no dm_channel_id to backfill)" do
@@ -164,7 +164,7 @@ defmodule Zaq.People.IdentityPlugTest do
       msg = incoming(%{author_id: "U_NODM", provider: :slack, channel_id: nil})
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      refute is_nil(result.person_id)
+      refute is_nil(Incoming.person_id(result))
     end
 
     test "handles string-keyed profile from channels router (stringify_profile)" do
@@ -174,8 +174,8 @@ defmodule Zaq.People.IdentityPlugTest do
 
       result = IdentityPlug.call(msg, channels_router: StubRouterStringKeys)
 
-      refute is_nil(result.person_id)
-      person = People.get_person_with_channels!(result.person_id)
+      refute is_nil(Incoming.person_id(result))
+      person = People.get_person_with_channels!(Incoming.person_id(result))
       assert person.full_name == "String Key Name"
     end
   end
@@ -210,7 +210,7 @@ defmodule Zaq.People.IdentityPlugTest do
 
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      refute is_nil(result.person_id)
+      refute is_nil(Incoming.person_id(result))
     end
 
     test "backfills dm_channel_id via open_dm_channel on fast path (non-DM message)" do
@@ -235,8 +235,8 @@ defmodule Zaq.People.IdentityPlugTest do
       msg = incoming(%{author_id: "U_BACKFILL", provider: :slack, is_dm: false})
       result = IdentityPlug.call(msg, channels_router: StubRouterDmOk)
 
-      refute is_nil(result.person_id)
-      updated = People.get_person_with_channels!(result.person_id)
+      refute is_nil(Incoming.person_id(result))
+      updated = People.get_person_with_channels!(Incoming.person_id(result))
       ch = Enum.find(updated.channels, &(&1.channel_identifier == "U_BACKFILL"))
       assert ch.dm_channel_id == "DM_BACKFILLED"
     end
@@ -246,7 +246,7 @@ defmodule Zaq.People.IdentityPlugTest do
       msg = incoming(%{author_id: "U_SLOW_BACKFILL", provider: :slack, is_dm: false})
       result = IdentityPlug.call(msg, channels_router: StubRouterDmOk)
 
-      refute is_nil(result.person_id)
+      refute is_nil(Incoming.person_id(result))
     end
   end
 
@@ -283,8 +283,8 @@ defmodule Zaq.People.IdentityPlugTest do
       # StubRouterRaise: open_dm_channel won't be called because is_dm: true
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      refute is_nil(result.person_id)
-      updated = People.get_person_with_channels!(result.person_id)
+      refute is_nil(Incoming.person_id(result))
+      updated = People.get_person_with_channels!(Incoming.person_id(result))
       ch = Enum.find(updated.channels, &(&1.channel_identifier == "U_DM_UPDATE"))
       assert ch.dm_channel_id == "DM_CH_001"
     end
@@ -318,9 +318,9 @@ defmodule Zaq.People.IdentityPlugTest do
 
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      refute is_nil(result.person_id)
+      refute is_nil(Incoming.person_id(result))
       # dm_channel_id must NOT be overwritten
-      updated = People.get_person_with_channels!(result.person_id)
+      updated = People.get_person_with_channels!(Incoming.person_id(result))
       ch = Enum.find(updated.channels, &(&1.channel_identifier == "U_DM_ALREADY"))
       assert ch.dm_channel_id == "DM_ORIGINAL"
     end
@@ -342,9 +342,9 @@ defmodule Zaq.People.IdentityPlugTest do
       result = IdentityPlug.call(msg, channels_router: StubRouterError)
       after_count = Repo.aggregate(Person, :count, :id)
 
-      assert result.person_id == person.id
+      assert Incoming.person_id(result) == person.id
       assert before_count == after_count
-      resolved = People.get_person_with_channels!(result.person_id)
+      resolved = People.get_person_with_channels!(Incoming.person_id(result))
       assert resolved.email == "j.tarabay@zaq.ai"
     end
   end
@@ -353,7 +353,7 @@ defmodule Zaq.People.IdentityPlugTest do
 
   describe "call/2 edge cases" do
     test "returns BO web messages unchanged without creating a person" do
-      msg = incoming(%{provider: :web, author_id: "1", person_id: nil})
+      msg = incoming(%{provider: :web, author_id: "1", person: nil})
 
       before_count = Repo.aggregate(Person, :count, :id)
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
@@ -368,17 +368,17 @@ defmodule Zaq.People.IdentityPlugTest do
 
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      assert result.person_id == nil
+      assert Incoming.person_id(result) == nil
     end
 
     test "returns message unchanged when all resolution fails" do
       # Simulate a bad platform where the channel insertion fails (empty channel_id
-      # after normalization causes add_channel to reject). person_id stays nil.
+      # after normalization causes add_channel to reject). person stays nil.
       msg = incoming(%{author_id: nil, provider: :unknown})
 
       result = IdentityPlug.call(msg, channels_router: StubRouterRaise)
 
-      assert result.person_id == nil
+      assert Incoming.person_id(result) == nil
     end
   end
 end

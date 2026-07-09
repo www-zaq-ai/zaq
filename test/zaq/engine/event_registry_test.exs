@@ -5,8 +5,15 @@ defmodule Zaq.Engine.EventRegistryTest do
   alias Zaq.Engine.Workflows
   alias Zaq.Event
 
+  require Logger
+
   @pubsub Zaq.PubSub
   @topic "node_router:events"
+
+  setup_all do
+    Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: :warning) end)
+  end
 
   # Helper: broadcast an event to the topic as NodeRouter would.
   defp broadcast(event) do
@@ -84,6 +91,20 @@ defmodule Zaq.Engine.EventRegistryTest do
       pid = start_registry()
       refute Map.has_key?(get_events(pid), "engine:disabled_event")
     end
+
+    test "keeps the registry alive with existing state when loading trigger state fails" do
+      {:ok, pid} =
+        start_supervised(
+          {EventRegistry,
+           [
+             name: :"event_registry_failing_load_#{System.unique_integer([:positive])}",
+             trigger_event_names_fn: fn -> raise "db unavailable" end
+           ]}
+        )
+
+      assert get_events(pid) == %{}
+      assert Process.alive?(pid)
+    end
   end
 
   describe "handle_info/2 — ignored events (no name, no action)" do
@@ -138,6 +159,41 @@ defmodule Zaq.Engine.EventRegistryTest do
       assert Map.get(get_events(pid), "engine:explicit_name") == false
       refute Map.has_key?(get_events(pid), "engine:some_action")
     end
+
+    test "uses last hop destination when next_hop was consumed by NodeRouter" do
+      pid = start_registry()
+
+      event =
+        Event.new(%{}, :engine, opts: [action: :workflow_test])
+        |> Map.put(:next_hop, nil)
+        |> Map.put(:hops, [
+          %Zaq.EventHop{
+            destination: :engine,
+            type: :sync,
+            timestamp: DateTime.utc_now()
+          }
+        ])
+
+      broadcast(event)
+      :sys.get_state(pid)
+
+      assert Map.get(get_events(pid), "engine:workflow_test") == false
+    end
+
+    test "ignores events when neither next_hop nor last hop has an atom destination" do
+      pid = start_registry()
+      initial_events = get_events(pid)
+
+      event =
+        Event.new(%{}, :engine, opts: [action: :workflow_test])
+        |> Map.put(:next_hop, nil)
+        |> Map.put(:hops, [%{destination: "engine"}])
+
+      broadcast(event)
+      :sys.get_state(pid)
+
+      assert get_events(pid) == initial_events
+    end
   end
 
   describe "handle_info/2 — unknown event names" do
@@ -159,6 +215,16 @@ defmodule Zaq.Engine.EventRegistryTest do
       :sys.get_state(pid)
 
       assert Map.get(get_events(pid), "engine:another_unknown") == false
+    end
+
+    test "does not double-prefix destination when event.name is already namespaced" do
+      pid = start_registry()
+
+      broadcast(build_event(:"engine:workflow_test"))
+      :sys.get_state(pid)
+
+      assert Map.get(get_events(pid), "engine:workflow_test") == false
+      refute Map.has_key?(get_events(pid), "engine:engine:workflow_test")
     end
   end
 
@@ -480,6 +546,46 @@ defmodule Zaq.Engine.EventRegistryTest do
       after
         if existing && Process.alive?(existing), do: Process.register(existing, EventRegistry)
       end
+    end
+  end
+
+  describe "handle_info/2 — catch-all and derive helper edge cases" do
+    test "ignores unrecognized messages — state unchanged" do
+      pid = start_registry()
+      initial_events = get_events(pid)
+
+      send(pid, :some_unexpected_message)
+      :sys.get_state(pid)
+
+      assert get_events(pid) == initial_events
+    end
+
+    test "stores event key when name is a binary string and no destination is derivable" do
+      pid = start_registry()
+
+      broadcast(%{name: "engine:binary_event"})
+      :sys.get_state(pid)
+
+      assert Map.get(get_events(pid), "engine:binary_event") == false
+    end
+
+    test "ignores events with non-atom non-string name and no opts" do
+      pid = start_registry()
+      initial_events = get_events(pid)
+
+      broadcast(%{name: 42, next_hop: %{destination: :engine}})
+      :sys.get_state(pid)
+
+      assert get_events(pid) == initial_events
+    end
+
+    test "stores event key when destination comes from last hop" do
+      pid = start_registry()
+
+      broadcast(%{name: "hops_test", next_hop: nil, hops: [%{destination: :engine}]})
+      :sys.get_state(pid)
+
+      assert Map.get(get_events(pid), "engine:hops_test") == false
     end
   end
 end

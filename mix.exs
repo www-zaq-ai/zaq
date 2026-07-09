@@ -4,7 +4,7 @@ defmodule Zaq.MixProject do
   def project do
     [
       app: :zaq,
-      version: "0.13.0",
+      version: "0.14.0",
       source_url: "https://github.com/www-zaq-ai/zaq",
       homepage_url: "https://www-zaq-ai.github.io/zaq/",
       licenses: ["AGPL-3.0-only"],
@@ -91,6 +91,7 @@ defmodule Zaq.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
+      {:jsonc, "~> 0.9.0"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
@@ -196,7 +197,7 @@ defmodule Zaq.MixProject do
       e2e: ["cmd npm --prefix test/e2e run test:journeys"],
       storybook: ["cmd npm --prefix test/e2e run test:storybook"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind zaq", "esbuild zaq"],
+      "assets.build": ["compile", "tailwind #{tailwind_build()}", "esbuild zaq"],
       "assets.deploy": [
         "tailwind zaq --minify",
         "esbuild zaq --minify",
@@ -263,6 +264,8 @@ defmodule Zaq.MixProject do
       end
     ]
   end
+
+  defp tailwind_build, do: if(Mix.env() == :dev, do: "zaq_dev", else: "zaq")
 
   defp setup_branch(args) do
     source_db =

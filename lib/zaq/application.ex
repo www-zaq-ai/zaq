@@ -4,6 +4,7 @@ defmodule Zaq.Application do
   use Application
   alias LLMDB.Generated.ValidModalities
   alias Zaq.Agent.ZAQRouter
+  alias Zaq.Engine.Workflows
   alias Zaq.Ingestion.FTSBackend
   alias Zaq.Ingestion.ObanTelemetry
   alias Zaq.System.UpdateBadgeWorker
@@ -11,6 +12,10 @@ defmodule Zaq.Application do
   @impl true
   def start(_type, _args) do
     roles = Zaq.NodeRoles.current()
+
+    # Silence the expected per-fork edge-condition prune logs (ConditionNotMet)
+    # emitted by Jido/Runic so genuine failures stand out. See the module doc.
+    Workflows.LogFilter.install()
 
     ObanTelemetry.attach()
 
@@ -57,6 +62,7 @@ defmodule Zaq.Application do
         # before LLMDB.load/0 calls String.to_existing_atom/1 on the snapshot.
         _ = ValidModalities.list()
         LLMDB.load(ZAQRouter.llmdb_opts())
+        Workflows.load_cron_triggers()
         ok
 
       other ->
@@ -72,6 +78,13 @@ defmodule Zaq.Application do
 
   @impl true
   def prep_stop(state) do
+    # Only a node actually running the engine could own an in-flight
+    # WorkflowRun — a BO/agent/ingestion-only node interrupting runs it never
+    # executed would wrongly kill work still executing on a live engine node.
+    if Zaq.NodeRoles.has_any?([:engine]) do
+      Workflows.interrupt_in_flight_runs()
+    end
+
     state
   end
 

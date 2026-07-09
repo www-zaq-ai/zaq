@@ -114,61 +114,123 @@ defmodule Zaq.Agent.ExecutorTest do
       assert Executor.derive_scope(incoming) == "bo:conv:conv-42"
     end
 
-    test "conversation_id takes priority over person_id for :web provider" do
+    test "conversation_id takes priority over person for :web provider" do
       incoming = %{
         @base_incoming
         | provider: :web,
-          person_id: 7,
+          person: %{id: 7},
           metadata: %{conversation_id: "conv-99"}
       }
 
       assert Executor.derive_scope(incoming) == "bo:conv:conv-99"
     end
 
-    test "ignores conversation_id for non-web providers (falls through to person_id)" do
+    test "ignores conversation_id for non-web providers (falls through to person)" do
       incoming = %{
         @base_incoming
         | provider: :mattermost,
-          person_id: 3,
+          person: %{id: 3},
           metadata: %{conversation_id: "conv-1"}
       }
 
       assert Executor.derive_scope(incoming) == "mattermost:person:3"
     end
 
-    test "empty conversation_id falls through to person_id for :web" do
+    test "empty conversation_id falls through to person for :web" do
       incoming = %{
         @base_incoming
         | provider: :web,
-          person_id: 5,
+          person: %{id: 5},
           metadata: %{conversation_id: ""}
       }
 
       assert Executor.derive_scope(incoming) == "bo:person:5"
     end
 
-    test "includes channel and person_id" do
-      assert Executor.derive_scope(%{@base_incoming | person_id: 42}) == "bo:person:42"
+    test "includes channel and person" do
+      assert Executor.derive_scope(%{@base_incoming | person: %{id: 42}}) == "bo:person:42"
     end
 
     test "normalizes mattermost provider" do
-      assert Executor.derive_scope(%{@base_incoming | person_id: 2, provider: :mattermost}) ==
+      assert Executor.derive_scope(%{@base_incoming | person: %{id: 2}, provider: :mattermost}) ==
                "mattermost:person:2"
     end
 
     test "normalizes colon-containing provider (email:imap → email_imap)" do
-      assert Executor.derive_scope(%{@base_incoming | person_id: 5, provider: :"email:imap"}) ==
+      assert Executor.derive_scope(%{@base_incoming | person: %{id: 5}, provider: :"email:imap"}) ==
                "email_imap:person:5"
     end
 
-    test "falls back to bo:<session_id> when person_id is nil" do
-      incoming = %{@base_incoming | person_id: nil, metadata: %{session_id: "sess-abc"}}
+    test "falls back to bo:<session_id> when person is nil" do
+      incoming = %{@base_incoming | person: nil, metadata: %{session_id: "sess-abc"}}
       assert Executor.derive_scope(incoming) == "bo:session:sess-abc"
     end
 
     test "returns 'anonymous' when both are absent" do
-      incoming = %{@base_incoming | person_id: nil, metadata: %{}}
+      incoming = %{@base_incoming | person: nil, metadata: %{}}
       assert Executor.derive_scope(incoming) == "anonymous"
+    end
+
+    test "metadata.run_id derives workflow:run:<id> and overrides person scope" do
+      incoming = %{
+        @base_incoming
+        | person: %{id: 7},
+          metadata: %{run_id: "abc"}
+      }
+
+      assert Executor.derive_scope(incoming) == "workflow:run:abc"
+    end
+
+    test "metadata.run_id + step_index derives workflow:run:<id>:step:<index>" do
+      incoming = %{
+        @base_incoming
+        | person: %{id: 7},
+          metadata: %{run_id: "abc", step_index: 2}
+      }
+
+      assert Executor.derive_scope(incoming) == "workflow:run:abc:step:2"
+    end
+
+    test "step_index 0 still derives a per-step scope" do
+      incoming = %{@base_incoming | metadata: %{run_id: "abc", step_index: 0}}
+
+      assert Executor.derive_scope(incoming) == "workflow:run:abc:step:0"
+    end
+
+    test "non-integer step_index falls back to the per-run scope" do
+      incoming = %{@base_incoming | metadata: %{run_id: "abc", step_index: "2"}}
+
+      assert Executor.derive_scope(incoming) == "workflow:run:abc"
+    end
+
+    test "metadata.run_id overrides conversation scope on :web" do
+      incoming = %{
+        @base_incoming
+        | provider: :web,
+          metadata: %{conversation_id: "conv-1", run_id: "xyz"}
+      }
+
+      assert Executor.derive_scope(incoming) == "workflow:run:xyz"
+    end
+
+    test "empty run_id falls through to person scope" do
+      incoming = %{
+        @base_incoming
+        | person: %{id: 5},
+          metadata: %{run_id: ""}
+      }
+
+      assert Executor.derive_scope(incoming) == "bo:person:5"
+    end
+
+    test "metadata.execution_scope is ignored (no scope backdoor)" do
+      incoming = %{
+        @base_incoming
+        | person: %{id: 5},
+          metadata: %{execution_scope: "workflow:run:injected"}
+      }
+
+      assert Executor.derive_scope(incoming) == "bo:person:5"
     end
   end
 
@@ -219,7 +281,7 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     test "routes through answering configured agent, scoped per person and channel" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 5}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 5}}
 
       result =
         Executor.run(incoming,
@@ -233,8 +295,8 @@ defmodule Zaq.Agent.ExecutorTest do
       assert_received {:ensure_server, "answering:bo:person:5"}
     end
 
-    test "uses 'anonymous' scope when person_id and session_id are absent" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: nil}
+    test "uses 'anonymous' scope when person and session_id are absent" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: nil}
 
       Executor.run(incoming,
         answering_module: StubFactoryAnswering,
@@ -247,7 +309,7 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     test "propagates answer text and token counts into Outgoing metadata" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 7}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 7}}
 
       result =
         Executor.run(incoming,
@@ -267,7 +329,7 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     test "does not read prompt and completion aliases from runtime measurements" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 7}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 7}}
 
       Process.put(:coverage_await_result, {
         :ok,
@@ -296,7 +358,7 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     test "nil confidence from stub does not appear as 0.0 in metadata" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 8}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 8}}
 
       result =
         Executor.run(incoming,
@@ -336,14 +398,14 @@ defmodule Zaq.Agent.ExecutorTest do
         content: "hello",
         channel_id: "c1",
         provider: "email:imap",
-        person_id: 5
+        person: %{id: 5}
       }
 
       assert Executor.derive_scope(incoming) == "email_imap:person:5"
     end
 
     test "system_prompt override replaces configured_agent.job when non-empty binary" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 9}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 9}}
 
       Executor.run(incoming,
         agent_id: "stub",
@@ -361,7 +423,7 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     test "extract_metrics reads string-key usage and nested string result" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 11}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 11}}
 
       Process.put(
         :coverage_await_result,
@@ -394,7 +456,7 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     test "confidence telemetry emits bucket metrics for high mid and low scores" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 12}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 12}}
 
       for {score, _bucket} <- [
             {0.95, "qa.answer.confidence.bucket.gt_90"},
@@ -429,7 +491,7 @@ defmodule Zaq.Agent.ExecutorTest do
         content: "hello",
         channel_id: "c1",
         provider: :web,
-        person_id: 13,
+        person: %{id: 13},
         metadata: %{request_id: "req-13"}
       }
 
@@ -451,8 +513,45 @@ defmodule Zaq.Agent.ExecutorTest do
       assert tool_context.incoming == incoming
     end
 
+    test "tool_context carries the event actor when an :event opt is given" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 21}}
+      actor = %{id: "u1", name: "alice", provider: :web, person: %{id: 21}}
+      event = Zaq.Event.new(incoming, :agent, actor: actor)
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: "coverage",
+        event: event
+      )
+
+      assert_received {:coverage_ask, _content, _configured_agent, tool_context}
+      assert tool_context.actor == actor
+    end
+
+    test "tool_context actor falls back to incoming person without an :event opt" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 22}}
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: "coverage"
+      )
+
+      assert_received {:coverage_ask, _content, _configured_agent, tool_context}
+      assert tool_context.actor.person.id == 22
+    end
+
     test "error telemetry classifies tuple and struct reasons" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 14}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 14}}
 
       for {reason, expected_error_type} <- [
             {{:timeout, 5000}, "timeout"},
@@ -477,7 +576,7 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     test "non-binary question bypasses timestamp prefixing" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person_id: 15}
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 15}}
 
       Executor.run(incoming,
         agent_id: "stub",

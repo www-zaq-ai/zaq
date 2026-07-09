@@ -498,6 +498,33 @@ defmodule Zaq.Agent.StreamEvents do
     end
   end
 
+  @doc """
+  Sources the trace/agent/model/measurements fields from an `Outgoing`'s
+  metadata, so chat results (`Zaq.Agent.Pipeline`) and workflow step results
+  (`Zaq.Agent.Tools.Workflow.RunAgent`) surface the same telemetry fields.
+
+  With `json_safe: true`, present values are passed through `json_safe/1` for
+  persistence in JSON/map database fields. Absent values stay `nil` either
+  way — `json_safe/1` would stringify the atom `nil` to `"nil"`.
+  """
+  def telemetry_fields(metadata, opts \\ []) when is_map(metadata) do
+    fields = %{
+      trace: Map.get(metadata, :trace, []),
+      measurements: Map.get(metadata, :measurements, %{}),
+      model: Map.get(metadata, :model),
+      agent: Map.get(metadata, :agent)
+    }
+
+    if Keyword.get(opts, :json_safe, false) do
+      Map.new(fields, fn
+        {key, nil} -> {key, nil}
+        {key, value} -> {key, json_safe(value)}
+      end)
+    else
+      fields
+    end
+  end
+
   defp put_turn_delta(turns, event, chunk_type, delta) do
     turn_id = to_string(field(event, :iteration) || 0)
     key = {turn_id, field(event, :llm_call_id)}

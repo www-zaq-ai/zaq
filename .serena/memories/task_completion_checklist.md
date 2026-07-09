@@ -1,1 +1,0 @@
-After code changes run `mix precommit` and fix all issues. For targeted debugging run specific tests first (`mix test path/to/test.exs`) then full checks. Do not use destructive git commands unless explicitly requested.

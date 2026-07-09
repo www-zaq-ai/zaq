@@ -8,11 +8,6 @@
 import Config
 
 config :zaq, :channels, %{
-  :"email:imap" => %{
-    bridge: Zaq.Channels.EmailBridge,
-    adapter: Zaq.Channels.EmailBridge.ImapAdapter,
-    message_format: :html
-  },
   mattermost: %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Mattermost.Adapter,
@@ -41,7 +36,11 @@ config :zaq, :channels, %{
     bridge: Zaq.Channels.JidoConnectBridge,
     integration: Jido.Connect.Sharepoint
   },
-  email: %{bridge: Zaq.Channels.EmailBridge},
+  email: %{
+    bridge: Zaq.Channels.EmailBridge,
+    adapter: Zaq.Channels.EmailBridge.ImapAdapter,
+    message_format: :html
+  },
   web: %{bridge: Zaq.Channels.WebBridge}
 }
 
@@ -50,6 +49,7 @@ config :zaq,
   generators: [timestamp_type: :utc_datetime]
 
 config :mime, :types, %{
+  "application/jsonc" => ["jsonc"],
   "application/vnd.zaq-license" => ["zaq-license"]
 }
 
@@ -62,7 +62,6 @@ config :zaq, Oban,
     conversations: 5,
     telemetry: 5,
     telemetry_remote: 3,
-    notifications: 5,
     channels: 10
   ],
   crontab: [],
@@ -121,6 +120,13 @@ config :tailwind,
       --output=priv/static/assets/css/app.css
     ),
     cd: Path.expand("..", __DIR__)
+  ],
+  zaq_dev: [
+    args: ~w(
+      --input=assets/css/app.dev.css
+      --output=priv/static/assets/css/app.css
+    ),
+    cd: Path.expand("..", __DIR__)
   ]
 
 # Configure Elixir's Logger
@@ -137,7 +143,24 @@ config :logger, :default_formatter,
     :step_count,
     :failed_steps,
     :duration_ms,
-    :error
+    :error,
+    :total_items,
+    :total_chunks,
+    :batch_size,
+    :strategy,
+    :delivery_mode,
+    :field,
+    :process_steps,
+    :post_process_steps,
+    :pipeline_steps,
+    :successful_chunks,
+    :failed_chunks,
+    :successful,
+    :failed,
+    :chunk_index,
+    :chunk_size,
+    :outcome,
+    :reason
   ]
 
 # Use Jason for JSON parsing in Phoenix

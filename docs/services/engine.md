@@ -61,12 +61,10 @@ Caller builds %Notification{} via Notification.build/1
   → Notifications.notify/1
       → filters recipient_channels against enabled ChannelConfig rows
       → NotificationLog.create_log/1         ← creates audit record
-      → DispatchWorker Oban job enqueued     ← queue: :notifications, max_attempts: 1
-          → reads payload from NotificationLog
-          → builds %Outgoing{} for each channel
-          → Channels.Api handle_event(:deliver_outgoing) via NodeRouter.dispatch/1
-              → on success: NotificationLog.transition_status("sent")
-              → on failure: tries next channel; "failed" if all exhausted
+      → builds %Outgoing{} for each channel in order
+      → Channels.Api handle_event(:deliver_outgoing) via NodeRouter.dispatch/1
+          → on success: NotificationLog.transition_status("sent") and return final channel
+          → on failure: tries next channel; "failed" if all exhausted
 ```
 
 ### Channel adapter lifecycle
@@ -109,10 +107,17 @@ Adapter inbound path:
 - `get_or_create_conversation_for_channel/3` — idempotent; returns the most recent
   active conversation for `{channel_user_id, channel_type, channel_config_id}` or creates one.
 - `list_conversations/1` — filtered list; opts: `user_id`, `channel_user_id`, `channel_type`,
-  `status`, `limit`.
+  `status`, `person_id`, `team_id`, `limit`, `offset`, plus `query` (case-insensitive search
+  across titles and message content, SQL wildcards matched literally) and `from`/`to`
+  (`DateTime` bounds on `updated_at`).
 - `update_conversation/2`, `archive_conversation/1`, `delete_conversation/1` — lifecycle.
 - `persist_from_incoming/2` — convenience: upserts conversation + stores both user and
   assistant messages from a pipeline result in one call.
+- `persist_message_history/2` — upserts/resolves a conversation from an Incoming routing
+  envelope and stores one message, defaulting to assistant messages for initiated follow-ups.
+  Email delivery providers such as `email:smtp` normalize to the existing `email:imap`
+  conversation type; email grouping is resolved centrally from `metadata.email.thread_key`,
+  `metadata.thread_key`, `metadata.topic`, `metadata.subject`, then thread/message ids.
 - `add_message/2` — inserts a message, records telemetry, enqueues token aggregation,
   triggers async title generation on first user message.
 - `list_messages/1` — all messages for a conversation in insertion order, preloads ratings.
@@ -147,7 +152,7 @@ Adapter inbound path:
 ### Messages — Incoming (`Zaq.Engine.Messages.Incoming`)
 - Canonical struct for all inbound messages crossing the adapter boundary.
 - Enforce keys: `:content`, `:channel_id`, `:provider`.
-- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person_id`, `:metadata`.
+- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person`, `:metadata`.
 - All channel adapters must map their transport payload to this struct before passing to any
   ZAQ component.
 - When crossing nodes, this payload is carried in `%Zaq.Event.request`.
@@ -163,8 +168,8 @@ Adapter inbound path:
 - Single exit point for all outbound communication from ZAQ.
 - `notify/1` — accepts only a validated `%Notification{}` struct.
   - Filters `recipient_channels` against enabled `ChannelConfig` rows.
-  - Creates a `NotificationLog` record, then enqueues `DispatchWorker`.
-  - Returns `{:ok, :dispatched}` or `{:ok, :skipped}`.
+  - Creates a `NotificationLog` record, then delivers inline through Channels.
+  - Returns a structured sent/skipped/failed result with final channel details on success.
 - `bridge_available?/1` — returns true if a bridge is configured for the given platform.
 
 ### Notification Struct (`Zaq.Engine.Notifications.Notification`)
@@ -177,17 +182,9 @@ Adapter inbound path:
 - Ecto schema (`notification_logs`); stores payload (subject/body) and delivery audit trail.
 - Status lifecycle: `pending → sent | skipped | failed`.
 - `create_log/1` — inserts with status `"pending"`.
-- `append_attempt/3` — atomic Postgres JSONB `||` append to `channels_tried`; safe for
-  concurrent Oban retries.
+- `append_attempt/4` — atomic Postgres JSONB `||` append to `channels_tried`.
 - `transition_status/2` — enforces valid transitions; uses `update_all` with current-status
   guard for stale-record safety.
-
-### Dispatch Worker (`Zaq.Engine.Notifications.DispatchWorker`)
-- Oban worker; queue: `:notifications`, max 1 attempt.
-- Reads payload from `NotificationLog` at execution time (args carry only `log_id`).
-- Tries channels sequentially; stops on first success.
-- Delivers via channels role dispatch (`Zaq.Channels.Api` through `Zaq.NodeRouter.dispatch/1`), with bridge delivery delegated by channels modules.
-- Router module is injectable via `Application.get_env(:zaq, :dispatch_worker_router_module)`.
 
 ### Email Notification (`Zaq.Engine.Notifications.EmailNotification`)
 - Delivers via SMTP using Swoosh/Mailer.
@@ -284,7 +281,6 @@ lib/zaq/engine/
 │   ├── incoming.ex                   # Canonical inbound message struct
 │   └── outgoing.ex                   # Canonical outbound message struct
 ├── notifications/
-│   ├── dispatch_worker.ex            # Oban worker: delivers notification via channels
 │   ├── email_notification.ex         # SMTP email delivery via Swoosh
 │   ├── notification.ex               # Notification struct + build/1 validation
 │   ├── notification_log.ex           # Ecto schema + audit trail for notifications
@@ -313,7 +309,6 @@ For all `telemetry.*` system config keys, see `docs/services/telemetry.md`.
 
 Oban queues used by the Engine:
 
-- `:notifications` — notification dispatch (concurrency from `Oban` config)
 - `:conversations` — token usage aggregation
 - `:telemetry` and `:telemetry_remote` — see `docs/services/telemetry.md`
 
@@ -323,13 +318,12 @@ Oban queues used by the Engine:
 
 - **NodeRouter for cross-node calls** — BO LiveViews never call `Conversations` directly;
   all calls are routed via `NodeRouter` (prefer `dispatch/1`).
-- **Notification payload stored in DB** — `DispatchWorker` Oban args carry only `log_id`;
-  subject/body is read from `NotificationLog` at execution time, preventing payload loss
-  across Oban restarts.
-- **Notification dispatch is fire-and-forget (max_attempts: 1)** — non-retrying by design;
-  the caller receives `{:ok, :dispatched}` immediately.
-- **Atomic JSONB append** — `NotificationLog.append_attempt/3` uses a raw Postgres `||`
-  fragment to avoid lost writes from concurrent Oban retries.
+- **Notification payload stored in DB** — subject/body are stored in `NotificationLog`
+  before inline delivery attempts so audit records survive delivery failures.
+- **Notification dispatch is inline** — callers receive the final sent/skipped/failed status
+  and, on success, the channel that was actually used.
+- **Atomic JSONB append** — `NotificationLog.append_attempt/4` uses a raw Postgres `||`
+  fragment for delivery-attempt audit trails.
 - **Conversation title is generated async** — `Task.start/1` so title generation never
   blocks message persistence; title update is broadcast on PubSub.
 - **Token aggregation via Oban** — `TokenUsageAggregator` enqueues a job per assistant
@@ -347,8 +341,6 @@ Oban queues used by the Engine:
   startup; adding/removing a ChannelConfig requires an Engine node restart.
 - [ ] Conversation pruning — no lifecycle management for old conversations; storage grows
   unbounded.
-- [ ] Notification retry strategy — `DispatchWorker` is `max_attempts: 1`; transient SMTP
-  failures are not retried.
 
 ### Nice to Have
 - [ ] Notification channel adapter for Slack/Mattermost direct messages

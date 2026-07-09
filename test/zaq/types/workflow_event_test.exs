@@ -1,8 +1,14 @@
 defmodule Zaq.Types.WorkflowEventTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.Types.WorkflowEvent
+
+  setup do
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
+    :ok
+  end
 
   @trace_id "550e8400-e29b-41d4-a716-446655440000"
 
@@ -80,6 +86,28 @@ defmodule Zaq.Types.WorkflowEventTest do
       assert {:ok, ^plain} = WorkflowEvent.dump(plain)
     end
 
+    test "dumps struct payloads to JSON-encodable maps" do
+      incoming = %Incoming{
+        content: "@zaq Yo",
+        channel_id: "channel-1",
+        author_id: "user-1",
+        author_name: "alice",
+        message_id: "message-1",
+        provider: :mattermost,
+        metadata: %{transport: "websocket"},
+        content_filter: []
+      }
+
+      event = %Event{sample_event() | request: incoming, actor: %{provider: :mattermost}}
+
+      assert {:ok, map} = WorkflowEvent.dump(event)
+      assert map["request"].content == "@zaq Yo"
+      assert map["request"].provider == :mattermost
+      assert map["request"].metadata.transport == "websocket"
+      assert map["actor"].provider == :mattermost
+      assert Jason.encode!(map)
+    end
+
     test "returns :error for nil" do
       assert :error = WorkflowEvent.dump(nil)
     end
@@ -105,7 +133,7 @@ defmodule Zaq.Types.WorkflowEventTest do
       {:ok, loaded} = WorkflowEvent.load(dumped)
 
       assert loaded.trace_id == event.trace_id
-      assert loaded.assigns == event.assigns
+      assert loaded.assigns == %{trigger_type: :manual, input: %{mailbox: "INBOX"}}
     end
 
     test "returns :error for nil" do
@@ -153,6 +181,37 @@ defmodule Zaq.Types.WorkflowEventTest do
 
       assert %WorkflowRun{source_event: %Event{} = loaded} = Workflows.get_run!(run.id)
       assert loaded.trace_id == @trace_id
+    end
+
+    test "source_event with Incoming request persists through JSONB" do
+      alias Zaq.Engine.Workflows
+      alias Zaq.Engine.Workflows.WorkflowRun
+
+      steps = %{
+        "nodes" => [],
+        "edges" => []
+      }
+
+      {:ok, workflow} =
+        Workflows.create_workflow(%{name: "Incoming Test", status: "draft", steps: steps})
+
+      incoming = %Incoming{
+        content: "@zaq Yo",
+        channel_id: "channel-1",
+        author_id: "user-1",
+        author_name: "alice",
+        message_id: "message-1",
+        provider: :mattermost,
+        metadata: %{transport: "websocket"},
+        content_filter: []
+      }
+
+      event = %Event{sample_event() | request: incoming}
+
+      assert {:ok, run} = Workflows.create_run(workflow, event)
+      assert %WorkflowRun{source_event: %Event{} = loaded} = Workflows.get_run!(run.id)
+      assert loaded.request["content"] == "@zaq Yo"
+      assert loaded.request["provider"] == "mattermost"
     end
   end
 end

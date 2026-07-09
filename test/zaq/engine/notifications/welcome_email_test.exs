@@ -11,14 +11,14 @@ defmodule Zaq.Engine.Notifications.WelcomeEmailTest do
       assert {:ok, _} = WelcomeEmail.deliver(user)
     end
 
-    test "returns {:ok, :skipped} when user email is nil" do
+    test "returns skipped result when user email is nil" do
       user = %Zaq.Accounts.User{username: "noemail", email: nil}
-      assert {:ok, :skipped} = WelcomeEmail.deliver(user)
+      assert {:ok, %{status: :skipped, reason: :missing_email}} = WelcomeEmail.deliver(user)
     end
 
-    test "returns {:ok, :skipped} when user email is empty string" do
+    test "returns skipped result when user email is empty string" do
       user = %Zaq.Accounts.User{username: "noemail", email: ""}
-      assert {:ok, :skipped} = WelcomeEmail.deliver(user)
+      assert {:ok, %{status: :skipped, reason: :missing_email}} = WelcomeEmail.deliver(user)
     end
   end
 end

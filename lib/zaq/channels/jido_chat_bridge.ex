@@ -27,6 +27,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Jido.Chat.Thread
 
   alias Zaq.Channels.{
+    AgentRouting,
     Bridge,
     ChannelConfig,
     RetrievalChannel,
@@ -35,11 +36,11 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
   alias Zaq.Channels.JidoChatBridge.State
+  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
-  alias Zaq.Engine.Conversations
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -659,12 +660,19 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp handle_message_event(config, thread, %Chat.Incoming{} = incoming) do
     msg = to_internal(incoming, thread.adapter_name)
-    agent_selection = resolve_agent_selection(config, msg, channel_id: msg.channel_id)
 
     with {:ok, role_ids} <- resolve_roles(msg),
          :ok <-
            normalize_pipeline_result(
-             run_pipeline(msg, role_ids: role_ids, agent_selection: agent_selection)
+             route_incoming_message(
+               msg,
+               [role_ids: role_ids],
+               agent_candidates(config, msg.channel_id),
+               actor_from_incoming(msg),
+               channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
+               pipeline_module: pipeline_module(),
+               node_router: node_router_module()
+             )
            ) do
       :telemetry.execute([:zaq, :chat_bridge, :message, :processed], %{count: 1}, %{
         provider: msg.provider
@@ -1326,24 +1334,6 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp resolve_provider_atom(_provider), do: :error
 
-  defp run_pipeline(msg, opts) do
-    module = pipeline_module()
-    agent_selection = Keyword.get(opts, :agent_selection)
-    pipeline_opts = Keyword.delete(opts, :agent_selection)
-
-    if module == Zaq.Agent.Pipeline do
-      run_pipeline_with_node_router(
-        msg,
-        pipeline_opts,
-        agent_selection,
-        actor_from_incoming(msg),
-        node_router_module()
-      )
-    else
-      module.run(msg, pipeline_opts)
-    end
-  end
-
   defp normalize_pipeline_result(result)
 
   defp normalize_pipeline_result(:ok), do: :ok
@@ -1358,19 +1348,24 @@ defmodule Zaq.Channels.JidoChatBridge do
   def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do
     channel_id = Keyword.get(opts, :channel_id)
 
-    candidates = [
-      {:channel_assignment, channel_assignment_agent_id(config, channel_id)},
-      {:provider_default, ChannelConfig.get_provider_default_agent_id(config)},
-      {:global_default, System.get_global_default_agent_id()}
-    ]
-
-    first_active_selection(candidates)
+    config
+    |> agent_candidates(channel_id)
+    |> AgentRouting.first_active_selection()
   end
 
-  defp channel_assignment_agent_id(config, channel_id) when is_binary(channel_id) do
+  defp agent_candidates(config, channel_id) do
+    [
+      {:channel_assignment, channel_assignment_agent_choice(config, channel_id)},
+      {:provider_default, ChannelConfig.get_provider_agent_choice(config)},
+      {:global_default, System.get_global_default_agent_id()}
+    ]
+  end
+
+  defp channel_assignment_agent_choice(config, channel_id) when is_binary(channel_id) do
     case Map.get(config, :id) || Map.get(config, "id") do
       id when is_integer(id) ->
         case RetrievalChannel.get_by_config_and_channel(id, channel_id) do
+          %RetrievalChannel{agent_routing_mode: "none"} -> AgentRouting.none_value()
           %RetrievalChannel{configured_agent_id: configured_agent_id} -> configured_agent_id
           _ -> nil
         end
@@ -1380,10 +1375,15 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp channel_assignment_agent_id(_config, _channel_id), do: nil
+  defp channel_assignment_agent_choice(_config, _channel_id), do: nil
 
+  # person is resolved by CommunicationBridge before dispatching to the agent node.
   defp actor_from_incoming(%Incoming{} = incoming) do
-    %{id: incoming.author_id, name: incoming.author_name, provider: incoming.provider}
+    %{
+      id: incoming.author_id,
+      name: incoming.author_name,
+      provider: incoming.provider
+    }
   end
 
   defp hooks_module do

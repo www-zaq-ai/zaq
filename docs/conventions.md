@@ -138,7 +138,7 @@
 
 - Never put large payloads in Oban job args — store the payload in the DB and pass only the primary key.
 - Reason: payload is preserved across restarts and is readable for audit without deserializing job args.
-- Example: `DispatchWorker` carries only `log_id`; `TokenUsageAggregator` carries `message_id`.
+- Example: `TokenUsageAggregator` carries `message_id`.
 
 ### Injectable modules for testability
 

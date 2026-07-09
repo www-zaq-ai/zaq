@@ -60,7 +60,12 @@ defmodule Zaq.Engine.EventRegistry do
   def init(opts) do
     Phoenix.PubSub.subscribe(@pubsub, @topic)
     fire_fn = Keyword.get(opts, :trigger_node_fn, &TriggerNode.fire/2)
-    {:ok, %{events: %{}, fire_fn: fire_fn}, {:continue, :load_triggers}}
+
+    trigger_event_names_fn =
+      Keyword.get(opts, :trigger_event_names_fn, &Workflows.list_trigger_event_names/0)
+
+    {:ok, %{events: %{}, fire_fn: fire_fn, trigger_event_names_fn: trigger_event_names_fn},
+     {:continue, :load_triggers}}
   end
 
   # Trigger state is loaded after init returns so a DB failure (e.g. a
@@ -70,7 +75,7 @@ defmodule Zaq.Engine.EventRegistry do
   def handle_continue(:load_triggers, state) do
     events =
       try do
-        load_trigger_state()
+        load_trigger_state(state.trigger_event_names_fn)
       rescue
         error ->
           Logger.warning(
@@ -95,9 +100,22 @@ defmodule Zaq.Engine.EventRegistry do
 
   @impl true
   def handle_info({:node_router_event, event}, state) do
-    case derive_event_key(event) do
-      nil -> {:noreply, state}
-      event_key -> {:noreply, fire_or_register(event_key, event, state)}
+    event_key = derive_event_key(event)
+
+    Logger.debug(
+      "[event_registry] event received event_name=#{inspect(event.name)} event_key=#{inspect(event_key)} known_triggers=#{inspect(Map.keys(state.events))}"
+    )
+
+    case event_key do
+      nil ->
+        Logger.debug(
+          "[event_registry] event ignored — could not derive key event_name=#{inspect(event.name)}"
+        )
+
+        {:noreply, state}
+
+      key ->
+        {:noreply, fire_or_register(key, event, state)}
     end
   end
 
@@ -106,24 +124,38 @@ defmodule Zaq.Engine.EventRegistry do
   defp fire_or_register(event_key, event, state) do
     case Map.get(state.events, event_key) do
       true ->
+        Logger.info("[event_registry] trigger fired event_key=#{event_key}")
+
         Task.Supervisor.start_child(Zaq.TaskSupervisor, fn -> state.fire_fn.(event_key, event) end)
 
         state
 
-      _ ->
+      false ->
+        Logger.debug("[event_registry] event seen but not a trigger event_key=#{event_key}")
+        state
+
+      nil ->
+        Logger.debug(
+          "[event_registry] event not in registry — registering as non-trigger event_key=#{event_key}"
+        )
+
         %{state | events: Map.put_new(state.events, event_key, false)}
     end
   end
 
-  defp derive_event_key(%{next_hop: %{destination: destination}} = event)
-       when is_atom(destination) do
-    case derive_base_name(event) do
-      nil -> nil
-      base -> "#{destination}:#{base}"
+  defp derive_event_key(event) do
+    case {derive_destination(event), derive_base_name(event)} do
+      {destination, base}
+      when is_atom(destination) and not is_nil(destination) and is_binary(base) ->
+        maybe_prefix_destination(base, destination)
+
+      {_destination, base} when is_binary(base) ->
+        if String.contains?(base, ":"), do: base, else: nil
+
+      _ ->
+        nil
     end
   end
-
-  defp derive_event_key(_), do: nil
 
   defp derive_base_name(%{name: name}) when is_binary(name) and name != "", do: name
 
@@ -139,9 +171,33 @@ defmodule Zaq.Engine.EventRegistry do
 
   defp derive_base_name(_), do: nil
 
-  defp load_trigger_state do
-    Workflows.list_trigger_event_names()
+  defp load_trigger_state(trigger_event_names_fn) do
+    trigger_event_names_fn.()
     |> Enum.into(%{}, &{&1, true})
+  end
+
+  defp derive_destination(%{next_hop: %{destination: destination}}) when is_atom(destination),
+    do: destination
+
+  defp derive_destination(%{hops: hops}) when is_list(hops) do
+    case List.last(hops) do
+      %{destination: destination} when is_atom(destination) and not is_nil(destination) ->
+        destination
+
+      _ ->
+        nil
+    end
+  end
+
+  defp derive_destination(_), do: nil
+
+  defp maybe_prefix_destination(base, destination)
+       when is_binary(base) and is_atom(destination) do
+    if String.contains?(base, ":") do
+      base
+    else
+      "#{destination}:#{base}"
+    end
   end
 
   defp maybe_filter(events, nil), do: events

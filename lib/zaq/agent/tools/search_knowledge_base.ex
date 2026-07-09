@@ -6,8 +6,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   call always goes through the correct node for ingestion.
   """
 
-  use Jido.Action,
+  use Zaq.Engine.Workflows.Action,
     name: "search_knowledge_base",
+    output_schema: [
+      chunks: [type: {:list, :any}, required: false, doc: "Matching knowledge base chunks"],
+      count: [type: :integer, required: false, doc: "Number of chunks returned"]
+    ],
     description: """
     Search the ZAQ knowledge base for relevant information.
     Use this when the context provided in the system prompt is insufficient
@@ -20,6 +24,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   alias Zaq.Agent.Status
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
+
+  @impl Jido.Action
 
   def run(%{query: query}, context) do
     Status.broadcast(

@@ -5,11 +5,32 @@ defmodule Zaq.Engine.TriggerNode do
   Called by `Engine.EventRegistry` when a known trigger event is received.
   Queries `Workflows.list_workflows_for_trigger/1` for active workflows linked
   to the given event_name, then creates and starts a run for each in parallel
-  via `Task.async_stream`.
+  via `Task.Supervisor.async_stream_nolink/4`. Each run executes as a child of
+  `Zaq.TaskSupervisor`, **not linked** to the process that called `fire/2` (that
+  caller is itself just a bare task spawned by
+  `Engine.EventRegistry.fire_or_register/3`). A bare `Task.async_stream/3` would
+  link every spawned run to that caller, so the caller dying for any reason
+  unrelated to a run in progress (a supervisor restart, a code reload) would
+  take down every in-flight run with it — silently, since a linked `:kill`
+  propagation bypasses `StepRunner`'s own crash logging entirely. Using the
+  `_nolink` variant means an in-flight run's fate is decoupled from its
+  dispatcher's, while `fire/2` still only returns once every triggered run has
+  actually finished — many callers (nested/chained workflow triggers, HITL
+  suspension tests, the run's own `source_event` propagation checks) depend on
+  that synchronous-completion contract. Non-blocking launch without waiting is
+  what `Workflows.start_run_async/2` is for — the manual "Run Now" / resume
+  actions in the BO LiveView use that instead, since their caller already
+  discards the result and relies on PubSub broadcasts for progress.
 
   Propagates the triggering event's payload and trace_id into the run's
   `source_event.assigns.input`, making the event payload available as the
-  initial fact for the starting node.
+  initial fact for the starting node. The triggering event's `actor` is copied
+  onto the `source_event` so steps can authorize against the person who caused
+  the run; an explicit machine marker on the triggering event's `assigns` (set by
+  the dispatcher — `DispatchEvent` or `CronTriggerWorker`) translates to
+  `assigns.skip_permissions = true`. The marker is read from `assigns`, never the
+  request payload, so a scalar payload can't crash the trigger — and a missing
+  actor alone never grants the bypass.
 
   Failures in individual workflow runs do not crash the TriggerNode call —
   errors are logged but do not propagate.
@@ -19,12 +40,18 @@ defmodule Zaq.Engine.TriggerNode do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Identity.ActorNormalizer
 
   @spec fire(String.t(), map()) :: :ok
   def fire(event_name, event) when is_binary(event_name) do
-    event_name
-    |> Workflows.list_workflows_for_trigger()
-    |> Task.async_stream(&run_workflow(&1, event), ordered: false, on_timeout: :kill_task)
+    Zaq.TaskSupervisor
+    |> Task.Supervisor.async_stream_nolink(
+      Workflows.list_workflows_for_trigger(event_name),
+      &run_workflow(&1, event),
+      ordered: false,
+      on_timeout: :kill_task,
+      timeout: :infinity
+    )
     |> Stream.run()
 
     :ok
@@ -33,10 +60,10 @@ defmodule Zaq.Engine.TriggerNode do
   defp run_workflow(workflow, incoming_event) do
     source_event = build_source_event(workflow, incoming_event)
 
-    with {:ok, run} <- Workflows.create_run(workflow, source_event),
-         {:ok, _completed_run} <- Workflows.start_run(run) do
-      :ok
-    else
+    case Workflows.create_and_start_run(workflow, source_event) do
+      {:ok, _completed_run} ->
+        :ok
+
       {:error, reason} ->
         Logger.error("TriggerNode: failed to run workflow #{workflow.id}: #{inspect(reason)}")
         {:error, reason}
@@ -60,22 +87,38 @@ defmodule Zaq.Engine.TriggerNode do
 
     input = build_input(incoming_event)
 
-    %{event | assigns: %{trigger_type: :event, workflow_id: workflow.id, input: input}}
+    %{
+      event
+      | actor: incoming_actor(incoming_event),
+        assigns: %{
+          trigger_type: :event,
+          workflow_id: workflow.id,
+          input: input,
+          skip_permissions: machine_marked?(incoming_event)
+        }
+    }
   end
 
   defp build_input(incoming_event) do
-    request = Map.get(incoming_event, :request) || Map.get(incoming_event, "request")
-    assigns = Map.get(incoming_event, :assigns) || Map.get(incoming_event, "assigns") || %{}
-    name = Map.get(incoming_event, :name) || Map.get(incoming_event, "name")
-    trace_id = Map.get(incoming_event, :trace_id) || Map.get(incoming_event, "trace_id")
-
-    %{
-      event: %{
-        name: name,
-        trace_id: trace_id,
-        payload: request,
-        assigns: assigns
-      }
-    }
+    Map.get(incoming_event, :request) || Map.get(incoming_event, "request") || %{}
   end
+
+  defp incoming_actor(incoming_event) do
+    ActorNormalizer.from_event_request(incoming_event)
+  end
+
+  # The bypass requires an explicit machine marker on the event's `assigns`
+  # (side-channel metadata set by the dispatcher — `DispatchEvent` /
+  # `CronTriggerWorker`), never derived from the request payload. An absent
+  # actor must never imply it (nil is not a grant), and only the boolean `true`
+  # grants it. Reading `assigns` (not the request) means a scalar payload can
+  # never crash the trigger.
+  defp machine_marked?(incoming_event) when is_map(incoming_event) do
+    assigns = Map.get(incoming_event, :assigns) || Map.get(incoming_event, "assigns")
+
+    is_map(assigns) and
+      (Map.get(assigns, :machine) == true or Map.get(assigns, "machine") == true)
+  end
+
+  defp machine_marked?(_incoming_event), do: false
 end

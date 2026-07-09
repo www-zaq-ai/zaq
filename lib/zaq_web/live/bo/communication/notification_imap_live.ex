@@ -6,14 +6,13 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   require Logger
 
-  alias Zaq.Agent
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.{AgentRouting, ChannelConfig}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.NodeRouter
   alias Zaq.System.ImapConfig
   alias Zaq.Types.EncryptedString
-  alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
 
   @imap_provider "email:imap"
 
@@ -29,8 +28,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
      |> assign(:page_title, "IMAP Configuration")
      |> assign(:form, to_form(changeset))
      |> assign(:imap_enabled, config.enabled)
-     |> assign(:agent_options, agent_options())
-     |> assign(:provider_default_agent_id, provider_default_agent_id(channel))
+     |> assign(:agent_options, AgentRoutingOptions.agent_options())
+     |> assign(:provider_default_agent_value, provider_default_agent_value(channel))
      |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
      |> assign(:mailbox_assignment_targets, selected_mailboxes(config.selected_mailboxes))
      |> assign(:available_mailboxes, mailbox_options(config.selected_mailboxes, []))
@@ -209,7 +208,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     provider_default =
       raw_params
       |> Map.get("provider_default_agent_id")
-      |> sanitize_conversation_agent_id()
+      |> sanitize_agent_choice()
 
     mailbox_agents =
       raw_params
@@ -257,10 +256,13 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp persist_imap_config(%Ecto.Changeset{valid?: false} = changeset, _raw_params),
     do: {:error, changeset}
 
-  defp provider_default_agent_id(nil), do: nil
+  defp provider_default_agent_value(nil), do: ""
 
-  defp provider_default_agent_id(channel),
-    do: ChannelConfig.get_provider_default_agent_id(channel)
+  defp provider_default_agent_value(channel),
+    do:
+      channel
+      |> ChannelConfig.get_provider_agent_choice()
+      |> AgentRouting.select_value()
 
   defp mailbox_agent_assignments(nil), do: %{}
 
@@ -271,20 +273,23 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     |> normalize_map()
   end
 
-  defp agent_options do
-    Agent.list_conversation_enabled_agents()
-    |> Enum.map(fn agent -> {agent.name, agent.id} end)
+  def mailbox_agent_value(assignments, mailbox) when is_map(assignments) do
+    assignments
+    |> Map.get(mailbox)
+    |> AgentRouting.select_value()
   end
+
+  def mailbox_agent_value(_assignments, _mailbox), do: ""
 
   defp parse_mailbox_agents(mailbox_agent_ids) when is_map(mailbox_agent_ids) do
     mailbox_agent_ids
     |> Enum.reduce(%{}, fn {mailbox, raw_id}, acc ->
       mailbox_key = String.trim(to_string(mailbox || ""))
 
-      case {mailbox_key, ParseUtils.parse_optional_int(raw_id)} do
+      case {mailbox_key, sanitize_agent_choice(raw_id)} do
         {"", _} -> acc
         {_, nil} -> acc
-        {key, id} -> Map.put(acc, key, id)
+        {key, choice} -> Map.put(acc, key, choice)
       end
     end)
   end
@@ -294,25 +299,20 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp sanitize_mailbox_agents(mailbox_agents) when is_map(mailbox_agents) do
     mailbox_agents
     |> Enum.reduce(%{}, fn {mailbox, id}, acc ->
-      case sanitize_conversation_agent_id(id) do
+      case sanitize_agent_choice(id) do
         nil -> acc
-        valid_id -> Map.put(acc, mailbox, valid_id)
+        valid_choice -> Map.put(acc, mailbox, valid_choice)
       end
     end)
   end
 
   defp sanitize_mailbox_agents(_), do: %{}
 
-  defp sanitize_conversation_agent_id(raw_id) do
-    case ParseUtils.parse_optional_int(raw_id) do
-      nil ->
-        nil
-
-      id ->
-        case Agent.get_conversation_enabled_agent(id) do
-          {:ok, _agent} -> id
-          _ -> nil
-        end
+  defp sanitize_agent_choice(raw_id) do
+    case AgentRouting.validate_choice(raw_id) do
+      {:ok, :none} -> AgentRouting.none_value()
+      {:ok, value} -> value
+      {:error, _} -> nil
     end
   end
 
@@ -425,7 +425,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp assign_persisted_imap_state(socket, fresh, channel, fresh_changeset) do
     socket
     |> assign(:imap_enabled, fresh.enabled)
-    |> assign(:provider_default_agent_id, provider_default_agent_id(channel))
+    |> assign(:provider_default_agent_value, provider_default_agent_value(channel))
     |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
     |> assign(:mailbox_assignment_targets, selected_mailboxes(fresh.selected_mailboxes))
     |> assign(:form, to_form(fresh_changeset))
@@ -491,8 +491,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   defp parse_int(_value, default), do: default
 
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value) when value in [nil, ""], do: nil
   defp blank_to_nil(value), do: value
 
   defp channels_module,

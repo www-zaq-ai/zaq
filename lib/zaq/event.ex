@@ -52,9 +52,11 @@ defmodule Zaq.Event do
     event_opts = Keyword.get(opts, :opts, [])
     version = Keyword.get(opts, :version, 1)
     name = Keyword.get(opts, :name)
+    assigns = Keyword.get(opts, :assigns, %{})
 
     %__MODULE__{
       request: request,
+      assigns: assigns,
       next_hop: EventHop.new(destination, hop_type, timestamp),
       trace_id: trace_id,
       opts: event_opts,

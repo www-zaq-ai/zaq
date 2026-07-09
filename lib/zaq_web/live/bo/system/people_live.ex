@@ -605,24 +605,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
   # ── Team assignment ───────────────────────────────────────────────────────
 
-  def handle_event("assign_team_select", %{"team_id" => ""}, socket), do: {:noreply, socket}
-
   def handle_event("assign_team_select", %{"team_id" => team_id_str}, socket) do
-    team_id = String.to_integer(team_id_str)
-    person = socket.assigns.selected_person
-
-    case people_command(:assign_team, %{person_id: person.id, team_id: team_id}) do
-      {:ok, updated_person} ->
-        person_with_channels = fetch_person_with_channels!(updated_person.id)
-
-        {:noreply,
-         socket
-         |> assign(:selected_person, person_with_channels)
-         |> assign(:person_channels, person_with_channels.channels)
-         |> refresh_people()}
-
-      {:error, _} ->
-        {:noreply, socket}
+    case Integer.parse(team_id_str) do
+      {team_id, ""} -> assign_team_to_selected(socket, team_id)
+      # Non-numeric value (e.g. a not-yet-created team name typed in the inline
+      # create flow, or a blank selection) — `create_and_assign_team` owns that
+      # path, so ignore it here instead of crashing on `String.to_integer/1`.
+      _ -> {:noreply, socket}
     end
   end
 
@@ -696,6 +685,24 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   end
 
   # ── Helpers ─────────────────────────────────────────────────────────────────
+
+  defp assign_team_to_selected(socket, team_id) do
+    person = socket.assigns.selected_person
+
+    case people_command(:assign_team, %{person_id: person.id, team_id: team_id}) do
+      {:ok, updated_person} ->
+        person_with_channels = fetch_person_with_channels!(updated_person.id)
+
+        {:noreply,
+         socket
+         |> assign(:selected_person, person_with_channels)
+         |> assign(:person_channels, person_with_channels.channels)
+         |> refresh_people()}
+
+      {:error, _} ->
+        {:noreply, socket}
+    end
+  end
 
   defp refresh_people(socket) do
     filters = %{

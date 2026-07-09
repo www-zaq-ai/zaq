@@ -467,6 +467,12 @@ a.zaq-link:focus-visible .zaq-link-underline {
   flex-shrink: 0;
 }
 
+.zaq-icon-md {
+  width: var(--zaq-scale-24);
+  height: var(--zaq-scale-24);
+  flex-shrink: 0;
+}
+
 /* ── Breadcrumb (`ZaqWeb.Components.DesignSystem.Breadcrumb`)
       Path trail + back control. Generic BO pattern — safe to reuse outside ingestion. ─ */
 

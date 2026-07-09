@@ -14,8 +14,8 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
 
   ## Atomic JSONB append
 
-  `append_attempt/3` uses a raw `Repo.query!/2` with a Postgres `||` fragment
-  to append to `channels_tried`. This is race-safe on concurrent Oban retries.
+  `append_attempt/4` uses a raw `Repo.query!/2` with a Postgres `||` fragment
+  to append to `channels_tried`.
   """
 
   use Ecto.Schema
@@ -58,8 +58,11 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
   Atomically appends a channel attempt entry to `channels_tried` using a
   Postgres JSONB concatenation fragment. Safe for concurrent Oban retries.
   """
-  @spec append_attempt(integer(), String.t(), :ok | {:error, term()}) :: :ok
-  def append_attempt(log_id, platform, result) do
+  @spec append_attempt(integer(), term(), :ok | {:error, term()}) :: :ok
+  def append_attempt(log_id, platform, result), do: append_attempt(log_id, platform, nil, result)
+
+  @spec append_attempt(integer(), term(), term(), :ok | {:error, term()}) :: :ok
+  def append_attempt(log_id, platform, identifier, result) do
     {status_str, error_str} =
       case result do
         :ok -> {"ok", nil}
@@ -72,16 +75,17 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
            """
            UPDATE notification_logs
            SET channels_tried = channels_tried || jsonb_build_array(
-             jsonb_build_object(
+            jsonb_build_object(
                'platform', $1::text,
-               'status',   $2::text,
-               'error',    $3::text,
-               'attempted_at', $4::text
+               'identifier', $2::text,
+               'status',   $3::text,
+               'error',    $4::text,
+               'attempted_at', $5::text
              )
            )
-           WHERE id = $5
+           WHERE id = $6
            """,
-           [platform, status_str, error_str, attempted_at, log_id]
+           [to_text(platform), to_text(identifier), status_str, error_str, attempted_at, log_id]
          ) do
       %{num_rows: 1} ->
         :ok
@@ -123,6 +127,9 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp to_text(nil), do: nil
+  defp to_text(value), do: to_string(value)
 
   defp changeset(log, attrs) do
     log

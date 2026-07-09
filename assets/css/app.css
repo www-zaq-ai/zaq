@@ -6,6 +6,7 @@
 @import "./text-styles.css";
 @import "./semantics.css";
 @import "./table.css";
+@import "./layout.css";
 @import "./btn.css";
 @import "./styles.css";
 @source "../css";
@@ -382,12 +383,3 @@
   75% { transform: translateX(4px); }
 }
 .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
-
-/* ── Storybook sandbox base styles ── */
-.zaq-sandbox {
-  font-family: var(--zaq-font-family-body);
-  color: var(--zaq-text-color-body-default);
-  background: var(--zaq-surface-color-base);
-  font-size: 0.875rem;
-  line-height: 1.5;
-}

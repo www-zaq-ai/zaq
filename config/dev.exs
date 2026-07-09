@@ -103,7 +103,7 @@ config :zaq, ZaqWeb.Endpoint,
   secret_key_base: "LQsyDCz226Q0u9cBQuDXhOBf09HwGPydTPfHPtYjMEGhPXZkXlalT73FrQ+fj5hq",
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:zaq, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:zaq, ~w(--watch)]}
+    tailwind: {Tailwind, :install_and_run, [:zaq_dev, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -170,5 +170,8 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
+# config :zaq, :jido_telemetry_bridge, include_llm_deltas: true
+
+config :zaq, :workflows_enabled, true
 # Imported last so per-worktree overrides (database name, port, etc.) win over all defaults above.
 if File.exists?("config/dev.secret.exs"), do: import_config("dev.secret.exs")

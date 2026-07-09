@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.ChannelConfigTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Channels.{AgentRouting, ChannelConfig, RetrievalChannel}
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
   alias Zaq.SystemConfigFixtures
@@ -445,6 +445,28 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert {:ok, cleared} = ChannelConfig.set_provider_default_agent_id(updated, nil)
 
     assert ChannelConfig.get_provider_default_agent_id(cleared) == nil
+  end
+
+  test "set_provider_default_agent_id/2 persists NONE as provider agent choice" do
+    config = insert_channel_config(%{provider: "discord", settings: %{}})
+
+    assert {:ok, updated} =
+             ChannelConfig.set_provider_default_agent_id(
+               config,
+               AgentRouting.none_value()
+             )
+
+    assert ChannelConfig.get_provider_default_agent_id(updated) == nil
+
+    assert ChannelConfig.get_provider_agent_choice(updated) ==
+             AgentRouting.none_value()
+
+    reloaded = Repo.get!(ChannelConfig, config.id)
+
+    assert reloaded.settings["routing"]["default_agent_mode"] == "none"
+
+    assert ChannelConfig.get_provider_agent_choice(reloaded) ==
+             AgentRouting.none_value()
   end
 
   test "get_provider_default_agent_id/1 returns nil for invalid value" do

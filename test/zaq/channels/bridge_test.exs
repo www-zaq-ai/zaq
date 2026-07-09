@@ -1,9 +1,10 @@
 defmodule Zaq.Channels.BridgeTest do
   use Zaq.DataCase, async: false
 
+  alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.{CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.Repo
@@ -281,7 +282,7 @@ defmodule Zaq.Channels.BridgeTest do
     ]
 
     assert %{"agent_id" => 20, "source" => "provider_default"} =
-             CommunicationBridge.first_active_selection(candidates, StubAgentSelection)
+             AgentRouting.first_active_selection(candidates, StubAgentSelection)
   end
 
   test "route_incoming/4 default hooks pass through inputs" do
@@ -400,6 +401,8 @@ defmodule Zaq.Channels.BridgeTest do
   test "provider mapping and bridge resolution helpers" do
     assert Bridge.provider_to_bridge_key("email:smtp") == :email
     assert Bridge.provider_to_bridge_key("email:imap") == :email
+    assert Bridge.provider_to_bridge_key(:"email:smtp") == :email
+    assert Bridge.provider_to_bridge_key(:"email:imap") == :email
     assert is_nil(Bridge.provider_to_bridge_key("unknown-provider"))
 
     assert {:ok, SyncProviderBridge} = Bridge.resolve_bridge(:mattermost)

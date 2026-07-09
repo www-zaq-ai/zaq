@@ -1,23 +1,106 @@
 defmodule Zaq.Engine.Notifications.NotificationTest do
-  use Zaq.DataCase, async: true
-  use Oban.Testing, repo: Zaq.Repo
+  use Zaq.DataCase, async: false
 
   import Ecto.Query
 
   @moduletag capture_log: true
 
+  alias Zaq.Accounts.People
+  alias Zaq.Accounts.PersonChannel
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications
-  alias Zaq.Engine.Notifications.{DispatchWorker, Notification, NotificationLog}
+  alias Zaq.Engine.Notifications.{Notification, NotificationLog}
   alias Zaq.Repo
 
   defmodule NotificationConfig do
     def get(:zaq, :channels, _default) do
       %{
-        :"email:imap" => %{bridge: Zaq.Channels.EmailBridge},
         email: %{bridge: Zaq.Channels.EmailBridge}
       }
     end
+  end
+
+  defmodule OkCommunicationBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
+      send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
+      :ok
+    end
+  end
+
+  defmodule ErrorCommunicationBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+    def send_reply(%Outgoing{}, _connection_details), do: {:error, :delivery_failed}
+  end
+
+  defmodule NilCommunicationBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+    def send_reply(%Outgoing{}, _connection_details), do: nil
+  end
+
+  defmodule FirstFailCommunicationBridge do
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+
+    def send_reply(%Outgoing{channel_id: "first@example.com"}, _connection_details),
+      do: {:error, :delivery_failed}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
+      send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
+      :ok
+    end
+  end
+
+  defmodule StaleStatusCommunicationBridge do
+    import Ecto.Query
+
+    alias Zaq.Engine.Messages.Outgoing
+    alias Zaq.Engine.Notifications.NotificationLog
+    alias Zaq.Repo
+
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
+      log =
+        Repo.one!(
+          from l in NotificationLog,
+            order_by: [desc: l.id],
+            limit: 1
+        )
+
+      {:ok, _} = NotificationLog.transition_status(log, "skipped")
+      send(self(), {:delivered_after_stale_status, outgoing.provider, outgoing.channel_id})
+      :ok
+    end
+  end
+
+  defmodule StubNodeRouter do
+    def dispatch(event) do
+      api_module = Keyword.get(event.opts, :channels_api_module, Zaq.Channels.Api)
+      action = Keyword.get(event.opts, :action, :invoke)
+
+      api_module =
+        if action == :bridge_available,
+          do: Zaq.Engine.Notifications.NotificationTest.AlwaysAvailableChannelsApi,
+          else: api_module
+
+      api_module.handle_event(event, action, nil)
+    end
+  end
+
+  defmodule AlwaysAvailableChannelsApi do
+    alias Zaq.Channels.Api
+
+    def handle_event(event, :bridge_available, _context), do: %{event | response: true}
+
+    def handle_event(event, action, context),
+      do: Api.handle_event(event, action, context)
   end
 
   @valid_attrs %{
@@ -132,7 +215,391 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
   describe "notify/1" do
     setup do
-      from(c in ChannelConfig, where: c.provider == "email:smtp")
+      Application.put_env(:zaq, :notifications_node_router_module, StubNodeRouter)
+
+      on_exit(fn ->
+        Application.delete_env(:zaq, :notifications_node_router_module)
+      end)
+
+      from(c in ChannelConfig,
+        where: c.provider in ["email:smtp", "email:imap", "telegram", "unknown-platform"]
+      )
+      |> Repo.delete_all()
+
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Email",
+        provider: "email:smtp",
+        kind: "retrieval",
+        url: "smtp://localhost",
+        token: "test-token",
+        enabled: true
+      })
+      |> Repo.insert!()
+
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "IMAP",
+        provider: "email:imap",
+        kind: "retrieval",
+        url: "imap://localhost",
+        token: "test-token",
+        settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}},
+        enabled: true
+      })
+      |> Repo.insert!()
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      Repo.insert_all(ChannelConfig, [
+        %{
+          name: "Unknown Platform",
+          provider: "unknown-platform",
+          kind: "retrieval",
+          url: "https://unknown-platform.test",
+          token: "test-token",
+          enabled: true,
+          inserted_at: now,
+          updated_at: now
+        }
+      ])
+
+      :ok
+    end
+
+    test "empty channels returns {:ok, :skipped}" do
+      {:ok, n} =
+        Notification.build(
+          Map.merge(@valid_attrs, %{recipient_channels: [], recipient_name: "Alice"})
+        )
+
+      assert {:ok, %{status: :skipped, notification_log_id: nil}} =
+               Notifications.notify(n, config: NotificationConfig)
+    end
+
+    test "non-empty channels with configured platform delivers inline and returns final channel" do
+      {:ok, n} = Notification.build(@valid_attrs)
+
+      assert {:ok,
+              %{
+                status: :sent,
+                channel: "email:smtp",
+                channel_identifier: "test@example.com",
+                notification_log_id: log_id
+              }} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: OkCommunicationBridge]
+               )
+
+      assert is_integer(log_id)
+      assert_receive {:delivered, :email, "test@example.com"}
+
+      reloaded = Repo.get!(NotificationLog, log_id)
+
+      assert reloaded.status == "sent"
+
+      assert Enum.map(
+               reloaded.channels_tried,
+               &Map.take(&1, ["platform", "identifier", "status"])
+             ) == [
+               %{"identifier" => "test@example.com", "platform" => "email:smtp", "status" => "ok"}
+             ]
+    end
+
+    test "unknown configured provider skips inline delivery and falls back to email" do
+      provider = "coverage_unknown_#{System.unique_integer([:positive])}"
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      Repo.insert_all(ChannelConfig, [
+        %{
+          name: "Coverage Unknown",
+          provider: provider,
+          kind: "retrieval",
+          url: "https://#{provider}.test",
+          token: "test-token",
+          enabled: true,
+          inserted_at: now,
+          updated_at: now
+        }
+      ])
+
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [
+              %{platform: provider, identifier: "bad-platform"},
+              %{platform: "email:smtp", identifier: "fallback@example.com"}
+            ]
+        })
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok,
+                  %{
+                    status: :sent,
+                    channel: "email:smtp",
+                    channel_identifier: "fallback@example.com",
+                    notification_log_id: log_id
+                  }} =
+                   Notifications.notify(n,
+                     config: NotificationConfig,
+                     channels_event_opts: [bridge_module: OkCommunicationBridge]
+                   )
+
+          assert_receive {:delivered, :email, "fallback@example.com"}
+
+          reloaded = Repo.get!(NotificationLog, log_id)
+
+          assert reloaded.status == "sent"
+
+          assert Enum.map(
+                   reloaded.channels_tried,
+                   &Map.take(&1, ["platform", "identifier", "status"])
+                 ) == [
+                   %{
+                     "platform" => "email:smtp",
+                     "identifier" => "fallback@example.com",
+                     "status" => "ok"
+                   }
+                 ]
+        end)
+
+      assert log =~ ~s(unknown platform "#{provider}", skipping)
+    end
+
+    test "email:imap maps to email and delivers" do
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [%{platform: "email:imap", identifier: "imap@example.com"}]
+        })
+
+      assert {:ok,
+              %{
+                status: :sent,
+                channel: "email:imap",
+                channel_identifier: "imap@example.com",
+                notification_log_id: log_id
+              }} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: OkCommunicationBridge]
+               )
+
+      assert_receive {:delivered, :email, "imap@example.com"}
+
+      reloaded = Repo.get!(NotificationLog, log_id)
+
+      assert reloaded.status == "sent"
+
+      assert Enum.map(
+               reloaded.channels_tried,
+               &Map.take(&1, ["platform", "identifier", "status"])
+             ) == [
+               %{
+                 "platform" => "email:imap",
+                 "identifier" => "imap@example.com",
+                 "status" => "ok"
+               }
+             ]
+    end
+
+    test "telegram maps through channel bridge configuration and delivers" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      Repo.insert_all(ChannelConfig, [
+        %{
+          name: "Telegram",
+          provider: "telegram",
+          kind: "retrieval",
+          url: "https://telegram.test",
+          token: "test-token",
+          enabled: true,
+          inserted_at: now,
+          updated_at: now
+        }
+      ])
+
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [%{platform: "telegram", identifier: "chat-123"}]
+        })
+
+      assert {:ok,
+              %{
+                status: :sent,
+                channel: "telegram",
+                channel_identifier: "chat-123",
+                notification_log_id: log_id
+              }} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: OkCommunicationBridge]
+               )
+
+      assert_receive {:delivered, :telegram, "chat-123"}
+
+      reloaded = Repo.get!(NotificationLog, log_id)
+      assert reloaded.status == "sent"
+
+      assert Enum.map(
+               reloaded.channels_tried,
+               &Map.take(&1, ["platform", "identifier", "status"])
+             ) == [
+               %{"platform" => "telegram", "identifier" => "chat-123", "status" => "ok"}
+             ]
+    end
+
+    test "delivery succeeds but stale status prevents mark_sent from transitioning" do
+      {:ok, n} = Notification.build(@valid_attrs)
+
+      assert {:ok,
+              %{
+                status: :sent,
+                notification_log_id: log_id,
+                channel: "email:smtp",
+                channel_identifier: "test@example.com",
+                reason: :stale_record
+              }} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: StaleStatusCommunicationBridge]
+               )
+
+      assert_receive {:delivered_after_stale_status, :email, "test@example.com"}
+
+      reloaded = Repo.get!(NotificationLog, log_id)
+
+      assert reloaded.status == "skipped"
+
+      assert Enum.map(
+               reloaded.channels_tried,
+               &Map.take(&1, ["platform", "identifier", "status"])
+             ) == [
+               %{"platform" => "email:smtp", "identifier" => "test@example.com", "status" => "ok"}
+             ]
+    end
+
+    test "non-empty channels with no configured platform returns {:ok, :skipped}" do
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [%{platform: "mattermost", identifier: "U123"}]
+        })
+
+      assert {:ok, %{status: :skipped}} = Notifications.notify(n, config: NotificationConfig)
+
+      reloaded =
+        Repo.one(
+          from l in NotificationLog,
+            order_by: [desc: l.id],
+            limit: 1
+        )
+
+      assert reloaded.status == "skipped"
+      assert reloaded.payload["subject"] == "Hello"
+
+      assert [%{"platform" => "mattermost", "status" => "error"}] =
+               Enum.map(reloaded.channels_tried, &Map.take(&1, ["platform", "status"]))
+    end
+
+    test "channels are dispatched in the order provided and stop on first success" do
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [
+              %{platform: "email:smtp", identifier: "first@example.com"},
+              %{platform: "email:smtp", identifier: "second@example.com"}
+            ]
+        })
+
+      assert {:ok, %{status: :sent, channel_identifier: "first@example.com"}} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: OkCommunicationBridge]
+               )
+
+      assert_receive {:delivered, :email, "first@example.com"}
+      refute_received {:delivered, :email, "second@example.com"}
+    end
+
+    test "first channel fails, second succeeds and returns the successful channel" do
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [
+              %{platform: "email:smtp", identifier: "first@example.com"},
+              %{platform: "email:smtp", identifier: "second@example.com"}
+            ]
+        })
+
+      assert {:ok, %{status: :sent, channel_identifier: "second@example.com"}} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: FirstFailCommunicationBridge]
+               )
+
+      reloaded = Repo.one(from l in NotificationLog, order_by: [desc: l.id], limit: 1)
+
+      assert Enum.map(reloaded.channels_tried, &Map.take(&1, ["identifier", "status"])) == [
+               %{"identifier" => "first@example.com", "status" => "error"},
+               %{"identifier" => "second@example.com", "status" => "ok"}
+             ]
+    end
+
+    test "all channels fail returns an error result and marks the log failed" do
+      {:ok, n} = Notification.build(@valid_attrs)
+
+      assert {:error, %{status: :failed, notification_log_id: log_id}} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: ErrorCommunicationBridge]
+               )
+
+      reloaded = Repo.get!(NotificationLog, log_id)
+      assert reloaded.status == "failed"
+
+      assert [%{"status" => "error", "identifier" => "test@example.com"}] =
+               reloaded.channels_tried
+    end
+
+    test "unexpected dispatch response is treated as a failed channel attempt" do
+      {:ok, n} = Notification.build(@valid_attrs)
+
+      assert {:error, %{status: :failed, notification_log_id: log_id}} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: NilCommunicationBridge]
+               )
+
+      reloaded = Repo.get!(NotificationLog, log_id)
+      assert reloaded.status == "failed"
+
+      assert [%{"status" => "error", "error" => error, "identifier" => "test@example.com"}] =
+               reloaded.channels_tried
+
+      assert error =~ "unexpected_response"
+    end
+
+    test "rejects a plain map — only %Notification{} accepted" do
+      assert_raise FunctionClauseError, fn ->
+        # credo:disable-for-next-line Credo.Check.Refactor.Apply
+        apply(Notifications, :notify, [%{subject: "S", body: "B", recipient_channels: []}])
+      end
+    end
+  end
+
+  describe "notify_person/3" do
+    setup do
+      Application.put_env(:zaq, :notifications_node_router_module, StubNodeRouter)
+
+      on_exit(fn ->
+        Application.delete_env(:zaq, :notifications_node_router_module)
+      end)
+
+      from(c in ChannelConfig, where: c.provider in ["email:smtp", "mattermost"])
       |> Repo.delete_all()
 
       %ChannelConfig{}
@@ -149,70 +616,82 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
       :ok
     end
 
-    test "empty channels returns {:ok, :skipped}" do
-      {:ok, n} =
-        Notification.build(
-          Map.merge(@valid_attrs, %{recipient_channels: [], recipient_name: "Alice"})
-        )
-
-      assert {:ok, :skipped} = Notifications.notify(n, config: NotificationConfig)
+    test "returns an error when the person does not exist" do
+      assert {:error, "person_not_found:" <> _} =
+               Notifications.notify_person(999_999, %{subject: "Hello", message: "Body"})
     end
 
-    test "non-empty channels with configured platform returns {:ok, :dispatched}" do
-      {:ok, n} = Notification.build(@valid_attrs)
+    test "skips when the person has no channels" do
+      {:ok, person} = People.create_person(%{full_name: "No Channels"})
 
-      Oban.Testing.with_testing_mode(:manual, fn ->
-        assert {:ok, :dispatched} = Notifications.notify(n, config: NotificationConfig)
-        assert_enqueued(worker: DispatchWorker)
-      end)
+      assert {:ok, %{status: :skipped, notification_log_id: nil}} =
+               Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"})
     end
 
-    test "non-empty channels with no configured platform returns {:ok, :skipped}" do
-      {:ok, n} =
-        Notification.build(%{
-          @valid_attrs
-          | recipient_channels: [%{platform: "mattermost", identifier: "U123"}]
-        })
+    test "resolves person channels in preferred fallback order" do
+      {:ok, person} = People.create_person(%{full_name: "Multi Email"})
 
-      assert {:ok, :skipped} = Notifications.notify(n, config: NotificationConfig)
+      Repo.insert!(%PersonChannel{
+        person_id: person.id,
+        platform: "email",
+        channel_identifier: "second@example.com",
+        weight: 20
+      })
 
-      reloaded =
-        Repo.one(
-          from l in NotificationLog,
-            order_by: [desc: l.id],
-            limit: 1
-        )
+      Repo.insert!(%PersonChannel{
+        person_id: person.id,
+        platform: "email",
+        channel_identifier: "first@example.com",
+        weight: 10
+      })
 
-      assert reloaded.status == "skipped"
-      assert reloaded.payload["subject"] == "Hello"
+      assert {:ok, %{status: :sent, channel_identifier: "second@example.com"}} =
+               Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"},
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: FirstFailCommunicationBridge]
+               )
 
-      assert [%{"platform" => "mattermost", "status" => "error"}] =
-               Enum.map(reloaded.channels_tried, &Map.take(&1, ["platform", "status"]))
+      reloaded = Repo.one(from l in NotificationLog, order_by: [desc: l.id], limit: 1)
+
+      assert Enum.map(reloaded.channels_tried, &Map.take(&1, ["identifier", "status"])) == [
+               %{"identifier" => "first@example.com", "status" => "error"},
+               %{"identifier" => "second@example.com", "status" => "ok"}
+             ]
     end
 
-    test "channels are dispatched in the order provided — no internal sorting" do
-      {:ok, n} =
-        Notification.build(%{
-          @valid_attrs
-          | recipient_channels: [
-              %{platform: "email:smtp", identifier: "first@example.com"},
-              %{platform: "email:smtp", identifier: "second@example.com"}
-            ]
-        })
+    test "uses dm_channel_id as the delivery identifier when present" do
+      {:ok, person} = People.create_person(%{full_name: "DM Person", email: nil})
 
-      Oban.Testing.with_testing_mode(:manual, fn ->
-        assert {:ok, :dispatched} = Notifications.notify(n, config: NotificationConfig)
-        [job] = all_enqueued(worker: DispatchWorker)
-        channels = job.args["channels"]
-        assert hd(channels)["identifier"] == "first@example.com"
-      end)
+      Repo.insert!(%PersonChannel{
+        person_id: person.id,
+        platform: "email",
+        channel_identifier: "person@example.com",
+        dm_channel_id: "stored-dm-channel-1",
+        weight: 0
+      })
+
+      assert {:ok, %{status: :sent, channel_identifier: "stored-dm-channel-1"}} =
+               Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"},
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: OkCommunicationBridge]
+               )
     end
 
-    test "rejects a plain map — only %Notification{} accepted" do
-      assert_raise FunctionClauseError, fn ->
-        # credo:disable-for-next-line Credo.Check.Refactor.Apply
-        apply(Notifications, :notify, [%{subject: "S", body: "B", recipient_channels: []}])
-      end
+    test "falls back to channel_identifier when dm_channel_id is missing" do
+      {:ok, person} = People.create_person(%{full_name: "DM Person", email: nil})
+
+      Repo.insert!(%PersonChannel{
+        person_id: person.id,
+        platform: "email",
+        channel_identifier: "person@example.com",
+        weight: 0
+      })
+
+      assert {:ok, %{status: :sent, channel_identifier: "person@example.com"}} =
+               Notifications.notify_person(person.id, %{subject: "Hello", message: "Body"},
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: OkCommunicationBridge]
+               )
     end
   end
 end

@@ -42,10 +42,12 @@ defmodule Zaq.Agent.Pipeline do
   require Logger
   alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
+  alias Zaq.Agent.StreamEvents
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
+  alias Zaq.Identity.ActorNormalizer
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -54,31 +56,25 @@ defmodule Zaq.Agent.Pipeline do
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
     incoming = pre_do_run(incoming, opts)
-    person_id = incoming.person_id
 
-    team_ids =
-      case node_router(opts).dispatch(
-             Event.new(
-               %{person_id: person_id},
-               :engine,
-               opts: [action: :get_person]
-             )
-           ).response do
-        nil -> []
-        %{team_ids: ids} when not is_nil(ids) -> ids
-        _ -> []
-      end
+    actor =
+      opts |> Keyword.get(:event) |> event_actor() || ActorNormalizer.from_incoming(nil, incoming)
+
+    person_id = Keyword.get(opts, :person_id) || ActorNormalizer.person_id(actor)
 
     opts =
       Keyword.merge(opts,
         person_id: person_id,
-        team_ids: team_ids,
+        team_ids: Keyword.get(opts, :team_ids, ActorNormalizer.team_ids(actor)),
         source_filter: incoming.content_filter
       )
 
     result = do_run(incoming, opts)
     Outgoing.from_pipeline_result(incoming, result)
   end
+
+  defp event_actor(%Event{actor: actor}), do: actor
+  defp event_actor(_), do: nil
 
   @spec pre_do_run(Incoming.t(), keyword()) :: Incoming.t()
   defp pre_do_run(incoming, opts) do
@@ -305,7 +301,9 @@ defmodule Zaq.Agent.Pipeline do
   end
 
   defp result_from_answering(%Outgoing{} = outgoing, answer, confidence_score) do
-    %{
+    outgoing.metadata
+    |> StreamEvents.telemetry_fields()
+    |> Map.merge(%{
       answer: answer,
       confidence_score: confidence_score,
       latency_ms: outgoing.metadata[:latency_ms],
@@ -313,12 +311,8 @@ defmodule Zaq.Agent.Pipeline do
       completion_tokens: outgoing.metadata[:completion_tokens],
       total_tokens: outgoing.metadata[:total_tokens],
       tool_calls: Map.get(outgoing.metadata, :tool_calls, []),
-      trace: Map.get(outgoing.metadata, :trace, []),
-      measurements: Map.get(outgoing.metadata, :measurements, %{}),
-      model: Map.get(outgoing.metadata, :model),
-      agent: Map.get(outgoing.metadata, :agent),
       error: Map.get(outgoing.metadata, :error, false)
-    }
+    })
   end
 
   @spec build_sources(list()) :: [String.t()]

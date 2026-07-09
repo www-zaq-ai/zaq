@@ -69,6 +69,14 @@ skip_permissions = Map.get(context, :skip_permissions, false)
 # Never: skip_permissions = is_nil(person_id)
 ```
 
+For person-scoped tools the identity must come from the **trusted execution context**,
+never from LLM-supplied parameters: `ctx[:actor].person.id` is canonical, with
+`ctx[:person_id]` kept on the chat path as a derived convenience from the normalized
+actor. An LLM-facing `person_id` parameter may
+be honored only under `ctx[:skip_permissions] == true` (see
+`Zaq.Agent.Tools.Accounts.History` for the reference implementation). Blank/empty-string
+IDs never resolve to an identity.
+
 ---
 
 ## Pipeline Flow
@@ -78,7 +86,7 @@ User question (BO Chat / Channel)
   → Api.handle_event/3  (:run_pipeline)     ← role boundary; runs on agent node
       → PromptGuard.validate/1              ← blocks prompt injection (single gate)
       → Status.broadcast(:validating)       ← PubSub → ChatLive
-      → identity resolution
+      → normalizes channel-resolved Incoming.person into Event.actor
       → route decision:
 
     [RAG path — no agent_selection]
@@ -203,6 +211,21 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 ### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.ListKnowledgeBaseFiles`)
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities
+
+### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)
+- Recalls the requesting person's past conversations by topic (`query`) and/or time
+  window (`last_n_days` integer or ISO `from_date`/`to_date`), grouped per conversation
+  with titles
+- Identity is resolved from the trusted actor context (`ctx[:actor].person.id`; chat also
+  passes derived `ctx[:person_id]`); the `person_id` parameter is honored only on `skip_permissions` runs
+- Doubles as a workflow action (`use Zaq.Engine.Workflows.Action`)
+
+### Message History Persistence Tool (`Zaq.Agent.Tools.Conversations.PersistMessageHistory`, key `conversation.persist_message_history`)
+- Persists one user or assistant message into the Engine conversation history via `NodeRouter.dispatch/1`.
+- Accepts either an existing `%Zaq.Engine.Messages.Incoming{}` routing envelope or generic routing fields (`channel_id`, `provider`, `author_id`, `thread_id`, `message_id`, `metadata`).
+- Also accepts delivery aliases from notification workflows (`channel`, `channel_identifier`, `message`, `sent_message`). When an `Incoming` struct is supplied, other routing fields are not required.
+- Defaults the stored message role to `"assistant"` so workflows can persist assistant-initiated notifications or follow-ups without creating a fake user turn.
+- Conversation creation/reuse is delegated to `Zaq.Engine.Conversations.persist_message_history/2`, which uses the same channel and email topic grouping rules as `persist_from_incoming/2`.
 
 ### Runtime Factory (`Zaq.Agent.Factory`)
 - Standard runtime agent for all configured agents

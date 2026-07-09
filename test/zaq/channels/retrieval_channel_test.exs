@@ -62,6 +62,29 @@ defmodule Zaq.Channels.RetrievalChannelTest do
     assert Map.get(inserted, :configured_agent_id) == agent.id
   end
 
+  test "changeset/2 persists and validates agent_routing_mode" do
+    config = insert_channel_config(%{provider: "mattermost"})
+
+    inserted =
+      %RetrievalChannel{}
+      |> RetrievalChannel.changeset(%{
+        channel_config_id: config.id,
+        channel_id: "channel-none",
+        channel_name: "None",
+        team_id: "team-1",
+        team_name: "Team",
+        active: true,
+        agent_routing_mode: "none"
+      })
+      |> Repo.insert!()
+
+    assert inserted.agent_routing_mode == "none"
+
+    changeset = RetrievalChannel.changeset(inserted, %{agent_routing_mode: "invalid"})
+    refute changeset.valid?
+    assert "is invalid" in errors_on(changeset).agent_routing_mode
+  end
+
   test "changeset/2 enforces configured_agent_id foreign key" do
     config = insert_channel_config(%{provider: "mattermost"})
 

@@ -7,8 +7,10 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     keys = Registry.tools() |> Enum.map(& &1.key)
 
     assert keys == [
+             "accounts.fetch_history",
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
+             "conversation.persist_message_history",
              "data_source.get_document",
              "data_source.list_documents",
              "data_source.search_documents",
@@ -37,6 +39,9 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
+             "workflow.condition",
+             "workflow.run_agent",
+             "workflow.dispatch_event",
              "advanced.lua_eval"
            ]
   end
@@ -47,10 +52,60 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     refute Registry.valid_tool_key?(nil)
   end
 
+  test "every registered tool has valid NimbleOptions param and output schemas" do
+    # The chat tool-exec path (Jido.Action.Exec) builds NimbleOptions from
+    # these at call time — an invalid type (e.g. bare :list) only explodes in
+    # production. Validate the whole catalog here.
+    for %{key: key, module: module} <- Registry.tools() do
+      if function_exported?(module, :schema, 0) do
+        assert %NimbleOptions{} = NimbleOptions.new!(module.schema()), "invalid schema: #{key}"
+      end
+
+      if function_exported?(module, :output_schema, 0) do
+        assert %NimbleOptions{} = NimbleOptions.new!(module.output_schema()),
+               "invalid output_schema: #{key}"
+      end
+    end
+  end
+
+  test "every registered tool module is loadable and runnable" do
+    for %{key: key, module: module} <- Registry.tools() do
+      assert Code.ensure_loaded?(module),
+             "registered module for #{key} does not exist: #{inspect(module)}"
+
+      assert function_exported?(module, :run, 2), "registered module for #{key} is not runnable"
+    end
+  end
+
+  test "fetch_history descriptor resolves to a runnable, self-access-documented module" do
+    assert {:ok, [Zaq.Agent.Tools.Accounts.History]} =
+             Registry.resolve_modules(["accounts.fetch_history"])
+
+    descriptor = Enum.find(Registry.tools(), &(&1.key == "accounts.fetch_history"))
+    assert descriptor.description =~ "self-access only"
+    assert function_exported?(descriptor.module, :run, 2)
+  end
+
+  test "workflow.run_agent resolves to the RunAgent tool so agents can run other agents" do
+    assert Registry.valid_tool_key?("workflow.run_agent")
+
+    assert {:ok, [Zaq.Agent.Tools.Workflow.RunAgent]} =
+             Registry.resolve_modules(["workflow.run_agent"])
+  end
+
+  test "conversation.persist_message_history resolves to the message history tool" do
+    assert Registry.valid_tool_key?("conversation.persist_message_history")
+
+    assert {:ok, [Zaq.Agent.Tools.Conversations.PersistMessageHistory]} =
+             Registry.resolve_modules(["conversation.persist_message_history"])
+  end
+
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
+             "accounts.fetch_history",
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
+             "conversation.persist_message_history",
              "data_source.get_document",
              "data_source.list_documents",
              "data_source.search_documents",
@@ -79,6 +134,9 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.multiply",
              "arithmetic.divide",
              "arithmetic.square",
+             "workflow.condition",
+             "workflow.run_agent",
+             "workflow.dispatch_event",
              "advanced.lua_eval"
            ]
   end

@@ -80,15 +80,15 @@ defmodule ZaqWeb.History.ConversationRow do
         </span>
       </td>
 
-      <td class="font-mono text-sm text-black/40 px-4 py-4">
+      <td class="font-mono text-sm text-black/40 px-4 py-4 whitespace-nowrap">
         {format_datetime(@conversation.inserted_at)}
       </td>
 
-      <td class="font-mono text-sm text-black/40 px-4 py-4">
+      <td class="font-mono text-sm text-black/40 px-4 py-4 whitespace-nowrap">
         {format_datetime(@conversation.updated_at)}
       </td>
 
-      <td class="px-4 py-4 text-right">
+      <td class="px-4 py-4 text-right whitespace-nowrap">
         <div class="flex items-center justify-end gap-3">
           <button
             :if={@live_action != :archived}

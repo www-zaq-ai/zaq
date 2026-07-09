@@ -1,5 +1,7 @@
 # Building BO (Back Office) Components
 
+> **Styling, tokens, typography, buttons, forms, and component inventory:** see [`DESIGN.md`](../DESIGN.md). This file covers BO layout mechanics, flash, icons, shared modules outside `design_system/`, and the PR checklist.
+
 Follow these rules whenever creating or editing any LiveView, component, or template under `lib/zaq_web/live/bo/` or `lib/zaq_web/components/`.
 
 ---
@@ -24,81 +26,9 @@ The LiveView must assign `current_path` (the request path string, e.g. `"/bo/my-
 
 ---
 
-## Styling Priority
-
-Apply styles in this exact order. Later steps are only acceptable if earlier steps are impossible.
-
-1. **Use an existing class** from `styles.css`, `semantics.css`, `text-styles.css`, or `btn.css`.
-   - Classes in `app.css` are **off-limits** — they are legacy/deprecated.
-2. **Buttons** — always use `.zaq-btn-primary` or `.zaq-btn-secondary` from `btn.css`.
-   No new button styles. No daisyUI button classes.
-3. **Text** — always use the closest `.zaq-text-*` class from `text-styles.css`.
-   No Tailwind text sizing (`text-sm`, `text-lg`, `text-[*]`). No inline font vars.
-   Text decorations (`uppercase`, `underline`, `tracking-*`) are acceptable alongside a `.zaq-text-*` base.
-4. **New class needed** → add a new semantic utility class to `styles.css` only. Never `app.css`.
-5. **No class fits** → use a semantic var inline:
-   `--zaq-surface-color-*`, `--zaq-text-color-*`, or `--zaq-border-color-*`.
-   Never foundation vars (`--zaq-color-blue-*`, `--zaq-color-neutral-*`, `--zaq-color-black-*`).
-6. **Tailwind** → fallback for layout and spacing only. Never color. Never typography.
-
-### Text style mapping
-
-| Role | Class |
-|---|---|
-| Page/section heading | `.zaq-text-h1` → `.zaq-text-h5` |
-| Body copy (large) | `.zaq-text-body-lg` |
-| Body copy (default) | `.zaq-text-body` |
-| Body copy (small), table content | `.zaq-text-body-sm` |
-| Meta / supporting / compact labels | `.zaq-text-caption` |
-| Code / monospace | `.zaq-text-code` |
-| Pre-formatted block | `.zaq-text-pre` |
-| Button label | `.zaq-btn-text_label-default` (inside buttons only) |
-
-When ambiguous between adjacent scales, prefer the smaller one. Map by visual role, not pixel size.
-
-### Forbidden patterns
-
-- Any class from `app.css` (`.zaq-bg-ink`, `.zaq-text-accent`, `.zaq-bg-accent-soft`, etc.)
-- Hardcoded hex, rgb, oklch, or hsl color values in templates
-- Foundation vars in templates (`var(--zaq-color-blue-400)`, `var(--zaq-color-neutral-*)`)
-- Tailwind color or typography classes (`text-gray-600`, `bg-white`, `font-mono`, `text-sm`)
-- daisyUI component classes in BO templates
-
-## Design tokens (deprecated)
-
-The `--zaq-color-*` variables and the utility classes below are the old token system defined in `app.css`. Do not use them in new components. Do not add new classes to `app.css`.
-
-| Token | Legacy use |
-|---|---|
-| `var(--zaq-color-accent)` | Primary actions, active states, links |
-| `var(--zaq-color-accent-hover)` | Hover on accent elements |
-| `var(--zaq-color-accent-soft)` | Subtle accent backgrounds |
-| `var(--zaq-color-ink)` | Body text, sidebar background |
-| `var(--zaq-color-ink-soft)` | Secondary / muted text |
-| `var(--zaq-color-surface)` | Page background |
-| `var(--zaq-color-surface-border)` | Card / divider borders |
-
-Legacy utility classes from `app.css` (do not use in new components):
-
-```
-zaq-bg-ink          zaq-bg-accent         zaq-bg-accent-soft
-zaq-text-ink        zaq-text-ink-soft     zaq-text-accent
-zaq-border-accent   zaq-border-accent-soft
-```
-
----
-
-## Typography
-
-Use `.zaq-text-*` classes from `text-styles.css` — see the Text style mapping table in the Styling Priority section above. Do not use `font-mono`, Tailwind text-sizing utilities, or inline font vars.
-
-Decorative modifiers (`uppercase`, `tracking-widest`, `underline`) are acceptable alongside a `.zaq-text-*` base class when the role calls for them (e.g. sidebar section labels).
-
----
-
 ## Card pattern
 
-Standard BO content cards follow this shell:
+Standard BO content cards follow this shell (see `DESIGN.md` for tokens):
 
 ```heex
 <div class="zaq-card-default">
@@ -110,20 +40,13 @@ Use `BOLayout.diagnostic_card/1`, `BOLayout.config_row/1`, and `BOLayout.feature
 
 ---
 
-## Buttons
-
-- **Primary action**: use `.zaq-btn-primary` from `btn.css`.
-- **Secondary action**: use `.zaq-btn-secondary` from `btn.css`.
-- **Destructive / danger**: use `.zaq-btn-danger` from `btn.css`, documented in the **Danger** section of that file. For ingestion-style toolbar chips, compose `.zaq-btn` + `.zaq-btn-tertiary` + `.zaq-btn-danger` (internal tokens: `--zaq-btn-danger-*`). Do not write one-off Tailwind button styles.
-- Never use daisyUI button classes. Never hand-roll button styles with `font-mono`, `zaq-bg-accent`, or `bg-red-*`.
-
----
-
 ## Icons
 
-- Use `<.icon name="hero-x-mark" class="w-5 h-5"/>` (Heroicons via `core_components.ex`) for general icons.
+- Use `<.icon name="hero-x-mark" class="zaq-icon-sm"/>` for general inline icons (default 16px — see `DESIGN.md`).
+- For larger icons use `class="zaq-icon-md"` (24px) when the role needs more prominence.
 - Use `<ZaqWeb.Components.IconRegistry.icon namespace="nav" name="..." class="..."/>` for sidebar nav icons.
 - Never import or call `Heroicons.*` modules directly.
+- Do not use Tailwind size utilities (`w-5`, `h-5`) when a `.zaq-icon-*` class fits.
 
 ---
 
@@ -135,7 +58,11 @@ Flash is handled by the `bo_layout` wrapper — do **not** render `<.flash_group
 
 ## Shared components — always reuse, never reimplement
 
-Before writing any markup from scratch, check whether one of these components already covers the need.
+Before writing any markup from scratch, check **`DESIGN.md` component inventory**, Storybook, and the modules below.
+
+### `ZaqWeb.Components.DesignSystem.*` — preferred for new work
+
+Buttons, links, inputs, modals, badges, cards, and navigation — see **`DESIGN.md` § Design system component inventory**. Use `DesignSystem.Button`, not `<.button>` from core components.
 
 ### `ZaqWeb.Components.BOLayout` — `lib/zaq_web/components/bo_layout.ex`
 
@@ -149,16 +76,19 @@ Before writing any markup from scratch, check whether one of these components al
 
 ### `ZaqWeb.Components.BOModal` — `lib/zaq_web/components/bo_modal.ex`
 
+Modal **shell** — feature content often lives in `DesignSystem.Modal*`. Use:
+
 | Component | When to use |
 |---|---|
 | `<BOModal.modal_shell>` | Generic modal shell — pass any content via `inner_block` |
 | `<BOModal.confirm_dialog>` | Standard delete / destructive-action confirmation dialog |
+| `<BOModal.form_dialog>` | Add/edit popins with max-height and internal scroll |
 
-### `ZaqWeb.Components.BOTelemetryComponents` — `lib/zaq_web/components/bo_telemetry_components.ex`
+### `ZaqWeb.Components.BOTelemetryComponents` — chart-heavy telemetry pages
 
 | Component | When to use |
 |---|---|
-| `<BOTelemetryComponents.metric_card>` | KPI tile with value, unit, trend, and hint |
+| `<BOTelemetryComponents.metric_card>` | KPI tile **with charts/telemetry** on metrics LiveViews |
 | `<BOTelemetryComponents.time_series_chart>` | Line chart for time-series data |
 | `<BOTelemetryComponents.bar_chart>` | Bar chart |
 | `<BOTelemetryComponents.donut_chart>` | Donut / pie chart |
@@ -167,66 +97,94 @@ Before writing any markup from scratch, check whether one of these components al
 | `<BOTelemetryComponents.progress_countdown>` | Progress bar with countdown |
 | `<BOTelemetryComponents.radar_chart>` | Radar / spider chart |
 
-### MasterDetailLayout — `lib/zaq_web/components/master_detail_layout.ex`
+For generic KPI tiles without telemetry chrome, prefer **`DesignSystem.MetricCard`** (`DESIGN.md`).
 
-| Component | When to use |
+### Other shared modules under `lib/zaq_web/components/`
+
+| Module | When to use |
 |---|---|
-| `<MasterDetailLayout.master_detail>` | Two-pane layout (list on left, detail on right) — collapses master when detail is open |
+| `MasterDetailLayout` | Two-pane list + detail layout |
+| `SearchableSelect` | Filterable dropdown with optional inline create |
+| `ZaqWeb.Select` | Standard select (see `DESIGN.md`) |
+| `RoleSharePicker` | Multi-select role assignment UI |
+| `PasswordPolicyComponents` | Inline password-strength checklist |
+| `FilePreview` / `FilePreviewModal` | File metadata and preview panel/modal |
+| `ServiceUnavailable` | Full-page OTP node unavailable fallback |
+| `ConnectCredentialForm` | Credential connection flows |
+| `ChannelCapabilities` | Channel capability configuration UI |
 
-### SearchableSelect — `lib/zaq_web/components/searchable_select.ex`
+### Core components — legacy for non-BO or gradual migration
 
-| Component | When to use |
+Auto-imported via `use ZaqWeb, :html` — **`core_components.ex`**. Prefer **`DesignSystem.*`** for new BO work.
+
+| Component | Notes |
 |---|---|
-| `<SearchableSelect.searchable_select>` | Filterable dropdown with optional inline create; use instead of a plain `<select>` whenever the option list may be long |
+| `<.input>` | Legacy form inputs — use `DesignSystem.Input` in BO |
+| `<.secret_input>` | Legacy — use `DesignSystem.SecretInput` in BO |
+| `<.button>` | **Legacy daisyUI** — use `DesignSystem.Button` in BO |
+| `<.table>` | Data tables — prefer `.zaq-table` patterns (`DESIGN.md`) |
+| `<.icon name="hero-*">` | Heroicons wrapper — pair with `.zaq-icon-sm` / `.zaq-icon-md` |
 
-### `ZaqWeb.Components.RoleSharePicker` — `lib/zaq_web/components/role_share_picker.ex`
+---
 
-| Component | When to use |
-|---|---|
-| `<RoleSharePicker.role_share_picker>` | Multi-select role assignment UI |
+## Common Pitfalls
 
-### PasswordPolicyComponents — `lib/zaq_web/components/password_policy_components.ex`
+### Raw `<input>` text color must be explicit
 
-| Component | When to use |
-|---|---|
-| `<PasswordPolicyComponents.password_requirements>` | Inline password-strength requirement checklist |
+Raw `<input>` tags have no explicit text color in this codebase, so they inherit `color` from the parent chain. If any ancestor sets `color` to the accent (common in BO cards and badges), the input value text will render in that accent blue — readable against a dark background, illegible on white.
 
-### Core components (auto-imported via `use ZaqWeb, :html`) — `lib/zaq_web/components/core_components.ex`
+Always add `text-[var(--zaq-color-ink)]` to raw text inputs:
 
-| Component | When to use |
-|---|---|
-| `<.input>` | All form inputs (text, select, textarea, checkbox) |
-| `<.secret_input>` | Password / token / API key fields — includes eye-toggle, never inline it |
-| `<.button>` | Standard form submit button |
-| `<.table>` | Data tables |
-| `<.list>` | Definition-style key/value lists |
-| `<.header>` | Section headers with optional subtitle and actions slot |
-| `<.icon name="hero-*">` | Heroicons — the only approved icon method |
+```heex
+<%!-- Wrong: inherits color from parent, may render in accent blue --%>
+<input type="text" class="w-full font-mono text-[0.82rem] border ..." />
 
-### `ZaqWeb.Components.ServiceUnavailable` — `lib/zaq_web/components/service_unavailable.ex`
+<%!-- Correct --%>
+<input type="text" class="w-full font-mono text-[0.82rem] text-[var(--zaq-color-ink)] border ..." />
+```
 
-| Component | When to use |
-|---|---|
-| `<ServiceUnavailable.page>` | Full-page "service node unavailable" fallback when a required OTP node is down |
+Prefer `<.input>` over raw `<input>` — it applies the correct text color automatically.
 
-### `ZaqWeb.Components.FilePreview` — `lib/zaq_web/components/file_preview.ex`
+---
 
-| Component | When to use |
-|---|---|
-| `<FilePreview.meta>` | File metadata summary (name, size, type) |
-| `<FilePreview.panel>` | Inline file preview panel (PDF, image, text) |
+### `SearchableSelect` inside modals — panel uses `position: fixed`
+
+`BOModal.form_dialog` has `overflow-hidden` on the card and `overflow-y-auto` on the body. Both create overflow contexts that clip `position: absolute` children. The `SearchableSelect` JS hook works around this by switching the dropdown panel to `position: fixed` anchored to the trigger's viewport rect — so the panel always renders on top of everything, including modals.
+
+This is handled automatically by the hook. You do not need to do anything special — just use `<.searchable_select>` inside a modal as normal.
+
+**If you add a new JS-based dropdown or popover component** that uses `position: absolute`, be aware that it will be clipped by modal overflow. Apply the same `position: fixed` + `getBoundingClientRect()` pattern used in the `SearchableSelect` hook (`assets/js/app.js`).
+
+---
+
+### Checkbox color: `accent-*` not `text-*`
+
+Native `<input type="checkbox">` ignores the CSS `color` property. The checkmark and fill color are controlled by the CSS `accent-color` property, which Tailwind exposes as `accent-*` utilities.
+
+```heex
+<%!-- Wrong: text-* has no effect on checkboxes --%>
+<input type="checkbox" class="text-[var(--zaq-color-accent)]" />
+
+<%!-- Correct --%>
+<input type="checkbox" class="accent-[var(--zaq-color-accent)]" />
+```
+
+Prefer `<.input type="checkbox" ...>` over raw `<input>` tags — the core component applies the correct styling automatically.
 
 ---
 
 ## Checklist before opening a PR for any BO UI change
 
 - [ ] Template opens with `<ZaqWeb.Components.BOLayout.bo_layout ...>` and `current_path` is assigned
+- [ ] Styling follows [`DESIGN.md`](../DESIGN.md) (tokens, typography, buttons, forbidden patterns)
 - [ ] No hardcoded hex, rgb, oklch, or hsl color values in templates
-- [ ] No `font-mono`, `text-sm`, `text-[*]`, `bg-white`, or other Tailwind color/typography classes
-- [ ] No classes from `app.css` (`.zaq-bg-ink`, `.zaq-text-accent`, `.zaq-bg-accent-soft`, etc.)
-- [ ] All text uses a `.zaq-text-*` class from `text-styles.css`
-- [ ] All buttons use `.zaq-btn-primary` or `.zaq-btn-secondary` from `btn.css`
-- [ ] New cards use `zaq-card-default` (not `bg-white border-black/10`)
-- [ ] Icons use `<.icon>` or `IconRegistry.icon`, not `Heroicons.*`
+- [ ] No Tailwind color or typography classes (`text-sm`, `bg-white`, `font-mono`, etc.)
+- [ ] No classes from `app.css` (`.zaq-bg-ink`, `.zaq-text-accent`, etc.)
+- [ ] Buttons use `DesignSystem.Button` or documented `.zaq-btn-*` variants (not daisyUI `<.button>`)
+- [ ] At most one `.zaq-btn-primary` per LiveView content area (modals/drawers excluded)
+- [ ] New cards use `zaq-card-default`
+- [ ] Icons use `<.icon>` or `IconRegistry.icon` with `.zaq-icon-sm` / `.zaq-icon-md`
+- [ ] Checkboxes use `accent-[var(--zaq-color-accent)]`, not `text-[var(--zaq-color-accent)]` — or use `<.input type="checkbox">`
+- [ ] Raw `<input type="text">` tags have `text-[var(--zaq-color-ink)]` — or use `<.input>`
 - [ ] No `<.flash_group>` in the template
-- [ ] `mix precommit` passes
+- [ ] `mix q` passes

@@ -16,7 +16,7 @@ defmodule Zaq.Channels.EmailBridge do
 
   require Logger
 
-  alias Zaq.Channels.{Bridge, ChannelConfig}
+  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.{NodeRouter, System}
@@ -68,10 +68,7 @@ defmodule Zaq.Channels.EmailBridge do
     connection = sink_opts |> Enum.into(%{}) |> Map.put(:config, config)
 
     with %Incoming{} = incoming <- to_internal(payload, connection),
-         agent_selection =
-           resolve_agent_selection(config, incoming, mailbox: connection[:mailbox]),
-         %Outgoing{} = outgoing <- run_pipeline(incoming, agent_selection: agent_selection),
-         :ok <- deliver_outgoing_runtime(outgoing) do
+         :ok <- route_and_maybe_deliver_incoming(incoming, config, connection) do
       :ok
     else
       {:error, reason} ->
@@ -149,6 +146,23 @@ defmodule Zaq.Channels.EmailBridge do
   # Private
   # ---------------------------------------------------------------------------
 
+  defp route_and_maybe_deliver_incoming(%Incoming{} = incoming, config, connection) do
+    case route_incoming_message(
+           incoming,
+           [],
+           agent_candidates(config, connection[:mailbox]),
+           actor_from_incoming(incoming),
+           channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
+           pipeline_module: pipeline_module(),
+           node_router: node_router_module()
+         ) do
+      %Outgoing{} = outgoing -> deliver_outgoing_runtime(outgoing)
+      :ok -> :ok
+      {:error, _} = error -> error
+      other -> {:error, other}
+    end
+  end
+
   defp resolve_adapter(connection_details) do
     case Map.get(connection_details, :adapter) || Map.get(connection_details, "adapter") do
       module when is_atom(module) and not is_nil(module) -> {:ok, module}
@@ -178,46 +192,30 @@ defmodule Zaq.Channels.EmailBridge do
     end
   end
 
-  defp provider_key(provider) when is_atom(provider), do: provider
-
   defp provider_key(provider) when is_binary(provider) do
-    String.to_existing_atom(provider)
-  rescue
-    ArgumentError -> :email
+    Bridge.provider_to_bridge_key(provider) || :email
   end
 
-  defp run_pipeline(%Incoming{} = msg, opts) do
-    module = pipeline_module()
-    agent_selection = Keyword.get(opts, :agent_selection)
-    pipeline_opts = Keyword.delete(opts, :agent_selection)
-
-    if module == Zaq.Agent.Pipeline do
-      run_pipeline_with_node_router(
-        msg,
-        pipeline_opts,
-        agent_selection,
-        actor_from_incoming(msg),
-        node_router_module()
-      )
-    else
-      module.run(msg, pipeline_opts)
-    end
-  end
+  defp provider_key(provider), do: Bridge.provider_to_bridge_key(provider)
 
   @impl true
   def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do
     mailbox = Keyword.get(opts, :mailbox)
 
-    candidates = [
-      {:mailbox_assignment, mailbox_assignment_agent_id(config, mailbox)},
-      {:provider_default, ChannelConfig.get_provider_default_agent_id(config)},
-      {:global_default, System.get_global_default_agent_id()}
-    ]
-
-    first_active_selection(candidates)
+    config
+    |> agent_candidates(mailbox)
+    |> AgentRouting.first_active_selection()
   end
 
-  defp mailbox_assignment_agent_id(config, mailbox) do
+  defp agent_candidates(config, mailbox) do
+    [
+      {:mailbox_assignment, mailbox_assignment_agent_choice(config, mailbox)},
+      {:provider_default, ChannelConfig.get_provider_agent_choice(config)},
+      {:global_default, System.get_global_default_agent_id()}
+    ]
+  end
+
+  defp mailbox_assignment_agent_choice(config, mailbox) do
     mailbox = normalize_mailbox(mailbox)
 
     with mailbox when is_binary(mailbox) <- mailbox,
@@ -241,8 +239,13 @@ defmodule Zaq.Channels.EmailBridge do
 
   defp normalize_mailbox(_), do: nil
 
+  # person is resolved by CommunicationBridge before dispatching to the agent node.
   defp actor_from_incoming(%Incoming{} = incoming) do
-    %{id: incoming.author_id, name: incoming.author_name, provider: incoming.provider}
+    %{
+      id: incoming.author_id,
+      name: incoming.author_name,
+      provider: incoming.provider
+    }
   end
 
   defp pipeline_module,
