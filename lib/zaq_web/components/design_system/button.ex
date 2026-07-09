@@ -62,7 +62,7 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
 
   attr :rest, :global,
     include:
-      ~w(disabled id phx-click phx-value-id phx-value-predefined_id title aria-label data-testid name value form)
+      ~w(disabled id phx-click phx-value-id phx-value-predefined_id title aria-label data-testid data-confirm name value form)
 
   slot :inner_block
 
@@ -85,7 +85,12 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
 
     ~H"""
     <%= if @link? do %>
-      <.link class={@shell_class} {@link_attrs} {@rest}>
+      <.link
+        class={@shell_class}
+        {@link_attrs}
+        {@rest}
+        onclick="event.stopPropagation()"
+      >
         {render_button_content(assigns)}
       </.link>
     <% else %>

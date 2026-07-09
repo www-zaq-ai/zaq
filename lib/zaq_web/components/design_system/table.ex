@@ -18,8 +18,6 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   alias Phoenix.LiveView.JS
   alias ZaqWeb.Components.DesignSystem.StatusPill
 
-  defp isolate_click_attrs, do: %{"onclick" => "event.stopPropagation()"}
-
   @doc "List table shell — `.zaq-table` with optional scroll wrapper and caption."
   attr :id, :string, required: true
   attr :scrollable, :boolean, default: false
@@ -114,13 +112,15 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
     assigns =
       assigns
       |> assign(:row_click?, row_click?(assigns))
-      |> assign(:row_click_attrs, row_click_attrs(assigns))
+      |> assign(:row_phx_click, row_phx_click(assigns))
+      |> assign(:row_value_attrs, row_value_attrs(assigns))
 
     ~H"""
     <tr
       id={@id}
       class={row_class(@variant, @row_click?, @class)}
-      {@row_click_attrs}
+      phx-click={@row_phx_click}
+      {@row_value_attrs}
     >
       {render_slot(@inner_block)}
     </tr>
@@ -169,14 +169,12 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
 
   def table_checkbox(assigns) do
     ~H"""
-    <span {isolate_click_attrs()}>
-      <input
-        type="checkbox"
-        class={["zaq-bo-checkbox zaq-focus-visible", @class]}
-        checked={@checked}
-        {@rest}
-      />
-    </span>
+    <input
+      type="checkbox"
+      class={["zaq-bo-checkbox zaq-focus-visible", @class]}
+      checked={@checked}
+      {@rest}
+    />
     """
   end
 
@@ -251,15 +249,12 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
 
   def table_actions(assigns) do
     ~H"""
-    <div
-      {isolate_click_attrs()}
-      class={[
-        "zaq-table-cell--actions flex items-center gap-1 shrink-0",
-        align_class(@align),
-        reveal_class(@reveal),
-        @class
-      ]}
-    >
+    <div class={[
+      "zaq-table-cell--actions flex items-center gap-1 shrink-0",
+      align_class(@align),
+      reveal_class(@reveal),
+      @class
+    ]}>
       {render_slot(@inner_block)}
     </div>
     """
@@ -292,18 +287,19 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   defp patch?(assigns), do: is_binary(assigns.patch) and assigns.patch != ""
   defp click?(assigns), do: not is_nil(assigns.click) and assigns.click != false
 
-  defp row_click_attrs(assigns) do
-    base =
-      cond do
-        navigate?(assigns) -> %{"phx-click" => JS.navigate(assigns.navigate)}
-        patch?(assigns) -> %{"phx-click" => JS.patch(assigns.patch)}
-        click?(assigns) -> %{"phx-click" => assigns.click}
-        true -> %{}
-      end
+  defp row_phx_click(assigns) do
+    cond do
+      navigate?(assigns) -> JS.navigate(assigns.navigate)
+      patch?(assigns) -> JS.patch(assigns.patch)
+      click?(assigns) -> assigns.click
+      true -> nil
+    end
+  end
 
-    Enum.reduce(assigns.click_values, base, fn {key, value}, acc ->
-      Map.put(acc, "phx-value-#{key}", value)
-    end)
+  defp row_value_attrs(%{click_values: click_values}) do
+    for {key, value} <- click_values, into: %{} do
+      {"phx-value-#{key}", value}
+    end
   end
 
   defp row_class(variant, row_click?, extra) do
@@ -449,7 +445,8 @@ defmodule ZaqWeb.Components.DesignSystem.Table.Grid do
     assigns =
       assigns
       |> assign(:row_click?, row_click?(assigns))
-      |> assign(:card_click_attrs, card_click_attrs(assigns))
+      |> assign(:card_phx_click, card_phx_click(assigns))
+      |> assign(:card_value_attrs, card_value_attrs(assigns))
 
     ~H"""
     <div
@@ -459,7 +456,8 @@ defmodule ZaqWeb.Components.DesignSystem.Table.Grid do
         @row_click? && "cursor-pointer",
         @class
       ]}
-      {@card_click_attrs}
+      phx-click={@card_phx_click}
+      {@card_value_attrs}
     >
       <div
         :if={@checkbox != []}
@@ -475,21 +473,25 @@ defmodule ZaqWeb.Components.DesignSystem.Table.Grid do
     """
   end
 
-  defp card_click_attrs(assigns) do
+  defp card_phx_click(assigns) do
     cond do
       is_binary(assigns.navigate) and assigns.navigate != "" ->
-        %{"phx-click" => JS.navigate(assigns.navigate)}
+        JS.navigate(assigns.navigate)
 
       is_binary(assigns.patch) and assigns.patch != "" ->
-        %{"phx-click" => JS.patch(assigns.patch)}
+        JS.patch(assigns.patch)
 
       not is_nil(assigns.click) and assigns.click != false ->
-        Enum.reduce(assigns.click_values, %{"phx-click" => assigns.click}, fn {key, value}, acc ->
-          Map.put(acc, "phx-value-#{key}", value)
-        end)
+        assigns.click
 
       true ->
-        %{}
+        nil
+    end
+  end
+
+  defp card_value_attrs(%{click_values: click_values}) do
+    for {key, value} <- click_values, into: %{} do
+      {"phx-value-#{key}", value}
     end
   end
 end

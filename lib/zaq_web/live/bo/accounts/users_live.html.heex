@@ -15,67 +15,65 @@
     </a>
   </div>
 
-  <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
-    <table class="w-full">
-      <thead>
-        <tr class="border-b border-black/10">
-          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-            Username
-          </th>
-          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-            Email
-          </th>
-          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-            Role
-          </th>
-          <th class="text-left font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-            Status
-          </th>
-          <th class="text-right font-mono text-[0.7rem] text-black/40 uppercase tracking-wider px-6 py-3">
-            Actions
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          :for={user <- @users}
-          class="border-b border-black/5 last:border-0 hover:bg-black/[0.02]"
-        >
-          <td class="font-mono text-sm text-black px-6 py-4">{user.username}</td>
-          <td class="font-mono text-sm text-black/50 px-6 py-4">{user.email || "—"}</td>
-          <td class="font-mono text-sm text-black/60 px-6 py-4">{user.role.name}</td>
-          <td class="px-6 py-4">
-            <span
-              :if={user.must_change_password}
-              class="font-mono text-[0.7rem] px-2 py-1 rounded bg-amber-100 text-amber-700"
-            >
-              Must change password
-            </span>
-            <span
-              :if={!user.must_change_password}
-              class="font-mono text-[0.7rem] px-2 py-1 rounded bg-emerald-100 text-emerald-700"
-            >
-              Active
-            </span>
-          </td>
-          <td class="px-6 py-4 text-right space-x-3">
-            <a
+  <ZaqWeb.Components.DesignSystem.Table.table id="users-table">
+    <:head>
+      <.table_head_row>
+        <.table_cell element={:th}>
+          <.table_text label="Username" tone={:tertiary} />
+        </.table_cell>
+        <.table_cell element={:th}>
+          <.table_text label="Email" tone={:tertiary} />
+        </.table_cell>
+        <.table_cell element={:th}>
+          <.table_text label="Role" tone={:tertiary} />
+        </.table_cell>
+        <.table_cell element={:th}>
+          <.table_text label="Status" tone={:tertiary} />
+        </.table_cell>
+        <.table_cell element={:th} align={:right} width="w-24" />
+      </.table_head_row>
+    </:head>
+    <:body>
+      <.table_row :for={user <- @users} id={"user-row-#{user.id}"}>
+        <.table_cell>
+          <.table_text label={user.username} tone={:mono} truncate />
+        </.table_cell>
+        <.table_cell>
+          <.table_text label={user.email || "—"} tone={:secondary} />
+        </.table_cell>
+        <.table_cell>
+          <.table_text label={user.role.name} tone={:secondary} />
+        </.table_cell>
+        <.table_cell>
+          <.table_badge :if={user.must_change_password} status="stale">
+            Must change password
+          </.table_badge>
+          <.table_badge :if={!user.must_change_password} status="completed">
+            Active
+          </.table_badge>
+        </.table_cell>
+        <.table_cell align={:right} width="w-24" nowrap>
+          <.table_actions reveal={:hover}>
+            <ZaqWeb.Components.DesignSystem.Button.button
+              variant={:ghost}
+              icon="hero-pencil-square"
+              icon_only
+              aria-label={"Edit #{user.username}"}
               href={~p"/bo/users/#{user.id}/edit"}
-              class="font-mono text-[0.75rem] text-[#03b6d4] hover:underline"
-            >
-              Edit
-            </a>
-            <button
+            />
+            <ZaqWeb.Components.DesignSystem.Button.button
+              variant={:tertiary}
+              danger
+              icon="hero-trash"
+              icon_only
+              aria-label={"Delete #{user.username}"}
               phx-click="delete"
               phx-value-id={user.id}
               data-confirm="Are you sure you want to delete this user?"
-              class="font-mono text-[0.75rem] text-red-500 hover:underline"
-            >
-              Delete
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+            />
+          </.table_actions>
+        </.table_cell>
+      </.table_row>
+    </:body>
+  </ZaqWeb.Components.DesignSystem.Table.table>
 </ZaqWeb.Components.BOLayout.bo_layout>
