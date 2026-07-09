@@ -55,7 +55,13 @@ defmodule ZaqWeb.Components.DesignSystem.Link do
       |> assign(:destination_attrs, destination_attrs(assigns.external, assigns.destination))
 
     ~H"""
-    <.link id={@id} class={[Enum.join(@shell_class, " "), @class]} {@destination_attrs} {@rest}>
+    <.link
+      id={@id}
+      class={[Enum.join(@shell_class, " "), @class]}
+      {@destination_attrs}
+      {@rest}
+      onclick="event.stopPropagation()"
+    >
       <.link_icon :if={@icon && @icon_position == :left} name={@icon} />
       <span class={@label_class}>
         {render_slot(@inner_block)}

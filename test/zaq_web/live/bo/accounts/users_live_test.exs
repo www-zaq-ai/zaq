@@ -20,8 +20,11 @@ defmodule ZaqWeb.Live.BO.Accounts.UsersLiveTest do
 
   test "deletes a user", %{conn: conn} do
     target = user_fixture(%{username: "to_delete"})
-    {:ok, view, _html} = live(conn, ~p"/bo/users")
+    {:ok, view, html} = live(conn, ~p"/bo/users")
 
+    assert html =~ ~s(data-confirm="Are you sure you want to delete this user?")
+
+    # render_click bypasses the browser confirm dialog (phoenix_html.js); it exercises the LiveView handler only.
     view
     |> element(~s{button[phx-value-id="#{target.id}"]})
     |> render_click()
