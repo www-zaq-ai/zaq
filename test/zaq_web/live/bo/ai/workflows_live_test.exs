@@ -111,9 +111,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
       assert html =~ "<table"
     end
 
-    test "shows 'Triggers' column header", %{conn: conn} do
+    test "does not show a Triggers column header", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/workflows")
-      assert html =~ "Triggers"
+      refute html =~ ">Triggers<"
     end
   end
 

@@ -122,6 +122,48 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
     refute String.contains?(html, "stopPropagation")
   end
 
+  test "table_selection_bar/1 hidden when selected_count is zero" do
+    html =
+      render_component(&Table.table_selection_bar/1,
+        selected_count: 0,
+        actions: []
+      )
+
+    refute String.contains?(html, "selected")
+    refute String.contains?(html, "zaq-table-selection-bar")
+  end
+
+  test "table_selection_bar/1 shows count for one or more selections" do
+    html =
+      render_component(&Table.table_selection_bar/1,
+        selected_count: 1,
+        actions: []
+      )
+
+    assert String.contains?(html, "1 selected")
+    assert String.contains?(html, "zaq-table-selection-bar")
+    assert String.contains?(html, "zaq-text-body-sm")
+
+    multi =
+      render_component(&Table.table_selection_bar/1,
+        selected_count: 3,
+        actions: []
+      )
+
+    assert String.contains?(multi, "3 selected")
+  end
+
+  test "table_selection_bar/1 renders actions slot" do
+    html =
+      render_component(&Table.table_selection_bar/1,
+        selected_count: 2,
+        actions: [%{inner_block: fn _, _ -> "Deselect all" end}]
+      )
+
+    assert String.contains?(html, "zaq-table-selection-bar__actions")
+    assert String.contains?(html, "Deselect all")
+  end
+
   test "table_actions/1 does not stop propagation on wrapper (phx-click children must reach LiveView)" do
     html =
       render_component(&Table.table_actions/1,

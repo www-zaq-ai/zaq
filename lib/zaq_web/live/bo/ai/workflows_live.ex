@@ -5,9 +5,23 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
   """
   use ZaqWeb, :live_view
 
-  import ZaqWeb.Live.BO.AI.WorkflowComponents
-
   import ZaqWeb.Live.BO.AI.WorkflowRunHelpers, only: [manual_source_event: 1]
+
+  alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
+  alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
+
+  import DSTable,
+    only: [
+      table_actions: 1,
+      table_badge: 1,
+      table_cell: 1,
+      table_checkbox: 1,
+      table_empty: 1,
+      table_head_row: 1,
+      table_row: 1,
+      table_selection_bar: 1,
+      table_text: 1
+    ]
 
   alias Zaq.Event
   alias ZaqWeb.Components.{BOFileUpload, BOLayout, BOModal}
@@ -344,29 +358,16 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
           </form>
         </section>
 
-        <%!-- Bulk action bar (visible when rows selected) --%>
-        <div
-          :if={MapSet.size(@selected_ids) > 0}
-          class="flex items-center justify-between px-4 py-2.5 mb-3 rounded-xl bg-black/[0.04] border border-black/[0.08]"
-        >
-          <span class="font-mono text-[0.78rem] text-black/60">
-            {MapSet.size(@selected_ids)} selected
-          </span>
-          <div class="flex items-center gap-3">
-            <button
-              phx-click="deselect_all"
-              class="font-mono text-[0.75rem] text-black/40 hover:text-black transition-colors"
-            >
+        <.table_selection_bar selected_count={MapSet.size(@selected_ids)}>
+          <:actions>
+            <DSButton.button variant={:tertiary} phx-click="deselect_all">
               Deselect all
-            </button>
-            <button
-              phx-click="confirm_delete_selected"
-              class="font-mono text-[0.75rem] font-semibold text-red-500 hover:text-red-600 transition-colors"
-            >
+            </DSButton.button>
+            <DSButton.button variant={:tertiary} danger phx-click="confirm_delete_selected">
               Delete selected
-            </button>
-          </div>
-        </div>
+            </DSButton.button>
+          </:actions>
+        </.table_selection_bar>
 
         <%!-- Delete confirmation --%>
         <div
@@ -394,128 +395,95 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
         </div>
 
         <%!-- Workflows table --%>
-        <div class="bg-white rounded-xl border border-black/[0.08] overflow-hidden">
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-black/[0.06] bg-black/[0.02]">
-                <th class="px-4 py-3 w-10">
-                  <input
-                    type="checkbox"
-                    checked={
-                      MapSet.size(@selected_ids) > 0 and
-                        MapSet.size(@selected_ids) == length(@workflows)
-                    }
-                    phx-click={
-                      if MapSet.size(@selected_ids) == length(@workflows),
-                        do: "deselect_all",
-                        else: "select_all"
-                    }
-                    class="rounded border-black/20 cursor-pointer"
+        <DSTable.table id="workflows-table" scrollable={true}>
+          <:head>
+            <.table_head_row>
+              <.table_cell element={:th} width="w-10">
+                <.table_checkbox
+                  checked={
+                    MapSet.size(@selected_ids) > 0 and
+                      MapSet.size(@selected_ids) == length(@workflows)
+                  }
+                  phx-click={
+                    if MapSet.size(@selected_ids) == length(@workflows),
+                      do: "deselect_all",
+                      else: "select_all"
+                  }
+                />
+              </.table_cell>
+              <.table_cell element={:th}>
+                <.table_text label="Name" tone={:tertiary} />
+              </.table_cell>
+              <.table_cell element={:th}>
+                <.table_text label="Status" tone={:tertiary} />
+              </.table_cell>
+              <.table_cell element={:th}>
+                <.table_text label="Latest Run" tone={:tertiary} />
+              </.table_cell>
+              <.table_cell element={:th}>
+                <.table_text label="Runs" tone={:tertiary} />
+              </.table_cell>
+              <.table_cell element={:th} align={:right} />
+            </.table_head_row>
+          </:head>
+          <:body>
+            <.table_empty :if={@workflows == []} colspan={6}>
+              {if @filters["name"] != "" or @filters["status"] != "all",
+                do: "No workflows match your filters.",
+                else: "No workflows yet. Import one to get started."}
+            </.table_empty>
+            <.table_row
+              :for={{workflow, count, _triggers, latest_run} <- @workflows}
+              id={"workflow-row-#{workflow.id}"}
+              navigate={~p"/bo/workflows/#{workflow.id}"}
+              variant={if(MapSet.member?(@selected_ids, workflow.id), do: :selected, else: :default)}
+            >
+              <.table_cell width="w-10">
+                <.table_checkbox
+                  checked={MapSet.member?(@selected_ids, workflow.id)}
+                  phx-click="toggle_select"
+                  phx-value-id={workflow.id}
+                />
+              </.table_cell>
+              <.table_cell>
+                <div class="min-w-0">
+                  <.table_text label={workflow.name} />
+                  <.table_text
+                    :if={workflow.description}
+                    label={workflow.description}
+                    tone={:tertiary}
+                    class="mt-0.5 line-clamp-2"
                   />
-                </th>
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
-                  Name
-                </th>
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
-                  Status
-                </th>
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
-                  Latest Run
-                </th>
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
-                  Triggers
-                </th>
-                <th class="font-mono text-[0.7rem] font-semibold text-black/50 uppercase tracking-wider text-left px-4 py-3">
-                  Runs
-                </th>
-                <th class="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                :for={{workflow, count, triggers, latest_run} <- @workflows}
-                class={[
-                  "border-b border-black/[0.04] transition-colors",
-                  if(MapSet.member?(@selected_ids, workflow.id),
-                    do: "bg-[var(--zaq-color-accent-soft)]",
-                    else: "hover:bg-black/[0.01]"
-                  )
-                ]}
-              >
-                <td class="px-4 py-4">
-                  <input
-                    type="checkbox"
-                    checked={MapSet.member?(@selected_ids, workflow.id)}
-                    phx-click="toggle_select"
-                    phx-value-id={workflow.id}
-                    class="rounded border-black/20 cursor-pointer"
-                  />
-                </td>
-                <td class="px-4 py-4">
-                  <.link
-                    navigate={~p"/bo/workflows/#{workflow.id}"}
-                    class="font-mono text-[0.85rem] font-semibold text-[var(--zaq-color-accent)] hover:underline"
+                </div>
+              </.table_cell>
+              <.table_cell>
+                <.table_badge status={workflow.status} />
+              </.table_cell>
+              <.table_cell>
+                <div :if={latest_run} class="flex flex-col gap-0.5">
+                  <.table_badge status={latest_run.status} pulse={latest_run.status == "running"} />
+                  <.table_text label={format_run_time(latest_run.inserted_at)} tone={:tertiary} />
+                </div>
+                <.table_text :if={!latest_run} label="—" tone={:tertiary} />
+              </.table_cell>
+              <.table_cell>
+                <.table_text label={to_string(count)} />
+              </.table_cell>
+              <.table_cell align={:right}>
+                <.table_actions>
+                  <DSButton.button
+                    variant={:secondary}
+                    phx-click="run_workflow"
+                    phx-value-workflow_id={workflow.id}
+                    title="Run workflow manually"
                   >
-                    {workflow.name}
-                  </.link>
-                  <p :if={workflow.description} class="font-mono text-[0.72rem] text-black/50 mt-0.5">
-                    {workflow.description}
-                  </p>
-                </td>
-                <td class="px-4 py-4">
-                  <.workflow_status_badge status={workflow.status} />
-                </td>
-                <td class="px-4 py-4">
-                  <div :if={latest_run} class="flex flex-col gap-0.5">
-                    <.run_status_badge status={latest_run.status} />
-                    <span class="font-mono text-[0.68rem] text-black/30">
-                      {format_run_time(latest_run.inserted_at)}
-                    </span>
-                  </div>
-                  <span :if={!latest_run} class="font-mono text-[0.72rem] text-black/30">—</span>
-                </td>
-                <td class="px-4 py-4">
-                  <div class="flex items-center gap-1.5">
-                    <.trigger_icon
-                      :for={trigger <- triggers}
-                      trigger={trigger}
-                      workflow_id={workflow.id}
-                    />
-                    <span :if={triggers == []} class="font-mono text-[0.72rem] text-black/30">—</span>
-                  </div>
-                </td>
-                <td class="px-4 py-4">
-                  <span class="font-mono text-[0.85rem] text-black">{count}</span>
-                </td>
-                <td class="px-4 py-4 text-right">
-                  <div class="flex items-center justify-end gap-3">
-                    <button
-                      phx-click="run_workflow"
-                      phx-value-workflow_id={workflow.id}
-                      title="Run workflow manually"
-                      class="font-mono text-[0.75rem] text-black/40 hover:text-[var(--zaq-color-accent)] transition-colors"
-                    >
-                      ▶ Run
-                    </button>
-                    <.link
-                      navigate={~p"/bo/workflows/#{workflow.id}"}
-                      class="font-mono text-[0.75rem] text-black/40 hover:text-black transition-colors"
-                    >
-                      View →
-                    </.link>
-                  </div>
-                </td>
-              </tr>
-              <tr :if={@workflows == []}>
-                <td colspan="7" class="px-5 py-12 text-center font-mono text-[0.85rem] text-black/40">
-                  {if @filters["name"] != "" or @filters["status"] != "all",
-                    do: "No workflows match your filters.",
-                    else: "No workflows yet. Import one to get started."}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+                    ▶ Run
+                  </DSButton.button>
+                </.table_actions>
+              </.table_cell>
+            </.table_row>
+          </:body>
+        </DSTable.table>
 
         <%!-- Pagination --%>
         <div

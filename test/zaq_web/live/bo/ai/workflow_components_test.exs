@@ -10,28 +10,28 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
   # ---------------------------------------------------------------------------
 
   describe "workflow_status_badge/1" do
-    test "renders 'active' with emerald CSS class" do
+    test "renders 'active' with success pill" do
       html = render_component(&WorkflowComponents.workflow_status_badge/1, status: "active")
       assert html =~ "active"
-      assert html =~ "emerald"
+      assert html =~ "zaq-pill--success"
     end
 
-    test "renders 'archived' with muted CSS class" do
+    test "renders 'archived' with elevated pill" do
       html = render_component(&WorkflowComponents.workflow_status_badge/1, status: "archived")
       assert html =~ "archived"
-      assert html =~ "bg-black/5"
+      assert html =~ "zaq-pill--elevated"
     end
 
-    test "renders draft status with amber CSS class (default)" do
+    test "renders draft status with warning pill" do
       html = render_component(&WorkflowComponents.workflow_status_badge/1, status: "draft")
       assert html =~ "draft"
-      assert html =~ "amber"
+      assert html =~ "zaq-pill--warning"
     end
 
-    test "unknown status falls back to amber CSS class" do
+    test "unknown status falls back to elevated pill" do
       html = render_component(&WorkflowComponents.workflow_status_badge/1, status: "unknown")
       assert html =~ "unknown"
-      assert html =~ "amber"
+      assert html =~ "zaq-pill--elevated"
     end
   end
 
@@ -40,34 +40,35 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
   # ---------------------------------------------------------------------------
 
   describe "run_status_badge/1" do
-    test "renders 'completed' with emerald CSS class" do
+    test "renders 'completed' with success pill" do
       html = render_component(&WorkflowComponents.run_status_badge/1, status: "completed")
       assert html =~ "completed"
-      assert html =~ "emerald"
+      assert html =~ "zaq-pill--success"
     end
 
-    test "renders 'failed' with red CSS class" do
+    test "renders 'failed' with danger pill" do
       html = render_component(&WorkflowComponents.run_status_badge/1, status: "failed")
       assert html =~ "failed"
-      assert html =~ "red"
+      assert html =~ "zaq-pill--danger"
     end
 
-    test "renders 'running' with blue CSS class" do
+    test "renders 'running' with accent pill and pulse" do
       html = render_component(&WorkflowComponents.run_status_badge/1, status: "running")
       assert html =~ "running"
-      assert html =~ "blue"
+      assert html =~ "zaq-pill--accent"
+      assert html =~ "zaq-pill--pulse"
     end
 
-    test "renders unknown status with muted CSS class (default)" do
+    test "renders pending status with elevated pill" do
       html = render_component(&WorkflowComponents.run_status_badge/1, status: "pending")
       assert html =~ "pending"
-      assert html =~ "bg-black/5"
+      assert html =~ "zaq-pill--elevated"
     end
 
-    test "renders interrupted status with yellow CSS class" do
+    test "renders interrupted status with warning pill" do
       html = render_component(&WorkflowComponents.run_status_badge/1, status: "interrupted")
       assert html =~ "interrupted"
-      assert html =~ "yellow"
+      assert html =~ "zaq-pill--warning"
     end
   end
 
@@ -575,22 +576,22 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
   # ---------------------------------------------------------------------------
 
   describe "run_status_badge/1 — additional statuses" do
-    test "renders 'waiting' with amber CSS class" do
+    test "renders 'waiting' with warning pill" do
       html = render_component(&WorkflowComponents.run_status_badge/1, status: "waiting")
       assert html =~ "waiting"
-      assert html =~ "amber"
+      assert html =~ "zaq-pill--warning"
     end
 
-    test "renders 'cancelled' with orange CSS class" do
+    test "renders 'cancelled' with elevated pill" do
       html = render_component(&WorkflowComponents.run_status_badge/1, status: "cancelled")
       assert html =~ "cancelled"
-      assert html =~ "orange"
+      assert html =~ "zaq-pill--elevated"
     end
 
-    test "renders 'paused' with muted CSS class" do
+    test "renders 'paused' with elevated pill" do
       html = render_component(&WorkflowComponents.run_status_badge/1, status: "paused")
       assert html =~ "paused"
-      assert html =~ "bg-black/5"
+      assert html =~ "zaq-pill--elevated"
     end
   end
 

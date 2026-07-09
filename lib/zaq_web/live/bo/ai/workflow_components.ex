@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   use Phoenix.Component
 
   alias Phoenix.LiveView.JS
+  alias ZaqWeb.Components.DesignSystem.StatusPill
   alias ZaqWeb.Live.BO.AI.WorkflowResultHelpers
 
   @doc "Status pill for a workflow (draft/active/archived)."
@@ -14,10 +15,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   def workflow_status_badge(assigns) do
     ~H"""
-    <span class={[
-      "font-mono text-[0.7rem] px-2 py-0.5 rounded",
-      status_class(@status)
-    ]}>
+    <span class={StatusPill.status_pill_classes(@status)}>
       {@status}
     </span>
     """
@@ -28,10 +26,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   def run_status_badge(assigns) do
     ~H"""
-    <span class={[
-      "font-mono text-[0.7rem] px-2 py-0.5 rounded",
-      run_status_class(@status)
-    ]}>
+    <span class={
+      StatusPill.status_pill_classes(@status) ++
+        if(@status == "running", do: ~w(zaq-pill--pulse), else: [])
+    }>
       {@status}
     </span>
     """
@@ -1107,20 +1105,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp trigger_label("scheduler"), do: "Scheduled trigger"
   defp trigger_label("signal"), do: "Signal trigger"
   defp trigger_label(_), do: "Trigger"
-
-  defp status_class("active"), do: "bg-emerald-100 text-emerald-700"
-  defp status_class("archived"), do: "bg-black/5 text-black/30"
-  defp status_class(_), do: "bg-amber-100 text-amber-700"
-
-  defp run_status_class("completed"), do: "bg-emerald-100 text-emerald-700"
-  defp run_status_class("incomplete"), do: "bg-amber-100 text-amber-800"
-  defp run_status_class("failed"), do: "bg-red-100 text-red-600"
-  defp run_status_class("running"), do: "bg-blue-100 text-blue-600"
-  defp run_status_class("waiting"), do: "bg-amber-100 text-amber-700"
-  defp run_status_class("cancelled"), do: "bg-orange-100 text-orange-600"
-  defp run_status_class("paused"), do: "bg-black/5 text-black/50"
-  defp run_status_class("interrupted"), do: "bg-yellow-100 text-yellow-700"
-  defp run_status_class(_), do: "bg-black/5 text-black/40"
 
   defp log_event_class(event) when event in ["step_failed", "chunk_error", "item_error"],
     do: "text-red-600"
