@@ -609,6 +609,41 @@ defmodule Zaq.Agent.ServerManagerTest do
              )
   end
 
+  test "handle_call ensure_server clears stale drain before returning an error" do
+    configured_agent = %ConfiguredAgent{
+      id: 123_456_789,
+      name: "Stale Drain Error Agent",
+      job: "job",
+      model: "gpt-4.1-mini",
+      credential: %{provider: "provider_not_found_zaq"},
+      credential_id: nil,
+      strategy: "react",
+      enabled_tool_keys: [],
+      conversation_enabled: false,
+      active: true,
+      advanced_options: %{}
+    }
+
+    server_id = "configured_agent_123456789"
+
+    state = %{
+      fingerprints: %{},
+      agent_servers: %{},
+      server_to_agent: %{},
+      draining: %{server_id => make_ref()},
+      monitors: %{}
+    }
+
+    assert {:reply, {:error, :provider_not_found}, next_state} =
+             ServerManager.handle_call(
+               {:ensure_server, configured_agent, server_id},
+               self(),
+               state
+             )
+
+    assert next_state.draining == %{}
+  end
+
   test "handle_call stop_server/3 untracks only the matching stopped server" do
     configured_agent = %ConfiguredAgent{id: 123_457}
     target_server_id = "configured_agent_123457:target"
@@ -701,6 +736,44 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:noreply, ^state} =
              ServerManager.handle_info({:force_stop_server, server_id, make_ref()}, state)
+  end
+
+  test "handle_call sync_runtime untracks stale server ids" do
+    configured_agent = %ConfiguredAgent{
+      id: 123_460_001,
+      model: "gpt-4.1-mini",
+      credential_id: 1,
+      strategy: "react",
+      advanced_options: %{},
+      active: true
+    }
+
+    server_id = "configured_agent_123460001:stale"
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{configured_agent.id => MapSet.new([server_id])},
+      server_to_agent: %{server_id => configured_agent.id},
+      draining: %{},
+      monitors: %{}
+    }
+
+    assert {:reply,
+            {:ok,
+             %{
+               runtime: %{strategy: :stopped_pending_lazy_restart},
+               synced_servers: [],
+               stopped_server_ids: []
+             }}, next_state} =
+             ServerManager.handle_call({:sync_runtime, configured_agent}, self(), state)
+
+    assert next_state == %{
+             fingerprints: %{},
+             agent_servers: %{},
+             server_to_agent: %{},
+             draining: %{},
+             monitors: %{}
+           }
   end
 
   test "handle_info force_stop_server kills a registered process not owned by the supervisor" do

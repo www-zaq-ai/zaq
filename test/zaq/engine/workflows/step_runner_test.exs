@@ -113,10 +113,20 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       run = create_run()
       dt = ~U[2026-07-08 12:57:29Z]
 
+      ndt = ~N[2026-07-08 12:57:29]
+      date = ~D[2026-07-08]
+      time = ~T[12:57:29]
+
       params =
         run
         |> wp(OkAction, "check_last_message_date", 0)
-        |> Map.put(:metadata, %{"total" => %{"last_message_date" => dt}})
+        |> Map.merge(%{
+          metadata: %{"total" => %{"last_message_date" => dt}},
+          scheduled_for: ndt,
+          due_on: date,
+          starts_at: time,
+          tuple_payload: {:ok, :queued}
+        })
 
       assert {:ok, _} = StepRunner.run(params, %{})
 
@@ -129,6 +139,10 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       # And that serialized form must round-trip through the date comparator used by
       # the `check_last_message_date` gate.
       assert {:ok, ^dt} = DateOperand.coerce_actual(serialized, "datetime")
+      assert ar.input["scheduled_for"] == "2026-07-08T12:57:29"
+      assert ar.input["due_on"] == "2026-07-08"
+      assert ar.input["starts_at"] == "12:57:29"
+      assert ar.input["tuple_payload"] == ["ok", "queued"]
     end
   end
 
@@ -302,6 +316,25 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       [ar] = Workflows.list_step_runs(run.id)
       assert ar.results["__cascade__"]["step_a"] == %{"value" => "from_a"}
       assert ar.results["__cascade__"]["step_b"] == %{"value" => "done"}
+    end
+
+    test "scalar action result is returned without cascade or map index injection" do
+      defmodule ScalarAction do
+        @moduledoc false
+        use Jido.Action, name: "scalar_action_aw", schema: []
+
+        def run(_params, _context), do: {:ok, "scalar-result"}
+      end
+
+      run = create_run()
+
+      params =
+        run
+        |> wp(ScalarAction, "scalar_step", 1)
+        |> Map.put(:__cascade__, %{"previous" => %{value: "done"}})
+        |> Map.put(:__map_index__, 7)
+
+      assert {:ok, "scalar-result"} = StepRunner.run(params, %{})
     end
 
     test "wrapped module never sees __cascade__ in its params" do

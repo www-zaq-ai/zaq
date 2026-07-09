@@ -19,23 +19,18 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
 
   DAG (linear):
     ensure_person
-      → build_subject            ← Workflow.Concat — per-lead CONVERSATION NAME
-                                    ("…company brain - <Company>"). Drives the history
-                                    query AND the persisted conversation name/routing —
-                                    NOT the email subject (the agent writes that).
       → build_history            ← History — the ensured lead's own conversation,
-                                    matched by person_id AND the conversation name (query)
+                                    matched by person_id AND the email topic
+                                    (query = start.email topic, search_in: title)
       → check_last_message_date  ← Workflow.Condition — recency gate; proceeds only
                                     when the last message is nil or older than 3 days
                                     (on_fail: continue → routes on `passed`)
       → build_agent_context      ← Workflow.Concat (list mode) — seeds an agent
                                     message array: a system turn + prior history
-      → draft_email              ← RunAgent(agent_id) — subject on line 1 + body,
+      → draft_email              ← RunAgent(agent_id) — writes the email BODY,
                                     seeded with `context` from build_agent_context.list
       → review_email             (human-in-the-loop)
-      → split_draft              ← Workflow.Split — split the draft on the first newline
-                                    into `before` (subject) + `after` (body)
-      → send_email               ← NotifyPerson (agent's own subject + body)
+      → send_email               ← NotifyPerson — subject = start.email topic + agent body
       → update_history           ← PersistMessageHistory — records the sent message
       → increment_email_state    ← Workflow.Increment — bumps the sequence counter
       → build_range              ← Workflow.Concat — concatenates the A1 range string
@@ -57,6 +52,7 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
       "company"                 => "Acme Corp",
       "language"                => "french" | "english", # → start.language (email language)
       "company context content" => "…company summary…",  # → start.company context content
+      "email topic"             => "…subject…",  # → start.email topic (subject/history query/topic)
       "sequence"                => 2,        # current sequence counter  → start.sequence
       "row_index"               => 5         # 1-based sheet row number   → start.row_index
     }
@@ -74,7 +70,6 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   @condition_module "Zaq.Agent.Tools.Workflow.Condition"
   @concat_module "Zaq.Agent.Tools.Workflow.Concat"
   @draft_email_module "Zaq.Agent.Tools.Workflow.RunAgent"
-  @split_module "Zaq.Agent.Tools.Workflow.Split"
   @human_in_the_loop_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
   @send_email_module "Zaq.Agent.Tools.People.NotifyPerson"
   @persist_history_module "Zaq.Agent.Tools.Conversations.PersistMessageHistory"
@@ -84,7 +79,14 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
   @sheet_id "1omtYyzwy8xrkW2Mi-AU76DsRIOoC1xqNFFPAz2uR-nI"
   @event_name "craft_email"
 
-  @draft_email_prompt ~s|Write an outreach email for {{name}} at {{company}}. Write the ENTIRE email — both the subject and the body — in {{language}} (the lead's language). Use the company context and the list of relevant value added ZAQ can have for this company to select the most relevent one and entice the person to book a meeting with me (Julien at ZAQ). Also check the previous messages sent to not repeat yourself and instead use a different angle that can convince the person of the added value ZAQ can have for them. FORMAT: put the email SUBJECT on the FIRST line by itself — a short, specific line, and do NOT prefix it with "Subject:". Then the email body on the following lines, ending with the sign-off "Julien, ZAQ".|
+  # Fallback email subject. The real per-lead subject comes from the trigger row as
+  # `start.email topic`, delivered via edge mappings to the history lookup query
+  # (search_in: title), the sent email subject, and the persisted conversation topic —
+  # so every message for a lead lands in the same thread. This literal is only used if
+  # the row carries no `email topic`.
+  @email_subject "Your team's AI-powered company brain"
+
+  @draft_email_prompt ~s|Write an outreach email for {{name}} at {{company}}. Write the ENTIRE email body in {{language}} (the lead's language). Use the company context and the list of relevant value added ZAQ can have for this company to select the most relevent one and entice the person to book a meeting with me (Julien at ZAQ). Also check the previous messages sent to not repeat yourself and instead use a different angle that can convince the person of the added value ZAQ can have for them. Write only the email body (no subject line), ending with the sign-off "Julien, ZAQ".|
 
   @doc """
   Creates the workflow and wires it to the `craft_email` trigger.
@@ -120,28 +122,16 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           params: %{"platform" => "email"},
           index: 0
         },
-        # Build the per-lead CONVERSATION NAME up front (NOT the email subject — the
-        # agent writes that). It drives BOTH the history lookup (find this lead's own
-        # conversation by its unique title) and, later, the persisted conversation's
-        # name/routing (via `topic` on update_history). Email conversations are keyed
-        # by topic/subject (email:imap), so a per-company name keeps each lead's thread
-        # separate. The actual email subject is the agent's own (see split_draft).
-        %{
-          name: "build_subject",
-          type: "action",
-          module: @concat_module,
-          params: %{"parts" => ["Your team's AI-powered company brain - {{company}}"]},
-          index: 1
-        },
         %{
           name: "build_history",
           type: "action",
           module: @build_history_module,
-          # `query` is overridden per-lead by the incoming edge (build_subject.result);
-          # this static value is only a fallback. search_in: title matches the
-          # conversation whose title is the built subject.
-          params: %{"query" => "Your team's AI-powered company brain", "search_in" => "title"},
-          index: 2
+          # The email topic is the history query: search_in: title matches this lead's
+          # conversation (all its messages share the same subject/title). The per-lead
+          # value is delivered by the incoming edge (`start.email topic`); this static
+          # `query` is only a fallback.
+          params: %{"query" => @email_subject, "search_in" => "title"},
+          index: 1
         },
         %{
           name: "check_last_message_date",
@@ -161,11 +151,11 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
                 "key" => "total.last_message_date",
                 "type" => "datetime",
                 "op" => "gte",
-                "value" => %{"from" => "today", "minutes" => -30}
+                "value" => %{"from" => "now", "minutes" => -5}
               }
             ]
           },
-          index: 3
+          index: 2
         },
         %{
           name: "build_agent_context",
@@ -177,73 +167,64 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
               # value-add list) dispatched by GenerateCompanyContext — the agent's
               # primary source for the email. Seeded as a `user` turn so the model
               # reads it as provided grounding material, not something it "said".
-              [%{"role" => "user", "content" => "{{start.company context content}}"}],
+              [%{"role" => "assistant", "content" => "{{start.company context content}}"}],
               "{{build_history.messages}}"
             ]
           },
-          index: 4
+          index: 3
         },
         %{
           name: "draft_email",
           type: "action",
           module: @draft_email_module,
           params: %{"agent_id" => agent_id, "input" => @draft_email_prompt},
-          index: 5
+          index: 4
         },
         %{
           name: "review_email",
           type: "action",
           module: @human_in_the_loop_module,
           params: %{"message" => "Review and approve the drafted lead email before sending."},
-          index: 6
-        },
-        # Split the agent's draft into subject + body. The agent writes the subject on
-        # the first line and the body after, so splitting on the first newline yields
-        # `before` (the email subject) and `after` (the body). This keeps the agent's
-        # own subject on the email header instead of buried inside the body.
-        %{
-          name: "split_draft",
-          type: "action",
-          module: @split_module,
-          params: %{"separator" => "\n"},
-          index: 7
+          index: 5
         },
         %{
           name: "send_email",
           type: "action",
           module: @send_email_module,
-          # `subject` and `message` are supplied by the incoming edge (split_draft.before /
-          # split_draft.after). The static subject is only a fallback.
-          params: %{"subject" => "Your team's AI-powered company brain"},
-          index: 8
+          # `subject` (start.email topic) and `message` (draft_email.output, the agent's
+          # body) are supplied by the incoming edge. This static subject is only a fallback.
+          params: %{"subject" => @email_subject},
+          index: 6
         },
         %{
           name: "update_history",
           type: "action",
           module: @persist_history_module,
+          # `topic` (start.email topic) is supplied by the incoming edge, so every message
+          # for this lead lands in the same thread (email:imap keys by topic/subject).
           params: %{},
-          index: 9
+          index: 7
         },
         %{
           name: "increment_email_state",
           type: "action",
           module: @increment_module,
           params: %{},
-          index: 10
+          index: 8
         },
         %{
           name: "build_range",
           type: "action",
           module: @concat_module,
           params: %{"parts" => ["Sheet1!{{column}}{{row}}"], "column" => email_state_column},
-          index: 11
+          index: 9
         },
         %{
           name: "build_values",
           type: "action",
           module: @concat_module,
           params: %{"parts" => ["{{value}}"], "as_matrix" => true},
-          index: 12
+          index: 10
         },
         %{
           name: "update_sheet_row",
@@ -254,27 +235,21 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
             "provider" => provider,
             "value_input_option" => "USER_ENTERED"
           },
-          index: 13
+          index: 11
         }
       ],
       edges: [
-        # Only proceed once a person exists; build this lead's unique subject first.
-        %{
-          from: "ensure_person",
-          to: "build_subject",
-          condition: %{"field" => "person", "op" => "not_empty"},
-          mapping: %{"company" => "start.company official name"}
-        },
-        # Scope the history lookup to the lead just ensured AND to this lead's unique
-        # conversation title. On this machine run (skip_permissions) `History` honors
-        # the `person_id` param, and `query` (the per-lead subject) narrows to that
+        # Only proceed once a person exists. Scope the history lookup to the lead just
+        # ensured: on this machine run (skip_permissions) `History` honors the `person_id`
+        # param, and `query` (the email topic from `start.email topic`) narrows to that
         # lead's own conversation — so the recency gate reads the right thread.
         %{
-          from: "build_subject",
+          from: "ensure_person",
           to: "build_history",
+          condition: %{"field" => "person", "op" => "not_empty"},
           mapping: %{
             "person_id" => "ensure_person.person.id",
-            "query" => "build_subject.result"
+            "query" => "start.email topic"
           }
         },
         %{
@@ -305,33 +280,26 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
           to: "review_email",
           condition: %{"field" => "output", "op" => "not_empty"}
         },
-        # On approval, split the draft into subject + body...
+        # On approval, send with the email topic as subject (start.email topic) and the
+        # agent's drafted body (draft_email.output).
         %{
           from: "review_email",
-          to: "split_draft",
-          condition: %{"field" => "approved", "op" => "eq", "value" => true},
-          mapping: %{"text" => "draft_email.output"}
-        },
-        # ...then send with the agent's own subject (split_draft.before) and body
-        # (split_draft.after).
-        %{
-          from: "split_draft",
           to: "send_email",
+          condition: %{"field" => "approved", "op" => "eq", "value" => true},
           mapping: %{
-            "subject" => "split_draft.before",
-            "message" => "split_draft.after",
+            "subject" => "start.email topic",
+            "message" => "draft_email.output",
             "person" => "ensure_person.person"
           }
         },
-        # Persist under the per-lead conversation NAME (build_subject.result), not the
-        # agent's email subject: `topic` is what PersistMessageHistory uses to name and
-        # route the conversation (email:imap keys by topic before subject), so every
-        # message for this lead lands in its own "…company brain - <Company>" thread.
+        # Persist under the email topic (start.email topic) as the conversation `topic`,
+        # so every message for this lead lands in the same thread (email:imap keys by
+        # topic/subject).
         %{
           from: "send_email",
           to: "update_history",
           condition: %{"field" => "notified", "op" => "eq", "value" => true},
-          mapping: %{"person" => "ensure_person.person", "topic" => "build_subject.result"}
+          mapping: %{"person" => "ensure_person.person", "topic" => "start.email topic"}
         },
         %{
           from: "update_history",
