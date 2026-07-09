@@ -46,6 +46,8 @@
   /* ── semantics/colors/icon ───────────────────────────────────────────── */
   --zaq-icon-color-default: var(--zaq-color-black-200);
   --zaq-icon-color-accent: var(--zaq-color-blue-400);
+  --zaq-icon-color-danger:  var(--zaq-color-system-red);
+  --zaq-icon-color-success: var(--zaq-color-system-green);
 
   /* ── semantics/colors/loading ───────────────────────────────────────────── */
   --zaq-bg-loading-default: var(--zaq-gradient-neon);
