@@ -88,102 +88,16 @@
       detail_id="agents-detail-pane"
     >
       <:master>
-        <section class="rounded-xl border border-[#e6e2db] bg-white overflow-hidden">
-          <div class="flex items-center justify-between border-b border-[#efece6] px-4 py-3">
-            <h2 class="font-mono text-[0.72rem] uppercase tracking-widest text-[#7e7a73]">
-              Agents ({@total_agents})
-            </h2>
-          </div>
+        <div class="zaq-layout-stack-tight">
+          <h2
+            class="zaq-text-caption uppercase"
+            style="color: var(--zaq-text-color-body-tertiary)"
+          >
+            Agents ({@total_agents})
+          </h2>
 
-          <div class="overflow-x-auto">
-            <table class="min-w-full">
-              <thead class="bg-[#faf8f5]">
-                <tr>
-                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
-                    Name
-                  </th>
-                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
-                    Model
-                  </th>
-                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
-                    Credential
-                  </th>
-                  <th class="px-4 py-2 text-left font-mono text-[0.65rem] uppercase tracking-widest text-[#9d988f]">
-                    Conversation
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr :if={@agents == []}>
-                  <td
-                    colspan="4"
-                    class="px-4 py-8 text-center font-mono text-[0.7rem] text-[#a6a298]"
-                  >
-                    No agents found.
-                  </td>
-                </tr>
-                <tr
-                  :for={agent <- @agents}
-                  id={"agent-row-#{agent.id}"}
-                  phx-click="select_agent"
-                  phx-value-id={agent.id}
-                  class={[
-                    "border-t border-[#f0ede8] cursor-pointer",
-                    if(@selected_agent_id == agent.id,
-                      do: "bg-[#f0f9fb]",
-                      else: "hover:bg-[#faf8f5]"
-                    )
-                  ]}
-                >
-                  <td class="px-4 py-3">
-                    <div class="text-left">
-                      <p class="flex items-center gap-2 font-mono text-[0.75rem] text-[#3e3b36]">
-                        <span class={[
-                          "h-2 w-2 rounded-full",
-                          if(agent.active, do: "bg-emerald-500", else: "bg-red-500")
-                        ]} />
-                        {agent.name}
-                      </p>
-                      <p class="mt-0.5 font-mono text-[0.65rem] text-[#9d988f] line-clamp-1">
-                        {agent.description || "No description"}
-                      </p>
-                    </div>
-                  </td>
-                  <td class="px-4 py-3 font-mono text-[0.7rem] text-[#6e6a63]">{agent.model}</td>
-                  <td class="px-4 py-3">
-                    <div class="flex flex-col gap-1">
-                      <span class="font-mono text-[0.68rem] text-[#6e6a63]">
-                        {(agent.credential && agent.credential.provider) || "-"}
-                      </span>
-                      <span class={[
-                        "inline-flex w-fit rounded-md px-2 py-1 font-mono text-[0.6rem] uppercase tracking-wider",
-                        if(agent.credential && agent.credential.sovereign,
-                          do: "bg-[#e6f4ff] text-[#2a74b8]",
-                          else: "bg-[#f3f1ed] text-[#8d887f]"
-                        )
-                      ]}>
-                        {if agent.credential && agent.credential.sovereign,
-                          do: "Sovereign",
-                          else: "Standard"}
-                      </span>
-                    </div>
-                  </td>
-                  <td class="px-4 py-3">
-                    <span class={[
-                      "rounded-md px-2 py-1 font-mono text-[0.62rem] uppercase tracking-wider",
-                      if(agent.conversation_enabled,
-                        do: "bg-[#e8f9fd] text-[#0290a8]",
-                        else: "bg-[#f3f1ed] text-[#8d887f]"
-                      )
-                    ]}>
-                      {if agent.conversation_enabled, do: "Enabled", else: "Disabled"}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+          <.agents_table agents={@agents} selected_agent_id={@selected_agent_id} />
+        </div>
       </:master>
 
       <:detail>
