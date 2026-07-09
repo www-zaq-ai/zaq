@@ -8,8 +8,13 @@ defmodule Zaq.Addons.PostLoaderTest do
 
   setup do
     case GenServer.whereis(PostLoader) do
-      nil -> start_supervised!(PostLoader)
-      _pid -> :ok
+      nil ->
+        start_supervised!(PostLoader)
+
+      pid ->
+        # Under the full suite PostLoader may still be processing startup or
+        # casts from other tests; wait until idle before subscribing.
+        :sys.get_state(pid)
     end
 
     Phoenix.PubSub.subscribe(Zaq.PubSub, "addons:updated")
@@ -23,7 +28,7 @@ defmodule Zaq.Addons.PostLoaderTest do
   test "notify broadcasts license updated when no migrations are provided" do
     PostLoader.notify(%{"license_key" => "lic_no_migrations"}, [])
 
-    assert_receive :addons_updated
+    assert_receive :addons_updated, 5_000
   end
 
   test "notify still broadcasts when migration processing raises" do
@@ -32,7 +37,7 @@ defmodule Zaq.Addons.PostLoaderTest do
     log =
       capture_log(fn ->
         PostLoader.notify(%{"license_key" => "lic_with_bad_migration"}, migration_files)
-        assert_receive :addons_updated
+        assert_receive :addons_updated, 5_000
       end)
 
     assert log =~ "Migrations failed"
@@ -53,7 +58,7 @@ defmodule Zaq.Addons.PostLoaderTest do
 
     # Receiving :addons_updated confirms run_migrations/1 reached the success
     # path (line 141) without raising.
-    assert_receive :addons_updated
+    assert_receive :addons_updated, 5_000
   end
 
   # ---------------------------------------------------------------------------
@@ -70,7 +75,7 @@ defmodule Zaq.Addons.PostLoaderTest do
 
     PostLoader.notify(%{"license_key" => "lic_views"}, [], view_files)
 
-    assert_receive :addons_updated
+    assert_receive :addons_updated, 5_000
   end
 
   test "notify with invalid view file rescues and still broadcasts" do
@@ -80,7 +85,7 @@ defmodule Zaq.Addons.PostLoaderTest do
     log =
       capture_log(fn ->
         PostLoader.notify(%{"license_key" => "lic_bad_views"}, [], view_files)
-        assert_receive :addons_updated
+        assert_receive :addons_updated, 5_000
       end)
 
     assert log =~ "View compilation failed"
@@ -92,7 +97,7 @@ defmodule Zaq.Addons.PostLoaderTest do
 
     PostLoader.notify(%{"license_key" => "lic_txt_view"}, [], view_files)
 
-    assert_receive :addons_updated
+    assert_receive :addons_updated, 5_000
   end
 
   # ---------------------------------------------------------------------------
