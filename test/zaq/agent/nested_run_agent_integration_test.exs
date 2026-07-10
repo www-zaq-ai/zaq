@@ -18,6 +18,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
 
   import Zaq.SystemConfigFixtures
 
+  alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent
   alias Zaq.Agent.Executor
   alias Zaq.Agent.ServerManager
@@ -183,11 +184,13 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     Enum.filter(spawned_server_ids(), &String.starts_with?(&1, agent_name <> ":"))
   end
 
-  # Captures the %Incoming{} a `run_agent` dispatch carries (the `:run_pipeline`
-  # event), and returns a canned %Outgoing{} so the caller completes without a live
-  # target agent. Every other event (typing, status, the parent agent's own hops) is
-  # delegated to the real router so the surrounding flow behaves normally. The target
-  # pid comes from app env so it works regardless of which process dispatches.
+  # Captures the %Incoming{} and %Event{} a `run_agent` dispatch carries (the
+  # `:run_pipeline` event), and returns a canned %Outgoing{} so the caller completes
+  # without a live target agent. The event exposes the seeded `Jido.AI.Context` on
+  # `opts[:pipeline_opts][:context]`. Every other event (typing, status, the parent
+  # agent's own hops) is delegated to the real router so the surrounding flow behaves
+  # normally. The target pid comes from app env so it works regardless of which
+  # process dispatches.
   defmodule CaptureIncomingRouter do
     @moduledoc false
     alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -195,7 +198,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     def dispatch(%Zaq.Event{request: %Incoming{} = incoming, opts: opts} = event) do
       if Keyword.get(opts, :action) == :run_pipeline do
         pid = Application.get_env(:zaq, :run_agent_capture_pid)
-        if is_pid(pid), do: send(pid, {:captured_incoming, incoming})
+        if is_pid(pid), do: send(pid, {:captured_incoming, incoming, event})
 
         %{
           event
@@ -211,10 +214,10 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
 
   # Carrier-only (Issue 1): the `context` param must survive the REAL workflow seam
   # — schema validation of a `{:list, :map}` param, the JSONB round-trip, and
-  # StepRunner — and land normalised on `incoming.metadata[:context_messages]`.
-  # Feeding those turns to the LLM is Issue 2, so we intercept at the node router
-  # instead of running a live agent.
-  test "T1 carrier: run_agent node delivers normalised context turns onto the dispatched incoming" do
+  # StepRunner — and land as a normalised `Jido.AI.Context` on the dispatched event's
+  # `pipeline_opts[:context]`. Feeding those turns to the LLM is Issue 2, so we
+  # intercept at the node router instead of running a live agent.
+  test "T1 carrier: run_agent node delivers a normalised seeded context on the dispatched event" do
     # The router double is injected through the run's opts (StepRunner threads it
     # onto each step's context), not a global app-env seam. Only the capture pid —
     # benign test plumbing, not routing — rides app-env.
@@ -260,15 +263,15 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
 
     assert run.status == "completed"
 
-    assert_received {:captured_incoming, %Incoming{} = incoming}
+    assert_received {:captured_incoming, %Incoming{} = incoming, event}
 
     # Unknown-role entry dropped; the three valid turns are normalised in order,
     # with {{variable}} substitution applied to content.
     assert [
-             %{role: "user", content: "earlier question about world"},
-             %{role: "assistant", content: "earlier answer"},
-             %{role: "tool", content: "42", tool_call_id: "c1", name: "calc"}
-           ] = incoming.metadata[:context_messages]
+             %{role: :user, content: "earlier question about world"},
+             %{role: :assistant, content: "earlier answer"},
+             %{role: :tool, content: "42", tool_call_id: "c1", name: "calc"}
+           ] = AIContext.to_messages(event.opts[:pipeline_opts][:context])
 
     # The run's own user message is still substituted independently of the turns.
     assert incoming.content == "hello world"
@@ -345,11 +348,11 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
   end
 
   # Carrier through the agent-tool-call seam (Issue 1): when Agent X's LLM calls
-  # `run_agent(Y)` WITH a `context` argument, those turns must be normalised and
-  # carried onto the %Incoming{} dispatched to Y. We intercept the run_agent
-  # dispatch (Y never runs) and assert Y's incoming metadata; consuming the turns
-  # is Issue 2.
-  test "T2 carrier: agent(X)'s run_agent tool call carries context onto agent(Y)'s incoming" do
+  # `run_agent(Y)` WITH a `context` argument, those turns must be normalised into the
+  # `Jido.AI.Context` carried on the event dispatched to Y. We intercept the run_agent
+  # dispatch (Y never runs) and assert the seeded context; consuming the turns is
+  # Issue 2.
+  test "T2 carrier: agent(X)'s run_agent tool call carries a seeded context toward agent(Y)" do
     y_id_ref = :atomics.new(1, [])
 
     {child_spec, endpoint} =
@@ -383,16 +386,16 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     assert outgoing.metadata.error == false
     assert outgoing.body =~ "X_FINAL_OK"
 
-    assert_received {:captured_incoming, %Incoming{} = y_incoming}
+    assert_received {:captured_incoming, %Incoming{} = _y_incoming, event}
 
     assert [
-             %{role: "user", content: "earlier user turn"},
+             %{role: :user, content: "earlier user turn"},
              %{
-               role: "tool",
+               role: :tool,
                content: "earlier tool output",
                tool_call_id: "t1",
                name: "lookup"
              }
-           ] = y_incoming.metadata[:context_messages]
+           ] = AIContext.to_messages(event.opts[:pipeline_opts][:context])
   end
 end

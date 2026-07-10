@@ -6,8 +6,8 @@ defmodule Zaq.Engine.Workflows.HistorySeedsRunAgentTest do
        `search_in: "title"`, and emits a flattened `messages` field in the unified
        `role`/`content` vocabulary.
     2. An edge `mapping` wires that `messages` list into `run_agent`'s `context`.
-    3. `run_agent` normalises those `role`/`content` turns and carries them onto the
-       dispatched `%Incoming{}` as `metadata.context_messages` — the agent's seed
+    3. `run_agent` normalises those `role`/`content` turns into a `Jido.AI.Context`
+       carried on the dispatched event's `pipeline_opts[:context]` — the agent's seed
        context.
 
   The run is a machine run (`skip_permissions`), so `build_history` searches across
@@ -24,14 +24,16 @@ defmodule Zaq.Engine.Workflows.HistorySeedsRunAgentTest do
   import Ecto.Query
   import Mox
 
+  alias Jido.AI.Context, as: AIContext
   alias Zaq.Accounts.People
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.Workflows
 
-  # Intercepts run_agent's `:run_pipeline` dispatch, forwards the carried
-  # %Incoming{} to the test, and returns a canned %Outgoing{} so the run completes
-  # without a live agent. Any other event is delegated to the real router.
+  # Intercepts run_agent's `:run_pipeline` dispatch, forwards the carried %Event{} to
+  # the test (the seeded `Jido.AI.Context` rides on `opts[:pipeline_opts][:context]`),
+  # and returns a canned %Outgoing{} so the run completes without a live agent. Any
+  # other event is delegated to the real router.
   defmodule CaptureIncomingRouter do
     @moduledoc false
     alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -39,7 +41,7 @@ defmodule Zaq.Engine.Workflows.HistorySeedsRunAgentTest do
     def dispatch(%Zaq.Event{request: %Incoming{} = incoming, opts: opts} = event) do
       if Keyword.get(opts, :action) == :run_pipeline do
         pid = Application.get_env(:zaq, :history_seeds_capture_pid)
-        if is_pid(pid), do: send(pid, {:captured_incoming, incoming})
+        if is_pid(pid), do: send(pid, {:captured_event, event})
 
         %{
           event
@@ -149,17 +151,18 @@ defmodule Zaq.Engine.Workflows.HistorySeedsRunAgentTest do
 
     assert run.status == "completed"
 
-    assert_received {:captured_incoming, incoming}
+    assert_received {:captured_event, event}
+    seeded = AIContext.to_messages(event.opts[:pipeline_opts][:context])
 
     # Only the two title-matched conversations' messages reach the agent, in
     # chronological order, as unified role/content turns.
     assert [
-             %{role: "user", content: "let us launch Falcon"},
-             %{role: "assistant", content: "Falcon shipped well"}
-           ] = incoming.metadata[:context_messages]
+             %{role: :user, content: "let us launch Falcon"},
+             %{role: :assistant, content: "Falcon shipped well"}
+           ] = seeded
 
     # The standup conversation (no "Falcon" in its title) is never seeded.
-    contents = Enum.map(incoming.metadata[:context_messages], & &1.content)
+    contents = Enum.map(seeded, & &1.content)
     refute "daily standup notes" in contents
   end
 end

@@ -150,6 +150,7 @@ defmodule Zaq.Agent.Executor do
   - `:system_prompt` — override the agent's `job` field for this run only
   - `:person_id` — passed into the retrieval context for permission scoping
   - `:team_ids` — list of team IDs passed into the retrieval context
+  - `:context` — a pre-built `Jido.AI.Context` used as the agent's cold-start context (e.g. `RunAgent`'s step turns); when present the server spawns with it and skips history loading. Only consumed on cold start
   - `:event` — the dispatching `%Zaq.Event{}`; its `actor` is exposed to tools via the tool context
   - `:agent_module`, `:server_manager_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
   """
@@ -175,7 +176,7 @@ defmodule Zaq.Agent.Executor do
       with {:ok, configured_agent} <- selected_agent_result,
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
            {:ok, server_id} <-
-             ensure_agent_server(server_manager_module, configured_agent, opts, incoming),
+             ensure_agent_server(server_manager_module, configured_agent, opts),
            _ <-
              Event.new(
                %{provider: incoming.provider, channel_id: incoming.channel_id},
@@ -287,19 +288,10 @@ defmodule Zaq.Agent.Executor do
     :ok
   end
 
-  defp ensure_agent_server(server_manager_module, configured_agent, opts, incoming) do
+  defp ensure_agent_server(server_manager_module, configured_agent, opts) do
     server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
-    server_manager_module.ensure_server(configured_agent, server_id, context_messages(incoming))
+    server_manager_module.ensure_server(configured_agent, server_id, Keyword.get(opts, :context))
   end
-
-  # Prior turns a caller seeded onto the incoming (e.g. `RunAgent`'s `context`
-  # param, carried on `metadata.context_messages`). They hydrate the agent's
-  # initial context on cold start; absent/blank metadata yields no seeding.
-  defp context_messages(%Incoming{metadata: %{context_messages: messages}})
-       when is_list(messages),
-       do: messages
-
-  defp context_messages(_incoming), do: []
 
   defp load_selected_agent(opts, agent_module, _factory_module) do
     answering_module = Keyword.get(opts, :answering_module, Answering)

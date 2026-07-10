@@ -4,6 +4,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
   import Zaq.SystemConfigFixtures
 
+  alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent
   alias Zaq.Agent.Tools.Workflow.RunAgent
 
@@ -113,6 +114,18 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
   end
 
   defp ok_ctx(extra \\ %{}), do: @ctx |> Map.put(:node_router, OkRouter) |> Map.merge(extra)
+
+  # RunAgent builds the seed turns into a `Jido.AI.Context` carried on the event's
+  # `pipeline_opts[:context]` (nil when none). These read it back as messages
+  # (atom roles, chronological) for assertions.
+  defp seeded_context(event), do: event.opts[:pipeline_opts][:context]
+
+  defp seeded_messages(event) do
+    case seeded_context(event) do
+      %AIContext{} = ctx -> AIContext.to_messages(ctx)
+      other -> other
+    end
+  end
 
   defp stringify_keys(map) when is_map(map),
     do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
@@ -581,8 +594,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     end
   end
 
-  describe "run/2 — context messages" do
-    test "carries normalised context turns on the incoming metadata, order preserved" do
+  describe "run/2 — context (seeded AIContext)" do
+    test "builds normalised context turns into the seeded AIContext, order preserved" do
       agent = create_agent()
 
       RunAgent.run(
@@ -601,10 +614,10 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert_received {:dispatched, event}
 
       assert [
-               %{role: "user", content: "first"},
-               %{role: "assistant", content: "second"},
-               %{role: "tool", content: "third"}
-             ] = event.request.metadata[:context_messages]
+               %{role: :user, content: "first"},
+               %{role: :assistant, content: "second"},
+               %{role: :tool, content: "third"}
+             ] = seeded_messages(event)
     end
 
     test "preserves tool_calls on an assistant turn" do
@@ -621,8 +634,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       )
 
       assert_received {:dispatched, event}
-      assert [turn] = event.request.metadata[:context_messages]
-      assert turn.role == "assistant"
+      assert [turn] = seeded_messages(event)
+      assert turn.role == :assistant
       assert turn.tool_calls == tool_calls
     end
 
@@ -639,8 +652,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       )
 
       assert_received {:dispatched, event}
-      assert [turn] = event.request.metadata[:context_messages]
-      assert turn.role == "tool"
+      assert [turn] = seeded_messages(event)
+      assert turn.role == :tool
       assert turn.content == "42"
       assert turn.tool_call_id == "call_1"
       assert turn.name == "search"
@@ -660,8 +673,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
 
-      assert [%{role: "user", content: "hello"}] =
-               event.request.metadata[:context_messages]
+      assert [%{role: :user, content: "hello"}] = seeded_messages(event)
     end
 
     test "accepts an atom-valued role" do
@@ -673,7 +685,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       )
 
       assert_received {:dispatched, event}
-      assert [%{role: "user", content: "hi"}] = event.request.metadata[:context_messages]
+      assert [%{role: :user, content: "hi"}] = seeded_messages(event)
     end
 
     test "substitutes {{variable}} inside context turn content" do
@@ -691,7 +703,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       )
 
       assert_received {:dispatched, event}
-      assert [%{content: "Hi Alice from Acme"}] = event.request.metadata[:context_messages]
+      assert [%{content: "Hi Alice from Acme"}] = seeded_messages(event)
     end
 
     test "drops entries with an unknown role but still dispatches the run" do
@@ -712,8 +724,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
 
-      assert [%{role: "user", content: "keep me"}] =
-               event.request.metadata[:context_messages]
+      assert [%{role: :user, content: "keep me"}] = seeded_messages(event)
     end
 
     test "drops non-map context entries" do
@@ -729,25 +740,25 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       )
 
       assert_received {:dispatched, event}
-      assert [%{content: "ok"}] = event.request.metadata[:context_messages]
+      assert [%{content: "ok"}] = seeded_messages(event)
     end
 
-    test "omits :context_messages from metadata when context is an empty list" do
+    test "sends no :context in pipeline_opts when context is an empty list" do
       agent = create_agent()
 
       RunAgent.run(%{agent_id: agent.id, input: "go", context: []}, ok_ctx())
 
       assert_received {:dispatched, event}
-      refute Map.has_key?(event.request.metadata, :context_messages)
+      assert seeded_context(event) == nil
     end
 
-    test "omits :context_messages from metadata when context is absent" do
+    test "sends no :context in pipeline_opts when context is absent" do
       agent = create_agent()
 
       RunAgent.run(%{agent_id: agent.id, input: "go"}, ok_ctx())
 
       assert_received {:dispatched, event}
-      refute Map.has_key?(event.request.metadata, :context_messages)
+      assert seeded_context(event) == nil
     end
 
     test "does not expose the context list as a {{context}} substitution var" do
@@ -784,14 +795,14 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert_received {:dispatched, event}
 
       assert [
-               %{role: "tool", content: "42"},
-               %{role: "user", content: content}
-             ] = event.request.metadata[:context_messages]
+               %{role: :tool, content: "42"},
+               %{role: :user, content: content}
+             ] = seeded_messages(event)
 
       assert content =~ "nested"
     end
 
-    test "sets optional turn fields to nil when absent" do
+    test "omits optional turn fields the round-trip does not carry when absent" do
       agent = create_agent()
 
       RunAgent.run(
@@ -808,13 +819,12 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
 
-      assert [
-               %{role: "assistant", content: "no tools", tool_calls: nil},
-               %{role: "tool", content: "result only", tool_call_id: nil, name: nil}
-             ] = event.request.metadata[:context_messages]
+      assert [assistant_turn, tool_turn] = seeded_messages(event)
+      assert assistant_turn == %{role: :assistant, content: "no tools"}
+      assert tool_turn == %{role: :tool, content: "result only", tool_call_id: nil, name: nil}
     end
 
-    test "wraps a single context map into a one-element list" do
+    test "wraps a single context map into a one-element seeded context" do
       agent = create_agent()
 
       RunAgent.run(
@@ -824,8 +834,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
 
-      assert [%{role: "user", content: "solo"}] =
-               event.request.metadata[:context_messages]
+      assert [%{role: :user, content: "solo"}] = seeded_messages(event)
     end
 
     test "keeps a turn whose content is missing or resolves to empty as an empty string" do
@@ -848,9 +857,9 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert_received {:dispatched, event}
 
       assert [
-               %{role: "user", content: ""},
-               %{role: "tool", content: ""}
-             ] = event.request.metadata[:context_messages]
+               %{role: :user, content: ""},
+               %{role: :tool, content: ""}
+             ] = seeded_messages(event)
     end
   end
 
@@ -938,8 +947,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
         RunAgent.run(%{agent_id: agent.id, input: "go", context: entries}, ok_ctx())
 
         assert_received {:dispatched, event}
-        messages = event.request.metadata[:context_messages] || []
-        assert Enum.map(messages, & &1.role) == roles
+        messages = seeded_messages(event) || []
+        assert Enum.map(messages, &to_string(&1.role)) == roles
       end
     end
 
@@ -963,12 +972,12 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
         RunAgent.run(%{agent_id: agent.id, input: "go", context: entries}, ok_ctx())
 
         assert_received {:dispatched, event}
-        got = event.request.metadata[:context_messages] || []
+        got = seeded_messages(event) || []
 
         expected_roles =
           specs |> Enum.map(&elem(&1, 0)) |> Enum.filter(&(&1 in @valid_roles))
 
-        assert Enum.map(got, & &1.role) == expected_roles
+        assert Enum.map(got, &to_string(&1.role)) == expected_roles
       end
     end
   end

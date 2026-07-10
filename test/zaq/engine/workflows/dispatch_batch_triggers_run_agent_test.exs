@@ -180,7 +180,10 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
 
     # The producer dispatched 8 events into the live router. The EventRegistry fires
     # them asynchronously on the TaskSupervisor, so wait for the 8 B runs to settle.
-    runs = wait_for_runs(workflow_b.id, @units, 30_000)
+    # Generous wall clock: this test runs under the shared Ecto sandbox, so all 8
+    # runs, their agent servers, the TriggerNode tasks, and this poller serialize
+    # through one connection — settling is slower under CI contention than locally.
+    runs = wait_for_runs(workflow_b.id, @units, 60_000)
 
     assert length(runs) == @units, "every dispatched event should create one run of B"
 
@@ -273,6 +276,14 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
 
   # Poll until `count` runs of the workflow have settled (completed/failed) or the
   # timeout elapses — the trigger path is fully async, so there is nothing to await.
+  #
+  # Poll interval is deliberately unhurried (250 ms): under the shared Ecto sandbox
+  # every query — including this poll — competes for the single owner connection with
+  # the 8 runs we are waiting on. A tight 50 ms poll starves those run writes and can
+  # trip a DBConnection queue timeout on a TriggerNode's create-run query, which would
+  # drop a run and manifest as a spurious "settled < count" timeout below.
+  @poll_interval_ms 250
+
   defp wait_for_runs(workflow_id, count, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
     do_wait_for_runs(workflow_id, count, deadline)
@@ -292,7 +303,7 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
         )
 
       true ->
-        Process.sleep(50)
+        Process.sleep(@poll_interval_ms)
         do_wait_for_runs(workflow_id, count, deadline)
     end
   end

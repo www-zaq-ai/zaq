@@ -49,9 +49,10 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     role/content vocabulary shared with `Zaq.Agent.History` / ReqLLM / Jido.AI, and
     the exact shape `Accounts.History` emits in its `messages` field. Role-specific
     extra keys: `"assistant"` may add `"tool_calls"`; `"tool"` may add
-    `"tool_call_id"` and `"name"` (see `normalize_context_entry/2`). Carried as data
-    on `metadata.context_messages` — **this tool only carries the turns**; the agent
-    layer (Executor/Factory) is responsible for injecting them into the run.
+    `"tool_call_id"` and `"name"` (see `normalize_context_entry/2`). This tool builds
+    the turns into a `Jido.AI.Context` (`build_context/2`) and passes it on the event's
+    `pipeline_opts[:context]`; `Factory.build_initial_context/3` uses it as the agent's
+    entire cold-start context (skipping history loading) when the server spawns.
   - `context_max_size` — optional positive integer. Token budget for the seeded
     context, overriding the agent's `memory_context_max_size` (default 5000) for
     this run. Carried as data on `metadata.context_max_size`; the budget is
@@ -109,6 +110,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   require Logger
 
+  alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.StreamEvents
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
@@ -134,12 +136,12 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     node_router = node_router(context)
     vars = build_vars(params)
     resolved_input = substitute(input, vars)
-    context_messages = build_context_messages(params, vars)
+    ai_context = build_context(params, vars)
     context_max_size = context_max_size(params)
 
     resolved_input
-    |> build_incoming(context, context_messages, context_max_size)
-    |> build_event(agent_id, context)
+    |> build_incoming(context, context_max_size)
+    |> build_event(agent_id, context, ai_context)
     |> node_router.dispatch()
     |> Map.get(:response)
     |> handle_response()
@@ -153,13 +155,13 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # metadata.run_id (and metadata.step_index) carry the run/step identity as data
   # only. The scope decision belongs to Executor.derive_scope/2, which maps them to
   # "workflow:run:<run_id>:step:<step_index>" — one isolated agent server per step.
-  defp build_incoming(content, context, context_messages, context_max_size) do
+  defp build_incoming(content, context, context_max_size) do
     %Incoming{
       content: content,
       channel_id: channel_id(context),
       author_id: author_id(context),
       provider: nil,
-      metadata: incoming_metadata(context, context_messages, context_max_size)
+      metadata: incoming_metadata(context, context_max_size)
     }
   end
 
@@ -168,10 +170,9 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # applies, and B != A by name). The step index lets `derive_scope/2` give each
   # `run_agent` step its own server (`"workflow:run:<run_id>:step:<step_index>"`), so
   # two run_agent steps in one run never contend on a shared server.
-  defp incoming_metadata(context, context_messages, context_max_size) do
+  defp incoming_metadata(context, context_max_size) do
     context
     |> run_markers()
-    |> maybe_put_context_messages(context_messages)
     |> maybe_put_context_max_size(context_max_size)
   end
 
@@ -181,13 +182,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
       run_id -> maybe_put_step_index(%{run_id: run_id}, context)
     end
   end
-
-  # Context turns ride on the incoming as data only; the agent layer decides how
-  # they enter a run (they never appear when the caller supplies none).
-  defp maybe_put_context_messages(metadata, []), do: metadata
-
-  defp maybe_put_context_messages(metadata, messages) when is_list(messages),
-    do: Map.put(metadata, :context_messages, messages)
 
   # Only a positive integer is carried; the agent layer resolves the effective
   # budget as `context_max_size || memory_context_max_size || 5000`.
@@ -222,17 +216,24 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     end
   end
 
-  defp build_event(incoming, agent_id, context) do
+  defp build_event(incoming, agent_id, context, ai_context) do
     incoming
     |> Event.new(:agent,
       opts: [
         action: :run_pipeline,
-        pipeline_opts: [skip_permissions: skip_permissions?(context)]
+        pipeline_opts: pipeline_opts(context, ai_context)
       ]
     )
     |> Map.put(:assigns, %{"agent_selection" => %{"agent_id" => agent_id}})
     |> maybe_put_actor(context_actor(context))
   end
+
+  # `:context` is only present when the caller supplied seed turns — its absence
+  # keeps the standard history-loading path in `Factory.build_initial_context/3`.
+  defp pipeline_opts(context, nil), do: [skip_permissions: skip_permissions?(context)]
+
+  defp pipeline_opts(context, %AIContext{} = ai_context),
+    do: [skip_permissions: skip_permissions?(context), context: ai_context]
 
   defp channel_id(context) do
     case run_id(context) do
@@ -300,13 +301,23 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     |> Map.put(:output, outgoing.body)
   end
 
+  # Build the optional `context` param into a `Jido.AI.Context`, or nil when the
+  # caller supplied none (so the agent falls back to normal history loading). The
+  # built context becomes the agent's entire cold-start context —
+  # `Factory.build_initial_context/3` uses it as-is — so it is assembled here rather
+  # than carried as loose maps for the agent layer to reassemble.
+  defp build_context(params, vars) do
+    case build_context_messages(params, vars) do
+      [] -> nil
+      messages -> AIContext.new() |> AIContext.append_messages(messages)
+    end
+  end
+
   # Normalise the optional `context` param into an ordered list of role-keyed turn
   # maps (`role: "user" | "assistant" | "tool"`) — the unified role/content
-  # vocabulary shared with `Zaq.Agent.History`, ReqLLM, and Jido.AI. This tool only
-  # carries them as data on the incoming — the agent layer (Executor/Factory) decides
-  # how they enter a run. `content` gets the same {{variable}} substitution as
-  # `input`; entries with an unsupported/missing role, or non-map entries, are dropped
-  # rather than failing the run.
+  # vocabulary shared with `Zaq.Agent.History`, ReqLLM, and Jido.AI. `content` gets
+  # the same {{variable}} substitution as `input`; entries with an unsupported/missing
+  # role, or non-map entries, are dropped rather than failing the run.
   defp build_context_messages(params, vars) do
     params
     |> fetch_param(:context, [])

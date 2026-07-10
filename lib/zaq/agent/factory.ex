@@ -101,34 +101,26 @@ defmodule Zaq.Agent.Factory do
   otherwise loads by `person_id` + normalized provider. Returns an empty context when
   `incoming` is `nil` or the relevant identifiers are absent.
 
-  `context_messages` are caller-supplied prior turns (e.g. `RunAgent`'s `context`
-  param, carried on `metadata.context_messages`) appended **after** any loaded
-  history. Each is a role/content map (`%{role: "user" | "assistant" | "tool",
-  content: ...}`) — the same vocabulary `Zaq.Agent.History` emits. This is the one
-  place the seeded turns actually enter a run: a per-step workflow scope loads no DB
-  history, so these become the agent's entire starting context.
+  When `context` is a pre-built `Jido.AI.Context` (e.g. `RunAgent` supplies the
+  step's turns via `opts[:context]`), it is used **as-is** and no history is loaded
+  — the caller has already assembled the agent's entire starting context. This is
+  exactly right for a per-step workflow scope, which would load no DB history anyway.
+  Otherwise (`nil`), history is loaded from the scope encoded in `server_id`.
   """
-  @spec build_initial_context(ConfiguredAgent.t(), String.t(), [map()]) :: AIContext.t()
-  def build_initial_context(
-        %ConfiguredAgent{} = configured_agent,
-        server_id,
-        context_messages \\ []
-      ) do
+  @spec build_initial_context(ConfiguredAgent.t(), String.t(), AIContext.t() | nil) ::
+          AIContext.t()
+  def build_initial_context(configured_agent, server_id, context \\ nil)
+
+  def build_initial_context(%ConfiguredAgent{}, _server_id, %AIContext{} = context), do: context
+
+  def build_initial_context(%ConfiguredAgent{} = configured_agent, server_id, _context) do
     spawn_opts = spawn_opts_from_server_id(server_id)
 
     HistoryLoader.load_context(
       spawn_opts,
       max_tokens: configured_agent.memory_context_max_size || 5_000
     )
-    |> seed_context(context_messages)
   end
-
-  # Append caller-seeded prior turns onto the loaded context. `append_messages/2`
-  # normalizes the role/content maps (string or atom roles) into context entries.
-  defp seed_context(context, []), do: context
-
-  defp seed_context(context, messages) when is_list(messages),
-    do: AIContext.append_messages(context, messages)
 
   def spawn_opts_from_server_id(server_id) when is_binary(server_id) do
     case String.split(server_id, ":") do

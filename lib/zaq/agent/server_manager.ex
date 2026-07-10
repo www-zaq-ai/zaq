@@ -37,6 +37,7 @@ defmodule Zaq.Agent.ServerManager do
 
   require Logger
 
+  alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.{ConfiguredAgent, Factory, ProviderSpec, RuntimeSync}
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
@@ -91,11 +92,11 @@ defmodule Zaq.Agent.ServerManager do
     GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
   end
 
-  @spec ensure_server(ConfiguredAgent.t(), String.t(), [map()]) ::
+  @spec ensure_server(ConfiguredAgent.t(), String.t(), AIContext.t() | nil) ::
           {:ok, GenServer.server()} | {:error, term()}
-  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, context_messages \\ [])
-      when is_binary(server_id) and is_list(context_messages) do
-    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, context_messages})
+  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, context \\ nil)
+      when is_binary(server_id) and (is_nil(context) or is_struct(context, AIContext)) do
+    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, context})
   end
 
   @spec stop_server(ConfiguredAgent.t()) :: :ok
@@ -115,24 +116,24 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   @impl true
-  # Backward-compatible 3-tuple form (no seeded context) — delegates to the
-  # 4-tuple clause with an empty context list.
+  # Backward-compatible 3-tuple form (no supplied context) — delegates to the
+  # 4-tuple clause with a nil context.
   def handle_call(
         {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id},
         from,
         state
       ) do
-    handle_call({:ensure_server, configured_agent, server_id, []}, from, state)
+    handle_call({:ensure_server, configured_agent, server_id, nil}, from, state)
   end
 
   def handle_call(
-        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id, context_messages},
+        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id, context},
         _from,
         state
       ) do
     state = clear_stale_drain(state, server_id)
 
-    case do_ensure_server(configured_agent, state, server_id, context_messages) do
+    case do_ensure_server(configured_agent, state, server_id, context) do
       {:ok, server_id, next_state} ->
         {:reply, {:ok, server_ref(server_id)}, next_state}
 
@@ -172,11 +173,11 @@ defmodule Zaq.Agent.ServerManager do
     {:reply, :ok, next_state}
   end
 
-  # `context_messages` (caller-seeded prior turns) are consumed only when a server
-  # is cold-started below — a warm/reused server keeps the context it spawned with.
-  # This is exactly right for `run_agent`: each step derives a unique per-step scope,
-  # so its first (and only) ask always cold-starts and seeds fresh.
-  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, context_messages) do
+  # A supplied `context` (caller-built `Jido.AI.Context`) is consumed only when a
+  # server is cold-started below — a warm/reused server keeps the context it spawned
+  # with. This is exactly right for `run_agent`: each step derives a unique per-step
+  # scope, so its first (and only) ask always cold-starts with the fresh context.
+  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, context) do
     fingerprint = fingerprint(configured_agent)
 
     case {Map.get(state.fingerprints, server_id), safe_whereis(server_id)} do
@@ -186,10 +187,10 @@ defmodule Zaq.Agent.ServerManager do
 
       {_previous, pid} when is_pid(pid) ->
         _ = stop_server_if_running(server_id)
-        start_server(configured_agent, server_id, state, fingerprint, context_messages)
+        start_server(configured_agent, server_id, state, fingerprint, context)
 
       _ ->
-        start_server(configured_agent, server_id, state, fingerprint, context_messages)
+        start_server(configured_agent, server_id, state, fingerprint, context)
     end
   end
 
@@ -198,9 +199,9 @@ defmodule Zaq.Agent.ServerManager do
          server_id,
          state,
          fingerprint,
-         context_messages
+         context
        ) do
-    case spawn_agent_server(configured_agent, server_id, context_messages) do
+    case spawn_agent_server(configured_agent, server_id, context) do
       :ok ->
         _ = hydrate_mcp_assignments(configured_agent, server_id)
 
@@ -244,14 +245,14 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, context_messages) do
+  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, context) do
     with {:ok, model_spec} <- ProviderSpec.build(configured_agent),
          {:ok, runtime_config} <- Factory.runtime_config(configured_agent) do
       spawn_server(server_id, configured_agent, %{
         model: model_spec,
         runtime_config: runtime_config,
         tool_context: %{configured_agent_id: configured_agent.id},
-        context: Factory.build_initial_context(configured_agent, server_id, context_messages)
+        context: Factory.build_initial_context(configured_agent, server_id, context)
       })
     end
   end

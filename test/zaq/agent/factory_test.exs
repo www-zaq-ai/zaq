@@ -538,25 +538,26 @@ defmodule Zaq.Agent.FactoryTest do
     assert AIContext.empty?(result)
   end
 
-  test "build_initial_context seeds caller-supplied context_messages onto an empty context" do
+  test "build_initial_context returns a supplied context as-is (skips history loading)" do
     configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
 
-    # A per-step workflow scope loads no DB history, so the seeded turns are the
-    # agent's entire starting context — this is where RunAgent's `context` lands.
-    context_messages = [
-      %{role: "user", content: "Company summary: Acme builds widgets."},
-      %{role: "assistant", content: "Understood."}
-    ]
+    # A per-step workflow scope loads no DB history; RunAgent supplies the agent's
+    # entire starting context pre-built, so Factory uses it verbatim.
+    context =
+      AIContext.new()
+      |> AIContext.append_messages([
+        %{role: "user", content: "Company summary: Acme builds widgets."},
+        %{role: "assistant", content: "Understood."}
+      ])
 
     result =
       Factory.build_initial_context(
         configured_agent,
         "agent:workflow:run:abc:step:4",
-        context_messages
+        context
       )
 
-    assert %AIContext{} = result
-    refute AIContext.empty?(result)
+    assert result == context
     assert AIContext.length(result) == 2
 
     messages = AIContext.to_messages(result)
@@ -564,10 +565,11 @@ defmodule Zaq.Agent.FactoryTest do
     assert Enum.any?(messages, &(&1.role == :assistant and &1.content =~ "Understood"))
   end
 
-  test "build_initial_context with no context_messages stays empty (backward compatible)" do
+  test "build_initial_context with nil context loads history (empty for a per-step scope)" do
     configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
 
-    result = Factory.build_initial_context(configured_agent, "agent:workflow:run:abc:step:4", [])
+    result =
+      Factory.build_initial_context(configured_agent, "agent:workflow:run:abc:step:4", nil)
 
     assert %AIContext{} = result
     assert AIContext.empty?(result)
