@@ -15,7 +15,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.System
-  alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
 
   @impl true
   def mount(_params, _session, socket) do
