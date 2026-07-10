@@ -44,6 +44,14 @@ defmodule Zaq.Agent.ErrorMessageTest do
                "The selected AI provider is not supported. Please check your agent configuration."
     end
 
+    test "maps incomplete provider responses to temporarily unavailable" do
+      assert ErrorMessage.from_reason({:incomplete_response, :incomplete}) ==
+               "The AI service is temporarily unavailable."
+
+      assert ErrorMessage.from_reason({:failed, :error, {:incomplete_response, :error}}) ==
+               "The AI service is temporarily unavailable."
+    end
+
     test "surfaces reason from ReqLLM API request errors (e.g. LiteLLM budget exceeded)" do
       error = %ReqLLM.Error.API.Request{reason: "Budget has been exceeded.", status: 429}
 
