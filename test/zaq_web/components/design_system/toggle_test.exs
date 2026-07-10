@@ -21,6 +21,7 @@ defmodule ZaqWeb.Components.DesignSystem.ToggleTest do
     assert html =~ "phx-value-mode=\"list\""
     assert html =~ "phx-value-mode=\"grid\""
     assert html =~ "zaq-toggle-segment--active"
+    assert html =~ "zaq-text-body"
     assert html =~ "hero-bars-3"
     assert html =~ ~s(aria-label="List view")
     refute html =~ "zaq-toggle-segment--with-label"
