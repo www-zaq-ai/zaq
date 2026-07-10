@@ -126,7 +126,7 @@
   padding: var(--zaq-scale-10) var(--zaq-scale-16);
   margin-bottom: var(--zaq-scale-12);
   border-radius: var(--zaq-card-radius-default);
-  background: var(--zaq-surface-color-base);
+  background: var(--zaq-surface-color-raised);
   border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
 }
 
@@ -142,7 +142,6 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--zaq-scale-12) var(--zaq-scale-20);
-  background: var(--zaq-surface-color-raised);
 }
 
 /* ── File name: open preview (default → accent on hover) ─ */

@@ -60,12 +60,21 @@ defmodule ZaqWeb.Live.BO.System.PeopleTable do
           <.table_cell>
             <.table_media>
               <:icon>
-                <div class="w-9 h-9 rounded-lg zaq-bg-ink-soft grid place-items-center flex-shrink-0 font-mono text-sm font-bold zaq-text-ink-soft">
+                <span
+                  class="zaq-text-h3 grid place-items-center shrink-0"
+                  style={
+                    "width: var(--zaq-scale-40); height: var(--zaq-scale-40); " <>
+                      "border-radius: var(--zaq-scale-8); " <>
+                      "background-color: var(--zaq-surface-color-accent); " <>
+                      "color: var(--zaq-text-color-body-secondary); " <>
+                      "font-weight: var(--zaq-font-weight-semibold);"
+                  }
+                >
                   {String.first(person.full_name) |> String.upcase()}
-                </div>
+                </span>
               </:icon>
               <div class="min-w-0">
-                <.table_text label={person.full_name} tone={:mono} />
+                <.table_text label={person.full_name} />
                 <.table_text
                   :if={person.role}
                   label={person.role}

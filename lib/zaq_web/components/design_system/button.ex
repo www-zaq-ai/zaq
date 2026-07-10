@@ -62,7 +62,7 @@ defmodule ZaqWeb.Components.DesignSystem.Button do
 
   attr :rest, :global,
     include:
-      ~w(disabled id phx-click phx-value-id phx-value-page phx-value-workflow_id phx-value-predefined_id title aria-label data-testid data-confirm name value form)
+      ~w(disabled id phx-click phx-value-action phx-value-entity phx-value-id phx-value-page phx-value-workflow_id phx-value-predefined_id title aria-label data-testid data-confirm name value form)
 
   slot :inner_block
 
