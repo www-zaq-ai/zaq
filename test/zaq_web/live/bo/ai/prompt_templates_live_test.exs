@@ -129,6 +129,94 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLiveTest do
     assert PromptTemplate.get_by_slug("") == nil
   end
 
+  test "validate updates new-template form without persisting", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/prompt-templates")
+
+    view
+    |> element("#prompt-tab-new")
+    |> render_click()
+
+    html =
+      view
+      |> form("#prompt-template-create-form",
+        prompt_template: %{
+          slug: "draft_validate",
+          name: "Draft Validate",
+          description: "draft",
+          body: "Draft body"
+        }
+      )
+      |> render_change()
+
+    assert html =~ "draft_validate"
+    assert html =~ "Draft Validate"
+    assert PromptTemplate.get_by_slug("draft_validate") == nil
+  end
+
+  test "validate updates existing-template form without saving", %{conn: conn} do
+    {:ok, template} =
+      PromptTemplate.create(%{
+        slug: "lane6_validate",
+        name: "Lane 6 Validate",
+        description: "before",
+        body: "old body",
+        active: true
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/prompt-templates")
+
+    view
+    |> element("button[phx-click='switch_tab'][phx-value-id='#{template.id}']")
+    |> render_click()
+
+    html =
+      view
+      |> form("#prompt-template-edit-form-#{template.id}",
+        prompt_template: %{
+          id: template.id,
+          name: "Lane 6 Draft",
+          description: "after",
+          body: "new body"
+        }
+      )
+      |> render_change()
+
+    assert html =~ "Lane 6 Draft"
+    assert PromptTemplate.get_by_slug("lane6_validate").name == "Lane 6 Validate"
+  end
+
+  test "toggles body preview for existing template markdown", %{conn: conn} do
+    {:ok, template} =
+      PromptTemplate.create(%{
+        slug: "lane6_preview",
+        name: "Lane 6 Preview",
+        description: "preview",
+        body: "# Preview body",
+        active: true
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/prompt-templates")
+
+    view
+    |> element("button[phx-click='switch_tab'][phx-value-id='#{template.id}']")
+    |> render_click()
+
+    html =
+      view
+      |> element("button[phx-click='toggle_body_preview'][phx-value-mode='preview']", "Preview")
+      |> render_click()
+
+    assert html =~ ~s(id="prompt-template-body-#{template.id}-preview")
+    assert html =~ "Preview body</h1>"
+
+    html =
+      view
+      |> element("button[phx-click='toggle_body_preview'][phx-value-mode='write']", "Write")
+      |> render_click()
+
+    refute html =~ ~s(id="prompt-template-body-#{template.id}-preview")
+  end
+
   test "save shows validation flash and cancel_delete hides confirmation", %{conn: conn} do
     {:ok, template} =
       PromptTemplate.create(%{
