@@ -7,20 +7,23 @@
   auto_dismiss={false}
 >
   <div class="mx-auto max-w-[1500px] space-y-5">
-    <section class="rounded-xl border border-[#e6e2db] bg-white px-5 py-4">
+    <section class="zaq-card-default">
       <div class="flex items-center justify-between gap-4">
         <div>
-          <h1 class="font-mono text-[0.9rem] uppercase tracking-widest text-[#3e3b36]">
+          <h1
+            class="zaq-text-h4 uppercase tracking-widest"
+            style="color: var(--zaq-text-color-body-default)"
+          >
             AI Agents
           </h1>
-          <p class="mt-1 font-mono text-[0.7rem] text-[#8e8a82]">
+          <p class="mt-1 zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
             Manage BO-defined agents and choose which ones can be selected in chat.
           </p>
         </div>
         <button
           id="new-agent-button"
           phx-click="new_agent"
-          class="rounded-lg bg-[#03b6d4] px-3 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-white hover:bg-[#0198b1] transition-colors"
+          class="zaq-btn zaq-btn-primary"
         >
           New Agent
         </button>
@@ -36,18 +39,18 @@
           name="filters[name]"
           value={@filters["name"]}
           placeholder="Filter by name"
-          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+          class="zaq-control-text"
         />
         <input
           type="text"
           name="filters[model]"
           value={@filters["model"]}
           placeholder="Filter by model"
-          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+          class="zaq-control-text"
         />
         <select
           name="filters[conversation_enabled]"
-          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+          class="zaq-control-select"
         >
           <option value="all" selected={@filters["conversation_enabled"] == "all"}>
             All conversation modes
@@ -61,7 +64,7 @@
         </select>
         <select
           name="filters[active]"
-          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+          class="zaq-control-select"
         >
           <option value="all" selected={@filters["active"] == "all"}>All states</option>
           <option value="active" selected={@filters["active"] == "active"}>Active</option>
@@ -69,7 +72,7 @@
         </select>
         <select
           name="filters[sovereign]"
-          class="rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+          class="zaq-control-select"
         >
           <option value="all" selected={@filters["sovereign"] == "all"}>All sovereignty</option>
           <option value="sovereign" selected={@filters["sovereign"] == "sovereign"}>
@@ -126,16 +129,20 @@
             {label, skill.id}
           end) %>
 
-        <section class="rounded-xl border border-[#e6e2db] bg-white p-4">
+        <section class="zaq-card-default">
           <div class="flex items-center justify-between">
-            <h2 class="font-mono text-[0.72rem] uppercase tracking-widest text-[#7e7a73]">
+            <h2
+              class="zaq-text-h5 uppercase tracking-widest"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               {if @mode == :new, do: "Create Agent", else: "Edit Agent"}
             </h2>
             <button
               id="close-agent-detail"
               type="button"
               phx-click="cancel_agent_form"
-              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+              aria-label="Close"
+              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
             >
               <svg
                 class="w-3.5 h-3.5"
@@ -151,7 +158,8 @@
 
           <div
             :if={@form_notice}
-            class="mt-3 rounded-lg border border-[#c8ebd6] bg-[#effcf4] px-3 py-2 font-mono text-[0.68rem] text-[#2e8a4f]"
+            class="mt-3 rounded-lg border px-3 py-2 zaq-text-caption"
+            style="background-color: var(--zaq-surface-color-success); border-color: var(--zaq-border-color-success); color: var(--zaq-text-color-body-success)"
           >
             {@form_notice}
           </div>
@@ -166,7 +174,7 @@
           >
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                <label class="zaq-field-label-uppercase block mb-1">
                   Name
                 </label>
                 <input
@@ -174,32 +182,32 @@
                   name="configured_agent[name]"
                   value={@form[:name].value}
                   class={[
-                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    "w-full zaq-control-text",
                     if(error_messages(@changeset, :name) != [],
-                      do: "border-red-500",
-                      else: "border-[#e6e2db]"
+                      do: "zaq-control-error",
+                      else: ""
                     )
                   ]}
                 />
                 <p
                   :for={msg <- error_messages(@changeset, :name)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
               </div>
               <div>
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                <label class="zaq-field-label-uppercase block mb-1">
                   Strategy
                 </label>
                 <select
                   name="configured_agent[strategy]"
                   class={[
-                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    "w-full zaq-control-select",
                     if(error_messages(@changeset, :strategy) != [],
-                      do: "border-red-500",
-                      else: "border-[#e6e2db]"
+                      do: "zaq-control-error",
+                      else: ""
                     )
                   ]}
                 >
@@ -211,7 +219,7 @@
                 <p
                   :for={msg <- error_messages(@changeset, :strategy)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
@@ -219,7 +227,7 @@
             </div>
 
             <div>
-              <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+              <label class="zaq-field-label-uppercase block mb-1">
                 Description
               </label>
               <input
@@ -227,24 +235,24 @@
                 name="configured_agent[description]"
                 value={@form[:description].value || ""}
                 class={[
-                  "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                  "w-full zaq-control-text",
                   if(error_messages(@changeset, :description) != [],
-                    do: "border-red-500",
-                    else: "border-[#e6e2db]"
+                    do: "zaq-control-error",
+                    else: ""
                   )
                 ]}
               />
               <p
                 :for={msg <- error_messages(@changeset, :description)}
                 data-error-message
-                class="mt-1 font-mono text-[0.64rem] text-red-500"
+                class="zaq-field-error mt-1"
               >
                 {msg}
               </p>
             </div>
 
             <div>
-              <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+              <label class="zaq-field-label-uppercase block mb-1">
                 Job Prompt
               </label>
               <.markdown_editor
@@ -258,7 +266,7 @@
               <p
                 :for={msg <- error_messages(@changeset, :job)}
                 data-error-message
-                class="mt-1 font-mono text-[0.64rem] text-red-500"
+                class="zaq-field-error mt-1"
               >
                 {msg}
               </p>
@@ -266,16 +274,16 @@
 
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                <label class="zaq-field-label-uppercase block mb-1">
                   Credential
                 </label>
                 <select
                   name="configured_agent[credential_id]"
                   class={[
-                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    "w-full zaq-control-select",
                     if(error_messages(@changeset, :credential_id) != [],
-                      do: "border-red-500",
-                      else: "border-[#e6e2db]"
+                      do: "zaq-control-error",
+                      else: ""
                     )
                   ]}
                 >
@@ -291,13 +299,13 @@
                 <p
                   :for={msg <- error_messages(@changeset, :credential_id)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
               </div>
               <div>
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                <label class="zaq-field-label-uppercase block mb-1">
                   Model
                 </label>
                 <.searchable_select
@@ -316,23 +324,24 @@
                   name="configured_agent[model]"
                   value={@form[:model].value || ""}
                   class={[
-                    "w-full rounded-lg border px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]",
+                    "w-full zaq-control-text",
                     if(error_messages(@changeset, :model) != [],
-                      do: "border-red-500",
-                      else: "border-[#e6e2db]"
+                      do: "zaq-control-error",
+                      else: ""
                     )
                   ]}
                 />
                 <p
                   :for={msg <- error_messages(@changeset, :model)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
                 <div
                   :if={@selected_model_supports_tools == false}
-                  class="mt-2 rounded-lg border border-[#f3d9d5] bg-[#fff6f4] px-3 py-2 font-mono text-[0.64rem] text-[#a35246]"
+                  class="mt-2 rounded-lg border px-3 py-2 zaq-text-caption"
+                  style="background-color: var(--zaq-surface-color-danger); border-color: var(--zaq-border-color-danger); color: var(--zaq-text-color-body-danger)"
                 >
                   Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model.
                 </div>
@@ -341,14 +350,14 @@
 
             <div>
               <div class="mb-2 flex items-center justify-between">
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82]">
+                <label class="zaq-field-label-uppercase block">
                   MCP Endpoints
                 </label>
                 <button
                   id="add-mcp-button"
                   type="button"
                   phx-click="open_mcp_picker"
-                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
+                  class="zaq-btn zaq-btn-secondary"
                   disabled={@selected_model_supports_tools == false}
                 >
                   + Add MCP
@@ -356,11 +365,12 @@
               </div>
               <div
                 :if={@mcp_notice || @mcp_endpoints == []}
-                class="mb-2 rounded-lg border border-[#efece6] bg-[#faf8f5] px-3 py-2 font-mono text-[0.64rem] text-[#7e7a73]"
+                class="mb-2 rounded-lg border px-3 py-2 zaq-text-caption"
+                style="background-color: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
               >
                 <span :if={@mcp_notice}>{@mcp_notice}</span>
                 <span :if={@mcp_notice}>
-                  <a href={~p"/bo/system-config?tab=mcps"} class="underline hover:text-[#3e3b36]">
+                  <a href={~p"/bo/system-config?tab=mcps"} class="zaq-link-underline">
                     Open MCP settings
                   </a>
                   .
@@ -368,7 +378,7 @@
                 <span :if={!@mcp_notice}>
                   No MCP endpoints are configured. Activate one in <a
                     href={~p"/bo/system-config?tab=mcps"}
-                    class="underline hover:text-[#3e3b36]"
+                    class="zaq-link-underline"
                   >
                     System Config
                   </a>.
@@ -389,7 +399,7 @@
               <p
                 :for={msg <- error_messages(@changeset, :enabled_mcp_endpoint_ids)}
                 data-error-message
-                class="mt-1 font-mono text-[0.64rem] text-red-500"
+                class="zaq-field-error mt-1"
               >
                 {msg}
               </p>
@@ -397,14 +407,14 @@
 
             <div>
               <div class="mb-2 flex items-center justify-between">
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82]">
+                <label class="zaq-field-label-uppercase block">
                   Enabled Tools
                 </label>
                 <button
                   id="add-tools-button"
                   type="button"
                   phx-click="open_tools_picker"
-                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
+                  class="zaq-btn zaq-btn-secondary"
                   disabled={
                     @selected_model_supports_tools == false or unselected_tool_options == []
                   }
@@ -421,7 +431,8 @@
               />
               <div
                 :if={@tools == []}
-                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+                class="rounded-lg border border-dashed px-3 py-2 zaq-text-caption"
+                style="border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
               >
                 No tools are currently registered in code.
               </div>
@@ -433,7 +444,7 @@
               <p
                 :for={msg <- error_messages(@changeset, :enabled_tool_keys)}
                 data-error-message
-                class="mt-1 font-mono text-[0.64rem] text-red-500"
+                class="zaq-field-error mt-1"
               >
                 {msg}
               </p>
@@ -441,14 +452,14 @@
 
             <div>
               <div class="mb-2 flex items-center justify-between">
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82]">
+                <label class="zaq-field-label-uppercase block">
                   Skills
                 </label>
                 <button
                   id="add-skills-button"
                   type="button"
                   phx-click="open_skills_picker"
-                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[var(--zaq-color-accent)] zaq-text-accent hover:bg-[var(--zaq-color-accent-soft)] transition-colors"
+                  class="zaq-btn zaq-btn-secondary"
                   disabled={unselected_skill_options == []}
                 >
                   + Add skills
@@ -463,10 +474,11 @@
               />
               <div
                 :if={@skills_catalog == [] and selected_agent_skill_ids == []}
-                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+                class="rounded-lg border border-dashed px-3 py-2 zaq-text-caption"
+                style="border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
               >
                 No skills defined yet. Create one on the
-                <a href={~p"/bo/skills"} class="underline hover:text-[#3e3b36]">Skills</a>
+                <a href={~p"/bo/skills"} class="zaq-link-underline">Skills</a>
                 page.
               </div>
               <.selected_skills_panel
@@ -477,7 +489,7 @@
               <p
                 :for={msg <- error_messages(@changeset, :enabled_skill_ids)}
                 data-error-message
-                class="mt-1 font-mono text-[0.64rem] text-red-500"
+                class="zaq-field-error mt-1"
               >
                 {msg}
               </p>
@@ -485,46 +497,49 @@
 
             <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.42fr)_minmax(0,1fr)]">
               <div>
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                <label class="zaq-field-label-uppercase block mb-1">
                   Max number of iterations
                 </label>
                 <.input
                   type="number"
                   field={@form[:max_iterations]}
                   placeholder="Default: 10"
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class="w-full zaq-control-text"
                 />
-                <p class="mt-1 font-mono text-[0.62rem] text-[#9a958c]">
+                <p
+                  class="mt-1 zaq-text-caption"
+                  style="color: var(--zaq-text-color-body-tertiary)"
+                >
                   Leave blank to use the default of 10 iterations.
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :max_iterations)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
               </div>
 
               <div>
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                <label class="zaq-field-label-uppercase block mb-1">
                   Advanced Options (JSON)
                 </label>
                 <textarea
                   name="configured_agent[advanced_options_json]"
                   rows="5"
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.7rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class="w-full zaq-control-text"
                 >{@advanced_options_json}</textarea>
                 <p
                   :if={@advanced_options_error}
-                  class="mt-1 font-mono text-[0.64rem] text-[#af5a4b]"
+                  class="zaq-field-error mt-1"
                 >
                   {@advanced_options_error}
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :advanced_options)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
@@ -533,7 +548,7 @@
 
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                <label class="zaq-field-label-uppercase block mb-1">
                   Idle Timeout (seconds)
                 </label>
                 <input
@@ -541,21 +556,24 @@
                   name="configured_agent[idle_time_seconds]"
                   value={@form[:idle_time_seconds].value || ""}
                   placeholder="Default: 1800"
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class="w-full zaq-control-text"
                 />
-                <p class="mt-1 font-mono text-[0.62rem] text-[#9a958c]">
+                <p
+                  class="mt-1 zaq-text-caption"
+                  style="color: var(--zaq-text-color-body-tertiary)"
+                >
                   Leave blank to use the system default (30 min).
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :idle_time_seconds)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
               </div>
               <div>
-                <label class="block font-mono text-[0.65rem] uppercase tracking-widest text-[#8f8a82] mb-1">
+                <label class="zaq-field-label-uppercase block mb-1">
                   Memory Context Size (tokens)
                 </label>
                 <input
@@ -563,15 +581,18 @@
                   name="configured_agent[memory_context_max_size]"
                   value={@form[:memory_context_max_size].value || ""}
                   placeholder="Default: 5000"
-                  class="w-full rounded-lg border border-[#e6e2db] px-3 py-2 font-mono text-[0.72rem] text-[#3e3b36] outline-none focus:border-[#03b6d4] focus:ring-1 focus:ring-[#03b6d4]"
+                  class="w-full zaq-control-text"
                 />
-                <p class="mt-1 font-mono text-[0.62rem] text-[#9a958c]">
+                <p
+                  class="mt-1 zaq-text-caption"
+                  style="color: var(--zaq-text-color-body-tertiary)"
+                >
                   Max conversation history tokens loaded on process restart.
                 </p>
                 <p
                   :for={msg <- error_messages(@changeset, :memory_context_max_size)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
@@ -579,10 +600,15 @@
             </div>
 
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div class="rounded-xl border border-[#efece6] bg-[#fafafa] px-3 py-2.5 flex items-center justify-between gap-3">
+              <div
+                class="rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3"
+                style="background-color: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default)"
+              >
                 <div>
-                  <p class="font-mono text-[0.75rem] text-[#3e3b36]">Conversation enabled</p>
-                  <p class="font-mono text-[0.64rem] text-[#8f8a82]">
+                  <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">
+                    Conversation enabled
+                  </p>
+                  <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
                     Can be reached through conversation channels
                   </p>
                 </div>
@@ -620,16 +646,21 @@
                 <p
                   :for={msg <- error_messages(@changeset, :conversation_enabled)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
               </div>
 
-              <div class="rounded-xl border border-[#efece6] bg-[#fafafa] px-3 py-2.5 flex items-center justify-between gap-3">
+              <div
+                class="rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3"
+                style="background-color: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default)"
+              >
                 <div>
-                  <p class="font-mono text-[0.75rem] text-[#3e3b36]">Active</p>
-                  <p class="font-mono text-[0.64rem] text-[#8f8a82]">
+                  <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">
+                    Active
+                  </p>
+                  <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
                     Agent can process requests
                   </p>
                 </div>
@@ -663,7 +694,7 @@
                 <p
                   :for={msg <- error_messages(@changeset, :active)}
                   data-error-message
-                  class="mt-1 font-mono text-[0.64rem] text-red-500"
+                  class="zaq-field-error mt-1"
                 >
                   {msg}
                 </p>
@@ -674,7 +705,7 @@
               <button
                 id="save-agent-button"
                 type="submit"
-                class="rounded-lg bg-[#03b6d4] px-4 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-white hover:bg-[#0198b1] transition-colors"
+                class="zaq-btn zaq-btn-secondary"
               >
                 {if @mode == :new, do: "Create Agent", else: "Save Agent"}
               </button>
@@ -684,7 +715,7 @@
                 type="button"
                 phx-click="delete_agent"
                 phx-value-id={@selected_agent_id}
-                class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 font-mono text-[0.72rem] uppercase tracking-wider text-red-700 hover:bg-red-100 transition-colors"
+                class="zaq-btn zaq-btn-tertiary zaq-btn-danger"
               >
                 Delete Agent
               </button>
@@ -700,13 +731,17 @@
           panel_class="p-6"
         >
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+            <h3
+              class="zaq-text-h5 uppercase tracking-widest"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Add MCP endpoint
             </h3>
             <button
               type="button"
               phx-click="close_mcp_picker"
-              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+              aria-label="Close"
+              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
             >
               <svg
                 class="w-3.5 h-3.5"
@@ -733,7 +768,10 @@
           </form>
 
           <div class="mt-4">
-            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+            <p
+              class="mb-2 uppercase tracking-wider zaq-text-caption"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Selected MCP endpoints
             </p>
             <.selected_mcp_panel
@@ -751,13 +789,17 @@
           panel_class="p-6"
         >
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+            <h3
+              class="zaq-text-h5 uppercase tracking-widest"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Add tools
             </h3>
             <button
               type="button"
               phx-click="close_tools_picker"
-              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+              aria-label="Close"
+              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
             >
               <svg
                 class="w-3.5 h-3.5"
@@ -784,13 +826,16 @@
           </form>
 
           <div class="mt-4">
-            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+            <p
+              class="mb-2 uppercase tracking-wider zaq-text-caption"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Enabled tools
             </p>
             <.selected_tools_panel tools={@tools} selected_keys={selected_keys} />
           </div>
 
-          <p class="mt-3 font-mono text-[0.64rem] text-[#8f8a82]">
+          <p class="mt-3 zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
             Pick one tool at a time. This modal stays open to add multiple tools quickly.
           </p>
         </ZaqWeb.Components.BOModal.modal_shell>
@@ -803,13 +848,17 @@
           panel_class="p-6"
         >
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+            <h3
+              class="zaq-text-h5 uppercase tracking-widest"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Add skills
             </h3>
             <button
               type="button"
               phx-click="close_skills_picker"
-              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+              aria-label="Close"
+              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
             >
               <svg
                 class="w-3.5 h-3.5"
@@ -836,7 +885,10 @@
           </form>
 
           <div class="mt-4">
-            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+            <p
+              class="mb-2 uppercase tracking-wider zaq-text-caption"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Attached skills
             </p>
             <.selected_skills_panel
@@ -845,7 +897,7 @@
             />
           </div>
 
-          <p class="mt-3 font-mono text-[0.64rem] text-[#8f8a82]">
+          <p class="mt-3 zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
             Pick one skill at a time. This modal stays open to add multiple skills quickly.
           </p>
         </ZaqWeb.Components.BOModal.modal_shell>

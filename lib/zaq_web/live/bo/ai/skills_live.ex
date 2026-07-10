@@ -90,7 +90,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
           |> assign(:selected_skill, skill)
           |> assign(:form_tool_keys, skill.tool_keys || [])
           |> assign(:form_mcp_endpoint_ids, skill.enabled_mcp_endpoint_ids || [])
-          |> assign(:body_preview, false)
+          |> assign(:body_preview, true)
           |> assign_changeset(Skills.change_skill(skill))
 
         {:noreply, socket}

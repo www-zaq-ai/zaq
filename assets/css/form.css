@@ -173,6 +173,11 @@
   color: var(--zaq-text-color-body-tertiary);
 }
 
+/* Invalid state — danger border on a text control or select */
+.zaq-control-error {
+  border-color: var(--zaq-border-color-danger);
+}
+
 /* Panel filter row — keep dense; do not inherit full field height from .zaq-control-text */
 .zaq-searchable-select-search-row .zaq-control-text {
   min-height: var(--zaq-scale-32);

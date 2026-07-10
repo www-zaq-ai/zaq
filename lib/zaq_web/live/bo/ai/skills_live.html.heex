@@ -8,8 +8,8 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-6">
     <div>
-      <p class="font-mono text-lg font-bold text-black">Agent Skills</p>
-      <p class="font-mono text-[0.75rem] text-black/40">
+      <p class="zaq-text-h2" style="color: var(--zaq-text-color-body-default)">Agent Skills</p>
+      <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
         Reusable instruction + tool bundles attachable to any agent
       </p>
     </div>
@@ -17,7 +17,7 @@
       id="new-skill-button"
       type="button"
       phx-click="new_skill"
-      class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+      class="zaq-btn zaq-btn-primary"
     >
       + New skill
     </button>
@@ -26,7 +26,7 @@
 <!-- Filters -->
   <form id="skills-filter-form" phx-change="filter" class="grid grid-cols-2 gap-4 mb-6">
     <div>
-      <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+      <label class="zaq-field-label-uppercase block mb-1.5">
         Search
       </label>
       <input
@@ -35,11 +35,11 @@
         value={@filters["q"]}
         placeholder="Name or description..."
         phx-debounce="300"
-        class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+        class="w-full zaq-control-text"
       />
     </div>
     <div>
-      <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+      <label class="zaq-field-label-uppercase block mb-1.5">
         Tags
       </label>
       <input
@@ -48,7 +48,7 @@
         value={@filters["tag"]}
         placeholder="Comma-separated tags, matches any..."
         phx-debounce="300"
-        class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+        class="w-full zaq-control-text"
       />
     </div>
   </form>
@@ -145,8 +145,8 @@
 
     <:detail>
       <!-- Skill form -->
-      <div class="rounded-lg border border-black/10 p-6">
-        <p class="font-mono text-sm font-bold text-black mb-4">
+      <div class="zaq-card-default">
+        <p class="zaq-text-h4 mb-4" style="color: var(--zaq-text-color-body-default)">
           {if @mode == :new, do: "New Skill", else: "Edit Skill"}
         </p>
         
@@ -169,7 +169,7 @@
         >
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+              <label class="zaq-field-label-uppercase block mb-1.5">
                 Name
               </label>
               <input
@@ -177,17 +177,17 @@
                 name="skill[name]"
                 value={@form[:name].value}
                 placeholder="lowercase-kebab-case"
-                class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+                class="w-full zaq-control-text"
               />
               <p
                 :for={error <- field_errors(@form[:name])}
-                class="font-mono text-[0.68rem] text-red-500 mt-1"
+                class="zaq-field-error mt-1"
               >
                 {error}
               </p>
             </div>
             <div>
-              <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+              <label class="zaq-field-label-uppercase block mb-1.5">
                 Tags
               </label>
               <input
@@ -195,24 +195,24 @@
                 name="skill[tags]"
                 value={tags_to_string(@form[:tags].value)}
                 placeholder="math, utility"
-                class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+                class="w-full zaq-control-text"
               />
             </div>
           </div>
 
           <div>
-            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+            <label class="zaq-field-label-uppercase block mb-1.5">
               Description
             </label>
             <input
               type="text"
               name="skill[description]"
               value={@form[:description].value}
-              class="w-full font-mono text-sm bg-white border border-black/15 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-[#03b6d4]"
+              class="w-full zaq-control-text"
             />
             <p
               :for={error <- field_errors(@form[:description])}
-              class="font-mono text-[0.68rem] text-red-500 mt-1"
+              class="zaq-field-error mt-1"
             >
               {error}
             </p>
@@ -222,14 +222,14 @@
           <div class="grid grid-cols-2 gap-4">
             <div>
               <div class="mb-2 flex items-center justify-between">
-                <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block">
+                <label class="zaq-field-label-uppercase block">
                   Tools
                 </label>
                 <button
                   id="add-tools-button"
                   type="button"
                   phx-click="open_tools_picker"
-                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[#03b6d4] text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors"
+                  class="zaq-btn zaq-btn-secondary"
                   disabled={@tools == [] or unselected_tool_options == []}
                 >
                   + Add tools
@@ -237,7 +237,8 @@
               </div>
               <div
                 :if={@tools == []}
-                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+                class="rounded-lg border border-dashed px-3 py-2 zaq-text-caption"
+                style="border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
               >
                 No tools are currently registered in code.
               </div>
@@ -250,14 +251,14 @@
 
             <div>
               <div class="mb-2 flex items-center justify-between">
-                <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block">
+                <label class="zaq-field-label-uppercase block">
                   MCP Endpoints
                 </label>
                 <button
                   id="add-mcp-button"
                   type="button"
                   phx-click="open_mcp_picker"
-                  class="font-mono text-[0.68rem] px-2.5 py-1 rounded-lg border border-[#03b6d4] text-[#03b6d4] hover:bg-[#03b6d4]/10 transition-colors"
+                  class="zaq-btn zaq-btn-secondary"
                   disabled={unselected_mcp_options == []}
                 >
                   + Add MCP
@@ -265,7 +266,8 @@
               </div>
               <div
                 :if={@mcp_endpoints == []}
-                class="rounded-lg border border-dashed border-[#e6e2db] px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+                class="rounded-lg border border-dashed px-3 py-2 zaq-text-caption"
+                style="border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
               >
                 No MCP endpoints are configured. Add one in System Config.
               </div>
@@ -278,7 +280,7 @@
           </div>
 
           <div>
-            <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
+            <label class="zaq-field-label-uppercase block mb-1.5">
               Instructions
             </label>
             <.markdown_editor
@@ -291,21 +293,24 @@
             />
             <p
               :for={error <- field_errors(@form[:body])}
-              class="font-mono text-[0.68rem] text-red-500 mt-1"
+              class="zaq-field-error mt-1"
             >
               {error}
             </p>
           </div>
           
 <!-- Active -->
-          <label class="flex items-center gap-2 font-mono text-[0.75rem] text-black/60">
+          <label
+            class="flex items-center gap-2 zaq-text-body-sm"
+            style="color: var(--zaq-text-color-body-secondary)"
+          >
             <input type="hidden" name="skill[active]" value="false" />
             <input
               type="checkbox"
               name="skill[active]"
               value="true"
               checked={@form[:active].value in [true, "true"]}
-              class="rounded border-black/20"
+              class="zaq-bo-checkbox"
             /> Active
           </label>
           
@@ -314,14 +319,14 @@
             <button
               type="button"
               phx-click="cancel_form"
-              class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/15 text-black/50 hover:bg-black/5 transition-colors"
+              class="zaq-btn zaq-btn-secondary"
             >
               Cancel
             </button>
             <button
               id="save-skill-button"
               type="submit"
-              class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
+              class="zaq-btn zaq-btn-secondary"
             >
               Save
             </button>
@@ -336,13 +341,17 @@
           panel_class="p-6"
         >
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+            <h3
+              class="zaq-text-h5 uppercase tracking-widest"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Add tools
             </h3>
             <button
               type="button"
               phx-click="close_tools_picker"
-              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+              aria-label="Close"
+              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
             >
               <svg
                 class="w-3.5 h-3.5"
@@ -369,13 +378,16 @@
           </form>
 
           <div class="mt-4">
-            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+            <p
+              class="mb-2 uppercase tracking-wider zaq-text-caption"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Enabled tools
             </p>
             <.selected_tools_panel tools={@tools} selected_keys={@form_tool_keys} />
           </div>
 
-          <p class="mt-3 font-mono text-[0.64rem] text-[#8f8a82]">
+          <p class="mt-3 zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
             Pick one tool at a time. This modal stays open to add multiple tools quickly.
           </p>
         </ZaqWeb.Components.BOModal.modal_shell>
@@ -388,13 +400,17 @@
           panel_class="p-6"
         >
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-mono text-[0.78rem] uppercase tracking-widest text-[#7e7a73]">
+            <h3
+              class="zaq-text-h5 uppercase tracking-widest"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Add MCP endpoints
             </h3>
             <button
               type="button"
               phx-click="close_mcp_picker"
-              class="w-7 h-7 rounded-lg border border-black/15 text-black/40 hover:bg-black/5 flex items-center justify-center transition-colors"
+              aria-label="Close"
+              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
             >
               <svg
                 class="w-3.5 h-3.5"
@@ -421,7 +437,10 @@
           </form>
 
           <div class="mt-4">
-            <p class="mb-2 font-mono text-[0.68rem] uppercase tracking-wider text-[#8f8a82]">
+            <p
+              class="mb-2 uppercase tracking-wider zaq-text-caption"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
               Attached MCP endpoints
             </p>
             <.selected_mcp_panel
@@ -430,7 +449,7 @@
             />
           </div>
 
-          <p class="mt-3 font-mono text-[0.64rem] text-[#8f8a82]">
+          <p class="mt-3 zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
             Pick one endpoint at a time. This modal stays open to add multiple endpoints quickly.
           </p>
         </ZaqWeb.Components.BOModal.modal_shell>

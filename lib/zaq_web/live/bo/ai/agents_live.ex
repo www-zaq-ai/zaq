@@ -227,7 +227,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     {:noreply,
      socket
      |> assign(:mode, :edit)
-     |> assign(:job_preview, false)
+     |> assign(:job_preview, true)
      |> assign(:selected_agent_id, agent.id)
      |> assign(:selected_agent, agent)
      |> assign(:model_options, model_options_for_credential(agent.credential_id, socket))
