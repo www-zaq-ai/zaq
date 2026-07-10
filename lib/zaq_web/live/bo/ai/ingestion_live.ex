@@ -851,16 +851,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       volume = socket.assigns.current_volume
       current_dir = socket.assigns.current_dir
 
-      uploaded =
+      results =
         consume_uploaded_entries(socket, :files, fn %{path: tmp_path}, entry ->
           upload_entry(volume, current_dir, tmp_path, entry)
         end)
 
-      {:noreply,
-       socket
-       |> load_entries()
-       |> put_flash(:info, "#{length(uploaded)} file(s) uploaded.")
-       |> push_event("folder_batch_done", %{})}
+      {uploaded, failed} = Enum.split_with(results, &match?({:ok, _}, &1))
+
+      socket =
+        socket
+        |> load_entries()
+        |> put_upload_result_flash(uploaded, failed)
+        |> push_event("folder_batch_done", %{})
+
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
@@ -879,10 +883,36 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     case ingestion_call(:upload_file, [volume, dest, binary]) do
       {:ok, actual_dest} ->
         ingestion_call(:track_upload, [volume, actual_dest])
-        {:ok, actual_dest}
+        {:ok, {:ok, actual_dest}}
 
-      error ->
-        error
+      {:error, reason} ->
+        {:ok, {:error, reason}}
+    end
+  end
+
+  defp put_upload_result_flash(socket, uploaded, failed) do
+    cond do
+      uploaded != [] && failed == [] ->
+        put_flash(socket, :info, "#{length(uploaded)} file(s) uploaded.")
+
+      uploaded != [] && failed != [] ->
+        put_flash(
+          socket,
+          :info,
+          "#{length(uploaded)} file(s) uploaded. #{length(failed)} failed."
+        )
+
+      failed != [] ->
+        reasons =
+          failed
+          |> Enum.map(fn {:error, reason} -> inspect(reason) end)
+          |> Enum.uniq()
+          |> Enum.join(", ")
+
+        put_flash(socket, :error, "Upload failed: #{reasons}")
+
+      true ->
+        socket
     end
   end
 
