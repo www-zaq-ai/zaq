@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
   alias Ecto.Changeset
   alias Zaq.Accounts
+  alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Skills
@@ -60,6 +61,46 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert render(view) =~ "Create Agent"
     assert render(view) =~ "Max number of iterations"
     assert render(view) =~ "Default: 10"
+  end
+
+  test "toggles job markdown preview", %{conn: conn} do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "Preview Agent",
+        "description" => "",
+        "job" => "# Help well",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => "",
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    )
+    |> render_change()
+
+    html =
+      view
+      |> element("button[phx-click='toggle_job_preview'][phx-value-mode='preview']", "Preview")
+      |> render_click()
+
+    assert html =~ ~s(id="configured-agent-job-input-preview")
+    assert html =~ "Help well</h1>"
+
+    html =
+      view
+      |> element("button[phx-click='toggle_job_preview'][phx-value-mode='write']", "Write")
+      |> render_click()
+
+    refute html =~ ~s(id="configured-agent-job-input-preview")
   end
 
   test "displays ghost tools with Removed badge when agent has stale tool keys", %{conn: conn} do
@@ -743,6 +784,54 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert render(view) =~ "#{name} Updated"
   end
 
+  test "save with invalid advanced options json in edit mode keeps update errors visible", %{
+    conn: conn
+  } do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Edit Broken JSON Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => agent.name,
+        "description" => "",
+        "job" => "You are v2",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{broken",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    html = render(view)
+    assert html =~ "advanced options must be valid JSON"
+    refute html =~ "Agent updated"
+  end
+
   test "edit notice includes stopped runtime server count when update kills servers", %{
     conn: conn
   } do
@@ -800,6 +889,61 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
              "Agent updated. 1 runtime server stopped; it will restart on next message."
 
     assert render(view) =~ "#{name} Updated"
+  end
+
+  test "edit notice pluralizes stopped runtime server count", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{
+        name: "Plural Notice Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    name = "Plural Notice Agent #{System.unique_integer([:positive])}"
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: name,
+        description: "before",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, _ref} = ServerManager.ensure_server(agent, "agent:mattermost:person:#{agent.id}")
+    assert {:ok, _ref} = ServerManager.ensure_server(agent, "agent:slack:person:#{agent.id}")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    view
+    |> element("#agent-row-#{agent.id}")
+    |> render_click()
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "#{name} Updated",
+        "description" => "after",
+        "job" => "You are v2",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "idle_time_seconds" => "900",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~
+             "Agent updated. 2 runtime servers stopped; they will restart on next message."
   end
 
   test "save fails for duplicate name on create and update", %{conn: conn} do
@@ -911,6 +1055,47 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
       })
 
     refute html =~ "advanced options must be valid JSON"
+  end
+
+  test "validation accepts scalar MCP endpoint and skill ids", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Scalar MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    skill = create_skill!(%{name: "scalar-id-skill"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    html =
+      render_change(view, "validate", %{
+        "configured_agent" => %{
+          "name" => "Scalar IDs",
+          "description" => "",
+          "job" => "Job",
+          "model" => "gpt-4.1-mini",
+          "credential_id" => to_string(credential.id),
+          "strategy" => "react",
+          "enabled_tool_keys" => [""],
+          "enabled_mcp_endpoint_ids" => to_string(endpoint.id),
+          "enabled_skill_ids" => to_string(skill.id),
+          "advanced_options_json" => "{}",
+          "conversation_enabled" => "false",
+          "active" => "true"
+        }
+      })
+
+    assert html =~ "Scalar IDs"
+    assert has_element?(view, ~s([data-selected-mcp-endpoint-id="#{endpoint.id}"]))
+    assert has_element?(view, "[data-selected-skill-id='#{skill.id}']")
   end
 
   test "validation with invalid credential ids keeps model options empty", %{conn: conn} do
@@ -1154,6 +1339,167 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert Changeset.get_field(socket.assigns.changeset, :enabled_tool_keys) == []
   end
 
+  test "raw validate ignores malformed MCP endpoint and skill id payloads" do
+    {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+    {:noreply, socket} =
+      AgentsLive.handle_event(
+        "new_agent",
+        %{},
+        socket
+      )
+
+    {:noreply, socket} =
+      AgentsLive.handle_event(
+        "validate",
+        %{
+          "configured_agent" => %{
+            "name" => "Malformed IDs",
+            "description" => "",
+            "job" => "Job",
+            "model" => "",
+            "strategy" => "react",
+            "enabled_tool_keys" => [],
+            "enabled_mcp_endpoint_ids" => %{},
+            "enabled_skill_ids" => %{},
+            "advanced_options_json" => "{}",
+            "conversation_enabled" => "false",
+            "active" => "true"
+          }
+        },
+        socket
+      )
+
+    assert Changeset.get_field(socket.assigns.changeset, :enabled_mcp_endpoint_ids) == []
+    assert Changeset.get_field(socket.assigns.changeset, :enabled_skill_ids) == []
+  end
+
+  test "raw validate normalizes integer MCP endpoint and skill ids" do
+    {:ok, endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Raw Integer MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    skill = create_skill!(%{name: "raw-integer-skill"})
+
+    {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+    {:noreply, socket} =
+      AgentsLive.handle_event(
+        "new_agent",
+        %{},
+        socket
+      )
+
+    {:noreply, socket} =
+      AgentsLive.handle_event(
+        "validate",
+        %{
+          "configured_agent" => %{
+            "name" => "Integer IDs",
+            "description" => "",
+            "job" => "Job",
+            "model" => "",
+            "strategy" => "react",
+            "enabled_tool_keys" => [],
+            "enabled_mcp_endpoint_ids" => endpoint.id,
+            "enabled_skill_ids" => skill.id,
+            "advanced_options_json" => "{}",
+            "conversation_enabled" => "false",
+            "active" => "true"
+          }
+        },
+        socket
+      )
+
+    assert Changeset.get_field(socket.assigns.changeset, :enabled_mcp_endpoint_ids) == [
+             endpoint.id
+           ]
+
+    assert Changeset.get_field(socket.assigns.changeset, :enabled_skill_ids) == [skill.id]
+  end
+
+  test "raw select renders non-map advanced options as empty json" do
+    agent = %ConfiguredAgent{
+      id: 987_654,
+      name: "Raw Non Map Options",
+      description: "",
+      job: "Job",
+      model: "gpt-4.1-mini",
+      strategy: "react",
+      enabled_tool_keys: [],
+      enabled_mcp_endpoint_ids: [],
+      enabled_skill_ids: [],
+      advanced_options: "not-a-map",
+      conversation_enabled: false,
+      active: true
+    }
+
+    {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+    socket = Phoenix.Component.assign(socket, agents: [agent])
+
+    {:noreply, socket} =
+      AgentsLive.handle_event("select_agent", %{"id" => to_string(agent.id)}, socket)
+
+    assert socket.assigns.selected_agent.id == agent.id
+    assert socket.assigns.advanced_options_json == "{}"
+  end
+
+  test "raw edit validate fetches selected agent when only selected id is assigned" do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Raw Fallback Agent #{System.unique_integer([:positive])}",
+        description: "before",
+        job: "before",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+    socket =
+      Phoenix.Component.assign(socket,
+        mode: :edit,
+        selected_agent_id: agent.id,
+        selected_agent: nil
+      )
+
+    {:noreply, socket} =
+      AgentsLive.handle_event(
+        "validate",
+        %{
+          "configured_agent" => %{
+            "name" => agent.name,
+            "description" => "after",
+            "job" => "after",
+            "model" => agent.model,
+            "credential_id" => to_string(agent.credential_id),
+            "strategy" => agent.strategy,
+            "enabled_tool_keys" => [],
+            "advanced_options_json" => "{}",
+            "conversation_enabled" => "false",
+            "active" => "true"
+          }
+        },
+        socket
+      )
+
+    assert socket.assigns.changeset.data.id == agent.id
+    assert Changeset.get_change(socket.assigns.changeset, :description) == "after"
+  end
+
   test "tools modal lists enabled tools and allows removing from modal", %{conn: conn} do
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
@@ -1189,6 +1535,21 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_click()
 
     refute has_element?(view, ~s([data-selected-tool-key="basic.sleep"]))
+  end
+
+  test "adds a tool from picker and dedupes repeated selections", %{conn: conn} do
+    _credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_change(view, "add_tool_from_picker", %{"tool_key" => "basic.sleep"})
+    render_change(view, "add_tool_from_picker", %{"tool_key" => "basic.sleep"})
+
+    html = render(view)
+    assert has_element?(view, ~s([data-selected-tool-key="basic.sleep"]))
+    assert html |> String.split(~s(data-selected-tool-key="basic.sleep")) |> length() == 2
   end
 
   test "picker open/close and empty add events are no-ops", %{conn: conn} do
@@ -1256,6 +1617,103 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     after_html = render(view)
 
     refute before == after_html
+  end
+
+  test "select_agent falls back to fetching an agent created after mount", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Late Created Agent #{System.unique_integer([:positive])}",
+        description: "late",
+        job: "late job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    html = render_click(view, "select_agent", %{"id" => to_string(agent.id)})
+
+    assert html =~ agent.name
+    assert has_element?(view, "#configured-agent-form")
+  end
+
+  test "deleting selected agent closes the form", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Selected Delete Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "delete selected",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#agent-row-#{agent.id}"))
+
+    html = render_click(element(view, "#delete-agent-button"))
+
+    assert html =~ "Agent deleted"
+    refute has_element?(view, "#configured-agent-form")
+    refute Enum.any?(Zaq.Agent.list_agents(), &(&1.id == agent.id))
+  end
+
+  test "deleting another agent leaves the current edit form open", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, selected} =
+      Zaq.Agent.create_agent(%{
+        name: "Selected Keep Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "keep selected",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, other} =
+      Zaq.Agent.create_agent(%{
+        name: "Other Delete Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "delete other",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#agent-row-#{selected.id}"))
+
+    html = render_click(view, "delete_agent", %{"id" => to_string(other.id)})
+
+    assert html =~ "Agent deleted"
+    assert html =~ selected.name
+    assert has_element?(view, "#configured-agent-form")
+    refute Enum.any?(Zaq.Agent.list_agents(), &(&1.id == other.id))
   end
 
   describe "skills picker" do
@@ -1375,6 +1833,43 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
       html = render(view)
       assert html =~ "taggy-skill (finance)"
       refute html =~ "inactive-skill"
+    end
+
+    test "picker close and blank selection leave skills unchanged", %{conn: conn} do
+      _credential =
+        ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      create_skill!(%{name: "blank-picker-skill"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/agents")
+      render_click(element(view, "#new-agent-button"))
+
+      render_click(element(view, "#add-skills-button"))
+      assert has_element?(view, "#agent-skills-picker-modal")
+
+      view
+      |> element("#agent-skills-picker-modal button[phx-click='close_skills_picker']")
+      |> render_click()
+
+      refute has_element?(view, "#agent-skills-picker-modal")
+
+      render_change(view, "add_skill_from_picker", %{"skill_id" => ""})
+
+      assert render(view) =~ "No skills attached."
+    end
+
+    test "invalid skill picker id is ignored", %{conn: conn} do
+      _credential =
+        ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      create_skill!(%{name: "invalid-picker-skill"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/agents")
+      render_click(element(view, "#new-agent-button"))
+
+      render_change(view, "add_skill_from_picker", %{"skill_id" => "not-an-id"})
+
+      assert render(view) =~ "No skills attached."
     end
   end
 

@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   alias Zaq.Accounts
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Skills
+  alias ZaqWeb.Live.BO.AI.SkillsLive
 
   setup :verify_on_exit!
 
@@ -233,6 +234,36 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert Skills.get_skill!(skill.id).tool_keys == ["data_source.get_document"]
   end
 
+  test "tool picker closes and blank tool selection is ignored", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    render_click(element(view, "#new-skill-button"))
+    render_click(element(view, "#add-tools-button"))
+    assert has_element?(view, "#skill-tools-picker-modal")
+
+    view
+    |> element("#skill-tools-picker-modal button[phx-click='close_tools_picker']")
+    |> render_click()
+
+    refute has_element?(view, "#skill-tools-picker-modal")
+
+    render_change(view, "add_tool_from_picker", %{"tool_key" => ""})
+
+    view
+    |> form("#skill-form",
+      skill: %{
+        "name" => "blank-tool-skill",
+        "description" => "",
+        "body" => "Instructions.",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert Skills.get_skill!(hd(Skills.search_skills(%{q: "blank-tool-skill"})).id).tool_keys ==
+             []
+  end
+
   test "adds and removes MCP endpoints via the picker", %{conn: conn} do
     {:ok, endpoint} =
       MCP.create_mcp_endpoint(%{
@@ -290,6 +321,47 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert Skills.get_skill!(skill.id).enabled_mcp_endpoint_ids == []
   end
 
+  test "MCP picker closes and ignores blank or invalid endpoint ids", %{conn: conn} do
+    {:ok, _endpoint} =
+      MCP.create_mcp_endpoint(%{
+        name: "Ignored MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    render_click(element(view, "#new-skill-button"))
+    render_click(element(view, "#add-mcp-button"))
+    assert has_element?(view, "#skill-mcp-picker-modal")
+
+    view
+    |> element("#skill-mcp-picker-modal button[phx-click='close_mcp_picker']")
+    |> render_click()
+
+    refute has_element?(view, "#skill-mcp-picker-modal")
+
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => ""})
+    render_change(view, "add_mcp_from_picker", %{"endpoint_id" => "not-an-id"})
+    refute has_element?(view, "[data-selected-mcp-endpoint-id]")
+
+    view
+    |> form("#skill-form",
+      skill: %{
+        "name" => "ignored-mcp-skill",
+        "description" => "",
+        "body" => "Instructions.",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert [skill] = Skills.search_skills(%{q: "ignored-mcp-skill"})
+    assert skill.enabled_mcp_endpoint_ids == []
+  end
+
   test "deletes a skill", %{conn: conn} do
     skill = create_skill!(%{name: "deletable-skill"})
 
@@ -299,6 +371,115 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
     assert render(view) =~ "Skill deleted"
     assert Skills.get_skill(skill.id) == nil
+  end
+
+  test "stale skill selection shows not found", %{conn: conn} do
+    skill = create_skill!(%{name: "stale-select-skill"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+    {:ok, _deleted} = Skills.delete_skill(skill)
+
+    html = render_click(view, "select_skill", %{"id" => to_string(skill.id)})
+
+    assert html =~ "Skill not found"
+    refute has_element?(view, "#skill-form")
+  end
+
+  test "validation handles list tags and saving without tags defaults to empty list", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+    render_click(element(view, "#new-skill-button"))
+
+    html =
+      render_change(view, "validate", %{
+        "skill" => %{
+          "name" => "list-tags-skill",
+          "body" => "Instructions.",
+          "tags" => ["alpha", "beta"]
+        }
+      })
+
+    assert html =~ "alpha, beta"
+
+    render_click(element(view, "button[phx-click=cancel_form]"))
+    render_click(element(view, "#new-skill-button"))
+
+    view
+    |> form("#skill-form",
+      skill: %{
+        "name" => "untagged-skill",
+        "description" => "",
+        "body" => "Instructions.",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert [skill] = Skills.search_skills(%{q: "untagged-skill"})
+    assert skill.tags == []
+  end
+
+  test "invalid edit keeps the existing skill unchanged", %{conn: conn} do
+    skill = create_skill!(%{name: "invalid-edit-skill", body: "Original."})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+    render_click(element(view, "#skill-row-#{skill.id}"))
+
+    html =
+      view
+      |> form("#skill-form",
+        skill: %{
+          "name" => "Invalid Name",
+          "description" => "",
+          "body" => "Changed.",
+          "tags" => "",
+          "active" => "true"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "must be lowercase kebab-case"
+    assert Skills.get_skill!(skill.id).body == "Original."
+    assert length(Skills.list_skills()) == 1
+  end
+
+  test "raw events normalize defensive MCP endpoint and tag payloads" do
+    {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+    {:noreply, socket} =
+      SkillsLive.handle_event(
+        "add_mcp_from_picker",
+        %{"endpoint_id" => 123},
+        socket
+      )
+
+    assert socket.assigns.form_mcp_endpoint_ids == [123]
+
+    {:noreply, socket} =
+      SkillsLive.handle_event(
+        "remove_mcp",
+        %{"id" => %{}},
+        socket
+      )
+
+    assert socket.assigns.form_mcp_endpoint_ids == [123]
+
+    {:noreply, socket} =
+      SkillsLive.handle_event(
+        "validate",
+        %{
+          "skill" => %{
+            "name" => "raw-tags-skill",
+            "body" => "Instructions.",
+            "tags" => %{},
+            "active" => true
+          }
+        },
+        socket
+      )
+
+    assert socket.assigns.form[:tags].value == []
   end
 
   test "cancel hides the form", %{conn: conn} do
