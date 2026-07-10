@@ -7,6 +7,7 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
   @moduletag capture_log: true
 
   alias Zaq.Agent.Tools.Web.Browsing
+  alias Zaq.System.Command
 
   setup do
     prev_bin = System.get_env("AGENT_BROWSER_BIN")
@@ -56,8 +57,9 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
     end
 
     test "declares a react per-tool timeout above its per-command self-timeout" do
-      # 60s default self-timeout + 30s headroom = 90s.
-      assert Browsing.tool_timeout_ms() == 90_000
+      # Per-command self-timeout (shared default) + 30s headroom. Derived from
+      # Command.default_timeout_ms/0 so this doesn't break if that default moves.
+      assert Browsing.tool_timeout_ms() == Command.default_timeout_ms() + 30_000
     end
   end
 
@@ -70,8 +72,9 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
     test "open passes the url and a session derived from the run id" do
       args = argv(Browsing.run(%{command: "open", url: "https://acme.test"}, %{run_id: "r1"}))
 
-      assert "open" in args
-      assert "https://acme.test" in args
+      # subcommand + positional url come first, in order (agent-browser expects
+      # `subcommand [args...] [flags...]`), then the session flag.
+      assert Enum.take(args, 2) == ["open", "https://acme.test"]
       assert "--session" in args
       assert "r1" in args
     end
@@ -84,8 +87,7 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
 
     test "snapshot requests the ref-annotated tree and default session" do
       args = argv(Browsing.run(%{command: "snapshot"}, %{}))
-      assert "snapshot" in args
-      assert "-i" in args
+      assert Enum.take(args, 2) == ["snapshot", "-i"]
       # default session when no run id present
       assert "zaq" in args
     end
@@ -96,15 +98,12 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
           Browsing.run(%{command: "fill", selector: "@e2", text: "me@acme.test"}, %{run_id: "r"})
         )
 
-      assert "fill" in args
-      assert "@e2" in args
-      assert "me@acme.test" in args
+      assert Enum.take(args, 3) == ["fill", "@e2", "me@acme.test"]
     end
 
     test "press passes the key (form submit via Enter)" do
       args = argv(Browsing.run(%{command: "press", key: "Enter"}, %{}))
-      assert "press" in args
-      assert "Enter" in args
+      assert Enum.take(args, 2) == ["press", "Enter"]
     end
 
     test "select passes selector and value" do
