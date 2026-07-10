@@ -40,18 +40,20 @@ defmodule Zaq.Agent do
 
   @spec list_agents_with_mcp_endpoint(integer()) :: [ConfiguredAgent.t()]
   def list_agents_with_mcp_endpoint(endpoint_id) when is_integer(endpoint_id) do
-    list_agents()
-    |> Enum.filter(fn %ConfiguredAgent{} = agent ->
-      endpoint_id in (agent.enabled_mcp_endpoint_ids || [])
-    end)
+    ConfiguredAgent
+    |> where([a], fragment("? @> ARRAY[?]::bigint[]", a.enabled_mcp_endpoint_ids, ^endpoint_id))
+    |> order_by([a], asc: a.name)
+    |> preload(:credential)
+    |> Repo.all()
   end
 
   @spec list_agents_with_skill(integer()) :: [ConfiguredAgent.t()]
   def list_agents_with_skill(skill_id) when is_integer(skill_id) do
-    list_agents()
-    |> Enum.filter(fn %ConfiguredAgent{} = agent ->
-      skill_id in (agent.enabled_skill_ids || [])
-    end)
+    ConfiguredAgent
+    |> where([a], fragment("? @> ARRAY[?]::integer[]", a.enabled_skill_ids, ^skill_id))
+    |> order_by([a], asc: a.name)
+    |> preload(:credential)
+    |> Repo.all()
   end
 
   @spec filter_agents(map(), keyword()) :: {[ConfiguredAgent.t()], non_neg_integer()}

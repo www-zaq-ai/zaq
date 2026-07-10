@@ -2,6 +2,7 @@ defmodule Zaq.Agent.SkillsTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.MCP
   alias Zaq.Agent.Skill
   alias Zaq.Agent.Skills
 
@@ -12,6 +13,21 @@ defmodule Zaq.Agent.SkillsTest do
       |> Skills.create_skill()
 
     skill
+  end
+
+  defp mcp_endpoint!(attrs \\ %{}) do
+    {:ok, endpoint} =
+      %{
+        name: "Skill MCP #{System.unique_integer([:positive])}",
+        type: "remote",
+        status: "enabled",
+        timeout_ms: 5000,
+        url: "http://localhost:8000/mcp"
+      }
+      |> Map.merge(attrs)
+      |> MCP.create_mcp_endpoint()
+
+    endpoint
   end
 
   describe "create_skill/1" do
@@ -32,6 +48,31 @@ defmodule Zaq.Agent.SkillsTest do
       assert {:error, %Ecto.Changeset{} = changeset} = Skills.create_skill(%{name: "Bad Name"})
       assert %{body: ["can't be blank"]} = errors_on(changeset)
     end
+
+    test "accepts an existing MCP endpoint id" do
+      endpoint = mcp_endpoint!()
+
+      assert {:ok, %Skill{} = skill} =
+               Skills.create_skill(%{
+                 name: "with-mcp",
+                 body: "Uses an endpoint.",
+                 enabled_mcp_endpoint_ids: [endpoint.id]
+               })
+
+      assert skill.enabled_mcp_endpoint_ids == [endpoint.id]
+    end
+
+    test "rejects a non-existent MCP endpoint id at save time" do
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Skills.create_skill(%{
+                 name: "bad-mcp",
+                 body: "Points at nothing.",
+                 enabled_mcp_endpoint_ids: [999_999]
+               })
+
+      assert %{enabled_mcp_endpoint_ids: ["contains unknown MCP endpoint ids: 999999"]} =
+               errors_on(changeset)
+    end
   end
 
   describe "update_skill/2" do
@@ -46,6 +87,16 @@ defmodule Zaq.Agent.SkillsTest do
     test "rejects invalid update" do
       skill = create_skill!(%{name: "stays-valid"})
       assert {:error, %Ecto.Changeset{}} = Skills.update_skill(skill, %{name: "NOPE"})
+    end
+
+    test "rejects a non-existent MCP endpoint id on update" do
+      skill = create_skill!(%{name: "mcp-update"})
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Skills.update_skill(skill, %{enabled_mcp_endpoint_ids: [999_999]})
+
+      assert %{enabled_mcp_endpoint_ids: ["contains unknown MCP endpoint ids: 999999"]} =
+               errors_on(changeset)
     end
   end
 

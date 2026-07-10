@@ -186,6 +186,11 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   end
 
   defp save_skill(%{assigns: %{mode: :new}} = socket, attrs) do
+    # Creation dispatches straight to `Skills.create_skill/1` via `:invoke` rather
+    # than through `RuntimeSync` (as update/delete do): a brand-new skill has no
+    # agent references yet, so there is nothing to fan out to live agent servers.
+    # Runtime propagation only becomes relevant once the skill is attached to an
+    # agent, which happens through the agent form's own sync path.
     event =
       Event.new(%{module: Skills, function: :create_skill, args: [attrs]}, :agent,
         opts: [action: :invoke]

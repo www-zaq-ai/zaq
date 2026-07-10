@@ -1141,3 +1141,26 @@ a.zaq-chat-source-row:focus-visible {
   border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
   background-color: var(--zaq-surface-color-raised);
 }
+
+/* Agent capability picker — selected tool / MCP / skill rows
+   (shared by AgentsLive + SkillsLive via AgentToolsPicker) */
+.zaq-cap-panel {
+  border-color: var(--zaq-border-color-default);
+}
+
+.zaq-cap-divide > * + * {
+  border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-cap-row:hover {
+  background-color: var(--zaq-surface-color-elevated);
+}
+
+.zaq-cap-remove {
+  border-color: var(--zaq-border-color-default);
+  color: var(--zaq-icon-color-default);
+}
+
+.zaq-cap-remove:hover {
+  background-color: var(--zaq-surface-color-elevated);
+}

@@ -15,10 +15,26 @@ const AGENTS_PATH = "/bo/agents"
 // Seed an OpenRouter credential with a known tool-capable model.
 const TOOL_MODEL = "openai/gpt-5.1-chat"
 
+// Clicks `clickSelector` and waits for `revealSelector` to appear, retrying the
+// click if it lands before the LiveView channel is bound (a known connection
+// race — see the same defensive pattern in `loginToBackOffice`). Without this
+// the very first form-open after a fresh page load flakes intermittently.
+async function clickUntilVisible(page, clickSelector, revealSelector, attempts = 3) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await page.locator(clickSelector).first().click()
+    try {
+      await expect(page.locator(revealSelector)).toBeVisible({ timeout: 5_000 })
+      return
+    } catch (error) {
+      if (attempt === attempts - 1) throw error
+      await page.waitForTimeout(300)
+    }
+  }
+}
+
 async function openNewAgentForm(page, name) {
   await gotoBackOfficeLive(page, AGENTS_PATH)
-  await page.locator('[phx-click="new_agent"]').click()
-  await expect(page.locator("#configured-agent-form")).toBeVisible()
+  await clickUntilVisible(page, '[phx-click="new_agent"]', "#configured-agent-form")
   await page.locator('input[name="configured_agent[name]"]').fill(name)
   await page.locator('textarea[name="configured_agent[job]"]').fill("Answer questions about the company.")
 }
@@ -60,10 +76,12 @@ async function selectModelFromPicker(page, modelName) {
     state: "visible",
     timeout: process.env.CI ? 20_000 : 10_000,
   })
-  await expect(page.locator("#configured-agent-model-select [data-select-option]")).not.toHaveCount(
-    0,
-    { timeout: process.env.CI ? 20_000 : 10_000 }
-  )
+  // Model options can populate in stages after the credential is chosen, so
+  // waiting for "any option" races an incomplete list. Wait for the *specific*
+  // target model to be attached before opening the picker to click it.
+  await expect(
+    page.locator(`#configured-agent-model-select [data-select-option="${modelName}"]`)
+  ).toHaveCount(1, { timeout: process.env.CI ? 20_000 : 10_000 })
   await waitForLiveViewSettled(page)
   await pickSearchableSelect(page, "#configured-agent-model-select", modelName)
 }
@@ -190,8 +208,7 @@ test.describe("Agents", () => {
     await loginToBackOffice(page)
 
     await gotoBackOfficeLive(page, AGENTS_PATH)
-    await page.locator('[phx-click="new_agent"]').click()
-    await expect(page.locator("#configured-agent-form")).toBeVisible()
+    await clickUntilVisible(page, '[phx-click="new_agent"]', "#configured-agent-form")
     await page.locator('input[name="configured_agent[name]"]').fill("Should Not Be Saved")
 
     await page.locator('[phx-click="cancel_agent_form"]').click()
@@ -214,9 +231,8 @@ test.describe("Agents", () => {
     await loginToBackOffice(page)
 
     await gotoBackOfficeLive(page, AGENTS_PATH)
-    await page.locator(`[phx-value-id="${agent.id}"]`).click()
+    await clickUntilVisible(page, `[phx-value-id="${agent.id}"]`, "#configured-agent-form")
     await waitForLiveViewSettled(page)
-    await expect(page.locator("#configured-agent-form")).toBeVisible()
 
     const updatedName = `E2E Agent Edited ${Date.now()}`
     await page.locator('input[name="configured_agent[name]"]').fill(updatedName)
@@ -242,8 +258,14 @@ test.describe("Agents", () => {
     await gotoBackOfficeLive(page, AGENTS_PATH)
     await expect(page.getByText(agent.name)).toBeVisible()
 
-    await page.locator(`[phx-value-id="${agent.id}"]`).click()
-    await waitForLiveViewSettled(page)
+    // Selecting the row opens the detail form (where Delete lives); retry the
+    // click until the delete button appears so a patch-race select doesn't leave
+    // us clicking a button that isn't rendered yet.
+    await clickUntilVisible(
+      page,
+      `[phx-value-id="${agent.id}"]`,
+      `[phx-click="delete_agent"][phx-value-id="${agent.id}"]`
+    )
 
     await page.locator(`[phx-click="delete_agent"][phx-value-id="${agent.id}"]`).click()
     await waitForLiveViewSettled(page)
@@ -273,11 +295,17 @@ test.describe("Agents", () => {
     await expect(page.getByText(agentA.name)).toBeVisible()
     await expect(page.getByText(agentB.name)).toBeVisible()
 
-    await page.locator('input[name="filters[name]"]').fill("FilterAlpha")
-    await waitForLiveViewSettled(page)
+    // Re-apply the filter until it takes: a bare `.fill()` can fire its
+    // phx-change while LiveView is mid-patch, dropping the event and leaving the
+    // list unfiltered. Retrying the whole clear+fill+assert absorbs that race.
+    const nameFilter = page.locator('input[name="filters[name]"]')
+    await expect(async () => {
+      await nameFilter.fill("")
+      await nameFilter.fill("FilterAlpha")
+      await expect(page.getByText(agentB.name)).toHaveCount(0, { timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
 
     await expect(page.getByText(agentA.name)).toBeVisible()
-    await expect(page.getByText(agentB.name)).not.toBeVisible()
   })
 
   // ─── Phase 2: Tools & MCP (remove / empty picker) ────────────────────────
@@ -359,8 +387,7 @@ test.describe("Agents", () => {
     await loginToBackOffice(page)
 
     await gotoBackOfficeLive(page, AGENTS_PATH)
-    await page.locator('[phx-click="new_agent"]').click()
-    await expect(page.locator("#configured-agent-form")).toBeVisible()
+    await clickUntilVisible(page, '[phx-click="new_agent"]', "#configured-agent-form")
     await selectAgentCredential(page, credential.name)
 
     // Leave name blank and submit
@@ -375,8 +402,7 @@ test.describe("Agents", () => {
     await loginToBackOffice(page)
 
     await gotoBackOfficeLive(page, AGENTS_PATH)
-    await page.locator('[phx-click="new_agent"]').click()
-    await expect(page.locator("#configured-agent-form")).toBeVisible()
+    await clickUntilVisible(page, '[phx-click="new_agent"]', "#configured-agent-form")
 
     await page.locator('input[name="configured_agent[name]"]').fill("No Credential Agent")
     await page.locator("#save-agent-button").click()

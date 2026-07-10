@@ -313,7 +313,23 @@ defmodule Zaq.AgentTest do
         advanced_options: %{}
       })
 
-    assert Enum.any?(Agent.list_agents_with_mcp_endpoint(endpoint.id), &(&1.id == assigned.id))
+    {:ok, other} =
+      Agent.create_agent(%{
+        name: "Agent Without MCP #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_mcp_endpoint_ids: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    listed = Agent.list_agents_with_mcp_endpoint(endpoint.id)
+    assert Enum.any?(listed, &(&1.id == assigned.id))
+    refute Enum.any?(listed, &(&1.id == other.id))
 
     {:error, changeset} =
       Agent.create_agent(%{
@@ -332,6 +348,46 @@ defmodule Zaq.AgentTest do
     assert errors_on(changeset).enabled_mcp_endpoint_ids
            |> to_string()
            |> String.contains?("contains unknown MCP endpoint ids")
+  end
+
+  test "list_agents_with_skill returns only agents referencing the skill id" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Agent Skill Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    skill_id = System.unique_integer([:positive])
+
+    {:ok, assigned} =
+      Agent.create_agent(%{
+        name: "Agent With Skill #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_skill_ids: [skill_id],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    {:ok, other} =
+      Agent.create_agent(%{
+        name: "Agent Without Skill #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_skill_ids: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    listed = Agent.list_agents_with_skill(skill_id)
+    assert Enum.any?(listed, &(&1.id == assigned.id))
+    refute Enum.any?(listed, &(&1.id == other.id))
   end
 
   test "runtime provider returns provider_not_supported for known unsupported runtime" do

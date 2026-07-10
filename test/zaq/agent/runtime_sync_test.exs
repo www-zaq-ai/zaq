@@ -6,6 +6,21 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   alias Zaq.Agent.RuntimeSync
   alias Zaq.Agent.Skills
 
+  # Persists a real MCP endpoint row with an explicit id so `Skills.create_skill`
+  # existence validation passes while the tests keep using the literal ids their
+  # runtime-id assertions (`:mcp_<id>`) depend on. The sync path never fetches the
+  # endpoint, so seeding it does not affect behavior.
+  defp seed_endpoint!(id) do
+    Zaq.Repo.insert!(%Endpoint{
+      id: id,
+      name: "Seeded MCP #{id}",
+      type: "remote",
+      status: "enabled",
+      timeout_ms: 5000,
+      url: "http://localhost:8000/mcp"
+    })
+  end
+
   defmodule StubMCP do
     def get_mcp_endpoint(id) when is_integer(id) do
       %Endpoint{
@@ -1236,6 +1251,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "sync_agent_mcp_assignments syncs endpoints contributed by attached skills" do
+    seed_endpoint!(2)
+
     {:ok, skill} =
       Skills.create_skill(%{
         name: "mcp-contributing-skill",
@@ -1292,6 +1309,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "agent_skill_updated unsyncs MCP endpoints the skill stopped providing" do
+    seed_endpoint!(66)
+
     {:ok, skill} =
       Skills.create_skill(%{name: "mcp-shrinking", body: "b", enabled_mcp_endpoint_ids: [66]})
 
@@ -1310,6 +1329,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "agent_skill_updated does not unsync an endpoint the agent still provides itself" do
+    seed_endpoint!(66)
+
     {:ok, skill} =
       Skills.create_skill(%{name: "overlap-skill", body: "b", enabled_mcp_endpoint_ids: [66]})
 
@@ -1326,6 +1347,8 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "agent_skill_deleted unsyncs the deleted skill's MCP endpoints from active agents" do
+    seed_endpoint!(66)
+
     {:ok, skill} =
       Skills.create_skill(%{name: "mcp-doomed", body: "b", enabled_mcp_endpoint_ids: [66]})
 

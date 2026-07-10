@@ -14,7 +14,9 @@ defmodule Zaq.Agent.Skills do
 
   import Ecto.Query
 
+  alias Ecto.Changeset
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.MCP
   alias Zaq.Agent.Skill
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Repo
@@ -159,6 +161,7 @@ defmodule Zaq.Agent.Skills do
   def create_skill(attrs) do
     %Skill{}
     |> Skill.changeset(attrs)
+    |> validate_mcp_endpoint_ids()
     |> Repo.insert()
   end
 
@@ -166,6 +169,7 @@ defmodule Zaq.Agent.Skills do
   def update_skill(%Skill{} = skill, attrs) do
     skill
     |> Skill.changeset(attrs)
+    |> validate_mcp_endpoint_ids()
     |> Repo.update()
   end
 
@@ -173,7 +177,34 @@ defmodule Zaq.Agent.Skills do
   def delete_skill(%Skill{} = skill), do: Repo.delete(skill)
 
   @spec change_skill(Skill.t(), map()) :: Ecto.Changeset.t()
-  def change_skill(%Skill{} = skill, attrs \\ %{}), do: Skill.changeset(skill, attrs)
+  def change_skill(%Skill{} = skill, attrs \\ %{}) do
+    skill
+    |> Skill.changeset(attrs)
+    |> validate_mcp_endpoint_ids()
+  end
+
+  # Rejects endpoint ids that do not map to an existing MCP.Endpoint, mirroring
+  # `Zaq.Agent.validate_mcp_endpoint_assignments/1`. The schema changeset only
+  # sanitizes ids (positive integers, deduped); existence is a runtime concern
+  # so the DB lookup lives in the context, not the schema.
+  defp validate_mcp_endpoint_ids(%Changeset{} = changeset) do
+    ids = Changeset.get_field(changeset, :enabled_mcp_endpoint_ids) || []
+
+    unknown_ids =
+      ids
+      |> Enum.uniq()
+      |> Enum.reject(&match?(%MCP.Endpoint{}, MCP.get_mcp_endpoint(&1)))
+
+    if unknown_ids == [] do
+      changeset
+    else
+      Changeset.add_error(
+        changeset,
+        :enabled_mcp_endpoint_ids,
+        "contains unknown MCP endpoint ids: #{Enum.join(unknown_ids, ", ")}"
+      )
+    end
+  end
 
   @doc """
   Searches skills by tags and/or free text.

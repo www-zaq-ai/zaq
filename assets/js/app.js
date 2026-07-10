@@ -288,11 +288,34 @@ const liveSocket = new LiveSocket("/live", Socket, {
         const positionPanel = () => {
           const rect = trigger().getBoundingClientRect()
           const p = panel()
+          const listEl = list()
+          const margin = 4
+          const viewportH = window.innerHeight
+          const spaceBelow = viewportH - rect.bottom - margin
+          const spaceAbove = rect.top - margin
+          // Flip above the trigger when the panel would overflow the viewport
+          // bottom and there is more room above. A fixed-position panel cannot
+          // be scrolled into view, so an overflowing option list would be
+          // permanently unclickable.
+          const placeAbove = spaceBelow < 200 && spaceAbove > spaceBelow
+
           p.style.position = 'fixed'
           p.style.zIndex = '9999'
           p.style.width = rect.width + 'px'
           p.style.left = rect.left + 'px'
-          p.style.top = (rect.bottom + 4) + 'px'
+
+          if (listEl) {
+            // Cap the scroll list to the available space (reserving room for the
+            // search row / create button) so the panel always fits on screen.
+            const room = (placeAbove ? spaceAbove : spaceBelow) - 60
+            listEl.style.maxHeight = Math.max(96, Math.min(208, room)) + 'px'
+          }
+
+          if (placeAbove) {
+            p.style.top = Math.max(margin, rect.top - p.offsetHeight - margin) + 'px'
+          } else {
+            p.style.top = (rect.bottom + margin) + 'px'
+          }
         }
 
         const openPanel = () => {

@@ -12,7 +12,9 @@ defmodule ZaqWeb.Components.AgentToolsPicker do
   - `selected_mcp_panel/1` renders the selected MCP endpoints with an enabled/disabled
     status dot and a fallback for unknown ids. Emits `"remove_mcp"` (`%{"id" => id}`).
 
-  The host LiveView must handle the emitted events.
+  Colors use `--zaq-*` semantic tokens (via inline `style` for one-off swaps and the
+  `.zaq-cap-*` classes in `styles.css` for hover/divider affordances) so both panels
+  adapt to dark mode. The host LiveView must handle the emitted events.
   """
 
   use ZaqWeb, :html
@@ -44,39 +46,52 @@ defmodule ZaqWeb.Components.AgentToolsPicker do
     assigns = assign(assigns, :selected_tools, selected_tools)
 
     ~H"""
-    <div class="rounded-lg border border-[#efece6]">
-      <div :if={@selected_tools == []} class="px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]">
+    <div class="zaq-cap-panel rounded-lg border">
+      <div
+        :if={@selected_tools == []}
+        class="px-3 py-2 font-mono text-[0.68rem]"
+        style="color: var(--zaq-text-color-body-tertiary)"
+      >
         No tools selected.
       </div>
-      <div :if={@selected_tools != []} class="max-h-44 overflow-y-auto divide-y divide-[#efece6]">
+      <div :if={@selected_tools != []} class="zaq-cap-divide max-h-44 overflow-y-auto">
         <div
           :for={tool <- @selected_tools}
           data-selected-tool-key={tool.key}
-          class={[
-            "flex items-start justify-between gap-3 px-3 py-2",
-            if(Map.get(tool, :ghost), do: "bg-red-50 hover:bg-red-100", else: "hover:bg-[#faf8f5]")
-          ]}
+          class="zaq-cap-row flex items-start justify-between gap-3 px-3 py-2"
+          style={Map.get(tool, :ghost) && "background-color: var(--zaq-surface-color-danger)"}
         >
           <div>
-            <p class={[
-              "font-mono text-[0.72rem]",
-              if(Map.get(tool, :ghost), do: "text-red-600", else: "text-[#3e3b36]")
-            ]}>
+            <p
+              class="font-mono text-[0.72rem]"
+              style={
+                if(Map.get(tool, :ghost),
+                  do: "color: var(--zaq-text-color-body-danger)",
+                  else: "color: var(--zaq-text-color-body-default)"
+                )
+              }
+            >
               {tool.label}
               <span
                 :if={Map.get(tool, :ghost)}
-                class="ml-1.5 inline-block rounded bg-red-100 px-1 py-px font-mono text-[0.58rem] text-red-600"
+                class="ml-1.5 inline-block rounded px-1 py-px font-mono text-[0.58rem]"
+                style="background-color: var(--zaq-surface-color-danger); color: var(--zaq-text-color-body-danger)"
               >
                 Removed
               </span>
             </p>
-            <p class="font-mono text-[0.64rem] text-[#8f8a82]">{tool.description}</p>
+            <p
+              class="font-mono text-[0.64rem]"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
+              {tool.description}
+            </p>
           </div>
           <button
             type="button"
             phx-click="remove_tool"
             phx-value-key={tool.key}
-            class="w-6 h-6 rounded border border-black/15 text-black/35 hover:bg-black/5"
+            class="zaq-cap-remove w-6 h-6 rounded border"
           >
             <svg
               class="w-3.5 h-3.5 mx-auto"
@@ -116,28 +131,37 @@ defmodule ZaqWeb.Components.AgentToolsPicker do
     assigns = assign(assigns, :selected_mcp_endpoints, selected_mcp_endpoints)
 
     ~H"""
-    <div class="rounded-lg border border-[#efece6]">
+    <div class="zaq-cap-panel rounded-lg border">
       <div
         :if={@selected_mcp_endpoints == []}
-        class="px-3 py-2 font-mono text-[0.68rem] text-[#9a958c]"
+        class="px-3 py-2 font-mono text-[0.68rem]"
+        style="color: var(--zaq-text-color-body-tertiary)"
       >
         No MCP endpoints selected.
       </div>
       <div
         :if={@selected_mcp_endpoints != []}
-        class="max-h-44 overflow-y-auto divide-y divide-[#efece6]"
+        class="zaq-cap-divide max-h-44 overflow-y-auto"
       >
         <div
           :for={endpoint <- @selected_mcp_endpoints}
           data-selected-mcp-endpoint-id={endpoint.id}
-          class="flex items-start justify-between gap-3 px-3 py-2 hover:bg-[#faf8f5]"
+          class="zaq-cap-row flex items-start justify-between gap-3 px-3 py-2"
         >
           <div>
-            <p class="flex items-center gap-2 font-mono text-[0.72rem] text-[#3e3b36]">
-              <span class={[
-                "h-2 w-2 rounded-full",
-                if(endpoint.status == "enabled", do: "bg-emerald-500", else: "bg-red-500")
-              ]} />
+            <p
+              class="flex items-center gap-2 font-mono text-[0.72rem]"
+              style="color: var(--zaq-text-color-body-default)"
+            >
+              <span
+                class="h-2 w-2 rounded-full"
+                style={
+                  if(endpoint.status == "enabled",
+                    do: "background-color: var(--zaq-text-color-body-success)",
+                    else: "background-color: var(--zaq-text-color-body-danger)"
+                  )
+                }
+              />
               {endpoint.name}
             </p>
           </div>
@@ -145,7 +169,7 @@ defmodule ZaqWeb.Components.AgentToolsPicker do
             type="button"
             phx-click="remove_mcp"
             phx-value-id={endpoint.id}
-            class="w-6 h-6 rounded border border-black/15 text-black/35 hover:bg-black/5"
+            class="zaq-cap-remove w-6 h-6 rounded border"
           >
             <svg
               class="w-3.5 h-3.5 mx-auto"

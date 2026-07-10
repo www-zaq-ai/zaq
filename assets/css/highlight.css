@@ -6,6 +6,8 @@
  * common languages, plus Elixir/Erlang) and applied client-side by the
  * `MarkdownHighlight` LiveView hook.
  *
+ * highlight.js is BSD-3-Clause licensed; see `assets/vendor/highlight.js.LICENSE`.
+ *
  * Backgrounds are intentionally transparent: the surrounding `<pre>` container
  * owns the block chrome (border, radius, padding), so highlighting only colors
  * the tokens. Dark palette activates under `[data-zaq-theme="dark"]`.
