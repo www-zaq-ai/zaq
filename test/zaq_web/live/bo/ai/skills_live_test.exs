@@ -155,20 +155,24 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
     render_click(element(view, "#skill-row-#{skill.id}"))
 
-    # Write mode by default: textarea present, no rendered preview.
+    # Editing an existing skill opens in Preview mode: markdown rendered to HTML.
+    # (The textarea stays mounted in both modes; the BO layout also renders an
+    # <h1> page header, so key off the markdown-rendered heading content instead
+    # of the bare <h1> tag.)
     assert has_element?(view, "#skill-body-input")
-    refute render(view) =~ "<h1>"
-
-    # Switch to Preview: markdown is rendered to HTML.
-    html = render_click(element(view, "button[phx-value-mode='preview']"))
-    assert html =~ "<h1>"
+    html = render(view)
     assert html =~ "Heading</h1>"
     assert html =~ "<ul>"
 
-    # Switch back to Write: rendered preview gone, textarea back.
+    # Switch to Write: rendered preview gone, textarea still present.
     html = render_click(element(view, "button[phx-value-mode='write']"))
-    refute html =~ "<h1>"
+    refute html =~ "Heading</h1>"
     assert has_element?(view, "#skill-body-input")
+
+    # Switch back to Preview: markdown is rendered again.
+    html = render_click(element(view, "button[phx-value-mode='preview']"))
+    assert html =~ "Heading</h1>"
+    assert html =~ "<ul>"
   end
 
   test "preview reflects unsaved edits via validate", %{conn: conn} do
