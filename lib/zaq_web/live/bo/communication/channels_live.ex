@@ -35,7 +35,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     "telegram" => "Telegram",
     "webhook" => "Webhook",
     # Ingestion
-    "zaq_local" => "ZAQ Local",
+    "zaq_local" => "Disk",
     "google_drive" => "Google Drive",
     "sharepoint" => "SharePoint"
   }

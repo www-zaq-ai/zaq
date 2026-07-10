@@ -2389,8 +2389,57 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     test "shows volume selector when multiple volumes configured", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/bo/ingestion")
+      assert html =~ "Sources"
       assert html =~ "docs"
       assert html =~ "archives"
+    end
+
+    test "shows enabled data source providers as source buttons", %{conn: conn} do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Google Drive Source",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Disabled SharePoint Source",
+        provider: "sharepoint",
+        kind: "data_source",
+        enabled: false,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+      {:ok, _view, html} = live(conn, ~p"/bo/ingestion")
+
+      assert html =~ "Sources"
+      assert html =~ "Google Drive"
+      assert html =~ ~s(href="/bo/ingestion/google_drive")
+      refute html =~ "SharePoint"
+      refute html =~ ~s(href="/bo/ingestion/sharepoint")
+    end
+
+    test "shows the same source selector on provider pages", %{conn: conn} do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Google Drive Source",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+      {:ok, _view, html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      assert html =~ "Sources"
+      assert html =~ "Google Drive"
+      assert html =~ ~s(href="/bo/ingestion")
     end
 
     test "switch_volume changes current volume and loads entries", %{conn: conn} do

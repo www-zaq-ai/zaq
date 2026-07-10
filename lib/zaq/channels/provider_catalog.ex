@@ -31,7 +31,7 @@ defmodule Zaq.Channels.ProviderCatalog do
   ]
 
   @labels %{
-    "zaq_local" => "ZAQ Local",
+    "zaq_local" => "Disk",
     "google_drive" => "Google Drive",
     "sharepoint" => "SharePoint"
   }

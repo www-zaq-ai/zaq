@@ -112,6 +112,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
 
     assert has_element?(view, "a", "All Channels")
     assert has_element?(view, "#channel-card-zaq_local")
+    assert has_element?(view, "#channel-card-zaq_local", "Disk")
     assert has_element?(view, "#channel-card-google_drive")
     assert has_element?(view, "#channel-card-sharepoint")
   end

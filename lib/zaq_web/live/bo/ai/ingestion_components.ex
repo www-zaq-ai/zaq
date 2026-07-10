@@ -40,6 +40,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   attr :volumes, :map, required: true
   attr :current_volume, :string, required: true
+  attr :current_provider, :string, default: "local"
+  attr :data_sources, :list, default: []
 
   def volume_selector(assigns) do
     IngestionVolumeSelector.volume_selector(assigns)

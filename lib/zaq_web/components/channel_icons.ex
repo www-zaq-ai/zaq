@@ -260,7 +260,20 @@ defmodule ZaqWeb.Components.ChannelIcons do
           </defs>
         </svg>
       <% "zaq_local" -> %>
-        <image src="/images/zaq.png" class={@class} />
+        <svg
+          class={@class}
+          fill="none"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <rect x="3" y="4" width="18" height="12" rx="2" />
+          <path d="M8 20h8" />
+          <path d="M12 16v4" />
+        </svg>
       <% "email" -> %>
         <svg
           class={@class}

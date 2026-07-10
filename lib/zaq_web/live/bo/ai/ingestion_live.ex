@@ -9,12 +9,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Document, ExternalSource, FileExplorer}
   alias Zaq.NodeRouter
+  alias Zaq.Repo
   alias Zaq.System
   alias ZaqWeb.Live.BO.PreviewHelpers
+
+  import Ecto.Query
 
   @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
   @ingestion_topic "ingestion:jobs"
@@ -66,6 +70,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Volume state
        volumes: volumes,
        current_volume: current_volume,
+       data_source_sources: enabled_data_source_sources(),
        # Embedding readiness
        embedding_ready: System.embedding_ready?(),
        # Permission sharing
@@ -1213,6 +1218,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       volumes when is_map(volumes) and map_size(volumes) > 0 -> volumes
       _ -> %{"default" => "priv/documents"}
     end
+  end
+
+  defp enabled_data_source_sources do
+    local_providers = ["zaq_local", "local"]
+
+    ChannelConfig
+    |> where([c], c.kind == "data_source" and c.enabled == true)
+    |> where([c], c.provider not in ^local_providers)
+    |> select([c], c.provider)
+    |> distinct([c], c.provider)
+    |> Repo.all()
+    |> Enum.sort()
+    |> Enum.map(fn provider ->
+      %{id: provider, label: ProviderCatalog.label(provider), path: ingestion_path(provider)}
+    end)
   end
 
   defp ingestion_call(fun, args) do

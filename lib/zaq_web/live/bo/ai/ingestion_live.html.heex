@@ -13,9 +13,11 @@
     <%!-- =============== LEFT: File Browser + Upload =============== --%>
     <div class="lg:col-span-2 space-y-6 min-w-0">
       <.volume_selector
-        :if={@provider == "local" and map_size(@volumes) > 1}
+        :if={map_size(@volumes) > 1 or @data_source_sources != []}
         volumes={@volumes}
         current_volume={@current_volume}
+        current_provider={@provider}
+        data_sources={@data_source_sources}
       />
 
       <div>

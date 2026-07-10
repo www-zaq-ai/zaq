@@ -1325,7 +1325,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
              )
 
     assert mounted.assigns.provider == "zaq_local"
-    assert mounted.assigns.provider_label == "ZAQ Local"
+    assert mounted.assigns.provider_label == "Disk"
 
     assert {:noreply, opened} = ProviderLive.handle_event("open_new_credential", %{}, mounted)
     assert opened.assigns.credential_modal

@@ -86,9 +86,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   @data_source_cards [
     %{
       id: "zaq_local",
-      label: "ZAQ Local",
-      color: "#03b6d4",
-      desc: "Upload and manage documents directly in ZAQ. The built-in knowledge base."
+      label: "Disk",
+      color: "#64748B",
+      desc: "Upload and manage documents stored on the local server disk."
     },
     %{
       id: "google_drive",
