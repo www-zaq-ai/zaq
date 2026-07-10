@@ -53,6 +53,9 @@ defmodule Zaq.Agent.ErrorMessage do
   def from_reason({:failed, :error, inner}, fallback),
     do: from_reason(inner, fallback)
 
+  def from_reason({:incomplete_response, _finish_reason}, _fallback),
+    do: "The AI service is temporarily unavailable."
+
   def from_reason(_reason, fallback) when is_binary(fallback) and fallback != "",
     do: fallback
 
