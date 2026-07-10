@@ -215,7 +215,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     |> element("[phx-click='toggle_person_selection'][phx-value-id='#{person.id}']")
     |> render_click()
 
-    assert has_element?(view, "#bulk-delete-button", "Delete (1)")
+    assert has_element?(view, "#bulk-delete-button", "Delete selected")
 
     view |> element("#bulk-delete-button") |> render_click()
 
