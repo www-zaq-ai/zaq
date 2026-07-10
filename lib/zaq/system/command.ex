@@ -8,8 +8,8 @@ defmodule Zaq.System.Command do
   enforces a timeout.
 
   This is the shared primitive behind CLI-backed features (e.g.
-  `Zaq.Agent.Web.AgentBrowser`). Callers build the argument list and interpret the
-  output; this module owns only the process plumbing.
+  `Zaq.Agent.Tools.Web.Browsing`). Callers build the argument list and interpret
+  the output; this module owns only the process plumbing.
 
   ## Return values
 
@@ -26,6 +26,16 @@ defmodule Zaq.System.Command do
   @default_timeout_ms 60_000
 
   @type result :: {:ok, String.t()} | {:error, %{exit_code: term(), output: String.t()}}
+
+  @doc """
+  The default hard timeout (ms) applied when a caller passes no `:timeout_ms`.
+
+  Exposed so callers that layer their own timeout logic (e.g.
+  `Zaq.Agent.Tools.Web.Browsing`) can share this constant instead of duplicating
+  the literal, which would silently drift.
+  """
+  @spec default_timeout_ms() :: pos_integer()
+  def default_timeout_ms, do: @default_timeout_ms
 
   @doc """
   Runs `executable` with `args` and returns its combined output.
@@ -78,8 +88,19 @@ defmodule Zaq.System.Command do
     after
       timeout_ms ->
         safe_close(port)
+        drain(port)
         Logger.error("[Command] #{label} timed out after #{timeout_ms}ms")
         {:error, %{exit_code: :timeout, output: finalize(chunks)}}
+    end
+  end
+
+  # Flush any port messages (data / late :exit_status) that arrived around the
+  # timeout so they don't linger in the mailbox as process-lifetime garbage.
+  defp drain(port) do
+    receive do
+      {^port, _} -> drain(port)
+    after
+      0 -> :ok
     end
   end
 

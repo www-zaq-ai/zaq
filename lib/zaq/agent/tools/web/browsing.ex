@@ -100,7 +100,6 @@ defmodule Zaq.Agent.Tools.Web.Browsing do
   alias Zaq.System.Command
 
   @default_binary "agent-browser"
-  @default_timeout_ms 60_000
 
   # Headroom added to the per-command self-timeout when declaring the react
   # per-tool budget (see `tool_timeout_ms/0`), so a slow command surfaces a
@@ -247,13 +246,14 @@ defmodule Zaq.Agent.Tools.Web.Browsing do
   defp binary, do: System.get_env("AGENT_BROWSER_BIN") || @default_binary
 
   # Default per-command timeout from AGENT_BROWSER_TIMEOUT_MS; a missing or
-  # malformed value falls back to @default_timeout_ms rather than raising.
+  # malformed value falls back to the shared `Command.default_timeout_ms/0`
+  # (single source of truth) rather than raising or duplicating the literal.
   defp default_timeout_ms do
     with value when is_binary(value) <- System.get_env("AGENT_BROWSER_TIMEOUT_MS"),
          {ms, _} <- Integer.parse(value) do
       ms
     else
-      _ -> @default_timeout_ms
+      _ -> Command.default_timeout_ms()
     end
   end
 

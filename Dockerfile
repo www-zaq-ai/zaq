@@ -49,7 +49,9 @@ RUN apt-get update -y && \
     apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-RUN cargo install agent-browser --root /opt/agent-browser
+# Pin the version for reproducible builds — an unpinned install would compile
+# whatever is latest on crates.io at build time, risking silent CLI regressions.
+RUN cargo install agent-browser --version 0.19.0 --root /opt/agent-browser
 
 FROM debian:trixie-slim AS app
 
@@ -69,6 +71,11 @@ ENV LANG=en_US.UTF-8 \
     PHX_SERVER=true \
     HOME=/app \
     AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
+    # --no-sandbox: Chromium's setuid sandbox can't run unprivileged in a
+    # container; --disable-dev-shm-usage avoids crashes from the small default
+    # /dev/shm. This relaxes Chromium's own sandbox, so the compensating control
+    # is domain allowlisting via AGENT_BROWSER_ALLOWED_DOMAINS (see
+    # Zaq.Agent.Tools.Web.Browsing.domain_flags/1).
     AGENT_BROWSER_ARGS=--no-sandbox,--disable-dev-shm-usage
 
 WORKDIR /app

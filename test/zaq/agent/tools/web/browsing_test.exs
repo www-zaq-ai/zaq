@@ -1,4 +1,7 @@
 defmodule Zaq.Agent.Tools.Web.BrowsingTest do
+  # async: false — mutates global env vars (AGENT_BROWSER_BIN,
+  # AGENT_BROWSER_ALLOWED_DOMAINS, AGENT_BROWSER_TIMEOUT_MS); parallel tests
+  # would collide on them.
   use ExUnit.Case, async: false
 
   @moduletag capture_log: true
