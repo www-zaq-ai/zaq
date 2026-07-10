@@ -1,6 +1,7 @@
 defmodule ZaqWeb.Live.BO.System.PeopleLive do
   use ZaqWeb, :live_view
 
+  import ZaqWeb.Components.DesignSystem.Table, only: [table_selection_bar: 1]
   import ZaqWeb.Components.SearchableSelect
 
   alias Zaq.Accounts.Person
@@ -9,6 +10,10 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
+  alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
+  alias ZaqWeb.Components.DesignSystem.EmptyState
+  alias ZaqWeb.Components.DesignSystem.SimplePagination
+  alias ZaqWeb.Live.BO.System.PeopleTable
 
   def mount(_params, _session, socket) do
     socket =
@@ -846,25 +851,15 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     <div>
       <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
         <h2 class="font-mono text-sm font-bold zaq-text-ink">People</h2>
-        <div class="flex items-center gap-2">
-          <button
-            :if={MapSet.size(@selected_people) > 0}
-            id="bulk-delete-button"
-            phx-click="open_bulk_delete_modal"
-            class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
-          >
-            Delete ({MapSet.size(@selected_people)})
-          </button>
-          <button
-            id="new-person-button"
-            phx-click="open_modal"
-            phx-value-action="new"
-            phx-value-entity="person"
-            class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
-          >
-            + New Person
-          </button>
-        </div>
+        <button
+          id="new-person-button"
+          phx-click="open_modal"
+          phx-value-action="new"
+          phx-value-entity="person"
+          class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
+        >
+          + New Person
+        </button>
       </div>
       <form
         phx-change="filter_people"
@@ -914,93 +909,34 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           />
         </div>
       </form>
-      <div :if={@people == []} class="py-16 text-center">
-        <p class="font-mono text-sm text-black/30">No people yet.</p>
-        <p class="font-mono text-[0.7rem] text-black/20 mt-1">Click "New Person" to add one.</p>
-      </div>
-      <div :if={@people != []} class="divide-y divide-black/6">
-        <div
-          :for={person <- @people}
-          class={[
-            "flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-black/[0.02] transition-colors",
-            if(@selected_person && @selected_person.id == person.id,
-              do: "zaq-bg-accent-faint border-l-2 border-[var(--zaq-color-accent)]",
-              else: ""
-            )
-          ]}
-          phx-click="select_person"
-          phx-value-id={person.id}
-        >
-          <button
-            type="button"
-            phx-click="toggle_person_selection"
-            phx-value-id={person.id}
-            phx-stop-propagation
-            class="w-4 h-4 rounded border border-black/20 bg-white grid place-items-center flex-shrink-0"
+      <.table_selection_bar selected_count={MapSet.size(@selected_people)}>
+        <:actions>
+          <DSButton.button
+            id="bulk-delete-button"
+            variant={:tertiary}
+            danger
+            phx-click="open_bulk_delete_modal"
           >
-            <span
-              :if={MapSet.member?(@selected_people, person.id)}
-              class="w-2.5 h-2.5 rounded-sm bg-[var(--zaq-color-accent)]"
-            />
-          </button>
-          <div class="w-9 h-9 rounded-lg zaq-bg-ink-soft grid place-items-center flex-shrink-0 font-mono text-sm font-bold zaq-text-ink-soft">
-            {String.first(person.full_name) |> String.upcase()}
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="font-mono text-[0.82rem] font-semibold zaq-text-ink truncate">
-              {person.full_name}
-            </p>
-            <p :if={person.role} class="font-mono text-[0.68rem] text-black/40 truncate">
-              {person.role}
-            </p>
-          </div>
-          <div class="flex items-center gap-2 flex-shrink-0">
-            <span
-              :if={person.incomplete}
-              class="font-mono text-[0.6rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 border border-amber-200"
-            >
-              incomplete
-            </span>
-            <% preferred = List.first(person.channels) %>
-            <span
-              :if={preferred}
-              class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent border border-[var(--zaq-color-accent)]"
-            >
-              {preferred.platform}
-            </span>
-            <span class={[
-              "w-2 h-2 rounded-full flex-shrink-0",
-              if(person.status == "active", do: "bg-emerald-400", else: "bg-black/20")
-            ]} />
-          </div>
-        </div>
-      </div>
-      <div
-        :if={@total_count > 0}
-        class="px-5 py-3 border-t border-black/6 flex items-center justify-between"
-      >
-        <span class="font-mono text-[0.68rem] text-black/40">
-          {@page * @per_page - @per_page + 1}–{min(@page * @per_page, @total_count)} of {@total_count}
-        </span>
-        <div class="flex gap-1">
-          <button
-            :if={@page > 1}
-            phx-click="change_page"
-            phx-value-page={@page - 1}
-            class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/12 text-black/60 hover:bg-black/5 transition-colors"
-          >
-            ← Prev
-          </button>
-          <button
-            :if={@page * @per_page < @total_count}
-            phx-click="change_page"
-            phx-value-page={@page + 1}
-            class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/12 text-black/60 hover:bg-black/5 transition-colors"
-          >
-            Next →
-          </button>
-        </div>
-      </div>
+            Delete selected
+          </DSButton.button>
+        </:actions>
+      </.table_selection_bar>
+      <EmptyState.empty_state
+        :if={@people == []}
+        title="No people yet."
+        hint={"Click \"New Person\" to add one."}
+      />
+      <PeopleTable.people_table
+        :if={@people != []}
+        people={@people}
+        selected_people={@selected_people}
+        selected_person={@selected_person}
+      />
+      <SimplePagination.simple_pagination
+        page={@page}
+        per_page={@per_page}
+        total_count={@total_count}
+      />
     </div>
     """
   end

@@ -381,7 +381,7 @@ test.describe("People", () => {
     // Filter by team — person should appear in the list
     await page.locator(SEL.filterName).clear()
     await pickSearchableSelect(page, '#filter-team-select', teamName)
-    await expect(page.getByRole('paragraph').filter({ hasText: personName }).first()).toBeVisible()
+    await expect(page.getByText(personName).first()).toBeVisible()
   })
 
   test("team can be created inline from person detail panel", async ({ page }) => {
@@ -431,21 +431,21 @@ test.describe("People", () => {
 
     // Assign teamA to survivor
     await page.locator(SEL.filterName).fill(`${ts}`)
-    await page.getByRole('paragraph').filter({ hasText: survivorName }).first().click()
+    await page.getByText(survivorName).first().click()
     await page.locator(`${teamSelectForm} [data-select-trigger]`).click()
     await page.locator(`${teamSelectForm} [data-select-search]`).fill(teamA)
     await page.locator(`${teamSelectForm} [data-select-create]`).click()
     await expect(teamBadge(page, teamA)).toBeVisible()
 
     // Assign teamB to loser
-    await page.getByRole('paragraph').filter({ hasText: loserName }).first().click()
+    await page.getByText(loserName).first().click()
     await page.locator(`${teamSelectForm} [data-select-trigger]`).click()
     await page.locator(`${teamSelectForm} [data-select-search]`).fill(teamB)
     await page.locator(`${teamSelectForm} [data-select-create]`).click()
     await expect(teamBadge(page, teamB)).toBeVisible()
 
     // Merge loser into survivor
-    await page.getByRole('paragraph').filter({ hasText: survivorName }).first().click()
+    await page.getByText(survivorName).first().click()
     await page.locator('[phx-click="open_merge_modal"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).toBeVisible()
 
@@ -457,7 +457,7 @@ test.describe("People", () => {
     await expect(page.getByText("Persons merged successfully")).toBeVisible()
 
     // Survivor should now carry both teams (detail panel already open)
-    await page.getByRole('paragraph').filter({ hasText: survivorName }).first().click()
+    await page.getByText(survivorName).first().click()
     await expect(teamBadge(page, teamA)).toBeVisible()
     await expect(teamBadge(page, teamB)).toBeVisible()
   })
