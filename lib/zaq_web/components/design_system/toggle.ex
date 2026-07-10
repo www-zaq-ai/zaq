@@ -73,7 +73,7 @@ defmodule ZaqWeb.Components.DesignSystem.Toggle do
 
   defp segment_class(selected, choice) do
     [
-      "zaq-toggle-segment",
+      "zaq-toggle-segment zaq-text-body",
       choice[:label] && choice[:icon] && "zaq-toggle-segment--with-label",
       choice[:label] && !choice[:icon] && "zaq-toggle-segment--text-only",
       selected == choice.value && "zaq-toggle-segment--active"
