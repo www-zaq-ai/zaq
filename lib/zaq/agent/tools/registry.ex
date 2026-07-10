@@ -282,8 +282,10 @@ defmodule Zaq.Agent.Tools.Registry do
       key: "web.browsing",
       label: "Web browsing",
       description:
-        "Drive a browser to navigate sites, snapshot pages for element refs, fill inputs, and " <>
-          "click/submit forms (one command per call; steps share a session)",
+        "Drive a real headless browser with full JavaScript support (Google Forms, SPAs): open a " <>
+          "URL, snapshot to get element refs, then fill/click/select by ref, scroll buttons into " <>
+          "view before clicking, and verify submission via the url command (one command per call; " <>
+          "snapshot before interacting; a click's success does not prove the effect landed)",
       module: Zaq.Agent.Tools.Web.Browsing
     },
     %{

@@ -156,8 +156,40 @@ defmodule Zaq.Agent.Factory do
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
         |> Keyword.put(:max_iterations, configured_agent.max_iterations || 10)
         |> Keyword.put_new(:timeout, 300_000)
+        |> maybe_put_tool_timeout(config)
 
       ask_stream(server, query, ask_opts)
+    end
+  end
+
+  # Raise the run's per-tool react timeout when an enabled tool needs more than
+  # jido_ai's 15s default. Factory holds no per-tool knowledge — each tool
+  # declares its own minimum (see `tool_timeout_ms/1`).
+  defp maybe_put_tool_timeout(opts, config) do
+    case config |> Map.get(:tools, []) |> tool_timeout_ms() do
+      nil -> opts
+      ms -> Keyword.put_new(opts, :tool_timeout_ms, ms)
+    end
+  end
+
+  @doc """
+  Per-tool react execution timeout (ms) required by `tools`, or `nil` to use
+  jido_ai's default (15s).
+
+  A tool that needs longer than the default (e.g. browser automation, whose cold
+  commands can exceed 15s and would otherwise abort the run) declares the minimum
+  it requires via an optional `tool_timeout_ms/0` on its module. This maps
+  generically over the enabled tool modules and takes the maximum — Factory holds
+  no per-tool knowledge; tools that declare nothing keep the responsive default.
+  """
+  @spec tool_timeout_ms([module()]) :: pos_integer() | nil
+  def tool_timeout_ms(tools) when is_list(tools) do
+    tools
+    |> Enum.filter(&(Code.ensure_loaded?(&1) and function_exported?(&1, :tool_timeout_ms, 0)))
+    |> Enum.map(& &1.tool_timeout_ms())
+    |> case do
+      [] -> nil
+      values -> Enum.max(values)
     end
   end
 

@@ -143,13 +143,6 @@ if config_env() == :prod do
     base_path: ingestion_volumes_base,
     volumes: ingestion_volumes
 
-  # -- Web browsing (agent-browser CLI) --
-  # The `agent-browser` Rust binary is installed in the container image; Chromium
-  # is selected via the AGENT_BROWSER_EXECUTABLE_PATH env (set in the Dockerfile).
-  config :zaq, Zaq.Agent.Web.AgentBrowser,
-    binary: System.get_env("AGENT_BROWSER_BIN", "agent-browser"),
-    default_timeout_ms: String.to_integer(System.get_env("AGENT_BROWSER_TIMEOUT_MS", "60000"))
-
   # -- Oban --
   config :zaq, Oban,
     repo: Zaq.Repo,

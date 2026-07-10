@@ -8,10 +8,12 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
   setup do
     prev_bin = System.get_env("AGENT_BROWSER_BIN")
     prev_domains = System.get_env("AGENT_BROWSER_ALLOWED_DOMAINS")
+    prev_timeout = System.get_env("AGENT_BROWSER_TIMEOUT_MS")
 
     on_exit(fn ->
       restore("AGENT_BROWSER_BIN", prev_bin)
       restore("AGENT_BROWSER_ALLOWED_DOMAINS", prev_domains)
+      restore("AGENT_BROWSER_TIMEOUT_MS", prev_timeout)
     end)
 
     :ok
@@ -44,9 +46,15 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
       assert :url in keys
       assert :selector in keys
       assert :text in keys
+      assert :wait_for in keys
       assert :session in keys
 
       assert Keyword.keys(Browsing.output_schema()) == [:command, :output]
+    end
+
+    test "declares a react per-tool timeout above its per-command self-timeout" do
+      # 60s default self-timeout + 30s headroom = 90s.
+      assert Browsing.tool_timeout_ms() == 90_000
     end
   end
 
@@ -127,16 +135,29 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
       assert "env.test" in args
     end
 
-    test "read passes the url when given" do
-      args = argv(Browsing.run(%{command: "read", url: "https://acme.test/faq"}, %{}))
-      assert "read" in args
-      assert "https://acme.test/faq" in args
+    test "wait passes a selector-or-milliseconds value" do
+      args = argv(Browsing.run(%{command: "wait", wait_for: "3000"}, %{}))
+      assert ["wait", "3000" | _] = args
     end
 
-    test "read without a url reads the active tab" do
-      args = argv(Browsing.run(%{command: "read"}, %{}))
-      assert "read" in args
-      refute Enum.any?(args, &String.starts_with?(&1, "http"))
+    test "text maps to the CLI `get text <selector>`" do
+      args = argv(Browsing.run(%{command: "text", selector: "body"}, %{}))
+      assert ["get", "text", "body" | _] = args
+    end
+
+    test "uncheck passes the selector" do
+      args = argv(Browsing.run(%{command: "uncheck", selector: "#agree"}, %{}))
+      assert ["uncheck", "#agree" | _] = args
+    end
+
+    test "url maps to the CLI `get url` (for verifying navigation)" do
+      args = argv(Browsing.run(%{command: "url"}, %{}))
+      assert ["get", "url" | _] = args
+    end
+
+    test "scrollintoview passes the selector" do
+      args = argv(Browsing.run(%{command: "scrollintoview", selector: "@e5"}, %{}))
+      assert ["scrollintoview", "@e5" | _] = args
     end
 
     test "type passes selector and text" do
@@ -203,6 +224,11 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
 
       assert {:error, "press requires: key"} = Browsing.run(%{command: "press"}, %{})
       assert {:error, "check requires: selector"} = Browsing.run(%{command: "check"}, %{})
+      assert {:error, "wait requires: wait_for"} = Browsing.run(%{command: "wait"}, %{})
+      assert {:error, "text requires: selector"} = Browsing.run(%{command: "text"}, %{})
+
+      assert {:error, "scrollintoview requires: selector"} =
+               Browsing.run(%{command: "scrollintoview"}, %{})
     end
 
     test "a blank string argument is treated as missing" do
@@ -230,10 +256,18 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
     end
 
     test "maps a timeout" do
-      fake_bin("#!/bin/sh\nsleep 5\n")
+      fake_bin(~s(#!/bin/sh\nsleep 5\n))
 
       assert {:error, "open timed out"} =
                Browsing.run(%{command: "open", url: "https://slow.test", timeout_ms: 50}, %{})
+    end
+
+    test "honors AGENT_BROWSER_TIMEOUT_MS as the default timeout" do
+      System.put_env("AGENT_BROWSER_TIMEOUT_MS", "60")
+      fake_bin(~s(#!/bin/sh\nsleep 5\n))
+
+      # No per-call timeout_ms → the env-derived default applies.
+      assert {:error, "snapshot timed out"} = Browsing.run(%{command: "snapshot"}, %{})
     end
   end
 end

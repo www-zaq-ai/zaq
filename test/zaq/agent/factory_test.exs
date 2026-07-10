@@ -10,6 +10,8 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent.Factory
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.ServerManager
+  alias Zaq.Agent.Tools.SearchKnowledgeBase
+  alias Zaq.Agent.Tools.Web.Browsing
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.TestSupport.OpenAIStub
 
@@ -21,6 +23,21 @@ defmodule Zaq.Agent.FactoryTest do
 
     @impl true
     def run(_params, _context), do: {:ok, %{ok: true}}
+  end
+
+  describe "tool_timeout_ms/1" do
+    test "takes the max timeout declared by the enabled tool modules" do
+      assert Factory.tool_timeout_ms([SearchKnowledgeBase, Browsing]) ==
+               Browsing.tool_timeout_ms()
+    end
+
+    test "returns nil when no enabled tool declares a timeout" do
+      assert Factory.tool_timeout_ms([SearchKnowledgeBase]) == nil
+    end
+
+    test "returns nil for an empty tool list" do
+      assert Factory.tool_timeout_ms([]) == nil
+    end
   end
 
   describe "answering_configured_agent/0" do

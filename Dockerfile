@@ -68,7 +68,8 @@ ENV LANG=en_US.UTF-8 \
     MIX_ENV=prod \
     PHX_SERVER=true \
     HOME=/app \
-    AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+    AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
+    AGENT_BROWSER_ARGS=--no-sandbox,--disable-dev-shm-usage
 
 WORKDIR /app
 
