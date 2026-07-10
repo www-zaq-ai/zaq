@@ -38,12 +38,26 @@ RUN mix release
 # Keep a stable path to the release-bundled Python requirements
 RUN cp /app/_build/prod/rel/zaq/lib/zaq-*/priv/python/crawler-ingest/requirements.txt /app/release-requirements.txt
 
+# -- agent-browser CLI (native Rust binary for the web_browsing action) --
+# Compiled from crates.io into a single self-contained binary that is copied
+# into the runtime image. The browser itself is the system Chromium installed
+# in the app stage (see AGENT_BROWSER_EXECUTABLE_PATH below), so we do not run
+# `agent-browser install` (which would download ~684MB of Chrome for Testing).
+FROM rust:1-slim-trixie AS agent-browser
+
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN cargo install agent-browser --root /opt/agent-browser
+
 FROM debian:trixie-slim AS app
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
       libstdc++6 openssl libncurses6 locales ca-certificates \
-      python3 python3-venv python3-pip && \
+      python3 python3-venv python3-pip \
+      chromium fonts-liberation && \
     sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen && \
     rm -rf /var/lib/apt/lists/*
@@ -53,12 +67,14 @@ ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     MIX_ENV=prod \
     PHX_SERVER=true \
-    HOME=/app
+    HOME=/app \
+    AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
 RUN useradd --system --uid 1000 --create-home --home-dir /app appuser
 COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
+COPY --from=agent-browser /opt/agent-browser/bin/agent-browser /usr/local/bin/agent-browser
 
 RUN python3 -m venv /app/.venv && \
     /app/.venv/bin/pip install --no-cache-dir -r /app/lib/zaq-*/priv/python/crawler-ingest/requirements.txt && \

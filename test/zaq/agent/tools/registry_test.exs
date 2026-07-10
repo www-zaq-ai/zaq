@@ -42,6 +42,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "workflow.condition",
              "workflow.run_agent",
              "workflow.dispatch_event",
+             "web.browsing",
              "advanced.lua_eval"
            ]
   end
@@ -100,6 +101,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              Registry.resolve_modules(["conversation.persist_message_history"])
   end
 
+  test "web.browsing resolves to the browsing tool" do
+    assert Registry.valid_tool_key?("web.browsing")
+
+    assert {:ok, [Zaq.Agent.Tools.Web.Browsing]} =
+             Registry.resolve_modules(["web.browsing"])
+  end
+
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
              "accounts.fetch_history",
@@ -137,6 +145,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "workflow.condition",
              "workflow.run_agent",
              "workflow.dispatch_event",
+             "web.browsing",
              "advanced.lua_eval"
            ]
   end

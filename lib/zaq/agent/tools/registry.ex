@@ -279,6 +279,14 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Workflow.DispatchEvent
     },
     %{
+      key: "web.browsing",
+      label: "Web browsing",
+      description:
+        "Drive a browser to navigate sites, snapshot pages for element refs, fill inputs, and " <>
+          "click/submit forms (one command per call; steps share a session)",
+      module: Zaq.Agent.Tools.Web.Browsing
+    },
+    %{
       key: "advanced.lua_eval",
       label: "Lua eval",
       description: "Evaluate Lua code in a sandbox",
