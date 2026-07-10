@@ -13,7 +13,7 @@
     detail_id="people-detail-pane"
   >
     <:master>
-      <div class="bg-white rounded-xl border border-black/10">
+      <div class="zaq-master-pane-toolbar">
         <DSToggle.toggle
           value={Atom.to_string(@active_tab)}
           event="switch_tab"
@@ -22,25 +22,48 @@
             %{value: "people", label: "People"},
             %{value: "teams", label: "Teams"}
           ]}
-          class="px-5 py-3 border-b border-black/8"
         />
-        <.people_tab
+        <DSButton.button
           :if={@active_tab == :people}
-          people={@people}
-          selected_people={@selected_people}
-          selected_person={@selected_person}
-          teams={@teams}
-          filter_name={@filter_name}
-          filter_email={@filter_email}
-          filter_phone={@filter_phone}
-          filter_complete={@filter_complete}
-          filter_team_id={@filter_team_id}
-          page={@page}
-          per_page={@per_page}
-          total_count={@total_count}
-        />
-        <.teams_tab :if={@active_tab == :teams} teams={@teams} />
+          id="new-person-button"
+          variant={:primary}
+          icon="hero-plus"
+          class="shrink-0"
+          phx-click="open_modal"
+          phx-value-action="new"
+          phx-value-entity="person"
+        >
+          New Person
+        </DSButton.button>
+        <DSButton.button
+          :if={@active_tab == :teams}
+          id="new-team-button"
+          variant={:primary}
+          icon="hero-plus"
+          class="shrink-0"
+          phx-click="open_modal"
+          phx-value-action="new"
+          phx-value-entity="team"
+        >
+          New Team
+        </DSButton.button>
       </div>
+      <.people_tab
+        :if={@active_tab == :people}
+        people={@people}
+        selected_people={@selected_people}
+        selected_person={@selected_person}
+        teams={@teams}
+        filter_name={@filter_name}
+        filter_email={@filter_email}
+        filter_phone={@filter_phone}
+        filter_complete={@filter_complete}
+        filter_team_id={@filter_team_id}
+        page={@page}
+        per_page={@per_page}
+        total_count={@total_count}
+      />
+      <.teams_tab :if={@active_tab == :teams} teams={@teams} />
     </:master>
 
     <:detail>

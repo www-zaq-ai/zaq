@@ -533,6 +533,7 @@ a.zaq-link:focus-visible .zaq-link-underline {
 .zaq-toggle-group {
   display: flex;
   align-items: center;
+  gap: var(--zaq-scale-4);
   padding: var(--zaq-scale-2);
   border-radius: var(--zaq-scale-8);
   background: var(--zaq-surface-color-elevated);
@@ -557,6 +558,7 @@ a.zaq-link:focus-visible .zaq-link-underline {
 }
 
 .zaq-toggle-segment:hover {
+  background: var(--zaq-surface-color-base);
   color: var(--zaq-text-color-body-secondary);
 }
 
@@ -622,6 +624,37 @@ html[data-theme="dark"] .zaq-toggle-group-pill > button:nth-of-type(3) {
   color: var(--zaq-text-color-body-accent);
   border-bottom-color: var(--zaq-border-color-accent);
   background-color: var(--zaq-surface-color-raised);
+}
+
+/* ── Master pane chrome (toolbar + filter band on BO list pages)
+      Reuse on master-detail list LiveViews (e.g. People). ─ */
+
+.zaq-master-pane-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--zaq-layout-inline-gap);
+  padding-inline: var(--zaq-scale-16);
+  padding-block: var(--zaq-scale-16);
+}
+
+.zaq-master-pane-toolbar .zaq-toggle-row {
+  margin-bottom: 0;
+}
+
+.zaq-master-pane-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--zaq-layout-inline-gap);
+  padding-inline: var(--zaq-scale-16);
+  padding-block: var(--zaq-scale-8);
+}
+
+/* Centered empty-list message — DesignSystem.EmptyState */
+.zaq-empty-state {
+  padding-block: var(--zaq-scale-64);
+  text-align: center;
 }
 
 /* ── Ingestion chrome band (shared by `IngestionVolumeSelector`, `IngestionFileBrowserHeader`)

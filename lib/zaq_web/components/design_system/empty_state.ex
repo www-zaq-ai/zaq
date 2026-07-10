@@ -13,9 +13,19 @@ defmodule ZaqWeb.Components.DesignSystem.EmptyState do
 
   def empty_state(assigns) do
     ~H"""
-    <div class={["py-16 text-center", @class]}>
-      <p class="font-mono text-sm text-black/30">{@title}</p>
-      <p :if={@hint} class="font-mono text-[0.7rem] text-black/20 mt-1">{@hint}</p>
+    <div class={["zaq-empty-state", @class]}>
+      <div class="zaq-layout-stack-tight">
+        <p class="zaq-text-body" style="color: var(--zaq-text-color-body-secondary)">
+          {@title}
+        </p>
+        <p
+          :if={@hint}
+          class="zaq-text-body-sm"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          {@hint}
+        </p>
+      </div>
     </div>
     """
   end

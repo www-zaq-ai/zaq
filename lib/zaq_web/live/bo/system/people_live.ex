@@ -15,6 +15,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias ZaqWeb.Components.DesignSystem.SimplePagination
   alias ZaqWeb.Components.DesignSystem.Toggle, as: DSToggle
   alias ZaqWeb.Live.BO.System.PeopleTable
+  alias ZaqWeb.Live.BO.System.TeamsTable
 
   def mount(_params, _session, socket) do
     socket =
@@ -817,21 +818,9 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   defp people_tab(assigns) do
     ~H"""
     <div>
-      <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
-        <h2 class="font-mono text-sm font-bold zaq-text-ink">People</h2>
-        <button
-          id="new-person-button"
-          phx-click="open_modal"
-          phx-value-action="new"
-          phx-value-entity="person"
-          class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
-        >
-          + New Person
-        </button>
-      </div>
       <form
         phx-change="filter_people"
-        class="px-4 py-2.5 border-b border-black/6 flex flex-wrap gap-2"
+        class="zaq-master-pane-filter-bar"
       >
         <input
           type="text"
@@ -912,75 +901,12 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   defp teams_tab(assigns) do
     ~H"""
     <div>
-      <div class="flex items-center justify-between px-5 py-4 border-b border-black/8">
-        <h2 class="font-mono text-sm font-bold zaq-text-ink">Teams</h2>
-        <button
-          id="new-team-button"
-          phx-click="open_modal"
-          phx-value-action="new"
-          phx-value-entity="team"
-          class="font-mono text-[0.72rem] font-bold px-3 py-1.5 rounded-lg bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] transition-colors"
-        >
-          + New Team
-        </button>
-      </div>
-      <div :if={@teams == []} class="py-16 text-center">
-        <p class="font-mono text-sm text-black/30">No teams yet.</p>
-        <p class="font-mono text-[0.7rem] text-black/20 mt-1">Click "New Team" to add one.</p>
-      </div>
-      <div :if={@teams != []} class="divide-y divide-black/6">
-        <div
-          :for={team <- @teams}
-          class="flex items-center gap-3 px-5 py-3.5 hover:bg-black/[0.02] transition-colors"
-        >
-          <div class="w-9 h-9 rounded-lg zaq-bg-ink-soft grid place-items-center flex-shrink-0 font-mono text-sm font-bold zaq-text-ink-soft">
-            {String.first(team.name) |> String.upcase()}
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="font-mono text-[0.82rem] font-semibold zaq-text-ink truncate">{team.name}</p>
-            <p :if={team.description} class="font-mono text-[0.68rem] text-black/40 truncate">
-              {team.description}
-            </p>
-          </div>
-          <div class="flex items-center gap-1 flex-shrink-0">
-            <button
-              phx-click="open_modal"
-              phx-value-action="edit"
-              phx-value-entity="team"
-              phx-value-id={team.id}
-              class="w-7 h-7 rounded flex items-center justify-center text-black/30 hover:text-black/60 hover:bg-black/8 transition-colors"
-              title="Edit"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-            </button>
-            <button
-              phx-click="confirm_delete"
-              phx-value-entity="team"
-              phx-value-id={team.id}
-              class="w-7 h-7 rounded flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-              title="Delete"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
-                <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6m4-6v6" /><path d="M9 6V4h6v2" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
+      <EmptyState.empty_state
+        :if={@teams == []}
+        title="No teams yet."
+        hint={"Click \"New Team\" to add one."}
+      />
+      <TeamsTable.teams_table :if={@teams != []} teams={@teams} />
     </div>
     """
   end
