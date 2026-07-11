@@ -667,9 +667,13 @@ html[data-theme="dark"] .zaq-toggle-group-pill > button:nth-of-type(3) {
   gap: var(--zaq-scale-8);
 }
 
-/* Toolbar row sits above breadcrumbs inside the same stack; add rhythm below the action bar. */
+/* Toolbar row sits above breadcrumbs; add rhythm below the action bar. */
 .zaq-ingestion-chrome-row--spaced {
   margin-bottom: var(--zaq-scale-16);
+}
+
+.zaq-ingestion-chrome-row .zaq-toggle-row {
+  margin-bottom: 0;
 }
 
 .zaq-ingestion-chrome-actions {
@@ -677,6 +681,10 @@ html[data-theme="dark"] .zaq-toggle-group-pill > button:nth-of-type(3) {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--zaq-scale-8);
+}
+
+.zaq-ingestion-chrome-actions--end {
+  margin-left: auto;
 }
 
 /* Tighter chip-to-chip gap (e.g. volume names) */

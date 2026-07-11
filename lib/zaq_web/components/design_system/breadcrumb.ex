@@ -12,8 +12,10 @@ defmodule ZaqWeb.Components.DesignSystem.Breadcrumb do
   attr :current_dir, :string, required: true
 
   def breadcrumb(assigns) do
+    assigns = assign(assigns, :visible?, breadcrumb_visible?(assigns))
+
     ~H"""
-    <div class="zaq-breadcrumb-row zaq-text-body-sm">
+    <div :if={@visible?} class="zaq-breadcrumb-row zaq-text-body-sm">
       <button
         :if={@current_dir != "."}
         phx-click="go_back"
@@ -53,4 +55,7 @@ defmodule ZaqWeb.Components.DesignSystem.Breadcrumb do
     </div>
     """
   end
+
+  defp breadcrumb_visible?(%{current_dir: ".", breadcrumbs: []}), do: false
+  defp breadcrumb_visible?(_), do: true
 end

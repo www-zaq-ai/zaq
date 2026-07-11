@@ -21,12 +21,24 @@
       />
 
       <div>
-        <.file_browser_header
-          selected={@selected}
-          ingest_mode={@ingest_mode}
-          embedding_ready={@embedding_ready}
-          provider_mode={@provider != "local"}
-        />
+        <div class="zaq-ingestion-chrome-row zaq-ingestion-chrome-row--spaced">
+          <.toggle
+            value={@view_mode}
+            event="toggle_view_mode"
+            value_param="mode"
+            suffix={"#{length(@entries)} item(s)"}
+            choices={[
+              %{value: "list", icon: "hero-bars-3", title: "List view"},
+              %{value: "grid", icon: "hero-squares-2x2", title: "Grid view"}
+            ]}
+          />
+          <.file_browser_header
+            selected={@selected}
+            ingest_mode={@ingest_mode}
+            embedding_ready={@embedding_ready}
+            provider_mode={@provider != "local"}
+          />
+        </div>
         <p
           :if={@provider_error}
           class="zaq-text-body-sm mb-3"
@@ -35,16 +47,6 @@
           {@provider_error}
         </p>
         <.breadcrumb breadcrumbs={@breadcrumbs} current_dir={@current_dir} />
-        <.toggle
-          value={@view_mode}
-          event="toggle_view_mode"
-          value_param="mode"
-          suffix={"#{length(@entries)} item(s)"}
-          choices={[
-            %{value: "list", icon: "hero-bars-3", title: "List view"},
-            %{value: "grid", icon: "hero-squares-2x2", title: "Grid view"}
-          ]}
-        />
         <.file_list_view
           :if={@view_mode == "list"}
           entries={@entries}
