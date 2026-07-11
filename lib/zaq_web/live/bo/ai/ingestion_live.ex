@@ -480,6 +480,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     {:noreply, assign(socket, view_mode: mode)}
   end
 
+  # Modal: Upload
+
+  def handle_event("show_upload_modal", _params, socket) do
+    if provider_mode?(socket) do
+      {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
+    else
+      {:noreply, assign(socket, modal: :upload, modal_error: nil)}
+    end
+  end
+
   # Modal: New Folder
 
   def handle_event("show_new_folder_modal", _params, %{assigns: %{provider: provider}} = socket)
@@ -878,6 +888,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         |> load_entries()
         |> put_upload_result_flash(uploaded, failed)
         |> push_event("folder_batch_done", %{})
+        |> maybe_close_upload_modal(uploaded, failed)
 
       {:noreply, socket}
     else
@@ -928,6 +939,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
       true ->
         socket
+    end
+  end
+
+  defp maybe_close_upload_modal(socket, uploaded, failed) do
+    if socket.assigns.modal == :upload and uploaded != [] and failed == [] do
+      assign(socket, modal: nil)
+    else
+      socket
     end
   end
 

@@ -224,6 +224,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert sidecar_doc.metadata["source_document_source"] == source_source
   end
 
+  defp open_upload_modal(view) do
+    view |> element("#upload-data-button") |> render_click()
+  end
+
   # ────────────────────────────────────────────────────────────────
   # Existing tests (unchanged)
   # ────────────────────────────────────────────────────────────────
@@ -1430,6 +1434,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   test "uploads accepted files", %{conn: conn, tmp_dir: tmp_dir} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+    open_upload_modal(view)
 
     upload =
       file_input(view, "#upload-form", :files, [
@@ -1445,8 +1450,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert File.exists?(Path.join(tmp_dir, "upload.txt"))
   end
 
+  test "closes upload modal after all files upload successfully", %{conn: conn, tmp_dir: tmp_dir} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+    open_upload_modal(view)
+
+    upload =
+      file_input(view, "#upload-form", :files, [
+        %{name: "modal-close.txt", content: "hello upload", type: "text/plain"}
+      ])
+
+    assert render_upload(upload, "modal-close.txt")
+
+    view
+    |> form("#upload-form")
+    |> render_submit()
+
+    assert File.exists?(Path.join(tmp_dir, "modal-close.txt"))
+    refute has_element?(view, "#upload-modal")
+    assert has_element?(view, "span", "modal-close.txt")
+  end
+
   test "duplicate upload uses OS-style deduplication", %{conn: conn, tmp_dir: tmp_dir} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+    open_upload_modal(view)
 
     upload1 =
       file_input(view, "#upload-form", :files, [
@@ -1473,6 +1499,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   test "uploads png and jpg files", %{conn: conn, tmp_dir: tmp_dir} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+    open_upload_modal(view)
 
     png_upload =
       file_input(view, "#upload-form", :files, [
@@ -2912,6 +2939,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       ]
 
       render_hook(view, "folder_drop_skipped", %{"skipped" => skipped})
+      open_upload_modal(view)
 
       assert has_element?(view, "[data-testid='skipped-files']")
       assert has_element?(view, "[data-testid='skipped-files']", "report.json")
@@ -2935,6 +2963,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       # Now send a malformed payload (skipped is not a list)
       render_hook(view, "folder_drop_skipped", %{"skipped" => "not_a_list"})
+      open_upload_modal(view)
 
       # Socket unchanged — skipped list still visible
       assert has_element?(view, "[data-testid='skipped-files']", "a.json")
@@ -2948,6 +2977,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   describe "handle_event upload (folder drop behaviour)" do
     test "cancel_upload removes a queued upload entry", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      open_upload_modal(view)
 
       upload =
         file_input(view, "#upload-form", :files, [
@@ -2973,6 +3003,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       tmp_dir: tmp_dir
     } do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      open_upload_modal(view)
 
       view
       |> file_input("#upload-form", :files, [
@@ -2996,6 +3027,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       skipped = [%{"name" => "bad.json", "path" => "bad.json", "reason" => "unsupported_format"}]
       render_hook(view, "folder_drop_skipped", %{"skipped" => skipped})
+      open_upload_modal(view)
       assert has_element?(view, "[data-testid='skipped-files']", "bad.json")
 
       # Simulate upload event (no actual file upload in this test — just verify assign persistence)
@@ -3016,6 +3048,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       tmp_dir: tmp_dir
     } do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      open_upload_modal(view)
 
       # Upload a real file through Phoenix LiveView upload test helpers
       md_path = Path.join(tmp_dir, "alpha.md")
@@ -3038,6 +3071,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     test "uses client_relative_path as dest when set", %{conn: conn, tmp_dir: tmp_dir} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      open_upload_modal(view)
       subdir = Path.join(tmp_dir, "subfolder")
       File.mkdir_p!(subdir)
 
@@ -3062,6 +3096,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       tmp_dir: tmp_dir
     } do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      open_upload_modal(view)
 
       # empty string is truthy in Elixir — must not be used as dest
       view
@@ -3087,6 +3122,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       tmp_dir: tmp_dir
     } do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      open_upload_modal(view)
 
       view
       |> file_input("#upload-form", :files, [
@@ -3106,6 +3142,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     test "does not crash when entries are still in-progress (upload fired before transfer completes)",
          %{conn: conn, tmp_dir: tmp_dir} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      open_upload_modal(view)
 
       # Upload only 50% — entry stays in-progress (not :done)
       view

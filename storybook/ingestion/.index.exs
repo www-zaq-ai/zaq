@@ -46,5 +46,8 @@ defmodule Storybook.Ingestion do
   def entry("modal_share"),
     do: [name: "Modal Share", index: 13]
 
+  def entry("modal_upload"),
+    do: [name: "Modal Upload", index: 14]
+
   def entry(_), do: []
 end

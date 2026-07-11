@@ -21,6 +21,15 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
     <div class="zaq-ingestion-chrome-actions zaq-ingestion-chrome-actions--end">
       <.button
         :if={not @provider_mode}
+        id="upload-data-button"
+        variant={:secondary}
+        icon="hero-arrow-up-tray"
+        phx-click="show_upload_modal"
+      >
+        Upload data
+      </.button>
+      <.button
+        :if={not @provider_mode}
         id="new-folder-button"
         variant={:secondary}
         icon="hero-plus"

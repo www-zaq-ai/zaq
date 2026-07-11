@@ -24,6 +24,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   alias ZaqWeb.Components.DesignSystem.ModalNewFolder
   alias ZaqWeb.Components.DesignSystem.ModalRename
   alias ZaqWeb.Components.DesignSystem.ModalShare
+  alias ZaqWeb.Components.DesignSystem.ModalUpload
   alias ZaqWeb.Components.DesignSystem.StatusPill
   alias ZaqWeb.Components.DesignSystem.Toggle
   alias ZaqWeb.Helpers.SizeFormat
@@ -170,6 +171,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   def modal_new_folder(assigns) do
     ModalNewFolder.modal_new_folder(assigns)
+  end
+
+  # ── Modal: Upload ─────────────────────────────────────────────────────────
+
+  attr :uploads, :any, required: true
+  attr :embedding_ready, :boolean, default: true
+  attr :folder_drop_skipped, :list, default: []
+
+  def modal_upload(assigns) do
+    ModalUpload.modal_upload(assigns)
   end
 
   # ── Modal: Move ───────────────────────────────────────────────────────────

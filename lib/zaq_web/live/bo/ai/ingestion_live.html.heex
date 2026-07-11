@@ -66,13 +66,6 @@
           provider_mode={@provider != "local"}
         />
       </div>
-
-      <.upload_section
-        :if={@provider == "local"}
-        uploads={@uploads}
-        embedding_ready={@embedding_ready}
-        folder_drop_skipped={@folder_drop_skipped}
-      />
     </div>
 
     <%!-- =============== RIGHT: Ingestion Jobs =============== --%>
@@ -93,6 +86,12 @@
     :if={@modal == :new_folder}
     modal_error={@modal_error}
     modal_name={@modal_name}
+  />
+  <.modal_upload
+    :if={@modal == :upload and @provider == "local"}
+    uploads={@uploads}
+    embedding_ready={@embedding_ready}
+    folder_drop_skipped={@folder_drop_skipped}
   />
   <.modal_move
     :if={@modal == :move}
