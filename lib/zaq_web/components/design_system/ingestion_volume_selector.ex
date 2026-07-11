@@ -6,7 +6,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionVolumeSelector do
   Values are `volume:<name>` or `provider:<id>`; the LiveView handles navigation via
   `switch_source`.
 
-  **Layout / tokens:** `.zaq-ingestion-chrome-row`, `.zaq-ingestion-meta-label` in
+  **Layout / tokens:** `.zaq-ingestion-chrome-block`, `.zaq-ingestion-meta-label` in
   `assets/css/styles.css`; toggle segments use `.zaq-toggle-*` in the same file.
   """
 
@@ -26,7 +26,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionVolumeSelector do
       |> assign(:source_choices, source_choices(assigns))
 
     ~H"""
-    <div class="zaq-ingestion-chrome-row">
+    <div class="zaq-ingestion-chrome-block">
       <p class="zaq-ingestion-meta-label zaq-text-caption">
         Sources
       </p>

@@ -18,26 +18,27 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
 
   def jobs_panel(assigns) do
     ~H"""
-    <div>
-      <div class="flex items-center justify-between mb-3">
-        <p class="zaq-text-caption zaq-ingestion-meta-label">Jobs</p>
-        <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
-          {length(@jobs)}
-        </p>
-      </div>
+    <div class="zaq-layout-stack">
+      <div class="zaq-ingestion-chrome-block">
+        <div class="zaq-ingestion-chrome-block-header">
+          <p class="zaq-text-caption zaq-ingestion-meta-label">Jobs</p>
+          <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
+            {length(@jobs)}
+          </p>
+        </div>
 
-      <Toggle.toggle
-        value={@status_filter}
-        event="filter_status"
-        value_param="status"
-        class="mb-3"
-        choices={[
-          %{value: "all", label: "All", icon: "hero-queue-list", title: "All jobs"},
-          %{value: "completed", label: "Completed", icon: "hero-check-circle", title: "Completed"},
-          %{value: "failed", label: "Failed", icon: "hero-x-circle", title: "Failed"},
-          %{value: "others", label: "Others", icon: "hero-clock", title: "Pending and in progress"}
-        ]}
-      />
+        <Toggle.toggle
+          value={@status_filter}
+          event="filter_status"
+          value_param="status"
+          choices={[
+            %{value: "all", label: "All", icon: "hero-queue-list", title: "All jobs"},
+            %{value: "completed", label: "Completed", icon: "hero-check-circle", title: "Completed"},
+            %{value: "failed", label: "Failed", icon: "hero-x-circle", title: "Failed"},
+            %{value: "others", label: "Others", icon: "hero-clock", title: "Pending and in progress"}
+          ]}
+        />
+      </div>
 
       <div class="space-y-2 max-h-[80vh] overflow-y-auto">
         <div

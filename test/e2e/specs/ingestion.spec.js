@@ -33,6 +33,7 @@ const SEL = {
 
   // Ingestion page — file browser & upload
   ingestButton: "#ingest-selected-button",
+  uploadDataButton: "#upload-data-button",
   uploadBrowseTrigger: "#upload-form label",
   uploadSubmitButton: "#upload-files-button",
 }
@@ -101,6 +102,11 @@ async function selectAndIngest(page, row) {
   await expect(page.getByText("Ingestion started.")).toBeVisible()
   // Dismiss the "Ingestion started." toast so a later call does not match on it.
   await dismissFlash(page)
+}
+
+async function openUploadModal(page) {
+  await page.locator(SEL.uploadDataButton).click()
+  await expect(page.locator("#upload-modal")).toBeVisible()
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -188,6 +194,7 @@ test.describe("Ingestion", () => {
     fs.writeFileSync(tempPdfPath, minimalPdfBuffer())
 
     const fileChooserPromise = page.waitForEvent("filechooser")
+    await openUploadModal(page)
     await page.locator(SEL.uploadBrowseTrigger).click()
     const fileChooser = await fileChooserPromise
     await fileChooser.setFiles(tempPdfPath)
@@ -377,6 +384,7 @@ test.describe("Ingestion", () => {
     fs.writeFileSync(tempPdfPath, minimalPdfBuffer())
 
     const fileChooserPromise = page.waitForEvent("filechooser")
+    await openUploadModal(page)
     await page.locator(SEL.uploadBrowseTrigger).click()
     const fileChooser = await fileChooserPromise
     await fileChooser.setFiles(tempPdfPath)
@@ -444,6 +452,7 @@ test.describe("Ingestion", () => {
     // ── First upload ─────────────────────────────────────────────────────────
 
     const chooser1 = page.waitForEvent("filechooser")
+    await openUploadModal(page)
     await page.locator(SEL.uploadBrowseTrigger).click()
     const fc1 = await chooser1
     await fc1.setFiles(tempPdfPath)
@@ -456,6 +465,7 @@ test.describe("Ingestion", () => {
     // ── Second upload of the same file ───────────────────────────────────────
 
     const chooser2 = page.waitForEvent("filechooser")
+    await openUploadModal(page)
     await page.locator(SEL.uploadBrowseTrigger).click()
     const fc2 = await chooser2
     await fc2.setFiles(tempPdfPath)

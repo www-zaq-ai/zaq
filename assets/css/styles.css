@@ -672,7 +672,23 @@ html[data-theme="dark"] .zaq-toggle-group-pill > button:nth-of-type(3) {
   margin-bottom: var(--zaq-scale-16);
 }
 
-.zaq-ingestion-chrome-row .zaq-toggle-row {
+/* Label above control — Sources, Jobs filter bands (`layout.css` tight stack). */
+.zaq-ingestion-chrome-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--zaq-layout-stack-gap-tight);
+}
+
+.zaq-ingestion-chrome-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--zaq-layout-inline-gap);
+  width: 100%;
+}
+
+.zaq-ingestion-chrome-row .zaq-toggle-row,
+.zaq-ingestion-chrome-block .zaq-toggle-row {
   margin-bottom: 0;
 }
 
