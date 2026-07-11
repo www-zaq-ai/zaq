@@ -1,6 +1,6 @@
 defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
   @moduledoc """
-  BO ingestion jobs list with status filter chips.
+  BO ingestion jobs list with status filter toggle.
 
   Toolbar actions use `.zaq-btn` + `.zaq-btn-tertiary*` (`btn.css`) and `.zaq-btn-text_label-default` (`text-styles.css`) on buttons; non-button copy uses `.zaq-text-caption` where applicable.
   """
@@ -10,6 +10,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
   import ZaqWeb.Helpers.DateFormat
 
   alias ZaqWeb.Components.DesignSystem.StatusPill
+  alias ZaqWeb.Components.DesignSystem.Toggle
 
   attr :jobs, :list, required: true
   attr :status_filter, :string, required: true
@@ -25,27 +26,18 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
         </p>
       </div>
 
-      <div class="flex gap-1 mb-3 flex-wrap">
-        <button
-          :for={
-            {status, label} <- [
-              {"all", "all"},
-              {"completed", "completed"},
-              {"failed", "failed"},
-              {"others", "others"}
-            ]
-          }
-          type="button"
-          phx-click="filter_status"
-          phx-value-status={status}
-          class={[
-            "zaq-btn zaq-btn-tertiary zaq-btn-text_label-default",
-            @status_filter == status && "zaq-btn-tertiary--active"
-          ]}
-        >
-          {label}
-        </button>
-      </div>
+      <Toggle.toggle
+        value={@status_filter}
+        event="filter_status"
+        value_param="status"
+        class="mb-3"
+        choices={[
+          %{value: "all", label: "All", icon: "hero-queue-list", title: "All jobs"},
+          %{value: "completed", label: "Completed", icon: "hero-check-circle", title: "Completed"},
+          %{value: "failed", label: "Failed", icon: "hero-x-circle", title: "Failed"},
+          %{value: "others", label: "Others", icon: "hero-clock", title: "Pending and in progress"}
+        ]}
+      />
 
       <div class="space-y-2 max-h-[80vh] overflow-y-auto">
         <div
