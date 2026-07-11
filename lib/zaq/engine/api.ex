@@ -514,6 +514,19 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :rate_message_from_reaction, _context) do
+    case event.request do
+      %{reaction: reaction} ->
+        conversations_module =
+          Keyword.get(event.opts, :conversations_module, Conversations)
+
+        %{event | response: conversations_module.rate_message_from_reaction(reaction)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
