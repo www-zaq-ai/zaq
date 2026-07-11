@@ -1,25 +1,24 @@
 defmodule Zaq.Engine.Workflows.RunIncompleteStatusTest do
   @moduledoc """
-  RED test for Plan B — the "incomplete" run status.
+  Verifies the "incomplete" run status contract (Plan B).
 
-  ## The bug this pins down
+  ## The behavior this pins down
 
   When an edge condition evaluates false, `Steps.EdgeStep` raises `ConditionNotMet`
   and Runic prunes the downstream subgraph. The pruned action node's `StepRunner`
-  never runs, so it writes **no** `Step.Run` row. `WorkflowRunAgent.finalize/2`
-  today only inspects the rows that exist — it sees no `failed`/`running`/`waiting`
-  rows and falls through to its `true ->` branch, marking the run `"completed"`.
+  never runs, so it writes **no** `Step.Run` row. If `WorkflowRunAgent.finalize/2`
+  only inspected the rows that exist, it would see no `failed`/`running`/`waiting`
+  rows and fall through to its `true ->` branch, wrongly marking the run
+  `"completed"` — a workflow whose *terminal* step was silently pruned would
+  report success with no reason and no obvious log.
 
-  The result: a workflow whose *terminal* step was silently pruned reports success
-  with no reason and no obvious log — exactly the client symptom that opened this
-  investigation.
+  ## The contract (Option 3)
 
-  ## The chosen contract (Option 3)
-
-  A run that reaches quiescence **without a completed leaf node** must finalize as
-  a new `"incomplete"` status — distinct from both `"completed"` and `"failed"` —
-  so a silently-pruned terminal branch is visible instead of masquerading as
-  success.
+  A run that reaches quiescence **without a completed leaf node** finalizes as a
+  distinct `"incomplete"` status — separate from both `"completed"` and
+  `"failed"` — so a silently-pruned terminal branch is visible instead of
+  masquerading as success. `finalize/2` reconciles the executed rows against the
+  prepared DAG's leaf nodes to detect this.
 
   ## Scenario
 
@@ -27,11 +26,8 @@ defmodule Zaq.Engine.Workflows.RunIncompleteStatusTest do
 
   `a` (`OkAction`) emits `%{value: "done"}` and completes. The `a → b` edge
   condition (`value == "never"`) is therefore false, so `b` — the workflow's only
-  leaf — is pruned and never writes a row. No leaf completed ⇒ the run must be
+  leaf — is pruned and never writes a row. No leaf completed ⇒ the run finalizes
   `"incomplete"`.
-
-  This test FAILS today (the run finalizes `"completed"`) and is expected to pass
-  once `finalize/2` reconciles executed rows against the prepared DAG's leaf nodes.
   """
   use Zaq.DataCase, async: false
 

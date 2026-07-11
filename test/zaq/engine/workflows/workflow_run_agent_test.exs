@@ -651,6 +651,35 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert failed.request[:run_id] == run.id
     end
 
+    test "pruned terminal branch dispatches run.started then run.incomplete" do
+      # `a` emits %{value: "done"}, so the a → b edge condition is always false and
+      # the terminal leaf `b` is pruned — the run finalizes "incomplete".
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "WA Incomplete #{System.unique_integer()}",
+          status: "active",
+          nodes: [
+            %{name: "a", type: "action", module: @ok_module, params: %{}, index: 0},
+            %{name: "b", type: "action", module: @noop_module, params: %{}, index: 1}
+          ],
+          edges: [%{from: "a", to: "b", condition: %{field: "value", op: :eq, value: "never"}}]
+        })
+
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      flush_dispatched()
+
+      assert {:ok, %{status: "incomplete"}} = WorkflowRunAgent.execute(run)
+
+      assert_received {:dispatched, started}
+      assert started.request[:action] == "run.started"
+      assert started.request[:run_id] == run.id
+
+      assert_received {:dispatched, incomplete}
+      assert incomplete.request[:action] == "run.incomplete"
+      assert incomplete.request[:run_id] == run.id
+      assert incomplete.name == :workflow
+    end
+
     test "DAG build failure dispatches run.failed and never run.started" do
       # Task 15: the DAG is prepared before the run transitions to running, so a
       # build failure never emits run.started — the run never actually started.

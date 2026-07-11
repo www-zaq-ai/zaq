@@ -347,8 +347,12 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
   defp leaf_node_names(_), do: :unknown
 
-  defp snapshot_field(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, String.to_existing_atom(key))
+  defp snapshot_field(map, key) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, String.to_existing_atom(key))
+    end
+  end
 
   defp snapshot_field(_map, _key), do: nil
 

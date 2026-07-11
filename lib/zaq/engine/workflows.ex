@@ -759,7 +759,8 @@ defmodule Zaq.Engine.Workflows do
   will never reach a terminal state on its own.
 
   Idempotent: returns `{:ok, run}` immediately if the run is already in a
-  terminal state (`completed`, `failed`, `cancelled`, `interrupted`).
+  terminal state (`completed`, `failed`, `cancelled`, `incomplete`,
+  `interrupted`).
 
   In a single transaction:
   - Sets run `status: "interrupted"` and `finished_at`.
@@ -779,7 +780,7 @@ defmodule Zaq.Engine.Workflows do
   @spec interrupt_run(WorkflowRun.t(), keyword()) ::
           {:ok, WorkflowRun.t()} | {:error, Ecto.Changeset.t()}
   def interrupt_run(%WorkflowRun{} = run, opts \\ []) do
-    if run.status in ["completed", "failed", "cancelled", "interrupted"] do
+    if run.status in ["completed", "failed", "cancelled", "incomplete", "interrupted"] do
       {:ok, run}
     else
       now = DateTime.utc_now(:second)
@@ -1649,7 +1650,7 @@ defmodule Zaq.Engine.Workflows do
   defp broadcast_run({:ok, run} = result) do
     dispatch_async("workflow_run:#{run.id}", {:run_updated, run})
 
-    if run.status in ["completed", "failed", "cancelled"] do
+    if run.status in ["completed", "failed", "cancelled", "incomplete"] do
       dispatch_async("workflow:#{run.workflow_id}", {:run_finished, run})
     end
 
