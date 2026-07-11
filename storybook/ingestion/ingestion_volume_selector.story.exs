@@ -4,17 +4,26 @@ defmodule Storybook.Ingestion.IngestionVolumeSelector do
 
   import ZaqWeb.Components.DesignSystem.IngestionVolumeSelector
 
-  def description, do: "BO ingestion chrome — document volume toggle row."
+  def description, do: "BO ingestion chrome — unified volume and data-source toggle."
 
   def render(assigns) do
     assigns =
       assigns
-      |> assign(:volumes, %{"docs" => "/vol/docs", "raw" => "/vol/raw"})
-      |> assign(:current_volume, "docs")
+      |> assign(:volumes, %{"archives" => "/vol/archives", "documents" => "/vol/documents"})
+      |> assign(:current_volume, "documents")
+      |> assign(:current_provider, "local")
+      |> assign(:data_sources, [
+        %{id: "google_drive", label: "Google Drive", path: "/bo/ingestion/google_drive"}
+      ])
 
     ~H"""
     <div style="padding: var(--zaq-scale-32);">
-      <.volume_selector volumes={@volumes} current_volume={@current_volume} />
+      <.volume_selector
+        volumes={@volumes}
+        current_volume={@current_volume}
+        current_provider={@current_provider}
+        data_sources={@data_sources}
+      />
     </div>
     """
   end

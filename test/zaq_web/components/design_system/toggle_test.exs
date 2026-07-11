@@ -50,6 +50,23 @@ defmodule ZaqWeb.Components.DesignSystem.ToggleTest do
     assert html =~ "phx-value-value=\"b\""
   end
 
+  test "renders channel provider icon with label" do
+    html =
+      render_component(&Toggle.toggle/1,
+        value: "provider:google_drive",
+        event: "switch_source",
+        value_param: "source",
+        choices: [
+          %{value: "volume:documents", label: "documents", provider: "zaq_local"},
+          %{value: "provider:google_drive", label: "Google Drive", provider: "google_drive"}
+        ]
+      )
+
+    assert html =~ "zaq-toggle-segment--with-label"
+    assert html =~ "fill=\"#0066da\""
+    assert html =~ ~s(<rect x="3" y="4")
+  end
+
   test "renders pill variant for three icon choices" do
     html =
       render_component(&Toggle.toggle/1,

@@ -51,6 +51,20 @@ defmodule Storybook.Components.DesignSystem.Toggle do
         }
       },
       %Variation{
+        id: :text_and_provider_icon,
+        description: "Text + channel provider icon (ingestion sources)",
+        attributes: %{
+          value: "volume:documents",
+          event: "noop",
+          value_param: "source",
+          choices: [
+            %{value: "volume:documents", label: "documents", provider: "zaq_local"},
+            %{value: "volume:archives", label: "archives", provider: "zaq_local"},
+            %{value: "provider:google_drive", label: "Google Drive", provider: "google_drive"}
+          ]
+        }
+      },
+      %Variation{
         id: :pill_icons,
         description: "Pill variant — icon only (3 choices)",
         attributes: %{

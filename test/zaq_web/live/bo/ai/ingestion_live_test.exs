@@ -2419,9 +2419,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert html =~ "Sources"
       assert html =~ "Google Drive"
-      assert html =~ ~s(href="/bo/ingestion/google_drive")
+      assert html =~ ~s(phx-click="switch_source")
+      assert html =~ ~s(phx-value-source="provider:google_drive")
       refute html =~ "SharePoint"
-      refute html =~ ~s(href="/bo/ingestion/sharepoint")
+      refute html =~ ~s(phx-value-source="provider:sharepoint")
     end
 
     test "shows the same source selector on provider pages", %{conn: conn} do
@@ -2439,7 +2440,25 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert html =~ "Sources"
       assert html =~ "Google Drive"
-      assert html =~ ~s(href="/bo/ingestion")
+      assert html =~ ~s(phx-value-source="volume:archives")
+      assert html =~ ~s(phx-value-source="volume:docs")
+    end
+
+    test "switch_source navigates to a data source provider", %{conn: conn} do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Google Drive Source",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      assert {:error, {:live_redirect, %{to: "/bo/ingestion/google_drive"}}} =
+               render_click(view, "switch_source", %{"source" => "provider:google_drive"})
     end
 
     test "switch_volume changes current volume and loads entries", %{conn: conn} do

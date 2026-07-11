@@ -399,13 +399,28 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  # Volume
+  # Volume / data-source selection (unified sources toggle)
+
+  def handle_event("switch_source", %{"source" => "volume:" <> volume}, socket)
+      when volume != "" do
+    if provider_mode?(socket) do
+      {:noreply, push_navigate(socket, to: ~p"/bo/ingestion")}
+    else
+      {:noreply, switch_local_volume(socket, volume)}
+    end
+  end
+
+  def handle_event("switch_source", %{"source" => "provider:" <> provider}, socket)
+      when provider != "" do
+    if socket.assigns.provider == provider do
+      {:noreply, socket}
+    else
+      {:noreply, push_navigate(socket, to: ingestion_path(provider))}
+    end
+  end
 
   def handle_event("switch_volume", %{"volume" => volume}, socket) do
-    {:noreply,
-     socket
-     |> assign(current_volume: volume, current_dir: ".", breadcrumbs: [], selected: MapSet.new())
-     |> load_entries()}
+    handle_event("switch_source", %{"source" => "volume:#{volume}"}, socket)
   end
 
   # File Browser
@@ -1453,6 +1468,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       |> Map.put("provider_mime_type", record.mime_type)
 
     %{record | attributes: attrs}
+  end
+
+  defp switch_local_volume(socket, volume) do
+    socket
+    |> assign(current_volume: volume, current_dir: ".", breadcrumbs: [], selected: MapSet.new())
+    |> load_entries()
   end
 
   defp normalize_provider(nil), do: "local"

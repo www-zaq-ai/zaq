@@ -7,9 +7,12 @@ defmodule ZaqWeb.Components.DesignSystem.Toggle do
   * `value` (required) — sent as `phx-value-<value_param>` on click
   * `label` (optional) — visible text
   * `icon` (optional) — Heroicon name (e.g. `"hero-bars-3"`)
+  * `provider` (optional) — channel provider id for `ChannelIcons.icon/1` (e.g. `"google_drive"`)
   * `title` (optional) — tooltip; for icon-only choices also used as `aria-label`
 
-  At least one of `label` or `icon` must be set per choice. Combine both for text+icon segments.
+  At least one of `label`, `icon`, or `provider` must be set per choice.
+  Use `icon` or `provider` for segment graphics; combine with `label` for text+icon segments.
+  When both `icon` and `provider` are set, `provider` wins.
 
   **Styles:** universal block in `assets/css/styles.css` — `.zaq-toggle-*`,
   plus shared `.zaq-icon-sm` (not under the ingestion-only section).
@@ -23,7 +26,8 @@ defmodule ZaqWeb.Components.DesignSystem.Toggle do
 
   attr :choices, :list,
     required: true,
-    doc: "Non-empty list of choice maps (`value`, optional `label` / `icon` / `title`)."
+    doc:
+      "Non-empty list of choice maps (`value`, optional `label` / `icon` / `provider` / `title`)."
 
   attr :event, :string,
     required: true,
@@ -55,7 +59,12 @@ defmodule ZaqWeb.Components.DesignSystem.Toggle do
           aria-label={segment_aria_label(choice)}
           aria-pressed={to_string(@value == choice.value)}
         >
-          <.icon :if={choice[:icon]} name={choice.icon} class="zaq-icon-sm" />
+          <ZaqWeb.Components.ChannelIcons.icon
+            :if={choice[:provider]}
+            provider={choice.provider}
+            class="zaq-icon-sm"
+          />
+          <.icon :if={!choice[:provider] && choice[:icon]} name={choice.icon} class="zaq-icon-sm" />
           <span :if={choice[:label]} class="zaq-toggle-segment-label">
             {choice.label}
           </span>
@@ -72,12 +81,19 @@ defmodule ZaqWeb.Components.DesignSystem.Toggle do
   defp toggle_group_class(_), do: "zaq-toggle-group"
 
   defp segment_class(selected, choice) do
+    has_graphic = choice_has_graphic?(choice)
+
     [
-      "zaq-toggle-segment zaq-text-body",
-      choice[:label] && choice[:icon] && "zaq-toggle-segment--with-label",
-      choice[:label] && !choice[:icon] && "zaq-toggle-segment--text-only",
+      "zaq-toggle-segment zaq-text-body-sm",
+      choice[:label] && has_graphic && "zaq-toggle-segment--with-label",
+      choice[:label] && !has_graphic && "zaq-toggle-segment--text-only",
       selected == choice.value && "zaq-toggle-segment--active"
     ]
+  end
+
+  defp choice_has_graphic?(choice) do
+    (is_binary(choice[:provider]) and choice[:provider] != "") or
+      (is_binary(choice[:icon]) and choice[:icon] != "")
   end
 
   defp choice_title(%{title: title}) when is_binary(title) and title != "", do: title
@@ -85,10 +101,9 @@ defmodule ZaqWeb.Components.DesignSystem.Toggle do
   defp choice_title(_), do: nil
 
   defp segment_aria_label(choice) do
-    icon = Map.get(choice, :icon)
     label = Map.get(choice, :label)
 
-    if is_binary(icon) and icon != "" and (is_nil(label) or label == "") do
+    if choice_has_graphic?(choice) and (is_nil(label) or label == "") do
       choice_title(choice)
     end
   end
