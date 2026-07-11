@@ -1484,6 +1484,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     assert File.exists?(Path.join(tmp_dir, "report.txt"))
 
+    open_upload_modal(view)
+
     upload2 =
       file_input(view, "#upload-form", :files, [
         %{name: "report.txt", content: "duplicate", type: "text/plain"}
@@ -1511,6 +1513,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     view
     |> form("#upload-form")
     |> render_submit()
+
+    open_upload_modal(view)
 
     jpg_upload =
       file_input(view, "#upload-form", :files, [

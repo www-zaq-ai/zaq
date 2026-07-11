@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
   import Phoenix.LiveViewTest
 
   alias ZaqWeb.Components.DesignSystem.IngestionFileGridView
+  alias ZaqWeb.Components.DesignSystem.IngestionFileListView
   alias ZaqWeb.Components.DesignSystem.IngestionFileStatus
   alias ZaqWeb.Live.BO.AI.IngestionComponents
 
@@ -210,6 +211,23 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       assert IngestionFileStatus.related_record_name(%{name: "side.md"}) == "side.md"
       assert IngestionFileStatus.related_record_path(%{path: "side.md"}) == "side.md"
       assert IngestionFileStatus.related_record_size(%{size: 12}) == 12
+    end
+  end
+
+  describe "list view rendering" do
+    test "applies selected row variant when entry is in selected set" do
+      html =
+        render_component(&IngestionFileListView.file_list_view/1,
+          entries: [
+            %{name: "alpha.md", type: :file, size: 10, modified_at: ~U[2026-01-01 00:00:00Z]}
+          ],
+          selected: MapSet.new(["alpha.md"]),
+          current_dir: ".",
+          current_volume: "default",
+          ingestion_map: %{}
+        )
+
+      assert html =~ "zaq-table-row--selected"
     end
   end
 
