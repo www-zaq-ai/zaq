@@ -11,14 +11,37 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   - **Condition present and false**: raises `ConditionNotMet` — Runic marks this
     step `:failed` and prunes the downstream subgraph via `skip_downstream_subgraph`.
     The downstream action node's `StepRunner` never runs → no failed `StepRun`
-    row → `finalize/2` sees the run as `"completed"`.
+    row → `finalize/2` sees the run as `"completed"` (or `"incomplete"` when no
+    leaf is ever reached).
   - **Mapping**: source keys listed as mapping values are consumed (removed from the
     output); all other keys are passed through unchanged; target keys are added.
+    A mapped value that is (or contains) a struct passes through unnormalized —
+    only plain map/list values have their keys atomized.
   - **Output**: `{:ok, transformed_fact}` — the downstream node's `StepRunner`
     receives this as its input fact.
 
+  ## Failure semantics (edge condition/mapping crash vs. condition-not-met)
+
+  A `completed` `StepRun` row is written **only after the mapping succeeds** —
+  never before. Three outcomes:
+
+  | Outcome                          | StepRun row               | Run status effect                    |
+  |-----------------------------------|----------------------------|---------------------------------------|
+  | condition true (or absent) + mapping ok | `completed`         | run may finalize `completed`          |
+  | condition false (`ConditionNotMet`)     | `skipped`            | downstream pruned; run may finalize `incomplete` if no leaf is reached |
+  | unexpected raise (bad op, mapping crash, etc.) | `failed`      | downstream pruned; run finalizes `failed` with the edge in `failed_steps` |
+
+  An unexpected raise (anything other than `ConditionNotMet`) is caught, an
+  idempotent `failed` `StepRun` row is written (same idempotency guard as the
+  `completed`/`skipped` writers — safe under Jido retry), a `RunTrace` `"edge
+  crashed"` entry is emitted, and the exception is reraised unchanged. Runic
+  still prunes the downstream subgraph either way; the row is what lets
+  `finalize/2` tell an infrastructure crash apart from a legitimate pruned
+  branch.
+
   This module is NOT wrapped by `StepRunner` (see D-3). It is infrastructure;
-  it never appears in `StepRun` rows.
+  it never appears in `StepRun` rows except via the `failed`/`skipped`/`completed`
+  guard rows written above.
   """
 
   use Jido.Action, name: "zaq_edge_step", schema: []
@@ -27,6 +50,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.EdgeCondition
   alias Zaq.Engine.Workflows.FactLookup
+  alias Zaq.Engine.Workflows.RunTrace
   alias Zaq.Engine.Workflows.WorkflowRun
 
   @edge_keys [
@@ -47,9 +71,43 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
 
     fact = Map.drop(params, @edge_keys)
 
-    maybe_check_condition(condition, fact, edge_name, run_id, source_index)
-    write_pass_trace(run_id, edge_name, source_index)
-    {:ok, apply_mapping(fact, mapping)}
+    try do
+      maybe_check_condition(condition, fact, edge_name, run_id, source_index)
+      # Compute the mapped output BEFORE writing the "completed" row — a crash
+      # here must never leave a `completed` StepRun row for an edge that
+      # produced no fact (see the `rescue` clause below).
+      output = apply_mapping(fact, mapping)
+      write_pass_trace(run_id, edge_name, source_index)
+
+      RunTrace.step(run_id, "edge passed", edge_name, %{
+        condition: condition,
+        mapping: mapping,
+        input_fact: fact,
+        output_fact: output
+      })
+
+      {:ok, output}
+    rescue
+      e in ConditionNotMet ->
+        # Existing skip semantics: write_skip_trace/RunTrace already ran inside
+        # maybe_check_condition/5 — reraise unchanged.
+        reraise e, __STACKTRACE__
+
+      e ->
+        # Any other raise is infrastructure-level and otherwise invisible: Runic
+        # prunes the downstream subgraph silently (same as ConditionNotMet) with
+        # no failed row and no log. Write a failed StepRun row so `finalize/2`
+        # marks the run `"failed"` (with this edge in `failed_steps`) instead of
+        # a silent `"incomplete"`, then reraise — Runic still prunes downstream.
+        write_fail_trace(run_id, edge_name, source_index, e)
+
+        RunTrace.step(run_id, "edge crashed", edge_name, %{
+          error: Exception.message(e),
+          input_fact: fact
+        })
+
+        reraise e, __STACKTRACE__
+    end
   end
 
   defp maybe_check_condition(nil, _fact, _name, _run_id, _source_index), do: :ok
@@ -63,6 +121,14 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
 
     unless EdgeCondition.evaluate(op, actual, expected, type: type) do
       write_skip_trace(run_id, edge_name, source_index, field, op, actual, expected)
+
+      RunTrace.step(run_id, "edge condition not met — downstream pruned", edge_name, %{
+        field: field,
+        op: op,
+        actual: actual,
+        expected: expected,
+        input_fact: fact
+      })
 
       raise ConditionNotMet,
         condition_name: edge_name,
@@ -113,6 +179,25 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     end
   end
 
+  # Writes a Step.Run row with status "failed" when the condition check or
+  # mapping raises unexpectedly. Idempotent — Jido may retry, so we skip if a
+  # row already exists for this edge name (same guard as write_pass_trace /
+  # write_skip_trace). No-op without a run_id (uninstrumented run).
+  defp write_fail_trace(nil, _edge_name, _source_index, _exception), do: :ok
+
+  defp write_fail_trace(run_id, edge_name, source_index, exception) do
+    unless Workflows.get_step_run_by_name(run_id, edge_name) do
+      {:ok, step_run} =
+        Workflows.create_step_run(%WorkflowRun{id: run_id}, %{
+          step_name: edge_name,
+          step_index: source_index,
+          status: "running"
+        })
+
+      Workflows.fail_step_run(step_run, %{reason: Exception.message(exception)})
+    end
+  end
+
   defp apply_mapping(fact, mapping) when map_size(mapping) == 0, do: fact
 
   defp apply_mapping(fact, mapping) do
@@ -133,6 +218,13 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   # Only data that flows through an edge mapping is normalized — unmodified cascade
   # facts (e.g. raw email maps) are left untouched.
   defp normalize_value(list) when is_list(list), do: Enum.map(list, &normalize_value/1)
+
+  # A struct's keys are already atoms — there is nothing to normalize, and
+  # `Map.new/2` (the map clause below) crashes on structs with
+  # `Protocol.UndefinedError` because they are not `Enumerable`. Structs pass
+  # through untouched; JSONB persistence still flattens them on the way out
+  # via `StepRunner.json_safe/1`, unchanged.
+  defp normalize_value(%_{} = struct), do: struct
 
   defp normalize_value(map) when is_map(map) do
     Map.new(map, fn

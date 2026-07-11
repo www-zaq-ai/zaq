@@ -39,94 +39,72 @@ defmodule ZaqWeb.Live.BO.AI.TriggerComponentsTest do
       assert html =~ "zaq-color-accent"
     end
 
-    test "disabled badge shows disabled text and muted style" do
+    test "disabled badge uses muted style" do
       html =
         render_component(&TriggerComponents.event_badge/1,
           event_name: "email.received",
           enabled: false
         )
 
-      assert html =~ "disabled"
       assert html =~ "bg-black/5"
     end
   end
 
-  describe "workflow_chip/1" do
+  describe "workflow_row/1" do
+    defp workflow_row_html(attrs) do
+      defaults = [
+        trigger_id: "trig-1",
+        workflow: %{id: "wf-1", name: "My Workflow", status: "active"}
+      ]
+
+      render_component(&TriggerComponents.workflow_row/1, Keyword.merge(defaults, attrs))
+    end
+
     test "renders workflow name and link" do
-      workflow = %{id: "wf-1", name: "My Workflow", status: "active"}
-      html = render_component(&TriggerComponents.workflow_chip/1, workflow: workflow)
+      html = workflow_row_html([])
       assert html =~ "My Workflow"
       assert html =~ "/bo/workflows/wf-1"
     end
 
-    test "renders status dot for active workflow" do
-      workflow = %{id: "wf-1", name: "Active WF", status: "active"}
-      html = render_component(&TriggerComponents.workflow_chip/1, workflow: workflow)
-      assert html =~ "bg-emerald-400"
+    test "renders remove control wired to trigger and workflow" do
+      html = workflow_row_html([])
+      assert html =~ ~s(phx-click="remove_workflow")
+      assert html =~ ~s(phx-value-trigger_id="trig-1")
+      assert html =~ ~s(phx-value-workflow_id="wf-1")
     end
 
-    test "renders status dot for draft workflow" do
-      workflow = %{id: "wf-2", name: "Draft WF", status: "draft"}
-      html = render_component(&TriggerComponents.workflow_chip/1, workflow: workflow)
-      assert html =~ "bg-amber-400"
+    test "renders status dot for active, draft, and unknown workflow status" do
+      assert workflow_row_html(workflow: %{id: "wf", name: "A", status: "active"}) =~
+               "bg-emerald-400"
+
+      assert workflow_row_html(workflow: %{id: "wf", name: "D", status: "draft"}) =~
+               "bg-amber-400"
+
+      assert workflow_row_html(workflow: %{id: "wf", name: "U", status: "custom"}) =~
+               "bg-black/20"
     end
 
-    test "renders fallback status dot for unknown workflow status" do
-      workflow = %{id: "wf-3", name: "Unknown WF", status: "custom"}
-      html = render_component(&TriggerComponents.workflow_chip/1, workflow: workflow)
-      assert html =~ "bg-black/20"
-    end
-  end
-
-  describe "run_row/1" do
-    test "links to correct run path" do
-      run = %{
-        id: "run-1",
-        status: "completed",
-        inserted_at: DateTime.utc_now()
-      }
-
-      html =
-        render_component(&TriggerComponents.run_row/1, run: run, workflow_id: "wf-abc")
-
-      assert html =~ "/bo/workflows/wf-abc/runs/run-1"
+    test "shows 'no runs yet' when there is no run" do
+      html = workflow_row_html(run: nil)
+      assert html =~ "no runs yet"
     end
 
-    test "displays run status badge" do
-      run = %{id: "run-2", status: "failed", inserted_at: DateTime.utc_now()}
-      html = render_component(&TriggerComponents.run_row/1, run: run, workflow_id: "wf-1")
+    test "displays run status badge and relative time when a run is present" do
+      run = %{id: "run-2", status: "failed", inserted_at: DateTime.add(DateTime.utc_now(), -120)}
+      html = workflow_row_html(run: run)
       assert html =~ "failed"
+      assert html =~ "min ago"
+      refute html =~ "no runs yet"
     end
 
-    test "renders relative time in minutes and hours and days" do
-      min_run = %{
-        id: "run-min",
-        status: "completed",
-        inserted_at: DateTime.add(DateTime.utc_now(), -120)
-      }
+    test "renders relative time in minutes, hours, and days" do
+      base = fn secs ->
+        %{id: "r", status: "completed", inserted_at: DateTime.add(DateTime.utc_now(), secs)}
+      end
 
-      hour_run = %{
-        id: "run-hour",
-        status: "completed",
-        inserted_at: DateTime.add(DateTime.utc_now(), -7_200)
-      }
-
-      day_run = %{
-        id: "run-day",
-        status: "completed",
-        inserted_at: DateTime.add(DateTime.utc_now(), -172_800)
-      }
-
-      html_min = render_component(&TriggerComponents.run_row/1, run: min_run, workflow_id: "wf-1")
-
-      html_hour =
-        render_component(&TriggerComponents.run_row/1, run: hour_run, workflow_id: "wf-1")
-
-      html_day = render_component(&TriggerComponents.run_row/1, run: day_run, workflow_id: "wf-1")
-
-      assert html_min =~ "min ago"
-      assert html_hour =~ "hr ago"
-      assert html_day =~ "days ago"
+      assert workflow_row_html(run: base.(-120)) =~ "min ago"
+      assert workflow_row_html(run: base.(-7_200)) =~ "hr ago"
+      assert workflow_row_html(run: base.(-172_800)) =~ "days ago"
     end
   end
 

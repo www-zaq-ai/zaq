@@ -479,6 +479,74 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
           </button>
         </div>
 
+        <%!-- Incomplete notice — surfaces WHERE the run stopped and WHY. An
+             "incomplete" run reached quiescence without any terminal step
+             completing: either a branch condition was evaluated false and its
+             subgraph pruned, or a gate/condition node was the boundary the run
+             never got past. We name the last step that ran, the gate involved
+             (with the actual value it hinges on, resolved from the last output),
+             and the ordered list of steps that never ran — so the operator can act. --%>
+        <% inc = incomplete_details(@run, @step_runs) %>
+        <div
+          :if={@run.status == "incomplete"}
+          class="mb-6 bg-amber-50 rounded-xl border border-amber-200 p-4 space-y-3"
+        >
+          <div>
+            <p class="font-mono text-[0.7rem] font-semibold text-amber-700 uppercase tracking-wider mb-1">
+              Run Incomplete
+            </p>
+            <p class="font-mono text-[0.82rem] text-black/60">
+              <%= if inc.stopped_after do %>
+                Execution stopped after
+                <span class="font-semibold text-black">{inc.stopped_after}</span>
+                — no terminal step ran.
+              <% else %>
+                This run ended without completing the workflow — no terminal step ran.
+              <% end %>
+            </p>
+          </div>
+
+          <%!-- Explicit edge conditions that evaluated false (skipped edge rows). --%>
+          <div :if={inc.unmet != []} class="space-y-2">
+            <p class="font-mono text-[0.65rem] font-semibold text-amber-600/80 uppercase tracking-wider">
+              Condition{if length(inc.unmet) > 1, do: "s"} not met
+            </p>
+            <div
+              :for={c <- inc.unmet}
+              class="bg-white/70 rounded-lg border border-amber-100 px-3 py-2 space-y-0.5"
+            >
+              <p class="font-mono text-[0.78rem] font-semibold text-black">{c.label}</p>
+              <p class="font-mono text-[0.75rem] text-black/60">{c.sentence}</p>
+            </div>
+          </div>
+
+          <%!-- The condition gate at the boundary, with the actual value it hinges on. --%>
+          <div
+            :if={inc.gate}
+            class="bg-white/70 rounded-lg border border-amber-100 px-3 py-2 space-y-1.5"
+          >
+            <p class="font-mono text-[0.78rem] font-semibold text-black">
+              {inc.gate.name} <span class="text-black/40 font-normal">— condition gate</span>
+            </p>
+            <div
+              :for={c <- inc.gate.conditions}
+              class="font-mono text-[0.75rem] text-black/60"
+            >
+              {c.description} — <span class="text-black/80">current value: {c.current}</span>
+            </div>
+            <p class="font-mono text-[0.7rem] text-amber-700/80">
+              This gate was never reached, so the run stopped before it. Check the value above and the workflow's routing.
+            </p>
+          </div>
+
+          <div :if={inc.never_reached != []} class="space-y-1">
+            <p class="font-mono text-[0.65rem] font-semibold text-amber-600/80 uppercase tracking-wider">
+              Steps never reached
+            </p>
+            <p class="font-mono text-[0.8rem] text-black/70">{Enum.join(inc.never_reached, ", ")}</p>
+          </div>
+        </div>
+
         <%!-- Failure summary banner --%>
         <% failed_steps = Enum.filter(@step_runs, &(&1.status == "failed")) %>
         <% build_error = get_in(@run.log_summary, ["error"]) %>
@@ -859,6 +927,225 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
       step_run ->
         "#{format_step_error(step_run.errors)} Any steps that were in progress have been marked as failed."
     end
+  end
+
+  @condition_module "Zaq.Agent.Tools.Workflow.Condition"
+
+  # Assembles everything the incomplete banner needs to explain an incomplete run:
+  #   - `stopped_after`  — the last authored node that actually completed
+  #   - `unmet`          — edge conditions that evaluated false (skipped edge rows)
+  #   - `gate`           — the first unreached Condition node (the boundary), with
+  #                        its conditions rendered and the ACTUAL value each hinges
+  #                        on, resolved from the last completed step's output
+  #   - `never_reached`  — the ordered authored nodes that never ran
+  defp incomplete_details(run, step_runs) do
+    nodes = snapshot_nodes(run)
+
+    completed =
+      for sr <- step_runs, sr.status == "completed", into: MapSet.new(), do: sr.step_name
+
+    stopped_after =
+      nodes
+      |> Enum.filter(&MapSet.member?(completed, &1["name"]))
+      |> List.last()
+      |> then(&(&1 && &1["name"]))
+
+    never_reached =
+      nodes
+      |> Enum.reject(&MapSet.member?(completed, &1["name"]))
+      |> Enum.map(& &1["name"])
+
+    %{
+      stopped_after: stopped_after,
+      never_reached: never_reached,
+      gate: detect_gate(nodes, completed, step_runs),
+      unmet: unmet_conditions(step_runs)
+    }
+  end
+
+  defp snapshot_nodes(run) do
+    (run.steps_snapshot || %{})
+    |> Map.get("nodes", [])
+    |> Enum.sort_by(&(&1["index"] || 0))
+  end
+
+  # The first authored Condition node that never ran — the recency/routing gate the
+  # run stopped short of. Its `params.conditions` are what the run hinged on; we
+  # resolve each condition's referenced value from the completed step outputs so the
+  # banner can show, e.g., `total.last_message_date must be on or after now − 5
+  # minutes — current value: null`.
+  defp detect_gate(nodes, completed, step_runs) do
+    node =
+      Enum.find(nodes, fn n ->
+        n["module"] == @condition_module and not MapSet.member?(completed, n["name"])
+      end)
+
+    if node do
+      %{name: node["name"], conditions: resolve_condition_values(node, step_runs)}
+    end
+  end
+
+  defp resolve_condition_values(node, step_runs) do
+    base = resolve_ref(get_in(node, ["params", "input"]), step_runs)
+
+    (get_in(node, ["params", "conditions"]) || [])
+    |> Enum.map(fn c ->
+      %{description: condition_requirement(c), current: render_val(dig(base, c["key"]))}
+    end)
+  end
+
+  # A dotted `"<step>.<path...>"` reference (a Condition node's `input`) resolved
+  # against the completed step outputs — the same shape the engine's FactLookup reads.
+  defp resolve_ref(ref, step_runs) when is_binary(ref) do
+    case String.split(ref, ".") do
+      [step | path] ->
+        step_runs
+        |> Enum.find(&(&1.step_name == step))
+        |> then(&(&1 && &1.results))
+        |> dig(path)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp resolve_ref(_ref, _step_runs), do: nil
+
+  defp dig(val, key) when is_binary(key), do: dig(val, String.split(key, "."))
+  defp dig(nil, _path), do: nil
+  defp dig(val, []), do: val
+  defp dig(map, [k | rest]) when is_map(map), do: dig(Map.get(map, k), rest)
+  defp dig(_val, _path), do: nil
+
+  # Human-readable requirement clause for one condition, mirroring the Condition
+  # tool's own phrasing (`docs/services/workflows.md`).
+  defp condition_requirement(c) do
+    key = c["key"] || "value"
+    op = c["op"] || "eq"
+
+    cond do
+      op == "not_empty" ->
+        "#{key} must not be empty"
+
+      op == "empty" ->
+        "#{key} must be empty"
+
+      c["type"] in ["date", "datetime"] ->
+        "#{key} #{date_phrase(op)} #{render_expected(c["value"])}"
+
+      true ->
+        "#{key} #{plain_phrase(op)} #{render_expected(c["value"])}"
+    end
+  end
+
+  defp plain_phrase("eq"), do: "must equal"
+  defp plain_phrase("neq"), do: "must not equal"
+  defp plain_phrase("gt"), do: "must be greater than"
+  defp plain_phrase("lt"), do: "must be less than"
+  defp plain_phrase("gte"), do: "must be at least"
+  defp plain_phrase("lte"), do: "must be at most"
+  defp plain_phrase("in"), do: "must be one of"
+  defp plain_phrase(op), do: "must satisfy #{op}"
+
+  defp date_phrase("gt"), do: "must be after"
+  defp date_phrase("lt"), do: "must be before"
+  defp date_phrase("gte"), do: "must be on or after"
+  defp date_phrase("lte"), do: "must be on or before"
+  defp date_phrase("eq"), do: "must be"
+  defp date_phrase("neq"), do: "must not be"
+  defp date_phrase(op), do: plain_phrase(op)
+
+  # A relative datetime operand (`%{"from" => "now", "minutes" => -5}`) rendered as
+  # `now − 5 minutes`; literals are shown as-is.
+  defp render_expected(%{"from" => from} = m) do
+    case Enum.find(["minutes", "hours", "days", "weeks", "months"], &Map.has_key?(m, &1)) do
+      nil ->
+        to_string(from)
+
+      unit ->
+        n = m[unit]
+        "#{from} #{if n < 0, do: "−", else: "+"}#{abs(n)} #{unit}"
+    end
+  end
+
+  defp render_expected(v) when is_binary(v), do: inspect(v)
+  defp render_expected(nil), do: "empty"
+  defp render_expected(v), do: inspect(v)
+
+  defp render_val(nil), do: "null"
+  defp render_val(v) when is_binary(v), do: v
+  defp render_val(v), do: inspect(v)
+
+  # Skipped edge-condition StepRuns explain WHY an incomplete run stopped short:
+  # `EdgeStep` writes a "skipped" row carrying the field/op/actual/expected of a
+  # condition that evaluated false and pruned the downstream subgraph. Turn each
+  # into a human-readable label + sentence for the incomplete notice.
+  defp unmet_conditions(step_runs) do
+    step_runs
+    |> Enum.filter(fn sr ->
+      sr.status == "skipped" and is_map(sr.results) and
+        not is_nil(field_get(sr.results, "field"))
+    end)
+    |> Enum.map(fn sr ->
+      r = sr.results
+
+      %{
+        label: humanize_edge_name(sr.step_name),
+        sentence:
+          condition_sentence(
+            field_get(r, "field"),
+            field_get(r, "op"),
+            field_get(r, "actual"),
+            field_get(r, "expected")
+          )
+      }
+    end)
+  end
+
+  # `actual`/`expected` are stored already `inspect/1`-ed by EdgeStep, so they are
+  # display-ready strings (e.g. "0", "nil", "\"user\"").
+  defp condition_sentence(field, op, actual, _expected) when op in ["not_empty", "empty"],
+    do: "Expected #{field} #{op_phrase(op)}, but it was #{actual}."
+
+  defp condition_sentence(field, op, actual, expected),
+    do: "Expected #{field} #{op_phrase(op)} #{expected}, but it was #{actual}."
+
+  defp op_phrase("eq"), do: "to equal"
+  defp op_phrase("neq"), do: "to not equal"
+  defp op_phrase("gt"), do: "to be greater than"
+  defp op_phrase("lt"), do: "to be less than"
+  defp op_phrase("gte"), do: "to be at least"
+  defp op_phrase("lte"), do: "to be at most"
+  defp op_phrase("not_empty"), do: "to be present"
+  defp op_phrase("empty"), do: "to be empty"
+  defp op_phrase("in"), do: "to be one of"
+  defp op_phrase(other), do: "to satisfy #{other}"
+
+  # `<from>__to__<to>__edge` → "from → to".
+  defp humanize_edge_name(name) when is_binary(name) do
+    case String.split(name, "__to__", parts: 2) do
+      [from, rest] -> "#{from} → #{String.replace_suffix(rest, "__edge", "")}"
+      _ -> name
+    end
+  end
+
+  defp humanize_edge_name(name), do: name
+
+  # Step.Run `results` is a JSONB map — string keys after a DB round-trip, atom
+  # keys when delivered in-memory. Read either.
+  defp field_get(map, key) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, safe_existing_atom(key))
+    end
+  end
+
+  defp field_get(_map, _key), do: nil
+
+  defp safe_existing_atom(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   defp short_id(nil), do: "?"

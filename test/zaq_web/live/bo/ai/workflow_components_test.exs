@@ -113,6 +113,24 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ "30s"
     end
 
+    test "rolls durations up into hours, days, and weeks, keeping units down to seconds" do
+      started = ~U[2024-01-01 00:00:00Z]
+
+      for {finished, expected, absent} <- [
+            # 2h 15m 5s
+            {~U[2024-01-01 02:15:05Z], "2h 15m 5s", "135m"},
+            # 3d 4h 30m 0s
+            {~U[2024-01-04 04:30:00Z], "3d 4h 30m 0s", "76h"},
+            # 2w 1d 0h 0m 0s — larger units still carry m/s
+            {~U[2024-01-16 00:00:00Z], "2w 1d 0h 0m 0s", "15d"}
+          ] do
+        run = %{started_at: started, finished_at: finished}
+        html = render_component(&WorkflowComponents.run_duration/1, run: run)
+        assert html =~ expected
+        refute html =~ absent
+      end
+    end
+
     test "freezes paused duration at updated_at" do
       started = ~U[2024-01-01 10:00:00Z]
       updated_at = ~U[2024-01-01 10:00:30Z]
@@ -124,6 +142,19 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
 
       assert html =~ "30s"
       refute html =~ "10m"
+    end
+
+    test "freezes waiting (human-in-the-loop) duration at updated_at" do
+      started = ~U[2024-01-01 10:00:00Z]
+      updated_at = ~U[2024-01-01 10:00:30Z]
+      now = ~U[2024-01-02 05:00:00Z]
+
+      run = %{started_at: started, finished_at: nil, status: "waiting", updated_at: updated_at}
+
+      html = render_component(&WorkflowComponents.run_duration/1, run: run, now: now)
+
+      assert html =~ "30s"
+      refute html =~ "1143m"
     end
   end
 

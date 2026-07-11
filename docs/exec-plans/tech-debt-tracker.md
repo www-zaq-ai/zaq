@@ -99,6 +99,17 @@ Sourced from service docs `What's Left` sections. Updated continuously.
 
 ---
 
+## Workflows (`docs/services/workflows.md`)
+
+### Nice to Have
+- [ ] `EdgeStep` stays outside `StepRunner` — wrapping edges in `StepRunner` would
+      give crash handling for free (instead of `EdgeStep`'s own `try/rescue` +
+      idempotent guard-row writer), but changes row semantics (inputs/results
+      recorded for every edge) and `DagBuilder` wiring. Out of scope for the
+      2026-07-11 crash-visibility fix; see its Decisions Log.
+
+---
+
 ## CI / Linting
 
 ### Should Do

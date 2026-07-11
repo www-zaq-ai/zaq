@@ -205,6 +205,15 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
       current_path={@current_path}
       flash={@flash}
     >
+      <%!-- Breadcrumb --%>
+      <nav class="font-mono text-[0.75rem] text-black mb-5 flex items-center gap-1.5">
+        <.link navigate={~p"/bo/workflows"} class="text-black/50 hover:text-black transition-colors">
+          Workflows
+        </.link>
+        <span class="text-black/30">/</span>
+        <span class="text-black font-semibold">Triggers</span>
+      </nav>
+
       <.trigger_explainer />
 
       <%!-- Header --%>

@@ -1092,3 +1092,39 @@ defmodule Zaq.Engine.Workflows.Test.AlwaysRaise do
     raise "boom_post_process"
   end
 end
+
+# ---------------------------------------------------------------------------
+# EdgeStep struct-cascade E2E regression (Step 3 of the crash-visibility plan)
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.EmitStructRow do
+  @moduledoc """
+  Emits a map whose `row` value is (or contains) a struct — the
+  `ensure_person.row` shape from the real `SendLeadsEmail` regression — plus a
+  `metadata.last_message_date` that is always `nil`, mirroring
+  `build_history.metadata` for a lead with no prior conversation.
+  """
+
+  use Jido.Action,
+    name: "test_emit_struct_row",
+    schema: [shape: [type: :string, default: "top"]],
+    output_schema: [row: [type: :any, required: true], metadata: [type: :map, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  alias Zaq.Contracts.Record
+
+  @impl Jido.Action
+  def run(params, _context) do
+    shape = Map.get(params, :shape) || Map.get(params, "shape") || "top"
+    record = %Record{id: "rec-#{shape}", kind: :file, name: shape}
+
+    row =
+      case shape do
+        "list" -> [record]
+        _ -> record
+      end
+
+    {:ok, %{row: row, metadata: %{last_message_date: nil}}}
+  end
+end

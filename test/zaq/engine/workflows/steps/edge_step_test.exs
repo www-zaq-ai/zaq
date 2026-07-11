@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.Steps.EdgeStep
@@ -402,6 +404,119 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
     end
   end
 
+  describe "normalize_value — struct passthrough (root-cause fix)" do
+    test "a mapped value that is itself a struct passes through untouched" do
+      record = %Record{id: "rec-1", kind: :file, name: "top-level"}
+      fact = %{profile: record}
+
+      params =
+        Map.merge(
+          %{__edge_condition__: nil, __edge_mapping__: %{location: :profile}, __edge_name__: "e"},
+          fact
+        )
+
+      assert {:ok, result} = run(params)
+      assert result[:location] == record
+    end
+
+    test "a map containing a struct (the ensure_person.row shape) does not raise — sibling string keys still atomized, struct untouched" do
+      record = %Record{id: "rec-2", kind: :file, name: "nested"}
+
+      fact = %{
+        row: %{"row_index" => 5, "record" => record}
+      }
+
+      params =
+        Map.merge(
+          %{__edge_condition__: nil, __edge_mapping__: %{"data" => "row"}, __edge_name__: "e"},
+          fact
+        )
+
+      assert {:ok, result} = run(params)
+      assert result[:data][:row_index] == 5
+      assert result[:data][:record] == record
+    end
+
+    test "a list of maps containing structs does not raise" do
+      records = [
+        %Record{id: "rec-3", kind: :file, name: "a"},
+        %Record{id: "rec-4", kind: :file, name: "b"}
+      ]
+
+      fact = %{
+        rows: [
+          %{"idx" => 1, "record" => Enum.at(records, 0)},
+          %{"idx" => 2, "record" => Enum.at(records, 1)}
+        ]
+      }
+
+      params =
+        Map.merge(
+          %{__edge_condition__: nil, __edge_mapping__: %{"items" => "rows"}, __edge_name__: "e"},
+          fact
+        )
+
+      assert {:ok, result} = run(params)
+      assert Enum.map(result[:items], & &1[:record]) == records
+      assert Enum.map(result[:items], & &1[:idx]) == [1, 2]
+    end
+  end
+
+  describe "normalize_value — property: structs survive arbitrary nesting" do
+    defp struct_leaf_gen do
+      one_of([
+        constant(DateTime.utc_now()),
+        constant(%Record{id: "rec-#{System.unique_integer([:positive])}", kind: :file})
+      ])
+    end
+
+    defp scalar_gen do
+      one_of([integer(), string(:alphanumeric, max_length: 8), boolean(), constant(nil)])
+    end
+
+    defp nested_value_gen(0), do: one_of([scalar_gen(), struct_leaf_gen()])
+
+    defp nested_value_gen(depth) do
+      frequency([
+        {3, one_of([scalar_gen(), struct_leaf_gen()])},
+        {2,
+         map_of(string(:alphanumeric, min_length: 1, max_length: 6), nested_value_gen(depth - 1),
+           max_length: 3
+         )},
+        {2, list_of(nested_value_gen(depth - 1), max_length: 3)}
+      ])
+    end
+
+    defp count_structs(%_{} = _struct), do: 1
+
+    defp count_structs(map) when is_map(map),
+      do: map |> Map.values() |> Enum.map(&count_structs/1) |> Enum.sum()
+
+    defp count_structs(list) when is_list(list),
+      do: list |> Enum.map(&count_structs/1) |> Enum.sum()
+
+    defp count_structs(_other), do: 0
+
+    property "apply_mapping never raises and every struct survives, unaltered, at any nesting depth" do
+      check all(value <- nested_value_gen(3), max_runs: 50) do
+        fact = %{value: value}
+
+        params =
+          Map.merge(
+            %{
+              __edge_condition__: nil,
+              __edge_mapping__: %{"value" => "value"},
+              __edge_name__: "e"
+            },
+            fact
+          )
+
+        assert {:ok, result} = run(params)
+        assert count_structs(result[:value]) == count_structs(value)
+      end
+    end
+  end
+
   describe "absent edge metadata keys" do
     test "works with no edge keys in params at all (identity)" do
       # EdgeStep strips known keys; if they are absent from params it still works.
@@ -676,6 +791,77 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
       assert {:ok, result} = EdgeStep.run(params, %{})
       refute Map.has_key?(result, :run_id)
       assert result == fact
+    end
+  end
+
+  describe "edge crash visibility — unexpected raise (Step 2)" do
+    # Unknown `op` raises ArgumentError from EdgeCondition.evaluate — a crash
+    # trigger independent of the Step-1 struct-normalization bug, per the
+    # plan's Decisions Log (Step 1 must not break Step 2's tests).
+    defp crash_params(run_id, edge_name \\ "crash_edge") do
+      %{
+        __edge_condition__: %{"field" => "gender", "op" => "no_such_op", "value" => "male"},
+        __edge_mapping__: %{},
+        __edge_name__: edge_name,
+        run_id: run_id,
+        gender: "male"
+      }
+    end
+
+    test "an unexpected raise propagates AND writes a failed Step.Run row" do
+      run = create_run_for_edge_step()
+
+      assert_raise ArgumentError, fn -> EdgeStep.run(crash_params(run.id), %{}) end
+
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.step_name == "crash_edge"
+      assert step_run.status == "failed"
+      assert step_run.errors["reason"] =~ "invalid edge condition"
+    end
+
+    test "a crashed edge writes no completed row (pins the reorder)" do
+      run = create_run_for_edge_step()
+
+      assert_raise ArgumentError, fn -> EdgeStep.run(crash_params(run.id), %{}) end
+
+      refute Enum.any?(Workflows.list_step_runs(run.id), &(&1.status == "completed"))
+    end
+
+    test "idempotent — a second run/1 invocation (Jido retry) does not create a second row" do
+      run = create_run_for_edge_step()
+      params = crash_params(run.id)
+
+      assert_raise ArgumentError, fn -> EdgeStep.run(params, %{}) end
+      assert_raise ArgumentError, fn -> EdgeStep.run(params, %{}) end
+
+      assert length(Workflows.list_step_runs(run.id)) == 1
+    end
+
+    test "crash + run_id absent → raise still propagates, no Step.Run written" do
+      run = create_run_for_edge_step()
+      params = crash_params(run.id) |> Map.delete(:run_id)
+
+      assert_raise ArgumentError, fn -> EdgeStep.run(params, %{}) end
+
+      assert Workflows.list_step_runs(run.id) == []
+    end
+
+    test "ConditionNotMet path is unchanged: skipped row only, no failed row, raise propagates" do
+      run = create_run_for_edge_step()
+
+      params = %{
+        __edge_condition__: %{"field" => "gender", "op" => "eq", "value" => "male"},
+        __edge_mapping__: %{},
+        __edge_name__: "skip_edge",
+        run_id: run.id,
+        gender: "female"
+      }
+
+      assert_raise ConditionNotMet, fn -> EdgeStep.run(params, %{}) end
+
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.step_name == "skip_edge"
+      assert step_run.status == "skipped"
     end
   end
 end

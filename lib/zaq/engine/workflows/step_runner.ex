@@ -52,6 +52,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
+  alias Zaq.Engine.Workflows.RunTrace
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
   alias Zaq.Engine.Workflows.WorkflowRun
 
@@ -288,6 +289,8 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         input: json_safe(action_params)
       })
 
+    RunTrace.step(run_id, "step started", step_name, %{module: mod, input: action_params})
+
     enriched_context = enrich_context(context, run_id, step_name, step_index, prev_cascade)
 
     try do
@@ -297,6 +300,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
           step_log = Action.log_entry(:step_completed, t0)
           Workflows.complete_step_run(step_run, cascaded, [step_log | action_logs])
           Workflows.tick_log_summary(run_id)
+          RunTrace.step(run_id, "step completed", step_name, %{result: result})
 
           Logger.info("[workflow] step completed",
             run_id: run_id,
@@ -312,6 +316,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
           step_log = Action.log_entry(:step_completed, t0)
           Workflows.complete_step_run(step_run, cascaded, [step_log])
           Workflows.tick_log_summary(run_id)
+          RunTrace.step(run_id, "step completed", step_name, %{result: result})
 
           Logger.info("[workflow] step completed",
             run_id: run_id,
@@ -330,6 +335,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
           )
 
           Workflows.tick_log_summary(run_id)
+          RunTrace.step(run_id, "step failed", step_name, %{reason: :timeout})
 
           Logger.error("[workflow] step timed out timeout_ms=#{timeout_ms}",
             run_id: run_id,
@@ -343,6 +349,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         {:error, {:waiting_for_human, approval_token}} ->
           Workflows.wait_step_run(step_run)
           Workflows.tick_log_summary(run_id)
+          RunTrace.step(run_id, "step waiting for human approval", step_name, %{})
 
           Logger.info(
             "[workflow] step waiting for human approval approval_token=#{approval_token}",
@@ -364,6 +371,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
           )
 
           Workflows.tick_log_summary(run_id)
+          RunTrace.step(run_id, "step failed", step_name, %{reason: reason})
 
           Logger.error("[workflow] step failed",
             run_id: run_id,
@@ -386,6 +394,13 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
         Workflows.tick_log_summary(run_id)
 
+        RunTrace.step(run_id, "step condition not met — branch pruned", step_name, %{
+          field: e.field,
+          op: e.op,
+          actual: e.actual,
+          expected: e.expected
+        })
+
         Logger.info(
           "[workflow] condition not met — skipping branch field=#{e.field} op=#{e.op} actual=#{inspect(e.actual)}",
           run_id: run_id,
@@ -399,6 +414,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         step_log = Action.log_entry(:step_failed, t0, %{reason: Exception.message(e)})
         Workflows.fail_step_run(step_run, %{reason: Exception.message(e)}, [step_log])
         Workflows.tick_log_summary(run_id)
+        RunTrace.step(run_id, "step crashed", step_name, %{error: Exception.message(e)})
 
         Logger.error("[workflow] step crashed",
           run_id: run_id,

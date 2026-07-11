@@ -1137,9 +1137,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
        when status in ["pending", "running"],
        do: elapsed(started_at, now || DateTime.utc_now())
 
-  # Paused runs: freeze at updated_at (the moment pause was recorded) so the
-  # display does not grow on page refreshes where @now is set to mount time.
-  defp format_live_duration("paused", started_at, run, now) do
+  # Paused/waiting runs: freeze at updated_at (the moment the run was suspended)
+  # so the displayed duration reflects time spent executing, not time spent
+  # blocked on a human-in-the-loop approval or an external pause. Without this,
+  # a run waiting on HITL shows an ever-growing timer (e.g. "1143m 45s").
+  defp format_live_duration(status, started_at, run, now)
+       when status in ["paused", "waiting"] do
     ref = Map.get(run, :updated_at) || Map.get(run, "updated_at") || now || DateTime.utc_now()
     format_seconds(DateTime.diff(ref, started_at, :second))
   end
@@ -1153,9 +1156,28 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     format_seconds(diff) <> "…"
   end
 
+  @minute 60
+  @hour 60 * @minute
+  @day 24 * @hour
+  @week 7 * @day
+
+  @duration_units [{@week, "w"}, {@day, "d"}, {@hour, "h"}, {@minute, "m"}, {1, "s"}]
+
+  # Renders an elapsed duration from the largest non-zero unit all the way down
+  # to seconds, e.g. "45s", "2m 30s", "2h 15m 0s", "2w 1d 0h 0m 0s". Leading
+  # zero units are dropped so short durations stay compact.
   defp format_seconds(s) when s == 0, do: "< 1s"
-  defp format_seconds(s) when s < 60, do: "#{s}s"
-  defp format_seconds(s), do: "#{div(s, 60)}m #{rem(s, 60)}s"
+
+  defp format_seconds(s) do
+    {parts, _rest} =
+      Enum.map_reduce(@duration_units, s, fn {size, label}, remaining ->
+        {{div(remaining, size), label}, rem(remaining, size)}
+      end)
+
+    parts
+    |> Enum.drop_while(fn {value, _label} -> value == 0 end)
+    |> Enum.map_join(" ", fn {value, label} -> "#{value}#{label}" end)
+  end
 
   defp build_edge_render(nil, _, _, _, _, _), do: []
   defp build_edge_render(_, nil, _, _, _, _), do: []

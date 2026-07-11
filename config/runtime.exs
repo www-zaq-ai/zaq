@@ -36,6 +36,14 @@ config :req_llm,
 
 config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Per-run workflow execution trace files (Zaq.Engine.Workflows.RunTrace).
+# Opt-in diagnostic: disabled unless WORKFLOW_TRACE_ENABLED=true.
+# WORKFLOW_TRACE_DIR overrides the destination (default: tmp/workflow_traces,
+# relative to the app's working directory); one file per run inside it.
+if System.get_env("WORKFLOW_TRACE_ENABLED", "false") == "true" do
+  config :zaq, :workflow_trace_dir, System.get_env("WORKFLOW_TRACE_DIR", "tmp/workflow_traces")
+end
+
 if config_env() == :prod do
   # Portal/LiteLLM URLs default to the live services in prod. dev/test keep their
   # own defaults from config/{dev,test}.exs — runtime.exs only touches these keys

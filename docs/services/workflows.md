@@ -22,7 +22,7 @@ DAG-based workflow engine built on [Runic](https://hexdocs.pm/runic). Workflows 
 | `Zaq.Engine.Workflows.Composition` | Workflow-in-workflow composition: splices `"workflow"`-type nodes inline at run creation (`expand/2`), validates single entry/exit, namespacing, and acyclicity (`validate/2`) |
 | `Zaq.Engine.Workflows.Action` | Behaviour + contract every `action`/`agent` node must satisfy; `resolve/1`, `validate/1`, `validate_ref/1`; callbacks `on_success/2`, `on_failure/2`; `use Zaq.Engine.Workflows.Action` provides default implementations |
 | `Zaq.Engine.Workflows.EdgeCondition` | Operator vocabulary (`ops/0`) and pure evaluation (`evaluate/4`); used by `Step.Edge` for schema validation and `Steps.EdgeStep` at runtime |
-| `Zaq.Engine.Workflows.Steps.EdgeStep` | Infrastructure `Jido.Action` injected by `DagBuilder` on conditional/mapping edges; raises `ConditionNotMet` on false; not wrapped by `StepRunner`, never appears in `Step.Run` rows |
+| `Zaq.Engine.Workflows.Steps.EdgeStep` | Infrastructure `Jido.Action` injected by `DagBuilder` on conditional/mapping edges; raises `ConditionNotMet` on false; not wrapped by `StepRunner`, but writes its own `completed`/`skipped`/`failed` guard row per edge — see Crash-Safe Cursor below |
 | `Zaq.Engine.Workflows.Steps.MapCollect` | Internal tail step for a `"map"` node; runs after the `FanIn` collects every successful per-item result; wrapped by `StepRunner` under the map node's own name and writes the single aggregate `Step.Run`; recovers per-item failures from the per-fork `Step.Run` rows |
 | `Zaq.Engine.Workflows.Conditions.ConditionNotMet` | Exception raised by `Steps.EdgeStep` when a condition evaluates to false; triggers branch pruning |
 | `Zaq.Engine.Workflows.Conditions.WaitingForApproval` | Exception struct defined for the HITL approval signal; carries `step_name`, `run_id`, `approval_token`. Currently unused at runtime — `Steps.HumanInTheLoop` returns `{:error, {:waiting_for_human, approval_token}}` instead of raising this exception. Reserved for future use. |
@@ -108,7 +108,7 @@ Iteration is **not** an authorable node type. Authors express it through the `Ba
     %{"key" => "last_sent_at", "type" => "datetime", "op" => "lt",
       "value" => %{"from" => "now", "days" => -7}}
     ```
-- `"mapping"` — optional map of `"target_key" => "source_key"` string pairs. The `EdgeStep` renames source keys to target keys in the downstream fact. Source keys in the mapping are consumed (not passed through); all other keys pass through unchanged.
+- `"mapping"` — optional map of `"target_key" => "source_key"` string pairs. The `EdgeStep` renames source keys to target keys in the downstream fact. Source keys in the mapping are consumed (not passed through); all other keys pass through unchanged. A mapped value that is (or contains) a struct passes through unnormalized — only plain map/list values have their keys atomized.
 
 ---
 
@@ -147,9 +147,17 @@ The triggering event's payload is preserved through the fact flow as `params.eve
 4. On `{:error, reason}` → update to `"failed"` with `errors` map.
 5. If the action raises → exception is caught, row marked `"failed"`, `{:error, exception}` returned.
 
-`Steps.EdgeStep` is NOT wrapped by `StepRunner` — it is infrastructure and never appears in `Step.Run` rows.
+`Steps.EdgeStep` is NOT wrapped by `StepRunner` — it is infrastructure — but it writes its own idempotent guard row per edge (same create-then-update cursor, guarded by `get_step_run_by_name/2` so a Jido retry never double-writes):
 
-After `react_until_satisfied/3` returns, `WorkflowRunAgent.finalize/2` queries all `Step.Run` rows for the run. Any row still at `"running"` (process crash mid-action) or `"failed"` causes the run to be marked `"failed"`.
+| Outcome | Guard row status | Written | Downstream / run effect |
+|---|---|---|---|
+| condition true (or absent) + mapping succeeds | `completed` | only after the mapping has been applied — a crash can never leave a `completed` row for an edge that produced no fact | downstream node runs normally |
+| condition false (`ConditionNotMet`) | `skipped` | before the raise | downstream subgraph pruned (no row for it); run may finalize `incomplete` if no leaf is ever reached |
+| any other unexpected raise (bad op, mapping crash, etc.) | `failed` | before re-raising the original exception | downstream subgraph pruned; `finalize/2` sees the `failed` row and marks the run `"failed"` with the edge in `failed_steps`, instead of a silent `incomplete` |
+
+An edge with no `run_id` (uninstrumented evaluation) writes no row in any of the three cases.
+
+After `react_until_satisfied/3` returns, `WorkflowRunAgent.finalize/2` queries all `Step.Run` rows for the run — this includes `EdgeStep`'s own guard rows, not just `StepRunner`-wrapped node rows. Any row still at `"running"` (process crash mid-action) or `"failed"` causes the run to be marked `"failed"`.
 
 On resume, `StepRunner` first calls `get_terminal_step_run/2` for the `(run_id, step_name)` pair. If a terminal row exists (`completed`, `failed`, `skipped`, or `waiting`), the stored result is returned immediately without calling the wrapped module. For `completed` rows the stored results are returned as `{:ok, results}`; for `failed` rows as `{:error, errors}`; for `skipped` as `{:error, :condition_not_met}`; for `waiting` as `{:error, :waiting_for_human}`. This makes resume idempotent and prevents duplicate step rows.
 

@@ -224,6 +224,101 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "unknown module Zaq.Missing"
     end
 
+    test "renders unmet edge condition on an incomplete run", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "incomplete"})
+
+      step_run_fixture(run, %{
+        step_name: "check_last_message__to__notify__edge",
+        step_index: 1,
+        status: "skipped",
+        results: %{
+          "field" => "message_count",
+          "op" => "gt",
+          "actual" => "0",
+          "expected" => "0"
+        }
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "Run Incomplete"
+      assert html =~ "Condition not met"
+      assert html =~ "check_last_message → notify"
+      assert html =~ "Expected message_count to be greater than 0, but it was 0."
+    end
+
+    test "surfaces the unreached condition gate and its actual value", %{conn: conn} do
+      # Mirrors SendLeadsEmail: a recency gate on total.last_message_date the run
+      # never reached. The banner must name where it stopped, the gate, the actual
+      # value it hinges on (resolved from build_history's output), and what never ran.
+      workflow =
+        workflow_fixture(%{
+          nodes: [
+            %{
+              name: "build_history",
+              type: "action",
+              module: "Zaq.Engine.Workflows.Test.Noop",
+              params: %{},
+              index: 0
+            },
+            %{
+              name: "check_last_message_date",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "input" => "build_history.metadata",
+                "on_fail" => "continue",
+                "conditions" => [
+                  %{
+                    "key" => "total.last_message_date",
+                    "type" => "datetime",
+                    "op" => "gte",
+                    "value" => %{"from" => "now", "minutes" => -5}
+                  }
+                ]
+              },
+              index: 1
+            },
+            %{
+              name: "notify",
+              type: "action",
+              module: "Zaq.Engine.Workflows.Test.Noop",
+              params: %{},
+              index: 2
+            }
+          ],
+          edges: [
+            %{from: "build_history", to: "check_last_message_date", mapping: %{"row" => "x"}},
+            %{
+              from: "check_last_message_date",
+              to: "notify",
+              condition: %{"field" => "passed", "op" => "eq", "value" => false}
+            }
+          ]
+        })
+
+      run = run_fixture(workflow, %{status: "incomplete"})
+
+      step_run_fixture(run, %{
+        step_name: "build_history",
+        step_index: 0,
+        status: "completed",
+        results: %{"metadata" => %{"total" => %{"last_message_date" => nil}}}
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "Run Incomplete"
+      assert html =~ "Execution stopped after"
+      assert html =~ "build_history"
+      assert html =~ "check_last_message_date"
+      assert html =~ "condition gate"
+      assert html =~ "total.last_message_date must be on or after now"
+      assert html =~ "current value: null"
+      assert html =~ "Steps never reached"
+    end
+
     test "redirects to workflow detail if run_id is invalid", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       fake_run_id = Ecto.UUID.generate()
