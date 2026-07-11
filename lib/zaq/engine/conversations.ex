@@ -24,7 +24,6 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
   alias Zaq.Utils.EmailUtils
-  alias Zaq.Engine.Messages.Outgoing
 
   # ── Conversations ──────────────────────────────────────────────────
 
@@ -546,44 +545,11 @@ defmodule Zaq.Engine.Conversations do
   defp maybe_limit(query, nil), do: query
   defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)
 
-  def store_external_message_id_by_outgoing(%Outgoing{} = outgoing, post_id)
-      when is_binary(post_id) do
-    thread_id = outgoing.thread_id
-    channel_id = outgoing.channel_id
-
-    if thread_id && channel_id do
-      message =
-        Repo.one(
-          from m in Message,
-            join: c in assoc(m, :conversation),
-            where:
-              c.channel_id == ^channel_id and
-                fragment("?->>'thread_id' = ?", c.metadata, ^thread_id) and
-                m.role == "assistant",
-            order_by: [desc: m.inserted_at],
-            limit: 1
-        )
-
-      if message, do: update_message_metadata(message.id, %{external_message_id: post_id})
-    end
-  end
-
-  def get_message_by_external_id(external_id) do
+  def get_message_by_external_id(external_message_id) when is_binary(external_message_id) do
     Repo.one(
-      from m in Message, where: fragment("metadata->>'external_message_id' = ?", ^external_id)
+      from m in Message,
+        where: fragment("?->>'external_message_id' = ?", m.metadata, ^external_message_id)
     )
-  end
-
-  def update_message_metadata(message_id, attrs) when is_map(attrs) do
-    Repo.get(Message, message_id)
-    |> case do
-      nil ->
-        {:error, :not_found}
-
-      msg ->
-        new_metadata = Map.merge(msg.metadata || %{}, attrs)
-        msg |> Message.changeset(%{metadata: new_metadata}) |> Repo.update()
-    end
   end
 
   # ── Ratings ────────────────────────────────────────────────────────
@@ -678,6 +644,45 @@ defmodule Zaq.Engine.Conversations do
         end)
     end
   end
+
+  def rate_message_from_reaction(reaction) do
+    with {:ok, rating} <- emoji_to_rating(reaction.emoji),
+         %Message{} = message <- get_message_by_external_id(to_string(reaction.message_id)),
+         {:ok, _rating_record} <-
+           rate_message_by_id(message.id, %{
+             channel_user_id: reaction.user.user_id,
+             rating: rating
+           }) do
+      if rating == 1 do
+        {:ok,
+         %{
+           follow_up_text:
+             "Thanks for your feedback! Could you tell us more about what we could improve?"
+         }}
+      else
+        :ok
+      end
+    else
+      nil ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp emoji_to_rating("\u{1F44D}"), do: {:ok, 5}
+  defp emoji_to_rating("\u{1F525}"), do: {:ok, 5}
+  defp emoji_to_rating("thumbsup"), do: {:ok, 5}
+  defp emoji_to_rating("thumbs_up"), do: {:ok, 5}
+  defp emoji_to_rating("+1"), do: {:ok, 5}
+
+  defp emoji_to_rating("\u{1F44E}"), do: {:ok, 1}
+  defp emoji_to_rating("thumbsdown"), do: {:ok, 1}
+  defp emoji_to_rating("thumbs_down"), do: {:ok, 1}
+  defp emoji_to_rating("-1"), do: {:ok, 1}
+
+  defp emoji_to_rating(_), do: nil
 
   # ── Sharing ────────────────────────────────────────────────────────
 
