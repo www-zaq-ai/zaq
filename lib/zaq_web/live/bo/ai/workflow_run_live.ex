@@ -36,7 +36,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
            node_info: build_node_info(run),
            batch_progress: %{},
            selected_step: active_step(step_runs),
-           expanded_trace_ids: %{}
+           expanded_trace_ids: %{},
+           agents_by_id: fetch_agents_by_id((run.steps_snapshot || %{})["nodes"] || [])
          )}
 
       :error ->
@@ -601,6 +602,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                 step_runs={@step_runs}
                 on_node_click={true}
                 selected_step={@selected_step}
+                agents_by_id={@agents_by_id}
               />
             </div>
           </div>
@@ -817,6 +819,29 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     {:ok, workflow, run, step_runs || [], approval}
   rescue
     _ -> :error
+  end
+
+  # Bulk-resolves the `agent_id`s referenced by `type: "agent"` nodes in the
+  # run's steps_snapshot so the DAG can render each run_agent step's
+  # configured name/model.
+  defp fetch_agents_by_id(nodes) do
+    case extract_agent_ids(nodes) do
+      [] ->
+        %{}
+
+      agent_ids ->
+        case Event.new(
+               %{module: Zaq.Agent, function: :get_agents_by_ids, args: [agent_ids]},
+               :agent
+             )
+             |> NodeRouter.dispatch()
+             |> Map.get(:response) do
+          agents when is_map(agents) -> agents
+          _ -> %{}
+        end
+    end
+  rescue
+    _ -> %{}
   end
 
   defp pause_step_run(%{status: "running"} = sr, paused_at),

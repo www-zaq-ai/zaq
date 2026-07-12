@@ -170,16 +170,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   (run page, from steps_snapshot).
 
   Batch nodes are rendered with a purple double-border; `map` nodes with a
-  teal dashed border; HITL nodes retain their amber dashed style.
+  teal dashed border; HITL nodes retain their amber dashed style. `agent`
+  nodes (a `run_agent` step) get a border in ZAQ's brand cyan (`#03b6d4`,
+  the same accent used by the Export Workflow button), a small robot icon,
+  and — when the referenced agent is resolved in `agents_by_id` — the
+  configured agent's name and model rendered inside the node.
   """
   attr :nodes, :list, required: true
   attr :edges, :list, required: true
   attr :step_runs, :list, default: []
   attr :on_node_click, :boolean, default: false
   attr :selected_step, :string, default: nil
+  attr :agents_by_id, :map, default: %{}
 
   def workflow_dag(assigns) do
-    layout = dag_layout(assigns.nodes, assigns.edges)
+    layout = dag_layout(assigns.nodes, assigns.edges, assigns.agents_by_id)
     run_idx = Map.new(assigns.step_runs, fn sr -> {nf(sr, "step_name"), sr} end)
 
     node_renders =
@@ -194,15 +199,18 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
              is_hitl: is_hitl,
              is_batch: is_batch,
              is_map: is_map,
+             is_agent: is_agent,
+             is_condition: is_condition,
              is_start: is_start,
              inner: inner,
              separator_y: separator_y
            } ->
           sr = Map.get(run_idx, name)
           # A `map`/`Batch` node gets the iteration visual treatment (teal, dashed,
-          # vertical body-step stack) since it is the iteration primitive. The
-          # virtual `start` origin gets its own indigo "trigger" styling.
-          {fill, stroke, tc} = dag_node_colors(sr, is_hitl, is_batch, is_map, is_start)
+          # vertical body-step stack) since it is the iteration primitive. An
+          # `agent` node gets ZAQ's brand cyan border. The virtual `start` origin
+          # gets its own indigo "trigger" styling.
+          {fill, stroke, tc} = dag_node_colors(sr, is_hitl, is_batch, is_map, is_agent, is_start)
           label = if String.length(name) > 17, do: String.slice(name, 0, 14) <> "…", else: name
 
           %{
@@ -218,6 +226,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             is_hitl: is_hitl,
             is_batch: is_batch,
             is_map: is_map,
+            is_agent: is_agent,
+            is_condition: is_condition,
             is_start: is_start,
             inner: inner,
             separator_y: separator_y
@@ -330,9 +340,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               end
             }
           />
-          <%!-- Type badge text for batch / map --%>
+          <%!-- Type badge text for batch / map / agent / HITL / condition --%>
           <text
-            :if={n.is_batch or n.is_map}
+            :if={n.is_batch or n.is_map or n.is_agent or n.is_hitl or n.is_condition}
             x={n.x + n.w - 6}
             y={n.y + 11}
             text-anchor="end"
@@ -341,8 +351,32 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             fill={n.stroke}
             opacity="0.7"
           >
-            {if n.is_batch, do: "BATCH", else: "MAP"}
+            {node_type_badge(n)}
           </text>
+          <%!-- Agent: small robot-face icon at the left of the header band --%>
+          <g :if={n.is_agent} stroke={n.stroke} fill="none" stroke-width="1.2">
+            <rect x={n.x + 10} y={n.y + 9} width="13" height="11" rx="3" />
+            <line x1={n.x + 16.5} y1={n.y + 9} x2={n.x + 16.5} y2={n.y + 6} />
+            <circle cx={n.x + 14} cy={n.y + 14.5} r="1" fill={n.stroke} stroke="none" />
+            <circle cx={n.x + 19} cy={n.y + 14.5} r="1" fill={n.stroke} stroke="none" />
+          </g>
+          <%!-- HITL: small person icon at the left of the header band, marking
+               a step that pauses for human input --%>
+          <g :if={n.is_hitl} stroke={n.stroke} fill="none" stroke-width="1.2">
+            <circle cx={n.x + 16.5} cy={n.y + 11} r="2.2" />
+            <path d={"M #{n.x + 11},#{n.y + 20} Q #{n.x + 16.5},#{n.y + 14.5} #{n.x + 22},#{n.y + 20}"} />
+          </g>
+          <%!-- Condition: small decision-diamond icon at the left of the header
+               band, marking a step that branches the flow --%>
+          <polygon
+            :if={n.is_condition}
+            points={
+              "#{n.x + 16.5},#{n.y + 7} #{n.x + 22},#{n.y + 13.5} #{n.x + 16.5},#{n.y + 20} #{n.x + 11},#{n.y + 13.5}"
+            }
+            fill="none"
+            stroke={n.stroke}
+            stroke-width="1.2"
+          />
           <%!-- Node label (centred in header band) --%>
           <text
             x={n.x + div(n.w, 2)}
@@ -449,6 +483,57 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
                 marker-end="url(#dag-arr)"
               />
             </g>
+          </g>
+          <%!-- Agent: resolved agent name + model (or an unresolved placeholder).
+               Text uses the node's dark status-derived `tc` colour, backed by
+               a translucent white chip — `tc` is paired with the pale status
+               fill for contrast, unlike `stroke` (a brighter/mid-tone border
+               colour that reads poorly as text even on the white chip). This
+               keeps the text readable across running (blue), completed
+               (green), and every other status. --%>
+          <g :if={n.inner.type == :agent}>
+            <rect
+              x={n.x + 8}
+              y={n.y + n.separator_y + 4}
+              width={n.w - 16}
+              height={n.inner.h_extra - 8}
+              rx="4"
+              fill="#ffffff"
+              opacity="0.55"
+            />
+            <text
+              :if={n.inner.agent_name}
+              x={n.x + 12}
+              y={n.y + n.separator_y + 16}
+              font-family="ui-monospace, 'Courier New', monospace"
+              font-size="10"
+              font-weight="600"
+              fill={n.tc}
+            >
+              {dag_trunc(n.inner.agent_name, 26)}
+            </text>
+            <text
+              :if={n.inner.agent_model}
+              x={n.x + 12}
+              y={n.y + n.separator_y + 30}
+              font-family="ui-monospace, 'Courier New', monospace"
+              font-size="9"
+              fill={n.tc}
+              opacity="0.75"
+            >
+              {dag_trunc(n.inner.agent_model, 30)}
+            </text>
+            <text
+              :if={is_nil(n.inner.agent_name)}
+              x={n.x + 12}
+              y={n.y + n.separator_y + 16}
+              font-family="ui-monospace, 'Courier New', monospace"
+              font-size="9"
+              fill={n.tc}
+              opacity="0.75"
+            >
+              agent not found
+            </text>
           </g>
           <%!-- Clickable overlay — captures click for the whole node --%>
           <rect
@@ -1083,6 +1168,44 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   def batch_module?(mod) when is_binary(mod), do: String.contains?(mod, "Tools.Workflow.Batch")
   def batch_module?(_), do: false
 
+  @doc """
+  Returns true if the module string is the `RunAgent` action.
+
+  Like `Batch`, a `run_agent` step is authored as a plain `type: "action"`
+  node — the node's `type` field is not a reliable signal (the schema also
+  allows an author to write `type: "agent"`, but nothing requires it and
+  every generated use-case workflow uses `"action"`). Detection must key off
+  the module string, mirroring `batch_module?/1` and `hitl_module?/1`.
+  """
+  def agent_module?(nil), do: false
+  def agent_module?(mod) when is_binary(mod), do: String.contains?(mod, "Tools.Workflow.RunAgent")
+  def agent_module?(_), do: false
+
+  @doc "Returns true if the module string is the `Condition` branching action."
+  def condition_module?(nil), do: false
+
+  def condition_module?(mod) when is_binary(mod),
+    do: String.contains?(mod, "Tools.Workflow.Condition")
+
+  def condition_module?(_), do: false
+
+  @doc """
+  Returns the unique `agent_id`s referenced by `run_agent` nodes, so a
+  caller can bulk-resolve agent name/model for `workflow_dag` rendering.
+
+  Accepts both struct nodes (`Step.Node`) and string-keyed JSONB map nodes
+  (a run's `steps_snapshot`).
+  """
+  @spec extract_agent_ids([map()]) :: [integer()]
+  def extract_agent_ids(nodes) when is_list(nodes) do
+    nodes
+    |> Enum.filter(&agent_module?(nf(&1, "module")))
+    |> Enum.map(&(nf(&1, "params") || %{}))
+    |> Enum.map(&(Map.get(&1, "agent_id") || Map.get(&1, :agent_id)))
+    |> Enum.filter(&is_integer/1)
+    |> Enum.uniq()
+  end
+
   # ── Helpers ─────────────────────────────────────────────────────
 
   # Maps a trigger's event_name to a display type for icon selection.
@@ -1163,6 +1286,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   @duration_units [{@week, "w"}, {@day, "d"}, {@hour, "h"}, {@minute, "m"}, {1, "s"}]
 
+  # The reserved sentinel `from` name for the virtual trigger origin. Mirrors
+  # `Zaq.Engine.Workflows.DagBuilder`'s start sentinel.
+  @start_sentinel "start"
+
   # Renders an elapsed duration from the largest non-zero unit all the way down
   # to seconds, e.g. "45s", "2m 30s", "2h 15m 0s", "2w 1d 0h 0m 0s". Leading
   # zero units are dropped so short durations stay compact.
@@ -1188,7 +1315,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
     x2 = tgt.x + div(tgt.w, 2)
     y2 = tgt.y - 8
     vc = max(16, div(y2 - y1, 2))
-    active = has_runs && !is_nil(Map.get(run_idx, from)) && !is_nil(Map.get(run_idx, to))
+    # The virtual `start` origin never has a StepRun of its own, so an edge
+    # leaving it is active as soon as its target ran.
+    from_visited? = from == @start_sentinel || !is_nil(Map.get(run_idx, from))
+    active = has_runs && from_visited? && !is_nil(Map.get(run_idx, to))
     color = if active, do: "#22c55e", else: "#cbd5e1"
 
     [
@@ -1291,10 +1421,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   @full_node_gap 10
 
   # Returns %{nodes: [%{name,x,y,w,h}], pos: %{name => %{x,y,w,h}}, edges: [%{from,to}], width, height}
-  defp dag_layout(raw_nodes, raw_edges) do
+  defp dag_layout(raw_nodes, raw_edges, agents_by_id) do
     nodes =
       Enum.map(raw_nodes, fn n ->
         mod = nf(n, "module")
+        params = nf(n, "params") || %{}
 
         %{
           name: nf(n, "name"),
@@ -1303,8 +1434,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
           is_hitl: hitl_module?(mod),
           is_batch: batch_module?(mod),
           is_map: nf(n, "type") == "map",
+          is_agent: agent_module?(mod),
+          is_condition: condition_module?(mod),
           is_start: false,
-          params: nf(n, "params") || %{}
+          params: params,
+          agent_info: agent_info(agents_by_id, params)
         }
       end)
 
@@ -1347,7 +1481,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
               idx * (@dag_node_w + @dag_h_gap)
 
           y = @dag_pad_y + level * (@dag_node_h + @dag_v_gap)
-          inner = compute_node_inner(node.params, node.is_batch, node.is_map)
+
+          inner =
+            compute_node_inner(
+              node.params,
+              node.is_batch,
+              node.is_map,
+              node.is_agent,
+              node.agent_info
+            )
 
           %{
             name: node.name,
@@ -1358,6 +1500,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
             is_hitl: node.is_hitl,
             is_batch: node.is_batch,
             is_map: node.is_map,
+            is_agent: node.is_agent,
+            is_condition: node.is_condition,
             is_start: node.is_start,
             inner: inner,
             separator_y: @dag_node_h
@@ -1372,10 +1516,6 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
       %{nodes: positioned, pos: pos_map, edges: edges, width: total_w, height: actual_h}
     end
   end
-
-  # The reserved sentinel `from` name for the virtual trigger origin. Mirrors
-  # `Zaq.Engine.Workflows.DagBuilder`'s start sentinel.
-  @start_sentinel "start"
 
   # The virtual `start` origin (the trigger/input entry point) has no real node
   # behind it, so it never renders on its own. Always inject a synthetic origin
@@ -1398,8 +1538,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
         is_hitl: false,
         is_batch: false,
         is_map: false,
+        is_agent: false,
+        is_condition: false,
         is_start: true,
-        params: %{}
+        params: %{},
+        agent_info: nil
       }
 
       {[start_node | nodes], start_edges(nodes, edges) ++ edges}
@@ -1449,12 +1592,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   # node shows blue (running), not its default purple.
   # The virtual `start` origin is always styled as a trigger pill (indigo),
   # independent of run status — it has no StepRun of its own.
-  defp dag_node_colors(_sr, _is_hitl, _is_batch, _is_map, true),
+  defp dag_node_colors(_sr, _is_hitl, _is_batch, _is_map, _is_agent, true),
     do: {"#eef2ff", "#6366f1", "#4338ca"}
 
-  defp dag_node_colors(sr, is_hitl, is_batch, is_map, _is_start) do
+  defp dag_node_colors(sr, is_hitl, is_batch, is_map, is_agent, _is_start) do
     dag_status_colors(nf(sr, "status"), is_hitl) ||
-      dag_type_colors(is_batch, is_map)
+      dag_type_colors(is_batch, is_map, is_agent)
   end
 
   defp dag_status_colors("running", _), do: {"#eff6ff", "#3b82f6", "#1d4ed8"}
@@ -1466,9 +1609,10 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
   defp dag_status_colors(_, true), do: {"#fffbeb", "#f59e0b", "#92400e"}
   defp dag_status_colors(_, _), do: nil
 
-  defp dag_type_colors(true, _), do: {"#faf5ff", "#a855f7", "#7e22ce"}
-  defp dag_type_colors(_, true), do: {"#f0f9ff", "#0ea5e9", "#0369a1"}
-  defp dag_type_colors(_, _), do: {"#f4f4f5", "#d1d5db", "#374151"}
+  defp dag_type_colors(true, _, _), do: {"#faf5ff", "#a855f7", "#7e22ce"}
+  defp dag_type_colors(_, true, _), do: {"#f0f9ff", "#0ea5e9", "#0369a1"}
+  defp dag_type_colors(_, _, true), do: {"#e6fbfd", "#03b6d4", "#029ab3"}
+  defp dag_type_colors(_, _, _), do: {"#f4f4f5", "#d1d5db", "#374151"}
 
   defp hitl_module?(nil), do: false
   defp hitl_module?(mod) when is_binary(mod), do: String.contains?(mod, "HumanInTheLoop")
@@ -1492,21 +1636,70 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponents do
 
   @empty_inner %{type: :none, sub_nodes: [], mini_nodes: [], h_extra: 0, post_section_y: nil}
 
-  defp compute_node_inner(_params, false, false), do: @empty_inner
+  defp compute_node_inner(_params, false, false, false, _agent_info), do: @empty_inner
 
-  defp compute_node_inner(params, true, _is_map) when is_map(params),
+  defp compute_node_inner(_params, false, false, true, agent_info),
+    do: agent_node_inner(agent_info)
+
+  defp compute_node_inner(params, true, _is_map, _is_agent, _agent_info) when is_map(params),
     do: compute_batch_node_inner(params)
 
   # A `map` node shows its `body` pipeline (and any `post_process` tail) as a
   # vertical full-node stack — it is the iteration primitive.
-  defp compute_node_inner(params, _is_batch, true) when is_map(params) do
+  defp compute_node_inner(params, _is_batch, true, _is_agent, _agent_info) when is_map(params) do
     body = Map.get(params, "body") || Map.get(params, :body) || []
     post = Map.get(params, "post_process") || Map.get(params, :post_process) || []
     names = Enum.map(body ++ post, &(Map.get(&1, "name") || Map.get(&1, :name) || "?"))
     iterate_inner(names)
   end
 
-  defp compute_node_inner(_params, _is_batch, _is_map), do: @empty_inner
+  defp compute_node_inner(_params, _is_batch, _is_map, _is_agent, _agent_info), do: @empty_inner
+
+  # A `run_agent` node's params carry only `agent_id` — the resolved name/model
+  # comes from `agents_by_id` (bulk-loaded by the caller), so the node itself
+  # never queries the Agent context. `nil` means the id was missing or the
+  # agent could not be resolved (e.g. deleted since the workflow was saved).
+  defp agent_node_inner(nil) do
+    %{
+      type: :agent,
+      sub_nodes: [],
+      mini_nodes: [],
+      h_extra: 24,
+      agent_name: nil,
+      agent_model: nil,
+      post_section_y: nil
+    }
+  end
+
+  defp agent_node_inner(%{name: name, model: model}) do
+    %{
+      type: :agent,
+      sub_nodes: [],
+      mini_nodes: [],
+      h_extra: 40,
+      agent_name: name,
+      agent_model: model,
+      post_section_y: nil
+    }
+  end
+
+  # Resolves a node's `agent_id` param against the bulk-loaded `agents_by_id`
+  # map, returning `%{name:, model:}` or `nil` when absent/unresolved.
+  defp agent_info(agents_by_id, params) when is_map(agents_by_id) and is_map(params) do
+    agent_id = Map.get(params, "agent_id") || Map.get(params, :agent_id)
+
+    case agent_id && Map.get(agents_by_id, agent_id) do
+      %{name: name, model: model} -> %{name: name, model: model}
+      _ -> nil
+    end
+  end
+
+  # Type badge text for the batch/map/agent/HITL/condition SVG corner label.
+  defp node_type_badge(%{is_batch: true}), do: "BATCH"
+  defp node_type_badge(%{is_agent: true}), do: "AGENT"
+  defp node_type_badge(%{is_hitl: true}), do: "HITL"
+  defp node_type_badge(%{is_condition: true}), do: "COND"
+  defp node_type_badge(_), do: "MAP"
 
   defp iterate_inner([]), do: @empty_inner
 

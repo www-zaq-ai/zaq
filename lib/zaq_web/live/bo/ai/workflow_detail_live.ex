@@ -28,6 +28,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
         total = count_runs(workflow.id, socket)
         runs = fetch_runs(workflow.id, 1, per_page, socket)
         triggers = fetch_triggers(workflow.id, socket)
+        agents_by_id = fetch_agents_by_id(workflow.nodes, socket)
 
         {:ok,
          assign(socket,
@@ -39,6 +40,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
            per_page: per_page,
            per_page_options: @per_page_options,
            runs_total: total,
+           agents_by_id: agents_by_id,
            delete_modal_open: false,
            edit_modal_open: false,
            edit_name: workflow.name,
@@ -439,7 +441,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
               class="bg-white rounded-xl border border-black/[0.08] p-5 min-h-[480px]"
               style="background-image: linear-gradient(#21dfff 0.5px, transparent 0.5px), linear-gradient(90deg, #e3e3e3 0.5px, transparent 0.5px); background-size: 20px 20px;"
             >
-              <.workflow_dag nodes={@workflow.nodes} edges={@workflow.edges} />
+              <.workflow_dag
+                nodes={@workflow.nodes}
+                edges={@workflow.edges}
+                agents_by_id={@agents_by_id}
+              />
             </div>
           </div>
         </div>
@@ -677,6 +683,29 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
     end
   rescue
     _ -> []
+  end
+
+  # Bulk-resolves the `agent_id`s referenced by `type: "agent"` nodes so the
+  # DAG can render each run_agent step's configured name/model.
+  defp fetch_agents_by_id(nodes, _socket) do
+    case extract_agent_ids(nodes) do
+      [] ->
+        %{}
+
+      agent_ids ->
+        event =
+          Event.new(
+            %{module: Zaq.Agent, function: :get_agents_by_ids, args: [agent_ids]},
+            :agent
+          )
+
+        case node_router().dispatch(event).response do
+          agents when is_map(agents) -> agents
+          _ -> %{}
+        end
+    end
+  rescue
+    _ -> %{}
   end
 
   defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)

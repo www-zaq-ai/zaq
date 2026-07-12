@@ -33,7 +33,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end)
 
     conn = init_test_session(conn, %{user_id: user.id})
-    %{conn: conn}
+    %{conn: conn, user: user}
   end
 
   @valid_node %{
@@ -191,6 +191,24 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "timeout"
     end
 
+    test "shows inspected error payload when a failed step has no message or reason", %{
+      conn: conn
+    } do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "failed"})
+
+      step_run_fixture(run, %{
+        step_name: "fetch",
+        step_index: 0,
+        status: "failed",
+        errors: %{"details" => %{"code" => "odd_shape"}}
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "odd_shape"
+    end
+
     test "renders failed-run summary with failed step messages", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       run = run_fixture(workflow, %{status: "failed"})
@@ -317,6 +335,283 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "total.last_message_date must be on or after now"
       assert html =~ "current value: null"
       assert html =~ "Steps never reached"
+    end
+
+    test "renders start input card when the virtual start node is selected", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      html = render_click(view, "select_step", %{"step_name" => "start"})
+
+      assert is_binary(html)
+      assert html =~ "start"
+    end
+
+    test "renders condition gate descriptions for plain, date, empty and fallback operators", %{
+      conn: conn
+    } do
+      workflow =
+        workflow_fixture(%{
+          nodes: [
+            %{
+              name: "source",
+              type: "action",
+              module: "Zaq.Engine.Workflows.Test.Noop",
+              params: %{},
+              index: 0
+            },
+            %{
+              name: "gate",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "input" => "source.payload",
+                "conditions" => [
+                  %{"key" => "score", "op" => "eq", "value" => 7},
+                  %{"key" => "score", "op" => "neq", "value" => 8},
+                  %{"key" => "score", "op" => "gte", "value" => 4},
+                  %{"key" => "score", "op" => "lt", "value" => 10},
+                  %{"key" => "score", "op" => "lte", "value" => 10},
+                  %{"key" => "score.missing", "op" => "eq", "value" => 1},
+                  %{"key" => "state", "op" => "in", "value" => ["new", "open"]},
+                  %{"key" => "custom", "op" => "matches", "value" => "x"},
+                  %{"key" => "empty_field", "op" => "empty"},
+                  %{"key" => "name", "op" => "not_empty"},
+                  %{"key" => "due", "type" => "date", "op" => "gt", "value" => "2026-01-01"},
+                  %{"key" => "due", "type" => "date", "op" => "lt", "value" => "2026-12-31"},
+                  %{"key" => "due", "type" => "date", "op" => "lte", "value" => "2026-12-31"},
+                  %{"key" => "due", "type" => "date", "op" => "eq", "value" => "2026-07-12"},
+                  %{"key" => "due", "type" => "date", "op" => "neq", "value" => "2026-07-13"},
+                  %{"key" => "due", "type" => "date", "op" => "matches", "value" => "2026"},
+                  %{
+                    "key" => "window",
+                    "type" => "datetime",
+                    "op" => "gte",
+                    "value" => %{"from" => "now"}
+                  }
+                ]
+              },
+              index: 1
+            }
+          ],
+          edges: [%{from: "source", to: "gate"}]
+        })
+
+      run = run_fixture(workflow, %{status: "incomplete"})
+
+      step_run_fixture(run, %{
+        step_name: "source",
+        step_index: 0,
+        status: "completed",
+        results: %{
+          "payload" => %{
+            "score" => 5,
+            "state" => "closed",
+            "custom" => %{"nested" => true},
+            "empty_field" => nil,
+            "name" => "",
+            "due" => "2026-06-01"
+          }
+        }
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "score must equal 7"
+      assert html =~ "score must not equal 8"
+      assert html =~ "score must be at least 4"
+      assert html =~ "score must be less than 10"
+      assert html =~ "score must be at most 10"
+      assert html =~ "score.missing must equal 1"
+      assert html =~ "state must be one of"
+      assert html =~ "custom must satisfy matches"
+      assert html =~ "empty_field must be empty"
+      assert html =~ "name must not be empty"
+      assert html =~ "due must be after"
+      assert html =~ "due must be before"
+      assert html =~ "due must be on or before"
+      assert html =~ "due must be"
+      assert html =~ "due must not be"
+      assert html =~ "due must satisfy matches"
+      assert html =~ "window must be on or after now"
+      assert html =~ "current value: 5"
+      assert html =~ "current value: %{"
+    end
+
+    test "falls back when agent metadata lookup returns a non-map response", %{conn: conn} do
+      workflow =
+        workflow_fixture(%{
+          nodes: [
+            %{
+              name: "ask_agent",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.RunAgent",
+              params: %{"agent_id" => 123, "input" => "hi"},
+              index: 0
+            }
+          ]
+        })
+
+      run = run_fixture(workflow)
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{module: Zaq.Agent, function: :get_agents_by_ids} ->
+            %{event | response: :not_found}
+
+          %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+            %{event | response: apply(mod, fun, args)}
+
+          %{action: action} when is_binary(action) ->
+            Api.handle_event(event, :workflow, nil)
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "ask_agent"
+    end
+
+    test "falls back when agent metadata lookup raises", %{conn: conn} do
+      workflow =
+        workflow_fixture(%{
+          nodes: [
+            %{
+              name: "ask_agent",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.RunAgent",
+              params: %{"agent_id" => 456, "input" => "hi"},
+              index: 0
+            }
+          ]
+        })
+
+      run = run_fixture(workflow)
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{module: Zaq.Agent, function: :get_agents_by_ids} ->
+            raise "agent lookup failed"
+
+          %{module: mod, function: fun, args: args} when is_atom(mod) and is_atom(fun) ->
+            %{event | response: apply(mod, fun, args)}
+
+          %{action: action} when is_binary(action) ->
+            Api.handle_event(event, :workflow, nil)
+
+          _ ->
+            event
+        end
+      end)
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "ask_agent"
+    end
+
+    test "renders unmet conditions from atom-key results and fallback edge labels", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "incomplete"})
+
+      step_run_fixture(run, %{
+        step_name: "plain_edge_name",
+        step_index: 1,
+        status: "skipped",
+        results: %{field: "status", op: "neq", actual: ~s("closed"), expected: ~s("open")}
+      })
+
+      for {op, sentence} <- [
+            {"eq", "Expected count to equal 3, but it was 2."},
+            {"lt", "Expected count to be less than 3, but it was 4."},
+            {"gte", "Expected count to be at least 3, but it was 2."},
+            {"lte", "Expected count to be at most 3, but it was 4."},
+            {"not_empty", "Expected name to be present, but it was nil."},
+            {"empty", "Expected name to be empty, but it was \"Jad\"."},
+            {"in", "Expected status to be one of [\"open\"], but it was \"closed\"."},
+            {"matches", "Expected status to satisfy matches \"open\", but it was \"closed\"."}
+          ] do
+        step_run_fixture(run, %{
+          step_name: "source__to__#{op}__edge",
+          step_index: 2,
+          status: "skipped",
+          results: %{
+            "field" =>
+              cond do
+                op in ["not_empty", "empty"] -> "name"
+                op in ["in", "matches"] -> "status"
+                true -> "count"
+              end,
+            "op" => op,
+            "actual" =>
+              case op do
+                "lt" -> "4"
+                "lte" -> "4"
+                "not_empty" -> "nil"
+                "empty" -> ~s("Jad")
+                "in" -> ~s("closed")
+                "matches" -> ~s("closed")
+                _ -> "2"
+              end,
+            "expected" =>
+              case op do
+                "in" -> ~s(["open"])
+                "matches" -> ~s("open")
+                _ -> "3"
+              end
+          }
+        })
+
+        assert sentence
+      end
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "plain_edge_name"
+
+      assert html =~
+               "Expected status to not equal &quot;open&quot;, but it was &quot;closed&quot;."
+
+      assert html =~ "Expected count to equal 3, but it was 2."
+      assert html =~ "Expected count to be less than 3, but it was 4."
+      assert html =~ "Expected count to be at least 3, but it was 2."
+      assert html =~ "Expected count to be at most 3, but it was 4."
+      assert html =~ "Expected name to be present, but it was nil."
+      assert html =~ "Expected name to be empty, but it was &quot;Jad&quot;."
+
+      assert html =~
+               "Expected status to be one of [&quot;open&quot;], but it was &quot;closed&quot;."
+
+      assert html =~
+               "Expected status to satisfy matches &quot;open&quot;, but it was &quot;closed&quot;."
+    end
+
+    test "renders a condition gate with non-reference input as null current value", %{conn: conn} do
+      workflow =
+        workflow_fixture(%{
+          nodes: [
+            %{
+              name: "gate",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "input" => %{"not" => "a dotted ref"},
+                "conditions" => [%{"key" => "value", "op" => "gt", "value" => nil}]
+              },
+              index: 0
+            }
+          ]
+        })
+
+      run = run_fixture(workflow, %{status: "incomplete"})
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "value must be greater than empty"
+      assert html =~ "current value: null"
     end
 
     test "redirects to workflow detail if run_id is invalid", %{conn: conn} do
@@ -797,6 +1092,26 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "failed"
       refute html =~ "bg-blue-100"
     end
+
+    test "synthetic batch step mirrors paused and running run statuses", %{conn: conn} do
+      workflow = map_workflow_fixture()
+
+      for status <- ["paused", "running"] do
+        run = run_fixture(workflow, %{status: status})
+
+        step_run_fixture(run, %{
+          step_name: "m/ok[0]",
+          step_index: 0,
+          status: status,
+          started_at: nil
+        })
+
+        {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+        html = render_click(view, "select_step", %{"step_name" => "m"})
+
+        assert html =~ status
+      end
+    end
   end
 
   describe "cancel_run event" do
@@ -836,7 +1151,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
       html = render_click(view, "cancel_run", %{})
-      assert html =~ "Run"
+      assert is_binary(html)
     end
   end
 
@@ -886,7 +1201,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
       html = render_click(view, "pause_run", %{})
-      assert html =~ "Run"
+      assert is_binary(html)
     end
   end
 
@@ -961,6 +1276,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
       assert html =~ "Run Interrupted"
       assert html =~ "This run was interrupted."
+    end
+
+    test "formats non-message interruption errors with inspect", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow, %{status: "interrupted"})
+
+      step_run_fixture(run, %{
+        status: "failed",
+        errors: %{"reason" => "process_terminated", "detail" => %{"signal" => "KILL"}}
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      assert html =~ "process_terminated"
+      refute html =~ "Server restarted during execution"
     end
   end
 

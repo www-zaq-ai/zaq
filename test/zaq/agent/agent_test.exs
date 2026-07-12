@@ -54,6 +54,32 @@ defmodule Zaq.AgentTest do
     assert Enum.any?(all, &(&1.id == created.id))
   end
 
+  test "get_agents_by_ids/1 returns a map keyed by id, dropping unknown ids" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Agent Bulk Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        sovereign: false
+      })
+
+    {:ok, agent} =
+      Agent.create_agent(%{
+        name: "Bulk Lookup Agent #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react"
+      })
+
+    result = Agent.get_agents_by_ids([agent.id, -1])
+
+    assert map_size(result) == 1
+    assert result[agent.id].name == agent.name
+    assert result[agent.id].model == "gpt-4.1-mini"
+
+    assert Agent.get_agents_by_ids([]) == %{}
+  end
+
   test "active and conversation-enabled filtering" do
     credential =
       ai_credential_fixture(%{

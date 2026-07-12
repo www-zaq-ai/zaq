@@ -94,6 +94,19 @@ defmodule Zaq.Agent do
     end
   end
 
+  @doc """
+  Returns the agents in `ids` as a map keyed by id, for bulk display lookups
+  (e.g. rendering an agent name/model next to each `run_agent` workflow node).
+  Unknown ids are simply absent from the result.
+  """
+  @spec get_agents_by_ids([integer()]) :: %{integer() => ConfiguredAgent.t()}
+  def get_agents_by_ids(ids) when is_list(ids) do
+    ConfiguredAgent
+    |> where([a], a.id in ^Enum.uniq(ids))
+    |> Repo.all()
+    |> Map.new(&{&1.id, &1})
+  end
+
   @spec get_active_agent(integer() | String.t()) :: {:ok, ConfiguredAgent.t()} | {:error, atom()}
   def get_active_agent(id) do
     case get_agent(id) do

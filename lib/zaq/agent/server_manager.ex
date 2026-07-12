@@ -326,14 +326,6 @@ defmodule Zaq.Agent.ServerManager do
           :ok ->
             await_process_down(pid, monitor_ref)
 
-          {:error, :not_found} ->
-            force_kill_if_alive(pid)
-            await_process_down(pid, monitor_ref)
-
-          {:error, :noproc} ->
-            force_kill_if_alive(pid)
-            await_process_down(pid, monitor_ref)
-
           {:error, _reason} ->
             force_kill_if_alive(pid)
             await_process_down(pid, monitor_ref)

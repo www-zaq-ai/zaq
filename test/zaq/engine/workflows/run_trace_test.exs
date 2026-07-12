@@ -16,6 +16,8 @@ defmodule Zaq.Engine.Workflows.RunTraceTest do
   """
   use Zaq.DataCase, async: false
 
+  alias Runic.Workflow
+  alias Runic.Workflow.{Fact, Step}
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.RunTrace
   alias Zaq.Engine.Workflows.WorkflowRunAgent
@@ -112,6 +114,68 @@ defmodule Zaq.Engine.Workflows.RunTraceTest do
       refute trace =~ "step started — b"
       assert trace =~ ~s(status: "incomplete")
     end
+
+    test "start tolerates malformed DAG input and still writes a header" do
+      run_id = Ecto.UUID.generate()
+
+      assert :ok = RunTrace.start(run_id, :not_a_workflow, %{"input" => true})
+
+      trace = File.read!(RunTrace.path(run_id))
+      assert trace =~ "run started"
+      assert trace =~ "graph_nodes: 0"
+      assert trace =~ ~s("input" => true)
+    end
+
+    test "cycle and final failures are swallowed after a malformed workflow" do
+      run_id = Ecto.UUID.generate()
+
+      assert :ok = RunTrace.cycle(run_id, :not_a_workflow)
+      assert :ok = RunTrace.final(run_id, :not_a_workflow)
+    end
+
+    test "cycle labels unknown fact producers from real runnable ancestry" do
+      run_id = Ecto.UUID.generate()
+
+      step = Step.new(name: :plain, work: fn input -> input end)
+
+      fact =
+        Fact.new(
+          value: %{"value" => "from unknown producer"},
+          ancestry: {:unknown_producer_hash, :parent_fact_hash}
+        )
+
+      workflow =
+        Workflow.new()
+        |> Workflow.add(step)
+        |> Workflow.plan_eagerly(fact)
+
+      assert :ok = RunTrace.cycle(run_id, workflow)
+
+      trace = File.read!(RunTrace.path(run_id))
+      assert trace =~ "react cycle 1"
+      assert trace =~ "produced_by: :unknown"
+      assert trace =~ "plain (Step)"
+    end
+
+    test "cycle labels odd ancestry and unnamed non-struct runnable nodes" do
+      run_id = Ecto.UUID.generate()
+
+      fact = %Fact{hash: :fact, value: "value", ancestry: :odd_ancestry}
+
+      %Workflow{} = base_workflow = Workflow.new()
+
+      graph =
+        base_workflow.graph
+        |> Multigraph.add_edge(fact, %{hash: :unnamed_node}, label: :runnable)
+
+      workflow = %{base_workflow | graph: graph}
+
+      assert :ok = RunTrace.cycle(run_id, workflow)
+
+      trace = File.read!(RunTrace.path(run_id))
+      assert trace =~ "produced_by: :unknown"
+      assert trace =~ "node: \"%{hash: :unnamed_node}\""
+    end
   end
 
   describe "with :workflow_trace_dir unset" do
@@ -124,6 +188,17 @@ defmodule Zaq.Engine.Workflows.RunTraceTest do
 
       {:ok, finished} = WorkflowRunAgent.execute(run)
       assert finished.status == "completed"
+    end
+
+    test "step with nil run id is a no-op" do
+      assert :ok = RunTrace.step(nil, "label", "step", %{value: 1})
+    end
+
+    test "step with invalid data is ignored while tracing is disabled" do
+      Application.put_env(:zaq, :workflow_trace_dir, nil)
+
+      assert :ok =
+               RunTrace.step(Ecto.UUID.generate(), "label", "step", fn -> :not_inspectable end)
     end
   end
 end

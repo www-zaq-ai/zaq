@@ -569,6 +569,37 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert {:ok, _} = Workflows.delete_workflow(w)
       refute is_nil(Workflows.get_trigger(trigger.id))
     end
+
+    test "wipes the workflow, its runs/step runs, its solely-linked trigger, and the join row — nothing left behind" do
+      w = create_workflow(%{status: "active"})
+      {:ok, trigger} = Workflows.create_trigger(%{event_name: "cleanup_evt", enabled: true})
+      {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, w)
+      run = create_run(w)
+
+      {:ok, step_run} =
+        Workflows.create_step_run(run, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "completed",
+          started_at: DateTime.utc_now(:second)
+        })
+
+      assert {:ok, _} = Workflows.delete_workflow(w)
+
+      refute Repo.get(Workflows.Workflow, w.id)
+      assert is_nil(Workflows.get_run(run.id))
+      refute Repo.get(Zaq.Engine.Workflows.Step.Run, step_run.id)
+      assert is_nil(Workflows.get_trigger(trigger.id))
+
+      assert Repo.aggregate(
+               from(tw in "trigger_workflows",
+                 where:
+                   type(tw.workflow_id, :binary_id) == ^w.id or
+                     type(tw.trigger_id, :binary_id) == ^trigger.id
+               ),
+               :count
+             ) == 0
+    end
   end
 
   # --- list_stale_runs/0 ---

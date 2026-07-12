@@ -58,7 +58,10 @@ defmodule ZaqWeb.Live.BO.AI.AgentsTable do
                 <.status_dot status={if(agent.active, do: :active, else: :inactive)} />
               </:icon>
               <div class="min-w-0">
-                <.table_text label={agent.name} tone={:mono} />
+                <div class="zaq-layout-inline-compact">
+                  <.table_text label={agent.name} tone={:mono} />
+                  <.table_text label={"#" <> to_string(agent.id)} tone={:tertiary} />
+                </div>
                 <.table_text
                   label={agent.description || "No description"}
                   tone={:tertiary}

@@ -323,6 +323,42 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ "#fffbeb"
     end
 
+    test "HITL node gets the HITL badge and a person icon" do
+      node = %{
+        name: "review",
+        type: "action",
+        module: "Zaq.Engine.Workflows.Steps.HumanInTheLoop",
+        params: %{},
+        index: 0
+      }
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [node],
+          edges: [],
+          step_runs: []
+        )
+
+      assert html =~ "HITL"
+      assert html =~ "<circle"
+      assert html =~ "<path"
+    end
+
+    test "condition node gets the COND badge and a decision-diamond icon" do
+      node = %{
+        name: "check_qualified",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.Condition",
+        params: %{},
+        index: 0
+      }
+
+      html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
+
+      assert html =~ "COND"
+      assert html =~ "<polygon"
+    end
+
     test "node gets amber fill when string-key step_run has status 'waiting'" do
       node = %{name: "fetch", type: "action", module: "SomeMod", params: %{}, index: 0}
 
@@ -470,6 +506,32 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ ~s(phx-value-step_name="start")
     end
 
+    test "start edge renders active/green when its target node ran" do
+      step_runs = [%{step_name: "fetch", status: "completed", id: "sr-1", step_index: 0}]
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [@node],
+          edges: [%{from: "start", to: "fetch"}],
+          step_runs: step_runs
+        )
+
+      assert html =~ "marker-end=\"url(#dag-arr-active)\""
+    end
+
+    test "start edge renders inactive/gray when its target node did not run" do
+      step_runs = [%{step_name: "other", status: "completed", id: "sr-1", step_index: 0}]
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [@node],
+          edges: [%{from: "start", to: "fetch"}],
+          step_runs: step_runs
+        )
+
+      refute html =~ "marker-end=\"url(#dag-arr-active)\""
+    end
+
     test "always injects a clickable start origin even without explicit start edges" do
       html =
         render_component(&WorkflowComponents.workflow_dag/1,
@@ -570,6 +632,146 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
       assert html =~ "notify"
       assert html =~ "<line"
       assert html =~ "marker-end=\"url(#dag-arr)\""
+    end
+
+    test "agent node gets the AGENT badge and ZAQ brand cyan fill" do
+      node = %{
+        name: "draft_email",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.RunAgent",
+        index: 0,
+        params: %{"agent_id" => 1, "input" => "hi"}
+      }
+
+      html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
+
+      assert html =~ "AGENT"
+      assert html =~ "#e6fbfd"
+      assert html =~ "#03b6d4"
+    end
+
+    test "agent node renders the resolved agent's name and model from agents_by_id" do
+      node = %{
+        name: "draft_email",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.RunAgent",
+        index: 0,
+        params: %{"agent_id" => 7, "input" => "hi"}
+      }
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [node],
+          edges: [],
+          agents_by_id: %{7 => %{name: "Email Drafter", model: "gpt-4o"}}
+        )
+
+      assert html =~ "Email Drafter"
+      assert html =~ "gpt-4o"
+    end
+
+    test "agent node draws a translucent white chip behind the name/model text" do
+      node = %{
+        name: "draft_email",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.RunAgent",
+        index: 0,
+        params: %{"agent_id" => 7, "input" => "hi"}
+      }
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [node],
+          edges: [],
+          agents_by_id: %{7 => %{name: "Email Drafter", model: "gpt-4o"}}
+        )
+
+      assert html =~ ~r/<rect[^>]*fill="#ffffff"[^>]*opacity="0.55"/
+    end
+
+    test "agent node with an unresolved agent_id shows a not-found placeholder" do
+      node = %{
+        name: "draft_email",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.RunAgent",
+        index: 0,
+        params: %{"agent_id" => 99, "input" => "hi"}
+      }
+
+      html = render_component(&WorkflowComponents.workflow_dag/1, nodes: [node], edges: [])
+
+      assert html =~ "agent not found"
+      refute html =~ "gpt-4o"
+    end
+
+    test "agent node still gets the AGENT badge when running (status colours win over fill only)" do
+      node = %{
+        name: "draft_email",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.RunAgent",
+        index: 0,
+        params: %{"agent_id" => 1, "input" => "hi"}
+      }
+
+      step_runs = [%{step_name: "draft_email", status: "running", id: "sr-1", step_index: 0}]
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [node],
+          edges: [],
+          step_runs: step_runs
+        )
+
+      assert html =~ "AGENT"
+      assert html =~ "#eff6ff"
+    end
+
+    test "agent name/model text adapts to running (blue) status instead of fixed cyan" do
+      node = %{
+        name: "draft_email",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.RunAgent",
+        index: 0,
+        params: %{"agent_id" => 7, "input" => "hi"}
+      }
+
+      step_runs = [%{step_name: "draft_email", status: "running", id: "sr-1", step_index: 0}]
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [node],
+          edges: [],
+          step_runs: step_runs,
+          agents_by_id: %{7 => %{name: "Email Drafter", model: "gpt-4o"}}
+        )
+
+      assert html =~ "fill=\"#1d4ed8\""
+      assert html =~ "fill=\"#3b82f6\""
+      refute html =~ "fill=\"#029ab3\""
+    end
+
+    test "agent name/model text adapts to completed (green) status instead of fixed cyan" do
+      node = %{
+        name: "draft_email",
+        type: "action",
+        module: "Zaq.Agent.Tools.Workflow.RunAgent",
+        index: 0,
+        params: %{"agent_id" => 7, "input" => "hi"}
+      }
+
+      step_runs = [%{step_name: "draft_email", status: "completed", id: "sr-1", step_index: 0}]
+
+      html =
+        render_component(&WorkflowComponents.workflow_dag/1,
+          nodes: [node],
+          edges: [],
+          step_runs: step_runs,
+          agents_by_id: %{7 => %{name: "Email Drafter", model: "gpt-4o"}}
+        )
+
+      assert html =~ "fill=\"#15803d\""
+      assert html =~ "fill=\"#22c55e\""
+      refute html =~ "fill=\"#029ab3\""
     end
   end
 

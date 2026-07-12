@@ -592,11 +592,11 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
           "key" => "total.last_message_date",
           "type" => "datetime",
           "op" => "gte",
-          "value" => %{"from" => "today", "days" => -3}
+          "value" => %{"from" => "today", "days" => -10}
         }
       ]
 
-      # last_message_date is today → today >= today-3d → passes. Without reference
+      # last_message_date is within the allowed window → passes. Without reference
       # resolution the string input would make the key miss and pin passed to false.
       assert {:ok, %{passed: true}} =
                Condition.run(

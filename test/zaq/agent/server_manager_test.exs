@@ -806,6 +806,36 @@ defmodule Zaq.Agent.ServerManagerTest do
            }
   end
 
+  test "handle_call stop_server kills tracked registry GenServer with non-Jido state" do
+    configured_agent = %ConfiguredAgent{id: 123_462}
+    server_id = "configured_agent_123462:dummy"
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+
+    pid = start_registered_status_stub(registry, server_id)
+    monitor_ref = Process.monitor(pid)
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{configured_agent.id => MapSet.new([server_id])},
+      server_to_agent: %{server_id => configured_agent.id},
+      draining: %{},
+      monitors: %{}
+    }
+
+    assert {:reply, :ok, next_state} =
+             ServerManager.handle_call({:stop_server, configured_agent, server_id}, self(), state)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :killed}, 1_000
+
+    assert next_state == %{
+             fingerprints: %{},
+             agent_servers: %{},
+             server_to_agent: %{},
+             draining: %{},
+             monitors: %{}
+           }
+  end
+
   test "start_link returns already_started when manager is running" do
     assert {:error, {:already_started, pid}} = ServerManager.start_link([])
     assert is_pid(pid)
@@ -1686,6 +1716,31 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert_receive {:dummy_server_registered, ^pid, ^server_id}, 1_000
     pid
+  end
+
+  defp start_registered_status_stub(registry, server_id) do
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        {:ok, _} = Registry.register(registry, server_id, nil)
+        send(parent, {:status_stub_registered, self(), server_id})
+        status_stub_loop()
+      end)
+
+    assert_receive {:status_stub_registered, ^pid, ^server_id}, 1_000
+    pid
+  end
+
+  defp status_stub_loop do
+    receive do
+      {:"$gen_call", from, :get_state} ->
+        GenServer.reply(from, {:ok, %{raw_state: %{}}})
+        status_stub_loop()
+
+      :stop ->
+        :ok
+    end
   end
 
   defp stop_registered_dummy_server(pid) when is_pid(pid) do
