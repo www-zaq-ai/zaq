@@ -907,6 +907,60 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
       # Flash says "deleted" (even if skip happened) and the page re-renders
       assert html =~ "deleted"
     end
+
+    test "delete_selected wipes each workflow's runs/step runs/solely-linked trigger and join rows — nothing left behind",
+         %{conn: conn} do
+      w1 = workflow_fixture(%{name: "Bulk Delete 1"})
+      w2 = workflow_fixture(%{name: "Bulk Delete 2"})
+      t1 = trigger_fixture(w1, %{event_name: "bulk_evt_1"})
+      t2 = trigger_fixture(w2, %{event_name: "bulk_evt_2"})
+      run1 = run_fixture(w1)
+      run2 = run_fixture(w2)
+
+      {:ok, step_run1} =
+        Workflows.create_step_run(run1, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "completed",
+          started_at: DateTime.utc_now(:second)
+        })
+
+      {:ok, step_run2} =
+        Workflows.create_step_run(run2, %{
+          step_name: "fetch",
+          step_index: 0,
+          status: "completed",
+          started_at: DateTime.utc_now(:second)
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+
+      render_click(view, "toggle_select", %{"id" => w1.id})
+      render_click(view, "toggle_select", %{"id" => w2.id})
+      html = render_click(view, "delete_selected", %{})
+
+      assert html =~ "2 workflows deleted"
+
+      refute Zaq.Repo.get(Workflows.Workflow, w1.id)
+      refute Zaq.Repo.get(Workflows.Workflow, w2.id)
+      assert is_nil(Workflows.get_run(run1.id))
+      assert is_nil(Workflows.get_run(run2.id))
+      refute Zaq.Repo.get(Zaq.Engine.Workflows.Step.Run, step_run1.id)
+      refute Zaq.Repo.get(Zaq.Engine.Workflows.Step.Run, step_run2.id)
+      assert is_nil(Workflows.get_trigger(t1.id))
+      assert is_nil(Workflows.get_trigger(t2.id))
+
+      import Ecto.Query
+
+      assert Zaq.Repo.aggregate(
+               from(tw in "trigger_workflows",
+                 where:
+                   type(tw.workflow_id, :binary_id) in ^[w1.id, w2.id] or
+                     type(tw.trigger_id, :binary_id) in ^[t1.id, t2.id]
+               ),
+               :count
+             ) == 0
+    end
   end
 
   describe "goto_page event" do
