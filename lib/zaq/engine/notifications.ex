@@ -38,11 +38,13 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Events, as: ChannelEvents
+  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Event
   alias Zaq.Repo
+  alias Zaq.Utils.EmailUtils
 
   @person_channel_platforms %{
     "email" => "email:smtp"
@@ -53,7 +55,12 @@ defmodule Zaq.Engine.Notifications do
           required(:notification_log_id) => integer() | nil,
           optional(:channel) => String.t() | nil,
           optional(:channel_identifier) => String.t() | nil,
-          optional(:reason) => term()
+          optional(:reason) => term(),
+          # Threading pointers, surfaced on `:sent` only (never on skipped/failed,
+          # so a message the recipient never received can't become a phantom parent).
+          optional(:message_id) => String.t(),
+          optional(:thread_id) => String.t(),
+          optional(:thread_metadata) => map()
         }
 
   @doc """
@@ -166,11 +173,36 @@ defmodule Zaq.Engine.Notifications do
 
       {:ok, %{status: :skipped, notification_log_id: log.id, reason: :no_configured_channels}}
     else
-      dispatch_inline(log, channels, notification.metadata, opts)
+      dispatch_inline(log, channels, notification.metadata, opts, threading_ctx(notification))
     end
   end
 
-  defp dispatch_inline(log, [], _metadata, _opts) do
+  # Everything the email arm needs to resolve an anchor: who we are writing to and
+  # the key their conversation is grouped under (`topic` first, then `subject` —
+  # the same precedence persistence uses).
+  defp threading_ctx(%Notification{} = notification) do
+    person_id =
+      case notification.recipient_ref do
+        {:person, id} -> id
+        _ -> nil
+      end
+
+    %{
+      person_id: person_id,
+      topic: metadata_value(notification.metadata, "topic"),
+      subject: notification.subject
+    }
+  end
+
+  defp metadata_value(metadata, key) when is_map(metadata) do
+    Map.get(metadata, key) || Map.get(metadata, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp metadata_value(_metadata, _key), do: nil
+
+  defp dispatch_inline(log, [], _metadata, _opts, _ctx) do
     NotificationLog.transition_status(log, "failed")
 
     Logger.warning("[Notifications] log #{log.id} failed — all channels exhausted")
@@ -178,62 +210,142 @@ defmodule Zaq.Engine.Notifications do
     {:error, %{status: :failed, notification_log_id: log.id, reason: :all_channels_failed}}
   end
 
-  defp dispatch_inline(log, [channel | rest], metadata, opts) do
+  defp dispatch_inline(log, [channel | rest], metadata, opts, ctx) do
     platform = channel["platform"]
     identifier = channel["identifier"]
 
     case platform_to_atom(platform) do
       nil ->
         Logger.warning("[Notifications] unknown platform #{inspect(platform)}, skipping")
-        dispatch_inline(log, rest, metadata, opts)
+        dispatch_inline(log, rest, metadata, opts, ctx)
 
       provider ->
+        # Resolved per attempt, not once per notification: on fallback the channel
+        # that actually delivers must be the one whose mint we store (Bug #12).
+        threading = build_threading(platform, ctx)
+
         outgoing = %Outgoing{
           body: Map.get(log.payload, "body", ""),
           channel_id: identifier,
           provider: provider,
+          thread_id: threading[:thread_id],
+          in_reply_to: threading[:in_reply_to],
           metadata:
-            Map.merge(metadata, %{
+            metadata
+            |> Map.merge(%{
               "subject" => Map.get(log.payload, "subject"),
               "html_body" => Map.get(log.payload, "html_body")
             })
+            |> merge_threading_metadata(threading)
         }
 
         result = deliver_via_channels(outgoing, opts)
         NotificationLog.append_attempt(log.id, platform, identifier, result)
 
         case result do
-          :ok -> mark_sent(log, platform, identifier)
-          {:error, _reason} -> dispatch_inline(log, rest, metadata, opts)
+          :ok ->
+            mark_sent(log, platform, identifier, threading)
+
+          {:error, _reason} ->
+            # The mint for this failed attempt is discarded — never surfaced, never
+            # persisted, so it can't become a phantom parent (Bug #3).
+            dispatch_inline(log, rest, metadata, opts, ctx)
         end
     end
   end
 
-  defp mark_sent(log, platform, identifier) do
-    case NotificationLog.transition_status(log, "sent") do
-      {:ok, _} ->
-        {:ok,
-         %{
-           status: :sent,
-           notification_log_id: log.id,
-           channel: platform,
-           channel_identifier: identifier
-         }}
+  # Email is the one channel where ZAQ mints its own id and keeps a References
+  # chain; other channels get a server-assigned id back and thread on a single
+  # root pointer, so they mint nothing here.
+  defp build_threading("email" <> _, %{person_id: person_id} = ctx) do
+    anchor = Conversations.email_thread_anchor(person_id, ctx.topic, ctx.subject)
+    message_id = EmailUtils.new_message_id(sending_domain())
 
-      {:error, reason} ->
-        Logger.warning(
-          "[Notifications] log #{log.id} sent but status update failed: #{inspect(reason)}"
-        )
+    references =
+      if anchor,
+        do: EmailUtils.cap_references(anchor.references ++ [anchor.message_id]),
+        else: []
 
-        {:ok,
-         %{
-           status: :sent,
-           notification_log_id: log.id,
-           channel: platform,
-           channel_identifier: identifier,
-           reason: reason
-         }}
+    %{
+      message_id: message_id,
+      in_reply_to: anchor && anchor.message_id,
+      references: references,
+      # The first send is the root of its own thread.
+      thread_id: (anchor && anchor.thread_key) || message_id
+    }
+  end
+
+  defp build_threading(_platform, _ctx), do: %{}
+
+  defp merge_threading_metadata(metadata, threading) when map_size(threading) == 0, do: metadata
+
+  defp merge_threading_metadata(metadata, threading) do
+    email_meta =
+      metadata
+      |> Map.get("email", %{})
+      |> Map.put("threading", %{
+        "message_id" => threading.message_id,
+        "in_reply_to" => threading.in_reply_to,
+        "references" => threading.references
+      })
+
+    # Deliberately no `thread_key`: grouping must stay topic/subject-based, or the
+    # conversation would be re-keyed to the minted id and the next lookup would miss.
+    Map.put(metadata, "email", email_meta)
+  end
+
+  defp sending_domain do
+    case ChannelConfig.get_by_provider("email:smtp") do
+      %ChannelConfig{settings: settings} when is_map(settings) ->
+        EmailUtils.sending_domain(Map.get(settings, "from_email"))
+
+      _ ->
+        EmailUtils.sending_domain(nil)
     end
+  end
+
+  defp mark_sent(log, platform, identifier, threading) do
+    base = %{
+      status: :sent,
+      notification_log_id: log.id,
+      channel: platform,
+      channel_identifier: identifier
+    }
+
+    result =
+      case NotificationLog.transition_status(log, "sent") do
+        {:ok, _} ->
+          base
+
+        {:error, reason} ->
+          Logger.warning(
+            "[Notifications] log #{log.id} sent but status update failed: #{inspect(reason)}"
+          )
+
+          Map.put(base, :reason, reason)
+      end
+
+    {:ok, put_threading_result(result, threading)}
+  end
+
+  # The generic cross-channel pointers ride named fields; the email-only
+  # `references` chain rides the opaque `thread_metadata` residue.
+  defp put_threading_result(result, threading) when map_size(threading) == 0, do: result
+
+  defp put_threading_result(result, threading) do
+    Map.merge(result, %{
+      message_id: threading.message_id,
+      thread_id: threading.thread_id,
+      thread_metadata: %{
+        "email" => %{
+          "threading" => %{
+            "message_id" => threading.message_id,
+            "in_reply_to" => threading.in_reply_to,
+            "references" => threading.references
+          }
+        }
+      }
+    })
   end
 
   defp platform_to_atom(platform) when is_binary(platform) do

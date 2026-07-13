@@ -13,6 +13,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   use ZaqWeb, :live_view
 
   import ZaqWeb.Live.BO.AI.WorkflowComponents
+  import ZaqWeb.Components.MarkdownEditor, only: [markdown_view: 1]
 
   alias Zaq.{Event, NodeRouter}
   alias ZaqWeb.Components.BOLayout
@@ -423,36 +424,54 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
           <%!-- Prior step outputs for review (collapsible) --%>
           <% review_steps = review_steps(@step_runs, @approval.step_name) %>
           <div :if={review_steps != []} class="border-t border-amber-200 pt-4">
-            <button
-              type="button"
-              phx-click={
-                JS.toggle(to: "#hitl-review-content")
-                |> JS.toggle_class("rotate-90", to: "#hitl-review-chevron")
-              }
-              class="cursor-pointer flex items-center gap-2 select-none mb-3"
-            >
-              <span class="font-mono text-[0.65rem] font-semibold text-amber-600/70 uppercase tracking-wider">
-                Content to Review
-              </span>
-              <svg
-                id="hitl-review-chevron"
-                class="w-3 h-3 text-amber-400 transition-transform"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <div id="hitl-review-content" style="display:none" class="space-y-4">
-              <div :for={sr <- review_steps} class="space-y-1">
-                <p class="font-mono text-[0.7rem] text-black/50">{sr.step_name}</p>
-                <div class="bg-white/70 rounded-lg border border-amber-100 p-3">
-                  <ZaqWeb.Components.JsonTree.json_tree
-                    id={"jt-hitl-#{sr.id}"}
-                    data={clean_results(sr.results)}
-                  />
+            <span class="font-mono text-[0.65rem] font-semibold text-amber-600/70 uppercase tracking-wider mb-3 block">
+              Content to Review
+            </span>
+            <div id="hitl-review-content" class="space-y-3">
+              <% review =
+                review_steps
+                |> Enum.map(&{&1, review_content_text(clean_results(&1.results))})
+                |> Enum.with_index()
+
+              last_index = length(review) - 1 %>
+              <div :for={{{sr, content_text}, idx} <- review} class="space-y-1">
+                <button
+                  type="button"
+                  phx-click={
+                    JS.toggle(to: "#hitl-review-item-#{sr.id}")
+                    |> JS.toggle_class("rotate-90", to: "#hitl-review-item-chevron-#{sr.id}")
+                  }
+                  class="cursor-pointer flex items-center gap-2 select-none"
+                >
+                  <svg
+                    id={"hitl-review-item-chevron-#{sr.id}"}
+                    class={[
+                      "w-3 h-3 text-amber-400 transition-transform flex-shrink-0",
+                      idx == last_index && "rotate-90"
+                    ]}
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  <p class="font-mono text-[0.7rem] text-black/50">{sr.step_name}</p>
+                </button>
+                <div
+                  id={"hitl-review-item-#{sr.id}"}
+                  style={if idx != last_index, do: "display:none"}
+                >
+                  <.markdown_view :if={content_text} id={"md-hitl-#{sr.id}"} content={content_text} />
+                  <div
+                    :if={is_nil(content_text)}
+                    class="bg-white/70 rounded-lg border border-amber-100 p-3"
+                  >
+                    <ZaqWeb.Components.JsonTree.json_tree
+                      id={"jt-hitl-#{sr.id}"}
+                      data={clean_results(sr.results)}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -912,6 +931,17 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     |> case do
       [] -> nil
       dts -> Enum.min(dts, DateTime)
+    end
+  end
+
+  # The generated text a human is meant to review before approving (e.g. the
+  # agent-drafted email body from `RunAgent`, keyed `output`). Falls back to
+  # `nil` — and the JsonTree — when a step's results carry structured data
+  # instead of a single reviewable block of prose.
+  defp review_content_text(results) do
+    case Map.get(results, "output") || Map.get(results, :output) do
+      text when is_binary(text) and text != "" -> text
+      _ -> nil
     end
   end
 

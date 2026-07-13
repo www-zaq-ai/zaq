@@ -117,16 +117,24 @@ defmodule Zaq.Channels.EmailBridge do
   @spec send_reply(Outgoing.t(), map()) :: :ok | {:error, term()}
   @impl true
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
-    alias Zaq.Engine.Notifications.EmailNotification
+    # Two independent predicates. `inbound_reply?` is about *provenance* (are we
+    # answering an email someone sent us) and drives the `Re:` prefix. `thread?` is
+    # about *continuity* (do we have a parent to point at) and drives the RFC
+    # headers. A proactive sequence is the second without the first: it threads via
+    # headers while keeping the clean subject its campaign topic defines.
+    inbound_reply? = inbound_reply?(outgoing)
 
-    reply? = email_reply?(outgoing)
-    subject = resolve_subject(outgoing.metadata, reply?)
-    from_email = resolve_from_email(outgoing.metadata, reply?)
+    subject = resolve_subject(outgoing.metadata, inbound_reply?)
+    from_email = resolve_from_email(outgoing.metadata, inbound_reply?)
     from_name = resolve_from_name(outgoing.metadata)
 
     html_body = get_meta(outgoing.metadata, "html_body", :html_body)
     format = get_meta(outgoing.metadata, "format", :format)
-    headers = if reply?, do: reply_headers(outgoing), else: %{}
+
+    headers =
+      outgoing
+      |> message_id_header()
+      |> Map.merge(if thread?(outgoing), do: reply_headers(outgoing), else: %{})
 
     payload =
       %{
@@ -139,7 +147,15 @@ defmodule Zaq.Channels.EmailBridge do
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
 
-    EmailNotification.send_notification(outgoing.channel_id, payload, %{})
+    notification_module().send_notification(outgoing.channel_id, payload, %{})
+  end
+
+  defp notification_module do
+    Application.get_env(
+      :zaq,
+      :email_bridge_notification_module,
+      Zaq.Engine.Notifications.EmailNotification
+    )
   end
 
   # ---------------------------------------------------------------------------
@@ -296,11 +312,33 @@ defmodule Zaq.Channels.EmailBridge do
     if reply?, do: "Re: Notification from ZAQ", else: "Notification from ZAQ"
   end
 
-  defp email_reply?(%Outgoing{} = outgoing) do
-    provider = to_string(outgoing.provider)
+  # Provenance: we are answering an email that was sent *to* us. Drives `Re:`.
+  defp inbound_reply?(%Outgoing{} = outgoing) do
+    to_string(outgoing.provider) == "email:imap" and has_parent?(outgoing)
+  end
 
-    provider == "email:imap" and is_binary(outgoing.in_reply_to) and
-      String.trim(outgoing.in_reply_to) != ""
+  # Continuity: we have a parent message to point `In-Reply-To` at. True for any
+  # email provider, including an outbound-first sequence follow-up.
+  defp thread?(%Outgoing{} = outgoing), do: has_parent?(outgoing)
+
+  defp has_parent?(%Outgoing{in_reply_to: in_reply_to}) do
+    is_binary(in_reply_to) and String.trim(in_reply_to) != ""
+  end
+
+  # Every email send carries its own Message-ID so a later send can anchor to it.
+  # gen_smtp only fills one in when absent, so ours is the id that is delivered.
+  defp message_id_header(%Outgoing{} = outgoing) do
+    email_meta = get_meta(outgoing.metadata, "email", :email) || %{}
+    threading = get_meta(email_meta, "threading", :threading) || %{}
+
+    threading
+    |> get_meta("message_id", :message_id)
+    |> EmailUtils.normalize_message_id()
+    |> format_message_id()
+    |> case do
+      nil -> %{}
+      message_id -> %{"Message-ID" => message_id}
+    end
   end
 
   defp reply_subject(subject) when is_binary(subject) do

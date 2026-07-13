@@ -29,7 +29,7 @@ config :req_llm,
         # to avoid Finch mixed-protocol ALPN issues with large LLM request bodies.
         protocols: [:http1],
         size: 1,
-        count: String.to_integer(System.get_env("REQ_LLM_POOL_COUNT", "20"))
+        count: String.to_integer(System.get_env("REQ_LLM_POOL_COUNT", "50"))
       ]
     }
   ]

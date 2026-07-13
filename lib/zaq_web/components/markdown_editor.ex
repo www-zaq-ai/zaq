@@ -91,4 +91,33 @@ defmodule ZaqWeb.Components.MarkdownEditor do
     </div>
     """
   end
+
+  @doc """
+  Renders already-generated markdown as read-only rendered output — no
+  Write/Preview tabs, no textarea, nothing to edit.
+
+  Use for surfacing markdown content the user can only review (e.g. a step's
+  output in the human-in-the-loop approval card), as opposed to
+  `markdown_editor/1` which backs an editable form field.
+
+  ## Usage
+
+      <.markdown_view id="hitl-review-draft_email" content={step.results["output"]} />
+  """
+  attr :id, :string, required: true
+  attr :content, :string, default: ""
+
+  def markdown_view(assigns) do
+    ~H"""
+    <div class="zaq-md-editor">
+      <div id={@id} phx-hook="MarkdownHighlight" class="markdown-preview zaq-md-editor__preview">
+        <%= if String.trim(@content) == "" do %>
+          <p class="zaq-md-editor__empty">Nothing to preview.</p>
+        <% else %>
+          {Phoenix.HTML.raw(Markdown.render(@content))}
+        <% end %>
+      </div>
+    </div>
+    """
+  end
 end

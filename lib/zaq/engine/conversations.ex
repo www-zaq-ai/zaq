@@ -467,8 +467,10 @@ defmodule Zaq.Engine.Conversations do
     first_present([
       map_get(email_meta, "thread_key"),
       map_get(msg.metadata, "thread_key"),
-      map_get(msg.metadata, "topic"),
-      map_get(msg.metadata, "subject")
+      outbound_email_grouping_key(
+        map_get(msg.metadata, "topic"),
+        map_get(msg.metadata, "subject")
+      )
     ]) ||
       EmailUtils.normalize_message_id(msg.thread_id) ||
       EmailUtils.normalize_message_id(msg.message_id) ||
@@ -476,6 +478,91 @@ defmodule Zaq.Engine.Conversations do
   end
 
   defp conversation_channel_user_id(msg, _channel_type), do: msg.author_id
+
+  @doc """
+  Resolves the conversation grouping key for an outbound-first email send.
+
+  Outbound sends carry no inbound headers, so there is no `thread_key` and the
+  grouping precedence in `conversation_channel_user_id/2` collapses to
+  `topic || subject`. Both persistence and `email_thread_anchor/3` route through
+  this function so the anchor and the message it anchors resolve the same key.
+  """
+  def outbound_email_grouping_key(topic, subject), do: first_present([topic, subject])
+
+  @doc """
+  Resolves the threading anchor for the next outbound email to `person_id` in the
+  conversation grouped under `topic`/`subject`.
+
+  Returns the thread pointers the next send chains onto:
+
+    * `:message_id` — the last email's own Message-ID (the next `In-Reply-To`)
+    * `:thread_key` — the thread root (the next `Outgoing.thread_id`)
+    * `:references` — the ancestor chain, always a list
+
+  Returns `nil` when there is no conversation, when the grouping key is blank, or
+  when no message in it carries a threading `message_id` (all pre-fix or
+  non-email) — the next send then simply starts a fresh chain.
+  """
+  def email_thread_anchor(person_id, topic, subject)
+
+  def email_thread_anchor(nil, _topic, _subject), do: nil
+
+  def email_thread_anchor(person_id, topic, subject) do
+    case outbound_email_grouping_key(topic, subject) do
+      key when is_binary(key) -> anchor_from_last_threaded_message(person_id, key)
+      _ -> nil
+    end
+  end
+
+  defp anchor_from_last_threaded_message(person_id, channel_user_id) do
+    from(m in Message,
+      join: c in Conversation,
+      on: c.id == m.conversation_id,
+      where:
+        c.person_id == ^person_id and
+          c.channel_type == "email:imap" and
+          c.channel_user_id == ^channel_user_id,
+      where:
+        not is_nil(fragment("?->'email'->'threading'->>'message_id'", m.metadata)) and
+          fragment("?->'email'->'threading'->>'message_id'", m.metadata) != "",
+      # Latest wins; `id` breaks sub-second `inserted_at` ties deterministically.
+      order_by: [desc: m.inserted_at, desc: m.id],
+      limit: 1
+    )
+    |> Repo.one()
+    |> build_thread_anchor()
+  end
+
+  defp build_thread_anchor(nil), do: nil
+
+  defp build_thread_anchor(%Message{} = message) do
+    threading =
+      message.metadata
+      |> map_get("email")
+      |> case do
+        meta when is_map(meta) -> map_get(meta, "threading")
+        _ -> nil
+      end
+      |> case do
+        threading when is_map(threading) -> threading
+        _ -> %{}
+      end
+
+    message_id = EmailUtils.normalize_message_id(map_get(threading, "message_id"))
+    references = EmailUtils.normalize_references_list(map_get(threading, "references"))
+
+    if is_nil(message_id) do
+      nil
+    else
+      %{
+        message_id: message_id,
+        # Root of the thread: the chain's head, or this message itself when it is
+        # the only message in the thread.
+        thread_key: List.first(references) || message_id,
+        references: references
+      }
+    end
+  end
 
   defp map_get(map, key) when is_map(map) and is_binary(key) do
     Map.get(map, key) || Map.get(map, atom_key_for_string(map, key))

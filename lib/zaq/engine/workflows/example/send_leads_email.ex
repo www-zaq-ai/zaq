@@ -295,11 +295,23 @@ defmodule Zaq.Engine.Workflows.UseCases.SendLeadsEmail do
         # Persist under the email topic (start.email topic) as the conversation `topic`,
         # so every message for this lead lands in the same thread (email:imap keys by
         # topic/subject).
+        # Threading crosses this edge as the abstraction's channel-agnostic fields:
+        # `message_id` (the sent message's own id) and `thread_id` (the thread
+        # pointer) are cross-channel, and `thread_metadata` carries whatever residue
+        # the channel needs (for email, the `References` chain). Nothing here is
+        # email-named, so the edge works unchanged for any channel NotifyPerson
+        # targets. Persisting them is what lets the *next* send anchor onto this one.
         %{
           from: "send_email",
           to: "update_history",
           condition: %{"field" => "notified", "op" => "eq", "value" => true},
-          mapping: %{"person" => "ensure_person.person", "topic" => "start.email topic"}
+          mapping: %{
+            "person" => "ensure_person.person",
+            "topic" => "start.email topic",
+            "message_id" => "send_email.message_id",
+            "thread_id" => "send_email.thread_id",
+            "metadata" => "send_email.thread_metadata"
+          }
         },
         %{
           from: "update_history",

@@ -36,7 +36,25 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
       subject: [type: :string, required: false, doc: "Notification subject."],
       message: [type: :string, required: false, doc: "Notification body text."],
       content: [type: :string, required: false, doc: "Alias for the notification body text."],
-      notification_log_id: [type: :integer, required: false, doc: "Notification audit log id."]
+      notification_log_id: [type: :integer, required: false, doc: "Notification audit log id."],
+      # Generic, cross-channel threading pointers — a chat post has both of these
+      # too. Deliberately NOT `references`: that chain is email-only and stays
+      # inside the opaque `thread_metadata`, which this action never interprets.
+      message_id: [
+        type: :string,
+        required: false,
+        doc: "The sent message's own id on the provider (email Message-ID, chat post id)."
+      ],
+      thread_id: [
+        type: :string,
+        required: false,
+        doc: "Thread pointer the message belongs to (email thread root, chat root_id)."
+      ],
+      thread_metadata: [
+        type: :map,
+        required: false,
+        doc: "Opaque channel-specific threading residue, forwarded verbatim to persistence."
+      ]
     ]
 
   alias Zaq.Accounts.Person
@@ -87,7 +105,12 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
        subject: subject,
        message: message,
        content: message,
-       notification_log_id: Map.get(result, :notification_log_id)
+       notification_log_id: Map.get(result, :notification_log_id),
+       # Only a delivered message can be a parent — Notifications surfaces these on
+       # `:sent` alone, so a skipped/failed send stores no phantom anchor (Bug #3).
+       message_id: Map.get(result, :message_id),
+       thread_id: Map.get(result, :thread_id),
+       thread_metadata: Map.get(result, :thread_metadata, %{})
      }}
   end
 
