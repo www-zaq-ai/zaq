@@ -7,6 +7,7 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
+  alias Zaq.Engine.Connect
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
@@ -281,6 +282,35 @@ defmodule Zaq.System do
     Repo.get_by(AIProviderCredential, name: name)
   end
 
+  @doc "Returns the configured API key, or a resolved Connect bearer token when no API key is stored."
+  @spec resolve_ai_provider_api_key(AIProviderCredential.t() | nil) :: String.t()
+  def resolve_ai_provider_api_key(nil), do: ""
+
+  def resolve_ai_provider_api_key(%AIProviderCredential{provider: "openai_codex"} = credential),
+    do: resolve_ai_provider_bearer_token(credential)
+
+  def resolve_ai_provider_api_key(%AIProviderCredential{api_key: api_key})
+      when is_binary(api_key) and api_key != "",
+      do: api_key
+
+  def resolve_ai_provider_api_key(%AIProviderCredential{} = credential),
+    do: resolve_ai_provider_bearer_token(credential)
+
+  defp resolve_ai_provider_bearer_token(%AIProviderCredential{} = credential) do
+    case Connect.resolve_bearer_token(%{
+           provider: ai_provider_oauth_provider(credential),
+           resource_type: "ai_provider_credential",
+           resource_id: credential.id,
+           owner_type: "org"
+         }) do
+      {:ok, token} -> token
+      {:error, _} -> ""
+    end
+  end
+
+  defp ai_provider_oauth_provider(%AIProviderCredential{provider: "openai_codex"}), do: "openai"
+  defp ai_provider_oauth_provider(%AIProviderCredential{provider: provider}), do: provider
+
   @doc "Returns a changeset for AI provider credentials."
   def change_ai_provider_credential(%AIProviderCredential{} = credential, attrs \\ %{}) do
     AIProviderCredential.changeset(credential, attrs)
@@ -364,7 +394,7 @@ defmodule Zaq.System do
           config
           | provider: credential.provider,
             endpoint: credential.endpoint,
-            api_key: credential.api_key || ""
+            api_key: resolve_ai_provider_api_key(credential)
         }
 
       _ ->

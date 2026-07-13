@@ -326,6 +326,47 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert has_element?(view, "#add-mcp-button[disabled]")
   end
 
+  test "lists Codex models for OpenAI Codex agent credential", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{
+        name: "Codex Agent Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai_codex",
+        endpoint: "https://chatgpt.com/backend-api"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    render_click(element(view, "#new-agent-button"))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => "Codex Agent",
+        "description" => "",
+        "job" => "Use Codex",
+        "model" => "gpt-5.3-codex-spark",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    )
+    |> render_change()
+
+    html = render(view)
+
+    assert html =~ "gpt-5.3-codex-spark"
+    assert has_element?(view, "#configured-agent-model-select")
+
+    refute html =~
+             "Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model."
+
+    refute has_element?(view, "#add-tools-button[disabled]")
+    refute has_element?(view, "#add-mcp-button[disabled]")
+  end
+
   test "clicking add MCP with no enabled endpoints shows quick message and settings link", %{
     conn: conn
   } do

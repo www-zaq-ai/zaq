@@ -29,6 +29,10 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert ProviderSpec.reqllm_provider("anthropic") == :anthropic
     end
 
+    test "ReqLLM-only OpenAI Codex provider returns its runtime atom" do
+      assert ProviderSpec.reqllm_provider("openai_codex") == :openai_codex
+    end
+
     test "unknown provider falls back to :openai" do
       assert ProviderSpec.reqllm_provider("totally_nonexistent_xyz") == :openai
     end
@@ -123,6 +127,28 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert {:ok, spec} = ProviderSpec.build(configured_agent)
       assert spec.provider == :anthropic
       refute Map.has_key?(spec, :base_url)
+    end
+
+    test "uses OpenAI Codex runtime provider for Codex credentials" do
+      credential =
+        ai_credential_fixture(%{
+          name: "Codex Credential #{System.unique_integer([:positive, :monotonic])}",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api",
+          api_key: nil,
+          metadata: %{"auth_profile" => "openai_chatgpt_codex"}
+        })
+
+      configured_agent = %{
+        agent_base()
+        | model: "gpt-5.3-codex-spark",
+          credential_id: credential.id
+      }
+
+      assert {:ok, spec} = ProviderSpec.build(configured_agent)
+      assert spec.provider == :openai_codex
+      assert spec.id == "gpt-5.3-codex-spark"
+      assert spec.base_url == "https://chatgpt.com/backend-api"
     end
 
     test "falls back to :openai for unknown provider with custom endpoint" do
@@ -445,6 +471,31 @@ defmodule Zaq.Agent.ProviderSpecTest do
       opts = ProviderSpec.llm_opts(agent)
       refute Keyword.has_key?(opts, :api_key)
       refute Keyword.has_key?(opts, :base_url)
+    end
+
+    test "OpenAI Codex credential uses OAuth access token options instead of api_key" do
+      credential = %{
+        provider: "openai_codex",
+        endpoint: "https://chatgpt.com/backend-api",
+        access_token: "oauth-token",
+        api_key: "ignored-key",
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "authorize_params" => %{"originator" => "zaqos"},
+          "chatgpt_account_id" => "acct_123"
+        }
+      }
+
+      agent = %{agent_base() | credential: credential}
+
+      opts = ProviderSpec.llm_opts(agent)
+      refute Keyword.has_key?(opts, :api_key)
+      assert opts[:access_token] == "oauth-token"
+      assert opts[:auth_mode] == :oauth
+      assert opts[:base_url] == "https://chatgpt.com/backend-api"
+      assert opts[:provider_options][:auth_mode] == :oauth
+      assert opts[:provider_options][:codex_originator] == "zaqos"
+      assert opts[:provider_options][:chatgpt_account_id] == "acct_123"
     end
 
     test "atom keys in advanced_options are included" do

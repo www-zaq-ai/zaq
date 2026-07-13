@@ -13,6 +13,7 @@ defmodule Zaq.System.AIProviderCredential do
     field :provider, :string
     field :endpoint, :string
     field :api_key, Zaq.Types.EncryptedString
+    field :metadata, :map, default: %{}
     field :sovereign, :boolean, default: false
     field :description, :string
 
@@ -21,7 +22,7 @@ defmodule Zaq.System.AIProviderCredential do
 
   def changeset(credential, attrs) do
     credential
-    |> cast(attrs, [:name, :provider, :endpoint, :api_key, :sovereign, :description])
+    |> cast(attrs, [:name, :provider, :endpoint, :api_key, :metadata, :sovereign, :description])
     |> validate_required([:name, :provider, :endpoint])
     |> validate_length(:name, max: 255)
     |> validate_length(:provider, max: 255)

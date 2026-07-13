@@ -277,6 +277,7 @@ export const liveViewHooks = {
 
       list().addEventListener("click", (e) => {
         const opt = e.target.closest("[data-select-option]")
+        if (opt && opt.dataset.selectDisabled === "true") return
         if (opt) selectOption(opt.dataset.selectValue, opt.dataset.selectOption)
       })
 
@@ -288,7 +289,7 @@ export const liveViewHooks = {
         if (e.key === "Enter") {
           e.preventDefault()
           const visible = [...list().querySelectorAll("[data-select-option]")].find(
-            (o) => o.style.display !== "none"
+            (o) => o.style.display !== "none" && o.dataset.selectDisabled !== "true"
           )
           if (visible) {
             selectOption(visible.dataset.selectValue, visible.dataset.selectOption)

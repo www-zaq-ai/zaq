@@ -1208,4 +1208,97 @@ defmodule Zaq.Engine.ConnectTest do
       assert DateTime.compare(schedule[grant.id], early) == :eq
     end
   end
+
+  describe "resolve_bearer_token/2" do
+    defp create_ai_token_credential(provider \\ "openai") do
+      unique = :erlang.unique_integer([:positive])
+
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "#{provider} OAuth2 #{unique}",
+          provider: provider,
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          user_level: false,
+          metadata: %{"auth_profile" => "openai_chatgpt_codex"},
+          client_id: "client-id"
+        })
+
+      credential
+    end
+
+    defp issue_ai_token_grant(credential, overrides \\ %{}) do
+      attrs =
+        Map.merge(
+          %{
+            credential_id: credential.id,
+            resource_type: "ai_provider_credential",
+            resource_id: "#{credential.id}",
+            owner_type: "org",
+            metadata: %{},
+            access_token: "resolved-token",
+            refresh_token: "refresh-token",
+            expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+          },
+          overrides
+        )
+
+      {:ok, grant} = Connect.issue_grant(attrs)
+      grant
+    end
+
+    test "returns token from active ai provider grant" do
+      credential = create_ai_token_credential()
+      issue_ai_token_grant(credential)
+
+      assert {:ok, "resolved-token"} =
+               Connect.resolve_bearer_token(%{
+                 provider: credential.provider,
+                 resource_type: "ai_provider_credential",
+                 resource_id: credential.id,
+                 owner_type: "org"
+               })
+    end
+
+    test "returns missing_grant when no active grant matches" do
+      assert {:error, :missing_grant} =
+               Connect.resolve_bearer_token(%{
+                 provider: "openai",
+                 resource_type: "ai_provider_credential",
+                 resource_id: -1,
+                 owner_type: "org"
+               })
+    end
+
+    test "ignores revoked grants" do
+      credential = create_ai_token_credential()
+      grant = issue_ai_token_grant(credential)
+      {:ok, _} = Connect.revoke_grant(grant)
+
+      assert {:error, :missing_grant} =
+               Connect.resolve_bearer_token(%{
+                 provider: credential.provider,
+                 resource_type: "ai_provider_credential",
+                 resource_id: credential.id,
+                 owner_type: "org"
+               })
+    end
+
+    test "does not return expired token when refresh fails" do
+      credential = create_ai_token_credential()
+
+      issue_ai_token_grant(credential, %{
+        access_token: "expired-token",
+        expires_at: DateTime.add(DateTime.utc_now(), -60, :second)
+      })
+
+      assert {:error, _reason} =
+               Connect.resolve_bearer_token(%{
+                 provider: credential.provider,
+                 resource_type: "ai_provider_credential",
+                 resource_id: credential.id,
+                 owner_type: "org"
+               })
+    end
+  end
 end

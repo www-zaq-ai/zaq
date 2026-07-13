@@ -28,6 +28,10 @@ defmodule ZaqWeb.ChannelsController do
     end
   end
 
+  def openai_oauth_callback(conn, params) do
+    oauth2_redirect(conn, Map.put(params, "provider", "openai"))
+  end
+
   def webhook(conn, %{"type" => type, "provider" => provider} = params)
       when type in ["conversation", "data_source"] do
     payload = request_payload(conn, params)

@@ -86,7 +86,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
           class={@compact && "zaq-text-body-sm truncate min-w-0"}
         >
           {Enum.find_value(@options, @empty_label, fn option ->
-            {label, val, _suffix} = normalize_option(option)
+            {label, val, _suffix, _disabled?} = normalize_option(option)
             if to_string(val) == to_string(@value || ""), do: label
           end)}
         </span>
@@ -117,10 +117,14 @@ defmodule ZaqWeb.Components.SearchableSelect do
         </div>
         <ul data-select-list class="max-h-52 overflow-y-auto">
           <li
-            :for={{label, value, suffix} <- Enum.map(@options, &normalize_option/1)}
+            :for={{label, value, suffix, disabled?} <- Enum.map(@options, &normalize_option/1)}
             data-select-option={label}
             data-select-value={value}
-            class="zaq-text-body-sm zaq-dropdown-menu-item zaq-dropdown-menu-item--padded"
+            data-select-disabled={if disabled?, do: "true", else: "false"}
+            class={[
+              "zaq-dropdown-menu-item zaq-dropdown-menu-item--padded",
+              disabled? && "opacity-50 cursor-not-allowed"
+            ]}
           >
             {label}
             <em :if={suffix} class="text-black/35 font-normal">{suffix}</em>
@@ -140,6 +144,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
     """
   end
 
-  defp normalize_option({label, value, suffix}), do: {label, value, suffix}
-  defp normalize_option({label, value}), do: {label, value, nil}
+  defp normalize_option({label, value, suffix, disabled?}), do: {label, value, suffix, disabled?}
+  defp normalize_option({label, value, suffix}), do: {label, value, suffix, false}
+  defp normalize_option({label, value}), do: {label, value, nil, false}
 end

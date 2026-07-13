@@ -6,6 +6,8 @@ defmodule Zaq.Agent.Tools.Registry do
   execute arbitrary modules.
   """
 
+  alias Zaq.Agent.ProviderModels
+
   @type descriptor :: %{
           required(:key) => String.t(),
           required(:label) => String.t(),
@@ -351,7 +353,7 @@ defmodule Zaq.Agent.Tools.Registry do
   def resolve_modules(_), do: {:error, {:unknown_tools, []}}
 
   @doc """
-  Returns model tool-calling support from LLMDB.
+  Returns model tool-calling support from provider model metadata.
 
   Tool support is explicit: unknown/missing provider or model is treated as not
   supporting tools.
@@ -366,20 +368,11 @@ defmodule Zaq.Agent.Tools.Registry do
 
   def model_supports_tools?(provider_id, model_id)
       when is_binary(provider_id) and is_binary(model_id) do
-    with provider_atom when not is_nil(provider_atom) <- provider_atom_from_id(provider_id),
-         {:ok, %{capabilities: capabilities}} <- LLMDB.model(provider_atom, model_id),
+    with %{capabilities: capabilities} <- ProviderModels.model(provider_id, model_id),
          tools when is_map(tools) <- Map.get(capabilities || %{}, :tools) do
       map_size(tools) > 0
     else
       _ -> false
     end
-  end
-
-  defp provider_atom_from_id(provider_id) when is_binary(provider_id) do
-    downcased = String.downcase(provider_id)
-
-    Enum.find_value(LLMDB.providers(), fn provider ->
-      if Atom.to_string(provider.id) == downcased, do: provider.id
-    end)
   end
 end

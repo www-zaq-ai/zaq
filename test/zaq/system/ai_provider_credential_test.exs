@@ -1,6 +1,7 @@
 defmodule Zaq.System.AIProviderCredentialTest do
   use Zaq.DataCase, async: false
 
+  alias Zaq.Engine.Connect
   alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
@@ -38,6 +39,23 @@ defmodule Zaq.System.AIProviderCredentialTest do
 
     assert {:ok, _} = System.delete_ai_provider_credential(credential)
     refute Enum.any?(System.list_ai_provider_credentials(), &(&1.id == credential.id))
+  end
+
+  test "stores metadata for OpenAI Codex OAuth2 configuration" do
+    assert {:ok, credential} =
+             System.create_ai_provider_credential(%{
+               name: "OpenAI Codex Metadata",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               metadata: %{
+                 "auth_kind" => "oauth2",
+                 "auth_profile" => "openai_chatgpt_codex"
+               }
+             })
+
+    loaded = System.get_ai_provider_credential!(credential.id)
+    assert loaded.metadata["auth_kind"] == "oauth2"
+    assert loaded.metadata["auth_profile"] == "openai_chatgpt_codex"
   end
 
   test "create_ai_provider_credential/0 returns an invalid changeset error" do
@@ -158,6 +176,54 @@ defmodule Zaq.System.AIProviderCredentialTest do
     assert loaded.endpoint == "https://api.openai.com/v3"
   end
 
+  test "resolve_ai_provider_api_key prefers stored api key over connect grant" do
+    assert {:ok, ai_credential} =
+             System.create_ai_provider_credential(%{
+               name: "OpenAI API Key Preferred",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               api_key: "sk-preferred"
+             })
+
+    connect_credential = create_connect_token_credential("openai")
+    issue_connect_ai_grant(connect_credential, ai_credential, "grant-token")
+
+    assert System.resolve_ai_provider_api_key(
+             System.get_ai_provider_credential!(ai_credential.id)
+           ) ==
+             "sk-preferred"
+  end
+
+  test "resolve_ai_provider_api_key falls back to active connect bearer token" do
+    assert {:ok, ai_credential} =
+             System.create_ai_provider_credential(%{
+               name: "OpenAI Bearer Fallback",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1"
+             })
+
+    connect_credential = create_connect_token_credential("openai")
+    issue_connect_ai_grant(connect_credential, ai_credential, "grant-token")
+
+    assert System.resolve_ai_provider_api_key(
+             System.get_ai_provider_credential!(ai_credential.id)
+           ) ==
+             "grant-token"
+  end
+
+  test "resolve_ai_provider_api_key returns blank for missing connect grant" do
+    assert {:ok, ai_credential} =
+             System.create_ai_provider_credential(%{
+               name: "OpenAI Missing Grant",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1"
+             })
+
+    assert System.resolve_ai_provider_api_key(
+             System.get_ai_provider_credential!(ai_credential.id)
+           ) == ""
+  end
+
   test "cannot delete credential currently used by system configuration" do
     assert {:ok, credential} =
              System.create_ai_provider_credential(%{
@@ -177,5 +243,38 @@ defmodule Zaq.System.AIProviderCredentialTest do
 
     id = credential.id
     assert %AIProviderCredential{id: ^id} = System.get_ai_provider_credential!(id)
+  end
+
+  defp create_connect_token_credential(provider) do
+    unique = :erlang.unique_integer([:positive])
+
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "#{provider} Connect #{unique}",
+        provider: provider,
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{"auth_profile" => "openai_chatgpt_codex"},
+        client_id: "client-id"
+      })
+
+    credential
+  end
+
+  defp issue_connect_ai_grant(connect_credential, ai_credential, token) do
+    {:ok, grant} =
+      Connect.issue_grant(%{
+        credential_id: connect_credential.id,
+        resource_type: "ai_provider_credential",
+        resource_id: ai_credential.id,
+        owner_type: "org",
+        metadata: %{},
+        access_token: token,
+        refresh_token: "refresh-token",
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+      })
+
+    grant
   end
 end

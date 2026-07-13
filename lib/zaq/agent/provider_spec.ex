@@ -31,13 +31,34 @@ defmodule Zaq.Agent.ProviderSpec do
   # ZAQ Provider is a LiteLLM gateway — always route through OpenAI-compatible protocol.
   def reqllm_provider(p) when p in [:zaq_router, "zaq_router"], do: :openai
 
+  def reqllm_provider(:openai_codex), do: :openai_codex
+  def reqllm_provider("openai_codex"), do: :openai_codex
+
   def reqllm_provider(p) do
+    with {:ok, atom} <- reqllm_provider_atom(p),
+         {:ok, _provider_module} <- ReqLLM.provider(atom) do
+      atom
+    else
+      _ -> reqllm_provider_from_llmdb(p)
+    end
+  end
+
+  defp reqllm_provider_from_llmdb(p) do
     with {:ok, atom} <- LLMDB.Spec.parse_provider(p),
-         {:ok, %LLMDB.Provider{catalog_only: false}} <- LLMDB.provider(atom) do
+         {:ok, %LLMDB.Provider{catalog_only: false}} <- LLMDB.provider(atom),
+         {:ok, _provider_module} <- ReqLLM.provider(atom) do
       atom
     else
       _ -> :openai
     end
+  end
+
+  defp reqllm_provider_atom(provider) when is_atom(provider), do: {:ok, provider}
+
+  defp reqllm_provider_atom(provider) when is_binary(provider) do
+    {:ok, String.to_existing_atom(provider)}
+  rescue
+    ArgumentError -> :error
   end
 
   @doc """
@@ -196,8 +217,83 @@ defmodule Zaq.Agent.ProviderSpec do
 
     configured_agent
     |> advanced_options_as_keyword()
-    |> maybe_put(:api_key, credential && credential.api_key)
+    |> put_credential_opts(credential)
+  end
+
+  @doc """
+  Builds ReqLLM keyword opts from one AI provider credential.
+  """
+  @spec credential_opts(Zaq.System.AIProviderCredential.t() | map() | nil) :: keyword()
+  def credential_opts(credential), do: put_credential_opts([], credential)
+
+  defp put_credential_opts(opts, %{provider: "openai_codex"} = credential) do
+    token = credential_oauth_token(credential)
+    metadata = credential_metadata(credential)
+
+    opts
+    |> maybe_put(:access_token, token)
+    |> maybe_put(:auth_mode, :oauth)
+    |> maybe_put(:base_url, codex_base_url(metadata))
+    |> put_codex_provider_options(metadata)
+  end
+
+  defp put_credential_opts(opts, credential) do
+    opts
+    |> maybe_put(:api_key, credential_api_key(credential))
     |> maybe_put(:base_url, credential && credential.endpoint)
+  end
+
+  defp credential_oauth_token(%Zaq.System.AIProviderCredential{} = credential),
+    do: System.resolve_ai_provider_api_key(credential)
+
+  defp credential_oauth_token(%{access_token: token}), do: token
+  defp credential_oauth_token(%{"access_token" => token}), do: token
+  defp credential_oauth_token(_), do: nil
+
+  defp credential_api_key(%Zaq.System.AIProviderCredential{} = credential),
+    do: System.resolve_ai_provider_api_key(credential)
+
+  defp credential_api_key(%{api_key: api_key}), do: api_key
+  defp credential_api_key(%{"api_key" => api_key}), do: api_key
+  defp credential_api_key(_), do: nil
+
+  defp credential_metadata(%{metadata: metadata}) when is_map(metadata), do: metadata
+  defp credential_metadata(_), do: %{}
+
+  defp codex_base_url(metadata) do
+    metadata_value(metadata, "backend_base_url") || "https://chatgpt.com/backend-api"
+  end
+
+  defp put_codex_provider_options(opts, metadata) do
+    provider_options = Keyword.get(opts, :provider_options, [])
+
+    provider_options =
+      provider_options
+      |> Keyword.put_new(:auth_mode, :oauth)
+      |> maybe_put(:codex_originator, codex_originator(metadata))
+      |> maybe_put(:chatgpt_account_id, metadata_value(metadata, "chatgpt_account_id"))
+
+    Keyword.put(opts, :provider_options, provider_options)
+  end
+
+  defp codex_originator(metadata) do
+    metadata
+    |> metadata_value("authorize_params")
+    |> case do
+      %{} = params -> metadata_value(params, "originator")
+      _ -> nil
+    end
+  end
+
+  defp metadata_value(metadata, key) when is_map(metadata),
+    do: Map.get(metadata, key) || Map.get(metadata, existing_atom_key(key))
+
+  defp metadata_value(_metadata, _key), do: nil
+
+  defp existing_atom_key(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   defp resolve_credential(%ConfiguredAgent{credential: credential}) when not is_nil(credential),
@@ -235,5 +331,6 @@ defmodule Zaq.Agent.ProviderSpec do
   defp normalize_option_key(_), do: nil
 
   defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, _key, ""), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

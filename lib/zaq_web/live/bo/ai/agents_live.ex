@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Event
@@ -678,23 +679,11 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   defp model_options_for_credential(credential_id, socket) when is_integer(credential_id) do
     case credential_for_id(socket.assigns.credentials_by_id, credential_id) do
-      %{provider: provider} when is_binary(provider) ->
-        provider
-        |> models_for_provider()
+      credential ->
+        credential
+        |> ProviderModels.models_for_credential()
         |> Enum.sort_by(& &1.id)
         |> Enum.map(&{&1.id, &1.id})
-
-      _ ->
-        []
-    end
-  end
-
-  defp models_for_provider(provider_id) when is_binary(provider_id) do
-    downcased = String.downcase(provider_id)
-
-    case Enum.find(LLMDB.providers(), fn p -> Atom.to_string(p.id) == downcased end) do
-      %{id: provider_atom} -> LLMDB.models(provider_atom)
-      _ -> []
     end
   end
 

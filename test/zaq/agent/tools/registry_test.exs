@@ -210,6 +210,10 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     assert Registry.model_supports_tools?("openai", "gpt-4.1-mini")
   end
 
+  test "model_supports_tools? returns true for ReqLLM-only Codex model" do
+    assert Registry.model_supports_tools?("openai_codex", "gpt-5.3-codex-spark")
+  end
+
   test "model_supports_tools? handles map and nil capabilities with custom catalog" do
     {:ok, _snapshot} =
       LLMDB.load(

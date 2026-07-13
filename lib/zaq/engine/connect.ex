@@ -7,7 +7,7 @@ defmodule Zaq.Engine.Connect do
   alias Ecto.Changeset
   alias Oban.Job
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Engine.Connect.{Credential, Grant}
+  alias Zaq.Engine.Connect.{Credential, Grant, OAuth}
   alias Zaq.Engine.Connect.GrantRefreshWorker
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -147,6 +147,20 @@ defmodule Zaq.Engine.Connect do
     |> Repo.one()
   end
 
+  @spec resolve_bearer_token(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def resolve_bearer_token(filters, opts \\ []) when is_map(filters) do
+    refresh_window_seconds = Keyword.get(opts, :refresh_window_seconds, 60)
+
+    with %Grant{} = grant <- get_latest_active_grant(filters),
+         {:ok, grant} <- maybe_refresh_before_use(grant, refresh_window_seconds),
+         token when not is_nil(token) <- present_token(grant.access_token) do
+      {:ok, token}
+    else
+      nil -> {:error, :missing_grant}
+      {:error, _} = error -> error
+    end
+  end
+
   @spec expiring_oauth_grants(DateTime.t(), non_neg_integer()) :: [Grant.t()]
   def expiring_oauth_grants(now \\ DateTime.utc_now(), window_seconds \\ 600) do
     threshold = DateTime.add(now, window_seconds, :second)
@@ -208,12 +222,59 @@ defmodule Zaq.Engine.Connect do
     end
   end
 
+  defp get_latest_active_grant(filters) do
+    Grant
+    |> where([g], g.status == "active")
+    |> maybe_where_credential_id(Map.get(filters, :credential_id))
+    |> maybe_where_filter(:provider, Map.get(filters, :provider))
+    |> maybe_where_filter(:resource_type, Map.get(filters, :resource_type))
+    |> maybe_where_filter(:resource_id, to_string(Map.get(filters, :resource_id)))
+    |> maybe_where_filter(:owner_type, Map.get(filters, :owner_type, "org"))
+    |> maybe_where_owner_id(Map.get(filters, :owner_id))
+    |> order_by([g], desc: g.inserted_at, desc: g.id)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  defp maybe_refresh_before_use(%Grant{} = grant, refresh_window_seconds) do
+    cond do
+      present_token(grant.access_token) == nil ->
+        refresh_grant(grant)
+
+      is_nil(grant.expires_at) ->
+        {:ok, grant}
+
+      DateTime.compare(
+        grant.expires_at,
+        DateTime.add(DateTime.utc_now(), refresh_window_seconds, :second)
+      ) == :gt ->
+        {:ok, grant}
+
+      true ->
+        refresh_grant(grant)
+    end
+  end
+
+  defp present_token(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp present_token(_), do: nil
+
   defp maybe_filter_by(query, opts, field) do
     case Keyword.get(opts, field) do
       nil -> query
       value -> where(query, [row], field(row, ^field) == ^value)
     end
   end
+
+  defp maybe_where_filter(query, _field, nil), do: query
+
+  defp maybe_where_filter(query, _field, "nil"), do: query
+
+  defp maybe_where_filter(query, field, value),
+    do: where(query, [row], field(row, ^field) == ^value)
 
   defp maybe_where_owner_id(query, nil), do: where(query, [g], is_nil(g.owner_id))
   defp maybe_where_owner_id(query, owner_id), do: where(query, [g], g.owner_id == ^owner_id)
@@ -239,6 +300,14 @@ defmodule Zaq.Engine.Connect do
   defp normalize_credential_id(_), do: nil
 
   defp dispatch_refresh(%Grant{} = grant, %Credential{} = credential, opts) do
+    case OAuth.refresh_token_payload(credential, grant) do
+      {:ok, _token_payload} = ok -> ok
+      {:error, _reason} = error -> error
+      :fallback -> dispatch_channels_refresh(grant, credential, opts)
+    end
+  end
+
+  defp dispatch_channels_refresh(%Grant{} = grant, %Credential{} = credential, opts) do
     params = %{
       "credential_id" => credential.id,
       "client_id" => credential.client_id,
@@ -298,13 +367,14 @@ defmodule Zaq.Engine.Connect do
         {:error, {:invalid_token_payload, :missing_expires_at}}
 
       true ->
-        {:ok,
-         %{
-           access_token: access_token,
-           refresh_token: refresh_token,
-           expires_at: expires_at,
-           scopes: payload_get(token_payload, :scopes) || grant.scopes || []
-         }}
+        attrs = %{
+          access_token: access_token,
+          refresh_token: refresh_token,
+          expires_at: expires_at,
+          scopes: payload_get(token_payload, :scopes) || grant.scopes || []
+        }
+
+        {:ok, maybe_put_token_metadata(attrs, grant, token_payload)}
     end
   end
 
@@ -333,6 +403,16 @@ defmodule Zaq.Engine.Connect do
 
   defp token_update_attrs(%Grant{}, _token_payload),
     do: {:error, {:invalid_token_payload, :unsupported_auth_kind}}
+
+  defp maybe_put_token_metadata(attrs, %Grant{} = grant, token_payload) do
+    case payload_get(token_payload, :metadata) do
+      metadata when is_map(metadata) ->
+        Map.put(attrs, :metadata, Map.merge(grant.metadata || %{}, metadata))
+
+      _ ->
+        attrs
+    end
+  end
 
   defp payload_get(payload, key) when is_map(payload),
     do: Map.get(payload, key) || Map.get(payload, Atom.to_string(key))

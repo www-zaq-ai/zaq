@@ -760,6 +760,65 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert has_element?(view, "#ai-credential-api-key-hide.hidden")
     end
 
+    test "provider selector includes ReqLLM-only OpenAI Codex provider", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='new_ai_credential']")
+      |> render_click()
+
+      html = render(view)
+
+      assert html =~ "OpenAI Codex"
+      assert html =~ "openai_codex"
+    end
+
+    test "provider selector hides unsupported LLMDB providers by default", %{conn: conn} do
+      previous = Application.get_env(:zaq, :show_unsupported_ai_providers)
+      Application.put_env(:zaq, :show_unsupported_ai_providers, false)
+      on_exit(fn -> restore_show_unsupported_ai_providers(previous) end)
+
+      case unsupported_llmdb_provider_option() do
+        nil ->
+          :ok
+
+        {label, provider_id} ->
+          {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+          view
+          |> element("button[phx-click='new_ai_credential']")
+          |> render_click()
+
+          html = render(view)
+          refute html =~ label
+          refute html =~ provider_id
+      end
+    end
+
+    test "provider selector can show unsupported LLMDB providers as disabled", %{conn: conn} do
+      previous = Application.get_env(:zaq, :show_unsupported_ai_providers)
+      Application.put_env(:zaq, :show_unsupported_ai_providers, true)
+      on_exit(fn -> restore_show_unsupported_ai_providers(previous) end)
+
+      case unsupported_llmdb_provider_option() do
+        nil ->
+          :ok
+
+        {label, provider_id} ->
+          {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+          view
+          |> element("button[phx-click='new_ai_credential']")
+          |> render_click()
+
+          html = render(view)
+          assert html =~ label
+          assert html =~ provider_id
+          assert html =~ "unsupported"
+          assert html =~ ~s(data-select-disabled="true")
+      end
+    end
+
     test "creates new credential from modal", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -784,6 +843,33 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert render(view) =~ "OpenAI EU"
     end
 
+    test "creates OpenAI Codex credential as OAuth2 only", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='new_ai_credential']")
+      |> render_click()
+
+      render_submit(view, "save_ai_credential", %{
+        "ai_credential" => %{
+          "name" => "Codex Subscription",
+          "provider" => "openai_codex",
+          "endpoint" => "https://chatgpt.com/backend-api",
+          "auth_mode" => "api_key",
+          "api_key" => "ignored-key",
+          "metadata" => "{}"
+        }
+      })
+
+      assert render(view) =~ "AI credential saved."
+
+      credential = System.get_ai_provider_credential_by_name("Codex Subscription")
+      assert credential.provider == "openai_codex"
+      assert credential.api_key in [nil, ""]
+      assert credential.metadata["auth_kind"] == "oauth2"
+      assert credential.metadata["auth_profile"] == "openai_chatgpt_codex"
+    end
+
     test "editing row opens modal", %{conn: conn} do
       {:ok, credential} =
         System.create_ai_provider_credential(%{
@@ -795,6 +881,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
+      assert has_element?(view, "#oauth-popup-listener[phx-hook='OAuthPopupListener']")
+
       view
       |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
       |> render_click()
@@ -802,6 +890,66 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert has_element?(view, "#ai-credential-form")
       assert render(view) =~ "Edit AI Credential"
       assert render(view) =~ "Primary"
+    end
+
+    test "connect_ai_credential_oauth creates backing Connect credential and opens popup", %{
+      conn: conn
+    } do
+      credential =
+        ai_credential_fixture(%{
+          name: "OpenAI Codex OAuth",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api",
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "auth_profile" => "openai_chatgpt_codex",
+            "authorize_url" => "https://auth.openai.com/oauth/authorize",
+            "token_url" => "https://auth.openai.com/oauth/token",
+            "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+            "scope" => "openid profile email offline_access",
+            "authorize_params" => %{"originator" => "zaqos"}
+          }
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      view
+      |> element(
+        "button[phx-click='connect_ai_credential_oauth'][phx-value-id='#{credential.id}']"
+      )
+      |> render_click()
+
+      connect_credential =
+        Connect.list_credentials()
+        |> Enum.find(fn connect_credential ->
+          connect_credential.metadata["ai_provider_credential_id"] == to_string(credential.id)
+        end)
+
+      assert credential.provider == "openai_codex"
+      assert connect_credential.provider == "openai"
+      assert connect_credential.auth_kind == "oauth2"
+      assert connect_credential.client_id == "app_EMoamEEZ73f0CkXaXp7hrann"
+
+      assert connect_credential.metadata["authorize_params"]["id_token_add_organizations"] ==
+               "true"
+
+      assert connect_credential.metadata["authorize_params"]["codex_cli_simplified_flow"] ==
+               "true"
+
+      assert_push_event(view, "open_oauth_popup", %{url: url})
+      assert url =~ "https://auth.openai.com/oauth/authorize"
+
+      assert url =~
+               "redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"
+
+      assert url =~ "originator=zaqos"
+      assert url =~ "id_token_add_organizations=true"
+      assert url =~ "codex_cli_simplified_flow=true"
+      assert url =~ "code_challenge_method=S256"
     end
 
     test "deletes an unused credential from edit modal with confirmation", %{conn: conn} do
@@ -944,6 +1092,37 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "llm-config-form"
       assert has_element?(view, "#llm-credential-select")
+      assert html =~ "GPT-4o"
+    end
+
+    test "validate_llm lists ReqLLM-only Codex models and path metadata", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "Codex LLM",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "gpt-5.3-codex-spark",
+            "temperature" => "0.2",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions"
+          }
+        })
+
+      assert html =~ "GPT-5.3 Codex Spark"
+      assert html =~ ~s(data-select-value="gpt-5.3-codex-spark")
+      assert html =~ ~s(name="llm_config[path]" value="/responses")
     end
 
     test "validate_llm keeps capabilities when provider and model are unchanged", %{conn: conn} do
@@ -1321,6 +1500,35 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "embedding-config-form"
     end
 
+    test "validate_embedding lists embedding-capable OpenAI catalog models for Codex", %{
+      conn: conn
+    } do
+      credential =
+        ai_credential_fixture(%{
+          name: "Codex Embedding",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+
+      html =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "",
+            "dimension" => "",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      assert html =~ "embedding-config-form"
+      assert html =~ ~s(data-select-value="text-embedding-3-small")
+      assert html =~ ~s(id="embedding-model-select")
+      refute html =~ "GPT-5.3 Codex Spark"
+    end
+
     test "validate_embedding handles blank model dimension lookup", %{conn: conn} do
       credential =
         seed_embedding_config(%{
@@ -1408,6 +1616,30 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert has_element?(view, "#image-to-text-credential-select")
     end
 
+    test "validate_image_to_text lists image-capable Codex models", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "Codex Vision",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
+
+      html =
+        render_change(view, "validate_image_to_text", %{
+          "image_to_text_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => ""
+          }
+        })
+
+      assert html =~ "image-to-text-config-form"
+      assert html =~ "GPT-5.3 Codex Spark"
+      assert html =~ ~s(data-select-value="gpt-5.3-codex-spark")
+      assert html =~ ~s(id="image-to-text-model-select")
+    end
+
     test "save_image_to_text with valid params shows success flash", %{conn: conn} do
       credential =
         seed_image_to_text_config(%{
@@ -1440,7 +1672,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       html =
         view
-        |> element("button[phx-click='close_ai_credential_modal']")
+        |> element("button.zaq-btn[phx-click='close_ai_credential_modal']")
         |> render_click()
 
       refute html =~ "ai-credential-form"
@@ -4448,4 +4680,38 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute html =~ "Paginated Endpoint 1"
     end
   end
+
+  defp unsupported_llmdb_provider_option do
+    LLMDB.providers()
+    |> Enum.reject(fn provider ->
+      provider.alias_of || provider.catalog_only || match?({:ok, _}, ReqLLM.provider(provider.id))
+    end)
+    |> Enum.find(fn provider ->
+      provider.id
+      |> LLMDB.models()
+      |> Enum.any?(fn model -> not model.deprecated and not model.retired end)
+    end)
+    |> case do
+      nil ->
+        nil
+
+      provider ->
+        {provider.name || humanize_provider_id(provider.id), Atom.to_string(provider.id)}
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp humanize_provider_id(provider_id) do
+    provider_id
+    |> Atom.to_string()
+    |> String.split("_")
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  defp restore_show_unsupported_ai_providers(nil),
+    do: Application.delete_env(:zaq, :show_unsupported_ai_providers)
+
+  defp restore_show_unsupported_ai_providers(value),
+    do: Application.put_env(:zaq, :show_unsupported_ai_providers, value)
 end

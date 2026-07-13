@@ -84,6 +84,44 @@ defmodule Zaq.Engine.Connect.GrantTest do
     assert "can't be blank" in errors.key_id
   end
 
+  test "allows ai_provider_credential grants for oauth2 auth" do
+    changeset =
+      Grant.changeset(%Grant{}, %{
+        credential_id: 1,
+        provider: "openai",
+        auth_kind: "oauth2",
+        resource_type: "ai_provider_credential",
+        resource_id: "123",
+        owner_type: "org",
+        request_format: "bearer",
+        metadata: %{"auth_profile" => "openai_chatgpt_codex"},
+        status: "active",
+        access_token: "bearer-token",
+        refresh_token: "refresh-token",
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+      })
+
+    assert changeset.valid?
+  end
+
+  test "rejects removed ai auth kinds" do
+    changeset =
+      Grant.changeset(%Grant{}, %{
+        credential_id: 1,
+        provider: "openai",
+        auth_kind: "removed_kind",
+        resource_type: "ai_provider_credential",
+        resource_id: "123",
+        owner_type: "org",
+        request_format: "bearer",
+        metadata: %{},
+        status: "active"
+      })
+
+    refute changeset.valid?
+    assert "is invalid" in errors_on(changeset).auth_kind
+  end
+
   test "validates required fields" do
     changeset = Grant.changeset(%Grant{}, %{})
 

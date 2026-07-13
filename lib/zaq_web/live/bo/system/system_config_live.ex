@@ -2,13 +2,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
+  alias Zaq.Config
   alias Zaq.Event
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.Utils.ParseUtils
+  alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
   alias ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.ConnectEvents
@@ -35,6 +38,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:ai_credential_delete_confirm_modal, false)
      |> assign(:ai_credential_action, :new)
      |> assign(:ai_credential_id, nil)
+     |> assign(:oauth_claim_modal, false)
+     |> assign(:oauth_claim_url, nil)
      |> assign(:embedding_unlock_modal, false)
      |> assign(:embedding_save_confirm_modal, false)
      |> assign(:pending_embedding_params, nil)
@@ -60,9 +65,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:connect_default_scopes_text, "")
      |> assign(:selected_connect_credential, nil)
      |> assign(:selected_connect_grants, [])
+     |> assign(:ai_grants, [])
      |> assign(:selected_connect_refresh_schedule, %{})
      |> load_ai_credential_form()
      |> load_ai_credentials()
+     |> load_ai_grants()
      |> load_connect_credentials()
      |> load_mcp_endpoint_form()
      |> load_mcp_endpoints()
@@ -85,6 +92,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, push_patch(socket, to: ~p"/bo/system-config?tab=#{tab}")}
+  end
+
+  def handle_event("oauth_popup_result", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:oauth_claim_modal, false)
+     |> assign(:oauth_claim_url, nil)
+     |> load_ai_grants()
+     |> put_flash(:info, "OAuth2 grant flow completed.")}
+  end
+
+  def handle_event("close_oauth_claim", _params, socket) do
+    {:noreply, OAuthPopupUI.close(socket)}
+  end
+
+  def handle_event("oauth_popup_blocked", _params, socket) do
+    {:noreply, OAuthPopupUI.blocked(socket)}
   end
 
   def handle_event("open_connect_grants", %{"id" => id}, socket) do
@@ -292,7 +316,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         provider_id,
         previous_provider,
         model_id,
-        &llm_provider_path/2
+        fn provider, model ->
+          llm_provider_path_for_credential_id(credential_id, provider, model)
+        end
       )
 
     prev_bm25 = to_string(socket.assigns.llm_form[:fusion_bm25_weight].value)
@@ -312,12 +338,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         previous_provider,
         previous_model,
         socket.assigns.llm_capabilities,
-        &llm_model_capabilities/2
+        fn provider, model ->
+          llm_model_capabilities_for_credential_id(credential_id, provider, model)
+        end
       )
 
     {:noreply,
      socket
-     |> assign(:llm_model_options, llm_model_options(provider_id))
+     |> assign(
+       :llm_model_options,
+       llm_model_options_for_credential_id(credential_id, provider_id)
+     )
      |> assign(:llm_capabilities, capabilities)
      |> assign(:llm_form, to_form(changeset, as: :llm_config))}
   end
@@ -361,7 +392,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     previous_model = socket.assigns.embedding_form[:model].value
 
-    params = adjust_embedding_params(params, provider_id, previous_provider, previous_model)
+    params =
+      adjust_embedding_params(
+        params,
+        params["credential_id"],
+        provider_id,
+        previous_provider,
+        previous_model
+      )
 
     changeset =
       engine_get_embedding_config()
@@ -373,7 +411,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     {:noreply,
      socket
-     |> assign(:embedding_model_options, embedding_model_options(provider_id))
+     |> assign(
+       :embedding_model_options,
+       embedding_model_options_for_credential_id(params["credential_id"], provider_id)
+     )
      |> assign(:model_changed, model_changed)
      |> assign(:embedding_form, to_form(changeset, as: :embedding_config))}
   end
@@ -416,7 +457,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
        engine_get_image_to_text_config(),
        params,
        provider_id,
-       &image_to_text_model_options/1
+       fn provider ->
+         image_to_text_model_options_for_credential_id(params["credential_id"], provider)
+       end
      )}
   end
 
@@ -452,6 +495,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      )}
   end
 
+  def handle_event("connect_ai_credential_oauth", %{"id" => id}, socket) do
+    with {:ok, ai_credential} <- fetch_ai_credential(id),
+         :ok <- ensure_ai_oauth_credential(ai_credential),
+         {:ok, connect_credential} <- ensure_ai_connect_credential(ai_credential),
+         {:ok, url} <- build_ai_oauth_claim_url(connect_credential, ai_credential) do
+      {:noreply, OAuthPopupUI.open(socket, url)}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, ai_oauth_error(reason))}
+    end
+  end
+
   def handle_event("close_ai_credential_modal", _params, socket) do
     {:noreply, AICredentialEvents.close_modal(socket)}
   end
@@ -478,6 +533,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          socket
          |> AICredentialEvents.close_modal()
          |> load_ai_credentials()
+         |> load_ai_grants()
          |> load_llm_form()
          |> load_embedding_form()
          |> load_image_to_text_form()
@@ -499,6 +555,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     params =
       AICredentialEvents.with_provider_endpoint(params, previous_provider, &provider_endpoint/1)
+      |> AICredentialEvents.normalize_params()
 
     changeset =
       socket.assigns.ai_credential_action
@@ -510,6 +567,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("save_ai_credential", %{"ai_credential" => params}, socket) do
+    params = AICredentialEvents.normalize_params(params)
+
     result =
       AICredentialEvents.save(
         socket.assigns.ai_credential_action,
@@ -526,6 +585,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          socket
          |> AICredentialEvents.close_modal()
          |> load_ai_credentials()
+         |> load_ai_grants()
          |> load_llm_form()
          |> load_embedding_form()
          |> load_image_to_text_form()
@@ -679,6 +739,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     assign(socket, :ai_credentials, engine_list_ai_provider_credentials())
   end
 
+  defp load_ai_grants(socket) do
+    grants = engine_connect_list_ai_provider_grants()
+    assign(socket, :ai_grants, grants)
+  end
+
   defp load_connect_credentials(socket) do
     assign(socket, :connect_credentials, engine_connect_list_credentials())
   end
@@ -733,8 +798,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     socket
     |> assign(:llm_credential_options, credential_options())
-    |> assign(:llm_model_options, llm_model_options(provider_id))
-    |> assign(:llm_capabilities, llm_model_capabilities(provider_id, cfg.model))
+    |> assign(
+      :llm_model_options,
+      llm_model_options_for_credential_id(cfg.credential_id, provider_id)
+    )
+    |> assign(
+      :llm_capabilities,
+      llm_model_capabilities_for_credential_id(cfg.credential_id, provider_id, cfg.model)
+    )
     |> assign(:llm_form, to_form(changeset, as: :llm_config))
   end
 
@@ -745,7 +816,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     socket
     |> assign(:embedding_credential_options, credential_options())
-    |> assign(:embedding_model_options, embedding_model_options(provider_id))
+    |> assign(
+      :embedding_model_options,
+      embedding_model_options_for_credential_id(cfg.credential_id, provider_id)
+    )
     |> assign(:embedding_form, to_form(changeset, as: :embedding_config))
     |> assign(:embedding_locked, true)
     |> assign(:embedding_ready, engine_embedding_ready?())
@@ -761,38 +835,32 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     socket
     |> assign(:image_to_text_credential_options, credential_options())
-    |> assign(:image_to_text_model_options, image_to_text_model_options(provider_id))
+    |> assign(
+      :image_to_text_model_options,
+      image_to_text_model_options_for_credential_id(cfg.credential_id, provider_id)
+    )
     |> assign(:image_to_text_form, to_form(changeset, as: :image_to_text_config))
   end
 
-  # Returns %{json_mode: bool | nil, logprobs: bool | nil} from LLMDB for the given model.
-  # nil means unknown (no warning shown). false means explicitly not supported (warning shown).
-  defp llm_model_capabilities("custom", _), do: %{json_mode: nil, logprobs: nil}
-  defp llm_model_capabilities(_, nil), do: %{json_mode: nil, logprobs: nil}
-  defp llm_model_capabilities(_, ""), do: %{json_mode: nil, logprobs: nil}
-
-  defp llm_model_capabilities(provider_id, model_id) do
-    provider_atom = String.to_existing_atom(provider_id)
-
-    case LLMDB.model(provider_atom, model_id) do
-      {:ok, m} ->
-        caps = m.capabilities || %{}
+  defp llm_model_capabilities_for_credential_id(credential_id, provider_id, model_id) do
+    case credential_model(credential_id, provider_id, model_id) do
+      %{capabilities: caps} when is_map(caps) ->
         json = Map.get(caps, :json) || %{}
         %{json_mode: Map.get(json, :native), logprobs: nil}
 
       _ ->
         %{json_mode: nil, logprobs: nil}
     end
-  rescue
-    ArgumentError -> %{json_mode: nil, logprobs: nil}
   end
 
-  # ── Shared LLMDB helpers ───────────────────────────────────────────────
+  # ── Shared provider/model helpers ──────────────────────────────────────
 
   # Returns the base_url for any provider, or "" for "custom".
   defp provider_endpoint("custom"), do: ""
 
   defp provider_endpoint("zaq_router"), do: ZAQRouter.default_endpoint() || ""
+
+  defp provider_endpoint("openai_codex"), do: "https://chatgpt.com/backend-api"
 
   defp provider_endpoint(provider_id) do
     provider_atom = String.to_existing_atom(provider_id)
@@ -805,52 +873,163 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     ArgumentError -> ""
   end
 
-  # Returns the execution path for the selected model of a provider, or "/chat/completions".
-  defp provider_path("custom", _model_id), do: "/chat/completions"
-
-  defp provider_path(provider_id, model_id) do
-    provider_atom = String.to_existing_atom(provider_id)
-
-    model = LLMDB.models(provider_atom) |> Enum.find(&(&1.id == model_id))
+  defp provider_path_for_credential_id(credential_id, provider_id, model_id) do
+    model = credential_model(credential_id, provider_id, model_id)
 
     path =
       model
       |> then(fn m -> m && m.execution && m.execution[:text] && m.execution[:text][:path] end)
 
     if is_binary(path), do: path, else: "/chat/completions"
-  rescue
-    ArgumentError -> "/chat/completions"
   end
 
-  # Returns [{display_name, provider_id_string}] for providers whose models satisfy
-  # model_filter, plus a "Custom" fallback. Pass `fn _ -> true end` for no filter.
+  # Returns [{display_name, provider_id_string}] for runnable ReqLLM providers whose
+  # models satisfy model_filter, plus a "Custom" fallback. LLMDB remains the metadata
+  # source when available; ReqLLM-only providers get local display/model fallbacks.
   defp provider_options(model_filter) do
-    llmdb_options =
-      LLMDB.providers()
-      |> Enum.reject(& &1.alias_of)
-      |> Enum.filter(fn p ->
-        LLMDB.models(p.id)
-        |> Enum.any?(fn m -> not m.deprecated and not m.retired and model_filter.(m) end)
-      end)
-      |> Enum.map(&{&1.name || Atom.to_string(&1.id), Atom.to_string(&1.id)})
+    reqllm_options =
+      provider_source_ids()
+      |> Enum.reject(&provider_alias?/1)
+      |> Enum.filter(&provider_visible?(&1, model_filter))
+      |> Enum.map(&provider_option/1)
       |> Enum.sort_by(&elem(&1, 0))
 
-    llmdb_options ++ [{"Custom", "custom"}]
+    reqllm_options ++ [{"Custom", "custom"}]
+  end
+
+  defp provider_source_ids do
+    ReqLLM.Providers.list()
+    |> Kernel.++(llmdb_provider_ids())
+    |> Kernel.++(zaq_router_provider_id())
+    |> Enum.uniq()
+  end
+
+  defp llmdb_provider_ids do
+    LLMDB.providers()
+    |> Enum.map(& &1.id)
+  end
+
+  defp zaq_router_provider_id do
+    case LLMDB.provider(:zaq_router) do
+      {:ok, _provider} -> [:zaq_router]
+      _ -> []
+    end
   end
 
   # Returns [{model_name, model_id}] filtered by model_filter, or [] for "custom".
   defp model_options("custom", _model_filter), do: []
 
   defp model_options(provider_id, model_filter) do
-    provider_atom = String.to_existing_atom(provider_id)
-
-    LLMDB.models(provider_atom)
-    |> Enum.reject(&(&1.deprecated or &1.retired))
+    provider_id
+    |> ProviderModels.models()
     |> Enum.filter(model_filter)
     |> Enum.map(&{&1.name || &1.id, &1.id})
     |> Enum.sort_by(&elem(&1, 0))
-  rescue
-    ArgumentError -> []
+  end
+
+  defp model_options_for_credential_id(credential_id, provider_id, model_filter) do
+    credential_id
+    |> credential_from_id()
+    |> credential_models(provider_id)
+    |> Enum.filter(model_filter)
+    |> Enum.map(&{&1.name || &1.id, &1.id})
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp provider_model(_provider_id, model_id) when model_id in [nil, ""], do: nil
+  defp provider_model(provider_id, model_id), do: ProviderModels.model(provider_id, model_id)
+
+  defp credential_model(_credential_id, _provider_id, model_id) when model_id in [nil, ""],
+    do: nil
+
+  defp credential_model(credential_id, provider_id, model_id) do
+    case credential_from_id(credential_id) do
+      nil ->
+        provider_model(provider_id, model_id)
+
+      credential ->
+        ProviderModels.model_for_credential(credential, model_id) ||
+          provider_model(provider_id, model_id)
+    end
+  end
+
+  defp credential_models(nil, provider_id), do: ProviderModels.models(provider_id)
+
+  defp credential_models(credential, _provider_id),
+    do: ProviderModels.models_for_credential(credential)
+
+  defp provider_alias?(provider_id) do
+    case LLMDB.provider(provider_id) do
+      {:ok, provider} -> not is_nil(provider.alias_of)
+      _ -> false
+    end
+  end
+
+  defp provider_visible?(provider_id, model_filter) do
+    provider_supported?(provider_id) or
+      (show_unsupported_ai_providers?() and
+         provider_has_matching_models?(provider_id, model_filter))
+  end
+
+  defp provider_supported?(provider_id) do
+    reqllm_provider?(provider_id) or zaq_router_provider?(provider_id) or
+      catalog_only_provider?(provider_id)
+  end
+
+  defp reqllm_provider?(provider_id),
+    do: match?({:ok, _provider_module}, ReqLLM.provider(provider_id))
+
+  defp zaq_router_provider?(:zaq_router), do: true
+  defp zaq_router_provider?(_provider_id), do: false
+
+  defp catalog_only_provider?(provider_id) do
+    case LLMDB.provider(provider_id) do
+      {:ok, %LLMDB.Provider{catalog_only: true}} -> true
+      _ -> false
+    end
+  end
+
+  defp show_unsupported_ai_providers? do
+    Config.get(:zaq, :show_unsupported_ai_providers, false)
+  end
+
+  defp provider_has_matching_models?(:openai_codex, model_filter) do
+    "openai_codex"
+    |> model_options(model_filter)
+    |> Enum.any?()
+  end
+
+  defp provider_has_matching_models?(provider_id, model_filter) do
+    provider_id
+    |> ProviderModels.models()
+    |> Enum.any?(model_filter)
+  end
+
+  defp provider_option(:openai_codex), do: {"OpenAI Codex", "openai_codex"}
+
+  defp provider_option(provider_id) do
+    option = {provider_option_label(provider_id), Atom.to_string(provider_id)}
+
+    if provider_supported?(provider_id) do
+      option
+    else
+      {label, value} = option
+      {label, value, "unsupported", true}
+    end
+  end
+
+  defp provider_option_label(provider_id) do
+    case LLMDB.provider(provider_id) do
+      {:ok, provider} -> provider.name || humanize_provider_id(provider_id)
+      _ -> humanize_provider_id(provider_id)
+    end
+  end
+
+  defp humanize_provider_id(provider_id) do
+    provider_id
+    |> Atom.to_string()
+    |> String.split("_")
+    |> Enum.map_join(" ", &String.capitalize/1)
   end
 
   # ── Credential helpers ──────────────────────────────────────────────────
@@ -878,12 +1057,27 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp provider_from_credential_id(_), do: "custom"
 
+  defp credential_from_id(credential_id) when credential_id in [nil, ""], do: nil
+
+  defp credential_from_id(credential_id) when is_binary(credential_id) do
+    case Integer.parse(credential_id) do
+      {id, ""} -> credential_from_id(id)
+      _ -> nil
+    end
+  end
+
+  defp credential_from_id(credential_id) when is_integer(credential_id),
+    do: engine_get_ai_provider_credential(credential_id)
+
+  defp credential_from_id(_credential_id), do: nil
+
   defp ai_credential_for_action(:edit, id), do: engine_get_ai_provider_credential!(id)
   defp ai_credential_for_action(_, _), do: %Zaq.System.AIProviderCredential{}
 
   # ── LLM-specific helpers ───────────────────────────────────────────────
 
-  defp llm_model_options(provider_id), do: model_options(provider_id, &tool_calling_model?/1)
+  defp llm_model_options_for_credential_id(credential_id, provider_id),
+    do: model_options_for_credential_id(credential_id, provider_id, &tool_calling_model?/1)
 
   defp tool_calling_model?(m) do
     caps = m.capabilities || %{}
@@ -894,7 +1088,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  defp llm_provider_path(provider_id, model_id), do: provider_path(provider_id, model_id)
+  defp llm_provider_path_for_credential_id(credential_id, provider_id, model_id),
+    do: provider_path_for_credential_id(credential_id, provider_id, model_id)
 
   defp clamp_weight(val) when is_binary(val) do
     case Float.parse(val) do
@@ -908,7 +1103,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   # ── Embedding-specific helpers ─────────────────────────────────────────
 
-  defp embedding_model_options(provider_id), do: model_options(provider_id, &embedding_model?/1)
+  defp embedding_model_options_for_credential_id(credential_id, provider_id),
+    do: model_options_for_credential_id(credential_id, provider_id, &embedding_model?/1)
+
   defp embedding_provider_endpoint(provider_id), do: provider_endpoint(provider_id)
 
   @embedding_name_patterns ~w(embed bge e5- gte- nomic rerank)
@@ -925,24 +1122,21 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  # Returns the default dimension for a model, or nil if not available.
-  defp embedding_model_dimension("custom", _model_id), do: nil
-  defp embedding_model_dimension(_provider_id, nil), do: nil
-  defp embedding_model_dimension(_provider_id, ""), do: nil
-
-  defp embedding_model_dimension(provider_id, model_id) do
-    provider_atom = String.to_existing_atom(provider_id)
-
-    case LLMDB.model(provider_atom, model_id) do
-      {:ok, %{capabilities: %{embeddings: %{default_dimensions: d}}}} when is_integer(d) -> d
-      {:ok, %{capabilities: %{embeddings: %{max_dimensions: d}}}} when is_integer(d) -> d
+  defp embedding_model_dimension_for_credential_id(credential_id, provider_id, model_id) do
+    case credential_model(credential_id, provider_id, model_id) do
+      %{capabilities: %{embeddings: %{default_dimensions: d}}} when is_integer(d) -> d
+      %{capabilities: %{embeddings: %{max_dimensions: d}}} when is_integer(d) -> d
       _ -> nil
     end
-  rescue
-    ArgumentError -> nil
   end
 
-  defp adjust_embedding_params(params, provider_id, previous_provider, previous_model) do
+  defp adjust_embedding_params(
+         params,
+         credential_id,
+         provider_id,
+         previous_provider,
+         previous_model
+       ) do
     model_id = params["model"]
 
     cond do
@@ -952,7 +1146,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         |> Map.put("dimension", "")
 
       model_id != previous_model ->
-        case embedding_model_dimension(provider_id, model_id) do
+        case embedding_model_dimension_for_credential_id(credential_id, provider_id, model_id) do
           nil -> params
           dim -> Map.put(params, "dimension", to_string(dim))
         end
@@ -970,13 +1164,139 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   # ── Image-to-Text-specific helpers ────────────────────────────────────
 
-  defp image_to_text_model_options(provider_id),
-    do: model_options(provider_id, &image_input_model?/1)
+  defp image_to_text_model_options_for_credential_id(credential_id, provider_id),
+    do: model_options_for_credential_id(credential_id, provider_id, &image_input_model?/1)
 
   defp image_input_model?(m) do
     input = (m.modalities && m.modalities.input) || []
     :image in input
   end
+
+  defp fetch_ai_credential(id) do
+    case engine_get_ai_provider_credential(id) do
+      nil -> {:error, :not_found}
+      credential -> {:ok, credential}
+    end
+  end
+
+  defp ensure_ai_oauth_credential(%{metadata: metadata}) do
+    cond do
+      not codex_oauth_metadata?(metadata) and is_nil(engine_get_global_base_url()) ->
+        {:error, :missing_global_base_url}
+
+      metadata_value(metadata, "auth_kind") != "oauth2" ->
+        {:error, :unsupported_auth_mode}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp ensure_ai_connect_credential(ai_credential) do
+    attrs = ai_connect_credential_attrs(ai_credential)
+
+    case ai_connect_credential_for(ai_credential) do
+      nil -> engine_connect_create_credential(attrs)
+      credential -> engine_connect_update_credential(credential, attrs)
+    end
+  end
+
+  defp ai_connect_credential_for(ai_credential) do
+    Enum.find(engine_connect_list_credentials(), fn credential ->
+      metadata_value(credential.metadata, "ai_provider_credential_id") ==
+        to_string(ai_credential.id)
+    end)
+  end
+
+  defp ai_connect_credential_attrs(ai_credential) do
+    metadata =
+      (ai_credential.metadata || %{})
+      |> normalize_ai_oauth_metadata(ai_credential)
+      |> Map.put("ai_provider_credential_id", to_string(ai_credential.id))
+      |> Map.put("managed_by", "system_config_ai_provider")
+
+    %{
+      name: ai_connect_credential_name(ai_credential),
+      provider: ai_oauth_provider(ai_credential),
+      auth_kind: "oauth2",
+      request_format: "bearer",
+      user_level: false,
+      metadata: metadata,
+      client_id: metadata_value(metadata, "client_id"),
+      scopes: ai_oauth_scopes(metadata)
+    }
+  end
+
+  defp ai_connect_credential_name(ai_credential) do
+    "AI OAuth #{ai_credential.id}: #{ai_credential.name}"
+    |> String.slice(0, 255)
+  end
+
+  defp ai_oauth_scopes(metadata) do
+    case metadata_value(metadata, "scope") do
+      scope when is_binary(scope) -> String.split(scope)
+      _ -> []
+    end
+  end
+
+  defp ai_oauth_provider(%{provider: "openai_codex"}), do: "openai"
+  defp ai_oauth_provider(%{provider: provider}), do: provider
+
+  defp normalize_ai_oauth_metadata(metadata, %{provider: "openai_codex"}) do
+    authorize_params =
+      metadata
+      |> metadata_value("authorize_params")
+      |> normalize_authorize_params()
+      |> Map.put("id_token_add_organizations", "true")
+      |> Map.put("codex_cli_simplified_flow", "true")
+      |> Map.put_new("originator", "zaqos")
+
+    metadata
+    |> Map.put("auth_profile", "openai_chatgpt_codex")
+    |> Map.put("authorize_params", authorize_params)
+  end
+
+  defp normalize_ai_oauth_metadata(metadata, _ai_credential), do: metadata
+
+  defp normalize_authorize_params(params) when is_map(params) do
+    Map.new(params, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp normalize_authorize_params(_params), do: %{}
+
+  defp codex_oauth_metadata?(metadata),
+    do: metadata_value(metadata, "auth_profile") == "openai_chatgpt_codex"
+
+  defp build_ai_oauth_claim_url(connect_credential, ai_credential) do
+    dispatch_engine(:connect_oauth_build_authorize_url, %{
+      credential: connect_credential,
+      context: %{
+        resource_type: "ai_provider_credential",
+        resource_id: ai_credential.id,
+        owner_type: "org",
+        owner_id: nil,
+        metadata: %{
+          source: "bo_system_config_ai_credentials",
+          ai_provider_credential_id: ai_credential.id
+        }
+      }
+    })
+  end
+
+  defp metadata_value(metadata, key) when is_map(metadata) do
+    Map.get(metadata, key) || Map.get(metadata, String.to_atom(key))
+  end
+
+  defp metadata_value(_metadata, _key), do: nil
+
+  defp ai_oauth_error(:missing_global_base_url),
+    do: "Global base URL is required before starting OAuth2. Configure it in Global settings."
+
+  defp ai_oauth_error(:unsupported_auth_mode),
+    do: "This AI credential is not configured for OAuth2."
+
+  defp ai_oauth_error(:not_found), do: "AI credential was not found."
+  defp ai_oauth_error(reason), do: "OAuth2 grant flow could not start: #{inspect(reason)}"
 
   defp dispatch_engine(action, request \\ %{}) do
     Event.new(request, :engine, opts: [action: action])
@@ -1100,6 +1420,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         attrs: attrs
       })
 
+  defp engine_connect_create_credential(attrs),
+    do: dispatch_engine(:connect_create_credential, %{attrs: attrs})
+
   defp engine_connect_update_credential(credential, attrs),
     do:
       dispatch_engine(:system_config_connect_update_credential, %{
@@ -1109,6 +1432,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp engine_connect_list_grants(credential_id),
     do: dispatch_engine(:system_config_connect_list_grants, %{credential_id: credential_id})
+
+  defp engine_connect_list_ai_provider_grants,
+    do:
+      dispatch_engine(:connect_list_grants, %{
+        filters: %{resource_type: "ai_provider_credential"}
+      })
 
   defp engine_connect_next_refresh_jobs_for_grants(grants),
     do: dispatch_engine(:system_config_connect_next_refresh_jobs_for_grants, %{grants: grants})

@@ -77,8 +77,8 @@ config :zaq,
   litellm_base_url: "http://localhost:4020"
 
 config :zaq, Zaq.System.SecretConfig,
-  encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-  key_id: "v1"
+  encryption_key: "MPEyMzQ1Njc5OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+  key_id: "test-v1"
 
 config :zaq, Zaq.Ingestion,
   base_path: "priv/documents",
@@ -148,6 +148,8 @@ config :zaq, ZaqWeb.Endpoint,
 config :zaq, dev_routes: true
 
 config :zaq, :figma_capture_enabled, true
+
+config :zaq, :show_unsupported_ai_providers, true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

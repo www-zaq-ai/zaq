@@ -35,6 +35,15 @@ defmodule ZaqWeb.ChannelsControllerTest do
     assert html_response(conn, 200) =~ "Grant failed"
   end
 
+  test "localhost auth callback finalizes OpenAI OAuth", %{conn: conn} do
+    Application.put_env(:zaq, :connect_oauth_module, __MODULE__.RecordingOAuth)
+
+    conn = get(conn, "/auth/callback", %{"state" => "ok", "code" => "123"})
+
+    assert html_response(conn, 200) =~ "Grant created"
+    assert_received {:finalize_callback, "openai", %{"state" => "ok", "code" => "123"}}
+  end
+
   test "webhook forwards data_source payload to channels API action", %{conn: conn} do
     Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.WebhookRouter)
 
@@ -175,6 +184,13 @@ defmodule ZaqWeb.ChannelsControllerTest do
 
   defmodule ErrorOAuth do
     def finalize_callback(_provider, _params), do: {:error, :invalid_callback_params}
+  end
+
+  defmodule RecordingOAuth do
+    def finalize_callback(provider, params) do
+      send(self(), {:finalize_callback, provider, params})
+      {:ok, %{id: 8}}
+    end
   end
 
   defmodule WebhookRouter do

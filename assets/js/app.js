@@ -383,7 +383,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
             if (e.key === 'Escape') { e.stopPropagation(); closePanel() }
             if (e.key === 'Enter') {
               e.preventDefault()
-              const visible = [...list().querySelectorAll('[data-select-option]')].find(o => o.style.display !== 'none')
+              const visible = [...list().querySelectorAll('[data-select-option]')].find(o => o.style.display !== 'none' && o.dataset.selectDisabled !== 'true')
               if (visible) {
                 selectOption(visible.dataset.selectValue, visible.dataset.selectOption)
               } else {
@@ -397,10 +397,11 @@ const liveSocket = new LiveSocket("/live", Socket, {
               }
             }
           })
-        }
+      }
 
         list().addEventListener('click', (e) => {
           const opt = e.target.closest('[data-select-option]')
+          if (opt && opt.dataset.selectDisabled === 'true') return
           if (opt) selectOption(opt.dataset.selectValue, opt.dataset.selectOption)
         })
 

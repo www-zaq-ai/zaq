@@ -7,7 +7,7 @@ defmodule Zaq.Engine.Connect.Grant do
 
   @auth_kinds ~w(api_key oauth2 jwt_bearer)
   @request_formats ~w(bearer raw)
-  @resource_types ~w(data_source mcp)
+  @resource_types ~w(data_source mcp ai_provider_credential)
   @owner_types ~w(org user)
   @statuses ~w(active revoked expired)
 

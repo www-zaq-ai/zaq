@@ -946,7 +946,10 @@ defmodule Zaq.Channels.JidoConnectBridge do
         client_id: credential.client_id,
         redirect_uri: redirect_uri,
         state: param_get(params, :state),
-        authorize_url: profile.authorize_url
+        response_type: param_get(params, :response_type),
+        code_challenge: param_get(params, :code_challenge),
+        code_challenge_method: param_get(params, :code_challenge_method),
+        authorize_url: param_get(params, :authorize_url) || profile.authorize_url
       ]
 
       scope = oauth_scope_for_authorize(credential, params, config.provider)
@@ -988,7 +991,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
                client_id: credential.client_id,
                client_secret: credential.client_secret,
                redirect_uri: redirect_uri,
-               token_url: profile.token_url
+               code_verifier: param_get(params, :code_verifier),
+               token_url: param_get(params, :token_url) || profile.token_url
              )
            end) do
       {:ok, normalize_oauth_token(token)}

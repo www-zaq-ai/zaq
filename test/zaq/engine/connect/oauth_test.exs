@@ -21,9 +21,14 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     def channel_stats(_config, _params), do: {:error, :unsupported}
     def capability_snapshot(_config), do: {:error, :unsupported}
 
-    def oauth_authorize_url(_config, _params), do: {:ok, "https://oauth.example/authorize"}
+    def oauth_authorize_url(_config, params) do
+      maybe_send({:oauth_authorize_params, params})
+      {:ok, "https://oauth.example/authorize"}
+    end
 
-    def oauth_exchange_code(_config, _params) do
+    def oauth_exchange_code(_config, params) do
+      maybe_send({:oauth_exchange_params, params})
+
       {:ok,
        %{
          access_token: "access-token",
@@ -34,6 +39,13 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     end
 
     def oauth_refresh_token(_config, _params), do: {:error, :unsupported}
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
   end
 
   defmodule InvalidOAuthBridge do
@@ -78,9 +90,64 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     def oauth_refresh_token(_config, _params), do: {:error, :unsupported}
   end
 
+  defmodule GenericOAuthHTTPClient do
+    def post(opts) do
+      maybe_send({:generic_oauth_post_opts, opts})
+
+      case opts[:form]["grant_type"] do
+        "authorization_code" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "id_token" =>
+                 token(%{"https://api.openai.com/auth" => %{"chatgpt_account_id" => "acct_123"}}),
+               "access_token" => "generic-access-token",
+               "refresh_token" => "generic-refresh-token",
+               "expires_in" => 3600,
+               "scope" => "openid profile"
+             }
+           }}
+
+        "refresh_token" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "id_token" => token(%{"organizations" => [%{"id" => "acct_refreshed"}]}),
+               "access_token" => "refreshed-generic-access-token",
+               "refresh_token" => "rotated-refresh-token",
+               "expires_in" => 7200,
+               "scope" => "openid profile"
+             }
+           }}
+
+        "urn:ietf:params:oauth:grant-type:token-exchange" ->
+          raise "Codex OAuth must use the first-leg access token, not token exchange"
+      end
+    end
+
+    defp token(claims) do
+      [
+        Base.url_encode64(Jason.encode!(%{"alg" => "none"}), padding: false),
+        Base.url_encode64(Jason.encode!(claims), padding: false),
+        "signature"
+      ]
+      |> Enum.join(".")
+    end
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
+  end
+
   setup do
     original_base_url = ZaqSystem.get_global_base_url()
     original_channels = Application.get_env(:zaq, :channels)
+    original_http_client = Application.get_env(:zaq, :connect_oauth_http_client)
 
     on_exit(fn ->
       :ok = ZaqSystem.set_global_base_url(original_base_url)
@@ -89,6 +156,12 @@ defmodule Zaq.Engine.Connect.OAuthTest do
         Application.delete_env(:zaq, :channels)
       else
         Application.put_env(:zaq, :channels, original_channels)
+      end
+
+      if is_nil(original_http_client) do
+        Application.delete_env(:zaq, :connect_oauth_http_client)
+      else
+        Application.put_env(:zaq, :connect_oauth_http_client, original_http_client)
       end
     end)
 
@@ -177,6 +250,153 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     assert url == "https://oauth.example/authorize"
   end
 
+  test "build_authorize_url/2 passes Codex metadata with computed redirect uri and PKCE params" do
+    :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+    credential =
+      create_credential!(%{
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "authorize_url" => "https://auth.openai.com/oauth/authorize",
+          "token_url" => "https://auth.openai.com/oauth/token",
+          "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+          "scope" => "openid profile email offline_access",
+          "authorize_params" => %{
+            "id_token_add_organizations" => "true",
+            "codex_cli_simplified_flow" => "true",
+            "originator" => "zaqos"
+          }
+        }
+      })
+
+    assert {:ok, url} =
+             OAuth.build_authorize_url(credential, %{
+               "resource_type" => "data_source",
+               "resource_id" => "42"
+             })
+
+    query = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    assert url =~ "https://auth.openai.com/oauth/authorize"
+    assert query["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
+    assert query["redirect_uri"] == "http://localhost:1455/auth/callback"
+
+    assert query["scope"] == "openid profile email offline_access"
+
+    assert query["id_token_add_organizations"] == "true"
+    assert query["codex_cli_simplified_flow"] == "true"
+    assert query["originator"] == "zaqos"
+    assert query["code_challenge_method"] == "S256"
+    assert is_binary(query["code_challenge"])
+    refute String.contains?(url, "code_verifier")
+  end
+
+  test "generic metadata OAuth flow exchanges code and creates ai provider credential grant" do
+    Process.register(self(), GenericOAuthHTTPClient)
+    Application.put_env(:zaq, :connect_oauth_http_client, GenericOAuthHTTPClient)
+    :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+    credential =
+      create_credential!(%{
+        provider: "openai",
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "authorize_url" => "https://auth.openai.com/oauth/authorize",
+          "token_url" => "https://auth.openai.com/oauth/token",
+          "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+          "scope" => "openid profile email offline_access",
+          "authorize_params" => %{"originator" => "zaqos"}
+        }
+      })
+
+    assert {:ok, url} =
+             OAuth.build_authorize_url(credential, %{
+               "resource_type" => "ai_provider_credential",
+               "resource_id" => "123",
+               "owner_type" => "org",
+               "metadata" => %{"source" => "test"}
+             })
+
+    uri = URI.parse(url)
+    query = URI.decode_query(uri.query)
+
+    assert uri.scheme == "https"
+    assert uri.host == "auth.openai.com"
+    assert query["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
+    assert query["redirect_uri"] == "http://localhost:1455/auth/callback"
+    assert query["originator"] == "zaqos"
+    assert query["code_challenge_method"] == "S256"
+
+    assert {:ok, grant} =
+             OAuth.finalize_callback("openai", %{
+               "state" => query["state"],
+               "code" => "oauth-code"
+             })
+
+    assert grant.provider == "openai"
+    assert grant.resource_type == "ai_provider_credential"
+    assert grant.resource_id == "123"
+    assert EncryptedString.decrypt!(grant.access_token) == "generic-access-token"
+    assert grant.metadata["source"] == "test"
+    assert grant.metadata["chatgpt_account_id"] == "acct_123"
+
+    assert_receive {:generic_oauth_post_opts, code_exchange_opts}
+    assert code_exchange_opts[:url] == "https://auth.openai.com/oauth/token"
+    assert code_exchange_opts[:form]["redirect_uri"] == "http://localhost:1455/auth/callback"
+    assert is_binary(code_exchange_opts[:form]["code_verifier"])
+
+    refute_receive {:generic_oauth_post_opts, _token_exchange_opts}
+
+    Process.unregister(GenericOAuthHTTPClient)
+  end
+
+  test "refresh_grant uses generic metadata refresh for Codex OAuth" do
+    Process.register(self(), GenericOAuthHTTPClient)
+    Application.put_env(:zaq, :connect_oauth_http_client, GenericOAuthHTTPClient)
+
+    credential =
+      create_credential!(%{
+        provider: "openai",
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "token_url" => "https://auth.openai.com/oauth/token",
+          "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+          "scope" => "openid profile email offline_access"
+        }
+      })
+
+    {:ok, grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        resource_type: "ai_provider_credential",
+        resource_id: "123",
+        owner_type: "org",
+        metadata: %{"source" => "existing"},
+        access_token: "old-oauth-access-token",
+        refresh_token: "old-refresh-token",
+        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        scopes: ["openid", "profile"]
+      })
+
+    assert {:ok, refreshed_grant} = Connect.refresh_grant(grant)
+
+    assert EncryptedString.decrypt!(refreshed_grant.access_token) ==
+             "refreshed-generic-access-token"
+
+    assert EncryptedString.decrypt!(refreshed_grant.refresh_token) == "rotated-refresh-token"
+    assert refreshed_grant.metadata["source"] == "existing"
+    assert refreshed_grant.metadata["chatgpt_account_id"] == "acct_refreshed"
+
+    assert_receive {:generic_oauth_post_opts, refresh_opts}
+    assert refresh_opts[:url] == "https://auth.openai.com/oauth/token"
+    assert refresh_opts[:form]["grant_type"] == "refresh_token"
+    assert refresh_opts[:form]["refresh_token"] == "old-refresh-token"
+
+    refute_receive {:generic_oauth_post_opts, _token_exchange_opts}
+
+    Process.unregister(GenericOAuthHTTPClient)
+  end
+
   test "finalize_callback/2 returns provider mismatch" do
     credential = create_credential!()
 
@@ -200,6 +420,9 @@ defmodule Zaq.Engine.Connect.OAuthTest do
 
     assert OAuth.redirect_uri_for("google_drive") ==
              "https://zaq.example/channels/oauth2/google_drive/redirect"
+
+    assert OAuth.redirect_uri_for("openai") ==
+             "https://zaq.example/channels/oauth2/openai/redirect"
   end
 
   test "finalize_callback/2 attempts credential fetch and code exchange for valid state" do

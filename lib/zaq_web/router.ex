@@ -43,6 +43,7 @@ defmodule ZaqWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    get "/auth/callback", ChannelsController, :openai_oauth_callback
     live "/s/:token", Live.SharedConversationLive
   end
 

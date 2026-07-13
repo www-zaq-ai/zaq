@@ -4,6 +4,8 @@
   page_title={@page_title}
   current_path={@current_path}
 >
+  <div id="oauth-popup-listener" phx-hook="OAuthPopupListener"></div>
+
   <div class="flex gap-6 items-start">
     <%!-- Sidebar --%>
     <div class="w-52 shrink-0">
@@ -127,10 +129,12 @@
       <ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab.panel
         :if={@active_tab == :ai_credentials}
         credentials={@ai_credentials}
+        ai_grants={@ai_grants}
         form={@ai_credential_form}
         modal={@ai_credential_modal}
         delete_confirm_modal={@ai_credential_delete_confirm_modal}
         action={@ai_credential_action}
+        credential_id={@ai_credential_id}
         provider_options={@ai_provider_options}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab.panel
@@ -196,4 +200,30 @@
       />
     </div>
   </div>
+
+  <ZaqWeb.Components.BOModal.modal_shell
+    :if={@oauth_claim_modal}
+    id="oauth-claim-modal"
+    cancel_event="close_oauth_claim"
+    max_width_class="max-w-md"
+  >
+    <div class="text-center">
+      <div class="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-lg bg-[#03b6d4]/10 text-[#03b6d4]">
+        <.icon name="hero-arrow-top-right-on-square" class="h-5 w-5" />
+      </div>
+      <h3 class="mb-2 font-mono text-base font-bold text-black">
+        OAuth authorization in progress
+      </h3>
+      <p class="mb-6 font-mono text-[0.75rem] text-black/40">
+        Complete the provider authorization in the popup window. This dialog updates automatically when finished.
+      </p>
+      <button
+        type="button"
+        phx-click="close_oauth_claim"
+        class="rounded-xl border border-black/10 px-5 py-2.5 font-mono text-[0.75rem] text-black/40 transition-all hover:border-black/20 hover:text-black"
+      >
+        Cancel
+      </button>
+    </div>
+  </ZaqWeb.Components.BOModal.modal_shell>
 </ZaqWeb.Components.BOLayout.bo_layout>
