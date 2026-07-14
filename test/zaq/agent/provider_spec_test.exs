@@ -29,8 +29,21 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert ProviderSpec.reqllm_provider("anthropic") == :anthropic
     end
 
+    test "ZAQ router always routes through OpenAI-compatible provider" do
+      assert ProviderSpec.reqllm_provider(:zaq_router) == :openai
+      assert ProviderSpec.reqllm_provider("zaq_router") == :openai
+    end
+
     test "ReqLLM-only OpenAI Codex provider returns its runtime atom" do
       assert ProviderSpec.reqllm_provider("openai_codex") == :openai_codex
+    end
+
+    test "OpenAI Codex atom returns its runtime atom" do
+      assert ProviderSpec.reqllm_provider(:openai_codex) == :openai_codex
+    end
+
+    test "known native provider accepts atom input" do
+      assert ProviderSpec.reqllm_provider(:openai) == :openai
     end
 
     test "unknown provider falls back to :openai" do
@@ -431,6 +444,49 @@ defmodule Zaq.Agent.ProviderSpecTest do
     test "returns empty map for config without supports_logprobs key" do
       result = ProviderSpec.default_advanced_options(%{provider: "openai"})
       assert result == %{}
+    end
+  end
+
+  describe "credential_opts/1" do
+    test "OpenAI Codex credential accepts string access token key and missing metadata" do
+      credential = %{
+        "access_token" => "string-token",
+        provider: "openai_codex"
+      }
+
+      opts = ProviderSpec.credential_opts(credential)
+
+      assert opts[:access_token] == "string-token"
+      assert opts[:auth_mode] == :oauth
+      assert opts[:base_url] == "https://chatgpt.com/backend-api"
+      assert opts[:provider_options][:auth_mode] == :oauth
+      refute Keyword.has_key?(opts[:provider_options], :codex_originator)
+      refute Keyword.has_key?(opts[:provider_options], :chatgpt_account_id)
+      refute Keyword.has_key?(opts, :api_key)
+    end
+
+    test "OpenAI Codex credential without access token omits token but keeps OAuth defaults" do
+      credential = %{provider: "openai_codex"}
+
+      opts = ProviderSpec.credential_opts(credential)
+
+      refute Keyword.has_key?(opts, :access_token)
+      assert opts[:auth_mode] == :oauth
+      assert opts[:base_url] == "https://chatgpt.com/backend-api"
+      assert opts[:provider_options][:auth_mode] == :oauth
+    end
+
+    test "generic credential accepts string api_key key" do
+      credential = %{
+        "api_key" => "string-api-key",
+        provider: "openai",
+        endpoint: "https://generic.example.com/v1"
+      }
+
+      opts = ProviderSpec.credential_opts(credential)
+
+      assert opts[:api_key] == "string-api-key"
+      assert opts[:base_url] == "https://generic.example.com/v1"
     end
   end
 

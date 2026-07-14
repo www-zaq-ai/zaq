@@ -224,6 +224,10 @@ defmodule Zaq.System.AIProviderCredentialTest do
            ) == ""
   end
 
+  test "resolve_ai_provider_api_key returns blank string for nil credential" do
+    assert System.resolve_ai_provider_api_key(nil) == ""
+  end
+
   test "cannot delete credential currently used by system configuration" do
     assert {:ok, credential} =
              System.create_ai_provider_credential(%{

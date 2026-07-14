@@ -13,6 +13,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Registry
+  alias Zaq.Config
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.System
@@ -304,7 +305,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     event =
       Event.new(%{id: int_id}, :agent, opts: [action: :configured_agent_deleted])
 
-    case NodeRouter.dispatch(event).response do
+    case dispatch_event(socket, event) do
       {:ok, _payload} ->
         socket =
           socket
@@ -344,7 +345,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
         opts: [action: :invoke]
       )
 
-    case NodeRouter.dispatch(event).response do
+    case dispatch_event(socket, event) do
       {:ok, %ConfiguredAgent{} = agent} ->
         socket =
           socket
@@ -400,7 +401,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     event =
       Event.new(%{id: agent.id, attrs: attrs}, :agent, opts: [action: :configured_agent_updated])
 
-    case NodeRouter.dispatch(event).response do
+    case dispatch_event(socket, event) do
       {:ok, %{agent: updated} = payload} ->
         socket =
           socket
@@ -857,4 +858,12 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   defp map_get(_map, _key, default), do: default
+
+  defp dispatch_event(socket, %Event{} = event), do: node_router(socket).dispatch(event).response
+
+  defp node_router(socket) do
+    Config.get(:zaq, :agents_live_node_router_module, NodeRouter,
+      config: Map.get(socket.assigns, :config, Config)
+    )
+  end
 end
