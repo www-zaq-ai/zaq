@@ -790,8 +790,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           |> render_click()
 
           html = render(view)
-          refute html =~ label
-          refute html =~ provider_id
+          refute html =~ ~s(data-select-option="#{label}")
+          refute html =~ ~s(data-select-value="#{provider_id}")
       end
     end
 

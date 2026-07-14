@@ -122,7 +122,7 @@ defmodule ZaqWeb.Components.SearchableSelect do
             data-select-value={value}
             data-select-disabled={if disabled?, do: "true", else: "false"}
             class={[
-              "zaq-dropdown-menu-item zaq-dropdown-menu-item--padded",
+              "zaq-text-body-sm zaq-dropdown-menu-item zaq-dropdown-menu-item--padded",
               disabled? && "opacity-50 cursor-not-allowed"
             ]}
           >
