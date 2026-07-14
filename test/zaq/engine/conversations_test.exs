@@ -68,23 +68,6 @@ defmodule Zaq.Engine.ConversationsTest do
     :ok
   end
 
-  defp channel_config_fixture(provider) do
-    {:ok, config} =
-      %ChannelConfig{}
-      |> ChannelConfig.changeset(%{
-        name: "Config #{provider}",
-        provider: provider,
-        kind: "retrieval",
-        url: "https://#{provider}.example.com",
-        token: "token",
-        enabled: true,
-        settings: %{}
-      })
-      |> Repo.insert()
-
-    config
-  end
-
   # ── create_conversation/1 ───────────────────────────────────────────
 
   describe "create_conversation/1" do
