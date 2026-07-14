@@ -141,6 +141,70 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
       assert html =~ "My Body Text"
     end
 
+    test "modal shows the threading anchor of a sent email", %{conn: conn} do
+      log = log_fixture(%{recipient_ref_type: "person", recipient_ref_id: 1})
+      {:ok, _sent} = NotificationLog.transition_status(log, "sent")
+
+      :ok =
+        NotificationLog.record_threading(log, "Lead outreach", %{
+          message_id: "zaq-child@acme.test",
+          in_reply_to: "zaq-parent@acme.test",
+          references: ["zaq-root@acme.test", "zaq-parent@acme.test"],
+          thread_id: "zaq-root@acme.test"
+        })
+
+      conn = authed_conn(conn)
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/logs")
+
+      html =
+        view
+        |> element("button[phx-value-id='#{log.id}']")
+        |> render_click()
+
+      assert html =~ "Threading"
+      assert html =~ "zaq-child@acme.test"
+      assert html =~ "zaq-parent@acme.test"
+      assert html =~ "zaq-root@acme.test"
+      assert html =~ "Lead outreach"
+    end
+
+    test "modal marks a first send as the thread root", %{conn: conn} do
+      log = log_fixture(%{recipient_ref_type: "person", recipient_ref_id: 1})
+      {:ok, _sent} = NotificationLog.transition_status(log, "sent")
+
+      :ok =
+        NotificationLog.record_threading(log, "Lead outreach", %{
+          message_id: "zaq-first@acme.test",
+          in_reply_to: nil,
+          references: [],
+          thread_id: "zaq-first@acme.test"
+        })
+
+      conn = authed_conn(conn)
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/logs")
+
+      html =
+        view
+        |> element("button[phx-value-id='#{log.id}']")
+        |> render_click()
+
+      assert html =~ "thread root (first send)"
+    end
+
+    test "modal omits the threading section when the send has no anchor", %{conn: conn} do
+      log = log_fixture()
+
+      conn = authed_conn(conn)
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/notifications/logs")
+
+      html =
+        view
+        |> element("button[phx-value-id='#{log.id}']")
+        |> render_click()
+
+      refute html =~ "Threading"
+    end
+
     test "closing modal hides payload", %{conn: conn} do
       log_fixture()
       conn = authed_conn(conn)

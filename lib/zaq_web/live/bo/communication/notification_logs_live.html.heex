@@ -264,6 +264,72 @@
               </p>
             </div>
 
+            <%!-- Threading: the RFC anchor this email was delivered with. Recorded only
+                 on a successful send, so its absence means either a non-email channel
+                 or a send that never landed. --%>
+            <%= if @selected_log.threading do %>
+              <div class="border-t border-black/[0.05] pt-4">
+                <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-2">
+                  Threading
+                </p>
+                <div class="bg-[#fafafa] rounded-xl border border-black/[0.06] px-4 py-3 space-y-2.5">
+                  <div>
+                    <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-0.5">
+                      Message-ID
+                    </p>
+                    <p class="font-mono text-[0.78rem] text-black/70 break-all">
+                      {@selected_log.threading["message_id"] || "—"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-0.5">
+                      In-Reply-To
+                    </p>
+                    <%= if @selected_log.threading["in_reply_to"] do %>
+                      <p class="font-mono text-[0.78rem] text-black/70 break-all">
+                        {@selected_log.threading["in_reply_to"]}
+                      </p>
+                    <% else %>
+                      <p class="font-mono text-[0.78rem] text-black/40">
+                        — thread root (first send)
+                      </p>
+                    <% end %>
+                  </div>
+
+                  <% references = List.wrap(@selected_log.threading["references"] || []) %>
+                  <div>
+                    <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-0.5">
+                      References ({length(references)})
+                    </p>
+                    <%= if references == [] do %>
+                      <p class="font-mono text-[0.78rem] text-black/40">—</p>
+                    <% else %>
+                      <ul class="space-y-0.5">
+                        <li
+                          :for={reference <- references}
+                          class="font-mono text-[0.78rem] text-black/70 break-all"
+                        >
+                          {reference}
+                        </li>
+                      </ul>
+                    <% end %>
+                  </div>
+
+                  <%= if @selected_log.thread_key do %>
+                    <div>
+                      <p class="font-mono text-[0.6rem] text-black/35 uppercase tracking-wider mb-0.5">
+                        Thread Key
+                      </p>
+                      <p class="font-mono text-[0.78rem] text-black/70 break-all">
+                        {@selected_log.thread_key}
+                      </p>
+                    </div>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+
             <%!-- Body: HTML preview or plain text --%>
             <div class="border-t border-black/[0.05] pt-4">
               <%= if @selected_log.payload["html_body"] do %>

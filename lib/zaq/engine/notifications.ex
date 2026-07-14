@@ -187,12 +187,29 @@ defmodule Zaq.Engine.Notifications do
         _ -> nil
       end
 
+    topic = metadata_value(notification.metadata, "topic")
+    subject = notification.subject
+
     %{
       person_id: person_id,
-      topic: metadata_value(notification.metadata, "topic"),
-      subject: notification.subject
+      topic: topic,
+      subject: subject,
+      # The key the thread is chained under. `topic` first, then `subject` — the
+      # same precedence conversation grouping uses. Blank → nil, which skips the
+      # anchor entirely rather than risk chaining two unrelated leads together
+      # under an empty key (Bug #8).
+      thread_key: presence(topic) || presence(subject)
     }
   end
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp presence(_value), do: nil
 
   defp metadata_value(metadata, key) when is_map(metadata) do
     Map.get(metadata, key) || Map.get(metadata, String.to_existing_atom(key))
@@ -244,7 +261,7 @@ defmodule Zaq.Engine.Notifications do
 
         case result do
           :ok ->
-            mark_sent(log, platform, identifier, threading)
+            mark_sent(log, platform, identifier, threading, ctx)
 
           {:error, _reason} ->
             # The mint for this failed attempt is discarded — never surfaced, never
@@ -258,7 +275,7 @@ defmodule Zaq.Engine.Notifications do
   # chain; other channels get a server-assigned id back and thread on a single
   # root pointer, so they mint nothing here.
   defp build_threading("email" <> _, %{person_id: person_id} = ctx) do
-    anchor = Conversations.email_thread_anchor(person_id, ctx.topic, ctx.subject)
+    anchor = resolve_anchor(person_id, ctx)
     message_id = EmailUtils.new_message_id(sending_domain())
 
     references =
@@ -276,6 +293,17 @@ defmodule Zaq.Engine.Notifications do
   end
 
   defp build_threading(_platform, _ctx), do: %{}
+
+  # The chain of emails we have actually sent this person under this key is the
+  # source of truth, and it lives on the notification log — written by the same
+  # code that mints the id and sees the delivery succeed. The conversation store is
+  # consulted second: it carries the anchor for a thread ZAQ did not start (an
+  # inbound email the person sent us, whose RFC id we inherited), and for messages
+  # persisted by a workflow before this path existed.
+  defp resolve_anchor(person_id, ctx) do
+    NotificationLog.thread_anchor(person_id, ctx.thread_key) ||
+      Conversations.email_thread_anchor(person_id, ctx.topic, ctx.subject)
+  end
 
   defp merge_threading_metadata(metadata, threading) when map_size(threading) == 0, do: metadata
 
@@ -304,7 +332,7 @@ defmodule Zaq.Engine.Notifications do
     end
   end
 
-  defp mark_sent(log, platform, identifier, threading) do
+  defp mark_sent(log, platform, identifier, threading, ctx) do
     base = %{
       status: :sent,
       notification_log_id: log.id,
@@ -315,6 +343,10 @@ defmodule Zaq.Engine.Notifications do
     result =
       case NotificationLog.transition_status(log, "sent") do
         {:ok, _} ->
+          # Only now — the email is out. This is what the next send anchors onto,
+          # with no downstream step required to carry it there.
+          NotificationLog.record_threading(log, ctx.thread_key, threading)
+
           base
 
         {:error, reason} ->
