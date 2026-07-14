@@ -3,6 +3,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
 
   alias ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents
 
+  defmodule TestConfig do
+    def get(:zaq, :codex_oauth_client_id, _default, _opts), do: "configured-client-id"
+  end
+
   test "with_provider_endpoint/3 updates endpoint when provider changes" do
     params = %{"provider" => "openai"}
 
@@ -81,6 +85,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     assert result["metadata"]["auth_kind"] == "oauth2"
     assert result["metadata"]["auth_profile"] == "openai_chatgpt_codex"
     assert result["metadata"]["authorize_url"] == "https://auth.openai.com/oauth/authorize"
+    assert result["metadata"]["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
     assert result["metadata"]["scope"] == "openid profile email offline_access"
     assert result["metadata"]["authorize_params"]["id_token_add_organizations"] == "true"
     assert result["metadata"]["authorize_params"]["codex_cli_simplified_flow"] == "true"
@@ -89,6 +94,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     refute Map.has_key?(result["metadata"], "backend_path")
     refute Map.has_key?(result["metadata"], "redirect_uri")
     refute inspect(result["metadata"]) =~ "localhost:1455"
+  end
+
+  test "normalize_params/2 loads Codex oauth client id through injected config" do
+    params = %{
+      "provider" => "openai_codex",
+      "auth_mode" => "oauth2",
+      "metadata" => "{}"
+    }
+
+    result = AICredentialEvents.normalize_params(params, config: TestConfig)
+
+    assert result["metadata"]["client_id"] == "configured-client-id"
   end
 
   test "normalize_params/1 merges missing Codex authorize params into existing metadata" do

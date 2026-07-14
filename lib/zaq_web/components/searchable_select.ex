@@ -5,10 +5,18 @@ defmodule ZaqWeb.Components.SearchableSelect do
   Supports client-side filtering and optional creation flow integration through
   a LiveView event hook.
 
+  Options may be `{label, value}`, `{label, value, suffix}`, or
+  `{label, value, suffix, disabled?}` tuples.
+
   Pass `label` to render an external uppercase label (`.zaq-field-label-uppercase`).
   Use `label_position` to place it `inline` (default) or `block` (above the control).
   """
   use Phoenix.Component
+
+  @type option ::
+          {String.t(), term()}
+          | {String.t(), term(), String.t() | nil}
+          | {String.t(), term(), String.t() | nil, boolean()}
 
   attr :id, :string, required: true
   attr :name, :string, required: true

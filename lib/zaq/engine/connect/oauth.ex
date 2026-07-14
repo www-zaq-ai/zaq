@@ -93,7 +93,7 @@ defmodule Zaq.Engine.Connect.OAuth do
 
     {:ok,
      (MapUtils.read_any(metadata, ["authorize_params", :authorize_params]) || %{})
-     |> normalize_authorize_params()
+     |> MapUtils.stringify_keys()
      |> Map.merge(%{
        "authorize_url" => MapUtils.read_any(metadata, ["authorize_url", :authorize_url]),
        "client_id" => oauth_client_id(credential),
@@ -122,12 +122,19 @@ defmodule Zaq.Engine.Connect.OAuth do
 
   defp refresh_params(%Credential{} = credential, %Grant{} = grant, metadata) do
     %{
-      "refresh_token" => EncryptedString.decrypt!(grant.refresh_token) || grant.refresh_token,
+      "refresh_token" => refresh_token_value(grant),
       "client_id" => oauth_client_id(credential),
       "client_secret" => credential.client_secret,
       "auth_profile" => MapUtils.read_any(metadata, ["auth_profile", :auth_profile]),
       "scope" => oauth_scope(credential)
     }
+  end
+
+  defp refresh_token_value(%Grant{refresh_token: refresh_token}) do
+    case EncryptedString.decrypt(refresh_token) do
+      {:ok, token} when is_binary(token) and token != "" -> token
+      _ -> refresh_token
+    end
   end
 
   defp oauth_client_id(%Credential{} = credential) do
@@ -154,12 +161,6 @@ defmodule Zaq.Engine.Connect.OAuth do
 
     scope
   end
-
-  defp normalize_authorize_params(params) when is_map(params) do
-    Map.new(params, fn {key, value} -> {to_string(key), value} end)
-  end
-
-  defp normalize_authorize_params(_params), do: %{}
 
   defp pkce_params(%Credential{} = credential) do
     metadata = credential.metadata || %{}

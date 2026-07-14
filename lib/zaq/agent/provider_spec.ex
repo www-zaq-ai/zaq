@@ -12,6 +12,7 @@ defmodule Zaq.Agent.ProviderSpec do
 
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.System
+  alias Zaq.Utils.Map, as: MapUtils
   require Logger
 
   # Providers that manage their own base URL inside ReqLLM — never override with a custom base_url.
@@ -261,7 +262,7 @@ defmodule Zaq.Agent.ProviderSpec do
   defp credential_metadata(_), do: %{}
 
   defp codex_base_url(metadata) do
-    metadata_value(metadata, "backend_base_url") || "https://chatgpt.com/backend-api"
+    MapUtils.metadata_value(metadata, "backend_base_url") || "https://chatgpt.com/backend-api"
   end
 
   defp put_codex_provider_options(opts, metadata) do
@@ -271,29 +272,18 @@ defmodule Zaq.Agent.ProviderSpec do
       provider_options
       |> Keyword.put_new(:auth_mode, :oauth)
       |> maybe_put(:codex_originator, codex_originator(metadata))
-      |> maybe_put(:chatgpt_account_id, metadata_value(metadata, "chatgpt_account_id"))
+      |> maybe_put(:chatgpt_account_id, MapUtils.metadata_value(metadata, "chatgpt_account_id"))
 
     Keyword.put(opts, :provider_options, provider_options)
   end
 
   defp codex_originator(metadata) do
     metadata
-    |> metadata_value("authorize_params")
+    |> MapUtils.metadata_value("authorize_params")
     |> case do
-      %{} = params -> metadata_value(params, "originator")
+      %{} = params -> MapUtils.metadata_value(params, "originator")
       _ -> nil
     end
-  end
-
-  defp metadata_value(metadata, key) when is_map(metadata),
-    do: Map.get(metadata, key) || Map.get(metadata, existing_atom_key(key))
-
-  defp metadata_value(_metadata, _key), do: nil
-
-  defp existing_atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
   end
 
   defp resolve_credential(%ConfiguredAgent{credential: credential}) when not is_nil(credential),

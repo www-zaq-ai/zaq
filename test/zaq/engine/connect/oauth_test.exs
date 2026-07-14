@@ -397,6 +397,39 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     Process.unregister(GenericOAuthHTTPClient)
   end
 
+  test "refresh_token_payload/2 passes through unreadable encrypted refresh token" do
+    Process.register(self(), GenericOAuthHTTPClient)
+    original_client = Application.get_env(:zaq, :connect_oauth_http_client)
+    Application.put_env(:zaq, :connect_oauth_http_client, GenericOAuthHTTPClient)
+
+    on_exit(fn ->
+      if is_nil(original_client) do
+        Application.delete_env(:zaq, :connect_oauth_http_client)
+      else
+        Application.put_env(:zaq, :connect_oauth_http_client, original_client)
+      end
+    end)
+
+    credential = %Connect.Credential{
+      provider: "openai",
+      metadata: %{
+        "auth_profile" => "openai_chatgpt_codex",
+        "token_url" => "https://auth.openai.com/oauth/token",
+        "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+        "scope" => "openid profile email offline_access"
+      }
+    }
+
+    grant = %Connect.Grant{refresh_token: "enc:test-v1:not-base64"}
+
+    assert {:ok, _payload} = OAuth.refresh_token_payload(credential, grant)
+
+    assert_receive {:generic_oauth_post_opts, refresh_opts}
+    assert refresh_opts[:form]["refresh_token"] == "enc:test-v1:not-base64"
+
+    Process.unregister(GenericOAuthHTTPClient)
+  end
+
   test "finalize_callback/2 returns provider mismatch" do
     credential = create_credential!()
 

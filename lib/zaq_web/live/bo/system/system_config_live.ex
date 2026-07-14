@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.TelemetryConfig
+  alias Zaq.Utils.Map, as: MapUtils
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
   alias ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents
@@ -1184,7 +1185,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       not codex_oauth_metadata?(metadata) and is_nil(engine_get_global_base_url()) ->
         {:error, :missing_global_base_url}
 
-      metadata_value(metadata, "auth_kind") != "oauth2" ->
+      MapUtils.metadata_value(metadata, "auth_kind") != "oauth2" ->
         {:error, :unsupported_auth_mode}
 
       true ->
@@ -1203,7 +1204,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp ai_connect_credential_for(ai_credential) do
     Enum.find(engine_connect_list_credentials(), fn credential ->
-      metadata_value(credential.metadata, "ai_provider_credential_id") ==
+      MapUtils.metadata_value(credential.metadata, "ai_provider_credential_id") ==
         to_string(ai_credential.id)
     end)
   end
@@ -1222,7 +1223,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       request_format: "bearer",
       user_level: false,
       metadata: metadata,
-      client_id: metadata_value(metadata, "client_id"),
+      client_id: MapUtils.metadata_value(metadata, "client_id"),
       scopes: ai_oauth_scopes(metadata)
     }
   end
@@ -1233,7 +1234,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp ai_oauth_scopes(metadata) do
-    case metadata_value(metadata, "scope") do
+    case MapUtils.metadata_value(metadata, "scope") do
       scope when is_binary(scope) -> String.split(scope)
       _ -> []
     end
@@ -1245,8 +1246,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp normalize_ai_oauth_metadata(metadata, %{provider: "openai_codex"}) do
     authorize_params =
       metadata
-      |> metadata_value("authorize_params")
-      |> normalize_authorize_params()
+      |> MapUtils.metadata_value("authorize_params")
+      |> MapUtils.stringify_keys()
       |> Map.put("id_token_add_organizations", "true")
       |> Map.put("codex_cli_simplified_flow", "true")
       |> Map.put_new("originator", "zaqos")
@@ -1258,14 +1259,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp normalize_ai_oauth_metadata(metadata, _ai_credential), do: metadata
 
-  defp normalize_authorize_params(params) when is_map(params) do
-    Map.new(params, fn {key, value} -> {to_string(key), value} end)
-  end
-
-  defp normalize_authorize_params(_params), do: %{}
-
   defp codex_oauth_metadata?(metadata),
-    do: metadata_value(metadata, "auth_profile") == "openai_chatgpt_codex"
+    do: MapUtils.metadata_value(metadata, "auth_profile") == "openai_chatgpt_codex"
 
   defp build_ai_oauth_claim_url(connect_credential, ai_credential) do
     dispatch_engine(:connect_oauth_build_authorize_url, %{
@@ -1282,12 +1277,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       }
     })
   end
-
-  defp metadata_value(metadata, key) when is_map(metadata) do
-    Map.get(metadata, key) || Map.get(metadata, String.to_atom(key))
-  end
-
-  defp metadata_value(_metadata, _key), do: nil
 
   defp ai_oauth_error(:missing_global_base_url),
     do: "Global base URL is required before starting OAuth2. Configure it in Global settings."

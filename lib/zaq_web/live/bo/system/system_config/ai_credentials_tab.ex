@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
   use ZaqWeb, :html
   import ZaqWeb.Components.SearchableSelect
   alias Phoenix.LiveView.JS
+  alias Zaq.Utils.Map, as: MapUtils
   alias ZaqWeb.Components.BOModal
   alias ZaqWeb.Components.DesignSystem.Button
 
@@ -379,8 +380,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
 
   defp auth_mode(form) do
     metadata = form[:metadata].value
-    auth_kind = metadata_value(metadata, "auth_kind")
-    auth_profile = metadata_value(metadata, "auth_profile")
+    auth_kind = MapUtils.metadata_value(metadata, "auth_kind")
+    auth_profile = MapUtils.metadata_value(metadata, "auth_profile")
 
     case {form[:provider].value, auth_kind} do
       {"openai_codex", _} -> "oauth2"
@@ -397,12 +398,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
     do: "API key"
 
   defp auth_mode_label(%{metadata: metadata}) do
-    case metadata_value(metadata, "auth_kind") do
+    case MapUtils.metadata_value(metadata, "auth_kind") do
       "oauth2" ->
         "OAuth2"
 
       _ ->
-        if metadata_value(metadata, "auth_profile") == "openai_chatgpt_codex" do
+        if MapUtils.metadata_value(metadata, "auth_profile") == "openai_chatgpt_codex" do
           "OAuth2"
         else
           "API key"
@@ -451,11 +452,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
 
   defp metadata_json(metadata) when is_binary(metadata), do: metadata
   defp metadata_json(_), do: "{}"
-
-  defp metadata_value(metadata, key) when is_map(metadata),
-    do: Map.get(metadata, key) || Map.get(metadata, String.to_existing_atom(key))
-
-  defp metadata_value(_, _), do: nil
 
   defp expired?(nil), do: false
   defp expired?(expires_at), do: DateTime.compare(expires_at, DateTime.utc_now()) != :gt

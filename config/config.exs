@@ -46,6 +46,7 @@ config :zaq, :channels, %{
 
 config :zaq,
   ecto_repos: [Zaq.Repo],
+  codex_oauth_client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
   generators: [timestamp_type: :utc_datetime]
 
 config :mime, :types, %{

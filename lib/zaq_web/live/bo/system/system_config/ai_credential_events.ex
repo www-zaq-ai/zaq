@@ -3,6 +3,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
   Stateless orchestration helpers for AI credential event flows.
   """
 
+  alias Zaq.Config
+  alias Zaq.Utils.Map, as: MapUtils
+
+  @codex_oauth_client_id "app_EMoamEEZ73f0CkXaXp7hrann"
+
   def with_provider_endpoint(params, previous_provider, provider_endpoint_fun)
       when is_map(params) and is_function(provider_endpoint_fun, 1) do
     if params["provider"] != previous_provider do
@@ -14,13 +19,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
 
   def with_provider_endpoint(params, _previous_provider, _provider_endpoint_fun), do: params
 
-  def normalize_params(params) when is_map(params) do
+  def normalize_params(params, opts \\ [])
+
+  def normalize_params(params, opts) when is_map(params) do
     params
     |> normalize_metadata()
-    |> apply_auth_mode()
+    |> apply_auth_mode(opts)
   end
 
-  def normalize_params(params), do: params
+  def normalize_params(params, _opts), do: params
 
   def save(:edit, id, params, get_credential_fun, update_credential_fun, _create_credential_fun)
       when is_function(get_credential_fun, 1) and is_function(update_credential_fun, 2) do
@@ -98,7 +105,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
     end
   end
 
-  defp apply_auth_mode(%{"auth_mode" => auth_mode} = params) do
+  defp apply_auth_mode(%{"auth_mode" => auth_mode} = params, opts) do
     metadata = Map.get(params, "metadata")
 
     if is_map(metadata) do
@@ -106,19 +113,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
 
       params
       |> maybe_drop_api_key_for_oauth_only_provider()
-      |> apply_auth_mode_to_metadata(auth_mode, metadata)
+      |> apply_auth_mode_to_metadata(auth_mode, metadata, opts)
     else
       Map.delete(params, "auth_mode")
     end
   end
 
-  defp apply_auth_mode(params), do: params
+  defp apply_auth_mode(params, _opts), do: params
 
-  defp apply_auth_mode_to_metadata(params, auth_mode, metadata) do
+  defp apply_auth_mode_to_metadata(params, auth_mode, metadata, opts) do
     metadata =
       case auth_mode do
         "api_key" -> Map.drop(metadata, ["auth_kind", :auth_kind, "auth_profile", :auth_profile])
-        "oauth2" -> oauth2_metadata(params, metadata)
+        "oauth2" -> oauth2_metadata(params, metadata, opts)
         _ -> metadata
       end
 
@@ -135,7 +142,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
 
   defp maybe_drop_api_key_for_oauth_only_provider(params), do: params
 
-  defp oauth2_metadata(params, metadata) do
+  defp oauth2_metadata(params, metadata, opts) do
     metadata = Map.put(metadata, "auth_kind", "oauth2")
 
     if params["provider"] == "openai_codex" do
@@ -143,7 +150,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
       |> Map.put_new("auth_profile", "openai_chatgpt_codex")
       |> Map.put_new("authorize_url", "https://auth.openai.com/oauth/authorize")
       |> Map.put_new("token_url", "https://auth.openai.com/oauth/token")
-      |> Map.put_new("client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
+      |> Map.put_new("client_id", codex_oauth_client_id(opts))
       |> Map.put_new("scope", "openid profile email offline_access")
       |> merge_codex_authorize_params()
     else
@@ -154,8 +161,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
   defp merge_codex_authorize_params(metadata) do
     authorize_params =
       metadata
-      |> Map.get("authorize_params", %{})
-      |> normalize_authorize_params()
+      |> MapUtils.metadata_value("authorize_params")
+      |> MapUtils.stringify_keys()
       |> Map.put("id_token_add_organizations", "true")
       |> Map.put("codex_cli_simplified_flow", "true")
       |> Map.put_new("originator", "zaqos")
@@ -163,9 +170,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
     Map.put(metadata, "authorize_params", authorize_params)
   end
 
-  defp normalize_authorize_params(params) when is_map(params) do
-    Map.new(params, fn {key, value} -> {to_string(key), value} end)
+  defp codex_oauth_client_id(opts) do
+    Config.get(:zaq, :codex_oauth_client_id, @codex_oauth_client_id, opts)
   end
-
-  defp normalize_authorize_params(_params), do: %{}
 end
