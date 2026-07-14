@@ -35,6 +35,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   }
 
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
+  alias Zaq.Channels.JidoChatBridge.ReactionMapper
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
@@ -330,9 +331,18 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp handle_reaction_event(config, reaction) do
-    if reaction.added do
+    provider = provider_to_atom(config.provider) || :unknown
+
+    with true <- reaction.added,
+         {:ok, rating} <- ReactionMapper.to_rating(reaction.emoji, provider) do
+      rated_reaction = Map.put(reaction, :rating, rating)
+
       event =
-        Event.new(%{reaction: reaction}, :engine, opts: [action: :rate_message_from_reaction])
+        Event.new(
+          %{reaction: rated_reaction},
+          :engine,
+          opts: [action: :rate_message_from_reaction]
+        )
 
       case node_router_module().dispatch(event).response do
         {:ok, %{follow_up_text: text}} when is_binary(text) ->
@@ -349,6 +359,8 @@ defmodule Zaq.Channels.JidoChatBridge do
         _ ->
           :ok
       end
+    else
+      _ -> :ok
     end
   end
 

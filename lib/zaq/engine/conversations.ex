@@ -645,9 +645,9 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  def rate_message_from_reaction(reaction) do
-    with {:ok, rating} <- emoji_to_rating(reaction.emoji),
-         %Message{} = message <- get_message_by_external_id(to_string(reaction.message_id)),
+  def rate_message_from_reaction(%{rating: rating} = reaction)
+      when is_integer(rating) and rating >= 1 and rating <= 5 do
+    with %Message{} = message <- get_message_by_external_id(to_string(reaction.message_id)),
          {:ok, _rating_record} <-
            rate_message_by_id(message.id, %{
              channel_user_id: reaction.user.user_id,
@@ -663,26 +663,12 @@ defmodule Zaq.Engine.Conversations do
         :ok
       end
     else
-      nil ->
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
+      nil -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp emoji_to_rating("\u{1F44D}"), do: {:ok, 5}
-  defp emoji_to_rating("\u{1F525}"), do: {:ok, 5}
-  defp emoji_to_rating("thumbsup"), do: {:ok, 5}
-  defp emoji_to_rating("thumbs_up"), do: {:ok, 5}
-  defp emoji_to_rating("+1"), do: {:ok, 5}
-
-  defp emoji_to_rating("\u{1F44E}"), do: {:ok, 1}
-  defp emoji_to_rating("thumbsdown"), do: {:ok, 1}
-  defp emoji_to_rating("thumbs_down"), do: {:ok, 1}
-  defp emoji_to_rating("-1"), do: {:ok, 1}
-
-  defp emoji_to_rating(_), do: nil
+  def rate_message_from_reaction(_), do: :ok
 
   # ── Sharing ────────────────────────────────────────────────────────
 
