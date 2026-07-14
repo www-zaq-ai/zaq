@@ -30,7 +30,6 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
-  alias Zaq.Engine.Conversations
 
   @type state :: %{
           bridge_id: String.t(),
