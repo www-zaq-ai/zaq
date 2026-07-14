@@ -338,6 +338,63 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     refute_receive {:unregister_tool_called, _}
   end
 
+  test "sync_agent_configured_tools installs load_skill when the first skill is attached" do
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "sync-skill",
+        description: "A skill that triggers load_skill provisioning.",
+        body: "Do the thing."
+      })
+
+    # A warm server that has no tools yet; attaching a skill must install load_skill
+    # without a restart (the fingerprint does not cover skills).
+    agent = %ConfiguredAgent{enabled_tool_keys: [], enabled_skill_ids: [skill.id]}
+
+    list_tools_fn = fn :server_ref -> {:ok, []} end
+
+    register_tool_fn = fn :server_ref, module ->
+      send(self(), {:register_tool_called, module})
+      {:ok, :agent}
+    end
+
+    unregister_tool_fn = fn :server_ref, _name -> {:ok, :agent} end
+
+    assert {:ok, result} =
+             RuntimeSync.sync_agent_configured_tools(agent, :server_ref,
+               list_tools_fn: list_tools_fn,
+               register_tool_fn: register_tool_fn,
+               unregister_tool_fn: unregister_tool_fn
+             )
+
+    assert "load_skill" in result.added_tools
+    assert_receive {:register_tool_called, Zaq.Agent.Tools.Skills.LoadSkill}
+  end
+
+  test "sync_agent_configured_tools removes load_skill when the last skill is detached" do
+    # Server still has load_skill from when a skill was attached; the agent now has none,
+    # so it must be torn down — proving load_skill is a managed (removable) tool.
+    agent = %ConfiguredAgent{enabled_tool_keys: [], enabled_skill_ids: []}
+
+    list_tools_fn = fn :server_ref -> {:ok, [Zaq.Agent.Tools.Skills.LoadSkill]} end
+
+    register_tool_fn = fn :server_ref, _module -> {:ok, :agent} end
+
+    unregister_tool_fn = fn :server_ref, name ->
+      send(self(), {:unregister_tool_called, name})
+      {:ok, :agent}
+    end
+
+    assert {:ok, result} =
+             RuntimeSync.sync_agent_configured_tools(agent, :server_ref,
+               list_tools_fn: list_tools_fn,
+               register_tool_fn: register_tool_fn,
+               unregister_tool_fn: unregister_tool_fn
+             )
+
+    assert "load_skill" in result.removed_tools
+    assert_receive {:unregister_tool_called, "load_skill"}
+  end
+
   test "sync_agent_configured_tools removes stale managed tools and keeps non-managed tools" do
     agent = %ConfiguredAgent{enabled_tool_keys: [], enabled_mcp_endpoint_ids: []}
 
@@ -1162,6 +1219,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     {:ok, skill} =
       Skills.create_skill(%{
         name: "sleepy-skill",
+        description: "What this skill does, and when to use it.",
         body: "Use the sleep tool.",
         tool_keys: ["basic.sleep"]
       })
@@ -1190,7 +1248,12 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "agent_skill_updated persists changes and re-syncs active agents using the skill" do
-    {:ok, skill} = Skills.create_skill(%{name: "updatable-skill", body: "Old body."})
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "updatable-skill",
+        description: "What this skill does, and when to use it.",
+        body: "Old body."
+      })
 
     assert {:ok, %{skill: updated, runtime: runtime}} =
              RuntimeSync.agent_skill_updated(
@@ -1209,7 +1272,12 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "agent_skill_updated returns changeset error without touching runtime" do
-    {:ok, skill} = Skills.create_skill(%{name: "stays-put", body: "b"})
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "stays-put",
+        description: "What this skill does, and when to use it.",
+        body: "b"
+      })
 
     assert {:error, %Ecto.Changeset{}} =
              RuntimeSync.agent_skill_updated(
@@ -1223,7 +1291,12 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "agent_skill_updated propagates sync_runtime failures" do
-    {:ok, skill} = Skills.create_skill(%{name: "sync-fails", body: "b"})
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "sync-fails",
+        description: "What this skill does, and when to use it.",
+        body: "b"
+      })
 
     assert {:error, {:skill_sync_failed, %{agent_id: 91, reason: :sync_runtime_failed}}} =
              RuntimeSync.agent_skill_updated(
@@ -1235,7 +1308,12 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   end
 
   test "agent_skill_deleted removes the skill and re-syncs active agents" do
-    {:ok, skill} = Skills.create_skill(%{name: "doomed-skill", body: "b"})
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "doomed-skill",
+        description: "What this skill does, and when to use it.",
+        body: "b"
+      })
 
     assert {:ok, %{skill: deleted, runtime: runtime}} =
              RuntimeSync.agent_skill_deleted(
@@ -1256,6 +1334,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     {:ok, skill} =
       Skills.create_skill(%{
         name: "mcp-contributing-skill",
+        description: "What this skill does, and when to use it.",
         body: "Use the endpoint.",
         enabled_mcp_endpoint_ids: [2]
       })
@@ -1312,7 +1391,12 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     seed_endpoint!(66)
 
     {:ok, skill} =
-      Skills.create_skill(%{name: "mcp-shrinking", body: "b", enabled_mcp_endpoint_ids: [66]})
+      Skills.create_skill(%{
+        name: "mcp-shrinking",
+        description: "What this skill does, and when to use it.",
+        body: "b",
+        enabled_mcp_endpoint_ids: [66]
+      })
 
     assert {:ok, %{skill: updated, runtime: runtime}} =
              RuntimeSync.agent_skill_updated(
@@ -1332,7 +1416,12 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     seed_endpoint!(66)
 
     {:ok, skill} =
-      Skills.create_skill(%{name: "overlap-skill", body: "b", enabled_mcp_endpoint_ids: [66]})
+      Skills.create_skill(%{
+        name: "overlap-skill",
+        description: "What this skill does, and when to use it.",
+        body: "b",
+        enabled_mcp_endpoint_ids: [66]
+      })
 
     assert {:ok, _} =
              RuntimeSync.agent_skill_updated(
@@ -1350,7 +1439,12 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     seed_endpoint!(66)
 
     {:ok, skill} =
-      Skills.create_skill(%{name: "mcp-doomed", body: "b", enabled_mcp_endpoint_ids: [66]})
+      Skills.create_skill(%{
+        name: "mcp-doomed",
+        description: "What this skill does, and when to use it.",
+        body: "b",
+        enabled_mcp_endpoint_ids: [66]
+      })
 
     assert {:ok, %{runtime: runtime}} =
              RuntimeSync.agent_skill_deleted(

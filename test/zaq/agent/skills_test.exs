@@ -8,7 +8,12 @@ defmodule Zaq.Agent.SkillsTest do
 
   defp create_skill!(attrs) do
     {:ok, skill} =
-      %{body: "Instructions.", tool_keys: [], tags: []}
+      %{
+        body: "Instructions.",
+        description: "What this skill does, and when to use it.",
+        tool_keys: [],
+        tags: []
+      }
       |> Map.merge(attrs)
       |> Skills.create_skill()
 
@@ -35,6 +40,7 @@ defmodule Zaq.Agent.SkillsTest do
       assert {:ok, %Skill{} = skill} =
                Skills.create_skill(%{
                  name: "calculator",
+                 description: "Precise arithmetic. Use when the user asks for a calculation.",
                  body: "Use tools for math.",
                  tags: ["Math"]
                })
@@ -49,12 +55,22 @@ defmodule Zaq.Agent.SkillsTest do
       assert %{body: ["can't be blank"]} = errors_on(changeset)
     end
 
+    # The OAS spec requires a description, and it is the only thing the model sees about a
+    # skill in the prompt index — a skill without one could never be discovered or loaded.
+    test "requires a description" do
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Skills.create_skill(%{name: "no-description", body: "Instructions."})
+
+      assert %{description: ["can't be blank"]} = errors_on(changeset)
+    end
+
     test "accepts an existing MCP endpoint id" do
       endpoint = mcp_endpoint!()
 
       assert {:ok, %Skill{} = skill} =
                Skills.create_skill(%{
                  name: "with-mcp",
+                 description: "Talks to an MCP endpoint.",
                  body: "Uses an endpoint.",
                  enabled_mcp_endpoint_ids: [endpoint.id]
                })
@@ -66,6 +82,7 @@ defmodule Zaq.Agent.SkillsTest do
       assert {:error, %Ecto.Changeset{} = changeset} =
                Skills.create_skill(%{
                  name: "bad-mcp",
+                 description: "Points at an endpoint that does not exist.",
                  body: "Points at nothing.",
                  enabled_mcp_endpoint_ids: [999_999]
                })
@@ -132,13 +149,6 @@ defmodule Zaq.Agent.SkillsTest do
       create_skill!(%{name: "alpha"})
 
       assert ["alpha", "zebra"] = Skills.list_skills() |> Enum.map(& &1.name)
-    end
-
-    test "list_active_skills/0 excludes inactive skills" do
-      create_skill!(%{name: "on"})
-      create_skill!(%{name: "off", active: false})
-
-      assert ["on"] = Skills.list_active_skills() |> Enum.map(& &1.name)
     end
 
     test "get_skills_by_ids/1 drops ghost ids and orders by name" do
@@ -224,15 +234,16 @@ defmodule Zaq.Agent.SkillsTest do
     end
   end
 
-  describe "effective_tool_keys/2" do
-    test "unions agent keys with skill keys, deduped" do
+  describe "provisioned_tool_keys/2" do
+    test "unions agent keys with skill keys, deduped, and appends load_skill" do
       skill = %Skill{tool_keys: ["data_source.get_document", "answering.search_knowledge_base"]}
 
       agent = %ConfiguredAgent{enabled_tool_keys: ["answering.search_knowledge_base"]}
 
-      assert Skills.effective_tool_keys(agent, [skill]) == [
+      assert Skills.provisioned_tool_keys(agent, [skill]) == [
                "answering.search_knowledge_base",
-               "data_source.get_document"
+               "data_source.get_document",
+               "skills.load_skill"
              ]
     end
 
@@ -240,39 +251,53 @@ defmodule Zaq.Agent.SkillsTest do
       skill = %Skill{tool_keys: ["ghost.removed_tool", "data_source.get_document"]}
       agent = %ConfiguredAgent{enabled_tool_keys: []}
 
-      assert Skills.effective_tool_keys(agent, [skill]) == ["data_source.get_document"]
+      assert Skills.provisioned_tool_keys(agent, [skill]) == [
+               "data_source.get_document",
+               "skills.load_skill"
+             ]
     end
 
-    test "passes agent's own keys through unfiltered" do
+    # load_skill is provisioned only when there is at least one skill to load. A skill-less
+    # agent must not carry a tool it can never use.
+    test "does NOT append load_skill when the agent has no skills" do
       agent = %ConfiguredAgent{enabled_tool_keys: ["files.missing"]}
-      assert Skills.effective_tool_keys(agent, []) == ["files.missing"]
+      assert Skills.provisioned_tool_keys(agent, []) == ["files.missing"]
+      refute "skills.load_skill" in Skills.provisioned_tool_keys(agent, [])
     end
 
-    test "handles nil key lists" do
+    test "appends load_skill even for a skill that provides no tools of its own" do
       agent = %ConfiguredAgent{enabled_tool_keys: nil}
       skill = %Skill{tool_keys: nil}
-      assert Skills.effective_tool_keys(agent, [skill]) == []
+      assert Skills.provisioned_tool_keys(agent, [skill]) == ["skills.load_skill"]
+    end
+
+    test "load_skill is not duplicated if somehow already an enabled key" do
+      agent = %ConfiguredAgent{enabled_tool_keys: ["skills.load_skill"]}
+      skill = %Skill{tool_keys: []}
+
+      keys = Skills.provisioned_tool_keys(agent, [skill])
+      assert Enum.count(keys, &(&1 == "skills.load_skill")) == 1
     end
   end
 
-  describe "effective_mcp_endpoint_ids/2" do
+  describe "provisioned_mcp_endpoint_ids/2" do
     test "unions agent endpoint ids with skill endpoint ids, deduped, agent first" do
       skill_a = %Skill{enabled_mcp_endpoint_ids: [2, 3]}
       skill_b = %Skill{enabled_mcp_endpoint_ids: [3, 4]}
       agent = %ConfiguredAgent{enabled_mcp_endpoint_ids: [1, 2]}
 
-      assert Skills.effective_mcp_endpoint_ids(agent, [skill_a, skill_b]) == [1, 2, 3, 4]
+      assert Skills.provisioned_mcp_endpoint_ids(agent, [skill_a, skill_b]) == [1, 2, 3, 4]
     end
 
     test "returns the agent's own ids when there are no skills" do
       agent = %ConfiguredAgent{enabled_mcp_endpoint_ids: [7, 8]}
-      assert Skills.effective_mcp_endpoint_ids(agent, []) == [7, 8]
+      assert Skills.provisioned_mcp_endpoint_ids(agent, []) == [7, 8]
     end
 
     test "handles nil id lists" do
       agent = %ConfiguredAgent{enabled_mcp_endpoint_ids: nil}
       skill = %Skill{enabled_mcp_endpoint_ids: nil}
-      assert Skills.effective_mcp_endpoint_ids(agent, [skill]) == []
+      assert Skills.provisioned_mcp_endpoint_ids(agent, [skill]) == []
     end
   end
 

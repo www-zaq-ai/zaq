@@ -43,7 +43,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "workflow.run_agent",
              "workflow.dispatch_event",
              "web.browsing",
-             "advanced.lua_eval"
+             "advanced.lua_eval",
+             "skills.load_skill"
            ]
   end
 
@@ -146,7 +147,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "workflow.run_agent",
              "workflow.dispatch_event",
              "web.browsing",
-             "advanced.lua_eval"
+             "advanced.lua_eval",
+             "skills.load_skill"
            ]
   end
 

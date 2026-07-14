@@ -55,7 +55,7 @@ defmodule Zaq.Agent.RuntimeSync do
   @doc """
   Syncs MCP endpoint assignments to a running server from the agent's
   `enabled_mcp_endpoint_ids` unioned with the endpoint ids of its attached skills
-  (`Skills.effective_mcp_endpoint_ids/2`).
+  (`Skills.provisioned_mcp_endpoint_ids/2`).
 
   Iterates each endpoint ID and registers + syncs tools for enabled endpoints, skipping
   disabled or missing ones. This path is additive; removals are handled by the diff-driven
@@ -69,7 +69,7 @@ defmodule Zaq.Agent.RuntimeSync do
     skills_module = Keyword.get(opts, :skills_module, Skills)
 
     endpoint_ids =
-      skills_module.effective_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
+      skills_module.provisioned_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
 
     mcp_module = Keyword.get(opts, :mcp_module, MCP)
 
@@ -120,7 +120,7 @@ defmodule Zaq.Agent.RuntimeSync do
 
   @doc """
   Reconciles the tool set on a running agent server against the agent's `enabled_tool_keys`
-  unioned with the tool keys of its attached skills (`Skills.effective_tool_keys/2`).
+  unioned with the tool keys of its attached skills (`Skills.provisioned_tool_keys/2`).
 
   Adds tools that are desired but not registered, and removes tools that are registered but
   no longer desired (only those owned by the managed registry). Returns `{:ok, map}` with
@@ -132,7 +132,7 @@ defmodule Zaq.Agent.RuntimeSync do
     skills_module = Keyword.get(opts, :skills_module, Skills)
 
     desired_keys =
-      skills_module.effective_tool_keys(agent, skills_module.enabled_for_agent(agent))
+      skills_module.provisioned_tool_keys(agent, skills_module.enabled_for_agent(agent))
 
     with {:ok, desired_tools} <- Registry.resolve_modules(desired_keys),
          {:ok, current_tools} <- list_tools(server_ref, opts) do
@@ -462,7 +462,7 @@ defmodule Zaq.Agent.RuntimeSync do
 
   defp still_effective_mcp_endpoint_ids(agent, opts) do
     skills_module = Keyword.get(opts, :skills_module, Skills)
-    skills_module.effective_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
+    skills_module.provisioned_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
   end
 
   # Unsyncs the endpoints a skill stopped providing from an impacted agent's live server,
@@ -478,7 +478,7 @@ defmodule Zaq.Agent.RuntimeSync do
          opts
        ) do
     still_effective =
-      skills_module.effective_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
+      skills_module.provisioned_mcp_endpoint_ids(agent, skills_module.enabled_for_agent(agent))
 
     unsync_removed_endpoints(server_ref, removed_ids -- still_effective, opts)
   end

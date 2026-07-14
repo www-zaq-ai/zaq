@@ -170,11 +170,88 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `enabled_skill_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
 
 ### Skills (`Zaq.Agent.Skills` context)
-- Schema: `Zaq.Agent.Skill` (`agent_skills` table) — `name` (lowercase kebab-case, unique), `description`, `body` (markdown instructions), `tool_keys` (validated against `Tools.Registry`), `tags` (normalized, GIN-indexed), `active`
-- BO CRUD route: `/bo/skills`; agents attach skills via `enabled_skill_ids` (array, no FK — ghost ids are dropped at runtime)
-- **Effective config has one home:** `Zaq.Agent.Skills` composes the agent's runtime view of skills — `enabled_for_agent/1` (active skills only), `effective_tool_keys/2` (agent keys ∪ skill keys, registry-ghost keys filtered), `effective_system_prompt/2` (`job` + rendered `## name` skill blocks). `Factory` and `RuntimeSync` consume these; nothing else re-derives skill semantics.
-- **Hot runtime patch tier (no restart):** skill changes propagate like `enabled_tool_keys`/`enabled_mcp_endpoint_ids` — tools reconcile through `RuntimeSync.sync_agent_configured_tools/3`; the system prompt is recomputed on every ask in `Factory.ask_with_config/4`, so body edits self-heal on the next question. Skills are deliberately excluded from the `ServerManager` restart fingerprint.
-- Skill record mutations (update/delete) fan out a tool re-sync to all active agents referencing the skill (`Zaq.Agent.list_agents_with_skill/1`) via the `:agent_skill_updated` / `:agent_skill_deleted` events.
+
+BO-managed skills built on **Open Agent Skills**, using Jido's *stateless* skill surface
+(`Jido.AI.Skill.Spec`, `Loader`, `Diagnostics`, `Prompt`) and **none** of its stateful layer
+(`Skill.Registry`, `Skill.Activation`, `Actions.Skill.LoadSkill`, `Prompt.filter_tools/2`).
+
+**Lifecycle: DB → validate → Spec → index → `load_skill`**
+
+1. **Declaration.** `Zaq.Agent.Skill` (`agent_skills` table) is the source of truth: `name`
+   (kebab-case, unique), `description` (**required**), `body` (markdown), `provided_tool_keys`
+   (ZAQ `Tools.Registry` keys), `allowed_tools` (OAS tool names), `enabled_mcp_endpoint_ids`,
+   `resource_root`, `diagnostics` (validation cache), `tags`, `active`. BO CRUD at `/bo/skills`;
+   agents attach via `enabled_skill_ids` (array, no FK — ghost ids dropped at runtime).
+2. **Validation** (`Zaq.Agent.Skills.Validation`). Field shape is validated **by Jido's
+   `Loader`**, not by ZAQ regexes: attrs are serialized to SKILL.md text and round-tripped
+   through `Loader.parse/3` (strict). This guarantees what we store is exactly what a real
+   SKILL.md produces. **Why the round trip:** Jido's validators are `defp`, reachable only via
+   `Loader.parse/3` on text — there is no `Skill.validate(%Spec{})`.
+3. **Seam** (`Skills.to_spec/1`). Each record → `%Jido.AI.Skill.Spec{}` with
+   `body_ref: {:inline, body}`. Invalid records are **skipped and logged**, never fatal to boot.
+   ZAQ tool/MCP concepts never enter the Spec.
+4. **Index** (`Skills.system_prompt/3` → `Prompt.render/2, include_body: false`). The system
+   prompt carries **name + description only** — never bodies. Token cost is O(skill count).
+5. **`load_skill`** (`Zaq.Agent.Tools.Skills.LoadSkill`). The model pulls a full body on demand;
+   the body arrives as a tool result. See the tool section below.
+
+**Two kinds of "tools" — kept apart on purpose:**
+- `provided_tool_keys` (ZAQ) — registry keys ZAQ *provisions* on the agent when a skill is
+  attached. Unioned by `provisioned_tool_keys/2`. This is what actually installs tools.
+- `allowed_tools` (OAS) — tool *names* the skill may use. Stored and rendered into the prompt,
+  **not enforced** in Part 1 (enforcement needs per-skill request scoping — a Part 2 item).
+- `tool_keys` is the pre-split column, **dual-written** with `provided_tool_keys` through the
+  rollout window; dropped once every node runs the new code.
+
+**Why validation adds a truncation guard.** Jido *truncates* an over-long `name`/`description`/
+`compatibility` and returns `:ok` even in strict mode (#323 G5). Persisting a silently-shortened
+record of truth is unacceptable, so `Validation` compares the parsed Spec against the input and
+rejects on mismatch. If upstream ever rejects instead, this guard becomes dead code and
+`Zaq.Agent.Skills.JidoContractTest` says so — do not delete it on a hunch.
+
+**Body size** is capped at write time (`Zaq.Agent.Skills.Limits`, global config
+`:agent_skills`): a warning threshold, a token cap, and an un-gameable byte cap. A loaded body
+stays in the agent's context for the server's life, so this protects the very window progressive
+disclosure exists to preserve.
+
+**Hot runtime patch tier (no restart):** skill changes propagate like `enabled_tool_keys` —
+tools reconcile through `RuntimeSync.sync_agent_configured_tools/3`; the system prompt (the index)
+is recomputed on every ask in `Factory.ask_with_config/4`, so edits self-heal on the next
+question. Skills are deliberately excluded from the `ServerManager` restart fingerprint. Record
+mutations (update/delete) fan out a re-sync to every active agent referencing the skill
+(`Zaq.Agent.list_agents_with_skill/1`) via `:agent_skill_updated` / `:agent_skill_deleted`.
+
+**Rollback.** `config :zaq, :skills_progressive_disclosure` (default `true`) gates prompt
+assembly only. Set it `false` to restore the eager renderer (`effective_system_prompt/2` +
+`render_prompt_block/1`), which is kept solely as this off-path until rollout is confirmed.
+
+**Accepted behaviors (intentional — do not "fix"):**
+- A skill **edited mid-loop** serves its pre-edit body for the in-flight request; the next ask
+  rebuilds the spec.
+- A skill **deleted while a conversation is using it** does not retract — the body is already in
+  that conversation's context. It leaves the index on the next ask.
+- **MCP endpoints stay eagerly provisioned** at attach time, not at activation (Part 2 M6 weighs
+  lazy connection on telemetry).
+
+### `load_skill` tool (`Zaq.Agent.Tools.Skills.LoadSkill`, key `skills.load_skill`)
+- Returns a skill's full `instructions` as a tool result. **Stateless** — records nothing; the
+  conversation transcript *is* the record of what was loaded, so a repeat call is idempotent and a
+  cold restart self-heals via history replay. (A separate activation set could only ever disagree
+  with the transcript — that is upstream gap G2.)
+- **Scoped to the invoking agent's own `enabled_skill_ids`** (read from `:configured_agent_id` in
+  the tool context) — never a global lookup, and the not-found payload **never lists the catalog**
+  (unlike upstream `LoadSkill`, gap G3). This is the security boundary; see the negative tests.
+- **Auto-provisioned:** `provisioned_tool_keys/2` appends `skills.load_skill` when an agent has
+  ≥1 active skill and omits it otherwise. It is a managed registry tool, so `RuntimeSync` installs
+  it when the first skill is attached and removes it when the last is detached — no BO opt-in.
+- Emits `[:zaq, :agent, :skill, :load]` telemetry (body bytes + tokens).
+- **Why ZAQ ships its own instead of upstream's:** the pinned fork has no `LoadSkill` at all (it
+  arrives with the deferred fork bump, Part 2 M0), and even that one resolves globally and leaks
+  the catalog. Part 2 M2 adopts upstream's once it gains caller scoping (upstream U3).
+
+**Skill resources** (`load_skill_resource`, reading bundled `scripts/`/`references/`/`assets/`
+from the ingestion volume) are **Part 2 (M8)** — deferred until a skill ships bundled files. The
+`resource_root` column and its write-time validation exist from Part 1 but are unused until then.
 
 ### Runtime Sync (`Zaq.Agent.RuntimeSync`)
 - Owns runtime orchestration after configured-agent, MCP endpoint, and skill mutations.

@@ -293,6 +293,17 @@ defmodule Zaq.Agent.Tools.Registry do
       label: "Lua eval",
       description: "Evaluate Lua code in a sandbox",
       module: Jido.Tools.LuaEval
+    },
+    # Progressive-disclosure skill loading. Provisioned automatically by
+    # `Zaq.Agent.Skills.provisioned_tool_keys/2` when an agent has at least one active
+    # skill, and removed when its last skill is detached — it is not meant to be picked
+    # à la carte in the BO tool list, but it lives here so it is a first-class managed
+    # tool (installed/removed by RuntimeSync like any other).
+    %{
+      key: "skills.load_skill",
+      label: "Load skill",
+      description: "Load the full instructions for one of the agent's skills, by name",
+      module: Zaq.Agent.Tools.Skills.LoadSkill
     }
   ]
 

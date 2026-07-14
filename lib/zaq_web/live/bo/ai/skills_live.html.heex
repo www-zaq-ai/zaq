@@ -281,6 +281,34 @@
 
           <div>
             <label class="zaq-field-label-uppercase block mb-1.5">
+              Allowed tools
+            </label>
+            <input
+              type="text"
+              name="skill[allowed_tools]"
+              value={allowed_tools_to_string(@form[:allowed_tools].value)}
+              placeholder="Read Bash create_document"
+              class="w-full zaq-control-text"
+            />
+            <p
+              class="zaq-text-caption mt-1"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
+              Open Agent Skills tool names this skill may use (space-separated). Stored and shown to the
+              model, but not enforced yet. Distinct from the ZAQ <strong>Tools</strong>
+              above, which are
+              the tools ZAQ provisions on the agent.
+            </p>
+            <p
+              :for={error <- field_errors(@form[:allowed_tools])}
+              class="zaq-field-error mt-1"
+            >
+              {error}
+            </p>
+          </div>
+
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1.5">
               Instructions
             </label>
             <.markdown_editor

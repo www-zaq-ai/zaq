@@ -25,7 +25,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
   defp create_skill!(attrs) do
     {:ok, skill} =
-      %{body: "Instructions.", tool_keys: [], tags: []}
+      %{
+        body: "Instructions.",
+        description: "What this skill does, and when to use it.",
+        tool_keys: [],
+        tags: []
+      }
       |> Map.merge(attrs)
       |> Skills.create_skill()
 
@@ -107,6 +112,33 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert skill.tags == ["math", "utility"]
   end
 
+  test "creates a skill with allowed_tools from the form", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    render_click(element(view, "#new-skill-button"))
+
+    view
+    |> form("#skill-form",
+      skill: %{
+        "name" => "oas-skill",
+        "description" => "Has OAS allowed tools",
+        "body" => "Do it well.",
+        # Space-separated OAS tool names, distinct from the ZAQ tool picker.
+        "allowed_tools" => "Read Bash create_document",
+        "tags" => "",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "Skill created"
+
+    assert [skill] = Skills.search_skills(%{q: "oas-skill"})
+    assert skill.allowed_tools == ["Read", "Bash", "create_document"]
+    # allowed_tools is the OAS field and must NOT leak into ZAQ's provisioned tool keys.
+    assert skill.provided_tool_keys == []
+  end
+
   test "shows validation errors on invalid create", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/skills")
 
@@ -114,10 +146,17 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
     html =
       view
-      |> form("#skill-form", skill: %{"name" => "Bad Name", "body" => "b", "tags" => ""})
+      |> form("#skill-form",
+        skill: %{
+          "name" => "Bad Name",
+          "description" => "What this skill does, and when to use it.",
+          "body" => "b",
+          "tags" => ""
+        }
+      )
       |> render_submit()
 
-    assert html =~ "must be lowercase kebab-case"
+    assert html =~ "Invalid skill name"
     assert Skills.list_skills() == []
   end
 
@@ -134,7 +173,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     |> form("#skill-form",
       skill: %{
         "name" => "editable-skill",
-        "description" => "",
+        "description" => "What this skill does, and when to use it.",
         "body" => "New body.",
         "tags" => "updated",
         "active" => "true"
@@ -184,7 +223,13 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     render_click(element(view, "#skill-row-#{skill.id}"))
 
     view
-    |> form("#skill-form", skill: %{"name" => "live-preview-skill", "body" => "**bold draft**"})
+    |> form("#skill-form",
+      skill: %{
+        "name" => "live-preview-skill",
+        "description" => "What this skill does, and when to use it.",
+        "body" => "**bold draft**"
+      }
+    )
     |> render_change()
 
     html = render_click(element(view, "button[phx-value-mode='preview']"))
@@ -223,7 +268,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     |> form("#skill-form",
       skill: %{
         "name" => "toolable",
-        "description" => "",
+        "description" => "What this skill does, and when to use it.",
         "body" => "Instructions.",
         "tags" => "",
         "active" => "true"
@@ -253,7 +298,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     |> form("#skill-form",
       skill: %{
         "name" => "blank-tool-skill",
-        "description" => "",
+        "description" => "What this skill does, and when to use it.",
         "body" => "Instructions.",
         "active" => "true"
       }
@@ -289,7 +334,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     |> form("#skill-form",
       skill: %{
         "name" => "mcp-skill",
-        "description" => "",
+        "description" => "What this skill does, and when to use it.",
         "body" => "Instructions.",
         "tags" => "",
         "active" => "true"
@@ -310,7 +355,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     |> form("#skill-form",
       skill: %{
         "name" => "mcp-skill",
-        "description" => "",
+        "description" => "What this skill does, and when to use it.",
         "body" => "Instructions.",
         "tags" => "",
         "active" => "true"
@@ -351,7 +396,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     |> form("#skill-form",
       skill: %{
         "name" => "ignored-mcp-skill",
-        "description" => "",
+        "description" => "What this skill does, and when to use it.",
         "body" => "Instructions.",
         "active" => "true"
       }
@@ -395,6 +440,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       render_change(view, "validate", %{
         "skill" => %{
           "name" => "list-tags-skill",
+          "description" => "What this skill does, and when to use it.",
           "body" => "Instructions.",
           "tags" => ["alpha", "beta"]
         }
@@ -409,7 +455,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     |> form("#skill-form",
       skill: %{
         "name" => "untagged-skill",
-        "description" => "",
+        "description" => "What this skill does, and when to use it.",
         "body" => "Instructions.",
         "active" => "true"
       }
@@ -431,7 +477,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       |> form("#skill-form",
         skill: %{
           "name" => "Invalid Name",
-          "description" => "",
+          "description" => "What this skill does, and when to use it.",
           "body" => "Changed.",
           "tags" => "",
           "active" => "true"
@@ -439,7 +485,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       )
       |> render_submit()
 
-    assert html =~ "must be lowercase kebab-case"
+    assert html =~ "Invalid skill name"
     assert Skills.get_skill!(skill.id).body == "Original."
     assert length(Skills.list_skills()) == 1
   end
@@ -471,6 +517,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
         %{
           "skill" => %{
             "name" => "raw-tags-skill",
+            "description" => "What this skill does, and when to use it.",
             "body" => "Instructions.",
             "tags" => %{},
             "active" => true

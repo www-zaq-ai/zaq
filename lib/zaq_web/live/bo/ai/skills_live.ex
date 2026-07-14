@@ -248,8 +248,20 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     |> Map.put("tool_keys", socket.assigns.form_tool_keys)
     |> Map.put("enabled_mcp_endpoint_ids", socket.assigns.form_mcp_endpoint_ids)
     |> Map.update("tags", [], &parse_tags/1)
+    |> Map.update("allowed_tools", [], &parse_allowed_tools/1)
     |> Map.update("active", true, &(&1 in [true, "true", "on"]))
   end
+
+  # `allowed_tools` is the OAS field — a space- (or comma-) separated list of tool NAMES.
+  # The changeset normalizes further (trims, dedupes); this just turns the form string
+  # into the list it expects.
+  defp parse_allowed_tools(value) when is_binary(value) do
+    value
+    |> String.split(~r/[\s,]+/, trim: true)
+  end
+
+  defp parse_allowed_tools(value) when is_list(value), do: value
+  defp parse_allowed_tools(_), do: []
 
   defp normalize_endpoint_id(id) when is_integer(id), do: id
 
@@ -307,6 +319,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp tags_to_string(tags) when is_list(tags), do: Enum.join(tags, ", ")
   defp tags_to_string(tags) when is_binary(tags), do: tags
   defp tags_to_string(_), do: ""
+
+  # OAS `allowed-tools` renders back as its space-separated form (matching how the spec
+  # encodes it in SKILL.md).
+  defp allowed_tools_to_string(tools) when is_list(tools), do: Enum.join(tools, " ")
+  defp allowed_tools_to_string(tools) when is_binary(tools), do: tools
+  defp allowed_tools_to_string(_), do: ""
 
   defp field_errors(%Phoenix.HTML.FormField{errors: errors}) do
     Enum.map(errors, &ZaqWeb.CoreComponents.translate_error/1)

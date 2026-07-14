@@ -120,7 +120,10 @@ defmodule Zaq.Agent.FactoryTest do
              Factory.runtime_config(configured_agent)
   end
 
-  test "runtime_config unions skill tools and appends skill instructions to the prompt" do
+  # The Step 4 + 5 seam, end to end through runtime_config: an agent with a skill gets a
+  # progressive INDEX prompt (name + description, no body) AND the load_skill tool wired in
+  # alongside its provisioned tools — the two halves that make progressive disclosure work.
+  test "runtime_config wires the skill index and load_skill together, with no body in the prompt" do
     {:ok, skill} =
       Skills.create_skill(%{
         name: "kb-skill",
@@ -136,16 +139,52 @@ defmodule Zaq.Agent.FactoryTest do
       credential: nil
     }
 
-    {:ok, [kb_tool]} =
-      Registry.resolve_modules(["answering.search_knowledge_base"])
+    {:ok, [kb_tool]} = Registry.resolve_modules(["answering.search_knowledge_base"])
 
     assert {:ok, config} = Factory.runtime_config(configured_agent)
+
+    # The skill's provisioned tool AND load_skill are both installed.
     assert kb_tool in config.tools
+    assert Zaq.Agent.Tools.Skills.LoadSkill in config.tools
 
-    assert config.system_prompt =~
-             "You are a ZAQ agent.\n\nYou have access to the following skills:"
+    # The prompt is the index: name + description present, body ABSENT.
+    assert config.system_prompt =~ "You are a ZAQ agent."
+    assert config.system_prompt =~ "kb-skill"
+    assert config.system_prompt =~ "Knowledge base usage"
+    assert config.system_prompt =~ "load_skill"
+    refute config.system_prompt =~ "Always search the knowledge base before answering."
+  end
 
-    assert config.system_prompt =~ "## kb-skill"
+  test "runtime_config falls back to eager bodies when progressive disclosure is disabled" do
+    original = Application.fetch_env(:zaq, :skills_progressive_disclosure)
+
+    on_exit(fn ->
+      case original do
+        {:ok, value} -> Application.put_env(:zaq, :skills_progressive_disclosure, value)
+        :error -> Application.delete_env(:zaq, :skills_progressive_disclosure)
+      end
+    end)
+
+    Application.put_env(:zaq, :skills_progressive_disclosure, false)
+
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "kb-skill",
+        description: "Knowledge base usage",
+        body: "Always search the knowledge base before answering.",
+        tool_keys: ["answering.search_knowledge_base"]
+      })
+
+    configured_agent = %Agent.ConfiguredAgent{
+      job: "You are a ZAQ agent.",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [skill.id],
+      credential: nil
+    }
+
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+
+    # Flag off: the full body is concatenated into the prompt, as before Step 4.
     assert config.system_prompt =~ "Always search the knowledge base before answering."
   end
 
@@ -153,6 +192,7 @@ defmodule Zaq.Agent.FactoryTest do
     {:ok, skill} =
       Skills.create_skill(%{
         name: "disabled-skill",
+        description: "What this skill does, and when to use it.",
         body: "Should not appear.",
         active: false,
         tool_keys: ["answering.search_knowledge_base"]
@@ -354,7 +394,11 @@ defmodule Zaq.Agent.FactoryTest do
     refute body =~ "original system prompt"
   end
 
-  test "ask_with_config injects attached skill instructions and tools end-to-end" do
+  # End-to-end progressive disclosure through ServerManager + the real request path: the
+  # prompt sent to the model is the INDEX (name + description, no body) and both the skill's
+  # provisioned tool and load_skill are on the wire — so the model can open the skill on
+  # demand rather than being handed its body eagerly.
+  test "ask_with_config sends an index-only prompt plus the load_skill tool, not the body" do
     handler = fn conn, _body ->
       {200, streamed_reply(conn.request_path, "Skill-aware reply", "gpt-4.1-mini")}
     end
@@ -400,12 +444,14 @@ defmodule Zaq.Agent.FactoryTest do
              )
 
     assert {:ok, status} = Jido.AgentServer.status(server)
+    prompt = status.raw_state.runtime_config.system_prompt
 
-    assert status.raw_state.runtime_config.system_prompt =~ configured_agent.job
-    assert status.raw_state.runtime_config.system_prompt =~ "## e2e-sleep-skill"
-
-    assert status.raw_state.runtime_config.system_prompt =~
-             "When asked to wait, always use the sleep tool."
+    # Index: job + name + description + the load instruction; body ABSENT.
+    assert prompt =~ configured_agent.job
+    assert prompt =~ "e2e-sleep-skill"
+    assert prompt =~ "Sleeping on demand"
+    assert prompt =~ "load_skill"
+    refute prompt =~ "When asked to wait, always use the sleep tool."
 
     assert {:ok, request} =
              Factory.ask_with_config(server, "please wait a moment", configured_agent,
@@ -416,8 +462,10 @@ defmodule Zaq.Agent.FactoryTest do
     assert is_binary(answer)
 
     assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
-    assert body =~ "When asked to wait, always use the sleep tool."
+    # Both tools are on the wire; the skill body is NOT eagerly sent.
+    assert body =~ "load_skill"
     assert body =~ "sleep_action"
+    refute body =~ "When asked to wait, always use the sleep tool."
   end
 
   test "ask_with_config merges DB tools with runtime-synced MCP tools" do

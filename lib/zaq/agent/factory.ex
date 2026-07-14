@@ -67,7 +67,7 @@ defmodule Zaq.Agent.Factory do
   Resolves the runtime configuration map for a configured agent.
 
   Resolves tool modules from `enabled_tool_keys` unioned with attached skill tools
-  (`Zaq.Agent.Skills.effective_tool_keys/2`) via `Tools.Registry`, merges system-level
+  (`Zaq.Agent.Skills.provisioned_tool_keys/2`) via `Tools.Registry`, merges system-level
   LLM sampling opts with any per-agent overrides from `ProviderSpec`, and returns the
   agent's `job` field plus rendered skill instructions as the system prompt.
 
@@ -82,14 +82,14 @@ defmodule Zaq.Agent.Factory do
     skills = Skills.enabled_for_agent(configured_agent)
 
     with {:ok, tools} <-
-           Registry.resolve_modules(Skills.effective_tool_keys(configured_agent, skills)) do
+           Registry.resolve_modules(Skills.provisioned_tool_keys(configured_agent, skills)) do
       {:ok,
        %{
          tools: tools,
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
          llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
-         system_prompt: Skills.effective_system_prompt(configured_agent, skills)
+         system_prompt: Skills.system_prompt(configured_agent, skills)
        }}
     end
   end
@@ -206,9 +206,15 @@ defmodule Zaq.Agent.Factory do
 
   # Recomputed on every ask so skill body/description edits propagate to live
   # servers through the existing compare-and-set in ensure_system_prompt/2.
+  #
+  # The CONTENT changed in Step 4 (a name/description index instead of every skill body);
+  # the MECHANISM did not. `%Jido.AI.Skill.Spec{}` structs are consumed by
+  # `Jido.AI.Skill.Prompt` and ZAQ's own `load_skill` action — they must never be passed
+  # to `use Jido.AI.Agent`'s `:skills` option, which takes core `Jido.Skill` plugins with
+  # a `skill_spec/1` callback. They are unrelated concepts with confusingly similar names.
   defp effective_system_prompt(configured_agent) do
     skills = Skills.enabled_for_agent(configured_agent)
-    Skills.effective_system_prompt(configured_agent, skills)
+    Skills.system_prompt(configured_agent, skills)
   end
 
   defp server_runtime_config(server, configured_agent) do
