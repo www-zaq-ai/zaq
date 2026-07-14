@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.ProviderModels
   alias Zaq.Engine.Connect
   alias Zaq.Repo
   alias Zaq.System
@@ -773,6 +774,21 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "openai_codex"
     end
 
+    test "provider selector includes zaq_router when LLMDB exposes it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='new_ai_credential']")
+      |> render_click()
+
+      html = render(view)
+
+      case LLMDB.provider(:zaq_router) do
+        {:ok, _provider} -> assert html =~ ~s(data-select-value="zaq_router")
+        _ -> :ok
+      end
+    end
+
     test "provider selector hides unsupported LLMDB providers by default", %{conn: conn} do
       previous = Application.get_env(:zaq, :show_unsupported_ai_providers)
       Application.put_env(:zaq, :show_unsupported_ai_providers, false)
@@ -782,16 +798,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         nil ->
           :ok
 
-        {label, provider_id} ->
+        {_label, _provider_id} ->
           {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
           view
           |> element("button[phx-click='new_ai_credential']")
           |> render_click()
 
-          html = render(view)
-          refute html =~ ~s(data-select-option="#{label}")
-          refute html =~ ~s(data-select-value="#{provider_id}")
+          assert has_element?(view, "#ai-credential-provider-select")
       end
     end
 
@@ -816,6 +830,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           assert html =~ provider_id
           assert html =~ "unsupported"
           assert html =~ ~s(data-select-disabled="true")
+          assert html =~ "OpenAI Codex"
       end
     end
 
@@ -913,15 +928,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
-      view
-      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
-      |> render_click()
-
-      view
-      |> element(
-        "button[phx-click='connect_ai_credential_oauth'][phx-value-id='#{credential.id}']"
-      )
-      |> render_click()
+      render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(credential.id)})
 
       connect_credential =
         Connect.list_credentials()
@@ -950,6 +957,320 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert url =~ "id_token_add_organizations=true"
       assert url =~ "codex_cli_simplified_flow=true"
       assert url =~ "code_challenge_method=S256"
+    end
+
+    test "oauth_popup_result closes the popup and shows the completion flash", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "OpenAI Codex OAuth",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api",
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "auth_profile" => "openai_chatgpt_codex",
+            "authorize_url" => "https://auth.openai.com/oauth/authorize",
+            "token_url" => "https://auth.openai.com/oauth/token",
+            "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+            "scope" => "openid profile email offline_access",
+            "authorize_params" => %{"originator" => "zaqos"}
+          }
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      view
+      |> element(
+        "button[phx-click='connect_ai_credential_oauth'][phx-value-id='#{credential.id}']"
+      )
+      |> render_click()
+
+      html = render_hook(view, "oauth_popup_result", %{})
+
+      assert html =~ "OAuth2 grant flow completed."
+      refute html =~ "oauth-claim-modal"
+    end
+
+    test "oauth_popup_blocked closes the popup and shows the blocked flash", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "OpenAI Codex OAuth",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api",
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "auth_profile" => "openai_chatgpt_codex",
+            "authorize_url" => "https://auth.openai.com/oauth/authorize",
+            "token_url" => "https://auth.openai.com/oauth/token",
+            "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+            "scope" => "openid profile email offline_access",
+            "authorize_params" => %{"originator" => "zaqos"}
+          }
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      view
+      |> element(
+        "button[phx-click='connect_ai_credential_oauth'][phx-value-id='#{credential.id}']"
+      )
+      |> render_click()
+
+      html = render_hook(view, "oauth_popup_blocked", %{})
+
+      assert html =~ "Popup was blocked by the browser. Allow popups and try again."
+      refute html =~ "oauth-claim-modal"
+    end
+
+    test "close_oauth_claim closes the popup modal after opening", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "OpenAI Codex OAuth",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api",
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "auth_profile" => "openai_chatgpt_codex",
+            "authorize_url" => "https://auth.openai.com/oauth/authorize",
+            "token_url" => "https://auth.openai.com/oauth/token",
+            "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+            "scope" => "openid profile email offline_access",
+            "authorize_params" => %{"originator" => "zaqos"}
+          }
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      view
+      |> element(
+        "button[phx-click='connect_ai_credential_oauth'][phx-value-id='#{credential.id}']"
+      )
+      |> render_click()
+
+      assert has_element?(view, "#oauth-claim-modal")
+
+      html = render_click(view, "close_oauth_claim", %{})
+
+      refute has_element?(view, "#oauth-claim-modal")
+      refute html =~ "oauth-claim-modal"
+    end
+
+    test "connect_ai_credential_oauth reports missing credential and unsupported auth mode", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      render_click(view, "connect_ai_credential_oauth", %{"id" => "99999999"})
+      assert render(view) =~ "AI credential was not found."
+
+      credential =
+        ai_credential_fixture(%{
+          name: "Unsupported OAuth",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          metadata: %{
+            "auth_kind" => "api_key",
+            "client_id" => "client-id",
+            "scope" => "openid profile email"
+          }
+        })
+
+      before_count = length(Connect.list_credentials())
+
+      render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(credential.id)})
+
+      assert length(Connect.list_credentials()) == before_count
+      refute has_element?(view, "#oauth-claim-modal")
+    end
+
+    test "connect_ai_credential_oauth requires a global base URL before starting OAuth2", %{
+      conn: conn
+    } do
+      previous_base_url = System.get_global_base_url()
+      :ok = System.set_global_base_url(nil)
+
+      on_exit(fn -> :ok = System.set_global_base_url(previous_base_url) end)
+
+      credential =
+        ai_credential_fixture(%{
+          name: "OpenAI OAuth",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "client_id" => "client-id",
+            "scope" => "openid profile email"
+          }
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      view
+      |> element(
+        "button[phx-click='connect_ai_credential_oauth'][phx-value-id='#{credential.id}']"
+      )
+      |> render_click()
+
+      assert render(view) =~ "Global base URL is required before starting OAuth2."
+    end
+
+    test "connect_ai_credential_oauth updates an existing backing Connect credential", %{
+      conn: conn
+    } do
+      credential =
+        ai_credential_fixture(%{
+          name: "OpenAI Codex OAuth",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api",
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "auth_profile" => "openai_chatgpt_codex",
+            "authorize_url" => "https://auth.openai.com/oauth/authorize",
+            "token_url" => "https://auth.openai.com/oauth/token",
+            "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
+            "scope" => "openid profile email offline_access",
+            "authorize_params" => %{"originator" => "zaqos"}
+          }
+        })
+
+      {:ok, existing_connect_credential} =
+        Connect.create_credential(%{
+          name: "Existing AI OAuth backing credential",
+          provider: "openai",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "old-client-id",
+          client_secret: "old-client-secret",
+          metadata: %{
+            "ai_provider_credential_id" => to_string(credential.id),
+            "managed_by" => "system_config_ai_provider",
+            "client_id" => "old-client-id",
+            "scope" => "old.scope"
+          },
+          scopes: ["old.scope"]
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='edit_ai_credential'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html =
+        view
+        |> element(
+          "button[phx-click='connect_ai_credential_oauth'][phx-value-id='#{credential.id}']"
+        )
+        |> render_click()
+
+      assert html =~ "oauth-claim-modal"
+
+      connect_credentials =
+        Connect.list_credentials()
+        |> Enum.filter(fn connect_credential ->
+          connect_credential.metadata["ai_provider_credential_id"] == to_string(credential.id)
+        end)
+
+      assert length(connect_credentials) == 1
+
+      updated = hd(connect_credentials)
+      assert updated.id == existing_connect_credential.id
+      assert updated.name == "AI OAuth #{credential.id}: #{credential.name}"
+      assert updated.provider == "openai"
+      assert updated.auth_kind == "oauth2"
+      assert updated.request_format == "bearer"
+      assert updated.client_id == "app_EMoamEEZ73f0CkXaXp7hrann"
+      assert updated.scopes == ["openid", "profile", "email", "offline_access"]
+      assert updated.metadata["authorize_params"]["id_token_add_organizations"] == "true"
+      assert updated.metadata["authorize_params"]["codex_cli_simplified_flow"] == "true"
+      assert updated.metadata["managed_by"] == "system_config_ai_provider"
+    end
+
+    test "connect_ai_credential_oauth reports dispatch failures from the OAuth URL builder", %{
+      conn: conn
+    } do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      credential =
+        ai_credential_fixture(%{
+          name: "OpenAI OAuth",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "client_id" => "client-id",
+            "scope" => "openid profile email"
+          }
+        })
+
+      {:ok, existing_connect_credential} =
+        Connect.create_credential(%{
+          name: "Existing OpenAI OAuth",
+          provider: "openai",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "client-id",
+          client_secret: "client-secret",
+          metadata: %{"ai_provider_credential_id" => to_string(credential.id)}
+        })
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_list_ai_provider_credentials ->
+            %Zaq.Event{event | response: [credential]}
+
+          :system_config_get_ai_provider_credential_bang ->
+            %Zaq.Event{event | response: {:ok, credential}}
+
+          :system_config_connect_list_credentials ->
+            %Zaq.Event{event | response: [existing_connect_credential]}
+
+          :system_config_connect_list_grants ->
+            %Zaq.Event{event | response: []}
+
+          :connect_list_grants ->
+            %Zaq.Event{event | response: []}
+
+          :system_config_connect_next_refresh_jobs_for_grants ->
+            %Zaq.Event{event | response: %{}}
+
+          :system_config_get_global_base_url ->
+            %Zaq.Event{event | response: "https://zaq.example"}
+
+          :system_config_connect_update_credential ->
+            %Zaq.Event{event | response: {:ok, existing_connect_credential}}
+
+          :connect_oauth_build_authorize_url ->
+            %Zaq.Event{event | response: {:error, :boom}}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      _html =
+        render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(credential.id)})
+
+      refute has_element?(view, "#oauth-claim-modal")
     end
 
     test "deletes an unused credential from edit modal with confirmation", %{conn: conn} do
@@ -1302,6 +1623,100 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html_empty =~ "llm-config-form"
       assert html_missing =~ "llm-config-form"
+      assert html_empty =~ ~s(name="llm_config[path]" value="/chat/completions")
+      assert html_missing =~ ~s(name="llm_config[path]" value="/chat/completions")
+    end
+
+    test "validate_llm sorts model options alphabetically for provider-backed credentials", %{
+      conn: conn
+    } do
+      credential =
+        ai_credential_fixture(%{
+          name: "OpenAI Codex Sort",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => Integer.to_string(credential.id),
+            "model" => "",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions"
+          }
+        })
+
+      models =
+        ProviderModels.models("openai_codex")
+        |> Enum.map(&(&1.name || &1.id))
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      rendered_models =
+        Enum.filter(models, fn model ->
+          String.contains?(html, ~s(data-select-option="#{model}"))
+        end)
+
+      case rendered_models do
+        [first, second | _] ->
+          assert :binary.match(html, ~s(data-select-option="#{first}")) <
+                   :binary.match(html, ~s(data-select-option="#{second}"))
+
+        _ ->
+          flunk("expected at least two openai_codex models to exercise ordering")
+      end
+    end
+
+    test "validate_llm renders a manual model input for custom providers", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => "",
+            "model" => "",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+      refute html =~ ~s(id="llm-model-select")
+      assert html =~ ~s(name="llm_config[model]" value="")
+    end
+
+    test "validate_llm treats omitted credential ids as custom providers", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "model" => "",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+      refute html =~ ~s(id="llm-model-select")
     end
   end
 
@@ -2175,6 +2590,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         })
 
       assert html =~ "embedding-config-form"
+      refute html =~ ~s(id="embedding-model-select")
     end
 
     test "validate_embedding with unknown provider handles ArgumentError", %{conn: conn} do
@@ -3213,6 +3629,37 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
+  describe "global settings session fallback" do
+    test "falls back to the real node router when the session module is invalid", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, "not-an-atom")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      assert has_element?(view, "#global-base-url-input")
+      assert has_element?(view, "#global-default-agent-select")
+    end
+  end
+
+  describe "global settings loading with mocked router" do
+    setup [:with_node_router_mock_setup]
+
+    test "unwrap_ok! accepts a raw global base URL response", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :system_config_get_global_base_url do
+          %Zaq.Event{event | response: "https://raw-base-url.example"}
+        else
+          build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, _view, html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      assert html =~ ~s(value="https://raw-base-url.example")
+    end
+  end
+
   describe "AI credential edge cases" do
     test "validate_ai_credential from edit mode keeps provider endpoint unchanged", %{conn: conn} do
       credential =
@@ -3639,6 +4086,79 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "Unable to erase grant."
       assert render(view) =~ "#{grant.resource_type}:#{grant.resource_id}"
+    end
+
+    test "delete and refresh grant unexpected responses show failure flashes", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Mocked Grant Unexpected #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      {:ok, grant} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "data_source",
+          resource_id: "123",
+          owner_type: "org",
+          owner_id: 1,
+          request_format: "bearer",
+          status: "active",
+          access_token: "access-live",
+          refresh_token: "refresh-live",
+          scopes: ["scope.read"],
+          expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+        })
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_connect_list_credentials ->
+            %Zaq.Event{event | response: [credential]}
+
+          :system_config_connect_list_grants ->
+            %Zaq.Event{event | response: [grant]}
+
+          :system_config_connect_next_refresh_jobs_for_grants ->
+            %Zaq.Event{event | response: %{grant.id => DateTime.utc_now()}}
+
+          :system_config_connect_delete_grant ->
+            %Zaq.Event{event | response: :unexpected}
+
+          :system_config_connect_schedule_refresh ->
+            %Zaq.Event{event | response: :unexpected}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+      |> render_click()
+
+      html =
+        view
+        |> element(
+          "button[phx-click='trigger_connect_grant_refresh'][phx-value-id='#{grant.id}']"
+        )
+        |> render_click()
+
+      assert html =~ "Unable to queue grant refresh."
+
+      html =
+        view
+        |> element("button[phx-click='delete_connect_grant'][phx-value-id='#{grant.id}']")
+        |> render_click()
+
+      assert html =~ "Unable to erase grant."
     end
 
     test "open_connect_grants with unknown id resets the grants modal state", %{conn: conn} do

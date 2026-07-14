@@ -25,6 +25,13 @@ defmodule Zaq.Utils.MapTest do
     test "returns nil for unknown atom keys without creating atoms" do
       assert Map.metadata_value(%{}, "not_existing_metadata_key") == nil
     end
+
+    test "returns nil for invalid metadata or unsupported key types" do
+      assert Map.metadata_value(nil, "subject") == nil
+      assert Map.metadata_value("not-a-map", :subject) == nil
+      assert Map.metadata_value(%{subject: "hello"}, nil) == nil
+      assert Map.metadata_value(%{subject: "hello"}, 123) == nil
+    end
   end
 
   describe "stringify_keys/1" do

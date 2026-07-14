@@ -144,6 +144,173 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     end
   end
 
+  defmodule GenericOAuthHTTPNoScopeClient do
+    def post(opts) do
+      maybe_send({:generic_oauth_post_opts, opts})
+
+      case opts[:form]["grant_type"] do
+        "authorization_code" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "access_token" => "no-scope-access-token",
+               "refresh_token" => "no-scope-refresh-token",
+               "expires_at" => DateTime.add(DateTime.utc_now(), 1800, :second)
+             }
+           }}
+      end
+    end
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
+  end
+
+  defmodule GenericOAuthHTTPTopLevelAccountClient do
+    def post(opts) do
+      maybe_send({:generic_oauth_post_opts, opts})
+
+      case opts[:form]["grant_type"] do
+        "authorization_code" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "id_token" => token(%{"chatgpt_account_id" => "acct_top"}),
+               "access_token" => "top-level-access-token",
+               "refresh_token" => "top-level-refresh-token",
+               "expires_at" => DateTime.add(DateTime.utc_now(), 1800, :second)
+             }
+           }}
+      end
+    end
+
+    defp token(claims) do
+      [
+        Base.url_encode64(Jason.encode!(%{"alg" => "none"}), padding: false),
+        Base.url_encode64(Jason.encode!(claims), padding: false),
+        "signature"
+      ]
+      |> Enum.join(".")
+    end
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
+  end
+
+  defmodule GenericOAuthHTTPNoAccountClient do
+    def post(opts) do
+      maybe_send({:generic_oauth_post_opts, opts})
+
+      case opts[:form]["grant_type"] do
+        "authorization_code" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "id_token" => token(%{"sub" => "user-123"}),
+               "access_token" => "no-account-access-token",
+               "refresh_token" => "no-account-refresh-token",
+               "expires_at" => DateTime.add(DateTime.utc_now(), 1800, :second)
+             }
+           }}
+      end
+    end
+
+    defp token(claims) do
+      [
+        Base.url_encode64(Jason.encode!(%{"alg" => "none"}), padding: false),
+        Base.url_encode64(Jason.encode!(claims), padding: false),
+        "signature"
+      ]
+      |> Enum.join(".")
+    end
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
+  end
+
+  defmodule GenericOAuthHTTPExchangeHttpErrorClient do
+    def post(opts) do
+      maybe_send({:generic_oauth_post_opts, opts})
+
+      case opts[:form]["grant_type"] do
+        "authorization_code" ->
+          {:ok, %{status: 400, body: %{"error" => "invalid_grant"}}}
+      end
+    end
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
+  end
+
+  defmodule GenericOAuthHTTPExchangeTransportErrorClient do
+    def post(opts) do
+      maybe_send({:generic_oauth_post_opts, opts})
+
+      case opts[:form]["grant_type"] do
+        "authorization_code" -> {:error, :timeout}
+      end
+    end
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
+  end
+
+  defmodule GenericOAuthHTTPRefreshHttpErrorClient do
+    def post(opts) do
+      maybe_send({:generic_oauth_post_opts, opts})
+
+      case opts[:form]["grant_type"] do
+        "refresh_token" -> {:ok, %{status: 401, body: %{"error" => "invalid_token"}}}
+      end
+    end
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
+  end
+
+  defmodule GenericOAuthHTTPRefreshTransportErrorClient do
+    def post(opts) do
+      maybe_send({:generic_oauth_post_opts, opts})
+
+      case opts[:form]["grant_type"] do
+        "refresh_token" -> {:error, :closed}
+      end
+    end
+
+    defp maybe_send(message) do
+      case Process.whereis(__MODULE__) do
+        nil -> :ok
+        pid -> send(pid, message)
+      end
+    end
+  end
+
   setup do
     original_base_url = ZaqSystem.get_global_base_url()
     original_channels = Application.get_env(:zaq, :channels)
@@ -428,6 +595,167 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     assert refresh_opts[:form]["refresh_token"] == "enc:test-v1:not-base64"
 
     Process.unregister(GenericOAuthHTTPClient)
+  end
+
+  test "finalize_callback/2 omits blank code_verifier and normalizes absent scopes" do
+    Process.register(self(), GenericOAuthHTTPNoScopeClient)
+    Application.put_env(:zaq, :connect_oauth_http_client, GenericOAuthHTTPNoScopeClient)
+    :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+    on_exit(fn ->
+      if Process.whereis(GenericOAuthHTTPNoScopeClient),
+        do: Process.unregister(GenericOAuthHTTPNoScopeClient)
+    end)
+
+    credential =
+      create_credential!(%{
+        provider: "openai",
+        metadata: %{"token_url" => "https://auth.example/token"}
+      })
+
+    state =
+      OAuthState.sign(%{
+        "credential_id" => credential.id,
+        "provider" => "openai",
+        "resource_type" => "ai_provider_credential",
+        "resource_id" => "123",
+        "owner_type" => "org",
+        "oauth" => %{"code_verifier" => ""}
+      })
+
+    assert {:ok, grant} =
+             OAuth.finalize_callback("openai", %{"state" => state, "code" => "oauth-code"})
+
+    assert_receive {:generic_oauth_post_opts, code_exchange_opts}
+    refute Map.has_key?(code_exchange_opts[:form], "code_verifier")
+    assert grant.scopes == []
+
+    Process.unregister(GenericOAuthHTTPNoScopeClient)
+  end
+
+  test "finalize_callback/2 maps generic exchange HTTP failures" do
+    Application.put_env(:zaq, :connect_oauth_http_client, GenericOAuthHTTPExchangeHttpErrorClient)
+
+    credential =
+      create_credential!(%{
+        provider: "openai",
+        metadata: %{"token_url" => "https://auth.example/token"}
+      })
+
+    state =
+      OAuthState.sign(%{
+        "credential_id" => credential.id,
+        "provider" => "openai",
+        "resource_type" => "ai_provider_credential",
+        "resource_id" => "123",
+        "owner_type" => "org"
+      })
+
+    assert {:error, {:oauth_exchange_failed, 400, %{"error" => "invalid_grant"}}} =
+             OAuth.finalize_callback("openai", %{"state" => state, "code" => "oauth-code"})
+  end
+
+  test "finalize_callback/2 maps generic exchange transport failures" do
+    Application.put_env(
+      :zaq,
+      :connect_oauth_http_client,
+      GenericOAuthHTTPExchangeTransportErrorClient
+    )
+
+    credential =
+      create_credential!(%{
+        provider: "openai",
+        metadata: %{"token_url" => "https://auth.example/token"}
+      })
+
+    state =
+      OAuthState.sign(%{
+        "credential_id" => credential.id,
+        "provider" => "openai",
+        "resource_type" => "ai_provider_credential",
+        "resource_id" => "123",
+        "owner_type" => "org"
+      })
+
+    assert {:error, :timeout} =
+             OAuth.finalize_callback("openai", %{"state" => state, "code" => "oauth-code"})
+  end
+
+  test "refresh_token_payload/2 maps generic refresh HTTP failures" do
+    Application.put_env(:zaq, :connect_oauth_http_client, GenericOAuthHTTPRefreshHttpErrorClient)
+
+    credential = %Connect.Credential{metadata: %{"token_url" => "https://auth.example/token"}}
+    grant = %Connect.Grant{refresh_token: "refresh-token"}
+
+    assert {:error, {:oauth_refresh_failed, 401, %{"error" => "invalid_token"}}} =
+             OAuth.refresh_token_payload(credential, grant)
+  end
+
+  test "refresh_token_payload/2 maps generic refresh transport failures" do
+    Application.put_env(
+      :zaq,
+      :connect_oauth_http_client,
+      GenericOAuthHTTPRefreshTransportErrorClient
+    )
+
+    credential = %Connect.Credential{metadata: %{"token_url" => "https://auth.example/token"}}
+    grant = %Connect.Grant{refresh_token: "refresh-token"}
+
+    assert {:error, :closed} = OAuth.refresh_token_payload(credential, grant)
+  end
+
+  test "finalize_callback/2 stores top-level ChatGPT account claim" do
+    Application.put_env(:zaq, :connect_oauth_http_client, GenericOAuthHTTPTopLevelAccountClient)
+
+    credential =
+      create_credential!(%{
+        provider: "openai",
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "token_url" => "https://auth.example/token"
+        }
+      })
+
+    state =
+      OAuthState.sign(%{
+        "credential_id" => credential.id,
+        "provider" => "openai",
+        "resource_type" => "ai_provider_credential",
+        "resource_id" => "123",
+        "owner_type" => "org"
+      })
+
+    assert {:ok, grant} =
+             OAuth.finalize_callback("openai", %{"state" => state, "code" => "oauth-code"})
+
+    assert grant.metadata["chatgpt_account_id"] == "acct_top"
+  end
+
+  test "finalize_callback/2 leaves Codex metadata unchanged when no account claim exists" do
+    Application.put_env(:zaq, :connect_oauth_http_client, GenericOAuthHTTPNoAccountClient)
+
+    credential =
+      create_credential!(%{
+        provider: "openai",
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "token_url" => "https://auth.example/token"
+        }
+      })
+
+    state =
+      OAuthState.sign(%{
+        "credential_id" => credential.id,
+        "provider" => "openai",
+        "resource_type" => "ai_provider_credential",
+        "resource_id" => "123",
+        "owner_type" => "org"
+      })
+
+    assert {:ok, grant} =
+             OAuth.finalize_callback("openai", %{"state" => state, "code" => "oauth-code"})
+
+    refute Map.has_key?(grant.metadata, "chatgpt_account_id")
   end
 
   test "finalize_callback/2 returns provider mismatch" do

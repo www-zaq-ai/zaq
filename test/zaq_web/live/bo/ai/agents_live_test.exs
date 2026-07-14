@@ -17,6 +17,56 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   alias Zaq.System, as: ZaqSystem
   alias ZaqWeb.Live.BO.AI.AgentsLive
 
+  defmodule WarningRuntimeSync do
+    def sync_agent_runtime(_agent, _server_ref, _opts) do
+      {:ok,
+       %{
+         tools: %{added_tools: [], removed_tools: []},
+         mcp: %{warnings: [%{endpoint_id: 1, reason: :boom}]}
+       }}
+    end
+  end
+
+  defmodule StubNodeRouter do
+    def dispatch(event) do
+      response = Process.get(:agents_live_dispatch_response)
+
+      if is_function(response, 1) do
+        %{event | response: response.(event)}
+      else
+        %{event | response: response}
+      end
+    end
+  end
+
+  defmodule StubConfig do
+    def get(:zaq, :agents_live_node_router_module, _default, _opts), do: StubNodeRouter
+    def get(app, key, default, _opts), do: Application.get_env(app, key, default)
+  end
+
+  defp with_agents_live_router_response(response, fun) do
+    previous_response = Process.get(:agents_live_dispatch_response)
+
+    Process.put(:agents_live_dispatch_response, response)
+
+    try do
+      fun.()
+    after
+      case previous_response do
+        nil -> Process.delete(:agents_live_dispatch_response)
+        value -> Process.put(:agents_live_dispatch_response, value)
+      end
+    end
+  end
+
+  defp use_stub_config(socket), do: Phoenix.Component.assign(socket, :config, StubConfig)
+
+  defp stubbed_raw_socket(socket) do
+    socket
+    |> use_stub_config()
+    |> then(fn socket -> %{socket | assigns: Map.put(socket.assigns, :flash, %{})} end)
+  end
+
   setup :verify_on_exit!
 
   setup %{conn: conn} do
@@ -987,6 +1037,69 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
              "Agent updated. 2 runtime servers stopped; they will restart on next message."
   end
 
+  test "edit shows MCP warnings when runtime sync returns warnings", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Warning Agent #{System.unique_integer([:positive])}",
+        description: "before",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    assert {:ok, _ref} =
+             ServerManager.ensure_server(agent, "agent:mattermost:person:#{agent.id}")
+
+    previous_runtime_sync_module = Application.get_env(:zaq, :agent_runtime_sync_module)
+
+    on_exit(fn ->
+      case previous_runtime_sync_module do
+        nil -> Application.delete_env(:zaq, :agent_runtime_sync_module)
+        module -> Application.put_env(:zaq, :agent_runtime_sync_module, module)
+      end
+    end)
+
+    Application.put_env(:zaq, :agent_runtime_sync_module, WarningRuntimeSync)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    render_click(element(view, "#agent-row-#{agent.id}"))
+
+    html =
+      view
+      |> form("#configured-agent-form",
+        configured_agent: %{
+          "name" => agent.name,
+          "description" => "after",
+          "job" => "You are v2",
+          "model" => "gpt-4.1-mini",
+          "credential_id" => to_string(credential.id),
+          "strategy" => "react",
+          "enabled_tool_keys" => [""],
+          "advanced_options_json" => "{}",
+          "conversation_enabled" => "false",
+          "active" => "true"
+        }
+      )
+      |> render_submit()
+
+    state = :sys.get_state(view.pid)
+    warning = Phoenix.Flash.get(state.socket.assigns.flash, :warning)
+
+    assert html =~ "Agent updated"
+    assert warning =~ "Agent saved with MCP warnings:"
+    assert warning =~ "endpoint_id"
+    assert warning =~ ":boom"
+  end
+
   test "save fails for duplicate name on create and update", %{conn: conn} do
     credential =
       ai_credential_fixture(%{
@@ -1047,6 +1160,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_submit()
 
     assert render(view) =~ "has already been taken"
+    assert has_element?(view, "#configured-agent-form")
+    refute render(view) =~ "Agent updated"
 
     view
     |> element("#agent-row-#{to_update.id}")
@@ -1070,6 +1185,9 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> render_submit()
 
     assert render(view) =~ "has already been taken"
+    assert has_element?(view, "#configured-agent-form")
+    assert render(view) =~ to_update.name
+    refute render(view) =~ "Agent updated"
   end
 
   test "validation accepts empty advanced options and non-list tool keys", %{conn: conn} do
@@ -1356,6 +1474,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
   test "validate handles non-binary advanced options payloads in raw event calls without surfacing error" do
     {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+    socket = stubbed_raw_socket(socket)
 
     {:noreply, socket} =
       AgentsLive.handle_event(
@@ -1490,6 +1609,31 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert socket.assigns.advanced_options_json == "{}"
   end
 
+  test "raw select falls back to empty json when advanced options cannot be encoded" do
+    agent = %ConfiguredAgent{
+      id: 987_655,
+      name: "Raw Encode Fallback",
+      description: "",
+      job: "Job",
+      model: "gpt-4.1-mini",
+      strategy: "react",
+      enabled_tool_keys: [],
+      enabled_mcp_endpoint_ids: [],
+      enabled_skill_ids: [],
+      advanced_options: %{"bad" => <<255>>},
+      conversation_enabled: false,
+      active: true
+    }
+
+    {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+    socket = Phoenix.Component.assign(socket, agents: [agent])
+
+    {:noreply, socket} =
+      AgentsLive.handle_event("select_agent", %{"id" => to_string(agent.id)}, socket)
+
+    assert socket.assigns.advanced_options_json == "{}"
+  end
+
   test "raw edit validate fetches selected agent when only selected id is assigned" do
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
@@ -1539,6 +1683,266 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
     assert socket.assigns.changeset.data.id == agent.id
     assert Changeset.get_change(socket.assigns.changeset, :description) == "after"
+  end
+
+  test "delete_agent falls back when changeset has no base error" do
+    with_agents_live_router_response(
+      {:error, %ConfiguredAgent{} |> Changeset.change() |> Changeset.add_error(:name, "bad")},
+      fn ->
+        {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+        socket = stubbed_raw_socket(socket)
+
+        {:noreply, socket} = AgentsLive.handle_event("delete_agent", %{"id" => "123"}, socket)
+
+        assert Phoenix.Flash.get(socket.assigns.flash, :error) =~ "Failed to delete agent"
+      end
+    )
+  end
+
+  test "delete_agent handles unexpected dispatch response" do
+    with_agents_live_router_response(:unexpected_delete_response, fn ->
+      {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+      socket = stubbed_raw_socket(socket)
+
+      {:noreply, socket} = AgentsLive.handle_event("delete_agent", %{"id" => "123"}, socket)
+
+      assert Phoenix.Flash.get(socket.assigns.flash, :error) =~
+               "Failed to delete agent: :unexpected_delete_response"
+    end)
+  end
+
+  test "create agent handles wrapped payload response with no warnings" do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    agent = %ConfiguredAgent{
+      id: 987_001,
+      name: "Runtime Payload Agent",
+      credential_id: credential.id,
+      model: "gpt-4.1-mini",
+      strategy: "react",
+      enabled_tool_keys: [],
+      enabled_mcp_endpoint_ids: [],
+      enabled_skill_ids: [],
+      advanced_options: %{"temperature" => 0.2},
+      conversation_enabled: false,
+      active: true
+    }
+
+    with_agents_live_router_response({:ok, %{agent: agent}}, fn ->
+      {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+      socket = stubbed_raw_socket(socket)
+      {:noreply, socket} = AgentsLive.handle_event("new_agent", %{}, socket)
+
+      valid_attrs = %{
+        "name" => agent.name,
+        "description" => "",
+        "job" => "You are a helper",
+        "model" => agent.model,
+        "credential_id" => to_string(credential.id),
+        "strategy" => agent.strategy,
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{\"temperature\":0.2}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+
+      {:noreply, socket} =
+        AgentsLive.handle_event("save", %{"configured_agent" => valid_attrs}, socket)
+
+      assert socket.assigns.mode == :edit
+      assert socket.assigns.selected_agent_id == agent.id
+      assert socket.assigns.selected_agent == agent
+      assert socket.assigns.advanced_options_json =~ "temperature"
+      assert Phoenix.Flash.get(socket.assigns.flash, :info) =~ "Agent created"
+    end)
+  end
+
+  test "create agent shows generic error on dispatch failure" do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    with_agents_live_router_response({:error, :create_failed}, fn ->
+      {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+      socket = stubbed_raw_socket(socket)
+      {:noreply, socket} = AgentsLive.handle_event("new_agent", %{}, socket)
+
+      valid_attrs = %{
+        "name" => "Create Failure Agent",
+        "description" => "",
+        "job" => "You are a helper",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+
+      {:noreply, socket} =
+        AgentsLive.handle_event("save", %{"configured_agent" => valid_attrs}, socket)
+
+      assert Phoenix.Flash.get(socket.assigns.flash, :error) =~
+               "Failed to create agent: :create_failed"
+
+      assert socket.assigns.form_notice == nil
+    end)
+  end
+
+  test "update agent assigns changeset on validation error" do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Update Validation Agent #{System.unique_integer([:positive])}",
+        description: "before",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    changeset = Zaq.Agent.change_agent(agent, %{name: ""})
+
+    with_agents_live_router_response({:error, changeset}, fn ->
+      {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+      socket = stubbed_raw_socket(socket)
+
+      socket =
+        Phoenix.Component.assign(socket,
+          mode: :edit,
+          selected_agent: agent,
+          selected_agent_id: agent.id
+        )
+
+      valid_attrs = %{
+        "name" => agent.name,
+        "description" => "after",
+        "job" => "You are v2",
+        "model" => agent.model,
+        "credential_id" => to_string(credential.id),
+        "strategy" => agent.strategy,
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+
+      {:noreply, socket} =
+        AgentsLive.handle_event("save", %{"configured_agent" => valid_attrs}, socket)
+
+      assert socket.assigns.changeset.action == :update
+      assert socket.assigns.form_notice == nil
+      assert Phoenix.Flash.get(socket.assigns.flash, :info) == nil
+    end)
+  end
+
+  test "update notice treats non-list stopped ids as zero" do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Update Stop Count Agent #{System.unique_integer([:positive])}",
+        description: "before",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    with_agents_live_router_response(
+      {:ok, %{agent: agent, runtime: %{"stopped_server_ids" => "not-list"}}},
+      fn ->
+        {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+        socket = stubbed_raw_socket(socket)
+
+        socket =
+          Phoenix.Component.assign(socket,
+            mode: :edit,
+            selected_agent: agent,
+            selected_agent_id: agent.id
+          )
+
+        valid_attrs = %{
+          "name" => agent.name,
+          "description" => "after",
+          "job" => "You are v2",
+          "model" => agent.model,
+          "credential_id" => to_string(credential.id),
+          "strategy" => agent.strategy,
+          "enabled_tool_keys" => [""],
+          "advanced_options_json" => "{}",
+          "conversation_enabled" => "false",
+          "active" => "true"
+        }
+
+        {:noreply, socket} =
+          AgentsLive.handle_event("save", %{"configured_agent" => valid_attrs}, socket)
+
+        assert socket.assigns.form_notice == "Agent updated"
+      end
+    )
+  end
+
+  test "update warning handles malformed runtime payload" do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Update Warning Agent #{System.unique_integer([:positive])}",
+        description: "before",
+        job: "You are v1",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    with_agents_live_router_response({:ok, %{agent: agent, runtime: :bad_runtime}}, fn ->
+      {:ok, socket} = AgentsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+      socket = stubbed_raw_socket(socket)
+
+      socket =
+        Phoenix.Component.assign(socket,
+          mode: :edit,
+          selected_agent: agent,
+          selected_agent_id: agent.id
+        )
+
+      valid_attrs = %{
+        "name" => agent.name,
+        "description" => "after",
+        "job" => "You are v2",
+        "model" => agent.model,
+        "credential_id" => to_string(credential.id),
+        "strategy" => agent.strategy,
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+
+      {:noreply, socket} =
+        AgentsLive.handle_event("save", %{"configured_agent" => valid_attrs}, socket)
+
+      assert socket.assigns.form_notice == "Agent updated"
+      assert Phoenix.Flash.get(socket.assigns.flash, :warning) == nil
+    end)
   end
 
   test "tools modal lists enabled tools and allows removing from modal", %{conn: conn} do
@@ -1712,6 +2116,41 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "Agent deleted"
     refute has_element?(view, "#configured-agent-form")
     refute Enum.any?(Zaq.Agent.list_agents(), &(&1.id == agent.id))
+  end
+
+  test "deleting in-use agent shows base changeset error", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Delete In Use Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "delete in use",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    previous_default_agent_id = ZaqSystem.get_global_default_agent_id()
+    :ok = ZaqSystem.set_global_default_agent_id(agent.id)
+
+    on_exit(fn -> ZaqSystem.set_global_default_agent_id(previous_default_agent_id) end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+
+    render_click(element(view, "#agent-row-#{agent.id}"))
+
+    html = render_click(element(view, "#delete-agent-button"))
+
+    assert html =~ "Agent is in use by:"
+    assert html =~ "global default channels.global_default_agent_id"
+    assert Enum.any?(Zaq.Agent.list_agents(), &(&1.id == agent.id))
+    assert has_element?(view, "#configured-agent-form")
   end
 
   test "deleting another agent leaves the current edit form open", %{conn: conn} do

@@ -169,4 +169,42 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
              "metadata" => "not-json"
            }
   end
+
+  test "normalize_params/2 returns non-map params unchanged" do
+    params = :invalid_params
+
+    result = AICredentialEvents.normalize_params(params, config: TestConfig)
+
+    assert result === params
+  end
+
+  test "normalize_params/1 converts blank metadata string to empty map" do
+    params = %{
+      "auth_mode" => "api_key",
+      "metadata" => "   \n\t "
+    }
+
+    result = AICredentialEvents.normalize_params(params)
+
+    assert result == %{"metadata" => %{}}
+    refute Map.has_key?(result, "auth_mode")
+  end
+
+  test "normalize_params/1 preserves metadata for unknown auth mode" do
+    metadata = %{
+      "project" => "zaq",
+      "auth_kind" => "oauth2",
+      "auth_profile" => "custom"
+    }
+
+    params = %{
+      "auth_mode" => "custom_mode",
+      "metadata" => metadata
+    }
+
+    result = AICredentialEvents.normalize_params(params)
+
+    assert result == %{"metadata" => metadata}
+    refute Map.has_key?(result, "auth_mode")
+  end
 end
