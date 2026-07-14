@@ -32,6 +32,21 @@
   height: 16rem;
 }
 
-.zaq-modal-preview .fixed {
+/* Contain token-backed modal overlay inside bounded preview frames (replaces legacy .fixed) */
+.zaq-modal-preview .zaq-bo-modal-overlay {
   position: absolute !important;
+}
+
+/* iframe_dialog — shrink embed to preview frame (production uses 75vh via .zaq-modal-iframe) */
+.zaq-modal-preview .zaq-modal.zaq-modal--flush {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  width: 100%;
+}
+
+.zaq-modal-preview .zaq-modal-iframe {
+  flex: 1 1 auto;
+  min-height: 10rem;
+  height: auto;
 }

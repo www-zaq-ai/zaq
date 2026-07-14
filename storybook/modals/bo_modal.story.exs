@@ -3,9 +3,23 @@ defmodule Storybook.Modals.BoModal do
   use Phoenix.Component
 
   import ZaqWeb.Components.BOModal
+  import ZaqWeb.Components.DesignSystem.Button
+  import ZaqWeb.Components.DesignSystem.Input
 
   @cancel_event "storybook_close_modal"
   @module "ZaqWeb.Components.BOModal"
+  @iframe_demo_src "data:text/html;charset=utf-8," <>
+                     URI.encode("""
+                     <!DOCTYPE html>
+                     <html>
+                       <body style="margin:0;padding:1.5rem;font-family:system-ui,sans-serif;background:#eff6ff;color:#1e3a5f">
+                         <p style="margin:0 0 0.5rem;font-weight:600">Authorize ZAQ</p>
+                         <p style="margin:0;font-size:0.875rem;line-height:1.5">
+                           Mock OAuth consent screen for Storybook preview.
+                         </p>
+                       </body>
+                     </html>
+                     """)
 
   def description do
     """
@@ -15,7 +29,10 @@ defmodule Storybook.Modals.BoModal do
   end
 
   def render(assigns) do
-    assigns = assign(assigns, :cancel_event, @cancel_event)
+    assigns =
+      assigns
+      |> assign(:cancel_event, @cancel_event)
+      |> assign(:iframe_demo_src, @iframe_demo_src)
 
     ~H"""
     <div
@@ -26,7 +43,7 @@ defmodule Storybook.Modals.BoModal do
       <.doc_section
         id="modal-shell"
         title="modal_shell/1"
-        when_to_use="Low-level wrapper for custom modal bodies. Uses `modal.css` tokens (`zaq-bo-modal-backdrop`, `zaq-modal`). Prefer `form_dialog/1` for standard add/edit popins."
+        when_to_use="Low-level wrapper for custom modal bodies. Uses `modal.css` tokens (`zaq-bo-modal-backdrop`, `zaq-modal`). Pass optional `title` for the shared `.zaq-modal-header` row (same as `form_dialog/1`). Prefer `form_dialog/1` for standard add/edit popins with a footer."
         rows={modal_shell_rows()}
         code={modal_shell_usage()}
       >
@@ -34,6 +51,18 @@ defmodule Storybook.Modals.BoModal do
           <.modal_shell id="sb-shell-default" cancel_event={@cancel_event}>
             <p class="zaq-text-body-sm text-center" style="color: var(--zaq-text-color-body-tertiary)">
               Pass any markup in the inner block.
+            </p>
+          </.modal_shell>
+        </.preview_frame>
+        <.preview_frame label="Titled shell — shared `.zaq-modal-header` + scroll body">
+          <.modal_shell
+            id="sb-shell-titled"
+            cancel_event={@cancel_event}
+            title="Add MCP endpoint"
+            max_width_class="zaq-modal--width-lg"
+          >
+            <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
+              Body content uses `.zaq-modal-body` padding when `title` is set.
             </p>
           </.modal_shell>
         </.preview_frame>
@@ -89,52 +118,72 @@ defmodule Storybook.Modals.BoModal do
       <.doc_section
         id="form-dialog"
         title="form_dialog/1"
-        when_to_use="Default for BO add/edit dialogs. Header, scrollable body (`max-h-[90vh]`), optional `:actions` slot. Own backdrop — does not use `modal_shell/1`."
+        when_to_use="Default for BO add/edit dialogs. Composes `modal_shell/1` with titled header, scrollable body (`zaq-modal--form`), and optional `:actions` slot. Use `DesignSystem.Input`, `DesignSystem.Button`, and other DS form modules in the body — see Ingestion `ModalUpload` for a composed example."
         rows={form_dialog_rows()}
         code={form_dialog_usage()}
       >
-        <.preview_frame label="With `:actions` slot" class="zaq-modal-preview--tall">
+        <.preview_frame
+          label="With `:actions` slot — DS body + footer buttons"
+          class="zaq-modal-preview--tall"
+        >
           <.form_dialog
             id="sb-form-actions"
             cancel_event={@cancel_event}
             title="Edit workspace"
-            max_width_class="max-w-lg"
+            max_width_class="zaq-modal--width-lg"
           >
-            <p class="font-mono text-[0.75rem] text-black/65">
-              Body scrolls when content exceeds the viewport. Footer actions stay pinned.
-            </p>
+            <form id="sb-workspace-form" class="zaq-layout-stack">
+              <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
+                Body scrolls when content exceeds the viewport. Footer actions stay pinned.
+              </p>
+              <.input
+                id="sb-workspace-name"
+                name="workspace[name]"
+                label="Name"
+                value="Engineering workspace"
+              />
+              <.input
+                id="sb-workspace-description"
+                name="workspace[description]"
+                type="textarea"
+                label="Description"
+                value="Shared docs and ingestion for the engineering team."
+                rows="3"
+              />
+            </form>
             <:actions>
-              <button
-                type="button"
-                phx-click={@cancel_event}
-                class="rounded-xl border border-black/10 px-5 py-2.5 font-mono text-[0.75rem] text-black/40"
-              >
+              <.button type="button" variant={:secondary} phx-click={@cancel_event}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                class="rounded-xl bg-black px-5 py-2.5 font-mono text-[0.75rem] font-bold text-white"
-              >
+              </.button>
+              <.button type="submit" variant={:primary} form="sb-workspace-form">
                 Save
-              </button>
+              </.button>
             </:actions>
           </.form_dialog>
         </.preview_frame>
-        <.preview_frame label="Body only — omit `:actions` when the form owns its footer">
+        <.preview_frame label="Body only — form owns its footer (omit `:actions`)">
           <.form_dialog
             id="sb-form-body-only"
             cancel_event={@cancel_event}
             title="Rename folder"
-            max_width_class="max-w-sm"
+            max_width_class="zaq-modal--width-sm"
           >
-            <label class="block font-mono text-[0.75rem] text-black/65">
-              Name
-              <input
-                type="text"
+            <form id="sb-rename-form" class="zaq-layout-stack">
+              <.input
+                id="sb-folder-name"
+                name="folder[name]"
+                label="Name"
                 value="Q1 reports"
-                class="mt-2 w-full rounded-lg border border-black/10 px-3 py-2 font-mono text-[0.75rem]"
               />
-            </label>
+              <div class="zaq-modal-form-actions">
+                <.button type="button" variant={:secondary} phx-click={@cancel_event}>
+                  Cancel
+                </.button>
+                <.button type="submit" variant={:primary}>
+                  Rename
+                </.button>
+              </div>
+            </form>
           </.form_dialog>
         </.preview_frame>
       </.doc_section>
@@ -151,9 +200,7 @@ defmodule Storybook.Modals.BoModal do
             id="sb-iframe-oauth"
             cancel_event={@cancel_event}
             title="OAuth2 authorization"
-            src="about:blank"
-            max_width_class="max-w-3xl"
-            height_class="h-48"
+            src={@iframe_demo_src}
           />
         </.preview_frame>
       </.doc_section>
@@ -354,7 +401,7 @@ defmodule Storybook.Modals.BoModal do
               modal_shell/1
             </td>
             <td style="padding: 0.625rem 0.75rem; line-height: 1.5;">
-              Custom body layout (file preview, one-off panels). Override `panel_base_class` for flush chrome.
+              Custom body layout (file preview, pickers). Pass `title` for shared header chrome; override `panel_base_class` for flush layouts.
             </td>
           </tr>
           <tr style="border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);">
@@ -370,7 +417,7 @@ defmodule Storybook.Modals.BoModal do
               form_dialog/1
             </td>
             <td style="padding: 0.625rem 0.75rem; line-height: 1.5;">
-              Standard add/edit popin — titled header, scrollable body, optional footer actions.
+              Standard add/edit popin — DS shell, scrollable body with DesignSystem form controls, optional footer actions.
             </td>
           </tr>
           <tr style="border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);">
@@ -395,6 +442,24 @@ defmodule Storybook.Modals.BoModal do
         type: "string",
         default: "—",
         notes: "Required. Backdrop + Escape event name."
+      },
+      %{
+        name: "title",
+        type: "string",
+        default: "nil",
+        notes: "Optional. Renders shared `.zaq-modal-header` + `.zaq-modal-body` wrapper."
+      },
+      %{
+        name: "title_id",
+        type: "string",
+        default: "nil",
+        notes: "Optional heading id; defaults to `{id}-title` when `id` is set."
+      },
+      %{
+        name: "header_actions",
+        type: "slot",
+        default: "[]",
+        notes: "Optional controls before the close button when `title` is set."
       },
       %{
         name: "max_width_class",
@@ -474,7 +539,12 @@ defmodule Storybook.Modals.BoModal do
         notes: "Required. Close button, backdrop, Escape."
       },
       %{name: "title", type: "string", default: "—", notes: "Required. Header title."},
-      %{name: "max_width_class", type: "string", default: "max-w-3xl", notes: "Panel max width."},
+      %{
+        name: "max_width_class",
+        type: "string",
+        default: "zaq-modal--width-3xl",
+        notes: "Panel max-width preset from modal.css (e.g. zaq-modal--width-lg)."
+      },
       %{name: "panel_class", type: "string", default: "\"\"", notes: "Extra panel classes."},
       %{
         name: "body_class",
@@ -492,7 +562,7 @@ defmodule Storybook.Modals.BoModal do
         name: "actions",
         type: "slot",
         default: "[]",
-        notes: "Optional footer buttons. Omitted when empty."
+        notes: "Optional footer — pass DesignSystem.Button components. Omitted when empty."
       }
     ]
   end
@@ -503,8 +573,18 @@ defmodule Storybook.Modals.BoModal do
       %{name: "cancel_event", type: "string", default: "—", notes: "Required."},
       %{name: "title", type: "string", default: "—", notes: "Required. Shown above iframe."},
       %{name: "src", type: "string", default: "—", notes: "Required. iframe URL."},
-      %{name: "max_width_class", type: "string", default: "max-w-4xl", notes: "Panel width."},
-      %{name: "height_class", type: "string", default: "h-[75vh]", notes: "iframe height class."}
+      %{
+        name: "max_width_class",
+        type: "string",
+        default: "zaq-modal--width-4xl",
+        notes: "Panel width (`modal.css` preset)."
+      },
+      %{
+        name: "height_class",
+        type: "string",
+        default: "\"\"",
+        notes: "Optional extra classes on iframe. Default height is 75vh via `.zaq-modal-iframe`."
+      }
     ]
   end
 
@@ -512,6 +592,16 @@ defmodule Storybook.Modals.BoModal do
     """
     <.modal_shell id="my-modal" cancel_event="close_modal">
       <p>Custom content</p>
+    </.modal_shell>
+
+    <%!-- Titled picker / custom body — shared header chrome --%>
+    <.modal_shell
+      id="mcp-picker-modal"
+      cancel_event="close_mcp_picker"
+      title="Add MCP endpoint"
+      max_width_class="zaq-modal--width-lg"
+    >
+      ...
     </.modal_shell>
 
     <%!-- Flush inner layout (file preview) --%>
@@ -542,11 +632,32 @@ defmodule Storybook.Modals.BoModal do
 
   defp form_dialog_usage do
     """
-    <.form_dialog id="edit-modal" cancel_event="cancel_edit" title="Edit item">
-      <.input ... />
+    <.form_dialog
+      id="edit-modal"
+      cancel_event="cancel_edit"
+      title="Edit item"
+      max_width_class="zaq-modal--width-lg"
+    >
+      <.form for={@form} id="edit-item-form" class="zaq-layout-stack">
+        <ZaqWeb.Components.DesignSystem.Input.input
+          field={@form[:name]}
+          label="Name"
+        />
+      </.form>
       <:actions>
-        <.button variant={:secondary} phx-click="cancel_edit">Cancel</.button>
-        <.button variant={:primary} type="submit">Save</.button>
+        <ZaqWeb.Components.DesignSystem.Button.button
+          variant={:secondary}
+          phx-click="cancel_edit"
+        >
+          Cancel
+        </ZaqWeb.Components.DesignSystem.Button.button>
+        <ZaqWeb.Components.DesignSystem.Button.button
+          variant={:primary}
+          type="submit"
+          form="edit-item-form"
+        >
+          Save
+        </ZaqWeb.Components.DesignSystem.Button.button>
       </:actions>
     </.form_dialog>
     """
@@ -560,7 +671,6 @@ defmodule Storybook.Modals.BoModal do
       cancel_event="close_oauth"
       title="Authorize application"
       src={@oauth_url}
-      height_class="h-[60vh]"
     />
     """
     |> String.trim()
