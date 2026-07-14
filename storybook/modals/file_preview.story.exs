@@ -1,4 +1,4 @@
-defmodule Storybook.Components.FilePreview.FilePreview do
+defmodule Storybook.Modals.FilePreview do
   use PhoenixStorybook.Story, :page
 
   alias ZaqWeb.Storybook.FilePreviewFixtures, as: FP

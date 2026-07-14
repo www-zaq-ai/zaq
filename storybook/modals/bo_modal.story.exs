@@ -30,9 +30,9 @@ defmodule Storybook.Modals.BoModal do
         rows={modal_shell_rows()}
         code={modal_shell_usage()}
       >
-        <.preview_frame label="Default — centered panel (`max-w-sm`)">
+        <.preview_frame label="Default — centered panel (`zaq-modal--width-sm`)">
           <.modal_shell id="sb-shell-default" cancel_event={@cancel_event}>
-            <p class="font-mono text-[0.75rem] text-black/65 text-center">
+            <p class="zaq-text-body-sm text-center" style="color: var(--zaq-text-color-body-tertiary)">
               Pass any markup in the inner block.
             </p>
           </.modal_shell>
@@ -41,14 +41,16 @@ defmodule Storybook.Modals.BoModal do
           <.modal_shell
             id="sb-shell-flush"
             cancel_event={@cancel_event}
-            max_width_class="max-w-md"
+            max_width_class="zaq-modal--width-md"
             panel_base_class="zaq-modal zaq-modal--flush"
           >
-            <div class="border-b border-black/[0.08] px-4 py-3 font-mono text-[0.75rem] font-bold">
-              Toolbar
+            <div class="zaq-file-preview-bar">
+              <p class="zaq-text-h4">Toolbar</p>
             </div>
-            <div class="p-4 font-mono text-[0.75rem] text-black/65">
-              Edge-to-edge content (file preview, tables).
+            <div class="zaq-file-preview-scroll">
+              <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
+                Edge-to-edge content (file preview, tables).
+              </p>
             </div>
           </.modal_shell>
         </.preview_frame>
@@ -397,8 +399,8 @@ defmodule Storybook.Modals.BoModal do
       %{
         name: "max_width_class",
         type: "string",
-        default: "max-w-sm",
-        notes: "Tailwind max-width on panel."
+        default: "zaq-modal--width-sm",
+        notes: "Panel max-width preset from modal.css."
       },
       %{name: "panel_class", type: "string", default: "\"\"", notes: "Extra classes on panel."},
       %{
@@ -516,7 +518,7 @@ defmodule Storybook.Modals.BoModal do
     <.modal_shell
       cancel_event="close_modal"
       panel_base_class="zaq-modal zaq-modal--flush"
-      max_width_class="max-w-4xl"
+      max_width_class="zaq-modal--width-4xl"
     >
       ...
     </.modal_shell>
