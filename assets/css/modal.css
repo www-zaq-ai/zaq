@@ -81,21 +81,32 @@
   max-width: 72rem;
 }
 
-/* Form dialog regions (BOModal.form_dialog) */
-.zaq-modal-form-header {
-  position: relative;
+/* Shared modal header — form_dialog, iframe_dialog, titled modal_shell */
+.zaq-modal-header {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--zaq-scale-16);
   padding: var(--zaq-scale-16) var(--zaq-scale-24);
   border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
 }
 
-.zaq-modal-form-close {
-  position: absolute;
-  right: var(--zaq-scale-16);
-  top: var(--zaq-scale-16);
+.zaq-modal-header > .zaq-text-h3 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
 }
 
-.zaq-modal-form-body {
+.zaq-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-layout-inline-gap);
+  flex-shrink: 0;
+}
+
+/* Scrollable / padded body region below header */
+.zaq-modal-body {
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
@@ -142,4 +153,12 @@
   align-items: center;
   justify-content: center;
   gap: var(--zaq-scale-16);
+}
+
+/* Iframe embed body (BOModal.iframe_dialog) */
+.zaq-modal-iframe {
+  display: block;
+  width: 100%;
+  height: 75vh;
+  border: 0;
 }

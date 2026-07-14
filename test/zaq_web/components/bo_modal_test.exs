@@ -48,6 +48,31 @@ defmodule ZaqWeb.Components.BOModalTest do
     assert html =~ "Inner content"
   end
 
+  test "renders modal_shell with shared header when title is set" do
+    html =
+      render_component(fn assigns ->
+        ~H"""
+        <BOModal.modal_shell
+          id="titled-modal"
+          cancel_event="close_modal"
+          title="Add tools"
+          max_width_class="zaq-modal--width-lg"
+        >
+          <p>Picker body</p>
+        </BOModal.modal_shell>
+        """
+      end)
+
+    assert html =~ "titled-modal"
+    assert html =~ "zaq-modal-header"
+    assert html =~ "zaq-modal-body"
+    assert html =~ "Add tools"
+    assert html =~ ~s(id="titled-modal-title")
+    assert html =~ "Picker body"
+    assert html =~ "zaq-modal--form"
+    assert html =~ "hero-x-mark"
+  end
+
   test "renders form_dialog with actions slot and close button" do
     html =
       render_component(fn assigns ->
@@ -76,6 +101,7 @@ defmodule ZaqWeb.Components.BOModalTest do
     assert html =~ ~s(id="form-modal-title")
     assert html =~ "aria-label=\"Close dialog\""
     assert html =~ "zaq-modal--form"
+    assert html =~ "zaq-modal-header"
     assert html =~ "zaq-btn-icon"
     assert html =~ "hero-x-mark"
     assert html =~ "custom-body"

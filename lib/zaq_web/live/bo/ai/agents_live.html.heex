@@ -727,34 +727,9 @@
           :if={@mcp_picker_open}
           id="agent-mcp-picker-modal"
           cancel_event="close_mcp_picker"
+          title="Add MCP endpoint"
           max_width_class="zaq-modal--width-lg"
-          panel_class="p-6"
         >
-          <div class="flex items-center justify-between mb-4">
-            <h3
-              class="zaq-text-h5 uppercase tracking-widest"
-              style="color: var(--zaq-text-color-body-tertiary)"
-            >
-              Add MCP endpoint
-            </h3>
-            <button
-              type="button"
-              phx-click="close_mcp_picker"
-              aria-label="Close"
-              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
           <form phx-change="add_mcp_from_picker">
             <.searchable_select
               id="agent-mcp-picker-select"
@@ -785,34 +760,9 @@
           :if={@tools_picker_open}
           id="agent-tools-picker-modal"
           cancel_event="close_tools_picker"
+          title="Add tools"
           max_width_class="zaq-modal--width-lg"
-          panel_class="p-6"
         >
-          <div class="flex items-center justify-between mb-4">
-            <h3
-              class="zaq-text-h5 uppercase tracking-widest"
-              style="color: var(--zaq-text-color-body-tertiary)"
-            >
-              Add tools
-            </h3>
-            <button
-              type="button"
-              phx-click="close_tools_picker"
-              aria-label="Close"
-              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
           <form phx-change="add_tool_from_picker">
             <.searchable_select
               id="agent-tools-picker-select"
@@ -844,34 +794,9 @@
           :if={@skills_picker_open}
           id="agent-skills-picker-modal"
           cancel_event="close_skills_picker"
+          title="Add skills"
           max_width_class="zaq-modal--width-lg"
-          panel_class="p-6"
         >
-          <div class="flex items-center justify-between mb-4">
-            <h3
-              class="zaq-text-h5 uppercase tracking-widest"
-              style="color: var(--zaq-text-color-body-tertiary)"
-            >
-              Add skills
-            </h3>
-            <button
-              type="button"
-              phx-click="close_skills_picker"
-              aria-label="Close"
-              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
           <form phx-change="add_skill_from_picker">
             <.searchable_select
               id="agent-skills-picker-select"

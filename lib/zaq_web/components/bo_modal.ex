@@ -3,7 +3,8 @@ defmodule ZaqWeb.Components.BOModal do
   Reusable Back Office modal primitives.
 
   - `modal_shell/1` is a low-level wrapper — defaults use `modal.css` (`zaq-bo-modal-backdrop`,
-    `zaq-modal`). Override `backdrop_class` / `panel_base_class` only for exceptions; use
+    `zaq-modal`). Pass optional `title` for the shared `.zaq-modal-header` row (same chrome as
+    `form_dialog/1` and `iframe_dialog/1`). Override `panel_base_class` only for exceptions; use
     `panel_base_class="zaq-modal zaq-modal--flush"` when inner chrome provides its own padding.
   - `form_dialog/1` is the default for BO add/edit dialogs and enforces viewport-safe
     max height with internal scrolling. Pass `DesignSystem.Button` components in the `:actions` slot.
@@ -15,6 +16,8 @@ defmodule ZaqWeb.Components.BOModal do
 
   attr :id, :string, default: nil
   attr :cancel_event, :string, required: true
+  attr :title, :string, default: nil
+  attr :title_id, :string, default: nil
   attr :max_width_class, :string, default: "zaq-modal--width-sm"
   attr :panel_class, :string, default: ""
   attr :backdrop_class, :string, default: "zaq-bo-modal-backdrop"
@@ -22,8 +25,17 @@ defmodule ZaqWeb.Components.BOModal do
 
   attr :rest, :global
   slot :inner_block, required: true
+  slot :header_actions, doc: "Optional controls before the close button when `title` is set."
 
   def modal_shell(assigns) do
+    titled? = titled?(assigns.title)
+
+    assigns =
+      assigns
+      |> assign(:titled?, titled?)
+      |> then(fn a -> assign(a, :title_id, resolve_title_id(a)) end)
+      |> then(fn a -> assign(a, :resolved_panel_base_class, resolve_panel_base_class(a)) end)
+
     ~H"""
     <div
       id={@id}
@@ -34,11 +46,56 @@ defmodule ZaqWeb.Components.BOModal do
     >
       <div class={@backdrop_class} phx-click={@cancel_event}></div>
       <div class={[
-        @panel_base_class,
+        @resolved_panel_base_class,
         @max_width_class,
         @panel_class
       ]}>
-        {render_slot(@inner_block)}
+        <%= if @titled? do %>
+          <.modal_header
+            title={@title}
+            title_id={@title_id}
+            cancel_event={@cancel_event}
+          >
+            <:actions :if={@header_actions != []}>
+              {render_slot(@header_actions)}
+            </:actions>
+          </.modal_header>
+          <div class="zaq-modal-body">
+            {render_slot(@inner_block)}
+          </div>
+        <% else %>
+          {render_slot(@inner_block)}
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  attr :title, :string, required: true
+  attr :title_id, :string, default: nil
+  attr :cancel_event, :string, required: true
+
+  slot :actions, doc: "Optional controls rendered before the close button."
+
+  def modal_header(assigns) do
+    ~H"""
+    <div class="zaq-modal-header">
+      <h3
+        id={@title_id}
+        class="zaq-text-h3"
+        style="color: var(--zaq-text-color-body-default)"
+      >
+        {@title}
+      </h3>
+      <div class="zaq-modal-header-actions">
+        {render_slot(@actions)}
+        <DSButton.button
+          variant={:secondary}
+          icon="hero-x-mark"
+          icon_only
+          aria-label="Close dialog"
+          phx-click={@cancel_event}
+        />
       </div>
     </div>
     """
@@ -120,25 +177,13 @@ defmodule ZaqWeb.Components.BOModal do
       aria-label={if(@form_dialog_title_id, do: nil, else: @title)}
       {@rest}
     >
-      <div class="zaq-modal-form-header">
-        <h3
-          id={@form_dialog_title_id}
-          class="zaq-text-h3"
-          style="color: var(--zaq-text-color-body-default)"
-        >
-          {@title}
-        </h3>
-        <DSButton.button
-          variant={:secondary}
-          icon="hero-x-mark"
-          icon_only
-          aria-label="Close dialog"
-          phx-click={@cancel_event}
-          class="zaq-modal-form-close"
-        />
-      </div>
+      <.modal_header
+        title={@title}
+        title_id={@form_dialog_title_id}
+        cancel_event={@cancel_event}
+      />
 
-      <div class={["zaq-modal-form-body", @body_class]}>
+      <div class={["zaq-modal-body", @body_class]}>
         {render_slot(@inner_block)}
       </div>
 
@@ -156,25 +201,41 @@ defmodule ZaqWeb.Components.BOModal do
   attr :title, :string, required: true
   attr :src, :string, required: true
   attr :max_width_class, :string, default: "zaq-modal--width-4xl"
-  attr :height_class, :string, default: "h-[75vh]"
+  attr :height_class, :string, default: ""
 
   def iframe_dialog(assigns) do
     ~H"""
-    <.modal_shell id={@id} cancel_event={@cancel_event} max_width_class={@max_width_class}>
-      <div class="mb-3 flex items-center justify-between">
-        <h3 class="font-mono text-[0.95rem] font-bold text-black">{@title}</h3>
-        <button
-          type="button"
-          phx-click={@cancel_event}
-          aria-label="Close dialog"
-          class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-black/10 text-black/50 hover:bg-black/[0.04] hover:text-black/70"
-        >
-          <.icon name="hero-x-mark" class="h-4 w-4" />
-        </button>
-      </div>
-      <iframe src={@src} class={["w-full rounded-xl border border-black/10", @height_class]}></iframe>
+    <.modal_shell
+      id={@id}
+      cancel_event={@cancel_event}
+      max_width_class={@max_width_class}
+      panel_base_class="zaq-modal zaq-modal--flush zaq-modal--form"
+    >
+      <.modal_header title={@title} cancel_event={@cancel_event} />
+      <iframe src={@src} class={["zaq-modal-iframe", @height_class]}></iframe>
     </.modal_shell>
     """
+  end
+
+  defp titled?(title) when is_binary(title), do: title != ""
+  defp titled?(_), do: false
+
+  defp resolve_title_id(%{title_id: id}) when is_binary(id) and id != "", do: id
+  defp resolve_title_id(%{id: id}) when is_binary(id), do: "#{id}-title"
+  defp resolve_title_id(_), do: nil
+
+  defp resolve_panel_base_class(%{titled?: true, panel_base_class: "zaq-modal"}),
+    do: "zaq-modal zaq-modal--flush zaq-modal--form"
+
+  defp resolve_panel_base_class(%{titled?: true, panel_base_class: base}),
+    do: ensure_form_layout(base)
+
+  defp resolve_panel_base_class(%{panel_base_class: base}), do: base
+
+  defp ensure_form_layout(base) do
+    if String.contains?(base, "zaq-modal--form"),
+      do: base,
+      else: String.trim(base <> " zaq-modal--form")
   end
 
   defp form_dialog_title_id(nil), do: nil

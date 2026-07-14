@@ -286,7 +286,7 @@ textarea.zaq-control-text {
   display: flex;
   align-items: center;
   gap: var(--zaq-scale-8);
-  padding: var(--zaq-scale-8) var(--zaq-scale-24);
+  padding: var(--zaq-scale-16) var(--zaq-scale-24);
   border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
   background: var(--zaq-surface-color-base);
 }

@@ -527,20 +527,13 @@
     title="Claim OAuth2 Grant"
     max_width_class="zaq-modal--width-lg"
   >
-    <div class="space-y-2">
-      <p class="font-mono text-[0.75rem] text-black/70">
+    <div class="zaq-layout-stack-tight">
+      <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
         Continue the OAuth flow in the popup window. This dialog will close when the grant is created.
       </p>
-      <div class="font-mono text-[0.62rem] text-black/35 break-all">{@oauth_claim_url}</div>
-      <div class="flex justify-end">
-        <button
-          type="button"
-          phx-click="close_oauth_claim"
-          class="font-mono text-[0.75rem] px-4 py-2 rounded-lg border border-black/10 text-black/50 hover:text-black"
-        >
-          Close
-        </button>
-      </div>
+      <p class="zaq-text-caption break-all" style="color: var(--zaq-text-color-body-tertiary)">
+        {@oauth_claim_url}
+      </p>
     </div>
   </ZaqWeb.Components.BOModal.modal_shell>
 

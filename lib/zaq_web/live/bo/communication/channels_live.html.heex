@@ -1414,15 +1414,13 @@
     :if={@oauth_claim_modal}
     id="oauth-claim-modal"
     cancel_event="close_oauth_claim"
+    title="OAuth authorization in progress"
     max_width_class="zaq-modal--width-md"
   >
     <div class="text-center">
       <div class="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-lg bg-[#03b6d4]/10 text-[#03b6d4]">
         <.icon name="hero-arrow-top-right-on-square" class="h-5 w-5" />
       </div>
-      <h3 class="mb-2 font-mono text-base font-bold text-black">
-        OAuth authorization in progress
-      </h3>
       <p class="mb-6 font-mono text-[0.75rem] text-black/40">
         Complete the provider authorization in the popup window. This dialog updates automatically when finished.
       </p>
