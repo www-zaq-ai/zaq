@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-15T14:26:03Z",
+  "description": "Implement engine-owned action scheduling backed by Oban, plus workflow.to_utc_datetime and workflow.schedule_action tools with validation and tests.",
+  "id": "zaq-55l",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Add action scheduler tools and Oban worker",
+  "type": "task",
+  "updated_at": "2026-07-15T14:26:03Z"
+}
