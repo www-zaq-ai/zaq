@@ -2,9 +2,8 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
   @moduledoc """
   Validates every `EdgeCondition` operator when it routes from the reserved
   `start` origin and reads the trigger payload through a `start.<field>` dotted
-  path — the exact pattern
-  `Zaq.Engine.Workflows.UseCases.GenerateCompanyContext` uses to fork on
-  `start.company context content`.
+  path — the pattern a lead-enrichment entry fork uses to branch on a spaced key
+  like `start.company context content`.
 
   A `from: "start"` edge that guards/maps becomes a ROOT `EdgeStep` that
   transforms the planted initial fact (see `DagBuilder.add_edge/6`). The trigger
@@ -20,14 +19,15 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
   fails, `ConditionNotMet` prunes it and no `matched` StepRun exists.
 
   The `empty` / `not_empty` block additionally covers the present / blank /
-  *absent* content cases against a spaced key, since that is where the
-  GenerateCompanyContext fork lives.
+  *absent* content cases against a spaced key, since that is where a
+  content-vs-generate entry fork branches.
   """
   use Zaq.DataCase, async: false
 
   alias Zaq.Engine.Workflows.DagBuilder
 
   alias Zaq.Engine.{TriggerNode, Workflows}
+  alias Zaq.Engine.Workflows.Test.{UseCaseFixtures, UseCaseStubs}
   alias Zaq.Event
 
   setup do
@@ -124,7 +124,7 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
     end
   end
 
-  # The GenerateCompanyContext fork field: a downcased header WITH SPACES read as
+  # The entry-fork field: a downcased header WITH SPACES read as
   # `start.company context content`. Present → not_empty; "" or absent → empty.
   @spaced_field "start.company context content"
 
@@ -170,16 +170,27 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
     end
   end
 
-  describe "GenerateCompanyContext entry fork with a realistic lead row" do
-    alias Zaq.Engine.Workflows.UseCases.GenerateCompanyContext
-
-    # Fires the REAL GenerateCompanyContext DAG (not a synthetic one) through the
-    # dispatch path and returns the run plus a step_name => status map. RunAgent
-    # dispatches through the stubbed NodeRouterMock, so the wrong branch fails fast
-    # rather than hitting a real LLM. The entry edge-guard StepRuns are written at
-    # entry regardless of what happens downstream, so we can read the routing decision.
+  describe "entry fork on a spaced start.<field> with a realistic lead row" do
+    # Fires the REAL Generate Company Context workflow — imported from its JSON
+    # export — through the dispatch path and returns the run plus a
+    # step_name => status map. The entry fork branches on `start.company context
+    # content` (`not_empty` → craft_email_direct, `empty` → extract_company_summary),
+    # so the edge-guard StepRun names (`start__to__<to>__edge`) read the routing
+    # decision. Downstream external boundaries (LLM agents, the sheet write, and the
+    # DispatchEvent leaves) are stubbed; the entry edge-guard StepRuns are written at
+    # entry regardless of what happens downstream.
     defp fire_real_lead(request) do
-      {:ok, workflow} = Workflows.create_workflow(GenerateCompanyContext.build())
+      {:ok, workflow} =
+        UseCaseFixtures.import_fixture("generate_company_context.json",
+          swap: %{
+            "extract_company_summary" => UseCaseStubs.AgentStub,
+            "map_business_to_zaq" => UseCaseStubs.AgentStub,
+            "produce_email_topic" => UseCaseStubs.AgentStub,
+            "craft_email_direct" => UseCaseStubs.BridgeDispatchEvent,
+            "craft_email" => UseCaseStubs.BridgeDispatchEvent,
+            "update_sheet_row" => UseCaseStubs.UpdateSheetStub
+          }
+        )
 
       # TriggerNode plants the trigger payload under assigns.input; replicate that
       # shape and drive the run directly so any error surfaces here.
@@ -260,7 +271,7 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
   end
 
   describe "the two complementary start edges are mutually exclusive" do
-    # Replicates the GenerateCompanyContext entry fork exactly: two `from: "start"`
+    # Replicates the content-vs-generate entry fork exactly: two `from: "start"`
     # edges on the same field, one `not_empty` → `have_context`, one `empty` →
     # `generate`. Exactly one branch must run for any given payload.
     defp fire_fork(request) do

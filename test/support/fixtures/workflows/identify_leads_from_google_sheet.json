@@ -1,0 +1,112 @@
+{
+  "description": "Zaq's use case workflow for identifying leads from a Google Sheet",
+  "edges": [
+    {
+      "condition": {
+        "field": "record",
+        "op": "not_empty"
+      },
+      "from": "get_sheet",
+      "to": "extract_rows"
+    },
+    {
+      "condition": {
+        "field": "rows",
+        "op": "not_empty"
+      },
+      "from": "extract_rows",
+      "mapping": {
+        "items": "rows"
+      },
+      "to": "process_rows"
+    }
+  ],
+  "name": "Identify Leads from Google Sheet",
+  "nodes": [
+    {
+      "index": 0,
+      "module": "Zaq.Agent.Tools.Sheets.GetSheet",
+      "name": "get_sheet",
+      "params": {
+        "provider": "google_drive",
+        "spreadsheet_id": "1sYIdoX6KWDCyapowvfrfebE71gUWQo3A5S_GqpXXarI"
+      },
+      "type": "action"
+    },
+    {
+      "index": 1,
+      "module": "Zaq.Agent.Tools.Sheets.ExtractRows",
+      "name": "extract_rows",
+      "params": {},
+      "type": "action"
+    },
+    {
+      "index": 2,
+      "module": "Zaq.Agent.Tools.Workflow.Batch",
+      "name": "process_rows",
+      "params": {
+        "batch_size": 1,
+        "delivery": "item",
+        "post_process": [
+          {
+            "module": "Zaq.Agent.Tools.Workflow.Sleep",
+            "name": "sleep_between",
+            "params": {
+              "duration_ms": 40000
+            },
+            "type": "action"
+          }
+        ],
+        "process": [
+          {
+            "module": "Zaq.Agent.Tools.Workflow.Condition",
+            "name": "check_active",
+            "params": {
+              "conditions": [
+                {
+                  "key": "active",
+                  "value": true
+                }
+              ]
+            },
+            "type": "action"
+          },
+          {
+            "module": "Zaq.Agent.Tools.Workflow.Condition",
+            "name": "check_email_state",
+            "params": {
+              "conditions": [
+                {
+                  "default": 0,
+                  "key": "sequence",
+                  "op": "lt",
+                  "value": 4
+                }
+              ]
+            },
+            "type": "action"
+          },
+          {
+            "module": "Zaq.Agent.Tools.Workflow.DispatchEvent",
+            "name": "dispatch_lead",
+            "params": {
+              "event_name": "lead_identified",
+              "machine": true
+            },
+            "type": "action"
+          }
+        ],
+        "strategy": "skip_and_continue"
+      },
+      "type": "action"
+    }
+  ],
+  "settings": {},
+  "status": "active",
+  "trigger": {
+    "cron_schedule": "0 9 * * *",
+    "enabled": true,
+    "event_name": "engine:identify_leads_scan",
+    "trigger_type": "cron"
+  }
+}

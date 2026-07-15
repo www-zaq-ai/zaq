@@ -1,7 +1,7 @@
 defmodule Zaq.Engine.Workflows.EdgeStepStructCascadeE2ETest do
   @moduledoc """
   Step 3 (closure) of the EdgeStep struct-crash plan — end-to-end regression
-  reproducing the exact failing seam from the `SendLeadsEmail` incident
+  reproducing the exact failing seam from the lead-email incident
   (`investigation-check-last-message-date-gate-never-ran.md`), through the real
   seam that crashed: no stubbing of `EdgeStep`, `Condition`, or `StepRunner`.
 

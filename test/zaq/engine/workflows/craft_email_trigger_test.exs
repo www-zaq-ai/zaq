@@ -1,16 +1,20 @@
 defmodule Zaq.Engine.Workflows.CraftEmailTriggerTest do
   @moduledoc """
   Validates — end to end, without guessing — whether a `craft_email` event
-  dispatched by `GenerateCompanyContext` can trigger `SendLeadsEmail`.
+  dispatched by a producer workflow can trigger a consumer workflow bound to that
+  event.
 
   Each test isolates one link in the chain:
 
     DispatchEvent (name: "craft_email", dest: :engine)
       → NodeRouter broadcast
       → EventRegistry derives key "engine:craft_email" and fires
-      → TriggerNode.fire creates a SendLeadsEmail run
+      → TriggerNode.fire creates a run of the bound consumer workflow
 
   so a failure points at exactly one link instead of "it doesn't work".
+
+  The consumer is a minimal fixture workflow bound to the `craft_email` trigger —
+  the trigger wiring is the seam under test, not any particular consumer DAG.
   """
   use Zaq.DataCase, async: false
 
@@ -18,8 +22,17 @@ defmodule Zaq.Engine.Workflows.CraftEmailTriggerTest do
 
   alias Zaq.Agent.Tools.Workflow.DispatchEvent
   alias Zaq.Engine.{EventRegistry, TriggerNode, Workflows}
-  alias Zaq.Engine.Workflows.UseCases.SendLeadsEmail
+  alias Zaq.Engine.Workflows.Test.UseCaseFixtures
   alias Zaq.Event
+
+  # A minimal consumer workflow wired to the `craft_email` trigger. The trigger
+  # binding — not the DAG body — is what these tests exercise.
+  defp create_consumer do
+    UseCaseFixtures.create_workflow_with_trigger(
+      UseCaseFixtures.trivial_consumer(),
+      %{event_name: "craft_email"}
+    )
+  end
 
   @pubsub Zaq.PubSub
   @topic "node_router:events"
@@ -57,9 +70,9 @@ defmodule Zaq.Engine.Workflows.CraftEmailTriggerTest do
     end
   end
 
-  describe "link 1: SendLeadsEmail.create/1 registers the engine:craft_email trigger" do
+  describe "link 1: creating a consumer registers the engine:craft_email trigger" do
     test "the persisted trigger event_name is normalized to engine:craft_email" do
-      assert {:ok, workflow} = SendLeadsEmail.create()
+      assert {:ok, workflow} = create_consumer()
 
       [trigger] = Workflows.list_triggers_for_workflow(workflow.id)
       assert trigger.event_name == "engine:craft_email"
@@ -79,8 +92,8 @@ defmodule Zaq.Engine.Workflows.CraftEmailTriggerTest do
         %{event | response: nil}
       end)
 
-      # Exactly the params GenerateCompanyContext's craft_email node carries, with
-      # a scalar (string) input like the real mapping produces.
+      # A craft_email dispatch carrying a scalar (string) input, like a producer's
+      # `input` mapped from an upstream string result would produce.
       params = %{event_name: "craft_email", machine: true, input: "## Company Summary"}
 
       assert {:ok, %{dispatched: _}} =
@@ -126,12 +139,12 @@ defmodule Zaq.Engine.Workflows.CraftEmailTriggerTest do
 
   describe "link 4: TriggerNode.fire builds the source event and creates a run" do
     test "a scalar craft_email payload no longer crashes TriggerNode — a run is created" do
-      assert {:ok, workflow} = SendLeadsEmail.create()
+      assert {:ok, workflow} = create_consumer()
 
-      # craft_email dispatches a SCALAR request, because GenerateCompanyContext
-      # maps its `input` to `build_context_document.result` (a string). This used
-      # to crash machine_event?/1 with BadMapError before create_and_start_run ran;
-      # now a non-map request is simply "not a machine event" and the run starts.
+      # craft_email can dispatch a SCALAR request when a producer maps its `input`
+      # to an upstream string result. This used to crash machine_event?/1 with
+      # BadMapError before create_and_start_run ran; now a non-map request is
+      # simply "not a machine event" and the run starts.
       scalar_event = %Event{
         request: "## Company Summary",
         next_hop: nil,
@@ -147,7 +160,7 @@ defmodule Zaq.Engine.Workflows.CraftEmailTriggerTest do
     end
 
     test "a MAP craft_email payload builds the source event and creates a run" do
-      assert {:ok, workflow} = SendLeadsEmail.create()
+      assert {:ok, workflow} = create_consumer()
 
       # The same trigger, but with a map request (what a map `input` would produce):
       # build_input/machine_event? both work, so the run is created.
@@ -162,11 +175,11 @@ defmodule Zaq.Engine.Workflows.CraftEmailTriggerTest do
       :ok = TriggerNode.fire("engine:craft_email", map_event)
 
       assert [_run] = Workflows.list_runs(workflow.id),
-             "a map payload lets TriggerNode create the SendLeadsEmail run"
+             "a map payload lets TriggerNode create the consumer run"
     end
 
     test "an event-like map without assigns does not grant machine permissions" do
-      assert {:ok, workflow} = SendLeadsEmail.create()
+      assert {:ok, workflow} = create_consumer()
 
       event = %{
         request: %{"content" => "## Company Summary"},

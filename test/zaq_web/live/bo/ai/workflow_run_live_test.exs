@@ -267,7 +267,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
     end
 
     test "surfaces the unreached condition gate and its actual value", %{conn: conn} do
-      # Mirrors SendLeadsEmail: a recency gate on total.last_message_date the run
+      # Mirrors a lead-email recency gate on total.last_message_date the run
       # never reached. The banner must name where it stopped, the gate, the actual
       # value it hinges on (resolved from build_history's output), and what never ran.
       workflow =

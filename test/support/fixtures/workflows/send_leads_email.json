@@ -1,0 +1,257 @@
+{
+  "description": null,
+  "edges": [
+    {
+      "condition": {
+        "field": "person",
+        "op": "not_empty"
+      },
+      "from": "ensure_person",
+      "mapping": {
+        "person_id": "ensure_person.person.id",
+        "query": "start.email topic"
+      },
+      "to": "build_history"
+    },
+    {
+      "from": "build_history",
+      "mapping": {
+        "row": "ensure_person.row"
+      },
+      "to": "check_last_message_date"
+    },
+    {
+      "condition": {
+        "field": "passed",
+        "op": "eq",
+        "value": false
+      },
+      "from": "check_last_message_date",
+      "to": "build_agent_context"
+    },
+    {
+      "from": "build_agent_context",
+      "mapping": {
+        "company": "start.company official name",
+        "context": "build_agent_context.list",
+        "language": "start.language",
+        "name": "start.input.name"
+      },
+      "to": "draft_email"
+    },
+    {
+      "condition": {
+        "field": "output",
+        "op": "not_empty"
+      },
+      "from": "draft_email",
+      "to": "review_email"
+    },
+    {
+      "condition": {
+        "field": "approved",
+        "op": "eq",
+        "value": true
+      },
+      "from": "review_email",
+      "mapping": {
+        "message": "draft_email.output",
+        "person": "ensure_person.person",
+        "subject": "start.email topic"
+      },
+      "to": "send_email"
+    },
+    {
+      "condition": {
+        "field": "notified",
+        "op": "eq",
+        "value": true
+      },
+      "from": "send_email",
+      "mapping": {
+        "person": "ensure_person.person",
+        "topic": "start.email topic"
+      },
+      "to": "update_history"
+    },
+    {
+      "condition": {
+        "field": "persisted",
+        "op": "eq",
+        "value": true
+      },
+      "from": "update_history",
+      "mapping": {
+        "value": "start.sequence"
+      },
+      "to": "increment_email_state"
+    },
+    {
+      "from": "increment_email_state",
+      "mapping": {
+        "row": "start.row_index"
+      },
+      "to": "build_range"
+    },
+    {
+      "from": "build_range",
+      "mapping": {
+        "value": "increment_email_state.value"
+      },
+      "to": "build_values"
+    },
+    {
+      "from": "build_values",
+      "mapping": {
+        "range": "build_range.result",
+        "values": "build_values.matrix"
+      },
+      "to": "update_sheet_row"
+    }
+  ],
+  "name": "Send Leads Email",
+  "nodes": [
+    {
+      "index": 0,
+      "module": "Zaq.Agent.Tools.People.EnsurePerson",
+      "name": "ensure_person",
+      "params": {
+        "platform": "email"
+      },
+      "type": "action"
+    },
+    {
+      "index": 1,
+      "module": "Zaq.Agent.Tools.Accounts.History",
+      "name": "build_history",
+      "params": {
+        "query": "Your team's AI-powered company brain",
+        "search_in": "title"
+      },
+      "type": "action"
+    },
+    {
+      "index": 2,
+      "module": "Zaq.Agent.Tools.Workflow.Condition",
+      "name": "check_last_message_date",
+      "params": {
+        "conditions": [
+          {
+            "key": "total.last_message_date",
+            "op": "gte",
+            "type": "datetime",
+            "value": {
+              "from": "now",
+              "minutes": -5
+            }
+          }
+        ],
+        "input": "build_history.metadata",
+        "on_fail": "continue"
+      },
+      "type": "action"
+    },
+    {
+      "index": 3,
+      "module": "Zaq.Agent.Tools.Workflow.Concat",
+      "name": "build_agent_context",
+      "params": {
+        "parts": [
+          [
+            {
+              "content": "{{start.company context content}}",
+              "role": "assistant"
+            }
+          ],
+          "{{build_history.messages}}"
+        ]
+      },
+      "type": "action"
+    },
+    {
+      "index": 4,
+      "module": "Zaq.Agent.Tools.Workflow.RunAgent",
+      "name": "draft_email",
+      "params": {
+        "agent_id": 1,
+        "input": "Write an outreach email for {{name}} at {{company}}. Write the ENTIRE email body in {{language}} (the lead's language). Use the company context and the list of relevant value added ZAQ can have for this company to select the most relevent one and entice the person to book a meeting with me (Julien at ZAQ). Also check the previous messages sent to not repeat yourself and instead use a different angle that can convince the person of the added value ZAQ can have for them. Write only the email body (no subject line), ending with the sign-off \"Julien, ZAQ\"."
+      },
+      "type": "action"
+    },
+    {
+      "index": 5,
+      "module": "Zaq.Engine.Workflows.Steps.HumanInTheLoop",
+      "name": "review_email",
+      "params": {
+        "message": "Review and approve the drafted lead email before sending."
+      },
+      "type": "action"
+    },
+    {
+      "index": 6,
+      "module": "Zaq.Agent.Tools.People.NotifyPerson",
+      "name": "send_email",
+      "params": {
+        "subject": "Your team's AI-powered company brain"
+      },
+      "type": "action"
+    },
+    {
+      "index": 7,
+      "module": "Zaq.Agent.Tools.Conversations.PersistMessageHistory",
+      "name": "update_history",
+      "params": {},
+      "type": "action"
+    },
+    {
+      "index": 8,
+      "module": "Zaq.Agent.Tools.Workflow.Increment",
+      "name": "increment_email_state",
+      "params": {},
+      "type": "action"
+    },
+    {
+      "index": 9,
+      "module": "Zaq.Agent.Tools.Workflow.Concat",
+      "name": "build_range",
+      "params": {
+        "column": "J",
+        "parts": [
+          "Sheet1!{{column}}{{row}}"
+        ]
+      },
+      "type": "action"
+    },
+    {
+      "index": 10,
+      "module": "Zaq.Agent.Tools.Workflow.Concat",
+      "name": "build_values",
+      "params": {
+        "as_matrix": true,
+        "parts": [
+          "{{value}}"
+        ]
+      },
+      "type": "action"
+    },
+    {
+      "index": 11,
+      "module": "Zaq.Agent.Tools.Sheets.UpdateSheetValues",
+      "name": "update_sheet_row",
+      "params": {
+        "provider": "google_drive",
+        "spreadsheet_id": "1sYIdoX6KWDCyapowvfrfebE71gUWQo3A5S_GqpXXarI",
+        "value_input_option": "USER_ENTERED"
+      },
+      "type": "action"
+    }
+  ],
+  "settings": {},
+  "status": "active",
+  "trigger": {
+    "cron_schedule": null,
+    "enabled": true,
+    "event_name": "engine:craft_email",
+    "trigger_type": "event"
+  }
+}

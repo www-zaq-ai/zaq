@@ -37,7 +37,7 @@ defmodule Zaq.Engine.TriggerNodeLinkTest do
 
   alias Zaq.Engine.TriggerNode
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.UseCases.Helper
+  alias Zaq.Engine.Workflows.Test.UseCaseFixtures
   alias Zaq.Event
 
   @sleep_module "Zaq.Agent.Tools.Workflow.Sleep"
@@ -66,7 +66,7 @@ defmodule Zaq.Engine.TriggerNodeLinkTest do
     }
 
     {:ok, workflow} =
-      Helper.create_workflow_with_trigger(workflow_params, %{
+      UseCaseFixtures.create_workflow_with_trigger(workflow_params, %{
         event_name: event_name,
         trigger_type: "event"
       })
