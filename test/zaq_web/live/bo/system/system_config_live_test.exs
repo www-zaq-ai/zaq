@@ -219,7 +219,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute has_element?(view, "input[name='mcp_endpoint[url]']")
       assert has_element?(view, "input[name='mcp_endpoint[args_rows][0][value]']")
       refute has_element?(view, "input[name='mcp_endpoint[headers_rows][0][key]']")
-      assert render(view) =~ "max-h-[90vh]"
+      assert render(view) =~ "zaq-modal--form"
 
       assert has_element?(
                view,
