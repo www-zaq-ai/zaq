@@ -13,19 +13,41 @@ defmodule Zaq.Agent.ProviderModels do
     "openai_codex" => ["gpt-5.3-codex-spark"]
   }
 
+  @doc "Normalizes provider labels and ids to the catalog id shape used by LLMDB."
+  @spec normalize_provider_id(String.t() | atom() | nil) :: String.t() | nil
+  def normalize_provider_id(nil), do: nil
+
+  def normalize_provider_id(provider_id) when is_atom(provider_id) do
+    provider_id
+    |> Atom.to_string()
+    |> normalize_provider_id()
+  end
+
+  def normalize_provider_id(provider_id) when is_binary(provider_id) do
+    provider_id
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace(~r/[\s-]+/, "_")
+  end
+
+  def normalize_provider_id(_provider_id), do: nil
+
   @doc "Returns active model metadata for a provider."
   @spec models(String.t() | atom() | nil) :: [LLMDB.Model.t()]
   def models(provider_id)
-  def models(provider_id) when provider_id in [nil, "", "custom"], do: []
+  def models(provider_id) when provider_id in [nil, ""], do: []
 
   def models(provider_id) when is_atom(provider_id) do
     provider_id
-    |> Atom.to_string()
+    |> normalize_provider_id()
     |> models()
   end
 
   def models(provider_id) when is_binary(provider_id) do
+    provider_id = normalize_provider_id(provider_id)
+
     case provider_id do
+      id when id in [nil, "", "custom"] -> []
       "openai_codex" -> openai_codex_fallback_models()
       _ -> llmdb_provider_models(provider_id)
     end
@@ -40,9 +62,21 @@ defmodule Zaq.Agent.ProviderModels do
   def models_for_credential(nil), do: []
 
   def models_for_credential(%{provider: provider_id} = credential) when is_binary(provider_id) do
-    credential
-    |> available_models_for_credential()
-    |> fallback_to_provider_models(provider_id)
+    provider_id = normalize_provider_id(provider_id)
+
+    cond do
+      provider_id == "custom" ->
+        []
+
+      catalog_only_provider?(provider_id) ->
+        models(provider_id)
+
+      true ->
+        credential
+        |> normalize_credential_provider(provider_id)
+        |> available_models_for_credential()
+        |> fallback_to_provider_models(provider_id)
+    end
   end
 
   def models_for_credential(_credential), do: []
@@ -64,9 +98,16 @@ defmodule Zaq.Agent.ProviderModels do
 
   def model(provider_id, model_id) do
     provider_id
+    |> normalize_provider_id()
     |> models()
     |> Enum.find(fn model -> model.id == model_id or Map.get(model, :model) == model_id end)
   end
+
+  defp normalize_credential_provider(credential, provider_id) when is_binary(provider_id) do
+    %{credential | provider: provider_id}
+  end
+
+  defp normalize_credential_provider(credential, _provider_id), do: credential
 
   defp reqllm_provider_models(provider_id, candidates) do
     candidates
@@ -89,6 +130,19 @@ defmodule Zaq.Agent.ProviderModels do
 
   defp fallback_to_provider_models([], provider_id), do: models(provider_id)
   defp fallback_to_provider_models(models, _provider_id), do: models
+
+  defp catalog_only_provider?(provider_id) when is_binary(provider_id) do
+    with {:ok, atom} <- LLMDB.Spec.parse_provider(provider_id),
+         {:ok, %LLMDB.Provider{catalog_only: true}} <- LLMDB.provider(atom) do
+      true
+    else
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp catalog_only_provider?(_provider_id), do: false
 
   defp openai_codex_fallback_models do
     openai_models_as_codex()

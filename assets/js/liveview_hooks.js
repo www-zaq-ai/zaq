@@ -318,10 +318,17 @@ export const liveViewHooks = {
       this._hidden = hidden
       this._labelEl = labelEl
       this._list = list
+      this._panel = panel
       this._filter = filter
     },
     updated() {
-      if (this._open && this._filter) this._filter(this._search || "")
+      const panel = this._panel && this._panel()
+
+      if (this._open && panel) {
+        panel.classList.remove("hidden")
+        if (this._filter) this._filter(this._search || "")
+      }
+
       const hidden = this._hidden && this._hidden()
       const labelEl = this._labelEl && this._labelEl()
       const list = this._list && this._list()

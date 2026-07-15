@@ -203,11 +203,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     refute Registry.model_supports_tools?(nil, "gpt-4.1-mini")
     refute Registry.model_supports_tools?("openai", nil)
     refute Registry.model_supports_tools?("custom", "gpt-4.1-mini")
+    refute Registry.model_supports_tools?("Custom", "gpt-4.1-mini")
     refute Registry.model_supports_tools?("not_a_provider", "not_a_model")
   end
 
   test "model_supports_tools? returns true for a known tools-capable model" do
     assert Registry.model_supports_tools?("openai", "gpt-4.1-mini")
+    assert Registry.model_supports_tools?("OpenAI", "gpt-4.1-mini")
   end
 
   test "model_supports_tools? returns true for ReqLLM-only Codex model" do

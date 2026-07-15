@@ -19,6 +19,14 @@ async function expectEitherVisible(a, b, options = {}) {
   ])
 }
 
+async function switchSystemConfigTab(page, tabSelector, urlPattern, targetLocator) {
+  await expect(async () => {
+    await page.locator(tabSelector).click()
+    await expect(page).toHaveURL(urlPattern, { timeout: 2_000 })
+    await expect(targetLocator).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: process.env.CI ? 20_000 : 15_000 })
+}
+
 const CONFIG_PATH = "/bo/system-config"
 const E2E_ENDPOINT = "http://localhost:11434/v1"
 
@@ -79,37 +87,46 @@ test.describe("System Config", () => {
     })
 
     test("switching to LLM shows only LLM form and updates URL", async ({ page }) => {
-      await page.locator(SEL.tabLLM).click()
-      await expect(page.locator(SEL.llmForm)).toBeVisible()
+      await switchSystemConfigTab(page, SEL.tabLLM, /tab=llm/, page.locator(SEL.llmForm))
       await expect(page.locator(SEL.telemetryForm)).not.toBeVisible()
-      await expect(page).toHaveURL(/tab=llm/)
     })
 
     test("switching to Embedding shows only embedding form and updates URL", async ({ page }) => {
-      await page.locator(SEL.tabEmbedding).click()
-      await expect(page.locator(SEL.embeddingForm)).toBeVisible()
-      await expect(page).toHaveURL(/tab=embedding/)
+      await switchSystemConfigTab(
+        page,
+        SEL.tabEmbedding,
+        /tab=embedding/,
+        page.locator(SEL.embeddingForm)
+      )
     })
 
     test("switching to Image to Text shows only that form and updates URL", async ({ page }) => {
-      await page.locator(SEL.tabImageToText).click()
-      await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
-      await expect(page).toHaveURL(/tab=image_to_text/)
+      await switchSystemConfigTab(
+        page,
+        SEL.tabImageToText,
+        /tab=image_to_text/,
+        page.locator(SEL.imageToTextForm)
+      )
     })
 
     test("switching to Auth Credentials shows auth credentials panel and updates URL", async ({
       page,
     }) => {
-      await page.locator(SEL.tabAuthCredentials).click()
-      await waitForLiveViewSettled(page)
-      await expect(page).toHaveURL(/tab=auth_credentials/)
-      await expect(page.getByRole("heading", { name: "Auth Credentials" })).toBeVisible()
+      await switchSystemConfigTab(
+        page,
+        SEL.tabAuthCredentials,
+        /tab=auth_credentials/,
+        page.getByRole("heading", { name: "Auth Credentials" })
+      )
     })
 
     test("switching to AI Credentials shows credentials panel and updates URL", async ({ page }) => {
-      await page.locator(SEL.tabAICredentials).click()
-      await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
-      await expect(page).toHaveURL(/tab=ai_credentials/)
+      await switchSystemConfigTab(
+        page,
+        SEL.tabAICredentials,
+        /tab=ai_credentials/,
+        page.getByRole("heading", { name: "AI Credentials" })
+      )
     })
 
     test("direct URL ?tab=llm loads LLM tab", async ({ page }) => {

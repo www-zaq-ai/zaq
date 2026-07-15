@@ -184,7 +184,8 @@ test.describe("Agents", () => {
     await openNewAgentForm(page, `E2E Agent Custom ${Date.now()}`)
     await selectAgentCredential(page, credential.name)
 
-    const modelInput = page.locator('input[name="configured_agent[model]"]')
+    await expect(page.locator("#configured-agent-model-select")).toHaveCount(0)
+    const modelInput = page.locator('input[type="text"][name="configured_agent[model]"]')
     await expect(modelInput).toBeVisible()
     await modelInput.fill("unsupported-model-no-tools")
     await modelInput.press("Tab")

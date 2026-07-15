@@ -21,6 +21,21 @@ defmodule Zaq.Agent.ProviderModelsTest do
     assert ProviderModels.models(:openai) |> Enum.any?(&(&1.id == "gpt-4o"))
   end
 
+  test "models accepts display-case provider labels" do
+    assert ProviderModels.models("OpenAI") |> Enum.any?(&(&1.id == "gpt-4o"))
+    assert ProviderModels.models("Custom") == []
+  end
+
+  test "models_for_credential returns [] for display-case custom provider" do
+    credential = %AIProviderCredential{
+      provider: "Custom",
+      endpoint: "https://custom-endpoint.com",
+      api_key: "sk-test"
+    }
+
+    assert ProviderModels.models_for_credential(credential) == []
+  end
+
   test "models_for_credential returns [] when credential does not expose a binary provider" do
     assert ProviderModels.models_for_credential(%{}) == []
     assert ProviderModels.models_for_credential(%{provider: :openai}) == []
@@ -103,6 +118,137 @@ defmodule Zaq.Agent.ProviderModelsTest do
       ],
       fn ->
         assert ProviderModels.models_for_credential(credential) == []
+      end
+    )
+  end
+
+  test "models_for_credential normalizes display-case provider labels before fallback" do
+    credential = %AIProviderCredential{
+      provider: "OpenRouter",
+      endpoint: "https://openrouter.ai/api/v1",
+      api_key: "sk-test"
+    }
+
+    with_temporary_modules(
+      [
+        {LLMDB.Model,
+         """
+         defmodule LLMDB.Model do
+           defstruct [:id, :provider, :name, :deprecated, :retired]
+         end
+         """},
+        {LLMDB,
+         """
+         defmodule LLMDB do
+           def models(:openrouter) do
+             [
+               %LLMDB.Model{
+                 id: "openai/gpt-5.1-chat",
+                 provider: :openrouter,
+                 name: "GPT 5.1 Chat",
+                 deprecated: false,
+                 retired: false
+               }
+             ]
+           end
+
+           def models(_), do: []
+         end
+         """},
+        {ReqLLM,
+         """
+         defmodule ReqLLM do
+           def provider(_), do: {:error, :unknown_provider}
+           def available_models(_opts), do: raise("boom")
+           def model(_), do: {:error, :unknown_model}
+         end
+         """},
+        {Zaq.Agent.ProviderSpec,
+         """
+         defmodule Zaq.Agent.ProviderSpec do
+           def reqllm_provider(_provider), do: :openai
+           def credential_opts(_credential), do: []
+         end
+         """}
+      ],
+      fn ->
+        assert [%{id: "openai/gpt-5.1-chat", provider: :openrouter}] =
+                 ProviderModels.models_for_credential(credential)
+      end
+    )
+  end
+
+  test "models_for_credential uses catalog models for catalog-only OpenAI-compatible providers" do
+    credential = %AIProviderCredential{
+      provider: "Scaleway",
+      endpoint: "https://api.scaleway.ai/v1",
+      api_key: "sk-test"
+    }
+
+    with_temporary_modules(
+      [
+        {LLMDB.Model,
+         """
+         defmodule LLMDB.Model do
+           defstruct [:id, :provider, :name, :deprecated, :retired]
+         end
+         """},
+        {LLMDB.Provider,
+         """
+         defmodule LLMDB.Provider do
+           defstruct [:id, :catalog_only]
+         end
+         """},
+        {LLMDB.Spec,
+         """
+         defmodule LLMDB.Spec do
+           def parse_provider("scaleway"), do: {:ok, :scaleway}
+           def parse_provider(_), do: :error
+         end
+         """},
+        {LLMDB,
+         """
+         defmodule LLMDB do
+           def provider(:scaleway), do: {:ok, %LLMDB.Provider{id: :scaleway, catalog_only: true}}
+
+           def models(:scaleway) do
+             [
+               %LLMDB.Model{
+                 id: "mistral-small-3.2-24b-instruct-2506",
+                 provider: :scaleway,
+                 name: "Mistral Small",
+                 deprecated: false,
+                 retired: false
+               }
+             ]
+           end
+
+           def models(:openai) do
+             [
+               %LLMDB.Model{
+                 id: "gpt-4o",
+                 provider: :openai,
+                 name: "GPT-4o",
+                 deprecated: false,
+                 retired: false
+               }
+             ]
+           end
+
+           def models(_), do: []
+         end
+         """},
+        {ReqLLM,
+         """
+         defmodule ReqLLM do
+           def available_models(_opts), do: raise("catalog-only providers must not use runtime discovery")
+           def model(_), do: {:error, :unknown_model}
+         end
+         """}
+      ],
+      fn ->
+        assert [%{id: "mistral-small-3.2-24b-instruct-2506", provider: :scaleway}] =
+                 ProviderModels.models_for_credential(credential)
       end
     )
   end

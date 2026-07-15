@@ -166,10 +166,16 @@ async function createAiCredential(page, overrides = {}) {
     description: overrides.description || "E2E credential",
   }
 
-  await page.locator('[phx-value-tab="ai_credentials"]').click()
-  await expect(page).toHaveURL(/tab=ai_credentials/)
-  await page.locator('[phx-click="new_ai_credential"]').click()
-  await expect(page.locator("#ai-credential-form")).toBeVisible()
+  await expect(async () => {
+    await page.locator('[phx-value-tab="ai_credentials"]').click()
+    await expect(page).toHaveURL(/tab=ai_credentials/, { timeout: 2_000 })
+    await expect(page.locator('[phx-click="new_ai_credential"]')).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: process.env.CI ? 20_000 : 15_000 })
+
+  await expect(async () => {
+    await page.locator('[phx-click="new_ai_credential"]').click()
+    await expect(page.locator("#ai-credential-form")).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: process.env.CI ? 20_000 : 15_000 })
 
   await page.locator('input[name="ai_credential[name]"]').fill(credential.name)
   await pickSearchableSelect(page, "#ai-credential-provider-select", credential.provider)
@@ -183,7 +189,7 @@ async function createAiCredential(page, overrides = {}) {
   }
 
   await page.locator('textarea[name="ai_credential[description]"]').fill(credential.description)
-  await page.locator("#ai-credential-form").getByRole("button", { name: "Save credential" }).click()
+  await page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click()
 
   await expect(page.getByText("AI credential saved.")).toBeVisible()
   await expect(page.locator("#ai-credential-form")).not.toBeVisible()
