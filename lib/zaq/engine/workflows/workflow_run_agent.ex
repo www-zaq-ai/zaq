@@ -67,7 +67,6 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
   alias Runic.Workflow
   alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.RunTrace
   alias Zaq.Engine.Workflows.RunWatcher
   alias Zaq.Engine.Workflows.StepRunner
   alias Zaq.Engine.Workflows.WorkflowRun
@@ -153,16 +152,8 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
   defp execute_dag_with_pause(dag, %WorkflowRun{} = run, started_ms, watcher) do
     input = fetch_input(run.source_event)
-    RunTrace.start(run.id, dag, input)
 
-    # Runic only invokes the checkpoint from its react loop, i.e. after the
-    # 2nd..Nth react cycle — the trace's first "react cycle" entry therefore
-    # carries the facts of Runic's first two cycles. `RunTrace.final/2` below
-    # covers single-cycle runs that never hit the checkpoint at all.
-    checkpoint = fn workflow ->
-      RunTrace.cycle(run.id, workflow)
-      pause_checkpoint!(run.id)
-    end
+    checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
 
     try do
       # Run-driver mode: SEQUENTIAL today. `react_until_satisfied/3` also accepts
@@ -172,10 +163,8 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
       # index order). Enabling async additionally requires per-fork names that
       # cannot collide and `FanIn` `mergeable` accumulation; when enabling, pass
       # the opts here and re-confirm ordering.
-      final_wrk = Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
-      RunTrace.final(run.id, final_wrk)
+      Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
       result = finalize(run, started_ms)
-      trace_outcome(run.id, result)
 
       # Guard: a `map` node whose collection exceeded its `max_items` cap
       # writes a failed StepRun (so `finalize/2` already marked the run "failed")
@@ -192,21 +181,10 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
     catch
       :throw, :pause_requested ->
         Logger.info("[workflow] run paused", run_id: run.id)
-        RunTrace.step(run.id, "run paused", nil, %{run_id: run.id})
         RunWatcher.done(watcher)
         {:ok, Workflows.get_run!(run.id)}
     end
   end
-
-  defp trace_outcome(run_id, {:ok, %WorkflowRun{} = run}) do
-    RunTrace.step(run_id, "run finalized", nil, %{
-      status: run.status,
-      log_summary: run.log_summary
-    })
-  end
-
-  defp trace_outcome(run_id, other),
-    do: RunTrace.step(run_id, "run finalize error", nil, other)
 
   defp pause_checkpoint!(run_id) do
     case Workflows.get_run!(run_id) do

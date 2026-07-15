@@ -151,7 +151,7 @@ defmodule Zaq.Channels.EmailBridge do
   end
 
   defp notification_module do
-    Application.get_env(
+    Zaq.Config.get(
       :zaq,
       :email_bridge_notification_module,
       Zaq.Engine.Notifications.EmailNotification

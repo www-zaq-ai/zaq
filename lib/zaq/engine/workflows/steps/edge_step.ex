@@ -33,11 +33,10 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
 
   An unexpected raise (anything other than `ConditionNotMet`) is caught, an
   idempotent `failed` `StepRun` row is written (same idempotency guard as the
-  `completed`/`skipped` writers — safe under Jido retry), a `RunTrace` `"edge
-  crashed"` entry is emitted, and the exception is reraised unchanged. Runic
-  still prunes the downstream subgraph either way; the row is what lets
-  `finalize/2` tell an infrastructure crash apart from a legitimate pruned
-  branch.
+  `completed`/`skipped` writers — safe under Jido retry), and the exception is
+  reraised unchanged. Runic still prunes the downstream subgraph either way; the
+  row is what lets `finalize/2` tell an infrastructure crash apart from a
+  legitimate pruned branch.
 
   This module is NOT wrapped by `StepRunner` (see D-3). It is infrastructure;
   it never appears in `StepRun` rows except via the `failed`/`skipped`/`completed`
@@ -50,7 +49,6 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.EdgeCondition
   alias Zaq.Engine.Workflows.FactLookup
-  alias Zaq.Engine.Workflows.RunTrace
   alias Zaq.Engine.Workflows.WorkflowRun
 
   @edge_keys [
@@ -79,17 +77,10 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
       output = apply_mapping(fact, mapping)
       write_pass_trace(run_id, edge_name, source_index)
 
-      RunTrace.step(run_id, "edge passed", edge_name, %{
-        condition: condition,
-        mapping: mapping,
-        input_fact: fact,
-        output_fact: output
-      })
-
       {:ok, output}
     rescue
       e in ConditionNotMet ->
-        # Existing skip semantics: write_skip_trace/RunTrace already ran inside
+        # Existing skip semantics: write_skip_trace/5 already ran inside
         # maybe_check_condition/5 — reraise unchanged.
         reraise e, __STACKTRACE__
 
@@ -100,11 +91,6 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
         # marks the run `"failed"` (with this edge in `failed_steps`) instead of
         # a silent `"incomplete"`, then reraise — Runic still prunes downstream.
         write_fail_trace(run_id, edge_name, source_index, e)
-
-        RunTrace.step(run_id, "edge crashed", edge_name, %{
-          error: Exception.message(e),
-          input_fact: fact
-        })
 
         reraise e, __STACKTRACE__
     end
@@ -121,14 +107,6 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
 
     unless EdgeCondition.evaluate(op, actual, expected, type: type) do
       write_skip_trace(run_id, edge_name, source_index, field, op, actual, expected)
-
-      RunTrace.step(run_id, "edge condition not met — downstream pruned", edge_name, %{
-        field: field,
-        op: op,
-        actual: actual,
-        expected: expected,
-        input_fact: fact
-      })
 
       raise ConditionNotMet,
         condition_name: edge_name,
