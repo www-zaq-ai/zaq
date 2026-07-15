@@ -8,8 +8,9 @@ defmodule Zaq.Agent.Skills.Limits do
   sees the error in the BO and fixes it, rather than an end user hitting a truncated skill
   or a blown context window mid-conversation.
 
-  Overridable per deployment via `config :zaq, :agent_skills, ...` (e.g. in `runtime.exs`),
-  read through the app-config layer so tests can stub it.
+  Defaults live here so there is one source of truth. Deployments may override specific
+  values via `config :zaq, :agent_skills, ...` (for example in `runtime.exs`), and tests
+  can stub them through the app-config layer.
 
   ## Body: three thresholds, two behaviours
 

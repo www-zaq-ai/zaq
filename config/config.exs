@@ -7,18 +7,6 @@
 # General application configuration
 import Config
 
-# Hard caps on skill size. Global safety rails enforced at write time; override per
-# deployment here or in runtime.exs. See `Zaq.Agent.Skills.Limits`. `description` and
-# `compatibility` caps are owned by Jido's loader, not ZAQ, so they are not listed here.
-config :zaq, :agent_skills, %{
-  skill_body_warning_tokens: 16_000,
-  skill_body_max_tokens: 32_000,
-  skill_body_max_bytes: 131_072,
-  # Part 2 (SKILL.md import); declared for one home, not yet enforced.
-  bundle_max_bytes: 50 * 1024 * 1024,
-  bundle_max_files: 500
-}
-
 config :zaq, :channels, %{
   mattermost: %{
     bridge: Zaq.Channels.JidoChatBridge,
