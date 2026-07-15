@@ -32,6 +32,7 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
   use Zaq.DataCase, async: false
 
   import Zaq.SystemConfigFixtures
+  import Zaq.TestSupport.NodeRouterStubs
 
   alias Zaq.Agent
   alias Zaq.Agent.ServerManager
@@ -94,9 +95,9 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
     # Pass those straight through. Crucially we do NOT route anything into TriggerNode
     # here: the `lead_identified` events flow through the REAL Zaq.NodeRouter that
     # `DispatchEvent` uses by default, so the live EventRegistry → TriggerNode path
-    # fires the trigger. Global so the trigger Task children inherit the stub.
-    Mox.set_mox_global()
-    stub(Zaq.NodeRouterMock, :dispatch, fn event -> event end)
+    # fires the trigger. Global + stub_with so trigger Task children inherit a stable
+    # passthrough even when other tests race on NodeRouterMock.
+    stub_passthrough()
 
     # The EventRegistry is not part of the test supervision tree, so start a real
     # one here. It subscribes to the `node_router:events` PubSub topic in init, and
@@ -108,6 +109,7 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
   end
 
   test "a batch of #{@units} dispatched events triggers #{@units} isolated run_agent servers via the real trigger path" do
+    stub_passthrough()
     test_pid = self()
 
     # The first LLM request to land holds its response open, guaranteeing all runs
@@ -290,6 +292,7 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
   end
 
   defp do_wait_for_runs(workflow_id, count, deadline) do
+    stub_passthrough()
     runs = Workflows.list_runs(workflow_id)
     settled = Enum.filter(runs, &(&1.status in ["completed", "failed"]))
 
