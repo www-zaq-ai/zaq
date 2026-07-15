@@ -926,6 +926,45 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert_received {:dispatched, event}
       assert event.request.content == "budget  here"
     end
+
+    # Each turn below is ~10 words ≈ 13 tokens (TokenEstimator: words × 1.3, ceil).
+    # A budget of 20 fits only the newest turn (13 ok; +13 = 26 > 20 halts), proving
+    # the seed context is trimmed here rather than passed through unbounded.
+    test "trims the oldest seed turns that overflow context_max_size, keeping the newest" do
+      agent = create_agent()
+      turn = fn label -> %{role: "user", content: label <> " " <> String.duplicate("w ", 9)} end
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [turn.("oldest"), turn.("middle"), turn.("newest")],
+          context_max_size: 20
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [only] = seeded_messages(event)
+      assert only.role == :user
+      assert only.content =~ "newest"
+    end
+
+    test "keeps every seed turn when the default budget is not exceeded" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{role: "user", content: "a"}, %{role: "assistant", content: "b"}]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [%{content: "a"}, %{content: "b"}] = seeded_messages(event)
+    end
   end
 
   describe "run/2 — context messages (property)" do

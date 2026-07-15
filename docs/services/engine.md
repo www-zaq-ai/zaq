@@ -185,6 +185,25 @@ Adapter inbound path:
 - `append_attempt/4` — atomic Postgres JSONB `||` append to `channels_tried`.
 - `transition_status/2` — enforces valid transitions; uses `update_all` with current-status
   guard for stale-record safety.
+- `record_threading/3` / `thread_anchor/2` — persist and resolve the RFC threading anchor
+  (`Message-ID`, `In-Reply-To`, `References`, thread root) of a **delivered** email.
+
+#### Email threading — anchor source of truth (invariant)
+Outbound email threading resolves the next send's parent through
+`Notifications.resolve_anchor/2`, which consults two stores in a fixed order:
+1. **Primary — `NotificationLog.thread_anchor/2`.** The log is authoritative for the
+   outbound chain: it is written by the same code that mints the `Message-ID` and sees
+   delivery succeed, keyed by `(recipient_ref, thread_key)`, and only on the `sent`
+   transition (never `skipped`/`failed`, so an undelivered message can't become a
+   phantom parent).
+2. **Fallback — `Conversations.email_thread_anchor/3`.** The conversation store carries
+   the anchor for a thread ZAQ did **not** start (an inbound email whose RFC id we
+   inherited) and for messages persisted before the log path existed.
+
+Both compute the same thread root and an always-list `references` chain. Keep the two
+paths consistent when editing either — a divergence would re-key a thread or drop the
+`References` head (the derived root). `thread_key` grouping stays `topic || subject`;
+it is deliberately not re-keyed to the minted `Message-ID`.
 
 ### Email Notification (`Zaq.Engine.Notifications.EmailNotification`)
 - Delivers via SMTP using Swoosh/Mailer.

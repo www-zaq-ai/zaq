@@ -54,9 +54,11 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     `pipeline_opts[:context]`; `Factory.build_initial_context/3` uses it as the agent's
     entire cold-start context (skipping history loading) when the server spawns.
   - `context_max_size` — optional positive integer. Token budget for the seeded
-    context, overriding the agent's `memory_context_max_size` (default 5000) for
-    this run. Carried as data on `metadata.context_max_size`; the budget is
-    **enforced by the agent layer**, not here.
+    context (default 5000). When the seed turns exceed it, the **oldest** turns are
+    dropped (newest kept) via `Zaq.Agent.TokenEstimator` in `build_context/2` before
+    the `Jido.AI.Context` is assembled, so a seeded context never blows past its
+    ceiling — mirroring the budget `HistoryLoader` applies on the history path. Also
+    carried as data on `metadata.context_max_size` for downstream observability.
 
   All other params in the accumulated workflow state are available as
   `{{variable_name}}` substitutions in `input` (and in each context turn's `content`).
@@ -99,9 +101,9 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
         type: :integer,
         required: false,
         doc:
-          "Optional token budget for the seeded context. Overrides the agent's " <>
-            "memory_context_max_size (default 5000) for this run. Carried as data; " <>
-            "the budget is enforced by the agent layer."
+          "Optional token budget for the seeded context (default 5000). When the " <>
+            "seed turns exceed it, the oldest are dropped (newest kept) before the " <>
+            "context is built."
       ]
     ],
     output_schema: [
@@ -112,10 +114,15 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.StreamEvents
+  alias Zaq.Agent.TokenEstimator
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.NodeRouter
+
+  # Default seed-context token budget when a run does not set `context_max_size`.
+  # Kept in step with `HistoryLoader`'s default so both context paths share a ceiling.
+  @default_context_max_size 5_000
 
   @impl Jido.Action
   # Params may arrive atom- OR string-keyed. The workflow DAG builder atomizes a
@@ -183,8 +190,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     end
   end
 
-  # Only a positive integer is carried; the agent layer resolves the effective
-  # budget as `context_max_size || memory_context_max_size || 5000`.
+  # Only a positive integer is carried. The budget is applied at build time in
+  # `build_context/2`; this carry is retained as data for downstream observability.
   defp maybe_put_context_max_size(metadata, nil), do: metadata
 
   defp maybe_put_context_max_size(metadata, size) when is_integer(size) and size > 0,
@@ -304,13 +311,40 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # Build the optional `context` param into a `Jido.AI.Context`, or nil when the
   # caller supplied none (so the agent falls back to normal history loading). The
   # built context becomes the agent's entire cold-start context —
-  # `Factory.build_initial_context/3` uses it as-is — so it is assembled here rather
-  # than carried as loose maps for the agent layer to reassemble.
+  # `Factory.build_initial_context/3` uses it as-is, applying no further budget — so
+  # the token budget is enforced here, before assembly, by dropping the oldest turns
+  # that overflow `context_max_size` (default 5000).
   defp build_context(params, vars) do
     case build_context_messages(params, vars) do
-      [] -> nil
-      messages -> AIContext.new() |> AIContext.append_messages(messages)
+      [] ->
+        nil
+
+      messages ->
+        case within_budget(messages, context_budget(params)) do
+          [] -> nil
+          kept -> AIContext.new() |> AIContext.append_messages(kept)
+        end
     end
+  end
+
+  defp context_budget(params), do: context_max_size(params) || @default_context_max_size
+
+  # Keep the most recent turns that fit within `max_tokens`, dropping the oldest
+  # first while preserving chronological order. Mirrors `HistoryLoader`'s budget
+  # policy so a seeded context honors the same token ceiling as loaded history.
+  defp within_budget(messages, max_tokens) do
+    messages
+    |> Enum.reverse()
+    |> Enum.reduce_while({[], 0}, fn msg, {acc, total} ->
+      new_total = total + TokenEstimator.estimate(msg.content || "")
+
+      if new_total > max_tokens do
+        {:halt, {acc, total}}
+      else
+        {:cont, {[msg | acc], new_total}}
+      end
+    end)
+    |> elem(0)
   end
 
   # Normalise the optional `context` param into an ordered list of role-keyed turn
