@@ -67,42 +67,6 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   @map_keys @map_index_keys ++ @map_strategy_keys ++ [:__map_item__, "__map_item__"]
   @max_retries 3
 
-  # Process-scoped, run-lifetime override for the NodeRouter a step's action should
-  # dispatch through. Set by `WorkflowRunAgent.execute/2` from `start_run/2` opts and
-  # cleared when the run finishes. The Runic DAG is persisted (JSONB) and Runic hands
-  # the action an empty runtime context, so a live router module cannot ride through
-  # the DAG or the fact — this in-process carrier is how an explicit `:node_router`
-  # opt reaches `enrich_context/5` and lands on the step context (where
-  # `run_agent`/other tools read it via `Map.get(context, :node_router, NodeRouter)`).
-  # Production never sets it (the live `Zaq.NodeRouter` default is correct); it exists
-  # so a caller/test can inject a double without a global app-env seam.
-  @node_router_override_key {__MODULE__, :node_router_override}
-
-  @doc """
-  Sets the process-local NodeRouter override for the current run (a no-op for
-  `nil`). Called by `WorkflowRunAgent.execute/2` before it drives the DAG so the
-  override lands on each step's context via `enrich_context/5`. Pair with
-  `clear_node_router_override/0` in an `after` block.
-  """
-  @spec put_node_router_override(module() | nil) :: :ok
-  def put_node_router_override(nil), do: :ok
-  def put_node_router_override(mod) when is_atom(mod), do: put_override(mod)
-
-  @doc """
-  Clears the process-local NodeRouter override set by `put_node_router_override/1`,
-  so it never leaks to a later run reusing the same process.
-  """
-  @spec clear_node_router_override() :: :ok
-  def clear_node_router_override do
-    Process.delete(@node_router_override_key)
-    :ok
-  end
-
-  defp put_override(mod) do
-    Process.put(@node_router_override_key, mod)
-    :ok
-  end
-
   @impl true
   def run(params, context) do
     %{wrapped_module: mod, run_id: run_id, step_index: step_index} = params
@@ -429,17 +393,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
       # `FactLookup`, exactly as `EdgeStep` does on edges.
       __cascade__: prev_cascade
     })
-    |> maybe_put_node_router()
-  end
-
-  # Surface the run-scoped router override (if any) on the step context so an
-  # action reads it the same way as any tool-call/chat path: an explicit
-  # `:node_router` in context wins over the live `Zaq.NodeRouter` default.
-  defp maybe_put_node_router(context) do
-    case Process.get(@node_router_override_key) do
-      nil -> context
-      mod -> Map.put(context, :node_router, mod)
-    end
+    |> Map.put(:node_router, Zaq.RuntimeDeps.workflow_step_node_router())
   end
 
   # Recursively converts action_params to a JSON-safe structure for Postgres JSONB.

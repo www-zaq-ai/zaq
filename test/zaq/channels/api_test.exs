@@ -317,7 +317,7 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :deliver_outgoing, nil)
 
-    assert result.response == :ok
+    assert result.response == {:ok, %{}}
 
     assert_received {:bridge_send_reply, ^outgoing,
                      %{url: "https://example.test", token: "token"}}
@@ -341,7 +341,7 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :deliver_outgoing, nil)
 
-    assert result.response == :ok
+    assert result.response == {:ok, %{}}
     assert_received {:bridge_send_reply, %Outgoing{metadata: %{message_id: "m-status"}}, _details}
   end
 
@@ -361,7 +361,7 @@ defmodule Zaq.Channels.ApiTest do
 
       result = Api.handle_event(event, :deliver_outgoing, nil)
 
-      assert result.response == :ok
+      assert result.response == {:ok, %{}}
       assert_received {:bridge_send_reply, %Outgoing{metadata: metadata}, _details}
       assert metadata[:message_id] == "m-existing"
       assert metadata[:status_message_id] == "m-status"
@@ -378,7 +378,7 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(%{event | response: outgoing}, :deliver_outgoing, nil)
 
-    assert result.response == :ok
+    assert result.response == {:ok, %{}}
 
     assert_received {:bridge_send_reply, ^outgoing,
                      %{url: "https://example.test", token: "token"}}
@@ -1510,7 +1510,7 @@ defmodule Zaq.Channels.ApiTest do
       )
 
     result = Api.handle_event(event, :deliver_outgoing, nil)
-    assert result.response == :ok
+    assert result.response == {:ok, %{}}
     assert_received {:bridge_send_reply, ^outgoing, _details}
   end
 
@@ -1519,7 +1519,7 @@ defmodule Zaq.Channels.ApiTest do
     event = Event.new(outgoing, :channels)
     result = Api.handle_event(%{event | opts: :invalid_opts}, :deliver_outgoing, nil)
 
-    assert result.response == :ok
+    assert result.response == {:ok, %{}}
   end
 
   describe "broadcast re-broadcaster" do

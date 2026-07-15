@@ -23,7 +23,10 @@ defmodule Zaq.Channels.CommunicationBridge do
   alias Zaq.People.IdentityResolver
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
 
-  @callback send_reply(term(), map()) :: :ok | {:error, term()}
+  # `{:ok, receipt}` carries channel-assigned threading pointers (the delivered
+  # message's id/anchor) back to the caller; bridges without receipts return `:ok`,
+  # which `Zaq.Channels.Api` normalizes to `{:ok, %{}}`.
+  @callback send_reply(term(), map()) :: :ok | {:ok, receipt :: map()} | {:error, term()}
   @callback upsert_message(map() | atom() | String.t(), map(), map()) ::
               {:ok, map()} | {:error, term()}
   @callback send_typing(map() | atom() | String.t(), String.t(), map()) :: :ok | {:error, term()}
@@ -411,6 +414,8 @@ defmodule Zaq.Channels.CommunicationBridge do
     case node_router_module.dispatch(event).response do
       %Outgoing{} = outgoing -> outgoing
       {:ok, %Outgoing{} = outgoing} -> outgoing
+      # Delivery receipt from a sync deliver_outgoing hop — delivered, nothing to return.
+      {:ok, receipt} when is_non_struct_map(receipt) -> :ok
       {:error, _} = error -> error
       nil -> :ok
       :ok -> :ok

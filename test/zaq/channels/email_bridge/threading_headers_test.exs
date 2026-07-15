@@ -7,10 +7,11 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
   The two predicates are deliberately decoupled:
 
     * `inbound_reply?` (provider == email:imap + in_reply_to) → drives `Re:` only
-    * `thread?`        (in_reply_to present, any email provider) → drives headers
+    * continuity (anchor/in_reply_to present, any email provider) → drives headers
 
   A proactive sequence therefore threads via headers while keeping the clean
-  subject the campaign topic defines.
+  subject the campaign topic defines. The bridge mints the Message-ID itself when
+  the caller did not pre-mint one, and returns the delivered pointers as a receipt.
   """
   use Zaq.DataCase, async: false
 
@@ -34,7 +35,7 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
   end
 
   defp send_and_capture(%Outgoing{} = outgoing) do
-    :ok = EmailBridge.send_reply(outgoing, %{})
+    {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
     receive do
       {:sent, _recipient, payload, _metadata} -> payload
@@ -72,7 +73,7 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
       assert payload["headers"]["Message-ID"] == "<new@zaq.local>"
     end
 
-    test "emits no Message-ID when none was minted" do
+    test "mints its own Message-ID when the caller did not pre-mint one" do
       out = %Outgoing{
         body: "hello",
         channel_id: "lead@example.test",
@@ -80,9 +81,36 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
         metadata: %{"subject" => "Topic A"}
       }
 
-      payload = send_and_capture(out)
+      {:ok, receipt} = EmailBridge.send_reply(out, %{})
 
-      refute Map.has_key?(payload["headers"], "Message-ID")
+      assert_receive {:sent, _recipient, payload, _metadata}
+      # No SMTP config in this test → default sending domain.
+      assert payload["headers"]["Message-ID"] =~ ~r/^<zaq-[0-9a-f-]{36}@zaq\.local>$/
+      assert payload["headers"]["Message-ID"] == "<#{receipt.message_id}>"
+    end
+
+    test "returns the delivered pointers as a receipt with a verbatim-storable anchor" do
+      {:ok, receipt} =
+        EmailBridge.send_reply(
+          outgoing(%{
+            in_reply_to: "m1@zaq.local",
+            threading: %{"in_reply_to" => "m1@zaq.local", "references" => ["m1@zaq.local"]}
+          }),
+          %{}
+        )
+
+      assert receipt.message_id == "new@zaq.local"
+      # Root of a one-message chain is the parent itself.
+      assert receipt.thread_id == "m1@zaq.local"
+
+      assert receipt.anchor == %{
+               "message_id" => "new@zaq.local",
+               "in_reply_to" => "m1@zaq.local",
+               "references" => ["m1@zaq.local"],
+               "thread_id" => "m1@zaq.local"
+             }
+
+      assert receipt.thread_metadata["email"]["threading"]["message_id"] == "new@zaq.local"
     end
   end
 

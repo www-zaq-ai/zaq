@@ -40,7 +40,10 @@ defmodule Zaq.Channels.Api do
 
       connection_details = bridge_module.fetch_connection_details(outgoing.provider)
 
-      response = bridge.send_reply(outgoing, connection_details)
+      response =
+        outgoing
+        |> bridge.send_reply(connection_details)
+        |> normalize_delivery_response()
 
       %{event | response: response}
     else
@@ -710,6 +713,13 @@ defmodule Zaq.Channels.Api do
   end
 
   defp fetch(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  # Uniform deliver_outgoing contract: success is always `{:ok, receipt}`, where the
+  # receipt carries channel-assigned threading pointers (empty for bridges that
+  # return plain `:ok`).
+  defp normalize_delivery_response(:ok), do: {:ok, %{}}
+  defp normalize_delivery_response({:ok, receipt} = response) when is_map(receipt), do: response
+  defp normalize_delivery_response(response), do: response
 
   defp normalize_upsert_config(provider, {:error, _reason}) when provider in [:web, "web"],
     do: {:ok, %{provider: "web"}}

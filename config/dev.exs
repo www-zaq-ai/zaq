@@ -78,7 +78,7 @@ config :zaq,
 
 config :zaq, Zaq.System.SecretConfig,
   encryption_key: "MPEyMzQ1Njc5OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-  key_id: "test-v1"
+  key_id: "v1"
 
 config :zaq, Zaq.Ingestion,
   base_path: "priv/documents",

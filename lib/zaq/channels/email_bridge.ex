@@ -114,14 +114,15 @@ defmodule Zaq.Channels.EmailBridge do
   Reads subject and html_body from `outgoing.metadata` (keys `:subject` / `"subject"`
   and `:html_body` / `"html_body"`). Falls back to a default subject if missing.
   """
-  @spec send_reply(Outgoing.t(), map()) :: :ok | {:error, term()}
+  @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
     # Two independent predicates. `inbound_reply?` is about *provenance* (are we
-    # answering an email someone sent us) and drives the `Re:` prefix. `thread?` is
-    # about *continuity* (do we have a parent to point at) and drives the RFC
-    # headers. A proactive sequence is the second without the first: it threads via
-    # headers while keeping the clean subject its campaign topic defines.
+    # answering an email someone sent us) and drives the `Re:` prefix. Continuity
+    # (do we have a parent to point at) comes from `thread_anchor`/`in_reply_to`
+    # and drives the RFC headers. A proactive sequence is the second without the
+    # first: it threads via headers while keeping the clean subject its campaign
+    # topic defines.
     inbound_reply? = inbound_reply?(outgoing)
 
     subject = resolve_subject(outgoing.metadata, inbound_reply?)
@@ -131,10 +132,8 @@ defmodule Zaq.Channels.EmailBridge do
     html_body = get_meta(outgoing.metadata, "html_body", :html_body)
     format = get_meta(outgoing.metadata, "format", :format)
 
-    headers =
-      outgoing
-      |> message_id_header()
-      |> Map.merge(if thread?(outgoing), do: reply_headers(outgoing), else: %{})
+    threading = resolve_threading(outgoing)
+    headers = threading_headers(threading)
 
     payload =
       %{
@@ -147,7 +146,10 @@ defmodule Zaq.Channels.EmailBridge do
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
 
-    notification_module().send_notification(outgoing.channel_id, payload, %{})
+    case notification_module().send_notification(outgoing.channel_id, payload, %{}) do
+      :ok -> {:ok, delivery_receipt(threading)}
+      error -> error
+    end
   end
 
   defp notification_module do
@@ -172,12 +174,17 @@ defmodule Zaq.Channels.EmailBridge do
            pipeline_module: pipeline_module(),
            node_router: node_router_module()
          ) do
-      %Outgoing{} = outgoing -> deliver_outgoing_runtime(outgoing)
+      %Outgoing{} = outgoing -> normalize_runtime_delivery(deliver_outgoing_runtime(outgoing))
       :ok -> :ok
       {:error, _} = error -> error
       other -> {:error, other}
     end
   end
+
+  # The inbound-reply runtime path has no use for the delivery receipt — collapse
+  # it so `handle_from_listener` keeps matching on `:ok`.
+  defp normalize_runtime_delivery({:ok, receipt}) when is_map(receipt), do: :ok
+  defp normalize_runtime_delivery(other), do: other
 
   defp resolve_adapter(connection_details) do
     case Map.get(connection_details, :adapter) || Map.get(connection_details, "adapter") do
@@ -317,27 +324,102 @@ defmodule Zaq.Channels.EmailBridge do
     to_string(outgoing.provider) == "email:imap" and has_parent?(outgoing)
   end
 
-  # Continuity: we have a parent message to point `In-Reply-To` at. True for any
-  # email provider, including an outbound-first sequence follow-up.
-  defp thread?(%Outgoing{} = outgoing), do: has_parent?(outgoing)
-
   defp has_parent?(%Outgoing{in_reply_to: in_reply_to}) do
     is_binary(in_reply_to) and String.trim(in_reply_to) != ""
   end
 
-  # Every email send carries its own Message-ID so a later send can anchor to it.
-  # gen_smtp only fills one in when absent, so ours is the id that is delivered.
-  defp message_id_header(%Outgoing{} = outgoing) do
+  # Resolves the full set of RFC 5322 threading pointers for this send.
+  #
+  # The message's own id is pre-minted metadata when a caller supplied one,
+  # otherwise minted here — gen_smtp would let the relay assign one ZAQ never
+  # learns, so ours must be the id that is delivered. The parent comes from the
+  # opaque `thread_anchor` (the last message ZAQ delivered in this thread) when
+  # the notification center resolved one, else from `in_reply_to` (an inbound
+  # email being answered).
+  defp resolve_threading(%Outgoing{} = outgoing) do
     email_meta = get_meta(outgoing.metadata, "email", :email) || %{}
-    threading = get_meta(email_meta, "threading", :threading) || %{}
+    preminted = get_meta(email_meta, "threading", :threading) || %{}
+    incoming_headers = get_meta(email_meta, "headers", :headers) || %{}
+    anchor = outgoing.thread_anchor || %{}
 
-    threading
-    |> get_meta("message_id", :message_id)
-    |> EmailUtils.normalize_message_id()
-    |> format_message_id()
-    |> case do
-      nil -> %{}
-      message_id -> %{"Message-ID" => message_id}
+    anchor_parent = EmailUtils.normalize_message_id(get_meta(anchor, "message_id", :message_id))
+    in_reply_to = anchor_parent || EmailUtils.normalize_message_id(outgoing.in_reply_to)
+
+    message_id =
+      EmailUtils.normalize_message_id(get_meta(preminted, "message_id", :message_id)) ||
+        EmailUtils.new_message_id(sending_domain())
+
+    references = chain_references(in_reply_to, anchor_parent, anchor, preminted, incoming_headers)
+
+    %{
+      message_id: message_id,
+      in_reply_to: in_reply_to,
+      references: references,
+      # The root of the thread — or, on a first send, the message itself.
+      thread_id: get_meta(anchor, "thread_id", :thread_id) || List.first(references) || message_id
+    }
+  end
+
+  # No parent → fresh thread, no ancestor chain (References without a parent
+  # would claim a continuity that does not exist).
+  defp chain_references(nil, _anchor_parent, _anchor, _preminted, _incoming_headers), do: []
+
+  defp chain_references(in_reply_to, anchor_parent, anchor, preminted, incoming_headers) do
+    anchor_parent
+    |> ancestor_references(anchor, preminted, incoming_headers)
+    |> append_once(in_reply_to)
+    |> EmailUtils.cap_references()
+  end
+
+  defp ancestor_references(anchor_parent, anchor, preminted, incoming_headers) do
+    if anchor_parent do
+      references_list(get_meta(anchor, "references", :references))
+    else
+      references_list(
+        get_meta(preminted, "references", :references) ||
+          get_meta(incoming_headers, "references", :references)
+      )
+    end
+  end
+
+  defp threading_headers(threading) do
+    %{"Message-ID" => format_message_id(threading.message_id)}
+    |> maybe_put_header("In-Reply-To", format_message_id(threading.in_reply_to))
+    |> maybe_put_header("References", format_references(threading.references))
+  end
+
+  # The delivery receipt returned to the caller: generic pointers as named fields,
+  # the email-only chain inside the opaque residue, and the `anchor` map the
+  # notification center persists verbatim for the next send to chain onto.
+  defp delivery_receipt(threading) do
+    %{
+      message_id: threading.message_id,
+      thread_id: threading.thread_id,
+      anchor: %{
+        "message_id" => threading.message_id,
+        "in_reply_to" => threading.in_reply_to,
+        "references" => threading.references,
+        "thread_id" => threading.thread_id
+      },
+      thread_metadata: %{
+        "email" => %{
+          "threading" => %{
+            "message_id" => threading.message_id,
+            "in_reply_to" => threading.in_reply_to,
+            "references" => threading.references
+          }
+        }
+      }
+    }
+  end
+
+  defp sending_domain do
+    case ChannelConfig.get_by_provider("email:smtp") do
+      %ChannelConfig{settings: settings} when is_map(settings) ->
+        EmailUtils.sending_domain(Map.get(settings, "from_email"))
+
+      _ ->
+        EmailUtils.sending_domain(nil)
     end
   end
 
@@ -349,23 +431,6 @@ defmodule Zaq.Channels.EmailBridge do
       String.match?(trimmed, ~r/^re:\s*/i) -> trimmed
       true -> "Re: " <> trimmed
     end
-  end
-
-  defp reply_headers(%Outgoing{} = outgoing) do
-    email_meta = get_meta(outgoing.metadata, "email", :email) || %{}
-    threading = get_meta(email_meta, "threading", :threading) || %{}
-    incoming_headers = get_meta(email_meta, "headers", :headers) || %{}
-    in_reply_to = EmailUtils.normalize_message_id(outgoing.in_reply_to)
-
-    references =
-      (get_meta(threading, "references", :references) ||
-         get_meta(incoming_headers, "references", :references))
-      |> references_list()
-      |> append_once(in_reply_to)
-
-    %{}
-    |> maybe_put_header("In-Reply-To", format_message_id(in_reply_to))
-    |> maybe_put_header("References", format_references(references))
   end
 
   defp references_list(nil), do: []

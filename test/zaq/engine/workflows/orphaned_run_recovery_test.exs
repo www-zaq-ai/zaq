@@ -167,6 +167,46 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
     end)
   end
 
+  # Blocks until the driver is genuinely parked inside `Process.sleep/1` — the
+  # scenario every kill test below claims to reproduce ("the process died while
+  # `Process.sleep` was in flight"). This is NOT cosmetic: the driver reaches
+  # `sleep_step` "running" by first committing that row through the shared
+  # Sandbox connection, and Ecto releases the connection back to the pool
+  # *asynchronously* after that write returns. Killing the driver inside that
+  # brief release window makes DBConnection treat it as a client that died
+  # mid-checkout and disconnect the shared connection — which permanently breaks
+  # Sandbox ownership for the rest of the test, so both the poll below *and*
+  # RunWatcher's own recovery write then fail (the flake). Waiting for the driver
+  # to reach `Process.sleep` (`:current_function == {Process, :sleep, 1}`) plus a
+  # short settle guarantees the connection is fully back in the pool before we
+  # simulate the crash, so the kill severs only the driver — never the DB.
+  defp await_driver_parked_in_sleep(pid, deadline_ms \\ 1_000) do
+    t0 = System.monotonic_time(:millisecond)
+    do_await_parked(pid, t0, deadline_ms)
+  end
+
+  defp do_await_parked(pid, t0, deadline_ms) do
+    parked? =
+      case Process.info(pid, :current_function) do
+        {:current_function, {Process, :sleep, 1}} -> true
+        _ -> false
+      end
+
+    cond do
+      parked? ->
+        # Settle window for Ecto's async check-in of the "running" write.
+        Process.sleep(50)
+        :ok
+
+      System.monotonic_time(:millisecond) - t0 > deadline_ms ->
+        {:error, :never_parked}
+
+      true ->
+        Process.sleep(5)
+        do_await_parked(pid, t0, deadline_ms)
+    end
+  end
+
   test "killing the driving process mid-sleep auto-recovers the run within milliseconds" do
     wf = sleep_workflow(2_000)
     {:ok, run} = Workflows.create_run(wf, @source_event)
@@ -175,6 +215,7 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
     ref = Process.monitor(pid)
 
     assert :ok = wait_until_running(run.id, "sleep_step", 1_000)
+    assert :ok = await_driver_parked_in_sleep(pid)
 
     # Simulate the driving process dying mid-step (crash / OOM kill / etc.) —
     # NOT a graceful pause, NOT the node restarting.
@@ -428,6 +469,7 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
       ref = Process.monitor(pid)
 
       assert :ok = wait_until_running(run.id, "sleep_step", 1_000)
+      assert :ok = await_driver_parked_in_sleep(pid)
 
       # Shape produced when a process crashes via an uncaught `raise` — the
       # same `{exception, stacktrace}` DOWN reason OTP itself would deliver.
@@ -459,6 +501,7 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
       ref = Process.monitor(pid)
 
       assert :ok = wait_until_running(run.id, "sleep_step", 1_000)
+      assert :ok = await_driver_parked_in_sleep(pid)
 
       # No exception struct here — just an opaque supervisor/dependency exit
       # reason, the kind a real infra failure (e.g. a lost DB connection pool)

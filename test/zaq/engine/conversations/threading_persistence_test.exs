@@ -12,7 +12,7 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
   Two invariants are pinned:
 
     1. The stored metadata is byte-for-byte the parser's shape
-       (`metadata.email.threading`), so `email_thread_anchor/3` reads one location
+       (`metadata.email.threading`), so `thread_anchor/4` reads one location
        whether the id was minted or inherited.
     2. The generic `thread_id` must NOT re-key the conversation — grouping stays
        topic/subject-based, or the next anchor lookup would miss and the chain
@@ -109,11 +109,11 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
 
       # The round trip the whole feature rests on: what send N persists,
       # send N+1 must find.
-      anchor = Conversations.email_thread_anchor(person.id, "Topic A", "Topic A")
+      anchor = Conversations.thread_anchor(person.id, "email:smtp", "Topic A", "Topic A")
 
-      assert anchor.message_id == "new@zaq.local"
-      assert anchor.thread_key == "new@zaq.local"
-      assert anchor.references == []
+      assert anchor["message_id"] == "new@zaq.local"
+      assert anchor["thread_id"] == "new@zaq.local"
+      assert anchor["references"] == []
     end
   end
 
@@ -156,9 +156,9 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
       assert conv_a == conv_b
 
       # The anchor now points at the latest send.
-      anchor = Conversations.email_thread_anchor(person.id, "Topic A", "Topic A")
-      assert anchor.message_id == "m2@zaq.local"
-      assert anchor.references == ["m1@zaq.local"]
+      anchor = Conversations.thread_anchor(person.id, "email:smtp", "Topic A", "Topic A")
+      assert anchor["message_id"] == "m2@zaq.local"
+      assert anchor["references"] == ["m1@zaq.local"]
     end
   end
 end

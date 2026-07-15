@@ -61,8 +61,16 @@ defmodule Zaq.Engine.Workflows.HistorySeedsRunAgentTest do
     set_mox_global()
     stub(Zaq.NodeRouterMock, :dispatch, fn event -> event end)
 
+    # run_agent step actions dispatch through the capturing double via the dedicated
+    # step-router seam; the global `:node_router` mock above handles lifecycle events.
+    Application.put_env(:zaq, :workflow_step_node_router, CaptureIncomingRouter)
     Application.put_env(:zaq, :history_seeds_capture_pid, self())
-    on_exit(fn -> Application.delete_env(:zaq, :history_seeds_capture_pid) end)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :workflow_step_node_router)
+      Application.delete_env(:zaq, :history_seeds_capture_pid)
+    end)
+
     :ok
   end
 
@@ -145,9 +153,7 @@ defmodule Zaq.Engine.Workflows.HistorySeedsRunAgentTest do
       })
 
     assert {:ok, run} =
-             Workflows.create_and_start_run(workflow, machine_source_event(), %{},
-               node_router: CaptureIncomingRouter
-             )
+             Workflows.create_and_start_run(workflow, machine_source_event(), %{})
 
     assert run.status == "completed"
 

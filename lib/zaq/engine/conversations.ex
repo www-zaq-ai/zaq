@@ -484,35 +484,36 @@ defmodule Zaq.Engine.Conversations do
 
   Outbound sends carry no inbound headers, so there is no `thread_key` and the
   grouping precedence in `conversation_channel_user_id/2` collapses to
-  `topic || subject`. Both persistence and `email_thread_anchor/3` route through
+  `topic || subject`. Both persistence and `thread_anchor/4` route through
   this function so the anchor and the message it anchors resolve the same key.
   """
   def outbound_email_grouping_key(topic, subject), do: first_present([topic, subject])
 
   @doc """
-  Resolves the threading anchor for the next outbound email to `person_id` in the
-  conversation grouped under `topic`/`subject`.
+  Resolves the threading anchor for the next outbound send to `person_id` on
+  `platform`, in the conversation grouped under `topic`/`subject`.
 
-  Returns the thread pointers the next send chains onto:
-
-    * `:message_id` — the last email's own Message-ID (the next `In-Reply-To`)
-    * `:thread_key` — the thread root (the next `Outgoing.thread_id`)
-    * `:references` — the ancestor chain, always a list
+  The anchor is an opaque string-keyed map interpreted only by the provider
+  bridge (`"message_id"`, `"references"`, `"thread_id"`). Only email platforms
+  carry conversation-inherited anchors today; every other platform resolves to
+  `nil`.
 
   Returns `nil` when there is no conversation, when the grouping key is blank, or
-  when no message in it carries a threading `message_id` (all pre-fix or
-  non-email) — the next send then simply starts a fresh chain.
+  when no message in it carries a threading `message_id` — the next send then
+  simply starts a fresh chain.
   """
-  def email_thread_anchor(person_id, topic, subject)
+  def thread_anchor(person_id, platform, topic, subject)
 
-  def email_thread_anchor(nil, _topic, _subject), do: nil
+  def thread_anchor(nil, _platform, _topic, _subject), do: nil
 
-  def email_thread_anchor(person_id, topic, subject) do
+  def thread_anchor(person_id, "email" <> _rest, topic, subject) do
     case outbound_email_grouping_key(topic, subject) do
       key when is_binary(key) -> anchor_from_last_threaded_message(person_id, key)
       _ -> nil
     end
   end
+
+  def thread_anchor(_person_id, _platform, _topic, _subject), do: nil
 
   defp anchor_from_last_threaded_message(person_id, channel_user_id) do
     from(m in Message,
@@ -555,11 +556,11 @@ defmodule Zaq.Engine.Conversations do
       nil
     else
       %{
-        message_id: message_id,
+        "message_id" => message_id,
         # Root of the thread: the chain's head, or this message itself when it is
         # the only message in the thread.
-        thread_key: List.first(references) || message_id,
-        references: references
+        "thread_id" => List.first(references) || message_id,
+        "references" => references
       }
     end
   end

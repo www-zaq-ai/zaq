@@ -19,8 +19,9 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
   the real `HumanInTheLoop` review, `Increment`, and the sheet-range `Concat`s.
 
   Only the true external boundaries are stubbed: the LLM draft, the Google Sheet
-  write, and the final SMTP hop (captured at the `deliver_outgoing` boundary so we
-  can inspect the `%Outgoing{}` that would have been sent).
+  write, and the final SMTP hop. Delivery runs through the **real `EmailBridge`**
+  (which mints the Message-ID and builds the RFC headers), so the assertions read
+  the exact headers the recipient's mail client would see.
   """
   use Zaq.DataCase, async: false
 
@@ -32,7 +33,6 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
   alias Zaq.Agent.Tools.Workflow.DispatchEvent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Conversations
-  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Engine.{TriggerNode, Workflows}
   alias Zaq.Engine.Workflows.Test.{UseCaseFixtures, UseCaseStubs}
@@ -53,11 +53,13 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
 
   # ── Stubs: only the SMTP hop ───────────────────────────────────────
 
-  # Stands in for the SMTP hop: captures the %Outgoing{} the engine would deliver
-  # and reports success, so the notification is marked :sent.
+  # Routes delivery through the REAL EmailBridge; only the SMTP hop below it is
+  # stubbed. The bridge's receipt travels back as the response, exactly as the
+  # channels node would return it.
   defmodule DeliverCapturingRouter do
     @moduledoc false
-    alias Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest, as: Test
+
+    alias Zaq.Channels.EmailBridge
 
     def dispatch(event) do
       case event.opts[:action] do
@@ -65,13 +67,23 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
           %{event | response: true}
 
         :deliver_outgoing ->
-          # The request IS the %Outgoing{} the bridge would deliver.
-          send(Test.collector(), {:sent, event.request})
-          %{event | response: :ok}
+          # The request IS the %Outgoing{} the bridge delivers.
+          %{event | response: EmailBridge.send_reply(event.request, %{})}
 
         _ ->
           %{event | response: :ok}
       end
+    end
+  end
+
+  # The SMTP boundary: captures the payload (headers included) that would go out.
+  defmodule CapturingSmtp do
+    @moduledoc false
+    alias Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest, as: Test
+
+    def send_notification(recipient, payload, _metadata) do
+      send(Test.collector(), {:sent, recipient, payload})
+      :ok
     end
   end
 
@@ -108,10 +120,15 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
 
     Mox.stub(Zaq.NodeRouterMock, :dispatch, &EngineRouter.dispatch/1)
 
-    # Notifications resolves its own router; point it at the capturing stub so the
-    # send is "delivered" without touching SMTP.
+    # Notifications resolves its own router; point it at the router that runs the
+    # real EmailBridge, with the SMTP hop below it captured.
     Application.put_env(:zaq, :notifications_node_router_module, DeliverCapturingRouter)
-    on_exit(fn -> Application.delete_env(:zaq, :notifications_node_router_module) end)
+    Application.put_env(:zaq, :email_bridge_notification_module, CapturingSmtp)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :notifications_node_router_module)
+      Application.delete_env(:zaq, :email_bridge_notification_module)
+    end)
 
     from(c in ChannelConfig, where: c.provider == "email:smtp") |> Repo.delete_all()
 
@@ -187,11 +204,14 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
 
   defp await_send(run \\ nil) do
     receive do
-      {:sent, %Outgoing{} = outgoing} -> outgoing
+      {:sent, _recipient, payload} -> payload
     after
       2_000 -> flunk("no email was delivered.\n" <> step_report(run))
     end
   end
+
+  defp unbracket("<" <> rest), do: String.trim_trailing(rest, ">")
+  defp unbracket(value), do: value
 
   defp step_report(nil), do: "(no run)"
 
@@ -213,39 +233,39 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
       run = run_workflow(workflow, @lead)
       first = await_send(run)
 
-      m1 = first.metadata["email"]["threading"]["message_id"]
+      m1 = unbracket(first["headers"]["Message-ID"])
 
       assert is_binary(m1)
       assert m1 =~ ~r/@zaq\.test$/
       # A first send has nothing to reply to.
-      assert first.in_reply_to == nil
-      assert first.metadata["email"]["threading"]["references"] == []
-      # It is the root of its own thread.
-      assert first.thread_id == m1
+      refute Map.has_key?(first["headers"], "In-Reply-To")
+      refute Map.has_key?(first["headers"], "References")
 
       # The mint must have been recorded on the notification log (the anchor the
       # real send path resolves first), or send 2 has nothing to anchor to.
       anchor = NotificationLog.thread_anchor(person_id(), @topic)
-      assert anchor.message_id == m1
+      assert anchor["message_id"] == m1
+      # It is the root of its own thread.
+      assert anchor["thread_id"] == m1
 
       # ── Send 2 (the lead sequence's next step, days later) ──────
       simulate_days_passing(4)
       run_workflow(workflow, Map.put(@lead, "sequence", 2))
       second = await_send()
 
-      m2 = second.metadata["email"]["threading"]["message_id"]
+      m2 = unbracket(second["headers"]["Message-ID"])
 
       # THE GUARANTEE: send 2 replies to send 1.
-      assert second.in_reply_to == m1
-      assert second.metadata["email"]["threading"]["in_reply_to"] == m1
+      assert second["headers"]["In-Reply-To"] == "<#{m1}>"
       # And References carries the ancestor, which is what Gmail groups on.
-      assert m1 in second.metadata["email"]["threading"]["references"]
-      # Same thread root → same Gmail thread.
-      assert second.thread_id == m1
+      assert "<#{m1}>" in String.split(second["headers"]["References"], " ")
 
-      # Send 2 is a distinct message that itself becomes the next anchor.
+      # Send 2 is a distinct message that itself becomes the next anchor —
+      # under the same thread root, so Gmail keeps one thread.
       refute m2 == m1
-      assert NotificationLog.thread_anchor(person_id(), @topic).message_id == m2
+      next_anchor = NotificationLog.thread_anchor(person_id(), @topic)
+      assert next_anchor["message_id"] == m2
+      assert next_anchor["thread_id"] == m1
     end
 
     test "both sends land in one conversation, and it stays topic-keyed" do
@@ -280,8 +300,8 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
       run_workflow(workflow, Map.put(@lead, "sequence", 2))
       second = await_send()
 
-      assert second.metadata["subject"] == @topic
-      refute second.metadata["subject"] =~ ~r/^Re:/i
+      assert second["subject"] == @topic
+      refute second["subject"] =~ ~r/^Re:/i
     end
   end
 

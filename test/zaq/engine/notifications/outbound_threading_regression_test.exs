@@ -4,12 +4,9 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
   two proactive emails to the same person + subject still land in separate Gmail
   threads (run `4a8aad3d`, conversation `7c40de0f`, 2026-07-14).
 
-  The existing `EmailThreadingTest` is green because it hand-seeds the anchor via
-  `seed_prior_send/4` — it proves send N+1 chains onto an anchor that *already
-  exists*, and never proves an anchor is created by sending. Production never
-  writes one, so the chain never starts.
-
-  Both tests below are expected to FAIL against the current implementation.
+  Nothing is seeded and nothing is stubbed except the SMTP boundary: send 1 must
+  leave behind the anchor send 2 needs, through the real `Channels.Api` →
+  `EmailBridge` delivery path, no matter how the workflow DAG is wired.
   """
   use Zaq.DataCase, async: false
 
@@ -21,7 +18,6 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Conversations
-  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications
   alias Zaq.Repo
 
@@ -46,12 +42,15 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
     def handle_event(event, action, context), do: Api.handle_event(event, action, context)
   end
 
-  defmodule CapturingBridge do
-    def bridge_for(_provider), do: __MODULE__
+  # Routes delivery to the REAL EmailBridge — only SMTP is stubbed.
+  defmodule RealEmailBridgeRouter do
+    def bridge_for(_provider), do: Zaq.Channels.EmailBridge
     def fetch_connection_details(_provider), do: %{}
+  end
 
-    def send_reply(%Outgoing{} = outgoing, _connection_details) do
-      send(self(), {:delivered, outgoing})
+  defmodule CapturingSmtp do
+    def send_notification(recipient, payload, _metadata) do
+      send(self(), {:smtp, recipient, payload})
       :ok
     end
   end
@@ -74,21 +73,29 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
     Notifications.notify_person(
       person.id,
       %{subject: subject, message: "hello"},
-      channels_event_opts: [bridge_module: CapturingBridge]
+      channels_event_opts: [bridge_module: RealEmailBridgeRouter]
     )
   end
 
-  defp captured_outgoing do
+  defp captured_headers do
     receive do
-      {:delivered, %Outgoing{} = outgoing} -> outgoing
+      {:smtp, _recipient, payload} -> payload["headers"]
     after
       0 -> nil
     end
   end
 
+  defp unbracket("<" <> rest), do: String.trim_trailing(rest, ">")
+  defp unbracket(value), do: value
+
   setup do
     Application.put_env(:zaq, :notifications_node_router_module, StubNodeRouter)
-    on_exit(fn -> Application.delete_env(:zaq, :notifications_node_router_module) end)
+    Application.put_env(:zaq, :email_bridge_notification_module, CapturingSmtp)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :notifications_node_router_module)
+      Application.delete_env(:zaq, :email_bridge_notification_module)
+    end)
 
     from(c in ChannelConfig, where: c.provider == "email:smtp") |> Repo.delete_all()
 
@@ -115,22 +122,22 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
       person = person_with_email()
 
       assert {:ok, first} = notify(person, "Instant AI label mockups")
-      send_one = captured_outgoing()
-      minted = send_one.metadata["email"]["threading"]["message_id"]
+      headers_one = captured_headers()
+      minted = unbracket(headers_one["Message-ID"])
 
       assert is_binary(minted), "send 1 must mint a Message-ID"
-      assert send_one.in_reply_to == nil, "send 1 opens the thread"
+      refute Map.has_key?(headers_one, "In-Reply-To"), "send 1 opens the thread"
       assert first.message_id == minted
 
       assert {:ok, _second} = notify(person, "Instant AI label mockups")
-      send_two = captured_outgoing()
+      headers_two = captured_headers()
 
-      # This is what Gmail needs to fold send 2 into send 1's thread, and what
-      # production never emits: every send is currently a fresh root.
-      assert send_two.in_reply_to == minted,
-             "send 2 must point In-Reply-To at send 1's Message-ID, got: #{inspect(send_two.in_reply_to)}"
+      # This is what Gmail needs to fold send 2 into send 1's thread: without the
+      # anchor round trip, every send would be a fresh root.
+      assert headers_two["In-Reply-To"] == "<#{minted}>",
+             "send 2 must point In-Reply-To at send 1's Message-ID, got: #{inspect(headers_two["In-Reply-To"])}"
 
-      assert minted in send_two.metadata["email"]["threading"]["references"],
+      assert "<#{minted}>" in String.split(headers_two["References"] || "", " "),
              "send 2's References chain must contain send 1's Message-ID"
     end
   end
@@ -146,7 +153,7 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
       topic = "Instant AI label mockups"
 
       assert {:ok, first} = notify(person, topic)
-      minted = captured_outgoing().metadata["email"]["threading"]["message_id"]
+      minted = unbracket(captured_headers()["Message-ID"])
 
       # What `update_history` actually persists under the production mapping: the
       # message lands with topic/subject metadata and no `email.threading` key.
@@ -169,12 +176,12 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
         })
 
       assert {:ok, _second} = notify(person, topic)
-      send_two = captured_outgoing()
+      headers_two = captured_headers()
 
-      assert send_two.in_reply_to == minted,
-             "send 2 must thread onto send 1 even though the DAG persisted no threading, got: #{inspect(send_two.in_reply_to)}"
+      assert headers_two["In-Reply-To"] == "<#{minted}>",
+             "send 2 must thread onto send 1 even though the DAG persisted no threading, got: #{inspect(headers_two["In-Reply-To"])}"
 
-      assert minted in send_two.metadata["email"]["threading"]["references"]
+      assert "<#{minted}>" in String.split(headers_two["References"] || "", " ")
     end
   end
 end

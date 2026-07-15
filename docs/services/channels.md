@@ -475,6 +475,38 @@ Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 - `thread_id`: nearest parent/current reply identity (`In-Reply-To` -> last `References` id -> `Message-ID`) kept in metadata for reply/header continuity.
 - Parser stores both in `incoming.metadata["email"]`; conversation lookup prioritizes `thread_key`.
 
+#### Outbound Threading (minting + delivery receipt)
+
+`EmailBridge.send_reply/2` owns all outbound RFC 5322 threading mechanics:
+
+- **Minting**: every email send carries its own `Message-ID`. The bridge honors a
+  pre-minted id in `metadata["email"]["threading"]`, otherwise mints one from the
+  sending domain (`channel_configs.settings["from_email"]` of `email:smtp`, falling
+  back to the default domain). gen_smtp would let the relay assign one ZAQ never
+  learns, so ours must be the id that is delivered.
+- **Parent resolution**: the parent comes from the opaque `Outgoing.thread_anchor`
+  (string keys `"message_id"`, `"references"`, `"thread_id"`, resolved by the
+  notification center from the notification log / conversations), else from
+  `Outgoing.in_reply_to` (an inbound email being answered). `References` = ancestor
+  chain + parent, capped via `EmailUtils.cap_references/1`.
+- **Receipt**: on successful delivery `send_reply/2` returns `{:ok, receipt}` with
+  `message_id`, `thread_id` (thread root), opaque `thread_metadata`, and the `anchor`
+  map the notification center persists verbatim for the next send to chain onto.
+  `Zaq.Channels.Api` normalizes bridges that return plain `:ok` to `{:ok, %{}}` so
+  the `deliver_outgoing` response contract is uniform.
+
+#### SMTP Configuration (env vars)
+
+| Variable          | Default           | Description                    |
+|-------------------|-------------------|--------------------------------|
+| SMTP_RELAY        | —                 | SMTP server hostname           |
+| SMTP_PORT         | 587               | SMTP port                      |
+| SMTP_USERNAME     | —                 | SMTP auth username             |
+| SMTP_PASSWORD     | —                 | SMTP auth password             |
+| SMTP_FROM_EMAIL   | noreply@zaq.local | Sender email address           |
+| SMTP_FROM_NAME    | ZAQ               | Sender display name            |
+| SMTP_TLS          | enabled           | TLS mode: enabled/always/never |
+
 ### SMTP Helpers (`Zaq.Channels.SmtpHelpers`)
 
 Internal utility module used by the email bridge. Not part of the public API.

@@ -1,11 +1,13 @@
 defmodule Zaq.Engine.Notifications.EmailThreadingTest do
   @moduledoc """
-  Step 3 of the outbound email threading plan: `Notifications` mints the
-  Message-ID, resolves the anchor, sets the generic `Outgoing.thread_id` /
-  `in_reply_to`, and surfaces the threading result on `:sent` only.
+  Outbound email threading through the real seam: `Notifications` resolves the
+  opaque anchor and passes it down; the real `EmailBridge` mints the Message-ID,
+  builds the RFC headers, and returns the delivery receipt; the engine surfaces
+  the receipt on `:sent` only.
 
-  The bridge is stubbed so we can capture the exact `%Outgoing{}` that would be
-  delivered.
+  Only the SMTP boundary is stubbed — the notification travels through
+  `Channels.Api` and `EmailBridge.send_reply` exactly as in production, so these
+  tests observe the headers the recipient's mail client would actually see.
   """
   use Zaq.DataCase, async: false
 
@@ -44,23 +46,32 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
     def handle_event(event, action, context), do: Api.handle_event(event, action, context)
   end
 
-  defmodule CapturingBridge do
+  # Routes delivery to the REAL EmailBridge — the hop under test.
+  defmodule RealEmailBridgeRouter do
+    def bridge_for(_provider), do: Zaq.Channels.EmailBridge
+    def fetch_connection_details(_provider), do: %{}
+  end
+
+  # SMTP boundary stubs — the only stubbed hop.
+  defmodule CapturingSmtp do
+    def send_notification(recipient, payload, _metadata) do
+      send(self(), {:smtp, recipient, payload})
+      :ok
+    end
+  end
+
+  defmodule FailingSmtp do
+    def send_notification(_recipient, _payload, _metadata), do: {:error, :smtp_down}
+  end
+
+  # Chat-channel stub: a bridge without receipts, returning bare `:ok`.
+  defmodule CapturingChatBridge do
     def bridge_for(_provider), do: __MODULE__
     def fetch_connection_details(_provider), do: %{}
 
     def send_reply(%Outgoing{} = outgoing, _connection_details) do
       send(self(), {:delivered, outgoing})
       :ok
-    end
-  end
-
-  defmodule FailingBridge do
-    def bridge_for(_provider), do: __MODULE__
-    def fetch_connection_details(_provider), do: %{}
-
-    def send_reply(%Outgoing{} = outgoing, _connection_details) do
-      send(self(), {:delivered, outgoing})
-      {:error, :smtp_down}
     end
   end
 
@@ -118,7 +129,7 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
   end
 
   defp notify(person, subject, opts \\ []) do
-    bridge = Keyword.get(opts, :bridge, CapturingBridge)
+    bridge = Keyword.get(opts, :bridge, RealEmailBridgeRouter)
 
     Notifications.notify_person(
       person.id,
@@ -127,17 +138,22 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
     )
   end
 
-  defp captured_outgoing do
+  defp captured_headers do
     receive do
-      {:delivered, %Outgoing{} = outgoing} -> outgoing
+      {:smtp, _recipient, payload} -> payload["headers"]
     after
-      0 -> nil
+      0 -> flunk("no SMTP delivery captured")
     end
   end
 
   setup do
     Application.put_env(:zaq, :notifications_node_router_module, StubNodeRouter)
-    on_exit(fn -> Application.delete_env(:zaq, :notifications_node_router_module) end)
+    Application.put_env(:zaq, :email_bridge_notification_module, CapturingSmtp)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :notifications_node_router_module)
+      Application.delete_env(:zaq, :email_bridge_notification_module)
+    end)
 
     from(c in ChannelConfig, where: c.provider == "email:smtp") |> Repo.delete_all()
     smtp_config()
@@ -148,26 +164,21 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
   # ── First send: mint only, no anchor ───────────────────────────────
 
   describe "first send (no anchor)" do
-    test "mints a Message-ID, sets no in_reply_to, and is its own thread root" do
+    test "mints a Message-ID, sets no In-Reply-To, and is its own thread root" do
       person = person_with_email()
 
       assert {:ok, result} = notify(person, "Topic A")
-      outgoing = captured_outgoing()
+      headers = captured_headers()
 
-      threading = outgoing.metadata["email"]["threading"]
+      assert headers["Message-ID"] =~ ~r/^<zaq-[0-9a-f-]{36}@acme\.test>$/
+      refute Map.has_key?(headers, "In-Reply-To")
+      refute Map.has_key?(headers, "References")
 
-      assert threading["message_id"] =~ ~r/^zaq-[0-9a-f-]{36}@acme\.test$/
-      assert threading["in_reply_to"] == nil
-      assert threading["references"] == []
-
-      assert outgoing.in_reply_to == nil
-      # First send is the root of its own thread.
-      assert outgoing.thread_id == threading["message_id"]
-
-      # Generic threading fields surfaced on the result.
+      # Generic threading fields surfaced on the result, matching the wire.
       assert result.status == :sent
-      assert result.message_id == threading["message_id"]
-      assert result.thread_id == threading["message_id"]
+      assert headers["Message-ID"] == "<#{result.message_id}>"
+      # First send is the root of its own thread.
+      assert result.thread_id == result.message_id
       assert result.thread_metadata["email"]["threading"]["references"] == []
     end
 
@@ -185,26 +196,22 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
   # ── Follow-up send: chains onto the anchor ─────────────────────────
 
   describe "follow-up send (anchor present)" do
-    test "sets in_reply_to to the prior Message-ID and extends the references chain" do
+    test "points In-Reply-To at the prior Message-ID and extends the references chain" do
       person = person_with_email()
       seed_prior_send(person, "Topic A", "m1@acme.test", [])
 
       assert {:ok, result} = notify(person, "Topic A")
-      outgoing = captured_outgoing()
-      threading = outgoing.metadata["email"]["threading"]
+      headers = captured_headers()
 
-      # In-Reply-To points at the prior send.
-      assert outgoing.in_reply_to == "m1@acme.test"
-      assert threading["in_reply_to"] == "m1@acme.test"
-      # References = prior chain ++ [parent].
-      assert threading["references"] == ["m1@acme.test"]
+      # In-Reply-To points at the prior send; References = prior chain ++ [parent].
+      assert headers["In-Reply-To"] == "<m1@acme.test>"
+      assert headers["References"] == "<m1@acme.test>"
       # One-message thread → the prior message is the root.
-      assert outgoing.thread_id == "m1@acme.test"
       assert result.thread_id == "m1@acme.test"
 
       # This send mints its own fresh id, distinct from the parent.
-      refute threading["message_id"] == "m1@acme.test"
-      assert result.message_id == threading["message_id"]
+      refute result.message_id == "m1@acme.test"
+      assert headers["Message-ID"] == "<#{result.message_id}>"
     end
 
     test "carries the existing root and appends the parent to a longer chain" do
@@ -212,18 +219,12 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
       seed_prior_send(person, "Topic A", "m2@acme.test", ["m0@acme.test", "m1@acme.test"])
 
       assert {:ok, result} = notify(person, "Topic A")
-      outgoing = captured_outgoing()
+      headers = captured_headers()
 
-      assert outgoing.in_reply_to == "m2@acme.test"
-
-      assert outgoing.metadata["email"]["threading"]["references"] == [
-               "m0@acme.test",
-               "m1@acme.test",
-               "m2@acme.test"
-             ]
+      assert headers["In-Reply-To"] == "<m2@acme.test>"
+      assert headers["References"] == "<m0@acme.test> <m1@acme.test> <m2@acme.test>"
 
       # Root stays the head of the chain.
-      assert outgoing.thread_id == "m0@acme.test"
       assert result.thread_id == "m0@acme.test"
     end
 
@@ -233,13 +234,9 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
       seed_prior_send(person, "Topic A", "m2@acme.test", "<m0@acme.test> <m1@acme.test>")
 
       assert {:ok, _result} = notify(person, "Topic A")
-      outgoing = captured_outgoing()
+      headers = captured_headers()
 
-      assert outgoing.metadata["email"]["threading"]["references"] == [
-               "m0@acme.test",
-               "m1@acme.test",
-               "m2@acme.test"
-             ]
+      assert headers["References"] == "<m0@acme.test> <m1@acme.test> <m2@acme.test>"
     end
 
     test "does not chain onto another person's send under the same topic" do
@@ -248,9 +245,9 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
       seed_prior_send(lead_a, "Topic A", "a1@acme.test", [])
 
       assert {:ok, _result} = notify(lead_b, "Topic A")
-      outgoing = captured_outgoing()
+      headers = captured_headers()
 
-      assert outgoing.in_reply_to == nil
+      refute Map.has_key?(headers, "In-Reply-To")
     end
   end
 
@@ -259,14 +256,13 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
   describe "grouping guard" do
     # Writing email.thread_key would re-key the conversation to the minted id, and
     # the next topic/subject lookup would miss it — breaking the chain.
-    test "never sets metadata.email.thread_key" do
+    test "the surfaced residue never carries a thread_key" do
       person = person_with_email()
 
-      assert {:ok, _result} = notify(person, "Topic A")
-      outgoing = captured_outgoing()
+      assert {:ok, result} = notify(person, "Topic A")
 
-      refute Map.has_key?(outgoing.metadata["email"], "thread_key")
-      refute Map.has_key?(outgoing.metadata, "thread_key")
+      refute Map.has_key?(result.thread_metadata["email"], "thread_key")
+      refute Map.has_key?(result.thread_metadata["email"]["threading"], "thread_key")
     end
   end
 
@@ -274,9 +270,10 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
 
   describe "store-only-on-success (Bug #3)" do
     test "surfaces no threading when delivery fails on every channel" do
+      Application.put_env(:zaq, :email_bridge_notification_module, FailingSmtp)
       person = person_with_email()
 
-      assert {:error, failed} = notify(person, "Topic A", bridge: FailingBridge)
+      assert {:error, failed} = notify(person, "Topic A")
 
       assert failed.status == :failed
       refute Map.has_key?(failed, :message_id)
@@ -285,12 +282,13 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
     end
 
     test "a failed send leaves no anchor for the next send" do
+      Application.put_env(:zaq, :email_bridge_notification_module, FailingSmtp)
       person = person_with_email()
 
-      assert {:error, _} = notify(person, "Topic A", bridge: FailingBridge)
+      assert {:error, _} = notify(person, "Topic A")
 
       # Nothing was persisted, so the anchor lookup still finds nothing.
-      assert Conversations.email_thread_anchor(person.id, "Topic A", "Topic A") == nil
+      assert Conversations.thread_anchor(person.id, "email:smtp", "Topic A", "Topic A") == nil
     end
 
     test "surfaces no threading on a skipped notification" do
@@ -307,7 +305,7 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
   # ── Non-email channels untouched ───────────────────────────────────
 
   describe "non-email channels" do
-    test "a chat notification mints nothing and sets no threading metadata" do
+    test "a chat notification gets no anchor, no receipt fields, no email metadata" do
       %ChannelConfig{}
       |> ChannelConfig.changeset(%{
         name: "MM-#{System.unique_integer([:positive])}",
@@ -328,10 +326,11 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
         weight: 1
       })
 
-      assert {:ok, result} = notify(person, "Topic A")
-      outgoing = captured_outgoing()
+      assert {:ok, result} = notify(person, "Topic A", bridge: CapturingChatBridge)
 
+      assert_receive {:delivered, %Outgoing{} = outgoing}
       refute Map.has_key?(outgoing.metadata, "email")
+      assert outgoing.thread_anchor == nil
       assert outgoing.in_reply_to == nil
       refute Map.has_key?(result, :message_id)
     end

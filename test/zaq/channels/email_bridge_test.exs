@@ -620,7 +620,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Re: Support request"
@@ -666,7 +666,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"email" => "invalid", "subject" => "Question"}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Re: Question"
@@ -684,7 +684,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"subject" => "Security alert"}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Security alert"
@@ -702,7 +702,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"subject" => "Formatted", "format" => "html"}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Formatted"
@@ -727,7 +727,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Re: Threaded question"
@@ -752,7 +752,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Re: Existing thread"
@@ -785,7 +785,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Re: Notification from ZAQ"
@@ -811,7 +811,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert {"In-Reply-To", "<Msg-2@Example.com>"} in email.headers
@@ -828,7 +828,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"from" => {"  Tuple Name  ", " tuple@example.com "}}
       }
 
-      assert :ok = EmailBridge.send_reply(tuple_outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(tuple_outgoing, %{})
       assert_receive {:email, tuple_email}
       assert tuple_email.from == {"Tuple Name", "tuple@example.com"}
 
@@ -839,7 +839,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"from" => %{"address" => " addr@example.com "}}
       }
 
-      assert :ok = EmailBridge.send_reply(map_outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(map_outgoing, %{})
       assert_receive {:email, map_email}
       assert map_email.from == {"ZAQ", "addr@example.com"}
     end
@@ -854,7 +854,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"email" => %{"subject" => "Nested Subject"}}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Nested Subject"
@@ -870,7 +870,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: :invalid
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Notification from ZAQ"
@@ -887,7 +887,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"subject" => "Plain subject"}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Plain subject"
@@ -908,7 +908,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.from == {"Explicit Name", "explicit@example.com"}
@@ -928,7 +928,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       refute Enum.any?(email.headers, fn {k, _} -> k in ["In-Reply-To", "References"] end)
@@ -945,7 +945,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"email" => %{"threading" => %{"references" => []}}}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       refute Enum.any?(email.headers, fn {k, _} -> k in ["In-Reply-To", "References"] end)
@@ -962,7 +962,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"email" => %{"threading" => %{"references" => 123}}}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       refute Enum.any?(email.headers, fn {k, _} -> k in ["In-Reply-To", "References"] end)
@@ -978,7 +978,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"from" => %{"email" => " map@example.com ", "name" => " Map Name "}}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing_map, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing_map, %{})
       assert_receive {:email, email_map}
       assert email_map.from == {"Map Name", "map@example.com"}
 
@@ -989,7 +989,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"from" => " binary@example.com "}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing_binary, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing_binary, %{})
       assert_receive {:email, email_binary}
       assert email_binary.from == {"ZAQ", "binary@example.com"}
     end
@@ -1004,7 +1004,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{from: %{name: " Atom Name ", email: " atom@example.com "}}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.from == {"Atom Name", "atom@example.com"}
@@ -1020,7 +1020,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{from: %{address: " atom-address@example.com "}}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "atom-address@example.com"}
@@ -1036,7 +1036,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{"from_name" => "", "from_email" => "sender@example.com"}
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "sender@example.com"}

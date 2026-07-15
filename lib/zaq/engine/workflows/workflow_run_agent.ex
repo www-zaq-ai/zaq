@@ -68,7 +68,6 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   alias Runic.Workflow
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.RunWatcher
-  alias Zaq.Engine.Workflows.StepRunner
   alias Zaq.Engine.Workflows.WorkflowRun
   alias Zaq.Event
 
@@ -80,18 +79,8 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   # defensive clause should never fire on the start/resume paths.
   def execute(%WorkflowRun{prepared_dag: nil}, _opts), do: {:error, :missing_prepared_dag}
 
-  def execute(%WorkflowRun{prepared_dag: dag} = run, opts) do
-    # A `:node_router` opt (test/caller double) is carried process-locally for the
-    # duration of the run so `StepRunner.enrich_context/5` can put it on each step's
-    # context — the non-env injection seam. Cleared in `after` so it never leaks to
-    # a later run reusing this process. Production passes no override.
-    StepRunner.put_node_router_override(Keyword.get(opts, :node_router))
-
-    try do
-      do_execute(run, dag)
-    after
-      StepRunner.clear_node_router_override()
-    end
+  def execute(%WorkflowRun{prepared_dag: dag} = run, _opts) do
+    do_execute(run, dag)
   end
 
   defp do_execute(%WorkflowRun{} = run, dag) do

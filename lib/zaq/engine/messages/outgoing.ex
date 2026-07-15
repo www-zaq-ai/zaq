@@ -10,6 +10,10 @@ defmodule Zaq.Engine.Messages.Outgoing do
   Nothing inside ZAQ should depend on adapter-specific envelope types — all outbound
   delivery flows through this struct.
 
+  `thread_anchor` is the opaque prior-thread anchor resolved by the notification
+  center (string keys: `"message_id"`, `"references"`, `"thread_id"`). It is
+  interpreted only by the provider bridge; bridges that do not thread ignore it.
+
   For cross-node routing, this struct is typically carried in `%Zaq.Event.response`.
   """
 
@@ -25,6 +29,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
     :author_name,
     :provider,
     :in_reply_to,
+    :thread_anchor,
     metadata: %{}
   ]
 
@@ -36,6 +41,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
           author_name: String.t() | nil,
           provider: atom() | String.t(),
           in_reply_to: String.t() | integer() | nil,
+          thread_anchor: map() | nil,
           metadata: map()
         }
 

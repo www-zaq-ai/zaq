@@ -218,11 +218,16 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
   # `pipeline_opts[:context]`. Feeding those turns to the LLM is Issue 2, so we
   # intercept at the node router instead of running a live agent.
   test "T1 carrier: run_agent node delivers a normalised seeded context on the dispatched event" do
-    # The router double is injected through the run's opts (StepRunner threads it
-    # onto each step's context), not a global app-env seam. Only the capture pid —
-    # benign test plumbing, not routing — rides app-env.
+    # Route the run's step-action dispatch through a capturing double via the
+    # `RuntimeDeps.workflow_step_node_router/0` config seam. `async: false` keeps this
+    # global override safe for the test's duration. The capture pid rides its own key.
+    Application.put_env(:zaq, :workflow_step_node_router, CaptureIncomingRouter)
     Application.put_env(:zaq, :run_agent_capture_pid, self())
-    on_exit(fn -> Application.delete_env(:zaq, :run_agent_capture_pid) end)
+
+    on_exit(fn ->
+      Application.delete_env(:zaq, :workflow_step_node_router)
+      Application.delete_env(:zaq, :run_agent_capture_pid)
+    end)
 
     {:ok, workflow} =
       Workflows.create_workflow(%{
@@ -256,10 +261,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
         edges: []
       })
 
-    assert {:ok, run} =
-             Workflows.create_and_start_run(workflow, source_event(), %{},
-               node_router: CaptureIncomingRouter
-             )
+    assert {:ok, run} = Workflows.create_and_start_run(workflow, source_event(), %{})
 
     assert run.status == "completed"
 

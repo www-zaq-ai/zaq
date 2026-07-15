@@ -16,6 +16,18 @@ defmodule Zaq.RuntimeDeps do
   @spec node_router() :: module()
   def node_router, do: get(:node_router, NodeRouter)
 
+  @doc """
+  Returns the NodeRouter module that workflow step actions dispatch through.
+
+  Kept separate from `node_router/0` on purpose: step actions must reach the live
+  `Zaq.NodeRouter` by default (so a nested `run_agent` genuinely runs), whereas the
+  global `:node_router` key is a Mox double in the test env. Overriding this key
+  swaps the router for a single (`async: false`) workflow-run test without touching
+  the global one used for trigger dispatch.
+  """
+  @spec workflow_step_node_router() :: module()
+  def workflow_step_node_router, do: get(:workflow_step_node_router, NodeRouter)
+
   @doc "Returns the NodeRouter module used by ChatLive async pipeline calls."
   @spec chat_live_node_router() :: module()
   def chat_live_node_router, do: get(:chat_live_node_router_module, NodeRouter)

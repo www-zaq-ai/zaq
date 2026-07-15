@@ -129,27 +129,22 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
   @doc """
   Records the threading anchor of a delivered message on its log row.
 
-  Called on the `sent` transition and never before: an anchor may only describe an
-  email the recipient actually received, or the next send would point `In-Reply-To`
-  at a message that does not exist.
+  Called on the `sent` transition and never before: an anchor may only describe a
+  message the recipient actually received, or the next send would chain onto a
+  message that does not exist.
 
-  The log — not the conversation message — is the source of truth for the outbound
-  chain, because it is written by the same code that mints the `Message-ID` and
-  knows delivery succeeded. Persisting the chain anywhere downstream (a workflow
-  step, an edge mapping) makes threading depend on how a DAG happens to be wired.
+  The anchor is the opaque map from the bridge's delivery receipt, stored and
+  returned verbatim — only the provider bridge interprets its contents. The log —
+  not the conversation message — is the source of truth for the outbound chain,
+  because it is written by the same code that saw delivery succeed. Persisting the
+  chain anywhere downstream (a workflow step, an edge mapping) makes threading
+  depend on how a DAG happens to be wired.
   """
   @spec record_threading(%__MODULE__{}, String.t() | nil, map()) :: :ok
-  def record_threading(%__MODULE__{}, nil, _threading), do: :ok
-  def record_threading(%__MODULE__{}, _key, threading) when map_size(threading) == 0, do: :ok
+  def record_threading(%__MODULE__{}, nil, _anchor), do: :ok
+  def record_threading(%__MODULE__{}, _key, anchor) when map_size(anchor) == 0, do: :ok
 
-  def record_threading(%__MODULE__{id: id}, thread_key, threading) do
-    anchor = %{
-      "message_id" => threading[:message_id],
-      "in_reply_to" => threading[:in_reply_to],
-      "references" => threading[:references] || [],
-      "thread_id" => threading[:thread_id]
-    }
-
+  def record_threading(%__MODULE__{id: id}, thread_key, anchor) when is_map(anchor) do
     {count, _} =
       Repo.update_all(
         from(l in __MODULE__, where: l.id == ^id),
@@ -164,15 +159,15 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
   @doc """
   Resolves the threading anchor for the next send to `person_id` under `thread_key`.
 
-  Returns the most recently **sent** message in that thread — its own `Message-ID`
-  (the next `In-Reply-To`), the thread root, and the `References` chain — or `nil`
-  when no prior send exists, in which case the next send opens the thread.
+  Returns the anchor of the most recently **sent** message in that thread, exactly
+  as the delivering bridge recorded it, or `nil` when no prior send exists — the
+  next send then opens the thread. The map is opaque here; only the provider
+  bridge interprets its keys.
 
   Ordered by `id` (monotonic) rather than `inserted_at`, so sub-second sends in the
   same thread still resolve to a deterministic parent.
   """
-  @spec thread_anchor(integer() | nil, String.t() | nil) ::
-          %{message_id: String.t(), thread_key: String.t() | nil, references: [String.t()]} | nil
+  @spec thread_anchor(integer() | nil, String.t() | nil) :: map() | nil
   def thread_anchor(nil, _thread_key), do: nil
   def thread_anchor(_person_id, nil), do: nil
 
@@ -194,17 +189,7 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
     end
   end
 
-  defp to_anchor(%{"message_id" => message_id} = threading) when is_binary(message_id) do
-    references = List.wrap(Map.get(threading, "references") || [])
-
-    %{
-      message_id: message_id,
-      # The root of a one-message thread is the message itself.
-      thread_key: Map.get(threading, "thread_id") || List.first(references) || message_id,
-      references: references
-    }
-  end
-
+  defp to_anchor(%{"message_id" => message_id} = anchor) when is_binary(message_id), do: anchor
   defp to_anchor(_threading), do: nil
 
   # ---------------------------------------------------------------------------

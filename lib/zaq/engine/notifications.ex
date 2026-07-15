@@ -17,17 +17,15 @@ defmodule Zaq.Engine.Notifications do
       Notifications.notify(notification)
       # => {:ok, %{status: :sent, channel: "email:smtp", channel_identifier: "u@example.com"}}
 
-  ## SMTP Configuration (env vars)
+  ## Threading
 
-  | Variable          | Default           | Description                  |
-  |-------------------|-------------------|------------------------------|
-  | SMTP_RELAY        | —                 | SMTP server hostname         |
-  | SMTP_PORT         | 587               | SMTP port                    |
-  | SMTP_USERNAME     | —                 | SMTP auth username           |
-  | SMTP_PASSWORD     | —                 | SMTP auth password           |
-  | SMTP_FROM_EMAIL   | noreply@zaq.local | Sender email address         |
-  | SMTP_FROM_NAME    | ZAQ               | Sender display name          |
-  | SMTP_TLS          | enabled           | TLS mode: enabled/always/never |
+  The notification center never interprets channel wire formats. Per attempt it
+  resolves the prior-thread anchor (an opaque map) and passes it down on
+  `Outgoing.thread_anchor`; the provider bridge interprets it, threads the send,
+  and returns a delivery receipt whose `anchor` is persisted verbatim on the log.
+
+  SMTP configuration and email threading mechanics live in
+  `Zaq.Channels.EmailBridge` (see `docs/services/channels.md`).
   """
 
   require Logger
@@ -44,7 +42,6 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Event
   alias Zaq.Repo
-  alias Zaq.Utils.EmailUtils
 
   @person_channel_platforms %{
     "email" => "email:smtp"
@@ -238,101 +235,52 @@ defmodule Zaq.Engine.Notifications do
 
       provider ->
         # Resolved per attempt, not once per notification: on fallback the channel
-        # that actually delivers must be the one whose mint we store (Bug #12).
-        threading = build_threading(platform, ctx)
+        # that actually delivers must be the one whose anchor we store (Bug #12).
+        anchor = resolve_anchor(platform, ctx)
 
         outgoing = %Outgoing{
           body: Map.get(log.payload, "body", ""),
           channel_id: identifier,
           provider: provider,
-          thread_id: threading[:thread_id],
-          in_reply_to: threading[:in_reply_to],
+          thread_anchor: anchor,
           metadata:
-            metadata
-            |> Map.merge(%{
+            Map.merge(metadata, %{
               "subject" => Map.get(log.payload, "subject"),
               "html_body" => Map.get(log.payload, "html_body")
             })
-            |> merge_threading_metadata(threading)
         }
 
         result = deliver_via_channels(outgoing, opts)
-        NotificationLog.append_attempt(log.id, platform, identifier, result)
+        NotificationLog.append_attempt(log.id, platform, identifier, attempt_status(result))
 
         case result do
-          :ok ->
-            mark_sent(log, platform, identifier, threading, ctx)
+          {:ok, receipt} ->
+            mark_sent(log, platform, identifier, receipt, ctx)
 
           {:error, _reason} ->
-            # The mint for this failed attempt is discarded — never surfaced, never
+            # A failed attempt produces no receipt — nothing is surfaced or
             # persisted, so it can't become a phantom parent (Bug #3).
             dispatch_inline(log, rest, metadata, opts, ctx)
         end
     end
   end
 
-  # Email is the one channel where ZAQ mints its own id and keeps a References
-  # chain; other channels get a server-assigned id back and thread on a single
-  # root pointer, so they mint nothing here.
-  defp build_threading("email" <> _, %{person_id: person_id} = ctx) do
-    anchor = resolve_anchor(person_id, ctx)
-    message_id = EmailUtils.new_message_id(sending_domain())
-
-    references =
-      if anchor,
-        do: EmailUtils.cap_references(anchor.references ++ [anchor.message_id]),
-        else: []
-
-    %{
-      message_id: message_id,
-      in_reply_to: anchor && anchor.message_id,
-      references: references,
-      # The first send is the root of its own thread.
-      thread_id: (anchor && anchor.thread_key) || message_id
-    }
-  end
-
-  defp build_threading(_platform, _ctx), do: %{}
-
-  # The chain of emails we have actually sent this person under this key is the
-  # source of truth, and it lives on the notification log — written by the same
-  # code that mints the id and sees the delivery succeed. The conversation store is
-  # consulted second: it carries the anchor for a thread ZAQ did not start (an
-  # inbound email the person sent us, whose RFC id we inherited), and for messages
-  # persisted by a workflow before this path existed.
-  defp resolve_anchor(person_id, ctx) do
+  # The chain of messages we have actually sent this person under this key is the
+  # source of truth, and it lives on the notification log — written on the sent
+  # transition by the same code that saw delivery succeed. The conversation store
+  # is consulted second: it carries the anchor for a thread ZAQ did not start (an
+  # inbound message the person sent us) and for messages persisted by a workflow
+  # before this path existed. The anchor is opaque here — only the provider bridge
+  # interprets its contents.
+  defp resolve_anchor(platform, %{person_id: person_id} = ctx) do
     NotificationLog.thread_anchor(person_id, ctx.thread_key) ||
-      Conversations.email_thread_anchor(person_id, ctx.topic, ctx.subject)
+      Conversations.thread_anchor(person_id, platform, ctx.topic, ctx.subject)
   end
 
-  defp merge_threading_metadata(metadata, threading) when map_size(threading) == 0, do: metadata
+  defp attempt_status({:ok, _receipt}), do: :ok
+  defp attempt_status({:error, _reason} = error), do: error
 
-  defp merge_threading_metadata(metadata, threading) do
-    email_meta =
-      metadata
-      |> Map.get("email", %{})
-      |> Map.put("threading", %{
-        "message_id" => threading.message_id,
-        "in_reply_to" => threading.in_reply_to,
-        "references" => threading.references
-      })
-
-    # Deliberately no `thread_key`: grouping must stay topic/subject-based, or the
-    # conversation would be re-keyed to the minted id and the next lookup would miss.
-    Map.put(metadata, "email", email_meta)
-  end
-
-  defp sending_domain do
-    case ChannelConfig.get_by_provider("email:smtp") do
-      %ChannelConfig{settings: settings} when is_map(settings) ->
-        EmailUtils.sending_domain(Map.get(settings, "from_email"))
-
-      _ ->
-        EmailUtils.sending_domain(nil)
-    end
-  end
-
-  defp mark_sent(log, platform, identifier, threading, ctx) do
+  defp mark_sent(log, platform, identifier, receipt, ctx) do
     base = %{
       status: :sent,
       notification_log_id: log.id,
@@ -343,9 +291,9 @@ defmodule Zaq.Engine.Notifications do
     result =
       case NotificationLog.transition_status(log, "sent") do
         {:ok, _} ->
-          # Only now — the email is out. This is what the next send anchors onto,
+          # Only now — the message is out. This is what the next send anchors onto,
           # with no downstream step required to carry it there.
-          NotificationLog.record_threading(log, ctx.thread_key, threading)
+          NotificationLog.record_threading(log, ctx.thread_key, receipt_anchor(receipt))
 
           base
 
@@ -357,27 +305,29 @@ defmodule Zaq.Engine.Notifications do
           Map.put(base, :reason, reason)
       end
 
-    {:ok, put_threading_result(result, threading)}
+    {:ok, put_threading_result(result, receipt)}
   end
 
-  # The generic cross-channel pointers ride named fields; the email-only
-  # `references` chain rides the opaque `thread_metadata` residue.
-  defp put_threading_result(result, threading) when map_size(threading) == 0, do: result
+  defp receipt_anchor(receipt) do
+    case Map.get(receipt, :anchor) || Map.get(receipt, "anchor") do
+      anchor when is_map(anchor) -> anchor
+      _ -> %{}
+    end
+  end
 
-  defp put_threading_result(result, threading) do
-    Map.merge(result, %{
-      message_id: threading.message_id,
-      thread_id: threading.thread_id,
-      thread_metadata: %{
-        "email" => %{
-          "threading" => %{
-            "message_id" => threading.message_id,
-            "in_reply_to" => threading.in_reply_to,
-            "references" => threading.references
-          }
-        }
-      }
-    })
+  # Threading pointers ride the receipt as the bridge returned them: generic
+  # cross-channel pointers as named fields, channel-specific residue inside the
+  # opaque `thread_metadata`.
+  defp put_threading_result(result, receipt) when map_size(receipt) == 0, do: result
+
+  defp put_threading_result(result, receipt) do
+    [:message_id, :thread_id, :thread_metadata]
+    |> Enum.reduce(result, fn key, acc ->
+      case Map.get(receipt, key) || Map.get(receipt, Atom.to_string(key)) do
+        nil -> acc
+        value -> Map.put(acc, key, value)
+      end
+    end)
   end
 
   defp platform_to_atom(platform) when is_binary(platform) do
@@ -391,7 +341,9 @@ defmodule Zaq.Engine.Notifications do
            node_router: node_router_module(),
            event_opts: channels_event_opts(opts)
          ) do
-      %{response: :ok} -> :ok
+      %{response: {:ok, receipt}} when is_map(receipt) -> {:ok, receipt}
+      # A channels node still running the pre-receipt contract (rolling deploy).
+      %{response: :ok} -> {:ok, %{}}
       %{response: {:error, _reason} = error} -> error
       _other -> {:error, :unexpected_response}
     end
