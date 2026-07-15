@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.IngestionEmbeddingBanner do
+defmodule Storybook.Ingestion.IngestionEmbeddingBanner do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 
