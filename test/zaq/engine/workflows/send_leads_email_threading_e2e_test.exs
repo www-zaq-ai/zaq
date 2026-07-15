@@ -1,20 +1,24 @@
 defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
   @moduledoc """
-  Step 8 — the actual guarantee.
+  The email-threading guarantee.
 
-  Runs the real `send_leads_email` DAG twice for the same lead and asserts that
-  send 2's `In-Reply-To` **is** send 1's `Message-ID`. That single assertion is
-  the whole feature: it is what makes Gmail put the two emails in one thread
-  regardless of the days-long gap between them.
+  Imports the **real Send Leads Email workflow** from
+  `test/support/fixtures/workflows/send_leads_email.json`, runs it twice for the
+  same lead, and asserts that send 2's `In-Reply-To` **is** send 1's `Message-ID`.
+  That single assertion is the whole feature: it is what makes Gmail put the two
+  emails in one thread regardless of the days-long gap between them.
 
   ## What is real vs. stubbed
 
   `send_email` (NotifyPerson) and `update_history` (PersistMessageHistory) are
   **real** — they are the seam under test, so stubbing either would prove nothing.
   The mint, the anchor lookup, the edge mapping, and the persistence round trip all
-  execute for real against the DB.
+  execute for real against the DB. So does everything else on the path — the real
+  `EnsurePerson`, `Accounts.History`, the recency `Condition` (which is what
+  `simulate_days_passing/1` below actually exercises), the agent-context `Concat`,
+  the real `HumanInTheLoop` review, `Increment`, and the sheet-range `Concat`s.
 
-  Only the leaves outside our control are stubbed: the LLM draft, the Google Sheet
+  Only the true external boundaries are stubbed: the LLM draft, the Google Sheet
   write, and the final SMTP hop (captured at the `deliver_outgoing` boundary so we
   can inspect the `%Outgoing{}` that would have been sent).
   """
@@ -29,10 +33,11 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Outgoing
+  alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Engine.{TriggerNode, Workflows}
-  alias Zaq.Engine.Workflows.UseCases.SendLeadsEmail
+  alias Zaq.Engine.Workflows.Test.{UseCaseFixtures, UseCaseStubs}
 
-  @lead_event_key "engine:lead_identified"
+  @craft_email_key "engine:craft_email"
   @topic "Acme × ZAQ — Q3 AI rollout"
 
   @lead %{
@@ -46,42 +51,7 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
     "row_index" => 2
   }
 
-  # ── Stubs: only the leaves ─────────────────────────────────────────
-
-  defmodule DraftStub do
-    @moduledoc false
-    use Zaq.Engine.Workflows.Action,
-      name: "draft_stub_e2e",
-      schema: [
-        agent_id: [type: :integer, required: false],
-        input: [type: :string, required: false],
-        name: [type: :any, required: false],
-        company: [type: :any, required: false],
-        language: [type: :any, required: false],
-        context: [type: :any, required: false]
-      ],
-      output_schema: [output: [type: :string, required: true]]
-
-    @impl Jido.Action
-    def run(_params, _ctx), do: {:ok, %{output: "Hi there. Julien, ZAQ"}}
-  end
-
-  defmodule UpdateStub do
-    @moduledoc false
-    use Zaq.Engine.Workflows.Action,
-      name: "update_stub_e2e",
-      schema: [
-        provider: [type: :string, required: false],
-        spreadsheet_id: [type: :string, required: false],
-        range: [type: :any, required: false],
-        values: [type: :any, required: false],
-        value_input_option: [type: :string, required: false]
-      ],
-      output_schema: [status: [type: :string, required: true]]
-
-    @impl Jido.Action
-    def run(_params, _ctx), do: {:ok, %{status: "updated"}}
-  end
+  # ── Stubs: only the SMTP hop ───────────────────────────────────────
 
   # Stands in for the SMTP hop: captures the %Outgoing{} the engine would deliver
   # and reports success, so the notification is marked :sent.
@@ -160,49 +130,35 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
     :ok
   end
 
+  # Imports the REAL Send Leads Email workflow. `send_email` (NotifyPerson) and
+  # `update_history` (PersistMessageHistory) stay real — they are the threading seam
+  # under test. Only the LLM draft and the sheet write are stubbed; every other node
+  # (ensure_person, build_history, the recency Condition, agent-context Concat, the
+  # HumanInTheLoop review, Increment, the sheet-range Concats) runs for real.
   defp create_consumer do
-    build = [] |> SendLeadsEmail.build() |> swap_leaves()
-    {:ok, workflow} = Workflows.create_workflow(build)
-    {:ok, trigger} = Workflows.create_trigger(%{event_name: "lead_identified"})
-    {:ok, _} = Workflows.assign_workflow_to_trigger(trigger, workflow)
+    {:ok, workflow} =
+      UseCaseFixtures.import_fixture("send_leads_email.json",
+        swap: %{
+          "draft_email" => UseCaseStubs.AgentStub,
+          "update_sheet_row" => UseCaseStubs.UpdateSheetStub
+        }
+      )
+
     workflow
   end
 
-  # send_email and update_history stay REAL — they are the seam under test.
-  defp swap_leaves(build) do
-    swaps = %{"draft_email" => DraftStub, "update_sheet_row" => UpdateStub}
-
-    nodes =
-      Enum.map(build.nodes, fn node ->
-        case Map.get(swaps, node[:name] || node["name"]) do
-          nil -> node
-          mod -> put_module(node, mod)
-        end
-      end)
-
-    %{build | nodes: nodes}
-  end
-
-  defp put_module(node, mod) do
-    cond do
-      Map.has_key?(node, :module) -> %{node | module: inspect(mod)}
-      Map.has_key?(node, "module") -> Map.put(node, "module", inspect(mod))
-      true -> node
-    end
-  end
-
-  # Fires the DAG, then clears the real human-in-the-loop review gate so execution
-  # continues into send_email. The review step stays real — we approve it, we don't
-  # stub it away.
+  # Fires the workflow through the real DispatchEvent → TriggerNode.fire seam, then
+  # clears the real human-in-the-loop review gate so execution continues into
+  # send_email. The review step stays real — we approve it, we don't stub it away.
   defp run_workflow(workflow, lead) do
     {:ok, _} =
       DispatchEvent.run(
-        %{input: lead, event_name: "lead_identified", machine: true},
+        %{input: lead, event_name: "craft_email", machine: true},
         %{node_router: CaptureRouter}
       )
 
     assert_received {:captured, %Zaq.Event{} = event}
-    TriggerNode.fire(@lead_event_key, event)
+    TriggerNode.fire(@craft_email_key, event)
 
     # The run awaiting approval is this one — not simply the first in the list.
     run =
@@ -267,8 +223,9 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
       # It is the root of its own thread.
       assert first.thread_id == m1
 
-      # The mint must have been persisted, or send 2 has nothing to anchor to.
-      anchor = Conversations.email_thread_anchor(person_id(), @topic, @topic)
+      # The mint must have been recorded on the notification log (the anchor the
+      # real send path resolves first), or send 2 has nothing to anchor to.
+      anchor = NotificationLog.thread_anchor(person_id(), @topic)
       assert anchor.message_id == m1
 
       # ── Send 2 (the lead sequence's next step, days later) ──────
@@ -288,7 +245,7 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
 
       # Send 2 is a distinct message that itself becomes the next anchor.
       refute m2 == m1
-      assert Conversations.email_thread_anchor(person_id(), @topic, @topic).message_id == m2
+      assert NotificationLog.thread_anchor(person_id(), @topic).message_id == m2
     end
 
     test "both sends land in one conversation, and it stays topic-keyed" do

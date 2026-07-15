@@ -1100,7 +1100,7 @@ end
 defmodule Zaq.Engine.Workflows.Test.EmitStructRow do
   @moduledoc """
   Emits a map whose `row` value is (or contains) a struct — the
-  `ensure_person.row` shape from the real `SendLeadsEmail` regression — plus a
+  `ensure_person.row` shape from the real lead-email regression — plus a
   `metadata.last_message_date` that is always `nil`, mirroring
   `build_history.metadata` for a lead with no prior conversation.
   """

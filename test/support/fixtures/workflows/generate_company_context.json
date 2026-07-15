@@ -1,0 +1,230 @@
+{
+  "description": "Build or load a per-company context document for each identified lead",
+  "edges": [
+    {
+      "condition": {
+        "field": "start.company context content",
+        "op": "not_empty"
+      },
+      "from": "start",
+      "to": "craft_email_direct"
+    },
+    {
+      "condition": {
+        "field": "start.company context content",
+        "op": "empty"
+      },
+      "from": "start",
+      "mapping": {
+        "company_official_name": "start.company official name",
+        "company_website": "start.company website"
+      },
+      "to": "extract_company_summary"
+    },
+    {
+      "condition": {
+        "field": "output",
+        "op": "not_empty"
+      },
+      "from": "extract_company_summary",
+      "mapping": {
+        "summary": "extract_company_summary.output"
+      },
+      "to": "map_business_to_zaq"
+    },
+    {
+      "condition": {
+        "field": "output",
+        "op": "not_empty"
+      },
+      "from": "map_business_to_zaq",
+      "mapping": {
+        "mapping": "map_business_to_zaq.output",
+        "summary": "extract_company_summary.output"
+      },
+      "to": "build_context_document"
+    },
+    {
+      "condition": {
+        "field": "result",
+        "op": "not_empty"
+      },
+      "from": "build_context_document",
+      "mapping": {
+        "document": "build_context_document.result"
+      },
+      "to": "produce_email_topic"
+    },
+    {
+      "condition": {
+        "field": "output",
+        "op": "not_empty"
+      },
+      "from": "produce_email_topic",
+      "to": "review_summary"
+    },
+    {
+      "condition": {
+        "field": "approved",
+        "op": "eq",
+        "value": true
+      },
+      "from": "review_summary",
+      "mapping": {
+        "row": "start.row_index"
+      },
+      "to": "build_range"
+    },
+    {
+      "from": "build_range",
+      "mapping": {
+        "email_topic": "produce_email_topic.output",
+        "summary": "build_context_document.result"
+      },
+      "to": "build_values"
+    },
+    {
+      "from": "build_values",
+      "mapping": {
+        "range": "build_range.result",
+        "values": "build_values.list"
+      },
+      "to": "update_sheet_row"
+    },
+    {
+      "from": "update_sheet_row",
+      "to": "craft_email"
+    }
+  ],
+  "name": "Generate Company Context",
+  "nodes": [
+    {
+      "index": 1,
+      "module": "Zaq.Agent.Tools.Workflow.DispatchEvent",
+      "name": "craft_email_direct",
+      "params": {
+        "event_name": "craft_email",
+        "input": {
+          "company context content": "{{start.company context content}}",
+          "email topic": "{{start.email topic}}"
+        },
+        "machine": true
+      },
+      "type": "action"
+    },
+    {
+      "index": 2,
+      "module": "Zaq.Agent.Tools.Workflow.RunAgent",
+      "name": "extract_company_summary",
+      "params": {
+        "agent_id": 5,
+        "input": "Run a web search to obtain a clear understanding of the main business {{company_official_name}} operates in. You can also use their official website at {{company_website}}. Craft a clear, concise summary of this company."
+      },
+      "type": "action"
+    },
+    {
+      "index": 3,
+      "module": "Zaq.Agent.Tools.Workflow.RunAgent",
+      "name": "map_business_to_zaq",
+      "params": {
+        "agent_id": 4,
+        "input": "Based on the following company summary: {{summary}}, write a concise list of the top services ZAQ can provide to this business. For each, give a clear benefit and a short explanation of why it is relevant."
+      },
+      "type": "action"
+    },
+    {
+      "index": 4,
+      "module": "Zaq.Agent.Tools.Workflow.Concat",
+      "name": "build_context_document",
+      "params": {
+        "parts": [
+          "## Company Summary\n\n{{summary}}",
+          "## How ZAQ Can Help\n\n{{mapping}}"
+        ],
+        "separator": "\n\n"
+      },
+      "type": "action"
+    },
+    {
+      "index": 5,
+      "module": "Zaq.Agent.Tools.Workflow.RunAgent",
+      "name": "produce_email_topic",
+      "params": {
+        "agent_id": 6,
+        "input": "Write ONE email subject line for a cold outreach email to this company. Requirements: short and catchy (aim for 4–8 words, under 60 characters); lead with the single most compelling value proposition ZAQ offers THIS specific company; reference their actual business (no generic filler); and make it curiosity-driving so the recipient opens the email. Output ONLY the subject line as plain text — no surrounding quotes, no \"Subject:\" prefix, and no commentary. Company context:\n\n{{document}}"
+      },
+      "type": "action"
+    },
+    {
+      "index": 6,
+      "module": "Zaq.Engine.Workflows.Steps.HumanInTheLoop",
+      "name": "review_summary",
+      "params": {
+        "message": "Review and approve the company summary and ZAQ service mapping before storing them."
+      },
+      "type": "action"
+    },
+    {
+      "index": 9,
+      "module": "Zaq.Agent.Tools.Workflow.Concat",
+      "name": "build_range",
+      "params": {
+        "column_email": "L",
+        "column_summary": "M",
+        "parts": [
+          "Sheet1!{{column_email}}{{row}}:{{column_summary}}{{row}}"
+        ]
+      },
+      "type": "action"
+    },
+    {
+      "index": 10,
+      "module": "Zaq.Agent.Tools.Workflow.Concat",
+      "name": "build_values",
+      "params": {
+        "parts": [
+          [
+            [
+              "{{email_topic}}",
+              "{{summary}}"
+            ]
+          ]
+        ]
+      },
+      "type": "action"
+    },
+    {
+      "index": 11,
+      "module": "Zaq.Agent.Tools.Sheets.UpdateSheetValues",
+      "name": "update_sheet_row",
+      "params": {
+        "provider": "google_drive",
+        "spreadsheet_id": "1sYIdoX6KWDCyapowvfrfebE71gUWQo3A5S_GqpXXarI",
+        "value_input_option": "USER_ENTERED"
+      },
+      "type": "action"
+    },
+    {
+      "index": 12,
+      "module": "Zaq.Agent.Tools.Workflow.DispatchEvent",
+      "name": "craft_email",
+      "params": {
+        "event_name": "craft_email",
+        "input": {
+          "company context content": "{{build_context_document.result}}",
+          "email topic": "{{produce_email_topic.output}}"
+        },
+        "machine": true
+      },
+      "type": "action"
+    }
+  ],
+  "settings": {},
+  "status": "active",
+  "trigger": {
+    "cron_schedule": null,
+    "enabled": true,
+    "event_name": "engine:lead_identified",
+    "trigger_type": "event"
+  }
+}
