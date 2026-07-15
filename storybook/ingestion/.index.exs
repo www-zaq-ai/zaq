@@ -25,29 +25,32 @@ defmodule Storybook.Ingestion do
   def entry("ingestion_volume_selector"),
     do: [name: "Ingestion Volume Selector", index: 6]
 
+  def entry("ingestion_embedding_banner"),
+    do: [name: "Ingestion Embedding Banner", index: 7]
+
   def entry("modal_add_raw"),
-    do: [name: "Modal Add Raw", index: 7]
+    do: [name: "Modal Add Raw", index: 8]
 
   def entry("modal_delete"),
-    do: [name: "Modal Delete", index: 8]
+    do: [name: "Modal Delete", index: 9]
 
   def entry("modal_delete_selected"),
-    do: [name: "Modal Delete Selected", index: 9]
+    do: [name: "Modal Delete Selected", index: 10]
 
   def entry("modal_move"),
-    do: [name: "Modal Move", index: 10]
+    do: [name: "Modal Move", index: 11]
 
   def entry("modal_new_folder"),
-    do: [name: "Modal New Folder", index: 11]
+    do: [name: "Modal New Folder", index: 12]
 
   def entry("modal_rename"),
-    do: [name: "Modal Rename", index: 12]
+    do: [name: "Modal Rename", index: 13]
 
   def entry("modal_share"),
-    do: [name: "Modal Share", index: 13]
+    do: [name: "Modal Share", index: 14]
 
   def entry("modal_upload"),
-    do: [name: "Modal Upload", index: 14]
+    do: [name: "Modal Upload", index: 15]
 
   def entry(_), do: []
 end

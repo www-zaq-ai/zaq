@@ -1,4 +1,4 @@
-defmodule Storybook.Components.DesignSystem.EmptyState do
+defmodule Storybook.Components.Table.EmptyState do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 
