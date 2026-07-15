@@ -26,7 +26,9 @@ async function waitForLiveViewConnected(page, options = {}) {
       const socketConnected =
         socket && typeof socket.isConnected === "function" && socket.isConnected();
 
-      return liveRoot.classList.contains("phx-connected") || socketConnected === true;
+      // phx-connected means the LiveView channel has joined — a connected
+      // socket alone still drops phx-click events fired before the join.
+      return liveRoot.classList.contains("phx-connected") && socketConnected === true;
     },
     undefined,
     { timeout }

@@ -65,6 +65,7 @@ test.describe("Channels index & provider UI", () => {
 
   test("provider new config flow exposes Connect credential form in modal", async ({ page }) => {
     await gotoBackOfficeLive(page, GOOGLE_DRIVE_PROVIDER)
+    await waitForLiveViewSettled(page)
 
     await page.locator("#new-config-button").click()
     await waitForLiveViewSettled(page)
