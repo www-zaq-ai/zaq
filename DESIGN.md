@@ -379,7 +379,11 @@ All buttons share: `.zaq-btn` base, 8px radius, `.zaq-btn-text_label-default` ty
 
 Use `ZaqWeb.Components.DesignSystem.Button` — do not rebuild button markup from scratch.
 
-### Form Controls
+### Component inventory
+
+> Check `storybook/` before building anything new. Prefer these modules over inline markup.
+
+#### Form elements
 
 > Canonical: `assets/css/form.css` + `lib/zaq_web/components/design_system/` form modules.
 
@@ -391,62 +395,125 @@ All controls share: `surface-raised` background, `border-default` stroke, 16px r
 2. **Control shell** — `.zaq-control-text`, `.zaq-control-select`, or component module for richer controls
 3. **Error row** — `.zaq-field-error` below the control when validation fails
 
-| Component | Module |
-|---|---|
-| Input | `ZaqWeb.Components.DesignSystem.Input` |
-| SecretInput | `ZaqWeb.Components.DesignSystem.SecretInput` |
-| Checkbox | `ZaqWeb.Components.DesignSystem.Checkbox` |
-| Toggle | `ZaqWeb.Components.DesignSystem.Toggle` |
-| Dropzone | `ZaqWeb.Components.DesignSystem.Dropzone` |
-| Select | `ZaqWeb.Select` |
-| SearchableSelect | `ZaqWeb.Components.SearchableSelect` |
+| Component | Module | Function | Notes |
+|---|---|---|---|
+| Button | `ZaqWeb.Components.DesignSystem.Button` | `button/1` | primary, secondary, ghost, tertiary, pill, icon-only, danger |
+| Input | `ZaqWeb.Components.DesignSystem.Input` | `input/1` | text-like types, `textarea`, `hidden`; use dedicated Checkbox for BO checkboxes |
+| Select | `ZaqWeb.Select` | `select/1` | standard dropdown |
+| Searchable Select | `ZaqWeb.Components.SearchableSelect` | `searchable_select/1` | filterable; modal-safe via fixed positioning |
+| Checkbox | `ZaqWeb.Components.DesignSystem.Checkbox` | `checkbox/1` | canonical BO checkbox |
+| Toggle | `ZaqWeb.Components.DesignSystem.Toggle` | `toggle/1` | on/off switch |
+| Secret Input | `ZaqWeb.Components.DesignSystem.SecretInput` | `secret_input/1` | show/hide for passwords and tokens |
+| Password Requirements | `ZaqWeb.Components.PasswordPolicyComponents` | `password_requirements/1` | live checklist while typing |
+| Dropzone | `ZaqWeb.Components.DesignSystem.Dropzone` | `upload_section/1` | file upload area |
 
-New form components may live under `design_system/` or `components/` — no DESIGN.md update required per component.
-
-### Cards
-
-`.zaq-card-default` — 16px padding, gap, and radius via shape tokens. `.zaq-card-hover` — raised surface + accent border on hover when direct child of `a`, `button`, or interactive role element.
-
-### Data tables
+#### Tables
 
 > Canonical: `assets/css/table.css` + `lib/zaq_web/components/design_system/table.ex` + `storybook/components/table/`.
 
-- **List:** `ZaqWeb.Components.DesignSystem.Table` — `table/1`, `table_row/1`, `table_cell/1`, cell helpers
-- **Grid:** `ZaqWeb.Components.DesignSystem.Table.Grid` — `grid/1`, `grid_card/1` (shared helpers + CSS)
-
 Use `.zaq-table` shell and related cell patterns — do not duplicate table styling in `styles.css` or templates.
 
-### Design system component inventory
-
-> Check `storybook/` before building anything new.
-
-| Component | Module | Purpose |
+| Component | Module | Function |
 |---|---|---|
-| Button | `ZaqWeb.Components.DesignSystem.Button` | All button variants, pill, icon, danger |
-| Link | `ZaqWeb.Components.DesignSystem.Link` | Anchor with DS styling |
-| StatusBadge | `ZaqWeb.Components.DesignSystem.StatusBadge` | Inline status indicator |
-| StatusPill | `ZaqWeb.Components.DesignSystem.StatusPill` | Pill-shaped status label |
-| Breadcrumb | `ZaqWeb.Components.DesignSystem.Breadcrumb` | Page hierarchy |
-| TabNav | `ZaqWeb.Components.DesignSystem.TabNav` | Tab section navigation |
-| EmptyState | `ZaqWeb.Components.DesignSystem.EmptyState` | Zero-data placeholder + CTA |
-| MetricCard | `ZaqWeb.Components.DesignSystem.MetricCard` | KPI display |
-| DiagnosticCard | `ZaqWeb.Components.DesignSystem.DiagnosticCard` | System health summary |
-| SimplePagination | `ZaqWeb.Components.DesignSystem.SimplePagination` | List page controls |
-| Table | `ZaqWeb.Components.DesignSystem.Table` | List tables + cell helpers |
-| Table.Grid | `ZaqWeb.Components.DesignSystem.Table.Grid` | Card grid header + tiles |
-| AddonUpsellCard | `ZaqWeb.Components.DesignSystem.AddonUpsellCard` | Feature gating / upsell |
+| Table shell | `ZaqWeb.Components.DesignSystem.Table` | `table/1` |
+| Head row | `ZaqWeb.Components.DesignSystem.Table` | `table_head_row/1` |
+| Body row | `ZaqWeb.Components.DesignSystem.Table` | `table_row/1` |
+| Cell | `ZaqWeb.Components.DesignSystem.Table` | `table_cell/1` |
+| Empty state row | `ZaqWeb.Components.DesignSystem.Table` | `table_empty/1` |
+| Sidecar row | `ZaqWeb.Components.DesignSystem.Table` | `table_sidecar_row/1` |
+| Selection bar | `ZaqWeb.Components.DesignSystem.Table` | `table_selection_bar/1` |
+| Checkbox cell | `ZaqWeb.Components.DesignSystem.Table` | `table_checkbox/1` |
+| Text cell | `ZaqWeb.Components.DesignSystem.Table` | `table_text/1` |
+| Badge cell | `ZaqWeb.Components.DesignSystem.Table` | `table_badge/1` |
+| Datetime cell | `ZaqWeb.Components.DesignSystem.Table` | `table_datetime/1` |
+| Actions cell | `ZaqWeb.Components.DesignSystem.Table` | `table_actions/1` |
+| Media cell | `ZaqWeb.Components.DesignSystem.Table` | `table_media/1` |
+| Grid layout | `ZaqWeb.Components.DesignSystem.Table.Grid` | `grid/1`, `grid_card/1` |
 
-Feature-scoped modules (ingestion file browser, modals, etc.) live under `design_system/` with matching stories under `storybook/ingestion/` or `storybook/components/`.
+#### Charts
 
-### Modals
+> Canonical: `ZaqWeb.Components.BOTelemetryComponents` + `storybook/components/charts/charts.story.exs`.
 
-> Canonical: `assets/css/modal.css` + `ZaqWeb.Components.DesignSystem.*` modal modules + `storybook/components/modals/`.
+| Component | Module | Function | Purpose |
+|---|---|---|---|
+| Time series chart | `ZaqWeb.Components.BOTelemetryComponents` | `time_series_chart/1` | line/area time series |
+| Bar chart | `ZaqWeb.Components.BOTelemetryComponents` | `bar_chart/1` | categorical bars |
+| Donut chart | `ZaqWeb.Components.BOTelemetryComponents` | `donut_chart/1` | part-to-whole |
+| Gauge chart | `ZaqWeb.Components.BOTelemetryComponents` | `gauge_chart/1` | single bounded value |
+| Radar chart | `ZaqWeb.Components.BOTelemetryComponents` | `radar_chart/1` | multi-axis comparison |
+| Status grid | `ZaqWeb.Components.BOTelemetryComponents` | `status_grid/1` | grid of status items |
+| Progress countdown | `ZaqWeb.Components.BOTelemetryComponents` | `progress_countdown/1` | progress bar with countdown |
+
+`metric_card/1` also exists on `BOTelemetryComponents` as a thin delegate to `DesignSystem.MetricCard` for telemetry pages.
+
+#### Modals
+
+> Canonical: `assets/css/modal.css` + `ZaqWeb.Components.BOModal` + `storybook/modals/` and `storybook/bo_modal/`.
 
 - `.zaq-modal` — panel (`surface-raised`), 16px radius, 32px padding, `border-default`, tonal shadow
 - `.zaq-bo-modal-backdrop` — scrim at 40% `text-default` with `backdrop-filter: blur(4px)`
 - `.zaq-modal--flush` — removes padding for edge-to-edge content (file preview, toolbars)
 
 Shell classes consume semantic tokens and adapt in dark mode automatically.
+
+**Primitives** — `ZaqWeb.Components.BOModal`
+
+| Component | Function | When to use |
+|---|---|---|
+| Modal shell | `modal_shell/1` | low-level wrapper; optional `title` |
+| Modal header | `modal_header/1` | title row and close |
+| Confirm dialog | `confirm_dialog/1` | destructive confirmation |
+| Form dialog | `form_dialog/1` | add/edit with scroll and footer actions slot |
+| Iframe dialog | `iframe_dialog/1` | embedded external content |
+
+**Composed modals**
+
+| Component | Module | Function |
+|---|---|---|
+| File preview modal | `ZaqWeb.Components.FilePreviewModal` | `modal/1` |
+| File preview panel | `ZaqWeb.Components.FilePreview` | `panel/1`, `meta/1` |
+
+**Ingestion-specific** (feature-scoped, under `design_system/`)
+
+| Component | Module | Function |
+|---|---|---|
+| Add raw | `ZaqWeb.Components.DesignSystem.ModalAddRaw` | `modal_add_raw/1` |
+| Rename | `ZaqWeb.Components.DesignSystem.ModalRename` | `modal_rename/1` |
+| Delete | `ZaqWeb.Components.DesignSystem.ModalDelete` | `modal_delete/1` |
+| Delete selected | `ZaqWeb.Components.DesignSystem.ModalDeleteSelected` | `modal_delete_selected/1` |
+| New folder | `ZaqWeb.Components.DesignSystem.ModalNewFolder` | `modal_new_folder/1` |
+| Upload | `ZaqWeb.Components.DesignSystem.ModalUpload` | `modal_upload/1` |
+| Move | `ZaqWeb.Components.DesignSystem.ModalMove` | `modal_move/1` |
+| Share | `ZaqWeb.Components.DesignSystem.ModalShare` | `modal_share/1` |
+
+#### Cards
+
+| Component | Module | Function | Notes |
+|---|---|---|---|
+| Card shell (CSS) | — | — | `.zaq-card-default`, `.zaq-card-hover` |
+| Metric card | `ZaqWeb.Components.DesignSystem.MetricCard` | `metric_card/1` | KPI display |
+| Diagnostic card | `ZaqWeb.Components.DesignSystem.DiagnosticCard` | `diagnostic_card/1` | system health summary |
+| Addon upsell card | `ZaqWeb.Components.DesignSystem.AddonUpsellCard` | `addon_upsell_card/1` | feature gating / upsell |
+
+#### Navigation and status
+
+| Component | Module | Function | Notes |
+|---|---|---|---|
+| Breadcrumb | `ZaqWeb.Components.DesignSystem.Breadcrumb` | `breadcrumb/1` | page hierarchy |
+| Tab Nav | `ZaqWeb.Components.DesignSystem.TabNav` | `tab_nav/1` | tab section navigation |
+| Link | `ZaqWeb.Components.DesignSystem.Link` | `nav_link/1` | anchor with DS styling |
+| Simple Pagination | `ZaqWeb.Components.DesignSystem.SimplePagination` | `simple_pagination/1` | list page controls |
+| Status dot | `ZaqWeb.Components.DesignSystem.StatusDot` | `status_dot/1` | inline active/inactive indicator |
+| Status pill | `ZaqWeb.Components.DesignSystem.StatusPill` | `status_pill_classes/1` | pill class helper for status labels |
+| Status badge | `ZaqWeb.Components.DesignSystem.StatusBadge` | `status_badge/1` | connection/diagnostic chip |
+| Empty state | `ZaqWeb.Components.DesignSystem.EmptyState` | `empty_state/1` | zero-data placeholder |
+
+#### Layouts
+
+| Component | Module | Function | When |
+|---|---|---|---|
+| BO layout | `ZaqWeb.Components.BOLayout` | `bo_layout/1` | mandatory wrapper for every BO LiveView |
+| Master–detail | `ZaqWeb.Components.MasterDetailLayout` | `master_detail/1` | two-pane list and detail |
 
 ---
 
