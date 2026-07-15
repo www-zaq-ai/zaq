@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.Skill
   alias Zaq.Agent.Skills
   alias ZaqWeb.Live.BO.AI.SkillsLive
 
@@ -35,6 +36,38 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       |> Skills.create_skill()
 
     skill
+  end
+
+  defp with_skills_live_node_router(module) do
+    previous = Application.get_env(:zaq, :skills_live_node_router_module)
+    Application.put_env(:zaq, :skills_live_node_router_module, module)
+
+    on_exit(fn ->
+      if previous do
+        Application.put_env(:zaq, :skills_live_node_router_module, previous)
+      else
+        Application.delete_env(:zaq, :skills_live_node_router_module)
+      end
+    end)
+  end
+
+  defmodule CreateFailureRouter do
+    def dispatch(event), do: %{event | response: {:error, :create_failed}}
+  end
+
+  defmodule UpdateChangesetFailureRouter do
+    def dispatch(event) do
+      changeset =
+        %Skill{}
+        |> Ecto.Changeset.change()
+        |> Ecto.Changeset.add_error(:name, "is invalid")
+
+      %{event | response: {:error, changeset}}
+    end
+  end
+
+  defmodule DeleteFailureRouter do
+    def dispatch(event), do: %{event | response: {:error, :delete_failed}}
   end
 
   test "renders skills page with empty state", %{conn: conn} do
@@ -158,6 +191,27 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
     assert html =~ "Invalid skill name"
     assert Skills.list_skills() == []
+  end
+
+  test "shows generic create failures from the agent router", %{conn: conn} do
+    with_skills_live_node_router(CreateFailureRouter)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+    render_click(element(view, "#new-skill-button"))
+
+    html =
+      view
+      |> form("#skill-form",
+        skill: %{
+          "name" => "router-create-failure",
+          "description" => "What this skill does, and when to use it.",
+          "body" => "Instructions.",
+          "tags" => ""
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Failed to create skill: :create_failed"
   end
 
   test "edits an existing skill", %{conn: conn} do
@@ -490,6 +544,30 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert length(Skills.list_skills()) == 1
   end
 
+  test "edit displays changeset errors returned by runtime sync", %{conn: conn} do
+    with_skills_live_node_router(UpdateChangesetFailureRouter)
+    skill = create_skill!(%{name: "router-edit-changeset", body: "Original."})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+    render_click(element(view, "#skill-row-#{skill.id}"))
+
+    html =
+      view
+      |> form("#skill-form",
+        skill: %{
+          "name" => "router-edit-changeset",
+          "description" => "What this skill does, and when to use it.",
+          "body" => "Changed.",
+          "tags" => "",
+          "active" => "true"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "is invalid"
+    assert Skills.get_skill!(skill.id).body == "Original."
+  end
+
   test "raw events normalize defensive MCP endpoint and tag payloads" do
     {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
 
@@ -527,6 +605,40 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       )
 
     assert socket.assigns.form[:tags].value == []
+
+    {:noreply, socket} =
+      SkillsLive.handle_event(
+        "validate",
+        %{
+          "skill" => %{
+            "name" => "raw-allowed-tools-skill",
+            "description" => "What this skill does, and when to use it.",
+            "body" => "Instructions.",
+            "allowed_tools" => ["Read", "Bash"],
+            "active" => true
+          }
+        },
+        socket
+      )
+
+    assert socket.assigns.form[:allowed_tools].value == ["Read", "Bash"]
+
+    {:noreply, socket} =
+      SkillsLive.handle_event(
+        "validate",
+        %{
+          "skill" => %{
+            "name" => "raw-invalid-allowed-tools-skill",
+            "description" => "What this skill does, and when to use it.",
+            "body" => "Instructions.",
+            "allowed_tools" => %{},
+            "active" => true
+          }
+        },
+        socket
+      )
+
+    assert socket.assigns.form[:allowed_tools].value == []
   end
 
   test "cancel hides the form", %{conn: conn} do
@@ -537,5 +649,17 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
     render_click(element(view, "button[phx-click=cancel_form]"))
     refute has_element?(view, "#skill-form")
+  end
+
+  test "delete shows router failures", %{conn: conn} do
+    with_skills_live_node_router(DeleteFailureRouter)
+    skill = create_skill!(%{name: "router-delete-failure"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    html = render_click(element(view, "#delete-skill-#{skill.id}"))
+
+    assert html =~ "Failed to delete skill: :delete_failed"
+    assert Skills.get_skill(skill.id)
   end
 end

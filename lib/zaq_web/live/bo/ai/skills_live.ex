@@ -170,7 +170,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     event =
       Event.new(%{id: String.to_integer(id)}, :agent, opts: [action: :agent_skill_deleted])
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       {:ok, _payload} ->
         socket =
           socket
@@ -196,7 +196,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
         opts: [action: :invoke]
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       {:ok, %Skill{} = skill} ->
         socket =
           socket
@@ -222,7 +222,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     event =
       Event.new(%{id: skill.id, attrs: attrs}, :agent, opts: [action: :agent_skill_updated])
 
-    case NodeRouter.dispatch(event).response do
+    case node_router().dispatch(event).response do
       {:ok, %{skill: updated}} ->
         socket =
           socket
@@ -315,6 +315,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp assign_changeset(socket, changeset) do
     assign(socket, :form, to_form(changeset, as: :skill))
   end
+
+  defp node_router, do: Application.get_env(:zaq, :skills_live_node_router_module, NodeRouter)
 
   defp tags_to_string(tags) when is_list(tags), do: Enum.join(tags, ", ")
   defp tags_to_string(tags) when is_binary(tags), do: tags

@@ -1,6 +1,7 @@
 defmodule Zaq.Agent.RuntimeSyncTest do
   use Zaq.DataCase, async: false
 
+  alias Jido.MCP.JidoAI.ProxyRegistry
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP.Endpoint
   alias Zaq.Agent.RuntimeSync
@@ -147,6 +148,19 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     def stop_server(_id), do: :ok
   end
 
+  defmodule StubServerManagerNoRunning do
+    def sync_runtime(_agent) do
+      {:ok,
+       %{
+         runtime: %{strategy: :no_running_servers},
+         synced_servers: [],
+         stopped_server_ids: []
+       }}
+    end
+
+    def stop_server(_id), do: :ok
+  end
+
   defmodule StubSignalAdapterUnsyncError do
     def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
 
@@ -271,6 +285,25 @@ defmodule Zaq.Agent.RuntimeSyncTest do
        %{
          server_ref: {:server, id},
          runtime: %{mcp: %{results: []}, tools: %{added_tools: []}}
+       }}
+    end
+  end
+
+  defmodule StubServerManagerRuntimeWarningResult do
+    def sync_runtime(%ConfiguredAgent{id: id}) do
+      warning = %{
+        endpoint_id: 55,
+        status: :warning,
+        reason: :partial_tool_sync,
+        discovered_count: 2,
+        registered_count: 1,
+        failed_count: 1
+      }
+
+      {:ok,
+       %{
+         server_ref: {:server, id},
+         runtime: %{mcp: %{results: [warning]}, tools: %{added_tools: []}}
        }}
     end
   end
@@ -849,6 +882,20 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     assert runtime.unsync_results == []
   end
 
+  test "configured_agent_updated returns no_running_servers when no server is warm" do
+    assert {:ok, %{runtime: runtime}} =
+             RuntimeSync.configured_agent_updated(
+               79,
+               %{model: "gpt-4.1"},
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerNoRunning
+             )
+
+    assert runtime.strategy == :no_running_servers
+    assert runtime.removed_mcp_endpoint_ids == []
+    assert runtime.unsync_results == []
+  end
+
   test "configured_agent_updated propagates unsync failures" do
     assert {:error, :unsync_failed} =
              RuntimeSync.configured_agent_updated(
@@ -1008,6 +1055,120 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              result.mcp.warnings
   end
 
+  test "sync_agent_mcp_assignments unwraps nested ok sync payloads" do
+    defmodule MCPForNestedOkPayload do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def get_mcp_endpoint(1),
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
+    end
+
+    defmodule SignalAdapterNestedOkPayload do
+      def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{removed_count: 0}}
+      def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+
+      def sync_tools(_server_ref, _runtime_endpoint_id, _opts),
+        do: {:ok, {:ok, %{discovered_count: 1, registered_count: 1, failed_count: 0}}}
+    end
+
+    agent = %ConfiguredAgent{id: 27, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
+
+    assert {:ok, result} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: MCPForNestedOkPayload,
+               signal_adapter_module: SignalAdapterNestedOkPayload
+             )
+
+    assert [%{status: :ok, endpoint_id: 1}] = result.results
+  end
+
+  test "sync_agent_mcp_assignments maps nested sync errors" do
+    defmodule MCPForNestedSyncError do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def get_mcp_endpoint(1),
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
+    end
+
+    defmodule SignalAdapterNestedSyncError do
+      def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{removed_count: 0}}
+      def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+
+      def sync_tools(_server_ref, _runtime_endpoint_id, _opts),
+        do: {:ok, {:error, :tool_sync_failed}}
+    end
+
+    agent = %ConfiguredAgent{id: 28, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
+
+    assert {:error, {:mcp_sync_failed, details}} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: MCPForNestedSyncError,
+               signal_adapter_module: SignalAdapterNestedSyncError
+             )
+
+    assert details.reason == {:mcp_sync_failed, %{endpoint_id: 1, reason: :tool_sync_failed}}
+  end
+
+  test "sync_agent_mcp_assignments rejects malformed nested result entries" do
+    defmodule MCPForMalformedNestedEntry do
+      alias Zaq.Agent.MCP.Endpoint
+
+      def get_mcp_endpoint(1),
+        do: %Endpoint{
+          id: 1,
+          type: "local",
+          status: "enabled",
+          command: "echo",
+          args: ["ok"],
+          environments: %{},
+          secret_environments: %{},
+          timeout_ms: 5000
+        }
+    end
+
+    defmodule SignalAdapterMalformedNestedEntry do
+      def register_endpoint(_server_ref, _endpoint_attrs, _opts), do: :ok
+      def unsync_tools(_server_ref, _runtime_endpoint_id, _opts), do: {:ok, %{removed_count: 0}}
+      def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+
+      def sync_tools(_server_ref, _runtime_endpoint_id, _opts),
+        do: {:ok, %{results: [:bad_entry]}}
+    end
+
+    agent = %ConfiguredAgent{id: 29, enabled_tool_keys: [], enabled_mcp_endpoint_ids: [1]}
+
+    assert {:error, {:mcp_sync_failed, details}} =
+             RuntimeSync.sync_agent_mcp_assignments(agent, :server_ref,
+               mcp_module: MCPForMalformedNestedEntry,
+               signal_adapter_module: SignalAdapterMalformedNestedEntry
+             )
+
+    assert match?(
+             {:mcp_sync_failed, %{reason: {:invalid_sync_entry, :bad_entry}}},
+             details.reason
+           )
+  end
+
   test "configured_agent_created returns hot_runtime_patch for active agent" do
     assert {:ok, %{agent: %ConfiguredAgent{id: 701}, runtime: %{strategy: :hot_runtime_patch}}} =
              RuntimeSync.configured_agent_created(%{name: "Active"},
@@ -1038,6 +1199,22 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                mcp_module: StubMCPCreateUpdate,
                agent_module: StubAgentLifecycleModule
              )
+  end
+
+  test "mcp_endpoint_updated collects warning results from impacted agents" do
+    assert {:ok, %{runtime: runtime}} =
+             RuntimeSync.mcp_endpoint_updated(
+               %{
+                 action: :create,
+                 attrs: %{name: "Enabled Warning", id: 55, status: "enabled", type: "remote"}
+               },
+               mcp_module: StubMCPCreateUpdate,
+               agent_module: StubAgentImpactedModule,
+               server_manager_module: StubServerManagerRuntimeWarningResult
+             )
+
+    assert [%{status: :warning, reason: :partial_tool_sync} = warning] = runtime.warnings
+    assert runtime.results == [{:ok, warning}]
   end
 
   test "mcp_endpoint_updated supports string actions for create update and delete" do
@@ -1144,6 +1321,14 @@ defmodule Zaq.Agent.RuntimeSyncTest do
   test "mcp_endpoint_updated returns invalid_request when action is missing" do
     assert {:error, {:invalid_request, %{}}} =
              RuntimeSync.mcp_endpoint_updated(%{},
+               mcp_module: StubMCPCreateUpdate,
+               agent_module: StubAgentLifecycleModule
+             )
+  end
+
+  test "mcp_endpoint_updated returns invalid_request for non string or atom action" do
+    assert {:error, {:invalid_request, %{action: 123}}} =
+             RuntimeSync.mcp_endpoint_updated(%{action: 123},
                mcp_module: StubMCPCreateUpdate,
                agent_module: StubAgentLifecycleModule
              )
@@ -1374,6 +1559,32 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
   end
 
+  defmodule StubSignalAdapterNestedUnsyncOk do
+    def unsync_tools(_server_ref, runtime_endpoint_id, _opts) do
+      send(self(), {:unsync_tools_called, runtime_endpoint_id})
+      {:ok, {:ok, %{removed_count: 1, failed_count: 0}}}
+    end
+
+    def unregister_endpoint(_server_ref, runtime_endpoint_id, _opts) do
+      send(self(), {:unregister_endpoint_called, runtime_endpoint_id})
+      :ok
+    end
+  end
+
+  defmodule StubSignalAdapterNestedUnsyncError do
+    def unsync_tools(_server_ref, _runtime_endpoint_id, _opts),
+      do: {:ok, {:error, :tool_unsync_failed}}
+
+    def unregister_endpoint(_server_ref, _runtime_endpoint_id, _opts), do: :ok
+  end
+
+  defmodule StubServerManagerSkillNoServerRef do
+    def sync_runtime(%ConfiguredAgent{id: id}) do
+      send(self(), {:skill_sync_runtime_called, id})
+      {:ok, %{runtime: %{strategy: :no_running_servers}}}
+    end
+  end
+
   defmodule StubAgentWithSkillOwningEndpoint do
     def list_agents_with_skill(skill_id) do
       [
@@ -1410,6 +1621,86 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     assert updated.enabled_mcp_endpoint_ids == []
     assert runtime.impacted_agent_ids == [91]
     assert_receive {:unsync_tools_called, :mcp_66}
+  end
+
+  test "agent_skill_updated skips removed MCP unsync when runtime has no server ref" do
+    seed_endpoint!(66)
+
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "mcp-no-server-ref",
+        description: "What this skill does, and when to use it.",
+        body: "b",
+        enabled_mcp_endpoint_ids: [66]
+      })
+
+    assert {:ok, %{runtime: runtime}} =
+             RuntimeSync.agent_skill_updated(
+               skill.id,
+               %{enabled_mcp_endpoint_ids: []},
+               agent_module: StubAgentWithSkillModule,
+               server_manager_module: StubServerManagerSkillNoServerRef,
+               signal_adapter_module: StubSignalAdapterSkillUnsync
+             )
+
+    assert [{91, result}] = runtime.results
+    assert result.unsync_results == []
+    assert_receive {:skill_sync_runtime_called, 91}
+    refute_receive {:unsync_tools_called, _}
+  end
+
+  test "configured_agent_updated unwraps nested ok unsync payloads" do
+    assert {:ok, %{runtime: runtime}} =
+             RuntimeSync.configured_agent_updated(
+               84,
+               %{
+                 enabled_mcp_endpoint_ids: [],
+                 advanced_options: %{"temperature" => 0.2}
+               },
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapterNestedUnsyncOk
+             )
+
+    assert runtime.unsync_results == [%{removed_count: 1, failed_count: 0}]
+    assert_receive {:unsync_tools_called, :mcp_1}
+  end
+
+  test "configured_agent_updated maps nested unsync errors" do
+    assert {:error, {:mcp_unsync_failed, %{endpoint_id: 1, reason: :tool_unsync_failed}}} =
+             RuntimeSync.configured_agent_updated(
+               85,
+               %{
+                 enabled_mcp_endpoint_ids: [],
+                 advanced_options: %{"temperature" => 0.2}
+               },
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapterNestedUnsyncError
+             )
+  end
+
+  test "configured_agent_updated keeps globally subscribed endpoint registered" do
+    ProxyRegistry.subscribe(:another_server, :mcp_1, %{})
+
+    on_exit(fn ->
+      ProxyRegistry.unsubscribe(:another_server, :mcp_1)
+    end)
+
+    assert {:ok, %{runtime: runtime}} =
+             RuntimeSync.configured_agent_updated(
+               86,
+               %{
+                 enabled_mcp_endpoint_ids: [],
+                 advanced_options: %{"temperature" => 0.2}
+               },
+               agent_module: StubAgentNoRuntimeChangeModule,
+               server_manager_module: StubServerManagerForPatch,
+               signal_adapter_module: StubSignalAdapterNestedUnsyncOk
+             )
+
+    assert runtime.unsync_results == [%{removed_count: 1, failed_count: 0}]
+    refute_receive {:unregister_endpoint_called, :mcp_1}
   end
 
   test "agent_skill_updated does not unsync an endpoint the agent still provides itself" do

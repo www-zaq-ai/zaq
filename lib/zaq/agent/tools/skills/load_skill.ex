@@ -60,7 +60,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
   def run(%{name: name}, context) do
     with {:ok, agent} <- fetch_agent(context),
          {:ok, skill} <- fetch_granted_skill(agent, name) do
-      emit_telemetry(agent, skill)
+      emit_telemetry(agent, skill, context)
 
       {:ok,
        %{
@@ -99,10 +99,11 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
     end
   end
 
-  defp emit_telemetry(agent, skill) do
+  defp emit_telemetry(agent, skill, context) do
     body = skill.body || ""
+    telemetry = Map.get(context, :telemetry_module, :telemetry)
 
-    :telemetry.execute(
+    telemetry.execute(
       [:zaq, :agent, :skill, :load],
       %{body_bytes: byte_size(body), body_tokens: TokenEstimator.estimate(body)},
       %{skill_id: skill.id, skill_name: skill.name, configured_agent_id: agent.id}

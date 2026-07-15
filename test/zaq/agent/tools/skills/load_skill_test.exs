@@ -43,6 +43,10 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
 
   defp ctx(agent), do: %{configured_agent_id: agent.id}
 
+  defmodule RaisingTelemetry do
+    def execute(_event, _measurements, _metadata), do: raise("telemetry offline")
+  end
+
   describe "loading a granted skill" do
     test "returns the skill's full instructions" do
       skill = skill!(%{name: "calculator", body: "SECRET_INSTRUCTIONS"})
@@ -62,6 +66,20 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
       assert {:ok, first} = LoadSkill.run(%{name: "calculator"}, ctx(agent))
       assert {:ok, second} = LoadSkill.run(%{name: "calculator"}, ctx(agent))
       assert first == second
+    end
+
+    test "telemetry failures do not fail the tool call" do
+      skill = skill!(%{name: "calculator", body: "one two three"})
+      agent = agent!(%{enabled_skill_ids: [skill.id]})
+
+      assert {:ok, result} =
+               LoadSkill.run(
+                 %{name: "calculator"},
+                 Map.put(ctx(agent), :telemetry_module, RaisingTelemetry)
+               )
+
+      assert result.name == "calculator"
+      assert result.instructions == skill.body
     end
   end
 

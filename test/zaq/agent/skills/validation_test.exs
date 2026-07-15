@@ -8,6 +8,27 @@ defmodule Zaq.Agent.Skills.ValidationTest do
   alias Zaq.Agent.Skills.Validation
   alias Zaq.Repo
 
+  defmodule NilDiagnosticsLoader do
+    def parse(_content, _source_path, _opts) do
+      {:ok,
+       %Spec{
+         name: "calculator",
+         description: "Precise arithmetic. Use when the user asks for a calculation.",
+         body_ref: {:inline, "# Calculator\nUse the arithmetic tools instead of mental math."},
+         allowed_tools: [],
+         diagnostics: nil
+       }}
+    end
+  end
+
+  defmodule GenericFailure do
+    defexception message: "generic parser failure"
+  end
+
+  defmodule GenericFailureLoader do
+    def parse(_content, _source_path, _opts), do: {:error, %GenericFailure{}}
+  end
+
   @valid %{
     name: "calculator",
     description: "Precise arithmetic. Use when the user asks for a calculation.",
@@ -110,11 +131,43 @@ defmodule Zaq.Agent.Skills.ValidationTest do
   end
 
   describe "errors map onto changeset fields" do
+    test "non-skill-shaped attrs are rejected cleanly" do
+      assert Validation.validate(%{}) == {:error, []}
+      assert Validation.validate(%{name: "calculator", description: "d"}) == {:error, []}
+    end
+
+    test "a missing required description is mapped to that field" do
+      assert {:error, errors} = Validation.validate(%{@valid | description: ""})
+
+      assert {:description, "can't be blank"} in errors
+    end
+
     test "an invalid name is sourced from Jido, not a ZAQ regex" do
       assert {:error, errors} = Validation.validate(%{@valid | name: "Not Kebab"})
 
       assert {:name, message} = List.keyfind(errors, :name, 0)
       assert message =~ "Invalid skill name"
+    end
+
+    test "invalid generated YAML is mapped onto the description field" do
+      assert {:error, errors} = Validation.validate(%{@valid | name: "bad: name"})
+
+      assert {:description, message} = List.keyfind(errors, :description, 0)
+      assert message =~ "Invalid YAML"
+    end
+
+    test "generic parser errors are mapped onto the body field" do
+      assert {:error, errors} = Validation.validate(@valid, loader: GenericFailureLoader)
+
+      assert {:body, "generic parser failure"} in errors
+    end
+
+    test "an over-long name is rejected rather than truncated" do
+      assert {:error, errors} =
+               Validation.validate(%{@valid | name: String.duplicate("a", 65)})
+
+      assert {:name, message} = List.keyfind(errors, :name, 0)
+      assert message =~ "must be 1-64 chars"
     end
 
     test "an over-long description is rejected rather than truncated" do
@@ -123,6 +176,10 @@ defmodule Zaq.Agent.Skills.ValidationTest do
 
       assert {:description, message} = List.keyfind(errors, :description, 0)
       assert message =~ "too long"
+    end
+
+    test "nil diagnostics are preserved as nil" do
+      assert {:ok, _spec, nil} = Validation.validate(@valid, loader: NilDiagnosticsLoader)
     end
   end
 

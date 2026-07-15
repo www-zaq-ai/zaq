@@ -44,10 +44,13 @@ defmodule Zaq.Agent.Skills.Validation do
   Returns the parsed `%Spec{}` plus its diagnostics as a plain map (persisted on the
   record so the BO can badge warnings without re-parsing every row).
   """
-  @spec validate(map()) :: {:ok, Spec.t(), map() | nil} | {:error, [field_error()]}
-  def validate(%{name: name, description: description, body: body} = attrs)
+  @spec validate(map(), keyword()) :: {:ok, Spec.t(), map() | nil} | {:error, [field_error()]}
+  def validate(attrs, opts \\ [])
+
+  def validate(%{name: name, description: description, body: body} = attrs, opts)
       when is_binary(name) and is_binary(description) and is_binary(body) do
     allowed_tools = Map.get(attrs, :allowed_tools) || []
+    loader = Keyword.get(opts, :loader, Loader)
 
     content = to_skill_md(name, description, body, allowed_tools)
 
@@ -57,7 +60,7 @@ defmodule Zaq.Agent.Skills.Validation do
     # `directory_name_mismatch` warning and be badged as having problems in the BO.
     source_path = Path.join(name, "SKILL.md")
 
-    case Loader.parse(content, source_path, lenient: false) do
+    case loader.parse(content, source_path, lenient: false) do
       {:ok, %Spec{} = spec} ->
         case truncation_errors(spec, name, description, allowed_tools) do
           [] -> {:ok, spec, diagnostics_map(spec.diagnostics)}
@@ -69,7 +72,7 @@ defmodule Zaq.Agent.Skills.Validation do
     end
   end
 
-  def validate(_attrs), do: {:error, []}
+  def validate(_attrs, _opts), do: {:error, []}
 
   @doc """
   Serializes skill attrs to Open Agent Skills `SKILL.md` content.
