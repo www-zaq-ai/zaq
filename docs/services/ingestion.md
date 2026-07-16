@@ -27,8 +27,7 @@ File path
       → enqueue IngestChunkWorker jobs      ← queue: :ingestion_chunks
   → IngestChunkWorker.perform/1             ← chunk-level processor
       → store_chunk_with_metadata/3         ← for each chunk:
-          → ChunkTitle.ask/1                ← LLM generates descriptive title
-          → EmbeddingClient.embed/1         ← generate vector embedding
+          → EmbeddingClient.embed/1         ← embed embedding_input (section-path context + verbatim content)
           → Chunk.changeset + Repo.insert   ← store to DB with PGVector halfvec
       → updates parent IngestJob counters   ← ingested_chunks/total_chunks/failed_chunks
 ```
@@ -110,14 +109,17 @@ File path
 - Builds heading stack to track parent path for each section
 - Chunks sections into 400–900 token pieces (configurable via `config :zaq, Zaq.Ingestion`)
 - Large sections split by paragraphs, then sentences if needed
-- Each chunk prepends its section heading for embedding context
+- Store-raw / embed-enriched split: `chunk.content` is a byte-exact substring of the
+  source document (headings kept verbatim, whitespace preserved); the transient
+  `chunk.embedding_input` (section-path context prefix + content) is used for embedding
+  only — never persisted, FTS-indexed, or shown to users
 - Token counts via `Zaq.Agent.TokenEstimator`
 
 ### Document Processor (`Zaq.Ingestion.DocumentProcessor`)
 - `process_single_file/1` — full pipeline: read → upsert doc → chunk → embed → store
 - `prepare_file_chunks/1` — parses document and returns persisted chunk payloads for child jobs
 - `process_folder/1` — processes supported files in a directory (`.md .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg`)
-- `store_chunk_with_metadata/3` — generates LLM title, embeds, validates dimension, inserts
+- `store_chunk_with_metadata/3` — embeds `embedding_input || content`, validates dimension, inserts verbatim `content`
 - `hybrid_search/2` — full-text + vector search with RRF fusion (Reciprocal Rank Fusion, k=60); accepts optional `:source_filter` list of path prefixes — files matched by exact source, folders matched by `LIKE prefix/%`
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
@@ -364,7 +366,7 @@ Unset or empty `INGESTION_VOLUMES` exposes `INGESTION_VOLUMES_BASE` as the defau
 - **HalfVector not Vector** — embeddings stored as `Pgvector.Ecto.HalfVector` (float16) to halve storage
 - **RRF fusion** — combines full-text rank and vector rank without score normalization issues
 - **Upsert on source** — re-ingesting the same file replaces content, old chunks are deleted first
-- **ChunkTitle via LLM** — every chunk gets an LLM-generated title prepended to improve retrieval quality
+- **Store-raw / embed-enriched chunks** — stored `chunk.content` is always a byte-exact substring of the source document; retrieval context (the joined section path) is added only to the transient `embedding_input` sent to the embedding model
 - **Dimension validation** — embedding dimension is checked against `EmbeddingClient.dimension()` before insert
 - **Python pre-processing pipeline** — non-Markdown files are converted to Markdown before chunking; image descriptions are injected via Scaleway Vision API when a key is configured
 - **Multi-format conversion path** — non-Markdown files (`PDF`, `DOCX`, `PPTX`, `XLSX`, `CSV`, images) are normalized to Markdown before chunking

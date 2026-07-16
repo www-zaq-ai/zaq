@@ -36,7 +36,17 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   defmodule Chunk do
-    @moduledoc "Represents a chunk with metadata."
+    @moduledoc """
+    Represents a chunk with metadata.
+
+    Invariants:
+
+      * `content` is a byte-exact substring of the source document — never
+        synthesized, trimmed, or rewritten.
+      * `embedding_input` is the embed-only enrichment (section-path context
+        prefix + `content`). It is transient: sent to the embedding model,
+        never persisted, FTS-indexed, or shown to users.
+    """
     defstruct [
       :id,
       :section_id,
@@ -44,8 +54,44 @@ defmodule Zaq.Ingestion.DocumentChunker do
       # ["Chapter 1", "Section 1.1", "Subsection 1.1.1"]
       :section_path,
       :tokens,
-      :metadata
+      :metadata,
+      # transient — embed only, never persisted (see moduledoc)
+      :embedding_input
     ]
+
+    @doc """
+    The text sent to the embedding model for `content` chunked under
+    `section_path`.
+
+    Pure derivation shared by the chunker and `IngestChunkWorker` (which
+    rebuilds it from the queued payload's `"section_path"` + `"content"`).
+    An empty path means no prefix at all, and a prefix whose token overhead
+    would consume the whole chunk budget is omitted — the prefix alone must
+    never push `embedding_input` past `chunk_max_tokens`.
+    """
+    def embedding_input(content, section_path) when is_binary(content) do
+      context_prefix(section_path) <> content
+    end
+
+    @doc """
+    The section-path context prefix (with trailing separator) used by
+    `embedding_input/2`, or `""` when there is no usable prefix.
+    """
+    def context_prefix([]), do: ""
+
+    def context_prefix(section_path) when is_list(section_path) do
+      prefix = Enum.join(section_path, " > ") <> "\n\n"
+
+      if TokenEstimator.estimate(prefix) >= chunk_max_tokens() do
+        ""
+      else
+        prefix
+      end
+    end
+
+    defp chunk_max_tokens do
+      Zaq.System.get_embedding_config().chunk_max_tokens
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -219,7 +265,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   defp handle_heading(
-         _line,
+         line,
          {level, title},
          rest,
          sections,
@@ -243,7 +289,10 @@ defmodule Zaq.Ingestion.DocumentChunker do
     }
 
     new_stack = update_heading_stack(heading_stack, new_section)
-    parse_markdown_lines(rest, sections, [], new_section, new_stack, position + 1)
+    # Seed the section's content with the verbatim heading line so the
+    # source heading is never removed from the corpus; heading-only
+    # sections stay non-empty and survive chunk_sections/2.
+    parse_markdown_lines(rest, sections, [line], new_section, new_stack, position + 1)
   end
 
   # ---------------------------------------------------------------------------
@@ -704,7 +753,10 @@ defmodule Zaq.Ingestion.DocumentChunker do
   # ---------------------------------------------------------------------------
 
   defp chunk_section(section, section_idx) do
-    overhead = title_overhead_tokens(section)
+    # Budget the SPLIT so that embedding_input (prefix + content) stays
+    # under chunk_max_tokens; the prefix itself never eats the whole budget
+    # (Chunk.context_prefix/1 collapses to "" in that case).
+    overhead = TokenEstimator.estimate(Chunk.context_prefix(get_current_path(section)))
     effective_max = max(1, chunk_max_tokens() - overhead)
 
     if section.tokens <= effective_max do
@@ -715,9 +767,8 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   defp split_into_chunks(section, section_idx, effective_max) do
-    paragraphs = String.split(section.content, ~r/\n\n+/)
-
-    paragraphs
+    section.content
+    |> split_preserving_separators(~r/\n\n+/)
     |> combine_to_target_size(chunk_min_tokens(), effective_max)
     |> Enum.with_index()
     |> Enum.map(fn {chunk_content, chunk_idx} ->
@@ -725,73 +776,106 @@ defmodule Zaq.Ingestion.DocumentChunker do
     end)
   end
 
-  defp title_overhead_tokens(section) do
-    prefix = prepend_title_to_content(section, "")
-    if prefix == "", do: 0, else: TokenEstimator.estimate(prefix)
+  # Splits on the pattern, pairing every piece with the verbatim separator
+  # that followed it in the source ("" for the last), so pieces combined
+  # into one chunk rejoin byte-exactly.
+  defp split_preserving_separators(text, pattern) do
+    text
+    |> String.split(pattern, include_captures: true)
+    |> pair_with_separators()
   end
 
-  defp combine_to_target_size(paragraphs, min_tokens, max_tokens) do
-    combine_paragraphs(paragraphs, [], [], 0, min_tokens, max_tokens)
+  defp pair_with_separators([]), do: []
+  defp pair_with_separators([piece]), do: [{piece, ""}]
+  defp pair_with_separators([piece, sep | rest]), do: [{piece, sep} | pair_with_separators(rest)]
+
+  # Rejoins {piece, separator} pairs (accumulated in reverse) into the
+  # byte-exact source slice. The final piece's trailing separator is
+  # dropped — it lies between two chunks, inside neither.
+  defp join_pairs([{last, _sep_after_chunk} | earlier]) do
+    Enum.reduce(earlier, last, fn {piece, sep}, acc -> piece <> sep <> acc end)
+  end
+
+  defp combine_to_target_size(paragraph_pairs, min_tokens, max_tokens) do
+    combine_paragraphs(paragraph_pairs, [], [], 0, min_tokens, max_tokens)
   end
 
   defp combine_paragraphs([], chunks, current, _current_tokens, _min, _max) do
-    final_chunks =
-      if current != [], do: [Enum.reverse(current) |> Enum.join("\n\n") | chunks], else: chunks
+    final_chunks = if current != [], do: [join_pairs(current) | chunks], else: chunks
 
     Enum.reverse(final_chunks)
   end
 
-  defp combine_paragraphs([para | rest], chunks, current, current_tokens, min_tokens, max_tokens) do
+  defp combine_paragraphs(
+         [{para, _sep} = pair | rest],
+         chunks,
+         current,
+         current_tokens,
+         min_tokens,
+         max_tokens
+       ) do
     para_tokens = TokenEstimator.estimate(para)
     new_tokens = current_tokens + para_tokens
 
     cond do
       current == [] && para_tokens > max_tokens ->
+        # `chunks` accumulates in reverse; prepend the split results
+        # reversed so the final Enum.reverse restores reading order.
         split_chunks = split_large_paragraph(para, max_tokens)
-        combine_paragraphs(rest, chunks ++ split_chunks, [], 0, min_tokens, max_tokens)
+
+        combine_paragraphs(
+          rest,
+          Enum.reverse(split_chunks, chunks),
+          [],
+          0,
+          min_tokens,
+          max_tokens
+        )
 
       current == [] || new_tokens <= max_tokens ->
-        combine_paragraphs(rest, chunks, [para | current], new_tokens, min_tokens, max_tokens)
+        combine_paragraphs(rest, chunks, [pair | current], new_tokens, min_tokens, max_tokens)
 
       true ->
-        chunk = Enum.reverse(current) |> Enum.join("\n\n")
-        combine_paragraphs([para | rest], [chunk | chunks], [], 0, min_tokens, max_tokens)
+        chunk = join_pairs(current)
+        combine_paragraphs([pair | rest], [chunk | chunks], [], 0, min_tokens, max_tokens)
     end
   end
 
   defp split_large_paragraph(para, max_tokens) do
-    sentences =
-      para
-      |> String.replace(~r/([.!?])\s+/, "\\1\n")
-      |> String.split("\n", trim: true)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-
-    combine_sentences(sentences, [], [], 0, max_tokens)
+    para
+    |> split_preserving_separators(~r/(?<=[.!?])\s+/)
+    |> combine_sentences([], [], 0, max_tokens)
   end
 
   defp combine_sentences([], chunks, current, _current_tokens, _max) do
-    final_chunks =
-      if current != [], do: [Enum.reverse(current) |> Enum.join(" ") | chunks], else: chunks
+    final_chunks = if current != [], do: [join_pairs(current) | chunks], else: chunks
 
     Enum.reverse(final_chunks)
   end
 
-  defp combine_sentences([sentence | rest], chunks, current, current_tokens, max_tokens) do
-    sentence = String.trim(sentence)
+  defp combine_sentences(
+         [{sentence, _sep} = pair | rest],
+         chunks,
+         current,
+         current_tokens,
+         max_tokens
+       ) do
     sentence_tokens = TokenEstimator.estimate(sentence)
     new_tokens = current_tokens + sentence_tokens
 
     cond do
       current == [] && sentence_tokens > max_tokens ->
+        # A single sentence over the budget is accepted as-is (see plan
+        # Edge cases) — its trailing separator is dropped like any other
+        # chunk boundary.
         combine_sentences(rest, [sentence | chunks], [], 0, max_tokens)
 
       current == [] || new_tokens <= max_tokens ->
-        combine_sentences(rest, chunks, [sentence | current], new_tokens, max_tokens)
+        combine_sentences(rest, chunks, [pair | current], new_tokens, max_tokens)
 
       true ->
-        chunk = Enum.reverse(current) |> Enum.join(" ")
-        combine_sentences([sentence | rest], [chunk | chunks], [], 0, max_tokens)
+        chunk = join_pairs(current)
+        combine_sentences([pair | rest], [chunk | chunks], [], 0, max_tokens)
     end
   end
 
@@ -800,14 +884,15 @@ defmodule Zaq.Ingestion.DocumentChunker do
   # ---------------------------------------------------------------------------
 
   defp create_chunk(section, content, section_idx, chunk_idx) do
-    content_with_title = prepend_title_to_content(section, content)
+    section_path = get_current_path(section)
 
     %Chunk{
       id: "chunk_#{section_idx}_#{chunk_idx}",
       section_id: section.id,
-      content: content_with_title,
-      section_path: get_current_path(section),
-      tokens: TokenEstimator.estimate(content_with_title),
+      content: content,
+      section_path: section_path,
+      embedding_input: Chunk.embedding_input(content, section_path),
+      tokens: TokenEstimator.estimate(content),
       metadata: %{
         section_type: section.type,
         section_level: section.level,
@@ -815,20 +900,6 @@ defmodule Zaq.Ingestion.DocumentChunker do
       }
     }
   end
-
-  defp prepend_title_to_content(%Section{type: :heading, level: level, title: title}, content)
-       when is_binary(title) and is_integer(level) do
-    heading_prefix = String.duplicate("#", level)
-    "#{heading_prefix} #{title}\n\n#{content}"
-  end
-
-  defp prepend_title_to_content(%Section{type: type, parent_path: parent_path}, content)
-       when type in [:table, :figure] and is_list(parent_path) and parent_path != [] do
-    parent_title = List.last(parent_path)
-    "## #{parent_title}\n\n#{content}"
-  end
-
-  defp prepend_title_to_content(_section, content), do: content
 
   # ---------------------------------------------------------------------------
   # Utilities

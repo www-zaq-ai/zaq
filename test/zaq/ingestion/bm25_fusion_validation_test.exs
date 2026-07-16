@@ -14,7 +14,7 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
     §4  query_extraction/2 end-to-end (native FTS)
 
   Note: BM25/fusion tests insert chunks directly (bypass process_single_file)
-  to avoid the chunk-title LLM stub replacing section path labels.
+  so section path labels are fully controlled by the test.
   """
 
   use Zaq.DataCase, async: false
@@ -194,10 +194,6 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       |> Plug.Conn.put_resp_content_type("application/json")
       |> Plug.Conn.send_resp(200, body)
     end)
-
-    # Stub title generation to a no-op so it doesn't alter section_path labels.
-    Zaq.Agent.ChunkTitleMock
-    |> stub(:ask, fn _content, _opts -> {:error, :disabled} end)
 
     :ok
   end

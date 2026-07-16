@@ -706,7 +706,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   via Ecto.
   """
   def store_chunk_with_metadata(%DocumentChunker.Chunk{} = chunk, document_id, index) do
-    case EmbeddingClient.embed(chunk.content) do
+    # Embed the enriched input; persist only the verbatim content. The
+    # fallback stays at this call site — Zaq.Embedding.Client also serves
+    # query-time callers that must receive plain text.
+    case EmbeddingClient.embed(chunk.embedding_input || chunk.content) do
       {:ok, embedding} ->
         expected_dim = EmbeddingClient.dimension()
 

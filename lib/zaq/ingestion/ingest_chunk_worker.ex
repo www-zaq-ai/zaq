@@ -98,15 +98,20 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
     processor = Application.get_env(:zaq, :document_processor, Zaq.Ingestion.DocumentProcessor)
 
     payload = chunk_job.chunk_payload || %{}
+    content = Map.get(payload, "content", "")
+    section_path = Map.get(payload, "section_path", [])
 
     chunk =
       struct(DocumentChunker.Chunk, %{
         id: Map.get(payload, "id"),
         section_id: Map.get(payload, "section_id"),
-        content: Map.get(payload, "content", ""),
-        section_path: Map.get(payload, "section_path", []),
+        content: content,
+        section_path: section_path,
         tokens: Map.get(payload, "tokens", 0),
-        metadata: Map.get(payload, "metadata", %{})
+        metadata: Map.get(payload, "metadata", %{}),
+        # Derived, not persisted: embedding_input is a pure function of two
+        # payload keys, so old and new payloads take the same path.
+        embedding_input: DocumentChunker.Chunk.embedding_input(content, section_path)
       })
 
     case processor.store_chunk_with_metadata(

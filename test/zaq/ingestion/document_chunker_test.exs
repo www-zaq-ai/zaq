@@ -544,7 +544,12 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       chunks = DocumentChunker.chunk_sections(sections)
       assert length(chunks) == 1
-      assert String.contains?(hd(chunks).content, "Has Content")
+
+      # Verbatim contract: the stored content is exactly the section body —
+      # the title reaches the embedder via embedding_input, never content.
+      # (Parse-level heading sections are never empty anymore: parsing seeds
+      # them with their own raw heading line.)
+      assert hd(chunks).content == "Some real content here."
     end
 
     test "splits large sections into multiple chunks" do
@@ -712,11 +717,15 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
   end
 
   # ---------------------------------------------------------------------------
-  # chunk_sections/2 — title prepending
+  # chunk_sections/2 — store-raw / embed-enriched split
+  #
+  # `content` is always the verbatim section body; the section-path context
+  # lives only in the transient `embedding_input` (embed-only, never
+  # persisted).
   # ---------------------------------------------------------------------------
 
-  describe "chunk title prepending" do
-    test "prepends heading prefix to heading chunks" do
+  describe "store-raw / embed-enriched split" do
+    test "heading chunks: verbatim content, section-path-prefixed embedding_input" do
       sections = [
         %Section{
           id: "s1",
@@ -731,17 +740,20 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       ]
 
       [chunk] = DocumentChunker.chunk_sections(sections)
-      assert String.starts_with?(chunk.content, "## My Section\n\n")
+      assert chunk.content == "Body text."
+      assert chunk.embedding_input == "My Section\n\nBody text."
     end
 
-    test "prepends parent title to table chunks" do
+    test "table chunks: verbatim content, parent-trail-prefixed embedding_input" do
+      table = "| A | B |\n|---|---|\n| 1 | 2 |"
+
       sections = [
         %Section{
           id: "s1",
           type: :table,
           level: nil,
           title: nil,
-          content: "| A | B |\n|---|---|\n| 1 | 2 |",
+          content: table,
           parent_path: ["Chapter", "Details"],
           position: 3,
           tokens: 10
@@ -749,10 +761,11 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       ]
 
       [chunk] = DocumentChunker.chunk_sections(sections)
-      assert String.starts_with?(chunk.content, "## Details\n\n")
+      assert chunk.content == table
+      assert chunk.embedding_input == "Chapter > Details\n\n" <> table
     end
 
-    test "prepends parent title to figure chunks" do
+    test "figure chunks: verbatim content, full-path embedding_input" do
       sections = [
         %Section{
           id: "s-figure-parent",
@@ -767,8 +780,11 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       ]
 
       [chunk] = DocumentChunker.chunk_sections(sections)
-      assert String.starts_with?(chunk.content, "## Quarterly\n\n")
+      assert chunk.content == "![Revenue](revenue.png)"
       assert chunk.section_path == ["Report", "Quarterly", "Revenue Figure"]
+
+      assert chunk.embedding_input ==
+               "Report > Quarterly > Revenue Figure\n\n![Revenue](revenue.png)"
     end
 
     test "no prefix for paragraph without parent" do
@@ -787,6 +803,20 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       [chunk] = DocumentChunker.chunk_sections(sections)
       assert chunk.content == "Just a paragraph."
+      assert chunk.embedding_input == "Just a paragraph."
+    end
+
+    test "context prefix is omitted when it alone would consume the token budget" do
+      # chunk_max_tokens default is 900 (~692 words at the 1.3 ratio); a
+      # pathological section path longer than the budget must not push
+      # embedding_input past the limit — the prefix is dropped instead.
+      huge_title = Enum.map_join(1..800, " ", fn i -> "segment#{i}" end)
+
+      assert Chunk.embedding_input("Body text.", [huge_title]) == "Body text."
+      assert Chunk.context_prefix([huge_title]) == ""
+
+      # sanity: a normal path keeps the prefix
+      assert Chunk.embedding_input("Body text.", ["A", "B"]) == "A > B\n\nBody text."
     end
   end
 
