@@ -43,9 +43,18 @@ defmodule Zaq.Ingestion.DocumentChunker do
 
       * `content` is a byte-exact substring of the source document — never
         synthesized, trimmed, or rewritten.
-      * `embedding_input` is the embed-only enrichment (section-path context
-        prefix + `content`). It is transient: sent to the embedding model,
-        never persisted, FTS-indexed, or shown to users.
+      * `embedding_input` is the embed-only enrichment, built from exactly
+        two fields and nothing else (no `metadata`, no document identifiers):
+
+            Enum.join(section_path, " > ") <> "\n\n" <> content
+
+        The prefix is omitted entirely when `section_path` is empty or the
+        prefix alone would consume the whole chunk token budget (see
+        `context_prefix/1`). It is transient: sent to the embedding model,
+        never persisted, FTS-indexed, or shown to users — the stored
+        embedding vector is therefore a pure function of `content` and
+        `section_path`, and changing this derivation invalidates all
+        previously stored vectors (requires a re-embed migration).
     """
     defstruct [
       :id,
@@ -461,10 +470,8 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   defp extract_vision_image_filename(line) do
-    case Regex.run(~r/\[Image:\s*([^\]]+)\]/, line) do
-      [_, filename] -> String.trim(filename)
-      nil -> "unknown"
-    end
+    [_, filename] = Regex.run(~r/\[Image:\s*([^\]]+)\]/, line)
+    String.trim(filename)
   end
 
   # ---------------------------------------------------------------------------

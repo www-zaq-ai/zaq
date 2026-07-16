@@ -22,6 +22,30 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
     end
   end
 
+  defmodule BinaryFailingProcessor do
+    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
+      {:error, "provider unavailable"}
+    end
+  end
+
+  defmodule MapFailingProcessor do
+    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
+      {:error, %{reason: :invalid_payload}}
+    end
+  end
+
+  defmodule DBConnectionFailingProcessor do
+    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
+      {:error, %DBConnection.ConnectionError{message: "connection down"}}
+    end
+  end
+
+  defmodule PostgrexFailingProcessor do
+    def store_chunk_with_metadata(_chunk, _document_id, _chunk_index) do
+      {:error, %Postgrex.Error{}}
+    end
+  end
+
   setup do
     original_processor = Application.get_env(:zaq, :document_processor)
 
@@ -218,6 +242,75 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
     assert refreshed_chunk_job.attempts == 1
     assert refreshed_chunk_job.error == "boom"
     assert refreshed_job.status == "processing"
+  end
+
+  test "stores binary retry reason verbatim while keeping chunk pending" do
+    Application.put_env(:zaq, :document_processor, BinaryFailingProcessor)
+
+    job = create_job()
+    document = create_document()
+    chunk_job = create_chunk_job(job, %{document_id: document.id})
+
+    assert {:error, "provider unavailable"} =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    assert Repo.get!(IngestChunkJob, chunk_job.id).error == "provider unavailable"
+  end
+
+  test "stores inspected retry reason for structured errors" do
+    Application.put_env(:zaq, :document_processor, MapFailingProcessor)
+
+    job = create_job()
+    document = create_document()
+    chunk_job = create_chunk_job(job, %{document_id: document.id})
+
+    assert {:error, %{reason: :invalid_payload}} =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    assert Repo.get!(IngestChunkJob, chunk_job.id).error == "%{reason: :invalid_payload}"
+  end
+
+  test "aborts parent job with database connection error message" do
+    Application.put_env(:zaq, :document_processor, DBConnectionFailingProcessor)
+
+    job = create_job(%{status: "processing"})
+    document = create_document()
+    chunk_job = create_chunk_job(job, %{document_id: document.id})
+
+    assert {:cancel, :fatal_error} =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    assert Repo.get!(IngestJob, job.id).error ==
+             "Database connection error. Please try again later."
+  end
+
+  test "aborts parent job with postgres error message" do
+    Application.put_env(:zaq, :document_processor, PostgrexFailingProcessor)
+
+    job = create_job(%{status: "processing"})
+    document = create_document()
+    chunk_job = create_chunk_job(job, %{document_id: document.id})
+
+    assert {:cancel, :fatal_error} =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    assert Repo.get!(IngestJob, job.id).error == "Database error. Please try again later."
   end
 
   test "marks chunk failed_final and finalizes job with errors on last attempt" do

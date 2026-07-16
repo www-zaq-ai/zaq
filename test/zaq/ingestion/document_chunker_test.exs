@@ -179,6 +179,13 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert tables == []
     end
 
+    test "pipe line at document root remains paragraph content when no table is active" do
+      md = "| not a table"
+      sections = DocumentChunker.parse_layout(md)
+
+      assert [%Section{type: :paragraph, content: "| not a table"}] = sections
+    end
+
     test "keeps table parsing across blank lines inside table block" do
       md = "# Data\n\n| Name | Value |\n|------|-------|\n| A    | 1     |\n\n| B    | 2     |\n"
 
@@ -204,6 +211,22 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       refute String.contains?(table.content, "must not be included")
       assert String.contains?(paragraph.content, "must not be included")
+    end
+
+    test "terminates table when non-table content follows immediately" do
+      md = """
+      | Name | Value |
+      |------|-------|
+      | A    | 1     |
+      Immediate paragraph after table.
+      """
+
+      sections = DocumentChunker.parse_layout(md)
+      [table] = Enum.filter(sections, &(&1.type == :table))
+      [paragraph] = Enum.filter(sections, &(&1.type == :paragraph))
+
+      refute String.contains?(table.content, "Immediate paragraph")
+      assert paragraph.content == "Immediate paragraph after table."
     end
 
     test "table at document root keeps empty parent_path" do
@@ -256,6 +279,14 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert figure.content == "![](something.png)"
     end
 
+    test "non-image bang link stays in surrounding content" do
+      md = "# Doc\n\n![not closed"
+      sections = DocumentChunker.parse_layout(md)
+
+      assert Enum.any?(sections, &(&1.type == :heading && &1.content =~ "![not closed"))
+      assert Enum.filter(sections, &(&1.type == :figure)) == []
+    end
+
     test "detects vision image blocks as :figure" do
       md = """
       # Report
@@ -268,6 +299,34 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       figures = Enum.filter(sections, &(&1.type == :figure))
       assert length(figures) == 1
       assert hd(figures).title == "chart.png"
+    end
+
+    test "vision image with blank filename keeps blank title" do
+      md = """
+      > **[Image: ]**
+      > Description with missing source filename.
+      """
+
+      [figure] =
+        md
+        |> DocumentChunker.parse_layout()
+        |> Enum.filter(&(&1.type == :figure))
+
+      assert figure.title == ""
+      assert String.contains?(figure.content, "Description with missing source filename.")
+    end
+
+    test "vision image at end of document keeps all description lines" do
+      md = "> **[Image: final.png]**\n> First description line.\n> Second description line."
+
+      [figure] =
+        md
+        |> DocumentChunker.parse_layout()
+        |> Enum.filter(&(&1.type == :figure))
+
+      assert figure.title == "final.png"
+      assert String.contains?(figure.content, "First description line.")
+      assert String.contains?(figure.content, "Second description line.")
     end
 
     test "vision image block stops on blank and keeps following heading separate" do
@@ -639,6 +698,28 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       [chunk] = DocumentChunker.chunk_sections(sections)
       assert chunk.content == "alpha beta gamma."
+    end
+
+    test "starts a new sentence chunk when the next sentence would exceed max tokens" do
+      System.set_config("embedding.chunk_min_tokens", 1)
+      System.set_config("embedding.chunk_max_tokens", 4)
+
+      sections = [
+        %Section{
+          id: "s-sentence-boundary",
+          type: :paragraph,
+          level: nil,
+          title: nil,
+          content: "one two. three four five six.",
+          parent_path: [],
+          position: 0,
+          tokens: 20
+        }
+      ]
+
+      chunks = DocumentChunker.chunk_sections(sections)
+
+      assert Enum.map(chunks, & &1.content) == ["one two.", "three four five six."]
     end
 
     test "chunk includes section_path from heading" do
