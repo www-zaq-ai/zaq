@@ -18,7 +18,6 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias ZaqWeb.Live.BO.System.PeopleTable
   alias ZaqWeb.Live.BO.System.TeamsTable
 
-
   def mount(_params, _session, socket) do
     socket =
       socket
