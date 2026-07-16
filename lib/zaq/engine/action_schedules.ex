@@ -101,12 +101,12 @@ defmodule Zaq.Engine.ActionSchedules do
   @doc "Normalizes and validates params against an action's declared input schema."
   @spec validate_action_params(module(), map()) :: {:ok, map()} | {:error, term()}
   def validate_action_params(module, params) when is_map(params) do
-    if function_exported?(module, :validate_params, 1) do
-      params
-      |> normalize_params_for_schema(module)
-      |> module.validate_params()
+    with {:module, ^module} <- Code.ensure_loaded(module),
+         true <- function_exported?(module, :validate_params, 1) do
+      module.validate_params(normalize_params_for_schema(params, module))
     else
-      {:error, {:invalid_action, module, :missing_validate_params}}
+      {:error, reason} -> {:error, {:invalid_action, module, reason}}
+      false -> {:error, {:invalid_action, module, :missing_validate_params}}
     end
   end
 
