@@ -77,6 +77,32 @@ defmodule Zaq.Utils.EmailUtils do
   def normalize_references_list(_), do: []
 
   @doc """
+  Builds the channel-agnostic threading anchor stored under
+  `metadata["threading"]["anchor"]` on persisted messages.
+
+  The anchor is the opaque map the next outbound send chains onto: the
+  message's own id, the thread root (head of the References chain, or the
+  message itself when it opens the thread), and the normalized chain. Returns
+  `nil` when there is no Message-ID — a message that cannot be threaded onto
+  stores no anchor.
+  """
+  def build_thread_anchor(message_id, references) do
+    case normalize_message_id(message_id) do
+      nil ->
+        nil
+
+      normalized_id ->
+        refs = normalize_references_list(references)
+
+        %{
+          "message_id" => normalized_id,
+          "thread_id" => List.first(refs) || normalized_id,
+          "references" => refs
+        }
+    end
+  end
+
+  @doc """
   Caps a `References` chain to bound header growth on long sequences.
 
   Keeps the head plus the last `max` entries, per RFC 5322 §3.6.4 guidance. The

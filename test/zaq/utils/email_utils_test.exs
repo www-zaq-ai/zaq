@@ -95,6 +95,35 @@ defmodule Zaq.Utils.EmailUtilsTest do
     end
   end
 
+  describe "build_thread_anchor/2" do
+    test "builds the anchor with the references head as thread root" do
+      assert EmailUtils.build_thread_anchor("<msg@x>", "<root@x> <mid@x>") == %{
+               "message_id" => "msg@x",
+               "thread_id" => "root@x",
+               "references" => ["root@x", "mid@x"]
+             }
+    end
+
+    test "a message without references roots its own thread" do
+      assert EmailUtils.build_thread_anchor("msg@x", nil) == %{
+               "message_id" => "msg@x",
+               "thread_id" => "msg@x",
+               "references" => []
+             }
+    end
+
+    test "accepts the outbound list shape for references" do
+      assert %{"thread_id" => "root@x"} =
+               EmailUtils.build_thread_anchor("msg@x", ["<root@x>", "mid@x"])
+    end
+
+    test "returns nil without a Message-ID" do
+      assert EmailUtils.build_thread_anchor(nil, "<root@x>") == nil
+      assert EmailUtils.build_thread_anchor("  ", "<root@x>") == nil
+      assert EmailUtils.build_thread_anchor(123, "<root@x>") == nil
+    end
+  end
+
   describe "cap_references/2" do
     # Bug #11: the thread root is derived from the references HEAD, so the cap
     # must always preserve the head or the derived root drifts.

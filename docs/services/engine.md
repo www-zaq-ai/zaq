@@ -200,17 +200,27 @@ on the `sent` transition. Resolution consults two stores in a fixed order:
    outbound chain: it is written by the code that saw delivery succeed, keyed by
    `(recipient_ref, thread_key)`, and only on the `sent` transition (never
    `skipped`/`failed`, so an undelivered message can't become a phantom parent).
-2. **Fallback — `Conversations.thread_anchor/4`.** The conversation store carries
-   the anchor for a thread ZAQ did **not** start (an inbound email whose RFC id we
-   inherited) and for messages persisted before the log path existed. It is
-   platform-gated: non-email platforms resolve to `nil`.
+2. **Fallback — `Conversations.latest_thread_anchor/4`.** The conversation store
+   carries the anchor for a thread ZAQ did **not** start (an inbound email whose RFC
+   id we inherited) and for messages persisted before the log path existed.
+   `Conversations` has **zero email knowledge**: the anchor is written at persist
+   time by the delivering channel under `metadata["threading"]["anchor"]` and read
+   back verbatim. The grouping key and channel type come from the
+   `Zaq.Channels.Bridge` conversation-identity dispatchers
+   (`conversation_channel_type/2`, `conversation_key/3`,
+   `outbound_conversation_key/4`), which route to the provider bridge's optional
+   callbacks — platforms whose bridge defines no grouping resolve a `nil` key and
+   skip the lookup.
 
 Both stores hand back the same string-keyed opaque map. Keep the two paths consistent
 when editing either — a divergence would re-key a thread or drop the `References` head
-(the thread root). `thread_key` grouping stays `topic || subject`; it is deliberately
-not re-keyed to the minted `Message-ID`. Email minting mechanics (Message-ID,
-References capping, sending domain) live in the email bridge — see
-`docs/services/channels.md`.
+(the thread root). Grouping stays `topic || subject` (via
+`Bridge.outbound_conversation_key/4`); it is deliberately not re-keyed to the minted
+`Message-ID`. Email minting mechanics (Message-ID, References capping, sending domain)
+live in the email bridge — see `docs/services/channels.md`. Rows persisted before
+write-time anchors carry only the email residue; the
+`Zaq.Repo.DataMigrations.MessageThreadingAnchors` backfill promotes them to the
+generic anchor shape.
 
 ### Email Notification (`Zaq.Engine.Notifications.EmailNotification`)
 - Delivers via SMTP using Swoosh/Mailer.

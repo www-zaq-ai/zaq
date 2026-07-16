@@ -1,19 +1,20 @@
 defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
   @moduledoc """
-  Step 6: the send's threading rides the *existing* generic persistence params —
-  `PersistMessageHistory` gains no email-specific code.
+  The send's threading rides the *existing* generic persistence params —
+  `PersistMessageHistory` gains no email-specific code: the delivery receipt's
+  `thread_metadata` is merged verbatim into the message row's metadata.
 
   Driven through the real action and the real engine (no hand-assembled structs),
   because the mapping from params → `%Incoming{}` → message row is exactly the
   part that must be right: `topic`/`subject` are folded into the incoming's
   metadata (they are not `Incoming` fields), while the message row's metadata
-  comes from the `metadata` param.
+  comes from the `metadata`/`thread_metadata` params.
 
   Two invariants are pinned:
 
-    1. The stored metadata is byte-for-byte the parser's shape
-       (`metadata.email.threading`), so `thread_anchor/4` reads one location
-       whether the id was minted or inherited.
+    1. The stored metadata carries the receipt verbatim — the channel-agnostic
+       anchor (`metadata.threading.anchor`) the next lookup reads, plus the
+       email residue for provenance.
     2. The generic `thread_id` must NOT re-key the conversation — grouping stays
        topic/subject-based, or the next anchor lookup would miss and the chain
        would break.
@@ -24,6 +25,7 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.Conversations.PersistMessageHistory
+  alias Zaq.Channels.Bridge
   alias Zaq.Engine.Conversations
 
   # Routes the action's event into the real engine.
@@ -38,8 +40,17 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
     person
   end
 
-  defp threading_metadata(message_id, in_reply_to, references) do
+  # The exact shape `EmailBridge.send_reply/2` returns in its receipt.
+  defp receipt_thread_metadata(message_id, in_reply_to, references) do
     %{
+      "threading" => %{
+        "anchor" => %{
+          "message_id" => message_id,
+          "in_reply_to" => in_reply_to,
+          "references" => references,
+          "thread_id" => List.first(references) || message_id
+        }
+      },
       "email" => %{
         "threading" => %{
           "message_id" => message_id,
@@ -50,7 +61,7 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
     }
   end
 
-  # Mirrors exactly what the `send_email → update_history` edge maps (Step 7):
+  # Mirrors exactly what the `send_email → update_history` edge maps:
   # the generic `message_id`/`thread_id` plus the opaque `thread_metadata`.
   defp persist(person, opts) do
     PersistMessageHistory.run(
@@ -62,33 +73,52 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
         topic: Keyword.get(opts, :topic, "Topic A"),
         message_id: Keyword.get(opts, :message_id),
         thread_id: Keyword.get(opts, :thread_id),
-        metadata: Keyword.get(opts, :metadata, %{})
+        thread_metadata: Keyword.get(opts, :thread_metadata, %{})
       },
       %{node_router: EngineRouter}
     )
   end
 
+  # The conversation-fallback resolution Notifications runs for the next send.
+  defp resolve_anchor(person_id, platform, topic, subject) do
+    case Bridge.outbound_conversation_key(platform, topic, subject) do
+      key when is_binary(key) ->
+        Conversations.latest_thread_anchor(
+          person_id,
+          Bridge.conversation_channel_type(platform),
+          key
+        )
+
+      _ ->
+        nil
+    end
+  end
+
   describe "storing the threading residue" do
-    test "reproduces the parser's metadata shape verbatim" do
+    test "persists the receipt verbatim — generic anchor plus email residue" do
       person = person_fixture()
 
       assert {:ok, %{conversation_id: _conv_id, message_id: row_id}} =
                persist(person,
                  message_id: "new@zaq.local",
                  thread_id: "m0@zaq.local",
-                 metadata:
-                   threading_metadata("new@zaq.local", "m1@zaq.local", [
+                 thread_metadata:
+                   receipt_thread_metadata("new@zaq.local", "m1@zaq.local", [
                      "m0@zaq.local",
                      "m1@zaq.local"
                    ])
                )
 
       message = Repo.get!(Conversations.Message, row_id)
-      threading = message.metadata["email"]["threading"]
 
+      anchor = message.metadata["threading"]["anchor"]
+      assert anchor["message_id"] == "new@zaq.local"
+      assert anchor["thread_id"] == "m0@zaq.local"
+      assert anchor["references"] == ["m0@zaq.local", "m1@zaq.local"]
+
+      threading = message.metadata["email"]["threading"]
       assert threading["message_id"] == "new@zaq.local"
       assert threading["in_reply_to"] == "m1@zaq.local"
-      assert threading["references"] == ["m0@zaq.local", "m1@zaq.local"]
 
       # The topic the action already stored survives alongside it.
       assert message.metadata["topic"] == "Topic A"
@@ -104,12 +134,12 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
                persist(person,
                  message_id: "new@zaq.local",
                  thread_id: "new@zaq.local",
-                 metadata: threading_metadata("new@zaq.local", nil, [])
+                 thread_metadata: receipt_thread_metadata("new@zaq.local", nil, [])
                )
 
       # The round trip the whole feature rests on: what send N persists,
       # send N+1 must find.
-      anchor = Conversations.thread_anchor(person.id, "email:smtp", "Topic A", "Topic A")
+      anchor = resolve_anchor(person.id, "email:smtp", "Topic A", "Topic A")
 
       assert anchor["message_id"] == "new@zaq.local"
       assert anchor["thread_id"] == "new@zaq.local"
@@ -125,7 +155,7 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
                persist(person,
                  message_id: "new@zaq.local",
                  thread_id: "m0@zaq.local",
-                 metadata: threading_metadata("new@zaq.local", nil, [])
+                 thread_metadata: receipt_thread_metadata("new@zaq.local", nil, [])
                )
 
       conv = Conversations.get_conversation(conv_id)
@@ -143,20 +173,21 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
                persist(person,
                  message_id: "m1@zaq.local",
                  thread_id: "m1@zaq.local",
-                 metadata: threading_metadata("m1@zaq.local", nil, [])
+                 thread_metadata: receipt_thread_metadata("m1@zaq.local", nil, [])
                )
 
       assert {:ok, %{conversation_id: conv_b}} =
                persist(person,
                  message_id: "m2@zaq.local",
                  thread_id: "m1@zaq.local",
-                 metadata: threading_metadata("m2@zaq.local", "m1@zaq.local", ["m1@zaq.local"])
+                 thread_metadata:
+                   receipt_thread_metadata("m2@zaq.local", "m1@zaq.local", ["m1@zaq.local"])
                )
 
       assert conv_a == conv_b
 
       # The anchor now points at the latest send.
-      anchor = Conversations.thread_anchor(person.id, "email:smtp", "Topic A", "Topic A")
+      anchor = resolve_anchor(person.id, "email:smtp", "Topic A", "Topic A")
       assert anchor["message_id"] == "m2@zaq.local"
       assert anchor["references"] == ["m1@zaq.local"]
     end

@@ -205,4 +205,36 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
       assert payload["subject"] == "Topic A"
     end
   end
+
+  describe "delivery receipt" do
+    test "thread_metadata carries the channel-agnostic anchor verbatim" do
+      {:ok, receipt} =
+        EmailBridge.send_reply(
+          outgoing(%{
+            in_reply_to: "<mid@sender.test>",
+            threading: %{
+              "message_id" => "own@zaq.local",
+              "references" => ["root@sender.test", "mid@sender.test"]
+            }
+          }),
+          %{}
+        )
+
+      assert receipt.thread_metadata["threading"]["anchor"] == receipt.anchor
+
+      assert receipt.anchor == %{
+               "message_id" => "own@zaq.local",
+               "in_reply_to" => "mid@sender.test",
+               "references" => ["root@sender.test", "mid@sender.test"],
+               "thread_id" => "root@sender.test"
+             }
+    end
+
+    test "email residue stays alongside the generic anchor" do
+      {:ok, receipt} = EmailBridge.send_reply(outgoing(%{}), %{})
+
+      assert receipt.thread_metadata["email"]["threading"]["message_id"] == "new@zaq.local"
+      assert receipt.thread_metadata["threading"]["anchor"]["message_id"] == "new@zaq.local"
+    end
+  end
 end

@@ -68,6 +68,13 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistory do
         doc: "Optional person id for conversation ownership."
       ],
       metadata: [type: :any, required: false, doc: "Incoming/message metadata map."],
+      thread_metadata: [
+        type: :any,
+        required: false,
+        doc:
+          "Opaque channel-specific threading residue from the delivery receipt, " <>
+            "merged verbatim into the persisted message metadata."
+      ],
       model: [type: :string, required: false, doc: "Optional model name."],
       sources: [type: :any, required: false, doc: "Optional message sources."],
       trace: [type: :any, required: false, doc: "Optional message trace."],
@@ -227,10 +234,18 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistory do
       metadata when is_map(metadata) -> string_keyed(metadata)
       _ -> %{}
     end
+    |> merge_thread_metadata(get(params, :thread_metadata))
     |> maybe_put("subject", get(params, :subject))
     |> maybe_put("topic", get(params, :topic))
     |> maybe_put("notification_log_id", get(params, :notification_log_id))
   end
+
+  # The delivery receipt's threading residue is opaque here — merged whole so
+  # the persisted message carries exactly what the bridge delivered.
+  defp merge_thread_metadata(metadata, thread_metadata) when is_map(thread_metadata),
+    do: Map.merge(metadata, string_keyed(thread_metadata))
+
+  defp merge_thread_metadata(metadata, _thread_metadata), do: metadata
 
   defp put_conversation_id(%Incoming{} = incoming, nil), do: incoming
 

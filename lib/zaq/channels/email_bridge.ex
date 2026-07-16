@@ -109,6 +109,54 @@ defmodule Zaq.Channels.EmailBridge do
   end
 
   @doc """
+  Conversation grouping key for an inbound or persisted email message.
+
+  Precedence: the parser's `email.thread_key` (root-reference grouping), a
+  top-level `thread_key`, the outbound `topic`/`subject` key, then normalized
+  RFC message ids. Returns `nil` when nothing resolves — the caller owns any
+  generic fallback (author id).
+  """
+  @impl true
+  @spec conversation_key(Incoming.t()) :: String.t() | nil
+  def conversation_key(%Incoming{} = incoming) do
+    email_meta =
+      case get_meta(incoming.metadata, "email", :email) do
+        meta when is_map(meta) -> meta
+        _ -> %{}
+      end
+
+    first_present([
+      get_meta(email_meta, "thread_key", :thread_key),
+      get_meta(incoming.metadata, "thread_key", :thread_key),
+      outbound_conversation_key(
+        get_meta(incoming.metadata, "topic", :topic),
+        get_meta(incoming.metadata, "subject", :subject)
+      )
+    ]) ||
+      EmailUtils.normalize_message_id(incoming.thread_id) ||
+      EmailUtils.normalize_message_id(incoming.message_id)
+  end
+
+  @doc """
+  Conversation grouping key for an outbound-first email send: `topic`, falling
+  back to `subject`. Blank strings are skipped; `nil` when both are blank.
+
+  Outbound sends carry no inbound headers, so grouping collapses to this key —
+  persistence and anchor lookup both route through it so the anchor and the
+  message it anchors resolve the same conversation.
+  """
+  @impl true
+  @spec outbound_conversation_key(String.t() | nil, String.t() | nil) :: String.t() | nil
+  def outbound_conversation_key(topic, subject), do: first_present([topic, subject])
+
+  defp first_present(values) do
+    Enum.find(values, fn
+      value when is_binary(value) -> String.trim(value) != ""
+      value -> not is_nil(value)
+    end)
+  end
+
+  @doc """
   Delivers `%Outgoing{}` as an email to `outgoing.channel_id` (the recipient address).
 
   Reads subject and html_body from `outgoing.metadata` (keys `:subject` / `"subject"`
@@ -392,16 +440,20 @@ defmodule Zaq.Channels.EmailBridge do
   # the email-only chain inside the opaque residue, and the `anchor` map the
   # notification center persists verbatim for the next send to chain onto.
   defp delivery_receipt(threading) do
+    anchor = %{
+      "message_id" => threading.message_id,
+      "in_reply_to" => threading.in_reply_to,
+      "references" => threading.references,
+      "thread_id" => threading.thread_id
+    }
+
     %{
       message_id: threading.message_id,
       thread_id: threading.thread_id,
-      anchor: %{
-        "message_id" => threading.message_id,
-        "in_reply_to" => threading.in_reply_to,
-        "references" => threading.references,
-        "thread_id" => threading.thread_id
-      },
+      anchor: anchor,
       thread_metadata: %{
+        # Channel-agnostic anchor the engine stores and reads back opaquely.
+        "threading" => %{"anchor" => anchor},
         "email" => %{
           "threading" => %{
             "message_id" => threading.message_id,

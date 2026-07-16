@@ -285,10 +285,19 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
       # Grouping stayed on the topic — the minted ids never re-keyed it.
       assert conv.channel_user_id == @topic
 
-      assert Repo.aggregate(
-               from(m in Conversations.Message, where: m.conversation_id == ^conv.id),
-               :count
-             ) == 2
+      messages =
+        from(m in Conversations.Message, where: m.conversation_id == ^conv.id)
+        |> Repo.all()
+
+      assert length(messages) == 2
+
+      # Every persisted send carries the channel-agnostic anchor the next
+      # send chains onto — readable without interpreting the email residue.
+      for message <- messages do
+        anchor = message.metadata["threading"]["anchor"]
+        assert is_binary(anchor["message_id"]) and anchor["message_id"] != ""
+        assert is_binary(anchor["thread_id"]) and anchor["thread_id"] != ""
+      end
     end
 
     test "the subject stays clean — threading comes from headers, not a Re: prefix" do

@@ -4,6 +4,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
   alias Mail
   alias Zaq.Channels.EmailBridge.ImapAdapter.Threading
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Utils.EmailUtils
 
   @spec to_incoming(map(), map(), keyword()) :: Incoming.t() | {:error, term()}
   def to_incoming(raw_email, config, opts \\ [])
@@ -77,6 +78,16 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
         "attachments" => attachment_refs(raw_email)
       }
     }
+    |> put_thread_anchor(headers)
+  end
+
+  # The channel-agnostic anchor the engine reads back opaquely — built once at
+  # parse time so no reader needs to interpret email headers.
+  defp put_thread_anchor(metadata, headers) do
+    case EmailUtils.build_thread_anchor(headers["message_id"], headers["references"]) do
+      nil -> metadata
+      anchor -> Map.put(metadata, "threading", %{"anchor" => anchor})
+    end
   end
 
   defp sender(raw_email) do

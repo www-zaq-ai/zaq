@@ -105,7 +105,21 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
     person
   end
 
+  # A prior send as the write path stores it today: the channel-agnostic anchor.
   defp seed_prior_send(person, topic, message_id, references) do
+    seed_prior_message(person, topic, %{
+      "topic" => topic,
+      "threading" => %{
+        "anchor" => %{
+          "message_id" => message_id,
+          "thread_id" => List.first(references) || message_id,
+          "references" => references
+        }
+      }
+    })
+  end
+
+  defp seed_prior_message(person, topic, metadata) do
     {:ok, conv} =
       Conversations.create_conversation(%{
         channel_type: "email:imap",
@@ -117,12 +131,7 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
       Conversations.add_message(conv, %{
         role: "assistant",
         content: "prior send",
-        metadata: %{
-          "topic" => topic,
-          "email" => %{
-            "threading" => %{"message_id" => message_id, "references" => references}
-          }
-        }
+        metadata: metadata
       })
 
     conv
@@ -228,17 +237,6 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
       assert result.thread_id == "m0@acme.test"
     end
 
-    # Bug #1: the inbound parser stores references as a space-joined string.
-    test "tolerates a string references chain on the anchor (parser shape)" do
-      person = person_with_email()
-      seed_prior_send(person, "Topic A", "m2@acme.test", "<m0@acme.test> <m1@acme.test>")
-
-      assert {:ok, _result} = notify(person, "Topic A")
-      headers = captured_headers()
-
-      assert headers["References"] == "<m0@acme.test> <m1@acme.test> <m2@acme.test>"
-    end
-
     test "does not chain onto another person's send under the same topic" do
       lead_a = person_with_email()
       lead_b = person_with_email()
@@ -288,7 +286,7 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
       assert {:error, _} = notify(person, "Topic A")
 
       # Nothing was persisted, so the anchor lookup still finds nothing.
-      assert Conversations.thread_anchor(person.id, "email:smtp", "Topic A", "Topic A") == nil
+      assert Conversations.latest_thread_anchor(person.id, "email:imap", "Topic A") == nil
     end
 
     test "surfaces no threading on a skipped notification" do

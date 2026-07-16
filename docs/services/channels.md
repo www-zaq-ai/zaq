@@ -471,9 +471,30 @@ Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 #### Email Threading Semantics
 
-- `thread_key`: stable conversation root key (`References` first id -> `In-Reply-To` -> `Message-ID`) used by `Conversations` for grouping.
+- `thread_key`: stable conversation root key (`References` first id -> `In-Reply-To` -> `Message-ID`) used for conversation grouping.
 - `thread_id`: nearest parent/current reply identity (`In-Reply-To` -> last `References` id -> `Message-ID`) kept in metadata for reply/header continuity.
-- Parser stores both in `incoming.metadata["email"]`; conversation lookup prioritizes `thread_key`.
+- Parser stores both in `incoming.metadata["email"]`, plus the channel-agnostic
+  anchor under `incoming.metadata["threading"]["anchor"]` (`message_id`,
+  `thread_id` = references head or self, normalized `references` list) — built once
+  at parse time so no engine reader interprets email headers.
+
+#### Conversation identity (bridge callbacks)
+
+`Zaq.Engine.Conversations` carries zero email knowledge. Channel-specific grouping
+lives behind two optional `Zaq.Channels.Bridge` callbacks, implemented by
+`EmailBridge`:
+
+- `conversation_key/1` — grouping key for an incoming email message
+  (`email.thread_key` -> top-level `thread_key` -> `topic`/`subject` -> normalized
+  RFC ids; `nil` lets the engine fall back to the author id).
+- `outbound_conversation_key/2` — grouping key for an outbound-first send
+  (`topic || subject`).
+
+Engine code reaches them through the pure `Bridge` dispatchers
+(`conversation_channel_type/2`, `conversation_key/3`, `outbound_conversation_key/4`),
+which resolve the bridge from application config only — never `ChannelConfig` — so
+the persist path stays free of DB lookups. Bridges without the callbacks resolve to
+`nil` (no conversation-inherited threading).
 
 #### Outbound Threading (minting + delivery receipt)
 
@@ -492,6 +513,10 @@ Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 - **Receipt**: on successful delivery `send_reply/2` returns `{:ok, receipt}` with
   `message_id`, `thread_id` (thread root), opaque `thread_metadata`, and the `anchor`
   map the notification center persists verbatim for the next send to chain onto.
+  `thread_metadata` carries the same anchor under the channel-agnostic
+  `"threading" => %{"anchor" => ...}` key (merged into the persisted message's
+  metadata by `PersistMessageHistory`, so `Conversations.latest_thread_anchor/4`
+  resolves it without email knowledge) alongside the `"email"` residue.
   `Zaq.Channels.Api` normalizes bridges that return plain `:ok` to `{:ok, %{}}` so
   the `deliver_outgoing` response contract is uniform.
 

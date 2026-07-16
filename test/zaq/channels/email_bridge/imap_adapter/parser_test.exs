@@ -209,4 +209,50 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
              %{}
            ]
   end
+
+  describe "channel-agnostic threading anchor" do
+    test "writes the anchor at parse time when a Message-ID is present" do
+      payload = %{
+        body_text: "hello",
+        from: %{address: "sender@example.com"},
+        message_id: "<msg@example.com>",
+        references: "<root@example.com> <mid@example.com>"
+      }
+
+      incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+      assert incoming.metadata["threading"]["anchor"] == %{
+               "message_id" => "msg@example.com",
+               "thread_id" => "root@example.com",
+               "references" => ["root@example.com", "mid@example.com"]
+             }
+    end
+
+    test "a message without references roots its own thread" do
+      payload = %{
+        body_text: "hello",
+        from: %{address: "sender@example.com"},
+        message_id: "<msg@example.com>"
+      }
+
+      incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+      assert incoming.metadata["threading"]["anchor"] == %{
+               "message_id" => "msg@example.com",
+               "thread_id" => "msg@example.com",
+               "references" => []
+             }
+    end
+
+    test "writes no anchor without a Message-ID" do
+      payload = %{
+        body_text: "hello",
+        from: %{address: "sender@example.com"}
+      }
+
+      incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+      refute Map.has_key?(incoming.metadata, "threading")
+    end
+  end
 end

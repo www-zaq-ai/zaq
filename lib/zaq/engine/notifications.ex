@@ -274,7 +274,25 @@ defmodule Zaq.Engine.Notifications do
   # interprets its contents.
   defp resolve_anchor(platform, %{person_id: person_id} = ctx) do
     NotificationLog.thread_anchor(person_id, ctx.thread_key) ||
-      Conversations.thread_anchor(person_id, platform, ctx.topic, ctx.subject)
+      conversation_thread_anchor(person_id, platform, ctx)
+  end
+
+  # The grouping key and channel type come from the same Bridge dispatch that
+  # persistence uses, so the anchor lookup and the message it anchors resolve
+  # the same conversation. Platforms without conversation-inherited threading
+  # resolve a nil key and skip the lookup entirely.
+  defp conversation_thread_anchor(person_id, platform, ctx) do
+    case Bridge.outbound_conversation_key(platform, ctx.topic, ctx.subject) do
+      key when is_binary(key) ->
+        Conversations.latest_thread_anchor(
+          person_id,
+          Bridge.conversation_channel_type(platform),
+          key
+        )
+
+      _ ->
+        nil
+    end
   end
 
   defp attempt_status({:ok, _receipt}), do: :ok
