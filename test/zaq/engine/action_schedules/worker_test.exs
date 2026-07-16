@@ -30,4 +30,16 @@ defmodule Zaq.Engine.ActionSchedules.WorkerTest do
                params: %{}
              })
   end
+
+  test "returns validation errors for registered actions with invalid params" do
+    assert {:error, %Jido.Action.Error.InvalidInputError{} = error} =
+             perform_job(Worker, %{
+               schedule_id: "run:invalid-increment",
+               action_key: "basic.increment",
+               params: %{}
+             })
+
+    assert error.message =~ "Invalid parameters for Action"
+    assert error.message =~ "required :value option not found"
+  end
 end
