@@ -61,6 +61,7 @@ config :zaq, Oban,
     ingestion_chunks: 6,
     default: 10,
     conversations: 5,
+    scheduled_actions: 5,
     telemetry: 5,
     telemetry_remote: 3,
     channels: 10

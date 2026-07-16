@@ -151,6 +151,8 @@ if config_env() == :prod do
       ingestion_chunks:
         String.to_integer(System.get_env("OBAN_INGESTION_CHUNKS_CONCURRENCY", "6")),
       conversations: String.to_integer(System.get_env("OBAN_CONVERSATIONS_CONCURRENCY", "5")),
+      scheduled_actions:
+        String.to_integer(System.get_env("OBAN_SCHEDULED_ACTIONS_CONCURRENCY", "5")),
       telemetry: String.to_integer(System.get_env("OBAN_TELEMETRY_CONCURRENCY", "5")),
       telemetry_remote:
         String.to_integer(System.get_env("OBAN_TELEMETRY_REMOTE_CONCURRENCY", "3")),

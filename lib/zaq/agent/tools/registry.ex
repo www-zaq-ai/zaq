@@ -274,6 +274,18 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Workflow.RunAgent
     },
     %{
+      key: "workflow.to_utc_datetime",
+      label: "To UTC datetime",
+      description: "Convert a delay or timezone-qualified datetime to a UTC ISO8601 datetime",
+      module: Zaq.Agent.Tools.Workflow.ToUtcDateTime
+    },
+    %{
+      key: "workflow.schedule_action",
+      label: "Schedule action",
+      description: "Create or update a pending scheduled action by schedule id",
+      module: Zaq.Agent.Tools.Workflow.ScheduleAction
+    },
+    %{
       key: "workflow.dispatch_event",
       label: "Dispatch event",
       description:

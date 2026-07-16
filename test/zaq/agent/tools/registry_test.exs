@@ -41,6 +41,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.square",
              "workflow.condition",
              "workflow.run_agent",
+             "workflow.to_utc_datetime",
+             "workflow.schedule_action",
              "workflow.dispatch_event",
              "web.browsing",
              "advanced.lua_eval",
@@ -85,6 +87,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
 
     descriptor = Enum.find(Registry.tools(), &(&1.key == "accounts.fetch_history"))
     assert descriptor.description =~ "self-access only"
+    assert Code.ensure_loaded?(descriptor.module)
     assert function_exported?(descriptor.module, :run, 2)
   end
 
@@ -145,6 +148,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "arithmetic.square",
              "workflow.condition",
              "workflow.run_agent",
+             "workflow.to_utc_datetime",
+             "workflow.schedule_action",
              "workflow.dispatch_event",
              "web.browsing",
              "advanced.lua_eval",
