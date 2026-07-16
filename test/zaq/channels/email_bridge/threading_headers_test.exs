@@ -61,7 +61,7 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
       thread_id: Map.get(overrides, :thread_id),
       metadata: %{
         "subject" => Map.get(overrides, :subject, "Topic A"),
-        "email" => %{"threading" => threading}
+        "threading" => threading
       }
     }
   end
@@ -109,8 +109,6 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
                "references" => ["m1@zaq.local"],
                "thread_id" => "m1@zaq.local"
              }
-
-      assert receipt.thread_metadata["email"]["threading"]["message_id"] == "new@zaq.local"
     end
   end
 
@@ -230,11 +228,11 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
              }
     end
 
-    test "email residue stays alongside the generic anchor" do
+    test "thread_metadata carries only the generic anchor — no email residue" do
       {:ok, receipt} = EmailBridge.send_reply(outgoing(%{}), %{})
 
-      assert receipt.thread_metadata["email"]["threading"]["message_id"] == "new@zaq.local"
       assert receipt.thread_metadata["threading"]["anchor"]["message_id"] == "new@zaq.local"
+      refute Map.has_key?(receipt.thread_metadata, "email")
     end
   end
 end

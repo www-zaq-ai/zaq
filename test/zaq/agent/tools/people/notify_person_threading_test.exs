@@ -6,7 +6,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
   `message_id` and `thread_id` are cross-channel concepts (a chat post has both
   too), so they belong on the contract. `references` is the one genuinely
   email-only piece and must never appear as a named field — it rides inside the
-  opaque `thread_metadata` residue, which `NotifyPerson` never interprets.
+  opaque `thread_metadata` anchor, which `NotifyPerson` never interprets.
   """
   use ExUnit.Case, async: true
 
@@ -37,11 +37,12 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
        message_id: "new@zaq.local",
        thread_id: "m0@zaq.local",
        thread_metadata: %{
-         "email" => %{
-           "threading" => %{
+         "threading" => %{
+           "anchor" => %{
              "message_id" => "new@zaq.local",
              "in_reply_to" => "m1@zaq.local",
-             "references" => ["m0@zaq.local", "m1@zaq.local"]
+             "references" => ["m0@zaq.local", "m1@zaq.local"],
+             "thread_id" => "m0@zaq.local"
            }
          }
        }
@@ -57,15 +58,15 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
       assert out.thread_id == "m0@zaq.local"
     end
 
-    test "carries the email-only references chain inside the opaque thread_metadata" do
+    test "carries the references chain inside the opaque thread_metadata anchor" do
       assert {:ok, out} = run(sent_result())
 
-      assert out.thread_metadata["email"]["threading"]["references"] == [
+      assert out.thread_metadata["threading"]["anchor"]["references"] == [
                "m0@zaq.local",
                "m1@zaq.local"
              ]
 
-      assert out.thread_metadata["email"]["threading"]["in_reply_to"] == "m1@zaq.local"
+      assert out.thread_metadata["threading"]["anchor"]["in_reply_to"] == "m1@zaq.local"
     end
 
     test "never exposes references as a named field — it is not a cross-channel concept" do

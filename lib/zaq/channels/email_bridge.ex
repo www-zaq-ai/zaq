@@ -376,17 +376,11 @@ defmodule Zaq.Channels.EmailBridge do
     is_binary(in_reply_to) and String.trim(in_reply_to) != ""
   end
 
-  # Resolves the full set of RFC 5322 threading pointers for this send.
-  #
-  # The message's own id is pre-minted metadata when a caller supplied one,
-  # otherwise minted here — gen_smtp would let the relay assign one ZAQ never
-  # learns, so ours must be the id that is delivered. The parent comes from the
-  # opaque `thread_anchor` (the last message ZAQ delivered in this thread) when
-  # the notification center resolved one, else from `in_reply_to` (an inbound
-  # email being answered).
+  # RFC 5322 threading pointers for this send: own id from `metadata["threading"]`
+  # (pre-mint) or freshly minted; parent from `thread_anchor` or `in_reply_to`.
   defp resolve_threading(%Outgoing{} = outgoing) do
     email_meta = get_meta(outgoing.metadata, "email", :email) || %{}
-    preminted = get_meta(email_meta, "threading", :threading) || %{}
+    preminted = get_meta(outgoing.metadata, "threading", :threading) || %{}
     incoming_headers = get_meta(email_meta, "headers", :headers) || %{}
     anchor = outgoing.thread_anchor || %{}
 
@@ -436,9 +430,9 @@ defmodule Zaq.Channels.EmailBridge do
     |> maybe_put_header("References", format_references(threading.references))
   end
 
-  # The delivery receipt returned to the caller: generic pointers as named fields,
-  # the email-only chain inside the opaque residue, and the `anchor` map the
-  # notification center persists verbatim for the next send to chain onto.
+  # The delivery receipt returned to the caller: generic pointers as named fields
+  # and the `anchor` map the notification center persists verbatim for the next
+  # send to chain onto.
   defp delivery_receipt(threading) do
     anchor = %{
       "message_id" => threading.message_id,
@@ -451,17 +445,8 @@ defmodule Zaq.Channels.EmailBridge do
       message_id: threading.message_id,
       thread_id: threading.thread_id,
       anchor: anchor,
-      thread_metadata: %{
-        # Channel-agnostic anchor the engine stores and reads back opaquely.
-        "threading" => %{"anchor" => anchor},
-        "email" => %{
-          "threading" => %{
-            "message_id" => threading.message_id,
-            "in_reply_to" => threading.in_reply_to,
-            "references" => threading.references
-          }
-        }
-      }
+      # Channel-agnostic anchor the engine stores and reads back opaquely.
+      thread_metadata: %{"threading" => %{"anchor" => anchor}}
     }
   end
 

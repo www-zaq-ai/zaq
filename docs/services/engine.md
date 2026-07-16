@@ -217,10 +217,10 @@ when editing either — a divergence would re-key a thread or drop the `Referenc
 (the thread root). Grouping stays `topic || subject` (via
 `Bridge.outbound_conversation_key/4`); it is deliberately not re-keyed to the minted
 `Message-ID`. Email minting mechanics (Message-ID, References capping, sending domain)
-live in the email bridge — see `docs/services/channels.md`. Rows persisted before
-write-time anchors carry only the email residue; the
-`Zaq.Repo.DataMigrations.MessageThreadingAnchors` backfill promotes them to the
-generic anchor shape.
+live in the email bridge — see `docs/services/channels.md`. The generic anchor is
+the single stored copy (no email-shaped duplicate, no backfill — the feature
+shipped with write-time anchors from the start); rows without an anchor simply
+don't resolve, starting a fresh chain.
 
 ### Email Notification (`Zaq.Engine.Notifications.EmailNotification`)
 - Delivers via SMTP using Swoosh/Mailer.

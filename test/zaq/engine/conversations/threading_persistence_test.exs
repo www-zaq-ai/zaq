@@ -13,8 +13,7 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
   Two invariants are pinned:
 
     1. The stored metadata carries the receipt verbatim — the channel-agnostic
-       anchor (`metadata.threading.anchor`) the next lookup reads, plus the
-       email residue for provenance.
+       anchor (`metadata.threading.anchor`) the next lookup reads.
     2. The generic `thread_id` must NOT re-key the conversation — grouping stays
        topic/subject-based, or the next anchor lookup would miss and the chain
        would break.
@@ -49,13 +48,6 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
           "in_reply_to" => in_reply_to,
           "references" => references,
           "thread_id" => List.first(references) || message_id
-        }
-      },
-      "email" => %{
-        "threading" => %{
-          "message_id" => message_id,
-          "in_reply_to" => in_reply_to,
-          "references" => references
         }
       }
     }
@@ -94,8 +86,8 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
     end
   end
 
-  describe "storing the threading residue" do
-    test "persists the receipt verbatim — generic anchor plus email residue" do
+  describe "storing the threading anchor" do
+    test "persists the receipt verbatim — the channel-agnostic anchor" do
       person = person_fixture()
 
       assert {:ok, %{conversation_id: _conv_id, message_id: row_id}} =
@@ -115,10 +107,10 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
       assert anchor["message_id"] == "new@zaq.local"
       assert anchor["thread_id"] == "m0@zaq.local"
       assert anchor["references"] == ["m0@zaq.local", "m1@zaq.local"]
+      assert anchor["in_reply_to"] == "m1@zaq.local"
 
-      threading = message.metadata["email"]["threading"]
-      assert threading["message_id"] == "new@zaq.local"
-      assert threading["in_reply_to"] == "m1@zaq.local"
+      # No email-shaped duplicate of the anchor is stored.
+      refute Map.has_key?(message.metadata, "email")
 
       # The topic the action already stored survives alongside it.
       assert message.metadata["topic"] == "Topic A"

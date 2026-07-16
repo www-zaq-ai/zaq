@@ -722,7 +722,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
           "email" => %{
             "subject" => "Threaded question",
             "reply_from" => "julien@eweev.com",
-            "threading" => %{"references" => "<Root42@Example.com>"}
+            "headers" => %{"references" => "<Root42@Example.com>"}
           }
         }
       }
@@ -772,7 +772,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         metadata: %{
           "subject" => "   ",
           "email" => %{
-            "threading" => %{
+            "headers" => %{
               "references" => [
                 "<A@Example.com>",
                 "A@Example.com",
@@ -924,7 +924,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         in_reply_to: 123,
         metadata: %{
           "subject" => "Threaded",
-          "email" => %{"threading" => %{"references" => 999}}
+          "threading" => %{"references" => 999}
         }
       }
 
@@ -942,7 +942,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         channel_id: "recipient@example.com",
         provider: :"email:imap",
         in_reply_to: nil,
-        metadata: %{"email" => %{"threading" => %{"references" => []}}}
+        metadata: %{"threading" => %{"references" => []}}
       }
 
       assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
@@ -959,7 +959,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         channel_id: "recipient@example.com",
         provider: :"email:imap",
         in_reply_to: "<>",
-        metadata: %{"email" => %{"threading" => %{"references" => 123}}}
+        metadata: %{"threading" => %{"references" => 123}}
       }
 
       assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})

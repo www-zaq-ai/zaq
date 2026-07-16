@@ -69,11 +69,6 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
         "html_body" => html_body,
         "thread_id" => thread_id,
         "thread_key" => thread_key,
-        "threading" => %{
-          "message_id" => headers["message_id"],
-          "in_reply_to" => headers["in_reply_to"],
-          "references" => headers["references"]
-        },
         "headers" => headers,
         "attachments" => attachment_refs(raw_email)
       }

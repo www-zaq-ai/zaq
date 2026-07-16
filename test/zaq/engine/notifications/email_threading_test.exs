@@ -188,7 +188,7 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
       assert headers["Message-ID"] == "<#{result.message_id}>"
       # First send is the root of its own thread.
       assert result.thread_id == result.message_id
-      assert result.thread_metadata["email"]["threading"]["references"] == []
+      assert result.thread_metadata["threading"]["anchor"]["references"] == []
     end
 
     test "falls back to the default domain when no SMTP from_email is configured" do
@@ -252,15 +252,15 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
   # ── Grouping guard ─────────────────────────────────────────────────
 
   describe "grouping guard" do
-    # Writing email.thread_key would re-key the conversation to the minted id, and
+    # Writing a thread_key would re-key the conversation to the minted id, and
     # the next topic/subject lookup would miss it — breaking the chain.
-    test "the surfaced residue never carries a thread_key" do
+    test "the surfaced thread_metadata never carries a thread_key or email residue" do
       person = person_with_email()
 
       assert {:ok, result} = notify(person, "Topic A")
 
-      refute Map.has_key?(result.thread_metadata["email"], "thread_key")
-      refute Map.has_key?(result.thread_metadata["email"]["threading"], "thread_key")
+      refute Map.has_key?(result.thread_metadata, "email")
+      refute Map.has_key?(result.thread_metadata["threading"]["anchor"], "thread_key")
     end
   end
 

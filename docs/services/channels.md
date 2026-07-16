@@ -501,10 +501,12 @@ the persist path stays free of DB lookups. Bridges without the callbacks resolve
 `EmailBridge.send_reply/2` owns all outbound RFC 5322 threading mechanics:
 
 - **Minting**: every email send carries its own `Message-ID`. The bridge honors a
-  pre-minted id in `metadata["email"]["threading"]`, otherwise mints one from the
-  sending domain (`channel_configs.settings["from_email"]` of `email:smtp`, falling
-  back to the default domain). gen_smtp would let the relay assign one ZAQ never
-  learns, so ours must be the id that is delivered.
+  pre-minted id in the generic `metadata["threading"]` block (`"message_id"`,
+  optionally `"references"`), otherwise mints one from the sending domain
+  (`channel_configs.settings["from_email"]` of `email:smtp`, falling back to the
+  default domain). gen_smtp would let the relay assign one ZAQ never learns, so
+  ours must be the id that is delivered. The inbound-carried `threading.anchor`
+  is never treated as a pre-mint — it describes the message being answered.
 - **Parent resolution**: the parent comes from the opaque `Outgoing.thread_anchor`
   (string keys `"message_id"`, `"references"`, `"thread_id"`, resolved by the
   notification center from the notification log / conversations), else from
@@ -516,7 +518,8 @@ the persist path stays free of DB lookups. Bridges without the callbacks resolve
   `thread_metadata` carries the same anchor under the channel-agnostic
   `"threading" => %{"anchor" => ...}` key (merged into the persisted message's
   metadata by `PersistMessageHistory`, so `Conversations.latest_thread_anchor/4`
-  resolves it without email knowledge) alongside the `"email"` residue.
+  resolves it without email knowledge). The anchor is the single stored copy —
+  no email-shaped duplicate is written.
   `Zaq.Channels.Api` normalizes bridges that return plain `:ok` to `{:ok, %{}}` so
   the `deliver_outgoing` response contract is uniform.
 
