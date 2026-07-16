@@ -1,7 +1,13 @@
 defmodule ZaqWeb.Helpers.TimezoneTest do
   use ExUnit.Case, async: true
 
+  import Zaq.TimezoneTestHelpers
+
   alias ZaqWeb.Helpers.Timezone
+
+  setup do
+    stub_system_timezone()
+  end
 
   describe "shift/1" do
     test "nil returns nil" do
@@ -14,16 +20,14 @@ defmodule ZaqWeb.Helpers.TimezoneTest do
     end
 
     test "shifts by configured GMT+ timezone" do
-      Application.put_env(:zaq, :system_timezone_fun, fn -> "GMT+03:00" end)
-      on_exit(fn -> Application.put_env(:zaq, :system_timezone_fun, fn -> nil end) end)
+      stub_system_timezone("GMT+03:00")
 
       dt = ~U[2026-03-13 14:05:00Z]
       assert Timezone.shift(dt) == ~N[2026-03-13 17:05:00]
     end
 
     test "shifts by configured GMT- timezone" do
-      Application.put_env(:zaq, :system_timezone_fun, fn -> "GMT-05:00" end)
-      on_exit(fn -> Application.put_env(:zaq, :system_timezone_fun, fn -> nil end) end)
+      stub_system_timezone("GMT-05:00")
 
       dt = ~U[2026-03-13 14:05:00Z]
       assert Timezone.shift(dt) == ~N[2026-03-13 09:05:00]

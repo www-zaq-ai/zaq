@@ -1,7 +1,13 @@
 defmodule ZaqWeb.Helpers.DateFormatTest do
   use ExUnit.Case, async: true
 
+  import Zaq.TimezoneTestHelpers
+
   alias ZaqWeb.Helpers.DateFormat
+
+  setup do
+    stub_system_timezone()
+  end
 
   describe "format_date/1" do
     test "returns dash for nil" do
@@ -56,16 +62,14 @@ defmodule ZaqWeb.Helpers.DateFormatTest do
     end
 
     test "format_time shifts by configured GMT+ timezone" do
-      Application.put_env(:zaq, :system_timezone_fun, fn -> "GMT+03:00" end)
-      on_exit(fn -> Application.put_env(:zaq, :system_timezone_fun, fn -> nil end) end)
+      stub_system_timezone("GMT+03:00")
 
       dt = ~U[2026-03-13 14:05:00Z]
       assert DateFormat.format_time(dt) == "17:05"
     end
 
     test "format_datetime shifts by configured GMT- timezone" do
-      Application.put_env(:zaq, :system_timezone_fun, fn -> "GMT-05:00" end)
-      on_exit(fn -> Application.put_env(:zaq, :system_timezone_fun, fn -> nil end) end)
+      stub_system_timezone("GMT-05:00")
 
       dt = ~U[2026-03-13 14:05:00Z]
       assert DateFormat.format_datetime(dt) == "2026-03-13 09:05"

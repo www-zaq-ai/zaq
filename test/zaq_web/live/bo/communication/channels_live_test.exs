@@ -784,8 +784,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       }
     })
 
-    Application.put_env(:zaq, :system_timezone_fun, fn -> "GMT+03:00" end)
-    on_exit(fn -> Application.put_env(:zaq, :system_timezone_fun, fn -> nil end) end)
+    Zaq.TimezoneTestHelpers.stub_system_timezone("GMT+03:00")
 
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
     view |> element("form[phx-submit='load_posts']") |> render_submit(%{"channel_id" => "ch-1"})

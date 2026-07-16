@@ -1166,8 +1166,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
       "last_interaction_at" => known
     })
 
-    Application.put_env(:zaq, :system_timezone_fun, fn -> "GMT+03:00" end)
-    on_exit(fn -> Application.put_env(:zaq, :system_timezone_fun, fn -> nil end) end)
+    Zaq.TimezoneTestHelpers.stub_system_timezone("GMT+03:00")
 
     {:ok, view, _html} = live(conn, ~p"/bo/people")
 

@@ -368,8 +368,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationLogsLiveTest do
       |> Ecto.Changeset.put_change(:inserted_at, known)
       |> Repo.update!()
 
-      Application.put_env(:zaq, :system_timezone_fun, fn -> "GMT+03:00" end)
-      on_exit(fn -> Application.put_env(:zaq, :system_timezone_fun, fn -> nil end) end)
+      Zaq.TimezoneTestHelpers.stub_system_timezone("GMT+03:00")
 
       {:ok, _view, html} = live(conn, ~p"/bo/channels/notifications/logs")
       assert html =~ "15:00"
