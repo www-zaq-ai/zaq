@@ -19,7 +19,7 @@ defmodule Zaq.Channels.Api do
 
   @behaviour Zaq.InternalBoundaries
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge, DiskBridge}
   alias Zaq.Channels.MessageFormatter
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
@@ -292,6 +292,15 @@ defmodule Zaq.Channels.Api do
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
     %{event | response: data_source_module.create_file(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{mime_type: _, filename: _, data: _} = params} = event,
+        :disk_create_file,
+        _context
+      ) do
+    disk_module = Keyword.get(event.opts, :disk_bridge_module, DiskBridge)
+    %{event | response: disk_module.create_file(params)}
   end
 
   def handle_event(
