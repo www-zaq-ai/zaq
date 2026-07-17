@@ -1,8 +1,8 @@
-defmodule Zaq.Engine.Notifications.EmailNotification do
+defmodule Zaq.Channels.EmailBridge.SmtpSender do
   @moduledoc """
-  Email notification delivery.
+  SMTP delivery for the email channel.
 
-  Delivers notifications via SMTP using Swoosh/Mailer. The recipient address
+  Composes and delivers a message via Swoosh/Mailer. The recipient address
   comes from the `identifier` argument. SMTP settings are read from
   `channel_configs.settings` under provider `email:smtp` (same source as the
   SMTP configuration UI).

@@ -21,7 +21,7 @@ defmodule Zaq.Channels.Api do
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Channels.MessageFormatter
-  alias Zaq.Engine.Messages.Outgoing
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
   alias Zaq.Events.Helper
@@ -506,6 +506,37 @@ defmodule Zaq.Channels.Api do
     %{event | response: not is_nil(bridge_module.bridge_for(platform, event.opts))}
   end
 
+  # Conversation identity is computed here on the channels node and consumed by
+  # the engine — engine modules never call bridge functions directly.
+  def handle_event(
+        %Event{request: %{platform: platform, topic: topic, subject: subject}} = event,
+        :conversation_identity,
+        _context
+      )
+      when is_binary(platform) do
+    communication_bridge = communication_bridge_module(event)
+
+    %{
+      event
+      | response:
+          communication_bridge.outbound_conversation_identity(
+            platform,
+            topic,
+            subject,
+            event.opts
+          )
+    }
+  end
+
+  def handle_event(
+        %Event{request: %{incoming: %Incoming{} = incoming}} = event,
+        :conversation_identity,
+        _context
+      ) do
+    communication_bridge = communication_bridge_module(event)
+    %{event | response: communication_bridge.put_conversation_identity(incoming, event.opts)}
+  end
+
   def handle_event(
         %Event{request: %{provider: provider}} = event,
         :channel_capability_snapshot,
@@ -613,6 +644,11 @@ defmodule Zaq.Channels.Api do
   end
 
   defp bridge_module(_event), do: Bridge
+
+  defp communication_bridge_module(%Event{opts: opts}) when is_list(opts),
+    do: Keyword.get(opts, :communication_bridge_module, CommunicationBridge)
+
+  defp communication_bridge_module(_event), do: CommunicationBridge
 
   defp ingress_status_config(_bridge_module, _provider, %{config: %ChannelConfig{} = config}),
     do: {:ok, config}

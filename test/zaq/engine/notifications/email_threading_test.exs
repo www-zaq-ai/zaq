@@ -157,11 +157,11 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
 
   setup do
     Application.put_env(:zaq, :notifications_node_router_module, StubNodeRouter)
-    Application.put_env(:zaq, :email_bridge_notification_module, CapturingSmtp)
+    Application.put_env(:zaq, :email_bridge_smtp_module, CapturingSmtp)
 
     on_exit(fn ->
       Application.delete_env(:zaq, :notifications_node_router_module)
-      Application.delete_env(:zaq, :email_bridge_notification_module)
+      Application.delete_env(:zaq, :email_bridge_smtp_module)
     end)
 
     from(c in ChannelConfig, where: c.provider == "email:smtp") |> Repo.delete_all()
@@ -268,7 +268,7 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
 
   describe "store-only-on-success (Bug #3)" do
     test "surfaces no threading when delivery fails on every channel" do
-      Application.put_env(:zaq, :email_bridge_notification_module, FailingSmtp)
+      Application.put_env(:zaq, :email_bridge_smtp_module, FailingSmtp)
       person = person_with_email()
 
       assert {:error, failed} = notify(person, "Topic A")
@@ -280,7 +280,7 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
     end
 
     test "a failed send leaves no anchor for the next send" do
-      Application.put_env(:zaq, :email_bridge_notification_module, FailingSmtp)
+      Application.put_env(:zaq, :email_bridge_smtp_module, FailingSmtp)
       person = person_with_email()
 
       assert {:error, _} = notify(person, "Topic A")

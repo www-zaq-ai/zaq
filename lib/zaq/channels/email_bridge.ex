@@ -2,7 +2,7 @@ defmodule Zaq.Channels.EmailBridge do
   @moduledoc """
   Bridge for the email channel.
 
-  Delivers `%Outgoing{}` via SMTP using the notification SMTP implementation.
+  Delivers `%Outgoing{}` via SMTP using `Zaq.Channels.EmailBridge.SmtpSender`.
   Connection details are not required — SMTP settings are read from
   `channel_configs.settings` under provider `email:smtp`.
 
@@ -194,17 +194,17 @@ defmodule Zaq.Channels.EmailBridge do
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
 
-    case notification_module().send_notification(outgoing.channel_id, payload, %{}) do
+    case smtp_sender_module().send_notification(outgoing.channel_id, payload, %{}) do
       :ok -> {:ok, delivery_receipt(threading)}
       error -> error
     end
   end
 
-  defp notification_module do
+  defp smtp_sender_module do
     Zaq.Config.get(
       :zaq,
-      :email_bridge_notification_module,
-      Zaq.Engine.Notifications.EmailNotification
+      :email_bridge_smtp_module,
+      Zaq.Channels.EmailBridge.SmtpSender
     )
   end
 

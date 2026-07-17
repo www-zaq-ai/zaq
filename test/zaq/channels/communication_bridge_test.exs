@@ -220,6 +220,7 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
       defdelegate ack_from_event_response(response), to: Zaq.Channels.BridgeBase
       defdelegate bridge_for(provider), to: Zaq.Channels.BridgeBase
+      defdelegate bridge_for(provider, opts), to: Zaq.Channels.BridgeBase
       defdelegate provider_to_bridge_key(provider), to: Zaq.Channels.BridgeBase
       defdelegate resolve_bridge(provider), to: Zaq.Channels.BridgeBase
       defdelegate fetch_connection_details(provider), to: Zaq.Channels.BridgeBase

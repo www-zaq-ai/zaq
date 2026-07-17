@@ -449,7 +449,7 @@ Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 ## Email Bridge
 
-`Zaq.Channels.EmailBridge` delivers `%Outgoing{}` via SMTP using `Zaq.Engine.Notifications.EmailNotification`. Connection details are not required — SMTP settings are read from `channel_configs.settings` for provider `"email:smtp"`.
+`Zaq.Channels.EmailBridge` delivers `%Outgoing{}` via SMTP using `Zaq.Channels.EmailBridge.SmtpSender` (Swoosh/Mailer; SSL/STARTTLS, `verify_peer`/`verify_none`, custom CA cert path; password decrypted via `Zaq.Types.EncryptedString.decrypt/1`). Connection details are not required — SMTP settings are read from `channel_configs.settings` for provider `"email:smtp"`.
 
 - `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
 - `from_listener/3` — generic sink callback for inbound email listeners; orchestration is bridge-owned.
@@ -480,9 +480,9 @@ Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 #### Conversation identity (bridge callbacks)
 
-`Zaq.Engine.Conversations` carries zero email knowledge. Channel-specific grouping
-lives behind two optional `Zaq.Channels.Bridge` callbacks, implemented by
-`EmailBridge`:
+`Zaq.Engine.Conversations` carries zero channel knowledge. Channel-specific grouping
+lives behind two optional `Zaq.Channels.CommunicationBridge` callbacks, implemented
+by `EmailBridge`:
 
 - `conversation_key/1` — grouping key for an incoming email message
   (`email.thread_key` -> top-level `thread_key` -> `topic`/`subject` -> normalized
@@ -490,11 +490,17 @@ lives behind two optional `Zaq.Channels.Bridge` callbacks, implemented by
 - `outbound_conversation_key/2` — grouping key for an outbound-first send
   (`topic || subject`).
 
-Engine code reaches them through the pure `Bridge` dispatchers
-(`conversation_channel_type/2`, `conversation_key/3`, `outbound_conversation_key/4`),
-which resolve the bridge from application config only — never `ChannelConfig` — so
-the persist path stays free of DB lookups. Bridges without the callbacks resolve to
-`nil` (no conversation-inherited threading).
+The `CommunicationBridge` dispatchers (`conversation_channel_type/2`,
+`conversation_key/3`, `outbound_conversation_key/4`) resolve the bridge from
+application config only — never `ChannelConfig` — so the persist path stays free of
+DB lookups. Identity never crosses into the engine as a function call: inbound
+envelopes are stamped with `metadata["conversation"]`
+(`put_conversation_identity/2`, applied in `route_incoming_message/5` and
+`Bridge.persist_from_incoming/5`), and engine/agent callers ask the channels node
+via the `:conversation_identity` event (`Zaq.Channels.Api`), passing either
+`%{platform, topic, subject}` (identity map back) or `%{incoming}` (stamped
+envelope back). Bridges without the callbacks resolve to `nil` (no
+conversation-inherited threading).
 
 #### Outbound Threading (minting + delivery receipt)
 

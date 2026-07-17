@@ -20,7 +20,6 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Accounts.{Person, PersonChannel}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
-  alias Zaq.Channels.Bridge
   alias Zaq.Engine.Messages.{Incoming, Measurements}
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
@@ -211,8 +210,8 @@ defmodule Zaq.Engine.Conversations do
   Gets or creates a conversation scoped to the sender and provider (channel type).
   """
   def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result) do
-    channel_type = Bridge.conversation_channel_type(msg.provider)
-    channel_user_id = Bridge.conversation_key(msg, channel_type) || msg.author_id
+    {channel_type, conversation_key} = conversation_identity(msg)
+    channel_user_id = conversation_key || msg.author_id
     %{body: assistant_body, sources: assistant_sources} = normalize_assistant_response(result)
 
     with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, channel_type),
@@ -246,10 +245,8 @@ defmodule Zaq.Engine.Conversations do
   or notifications without fabricating a user turn.
   """
   def persist_message_history(%Incoming{} = msg, attrs) when is_map(attrs) do
-    channel_type = Bridge.conversation_channel_type(msg.provider)
-
-    channel_user_id =
-      Bridge.conversation_key(msg, channel_type) || msg.author_id || msg.channel_id
+    {channel_type, conversation_key} = conversation_identity(msg)
+    channel_user_id = conversation_key || msg.author_id || msg.channel_id
 
     message_attrs = message_history_attrs(attrs, msg)
 
@@ -262,6 +259,39 @@ defmodule Zaq.Engine.Conversations do
       {:ok, %{conversation_id: conv.id, message_id: message.id}}
     end
   end
+
+  # The delivering channel computes conversation identity and stamps it on the
+  # incoming envelope (`metadata["conversation"]`) before it reaches the engine
+  # — see `Zaq.Channels.CommunicationBridge.put_conversation_identity/2`.
+  # Messages that never pass through a channel node (BO chat, direct API) carry
+  # no stamp and group generically: the provider names the channel type and the
+  # caller-supplied author is the grouping key.
+  defp conversation_identity(%Incoming{} = msg) do
+    case msg.metadata do
+      %{"conversation" => %{"channel_type" => channel_type} = identity}
+      when is_binary(channel_type) and channel_type != "" ->
+        {channel_type, identity_key(identity)}
+
+      _ ->
+        {default_channel_type(msg.provider), nil}
+    end
+  end
+
+  defp identity_key(identity) do
+    case Map.get(identity, "key") do
+      key when is_binary(key) and key != "" -> key
+      _ -> nil
+    end
+  end
+
+  defp default_channel_type(nil), do: "api"
+
+  defp default_channel_type(provider) when is_atom(provider),
+    do: default_channel_type(Atom.to_string(provider))
+
+  defp default_channel_type("web"), do: "bo"
+  defp default_channel_type(provider) when is_binary(provider), do: provider
+  defp default_channel_type(_provider), do: "api"
 
   defp conversation_for_persistence(msg, channel_user_id, channel_type) do
     case metadata_conversation_id(msg.metadata) do
@@ -450,9 +480,11 @@ defmodule Zaq.Engine.Conversations do
 
   The anchor is an opaque string-keyed map written at persist time by the
   delivering channel (`metadata["threading"]["anchor"]`) — it is returned
-  verbatim and interpreted only by the provider bridge. Callers derive
-  `channel_type` and `conversation_key` from `Zaq.Channels.Bridge`, so the
-  lookup key always matches the key persistence grouped under.
+  verbatim and interpreted only by the provider bridge. The channel that wrote
+  it also guarantees it is usable, so presence is the only filter here.
+  Callers obtain `channel_type` and `conversation_key` from the channel node
+  (the `:conversation_identity` event), so the lookup key always matches the
+  key persistence grouped under.
 
   Returns `nil` when there is no conversation, when the key is blank, or when
   no message in it carries an anchor — the next send then starts a fresh chain.
@@ -473,11 +505,7 @@ defmodule Zaq.Engine.Conversations do
           c.person_id == ^person_id and
             c.channel_type == ^channel_type and
             c.channel_user_id == ^conversation_key,
-        where:
-          fragment(
-            "COALESCE(? -> 'threading' -> 'anchor' ->> 'message_id', '') <> ''",
-            m.metadata
-          ),
+        where: fragment("? -> 'threading' -> 'anchor' IS NOT NULL", m.metadata),
         # Latest wins; `id` breaks sub-second `inserted_at` ties deterministically.
         order_by: [desc: m.inserted_at, desc: m.id],
         limit: 1,

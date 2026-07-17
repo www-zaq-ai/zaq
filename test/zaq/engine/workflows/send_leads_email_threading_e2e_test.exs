@@ -123,11 +123,11 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
     # Notifications resolves its own router; point it at the router that runs the
     # real EmailBridge, with the SMTP hop below it captured.
     Application.put_env(:zaq, :notifications_node_router_module, DeliverCapturingRouter)
-    Application.put_env(:zaq, :email_bridge_notification_module, CapturingSmtp)
+    Application.put_env(:zaq, :email_bridge_smtp_module, CapturingSmtp)
 
     on_exit(fn ->
       Application.delete_env(:zaq, :notifications_node_router_module)
-      Application.delete_env(:zaq, :email_bridge_notification_module)
+      Application.delete_env(:zaq, :email_bridge_smtp_module)
     end)
 
     from(c in ChannelConfig, where: c.provider == "email:smtp") |> Repo.delete_all()

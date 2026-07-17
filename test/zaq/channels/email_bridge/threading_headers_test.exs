@@ -29,8 +29,8 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
   end
 
   setup do
-    Application.put_env(:zaq, :email_bridge_notification_module, CapturingNotification)
-    on_exit(fn -> Application.delete_env(:zaq, :email_bridge_notification_module) end)
+    Application.put_env(:zaq, :email_bridge_smtp_module, CapturingNotification)
+    on_exit(fn -> Application.delete_env(:zaq, :email_bridge_smtp_module) end)
     :ok
   end
 
