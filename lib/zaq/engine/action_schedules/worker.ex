@@ -1,6 +1,12 @@
 defmodule Zaq.Engine.ActionSchedules.Worker do
   @moduledoc """
   Oban worker that executes a previously scheduled action.
+
+  Scheduled actions execute through `Jido.Exec` because this worker and the
+  scheduled actions context both live inside the engine node. This path does not
+  need a `NodeRouter` hop while the Oban worker is engine-local. If the worker is
+  moved to another node, this execution path must be refactored to dispatch a
+  `%Zaq.Event{}` through `NodeRouter.dispatch/1`.
   """
 
   use Oban.Worker, queue: :scheduled_actions, max_attempts: 3
@@ -19,5 +25,9 @@ defmodule Zaq.Engine.ActionSchedules.Worker do
       {:error, {:unknown_action, _}} = error -> {:cancel, error}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  def perform(%Oban.Job{args: %{"schedule_id" => schedule_id}}) do
+    {:cancel, {:error, {:invalid_params, schedule_id}}}
   end
 end

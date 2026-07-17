@@ -114,6 +114,20 @@ defmodule Zaq.Engine.ActionSchedulesTest do
       end)
     end
 
+    test "list_pending_schedules/1 returns no jobs for an empty id list" do
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, _job} =
+                 ActionSchedules.schedule_action(%{
+                   schedule_id: "list:not-returned",
+                   action_key: "basic.increment",
+                   params: %{value: 1},
+                   scheduled_at: future_datetime()
+                 })
+
+        assert ActionSchedules.list_pending_schedules([]) == []
+      end)
+    end
+
     test "rejects unknown actions before enqueueing" do
       assert {:error, {:unknown_action, "nope.missing"}} =
                ActionSchedules.schedule_action(%{

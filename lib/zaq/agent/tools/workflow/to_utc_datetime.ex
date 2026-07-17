@@ -57,13 +57,15 @@ defmodule Zaq.Agent.Tools.Workflow.ToUtcDateTime do
     "days" => 86_400
   }
 
+  alias Zaq.MapUtils
+
   @impl Jido.Action
   def run(params, context) do
-    datetime = get(params, :datetime)
-    delay = get(params, :delay)
+    datetime = MapUtils.fetch(params, :datetime)
+    delay = MapUtils.fetch(params, :delay)
 
     case {present?(datetime), is_map(delay)} do
-      {true, false} -> convert_datetime(datetime, get(params, :timezone))
+      {true, false} -> convert_datetime(datetime, MapUtils.fetch(params, :timezone))
       {false, true} -> convert_delay(delay, context)
       {false, false} -> {:error, "provide either datetime or delay"}
       {true, true} -> {:error, "provide only one of datetime or delay"}
@@ -106,22 +108,20 @@ defmodule Zaq.Agent.Tools.Workflow.ToUtcDateTime do
   end
 
   defp delay_amount(delay) do
-    case get(delay, :amount) do
+    case MapUtils.fetch(delay, :amount) do
       amount when is_integer(amount) and amount > 0 -> {:ok, amount}
       _ -> {:error, "delay.amount must be a positive integer"}
     end
   end
 
   defp delay_unit(delay) do
-    unit = delay |> get(:unit) |> to_string()
+    unit = delay |> MapUtils.fetch(:unit) |> to_string()
 
     case Map.fetch(@units, unit) do
       {:ok, seconds} -> {:ok, seconds}
       :error -> {:error, "delay.unit must be second, minute, hour, or day"}
     end
   end
-
-  defp get(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 end

@@ -77,6 +77,8 @@ defmodule Zaq.Engine.ActionSchedules do
     |> Repo.all()
   end
 
+  def list_pending_schedules([]), do: []
+
   def list_pending_schedules(schedule_ids) when is_list(schedule_ids) do
     pending_query()
     |> where(

@@ -42,4 +42,20 @@ defmodule Zaq.Engine.ActionSchedules.WorkerTest do
     assert error.message =~ "Invalid parameters for Action"
     assert error.message =~ "required :value option not found"
   end
+
+  test "cancels malformed jobs with non-map params" do
+    assert {:cancel, {:error, {:invalid_params, "run:malformed"}}} =
+             perform_job(Worker, %{
+               schedule_id: "run:malformed",
+               action_key: "basic.increment",
+               params: ["value", 1]
+             })
+  end
+
+  test "cancels malformed jobs missing action args" do
+    assert {:cancel, {:error, {:invalid_params, "run:missing-action-args"}}} =
+             Worker.perform(%Oban.Job{
+               args: %{"schedule_id" => "run:missing-action-args"}
+             })
+  end
 end

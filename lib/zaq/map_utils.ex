@@ -17,6 +17,12 @@ defmodule Zaq.MapUtils do
     Map.get(map, atom_key) || Map.get(map, string_key)
   end
 
+  @doc "Returns the value for `key` from a map that may use atom or string keys."
+  @spec fetch(map(), atom()) :: term()
+  def fetch(map, key) when is_map(map) and is_atom(key) do
+    fetch_either(map, key, Atom.to_string(key))
+  end
+
   @doc "Converts all atom keys in a map to strings. String keys are passed through unchanged."
   @spec stringify_keys(map()) :: map()
   def stringify_keys(map) when is_map(map) do

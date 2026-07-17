@@ -31,20 +31,21 @@ defmodule Zaq.Agent.Tools.Workflow.ScheduleAction do
     ]
 
   alias Zaq.Engine.ActionSchedules
+  alias Zaq.MapUtils
 
   @impl Jido.Action
   def run(params, _context) do
-    with {:ok, scheduled_at} <- parse_utc_scheduled_at(get(params, :scheduled_at)),
+    with {:ok, scheduled_at} <- parse_utc_scheduled_at(MapUtils.fetch(params, :scheduled_at)),
          {:ok, job} <-
            ActionSchedules.schedule_action(%{
-             schedule_id: get(params, :schedule_id),
-             action_key: get(params, :action_key),
-             params: get(params, :params),
+             schedule_id: MapUtils.fetch(params, :schedule_id),
+             action_key: MapUtils.fetch(params, :action_key),
+             params: MapUtils.fetch(params, :params),
              scheduled_at: scheduled_at
            }) do
       {:ok,
        %{
-         schedule_id: get(job.args, :schedule_id),
+         schedule_id: MapUtils.fetch(job.args, :schedule_id),
          job_id: job.id,
          scheduled_at: DateTime.to_iso8601(job.scheduled_at)
        }}
@@ -60,6 +61,4 @@ defmodule Zaq.Agent.Tools.Workflow.ScheduleAction do
   end
 
   defp parse_utc_scheduled_at(_), do: {:error, "scheduled_at must be a UTC ISO8601 string"}
-
-  defp get(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 end
