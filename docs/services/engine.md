@@ -203,31 +203,26 @@ on the `sent` transition. Resolution consults two stores in a fixed order:
 2. **Fallback — `Conversations.latest_thread_anchor/4`.** The conversation store
    carries the anchor for a thread ZAQ did **not** start (an inbound email whose RFC
    id we inherited) and for messages persisted before the log path existed.
-   `Conversations` has **zero email knowledge**: the anchor is written at persist
+   `Conversations` has **zero channel knowledge**: the anchor is written at persist
    time by the delivering channel under `metadata["threading"]["anchor"]` and read
-   back verbatim. The grouping key and channel type come from the
-   `Zaq.Channels.Bridge` conversation-identity dispatchers
-   (`conversation_channel_type/2`, `conversation_key/3`,
-   `outbound_conversation_key/4`), which route to the provider bridge's optional
-   callbacks — platforms whose bridge defines no grouping resolve a `nil` key and
-   skip the lookup.
+   back verbatim (presence is the only filter — the writing channel guarantees the
+   anchor is usable). The grouping key and channel type are computed on the
+   channels node: inbound envelopes arrive pre-stamped
+   (`Incoming.metadata["conversation"]`, written by
+   `Zaq.Channels.CommunicationBridge.put_conversation_identity/2`), and the
+   Notifications fallback asks the channels node via the `:conversation_identity`
+   event — engine modules never call bridge functions directly. Platforms whose
+   bridge defines no grouping resolve a `nil` key and skip the lookup.
 
 Both stores hand back the same string-keyed opaque map. Keep the two paths consistent
 when editing either — a divergence would re-key a thread or drop the `References` head
 (the thread root). Grouping stays `topic || subject` (via
-`Bridge.outbound_conversation_key/4`); it is deliberately not re-keyed to the minted
-`Message-ID`. Email minting mechanics (Message-ID, References capping, sending domain)
+`CommunicationBridge.outbound_conversation_key/4` on the channels node); it is
+deliberately not re-keyed to the minted `Message-ID`. Email minting mechanics (Message-ID, References capping, sending domain)
 live in the email bridge — see `docs/services/channels.md`. The generic anchor is
 the single stored copy (no email-shaped duplicate, no backfill — the feature
 shipped with write-time anchors from the start); rows without an anchor simply
 don't resolve, starting a fresh chain.
-
-### Email Notification (`Zaq.Engine.Notifications.EmailNotification`)
-- Delivers via SMTP using Swoosh/Mailer.
-- SMTP settings read from `ChannelConfig` for provider `"email:smtp"`.
-- `send_notification/3` — builds Swoosh email and calls `Zaq.Mailer.deliver/2`.
-- Supports SSL, STARTTLS, `verify_peer`/`verify_none`, custom CA cert path.
-- Password field is decrypted via `Zaq.Types.EncryptedString.decrypt/1`.
 
 ### Welcome Email (`Zaq.Engine.Notifications.WelcomeEmail`)
 - `deliver/1` — builds and dispatches a welcome email to a newly created user via

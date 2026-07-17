@@ -245,7 +245,9 @@ defmodule Zaq.Channels.BridgeTest do
     metadata = %{answer: "ok"}
 
     assert :ok = Bridge.persist_from_incoming(incoming, metadata, StubConversations, %{id: "u1"})
-    assert_received {:stub_persist, ^incoming, ^metadata}
+
+    stamped = %{incoming | metadata: %{"conversation" => %{"channel_type" => "bo", "key" => nil}}}
+    assert_received {:stub_persist, ^stamped, ^metadata}
   end
 
   test "dispatches through node router for default conversations module" do

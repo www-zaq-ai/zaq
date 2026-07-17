@@ -90,11 +90,11 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
 
   setup do
     Application.put_env(:zaq, :notifications_node_router_module, StubNodeRouter)
-    Application.put_env(:zaq, :email_bridge_notification_module, CapturingSmtp)
+    Application.put_env(:zaq, :email_bridge_smtp_module, CapturingSmtp)
 
     on_exit(fn ->
       Application.delete_env(:zaq, :notifications_node_router_module)
-      Application.delete_env(:zaq, :email_bridge_notification_module)
+      Application.delete_env(:zaq, :email_bridge_smtp_module)
     end)
 
     from(c in ChannelConfig, where: c.provider == "email:smtp") |> Repo.delete_all()

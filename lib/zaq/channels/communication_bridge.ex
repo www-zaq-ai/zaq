@@ -49,6 +49,8 @@ defmodule Zaq.Channels.CommunicationBridge do
 
   @callback subscribe_thread_reply(map(), String.t(), String.t()) :: :ok | {:error, term()}
   @callback unsubscribe_thread_reply(map(), String.t(), String.t()) :: :ok | {:error, term()}
+  @callback conversation_key(Incoming.t()) :: String.t() | nil
+  @callback outbound_conversation_key(String.t() | nil, String.t() | nil) :: String.t() | nil
   @callback open_dm_channel(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   @callback fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_mailboxes(map(), map()) :: {:ok, [String.t()]} | {:error, term()}
@@ -73,7 +75,9 @@ defmodule Zaq.Channels.CommunicationBridge do
                       open_dm_channel: 2,
                       fetch_profile: 2,
                       list_mailboxes: 2,
-                      resolve_agent_selection: 3
+                      resolve_agent_selection: 3,
+                      conversation_key: 1,
+                      outbound_conversation_key: 2
 
   defmacro __using__(_opts) do
     quote do
@@ -292,6 +296,114 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
+  # ── Conversation identity ────────────────────────────────────────────
+  #
+  # Identity (channel type + grouping key) is computed here in the channels
+  # layer and carried on the data. Engine modules consume the stamped values
+  # and never derive channel identity themselves.
+
+  @doc """
+  Canonical conversation channel type for a provider.
+
+  Conversations are grouped under one channel type per transport family:
+  inbound and outbound email share `"email:imap"`, the back office web UI is
+  `"bo"`, and non-provider values fall back to `"api"`.
+  """
+  @spec conversation_channel_type(term(), keyword()) :: String.t()
+  def conversation_channel_type(provider, opts \\ [])
+
+  def conversation_channel_type(provider, opts) when is_atom(provider) and not is_nil(provider),
+    do: conversation_channel_type(Atom.to_string(provider), opts)
+
+  def conversation_channel_type(provider, _opts) when is_binary(provider) do
+    case provider do
+      "email" -> "email:imap"
+      "email:smtp" -> "email:imap"
+      "web" -> "bo"
+      other -> other
+    end
+  end
+
+  def conversation_channel_type(_provider, _opts), do: "api"
+
+  @doc """
+  Conversation grouping key for an incoming message, resolved by the channel's
+  bridge when it defines one.
+
+  Dispatches to the optional `conversation_key/1` bridge callback. Returns `nil`
+  when the channel has no bridge-specific grouping — callers own the generic
+  fallback (typically the author id). Resolves the bridge from application
+  config only; the persist path must never hit `ChannelConfig`.
+  """
+  @spec conversation_key(Incoming.t(), String.t(), keyword()) :: String.t() | nil
+  def conversation_key(incoming, channel_type, opts \\ [])
+
+  def conversation_key(%Incoming{} = incoming, channel_type, opts) do
+    case identity_bridge(channel_type, :conversation_key, 1, opts) do
+      nil -> nil
+      bridge -> bridge.conversation_key(incoming)
+    end
+  end
+
+  @doc """
+  Conversation grouping key for an outbound-first send on `platform`, resolved
+  by the platform's bridge when it defines one.
+
+  Platforms without the callback resolve to `nil`, meaning the send carries no
+  conversation-inherited threading.
+  """
+  @spec outbound_conversation_key(term(), String.t() | nil, String.t() | nil, keyword()) ::
+          String.t() | nil
+  def outbound_conversation_key(platform, topic, subject, opts \\ []) do
+    case identity_bridge(platform, :outbound_conversation_key, 2, opts) do
+      nil -> nil
+      bridge -> bridge.outbound_conversation_key(topic, subject)
+    end
+  end
+
+  @doc """
+  Conversation identity for an outbound-first send on `platform`.
+
+  Returned as a map so the engine can consume it whole over the
+  `:conversation_identity` event; `conversation_key` is `nil` when the
+  platform defines no outbound grouping.
+  """
+  @spec outbound_conversation_identity(term(), String.t() | nil, String.t() | nil, keyword()) ::
+          %{channel_type: String.t(), conversation_key: String.t() | nil}
+  def outbound_conversation_identity(platform, topic, subject, opts \\ []) do
+    %{
+      channel_type: conversation_channel_type(platform, opts),
+      conversation_key: outbound_conversation_key(platform, topic, subject, opts)
+    }
+  end
+
+  @doc """
+  Stamps the channel-computed conversation identity onto the incoming envelope
+  as `metadata["conversation"]` (`%{"channel_type" => ..., "key" => ...}`).
+
+  Called at the channel chokepoints (`route_incoming_message/5`,
+  `Bridge.persist_from_incoming/5`, the `:conversation_identity` event) so
+  every message reaching engine persistence already carries its identity.
+  """
+  @spec put_conversation_identity(Incoming.t(), keyword()) :: Incoming.t()
+  def put_conversation_identity(%Incoming{} = msg, opts \\ []) do
+    channel_type = conversation_channel_type(msg.provider, opts)
+
+    identity = %{
+      "channel_type" => channel_type,
+      "key" => conversation_key(msg, channel_type, opts)
+    }
+
+    %{msg | metadata: Map.put(msg.metadata || %{}, "conversation", identity)}
+  end
+
+  defp identity_bridge(provider, fun, arity, opts) do
+    case Bridge.bridge_for(provider, opts) do
+      nil -> nil
+      bridge -> if bridge_supports?(bridge, fun, arity), do: bridge, else: nil
+    end
+  end
+
   @doc "Runs pipeline through NodeRouter and normalizes response shape."
   @spec run_pipeline_with_node_router(Incoming.t(), keyword(), map() | nil, map(), module()) ::
           Outgoing.t() | {:error, term()}
@@ -315,7 +427,11 @@ defmodule Zaq.Channels.CommunicationBridge do
       when is_list(pipeline_opts) and is_list(candidates) and is_map(actor) and is_list(opts) do
     node_router_module = Keyword.get(opts, :node_router, NodeRouter)
     pipeline_module = Keyword.get(opts, :pipeline_module, Zaq.Agent.Pipeline)
-    msg = put_channel_config_id(msg, Keyword.get(opts, :channel_config_id))
+
+    msg =
+      msg
+      |> put_channel_config_id(Keyword.get(opts, :channel_config_id))
+      |> put_conversation_identity()
 
     with {:ok, agent_selection} <-
            AgentRouting.resolve_selection(candidates, Keyword.get(opts, :agent_module, Agent)) do

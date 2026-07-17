@@ -5,6 +5,18 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistoryTest do
   alias Zaq.Engine.Messages.Incoming
 
   defmodule OkRouter do
+    # The channels node answers the identity lookup by returning the envelope
+    # unchanged; only the engine persist dispatch is surfaced to the test.
+    def dispatch(%{opts: opts, request: %{incoming: incoming}} = event)
+        when opts != nil do
+      if opts[:action] == :conversation_identity do
+        %{event | response: incoming}
+      else
+        send(self(), {:dispatched, event})
+        %{event | response: {:ok, %{conversation_id: "conversation-1", message_id: "message-1"}}}
+      end
+    end
+
     def dispatch(event) do
       send(self(), {:dispatched, event})
       %{event | response: {:ok, %{conversation_id: "conversation-1", message_id: "message-1"}}}

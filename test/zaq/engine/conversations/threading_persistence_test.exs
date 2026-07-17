@@ -24,12 +24,16 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.Conversations.PersistMessageHistory
-  alias Zaq.Channels.Bridge
+  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.Conversations
 
-  # Routes the action's event into the real engine.
+  # Routes the action's event into the real engine — and channel-identity
+  # lookups into the real channels boundary, as NodeRouter would.
   defmodule EngineRouter do
     alias Zaq.Engine.Api
+
+    def dispatch(%{next_hop: %{destination: :channels}} = event),
+      do: Zaq.Channels.Api.handle_event(event, event.opts[:action], nil)
 
     def dispatch(event), do: Api.handle_event(event, event.opts[:action], nil)
   end
@@ -73,11 +77,11 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
 
   # The conversation-fallback resolution Notifications runs for the next send.
   defp resolve_anchor(person_id, platform, topic, subject) do
-    case Bridge.outbound_conversation_key(platform, topic, subject) do
+    case CommunicationBridge.outbound_conversation_key(platform, topic, subject) do
       key when is_binary(key) ->
         Conversations.latest_thread_anchor(
           person_id,
-          Bridge.conversation_channel_type(platform),
+          CommunicationBridge.conversation_channel_type(platform),
           key
         )
 

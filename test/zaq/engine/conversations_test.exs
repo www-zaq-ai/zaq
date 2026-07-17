@@ -7,8 +7,24 @@ defmodule Zaq.Engine.ConversationsTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry.{Buffer, Point}
+
+  # Production stamps conversation identity on the channels node before the
+  # envelope reaches the engine — mirror that here so grouping assertions
+  # exercise the real combined path.
+  defp persist_from_incoming(incoming, result) do
+    incoming
+    |> CommunicationBridge.put_conversation_identity()
+    |> Conversations.persist_from_incoming(result)
+  end
+
+  defp persist_message_history(incoming, attrs) do
+    incoming
+    |> CommunicationBridge.put_conversation_identity()
+    |> Conversations.persist_message_history(attrs)
+  end
 
   # ── Helpers ────────────────────────────────────────────────────────
 
@@ -319,7 +335,7 @@ defmodule Zaq.Engine.ConversationsTest do
       existing_id = existing.id
 
       assert {:ok, %{conversation_id: ^existing_id}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       messages = Conversations.list_messages(existing)
 
@@ -350,7 +366,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_type == "api"
@@ -390,10 +406,10 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
-               Conversations.persist_from_incoming(first, result)
+               persist_from_incoming(first, result)
 
       assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
-               Conversations.persist_from_incoming(second, result)
+               persist_from_incoming(second, result)
 
       [conv] = Conversations.list_conversations(channel_type: "email:imap")
       assert conv.channel_user_id == thread_key
@@ -426,7 +442,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_type == "email:imap"
@@ -453,7 +469,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_user_id == "msg@example.com"
@@ -478,7 +494,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_user_id == "author-fallback@example.com"
@@ -505,7 +521,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_user_id == thread_key
@@ -530,7 +546,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_user_id == "author-atom-fallback@example.com"
@@ -564,7 +580,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       [conv] = Conversations.list_conversations(channel_user_id: "user-1")
       messages = Conversations.list_messages(conv)
@@ -611,7 +627,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
-               Conversations.persist_from_incoming(incoming, result)
+               persist_from_incoming(incoming, result)
 
       [conv] = Conversations.list_conversations(channel_user_id: "user-trace")
       messages = Conversations.list_messages(conv)
@@ -670,9 +686,9 @@ defmodule Zaq.Engine.ConversationsTest do
         metadata: nil
       }
 
-      assert {:ok, _} = Conversations.persist_from_incoming(with_thread_id, result)
-      assert {:ok, _} = Conversations.persist_from_incoming(with_message_id, result)
-      assert {:ok, _} = Conversations.persist_from_incoming(with_author, result)
+      assert {:ok, _} = persist_from_incoming(with_thread_id, result)
+      assert {:ok, _} = persist_from_incoming(with_message_id, result)
+      assert {:ok, _} = persist_from_incoming(with_author, result)
 
       ids =
         Conversations.list_conversations(channel_type: "email:imap")
@@ -708,8 +724,8 @@ defmodule Zaq.Engine.ConversationsTest do
         provider: 123
       }
 
-      assert {:ok, _} = Conversations.persist_from_incoming(email, result)
-      assert {:ok, _} = Conversations.persist_from_incoming(api, result)
+      assert {:ok, _} = persist_from_incoming(email, result)
+      assert {:ok, _} = persist_from_incoming(api, result)
 
       [email_conv] = Conversations.list_conversations(channel_user_id: "atom-thread")
       [api_conv] = Conversations.list_conversations(channel_user_id: "api-user")
@@ -729,7 +745,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id, message_id: message_id}} =
-               Conversations.persist_message_history(incoming, %{
+               persist_message_history(incoming, %{
                  content: "Assistant initiated follow-up"
                })
 
@@ -761,7 +777,7 @@ defmodule Zaq.Engine.ConversationsTest do
       existing_id = existing.id
 
       assert {:ok, %{conversation_id: ^existing_id, message_id: _}} =
-               Conversations.persist_message_history(incoming, %{
+               persist_message_history(incoming, %{
                  role: "user",
                  content: "Manual user note"
                })
@@ -791,10 +807,10 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_message_history(first, %{content: "First assistant message"})
+               persist_message_history(first, %{content: "First assistant message"})
 
       assert {:ok, %{conversation_id: ^conversation_id}} =
-               Conversations.persist_message_history(second, %{
+               persist_message_history(second, %{
                  content: "Second assistant message"
                })
 
@@ -828,10 +844,10 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_message_history(first, %{content: "First assistant message"})
+               persist_message_history(first, %{content: "First assistant message"})
 
       assert {:ok, %{conversation_id: ^conversation_id}} =
-               Conversations.persist_message_history(second, %{
+               persist_message_history(second, %{
                  content: "Second assistant message"
                })
 
@@ -851,7 +867,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_message_history(incoming, %{
+               persist_message_history(incoming, %{
                  content: "Outbound body",
                  person_id: person.id
                })
@@ -872,7 +888,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_message_history(incoming, %{
+               persist_message_history(incoming, %{
                  content: "Outbound body",
                  metadata: %{"subject" => subject}
                })
@@ -881,7 +897,7 @@ defmodule Zaq.Engine.ConversationsTest do
       assert conversation.title == subject
 
       assert {:ok, _} =
-               Conversations.persist_message_history(
+               persist_message_history(
                  %{
                    incoming
                    | metadata: %{"subject" => "Replacement", conversation_id: conversation_id}

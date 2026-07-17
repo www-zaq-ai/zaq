@@ -51,7 +51,7 @@ Registered platforms:
 
 | Platform | Adapter |
 |---|---|
-| `"email:smtp"` | `Zaq.Engine.Notifications.EmailNotification` |
+| `"email:smtp"` | `Zaq.Channels.EmailBridge` (SMTP via `Zaq.Channels.EmailBridge.SmtpSender`) |
 | `"mattermost"` | `Zaq.Channels.Retrieval.Mattermost.Notification` |
 
 ### `Zaq.Engine.Notifications.Notification` — struct
@@ -99,9 +99,10 @@ Status lifecycle: `pending → sent | skipped | failed`
 - `payload` — map with `"subject"`, `"body"`, optional `"html_body"`
 - `metadata` — serialisable map; may include delivery hints (e.g. `"email_body"` override)
 
-### `Zaq.Engine.Notifications.EmailNotification`
+### `Zaq.Channels.EmailBridge.SmtpSender`
 
-Implements `NotificationAdapter`. Delivers via Swoosh/Mailer with
+SMTP transport for the email channel (lives in the channels layer — the engine
+never touches SMTP mechanics). Delivers via Swoosh/Mailer with
 `Swoosh.Adapters.SMTP`. SMTP settings are read at delivery time from
 `channel_configs.settings` under provider `"email:smtp"`. Password is stored
 encrypted via `Zaq.Types.EncryptedString`.

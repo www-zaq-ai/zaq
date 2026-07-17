@@ -40,9 +40,6 @@ defmodule Zaq.Channels.Bridge do
               {:ok, {map(), map(), keyword()}} | {:error, term()}
   @callback after_incoming(map(), map(), keyword(), term(), module()) :: term()
 
-  @callback conversation_key(Incoming.t()) :: String.t() | nil
-  @callback outbound_conversation_key(String.t() | nil, String.t() | nil) :: String.t() | nil
-
   @optional_callbacks start_runtime: 1,
                       stop_runtime: 1,
                       sync_runtime: 2,
@@ -54,9 +51,7 @@ defmodule Zaq.Channels.Bridge do
                       before_incoming: 4,
                       after_incoming: 5,
                       test_connection: 2,
-                      capability_snapshot: 1,
-                      conversation_key: 1,
-                      outbound_conversation_key: 2
+                      capability_snapshot: 1
 
   @communication_required_capabilities [
     :text,
@@ -253,6 +248,8 @@ defmodule Zaq.Channels.Bridge do
         node_router_module \\ NodeRouter
       )
       when is_map(metadata) and is_atom(conversations_module) and is_atom(node_router_module) do
+    incoming = CommunicationBridge.put_conversation_identity(incoming)
+
     if conversations_module == Conversations do
       event =
         Event.new(
@@ -292,72 +289,6 @@ defmodule Zaq.Channels.Bridge do
   end
 
   def provider_to_bridge_key(_provider), do: nil
-
-  @doc """
-  Canonical conversation channel type for a provider.
-
-  Conversations are grouped under one channel type per transport family:
-  inbound and outbound email share `"email:imap"`, the back office web UI is
-  `"bo"`, and non-provider values fall back to `"api"`.
-  """
-  @spec conversation_channel_type(term(), keyword()) :: String.t()
-  def conversation_channel_type(provider, opts \\ [])
-
-  def conversation_channel_type(provider, opts) when is_atom(provider),
-    do: conversation_channel_type(to_string(provider), opts)
-
-  def conversation_channel_type(provider, _opts) when is_binary(provider) do
-    case provider do
-      "email" -> "email:imap"
-      "email:smtp" -> "email:imap"
-      "web" -> "bo"
-      other -> other
-    end
-  end
-
-  def conversation_channel_type(_provider, _opts), do: "api"
-
-  @doc """
-  Conversation grouping key for an incoming message, resolved by the channel's
-  bridge when it defines one.
-
-  Dispatches to the optional `conversation_key/1` bridge callback. Returns `nil`
-  when the channel has no bridge-specific grouping — callers own the generic
-  fallback (typically the author id). Resolves the bridge from application
-  config only; the persist path must never hit `ChannelConfig`.
-  """
-  @spec conversation_key(Incoming.t(), String.t(), keyword()) :: String.t() | nil
-  def conversation_key(incoming, channel_type, opts \\ [])
-
-  def conversation_key(%Incoming{} = incoming, channel_type, opts) do
-    case identity_bridge(channel_type, :conversation_key, 1, opts) do
-      nil -> nil
-      bridge -> bridge.conversation_key(incoming)
-    end
-  end
-
-  @doc """
-  Conversation grouping key for an outbound-first send on `platform`, resolved
-  by the platform's bridge when it defines one.
-
-  Platforms without the callback resolve to `nil`, meaning the send carries no
-  conversation-inherited threading.
-  """
-  @spec outbound_conversation_key(term(), String.t() | nil, String.t() | nil, keyword()) ::
-          String.t() | nil
-  def outbound_conversation_key(platform, topic, subject, opts \\ []) do
-    case identity_bridge(platform, :outbound_conversation_key, 2, opts) do
-      nil -> nil
-      bridge -> bridge.outbound_conversation_key(topic, subject)
-    end
-  end
-
-  defp identity_bridge(provider, fun, arity, opts) do
-    case bridge_for(provider, opts) do
-      nil -> nil
-      bridge -> if bridge_supports?(bridge, fun, arity), do: bridge, else: nil
-    end
-  end
 
   @doc "Resolves configured bridge for provider."
   @spec resolve_bridge(atom() | String.t()) :: {:ok, module()} | {:error, term()}

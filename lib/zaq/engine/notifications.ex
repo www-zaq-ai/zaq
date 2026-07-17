@@ -33,7 +33,6 @@ defmodule Zaq.Engine.Notifications do
   import Ecto.Query
 
   alias Zaq.Accounts.People
-  alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Engine.Conversations
@@ -228,40 +227,35 @@ defmodule Zaq.Engine.Notifications do
     platform = channel["platform"]
     identifier = channel["identifier"]
 
-    case platform_to_atom(platform) do
-      nil ->
-        Logger.warning("[Notifications] unknown platform #{inspect(platform)}, skipping")
+    # Resolved per attempt, not once per notification: on fallback the channel
+    # that actually delivers must be the one whose anchor we store (Bug #12).
+    anchor = resolve_anchor(platform, ctx)
+
+    outgoing = %Outgoing{
+      body: Map.get(log.payload, "body", ""),
+      channel_id: identifier,
+      # The platform string as configured — the channels node resolves its own
+      # bridge from it; the engine never maps providers to bridge modules.
+      provider: platform,
+      thread_anchor: anchor,
+      metadata:
+        Map.merge(metadata, %{
+          "subject" => Map.get(log.payload, "subject"),
+          "html_body" => Map.get(log.payload, "html_body")
+        })
+    }
+
+    result = deliver_via_channels(outgoing, opts)
+    NotificationLog.append_attempt(log.id, platform, identifier, attempt_status(result))
+
+    case result do
+      {:ok, receipt} ->
+        mark_sent(log, platform, identifier, receipt, ctx)
+
+      {:error, _reason} ->
+        # A failed attempt produces no receipt — nothing is surfaced or
+        # persisted, so it can't become a phantom parent (Bug #3).
         dispatch_inline(log, rest, metadata, opts, ctx)
-
-      provider ->
-        # Resolved per attempt, not once per notification: on fallback the channel
-        # that actually delivers must be the one whose anchor we store (Bug #12).
-        anchor = resolve_anchor(platform, ctx)
-
-        outgoing = %Outgoing{
-          body: Map.get(log.payload, "body", ""),
-          channel_id: identifier,
-          provider: provider,
-          thread_anchor: anchor,
-          metadata:
-            Map.merge(metadata, %{
-              "subject" => Map.get(log.payload, "subject"),
-              "html_body" => Map.get(log.payload, "html_body")
-            })
-        }
-
-        result = deliver_via_channels(outgoing, opts)
-        NotificationLog.append_attempt(log.id, platform, identifier, attempt_status(result))
-
-        case result do
-          {:ok, receipt} ->
-            mark_sent(log, platform, identifier, receipt, ctx)
-
-          {:error, _reason} ->
-            # A failed attempt produces no receipt — nothing is surfaced or
-            # persisted, so it can't become a phantom parent (Bug #3).
-            dispatch_inline(log, rest, metadata, opts, ctx)
-        end
     end
   end
 
@@ -277,21 +271,31 @@ defmodule Zaq.Engine.Notifications do
       conversation_thread_anchor(person_id, platform, ctx)
   end
 
-  # The grouping key and channel type come from the same Bridge dispatch that
-  # persistence uses, so the anchor lookup and the message it anchors resolve
-  # the same conversation. Platforms without conversation-inherited threading
-  # resolve a nil key and skip the lookup entirely.
+  # The grouping key and channel type are computed by the channel node that
+  # owns the platform — the same computation persistence stamps on the incoming
+  # envelope — so the anchor lookup and the message it anchors resolve the same
+  # conversation. Platforms without conversation-inherited threading resolve a
+  # nil key and skip the lookup entirely.
   defp conversation_thread_anchor(person_id, platform, ctx) do
-    case Bridge.outbound_conversation_key(platform, ctx.topic, ctx.subject) do
-      key when is_binary(key) ->
-        Conversations.latest_thread_anchor(
-          person_id,
-          Bridge.conversation_channel_type(platform),
-          key
-        )
+    case outbound_conversation_identity(platform, ctx) do
+      %{channel_type: channel_type, conversation_key: key}
+      when is_binary(channel_type) and is_binary(key) ->
+        Conversations.latest_thread_anchor(person_id, channel_type, key)
 
       _ ->
         nil
+    end
+  end
+
+  defp outbound_conversation_identity(platform, ctx) do
+    event =
+      Event.new(%{platform: platform, topic: ctx.topic, subject: ctx.subject}, :channels,
+        opts: [action: :conversation_identity]
+      )
+
+    case node_router_module().dispatch(event) do
+      %{response: %{} = identity} -> identity
+      _ -> nil
     end
   end
 
@@ -347,12 +351,6 @@ defmodule Zaq.Engine.Notifications do
       end
     end)
   end
-
-  defp platform_to_atom(platform) when is_binary(platform) do
-    Bridge.provider_to_bridge_key(platform)
-  end
-
-  defp platform_to_atom(_), do: nil
 
   defp deliver_via_channels(%Outgoing{} = outgoing, opts) do
     case ChannelEvents.build_and_dispatch_deliver_outgoing_event(outgoing,

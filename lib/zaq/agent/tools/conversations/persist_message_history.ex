@@ -94,6 +94,8 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistory do
       message_id: [type: :string, required: true]
     ]
 
+  require Logger
+
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -104,11 +106,30 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistory do
          {:ok, message} <- build_message(params) do
       node_router = Map.get(context, :node_router, NodeRouter)
 
-      %{incoming: incoming, message: message}
+      %{incoming: with_conversation_identity(incoming, node_router), message: message}
       |> Event.new(:engine, opts: [action: :persist_message_history])
       |> node_router.dispatch()
       |> Map.get(:response)
       |> handle_response()
+    end
+  end
+
+  # Conversation identity (channel type + grouping key) is a channel concern:
+  # the channels node stamps it on the routing envelope and the engine consumes
+  # it. On failure the envelope proceeds unstamped and groups generically.
+  defp with_conversation_identity(%Incoming{} = incoming, node_router) do
+    event = Event.new(%{incoming: incoming}, :channels, opts: [action: :conversation_identity])
+
+    case node_router.dispatch(event) do
+      %{response: %Incoming{} = stamped} ->
+        stamped
+
+      other ->
+        Logger.warning(
+          "[PersistMessageHistory] conversation identity unavailable, persisting unstamped: #{inspect(other)}"
+        )
+
+        incoming
     end
   end
 

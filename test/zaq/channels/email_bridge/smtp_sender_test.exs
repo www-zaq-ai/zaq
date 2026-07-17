@@ -1,10 +1,10 @@
-defmodule Zaq.Engine.Notifications.EmailNotificationTest do
+defmodule Zaq.Channels.EmailBridge.SmtpSenderTest do
   use Zaq.DataCase, async: false
 
   @moduletag capture_log: true
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Engine.Notifications.EmailNotification
+  alias Zaq.Channels.EmailBridge.SmtpSender
   alias Zaq.Types.EncryptedString
 
   # ---------------------------------------------------------------------------
@@ -86,7 +86,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
   describe "send_notification/3" do
     test "delivers with default sender when channel config is missing" do
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), %{})
 
       assert_receive {:email, email}
       assert email.subject == "Hello"
@@ -96,7 +96,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
     test "delivers email and returns :ok" do
       upsert_smtp_channel()
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), %{})
 
       assert_receive {:email, email}
       assert email.subject == "Hello"
@@ -118,7 +118,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       upsert_smtp_channel()
 
       metadata = %{"email_body" => "Custom body from metadata"}
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.text_body == "Custom body from metadata"
@@ -128,7 +128,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       upsert_smtp_channel()
 
       p = Map.put(payload(), "html_body", "<p>Hello</p>")
-      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.html_body == "<p>Hello</p>"
@@ -138,7 +138,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       upsert_smtp_channel()
 
       p = payload(body: "<h1>Hello</h1><p><strong>World</strong></p>") |> Map.put("format", :html)
-      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.html_body == "<h1>Hello</h1><p><strong>World</strong></p>"
@@ -153,7 +153,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
         |> Map.put("format", "html")
         |> Map.put("html_body", "<p>Preferred HTML</p>")
 
-      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.html_body == "<p>Preferred HTML</p>"
@@ -164,7 +164,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       upsert_smtp_channel()
 
       p = payload(body: "First paragraph\n\nSecond paragraph")
-      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.html_body =~ "<p>First paragraph</p>"
@@ -175,7 +175,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       upsert_smtp_channel()
 
       p = payload(body: "Hello <World> & friends")
-      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.html_body =~ "Hello &lt;World&gt; &amp; friends"
@@ -185,7 +185,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       upsert_smtp_channel()
 
       p = %{"body" => "No subject here"}
-      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.subject == ""
@@ -194,7 +194,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
     test "handles empty payload gracefully" do
       upsert_smtp_channel()
 
-      assert :ok = EmailNotification.send_notification("user@example.com", %{}, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", %{}, %{})
 
       assert_receive {:email, email}
       assert email.subject == ""
@@ -203,7 +203,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
     test "uses relay blank path and still delivers through test adapter" do
       upsert_smtp_channel(%{settings: smtp_settings(%{"relay" => ""})})
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), %{})
       assert_receive {:email, _email}
     end
 
@@ -218,7 +218,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       })
 
       assert {:error, _reason} =
-               EmailNotification.send_notification("user@example.com", payload(), %{})
+               SmtpSender.send_notification("user@example.com", payload(), %{})
     end
 
     test "handles username with invalid encrypted password without crashing" do
@@ -232,7 +232,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       })
 
       assert {:error, _reason} =
-               EmailNotification.send_notification("user@example.com", payload(), %{})
+               SmtpSender.send_notification("user@example.com", payload(), %{})
     end
 
     test "uses sender provided in payload" do
@@ -242,7 +242,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       p = Map.merge(payload(), %{"from_name" => "ZAQ Bot", "from_email" => "bot@example.com"})
 
-      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ Bot", "bot@example.com"}
@@ -253,7 +253,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       metadata = %{"from" => %{"name" => "ZAQ Agent", "email" => "agent@example.com"}}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ Agent", "agent@example.com"}
@@ -269,7 +269,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
         }
       }
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert {"In-Reply-To", "<msg-2@example.com>"} in email.headers
@@ -296,7 +296,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
           }
         })
 
-      assert :ok = EmailNotification.send_notification("user@example.com", p, metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", p, metadata)
 
       assert_receive {:email, email}
       assert {"X-Meta", "meta-value"} in email.headers
@@ -316,7 +316,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
           "from" => {"  Tuple Sender  ", "  tuple.sender@example.com  "}
         })
 
-      assert :ok = EmailNotification.send_notification("user@example.com", p, %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", p, %{})
 
       assert_receive {:email, email}
       assert email.from == {"Tuple Sender", "tuple.sender@example.com"}
@@ -327,7 +327,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       metadata = %{"from" => %{"address" => "  address.sender@example.com  "}}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "address.sender@example.com"}
@@ -342,7 +342,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
         "from" => %{"name" => " ", "email" => "   "}
       }
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "noreply@example.com"}
@@ -366,7 +366,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
         })
 
         assert {:error, _reason} =
-                 EmailNotification.send_notification("user@example.com", payload(), %{})
+                 SmtpSender.send_notification("user@example.com", payload(), %{})
       end)
     end
 
@@ -386,7 +386,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       })
 
       assert {:error, _reason} =
-               EmailNotification.send_notification("user@example.com", payload(), %{})
+               SmtpSender.send_notification("user@example.com", payload(), %{})
     end
 
     test "ignores non-map headers payload and metadata values" do
@@ -395,7 +395,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       p = Map.put(payload(), "headers", "not-a-map")
       metadata = %{"headers" => ["not", "a", "map"]}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", p, metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", p, metadata)
       assert_receive {:email, email}
       refute Enum.any?(email.headers, fn {key, _} -> String.starts_with?(key, "X-") end)
     end
@@ -407,7 +407,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       metadata = %{"from" => %{email: "atom.map@example.com"}}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "atom.map@example.com"}
@@ -418,7 +418,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       metadata = %{"from" => %{address: "addr.map@example.com"}}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "addr.map@example.com"}
@@ -429,7 +429,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       metadata = %{"from" => "raw@example.com"}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "raw@example.com"}
@@ -440,7 +440,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       metadata = %{"from" => %{name: "Atom Name", email: "name@example.com"}}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"Atom Name", "name@example.com"}
@@ -451,7 +451,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       metadata = %{"from_email" => 12_345, "from_name" => "Valid Name"}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"Valid Name", "noreply@example.com"}
@@ -462,7 +462,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       metadata = %{"from_name" => 12_345, "from_email" => "typed@example.com"}
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "typed@example.com"}
@@ -480,7 +480,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
           })
       })
 
-      result = EmailNotification.send_notification("user@example.com", payload(), %{})
+      result = SmtpSender.send_notification("user@example.com", payload(), %{})
 
       assert result == :ok or match?({:error, _}, result)
       assert Process.alive?(self())
@@ -509,7 +509,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
         """,
         fn ->
           assert {:error, _reason} =
-                   EmailNotification.send_notification("user@example.com", payload(), %{})
+                   SmtpSender.send_notification("user@example.com", payload(), %{})
         end
       )
     end
@@ -537,7 +537,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
         """,
         fn ->
           assert {:error, _reason} =
-                   EmailNotification.send_notification("user@example.com", payload(), %{})
+                   SmtpSender.send_notification("user@example.com", payload(), %{})
         end
       )
     end

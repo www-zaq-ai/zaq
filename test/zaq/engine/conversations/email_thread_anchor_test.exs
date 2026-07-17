@@ -13,7 +13,7 @@ defmodule Zaq.Engine.Conversations.EmailThreadAnchorTest do
   @moduletag capture_log: true
 
   alias Zaq.Accounts.People
-  alias Zaq.Channels.Bridge
+  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.Conversations
 
   defp person_fixture(name \\ "Anchor Person") do
@@ -60,11 +60,11 @@ defmodule Zaq.Engine.Conversations.EmailThreadAnchorTest do
   # grouping key + channel type from the Bridge dispatch, then the generic
   # opaque lookup.
   defp resolve_anchor(person_id, platform, topic, subject) do
-    case Bridge.outbound_conversation_key(platform, topic, subject) do
+    case CommunicationBridge.outbound_conversation_key(platform, topic, subject) do
       key when is_binary(key) ->
         Conversations.latest_thread_anchor(
           person_id,
-          Bridge.conversation_channel_type(platform),
+          CommunicationBridge.conversation_channel_type(platform),
           key
         )
 

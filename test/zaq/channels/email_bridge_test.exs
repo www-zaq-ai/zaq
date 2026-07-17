@@ -5,7 +5,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
   alias Zaq.Channels.{AgentRouting, ChannelConfig}
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
-  alias Zaq.Engine.Notifications.EmailNotification
+  alias Zaq.Channels.EmailBridge.SmtpSender
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -586,7 +586,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       payload = %{"subject" => "Test subject", "body" => "Test body"}
 
-      assert :ok = EmailNotification.send_notification("recipient@example.com", payload, %{})
+      assert :ok = SmtpSender.send_notification("recipient@example.com", payload, %{})
 
       assert_receive {:email, email}
       assert email.to == [{"", "recipient@example.com"}]
@@ -597,7 +597,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "uses default sender when no email:smtp ChannelConfig exists" do
       payload = %{"subject" => "Fallback", "body" => "Hello"}
 
-      assert :ok = EmailNotification.send_notification("recipient@example.com", payload, %{})
+      assert :ok = SmtpSender.send_notification("recipient@example.com", payload, %{})
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "noreply@zaq.local"}

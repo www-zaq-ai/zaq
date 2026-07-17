@@ -37,6 +37,17 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
     def send_reply(%Outgoing{}, _connection_details), do: {:error, :delivery_failed}
   end
 
+  defmodule UnknownAwareCommunicationBridge do
+    def bridge_for("coverage_unknown" <> _), do: nil
+    def bridge_for(_provider), do: __MODULE__
+    def fetch_connection_details(_provider), do: %{}
+
+    def send_reply(%Outgoing{} = outgoing, _connection_details) do
+      send(self(), {:delivered, outgoing.provider, outgoing.channel_id})
+      :ok
+    end
+  end
+
   defmodule NilCommunicationBridge do
     def bridge_for(_provider), do: __MODULE__
     def fetch_connection_details(_provider), do: %{}
@@ -293,7 +304,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
                )
 
       assert is_integer(log_id)
-      assert_receive {:delivered, :email, "test@example.com"}
+      assert_receive {:delivered, "email:smtp", "test@example.com"}
 
       reloaded = Repo.get!(NotificationLog, log_id)
 
@@ -307,7 +318,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
              ]
     end
 
-    test "unknown configured provider skips inline delivery and falls back to email" do
+    test "provider without a resolvable bridge fails that attempt and falls back to email" do
       provider = "coverage_unknown_#{System.unique_integer([:positive])}"
       now = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -333,39 +344,39 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
             ]
         })
 
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert {:ok,
-                  %{
-                    status: :sent,
-                    channel: "email:smtp",
-                    channel_identifier: "fallback@example.com",
-                    notification_log_id: log_id
-                  }} =
-                   Notifications.notify(n,
-                     config: NotificationConfig,
-                     channels_event_opts: [bridge_module: OkCommunicationBridge]
-                   )
+      assert {:ok,
+              %{
+                status: :sent,
+                channel: "email:smtp",
+                channel_identifier: "fallback@example.com",
+                notification_log_id: log_id
+              }} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: UnknownAwareCommunicationBridge]
+               )
 
-          assert_receive {:delivered, :email, "fallback@example.com"}
+      assert_receive {:delivered, "email:smtp", "fallback@example.com"}
 
-          reloaded = Repo.get!(NotificationLog, log_id)
+      reloaded = Repo.get!(NotificationLog, log_id)
 
-          assert reloaded.status == "sent"
+      assert reloaded.status == "sent"
 
-          assert Enum.map(
-                   reloaded.channels_tried,
-                   &Map.take(&1, ["platform", "identifier", "status"])
-                 ) == [
-                   %{
-                     "platform" => "email:smtp",
-                     "identifier" => "fallback@example.com",
-                     "status" => "ok"
-                   }
-                 ]
-        end)
-
-      assert log =~ ~s(unknown platform "#{provider}", skipping)
+      assert Enum.map(
+               reloaded.channels_tried,
+               &Map.take(&1, ["platform", "identifier", "status"])
+             ) == [
+               %{
+                 "platform" => provider,
+                 "identifier" => "bad-platform",
+                 "status" => "error"
+               },
+               %{
+                 "platform" => "email:smtp",
+                 "identifier" => "fallback@example.com",
+                 "status" => "ok"
+               }
+             ]
     end
 
     test "email:imap maps to email and delivers" do
@@ -387,7 +398,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
                  channels_event_opts: [bridge_module: OkCommunicationBridge]
                )
 
-      assert_receive {:delivered, :email, "imap@example.com"}
+      assert_receive {:delivered, "email:imap", "imap@example.com"}
 
       reloaded = Repo.get!(NotificationLog, log_id)
 
@@ -439,7 +450,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
                  channels_event_opts: [bridge_module: OkCommunicationBridge]
                )
 
-      assert_receive {:delivered, :telegram, "chat-123"}
+      assert_receive {:delivered, "telegram", "chat-123"}
 
       reloaded = Repo.get!(NotificationLog, log_id)
       assert reloaded.status == "sent"
@@ -468,7 +479,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
                  channels_event_opts: [bridge_module: StaleStatusCommunicationBridge]
                )
 
-      assert_receive {:delivered_after_stale_status, :email, "test@example.com"}
+      assert_receive {:delivered_after_stale_status, "email:smtp", "test@example.com"}
 
       reloaded = Repo.get!(NotificationLog, log_id)
 
@@ -521,8 +532,8 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
                  channels_event_opts: [bridge_module: OkCommunicationBridge]
                )
 
-      assert_receive {:delivered, :email, "first@example.com"}
-      refute_received {:delivered, :email, "second@example.com"}
+      assert_receive {:delivered, "email:smtp", "first@example.com"}
+      refute_received {:delivered, "email:smtp", "second@example.com"}
     end
 
     test "first channel fails, second succeeds and returns the successful channel" do
