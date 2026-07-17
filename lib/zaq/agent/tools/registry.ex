@@ -148,6 +148,14 @@ defmodule Zaq.Agent.Tools.Registry do
     #   description: "Copy a file to another path",
     #   module: Jido.Tools.Files.CopyFile
     # },
+    %{
+      key: "files.create_file",
+      label: "Create file",
+      description:
+        "Creates a file on local disk. Provide filename, data as text, and optional path. " <>
+          "Saved as markdown. Use @path in your response to let the user preview.",
+      module: Zaq.Agent.Tools.Files.CreateFile
+    },
     ## Requires permission
     # %{
     #   key: "files.move_file",
