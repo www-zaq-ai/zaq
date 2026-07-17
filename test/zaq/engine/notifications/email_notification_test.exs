@@ -100,7 +100,33 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       assert_receive {:email, email}
       assert email.subject == "Hello"
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
+    end
+
+    test "uses the configured from_email/from_name when the caller supplies no sender" do
+      upsert_smtp_channel(%{
+        settings: smtp_settings(%{"from_email" => "support@acme.com", "from_name" => "Acme"})
+      })
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), %{})
+
+      assert_receive {:email, email}
+      assert email.from == {"Acme", "support@acme.com"}
+    end
+
+    test "configured from_email wins over the SMTP username" do
+      upsert_smtp_channel(%{
+        settings:
+          smtp_settings(%{
+            "username" => "smtp-login@acme.com",
+            "from_email" => "support@acme.com"
+          })
+      })
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), %{})
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "support@acme.com"}
     end
 
     test "uses email_body from metadata over payload body when present" do
@@ -322,7 +348,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert email.from == {"ZAQ", "address.sender@example.com"}
     end
 
-    test "normalizes blank sender values and falls back to defaults" do
+    test "normalizes blank sender values and falls back to the configured sender" do
       upsert_smtp_channel()
 
       metadata = %{
@@ -330,6 +356,15 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
         "from_email" => "   ",
         "from" => %{"name" => " ", "email" => "   "}
       }
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "noreply@example.com"}
+    end
+
+    test "falls back to the hardcoded default when no channel config exists" do
+      metadata = %{"from_name" => "   ", "from_email" => "   "}
 
       assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
 
@@ -435,7 +470,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert email.from == {"Atom Name", "name@example.com"}
     end
 
-    test "falls back to default email when from_email is non-binary" do
+    test "falls back to the configured email when from_email is non-binary" do
       upsert_smtp_channel()
 
       metadata = %{"from_email" => 12_345, "from_name" => "Valid Name"}
@@ -443,7 +478,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
-      assert email.from == {"Valid Name", "noreply@zaq.local"}
+      assert email.from == {"Valid Name", "noreply@example.com"}
     end
 
     test "falls back to default name when from_name is non-binary" do
