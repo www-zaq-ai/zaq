@@ -186,12 +186,12 @@ Adapter inbound path:
 - `transition_status/2` — enforces valid transitions; uses `update_all` with current-status
   guard for stale-record safety.
 
-### Email Notification (`Zaq.Engine.Notifications.EmailNotification`)
-- Delivers via SMTP using Swoosh/Mailer.
-- SMTP settings read from `ChannelConfig` for provider `"email:smtp"`.
-- `send_notification/3` — builds Swoosh email and calls `Zaq.Mailer.deliver/2`.
-- Supports SSL, STARTTLS, `verify_peer`/`verify_none`, custom CA cert path.
-- Password field is decrypted via `Zaq.Types.EncryptedString.decrypt/1`.
+### Email Notification (SMTP delivery)
+- SMTP delivery lives in the Channels layer as `Zaq.Channels.EmailBridge.SmtpSender`
+  (moved out of the Engine so SMTP knowledge stays channel-side). See
+  `docs/services/channels.md` and `docs/services/notifications.md`.
+- Engine notifications reach email by dispatching an `%Outgoing{}` to the Channels
+  node via `Notifications.notify/1`; the Engine never calls SMTP directly.
 
 ### Welcome Email (`Zaq.Engine.Notifications.WelcomeEmail`)
 - `deliver/1` — builds and dispatches a welcome email to a newly created user via

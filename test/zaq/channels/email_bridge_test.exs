@@ -5,7 +5,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
   alias Zaq.Channels.{AgentRouting, ChannelConfig}
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
-  alias Zaq.Engine.Notifications.EmailNotification
+  alias Zaq.Channels.EmailBridge.SmtpSender
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -586,18 +586,18 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       payload = %{"subject" => "Test subject", "body" => "Test body"}
 
-      assert :ok = EmailNotification.send_notification("recipient@example.com", payload, %{})
+      assert :ok = SmtpSender.deliver("recipient@example.com", payload, %{})
 
       assert_receive {:email, email}
       assert email.to == [{"", "recipient@example.com"}]
       assert email.subject == "Test subject"
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
     end
 
     test "uses default sender when no email:smtp ChannelConfig exists" do
       payload = %{"subject" => "Fallback", "body" => "Hello"}
 
-      assert :ok = EmailNotification.send_notification("recipient@example.com", payload, %{})
+      assert :ok = SmtpSender.deliver("recipient@example.com", payload, %{})
 
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "noreply@zaq.local"}
@@ -624,7 +624,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       assert_receive {:email, email}
       assert email.subject == "Re: Support request"
-      assert email.from == {"ZAQ", "julien@eweev.com"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
       assert {"In-Reply-To", "<msg-2@example.com>"} in email.headers
       assert {"References", "<msg-1@example.com> <msg-2@example.com>"} in email.headers
     end
@@ -644,7 +644,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       assert_receive {:email, email}
       assert email.subject == "Re: Question"
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
       assert {"In-Reply-To", "<msg@example.com>"} in email.headers
     end
 
@@ -662,7 +662,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       assert_receive {:email, email}
       assert email.subject == "Security alert"
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
       refute Enum.any?(email.headers, fn {k, _v} -> k in ["In-Reply-To", "References"] end)
     end
 
@@ -705,13 +705,13 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       assert_receive {:email, email}
       assert email.subject == "Re: Threaded question"
-      assert email.from == {"ZAQ", "julien@eweev.com"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
       assert {"In-Reply-To", "<AbC123@Example.COM>"} in email.headers
       assert {"References", "<Root42@Example.com> <AbC123@Example.COM>"} in email.headers
     end
 
-    test "send_reply keeps already-prefixed subject and falls back to reply_from when from_email is blank" do
-      upsert_smtp_channel()
+    test "send_reply keeps already-prefixed subject and falls back to reply_from when no from_email is configured" do
+      upsert_smtp_channel(%{settings: smtp_settings(%{"from_email" => nil})})
 
       outgoing = %Zaq.Engine.Messages.Outgoing{
         body: "Reply body",
@@ -733,6 +733,47 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert email.from == {"Agent Name", "reply-fallback@example.com"}
       assert {"In-Reply-To", "<msg-3@example.com>"} in email.headers
       assert {"References", "<msg-3@example.com>"} in email.headers
+    end
+
+    test "send_reply prefers the configured from_email over the delivered-to reply_from" do
+      upsert_smtp_channel(%{settings: smtp_settings(%{"from_email" => "support@acme.com"})})
+
+      outgoing = %Zaq.Engine.Messages.Outgoing{
+        body: "Reply body",
+        channel_id: "recipient@example.com",
+        provider: :"email:imap",
+        in_reply_to: "<msg-9@example.com>",
+        metadata: %{
+          "subject" => "Re: Existing thread",
+          "email" => %{"reply_from" => "imap-mailbox@example.com"}
+        }
+      }
+
+      assert :ok = EmailBridge.send_reply(outgoing, %{})
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "support@acme.com"}
+    end
+
+    test "send_reply lets an explicitly requested sender win over the configured from_email" do
+      upsert_smtp_channel(%{settings: smtp_settings(%{"from_email" => "support@acme.com"})})
+
+      outgoing = %Zaq.Engine.Messages.Outgoing{
+        body: "Reply body",
+        channel_id: "recipient@example.com",
+        provider: :"email:imap",
+        in_reply_to: "<msg-10@example.com>",
+        metadata: %{
+          "subject" => "Re: Existing thread",
+          "from_email" => "explicit@acme.com",
+          "email" => %{"reply_from" => "imap-mailbox@example.com"}
+        }
+      }
+
+      assert :ok = EmailBridge.send_reply(outgoing, %{})
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "explicit@acme.com"}
     end
 
     test "send_reply uses default reply subject for blank subject and dedupes list references" do

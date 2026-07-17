@@ -1,26 +1,38 @@
-defmodule Zaq.Engine.Notifications.EmailNotification do
+defmodule Zaq.Channels.EmailBridge.SmtpSender do
   @moduledoc """
-  Email notification delivery.
+  SMTP delivery for the email channel.
 
-  Delivers notifications via SMTP using Swoosh/Mailer. The recipient address
-  comes from the `identifier` argument. SMTP settings are read from
+  Delivers a channel payload via SMTP using Swoosh/Mailer. The recipient address
+  comes from the `recipient` argument. SMTP settings are read from
   `channel_configs.settings` under provider `email:smtp` (same source as the
   SMTP configuration UI).
+
+  This is the email channel's own delivery mechanism — it lives in the Channels
+  layer so that SMTP knowledge (relay, TLS, headers, sender resolution) never
+  leaks into the Engine.
   """
 
   import Swoosh.Email
   import Zaq.Helpers, only: [blank?: 1]
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.SmtpHelpers
   alias Zaq.Mailer
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.HtmlUtils
-
-  @smtp_provider "email:smtp"
-  alias Zaq.Channels.SmtpHelpers
   alias Zaq.Utils.ParseUtils
 
-  def send_notification(identifier, payload, metadata) do
+  @smtp_provider "email:smtp"
+
+  @doc """
+  Delivers `payload` to `recipient` over SMTP.
+
+  `payload` carries `"subject"`, `"body"`, `"html_body"`, `"format"`, `"headers"`,
+  and optional sender overrides (`"from_email"`, `"from_name"`, `"reply_from_email"`).
+  `metadata` may carry an `"email_body"` override and additional `"headers"`.
+  """
+  @spec deliver(String.t(), map(), map()) :: :ok | {:error, term()}
+  def deliver(recipient, payload, metadata \\ %{}) do
     settings = smtp_settings()
     {from_name, from_email} = email_sender(payload, metadata, settings)
     delivery_opts = build_delivery_opts_from_settings(settings)
@@ -32,7 +44,7 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
 
     email =
       new()
-      |> to(identifier)
+      |> to(recipient)
       |> from({from_name, from_email})
       |> subject(subject)
       |> text_body(text)
@@ -108,9 +120,12 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
       normalize_name(resolve_sender_name(payload, metadata)) ||
         normalize_name(map_get(settings, "from_name"))
 
+    # An explicitly requested sender wins, then the configured From Email, then
+    # the address the original mail was delivered to (replies only).
     from_email =
       normalize_email(resolve_sender_email(payload, metadata)) ||
-        normalize_email(map_get(settings, "from_email"))
+        normalize_email(map_get(settings, "from_email")) ||
+        normalize_email(map_get(payload, "reply_from_email"))
 
     {from_name || "ZAQ", from_email || "noreply@zaq.local"}
   end

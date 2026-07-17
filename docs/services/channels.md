@@ -449,7 +449,7 @@ Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 ## Email Bridge
 
-`Zaq.Channels.EmailBridge` delivers `%Outgoing{}` via SMTP using `Zaq.Engine.Notifications.EmailNotification`. Connection details are not required — SMTP settings are read from `channel_configs.settings` for provider `"email:smtp"`.
+`Zaq.Channels.EmailBridge` delivers `%Outgoing{}` via SMTP using `Zaq.Channels.EmailBridge.SmtpSender` (channel-owned — no Engine hop). Connection details are not required — SMTP settings are read from `channel_configs.settings` for provider `"email:smtp"`.
 
 - `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
 - `from_listener/3` — generic sink callback for inbound email listeners; orchestration is bridge-owned.

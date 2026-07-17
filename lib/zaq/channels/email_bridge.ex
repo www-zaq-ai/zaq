@@ -17,9 +17,9 @@ defmodule Zaq.Channels.EmailBridge do
   require Logger
 
   alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig}
-  alias Zaq.Channels.EmailBridge.ImapConfigHelpers
+  alias Zaq.Channels.EmailBridge.{ImapConfigHelpers, SmtpSender}
+  alias Zaq.{Config, NodeRouter, System}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.{NodeRouter, System}
   alias Zaq.Utils.EmailUtils
 
   @doc "Converts an email adapter payload to the internal `%Incoming{}` format."
@@ -117,11 +117,9 @@ defmodule Zaq.Channels.EmailBridge do
   @spec send_reply(Outgoing.t(), map()) :: :ok | {:error, term()}
   @impl true
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
-    alias Zaq.Engine.Notifications.EmailNotification
-
     reply? = email_reply?(outgoing)
     subject = resolve_subject(outgoing.metadata, reply?)
-    from_email = resolve_from_email(outgoing.metadata, reply?)
+    from_email = resolve_from_email(outgoing.metadata)
     from_name = resolve_from_name(outgoing.metadata)
 
     html_body = get_meta(outgoing.metadata, "html_body", :html_body)
@@ -138,8 +136,9 @@ defmodule Zaq.Channels.EmailBridge do
       }
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
+      |> maybe_put("reply_from_email", reply_from_email(outgoing.metadata, reply?))
 
-    EmailNotification.send_notification(outgoing.channel_id, payload, %{})
+    SmtpSender.deliver(outgoing.channel_id, payload)
   end
 
   # ---------------------------------------------------------------------------
@@ -185,7 +184,7 @@ defmodule Zaq.Channels.EmailBridge do
   defp adapter_for(provider) do
     with key when not is_nil(key) <- provider_key(provider),
          adapter when is_atom(adapter) <-
-           Application.get_env(:zaq, :channels, %{}) |> get_in([key, :adapter]) do
+           Config.get(:zaq, :channels, %{}) |> get_in([key, :adapter]) do
       {:ok, adapter}
     else
       _ -> {:error, {:unsupported_provider, provider}}
@@ -249,13 +248,13 @@ defmodule Zaq.Channels.EmailBridge do
   end
 
   defp pipeline_module,
-    do: Application.get_env(:zaq, :email_bridge_pipeline_module, Zaq.Agent.Pipeline)
+    do: Config.get(:zaq, :email_bridge_pipeline_module, Zaq.Agent.Pipeline)
 
   defp node_router_module,
-    do: Application.get_env(:zaq, :email_bridge_node_router_module, NodeRouter)
+    do: Config.get(:zaq, :email_bridge_node_router_module, NodeRouter)
 
   defp deliver_outgoing_runtime(%Outgoing{} = outgoing) do
-    case Application.get_env(:zaq, :email_bridge_router_module, Zaq.Channels.Api) do
+    case Config.get(:zaq, :email_bridge_router_module, Zaq.Channels.Api) do
       Zaq.Channels.Api ->
         Zaq.Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
         |> node_router_module().dispatch()
@@ -372,19 +371,21 @@ defmodule Zaq.Channels.EmailBridge do
   defp format_message_id(nil), do: nil
   defp format_message_id(value), do: "<" <> value <> ">"
 
-  defp resolve_from_email(metadata, reply?) when is_map(metadata) do
+  defp resolve_from_email(metadata) when is_map(metadata) do
     explicit =
       get_meta(metadata, "from_email", :from_email) ||
         sender_email(get_meta(metadata, "from", :from))
 
-    normalize_non_blank(explicit) || reply_from_email(metadata, reply?)
+    normalize_non_blank(explicit)
   end
 
-  defp resolve_from_email(_metadata, _reply?), do: nil
+  defp resolve_from_email(_metadata), do: nil
 
+  # Passed as a distinct payload key, not as from_email: it must lose to the
+  # configured sender and only apply when no From Email is set.
   defp reply_from_email(_metadata, false), do: nil
 
-  defp reply_from_email(metadata, true) do
+  defp reply_from_email(metadata, true) when is_map(metadata) do
     metadata
     |> get_meta("email", :email)
     |> case do
@@ -393,6 +394,8 @@ defmodule Zaq.Channels.EmailBridge do
     end
     |> normalize_non_blank()
   end
+
+  defp reply_from_email(_metadata, _reply?), do: nil
 
   defp normalize_non_blank(value) when is_binary(value) do
     trimmed = String.trim(value)
