@@ -100,7 +100,18 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
 
       assert_receive {:email, email}
       assert email.subject == "Hello"
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
+    end
+
+    test "falls back to SMTP sender settings when payload and metadata omit sender" do
+      upsert_smtp_channel(%{
+        settings: smtp_settings(%{"from_name" => "SMTP Bot", "from_email" => "smtp@example.com"})
+      })
+
+      assert :ok = EmailNotification.send_notification("user@example.com", payload(), %{})
+
+      assert_receive {:email, email}
+      assert email.from == {"SMTP Bot", "smtp@example.com"}
     end
 
     test "uses email_body from metadata over payload body when present" do
@@ -322,7 +333,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert email.from == {"ZAQ", "address.sender@example.com"}
     end
 
-    test "normalizes blank sender values and falls back to defaults" do
+    test "normalizes blank sender values and falls back to SMTP settings" do
       upsert_smtp_channel()
 
       metadata = %{
@@ -334,7 +345,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
     end
 
     test "covers starttls tls mode branches with relay and no username" do
@@ -443,7 +454,7 @@ defmodule Zaq.Engine.Notifications.EmailNotificationTest do
       assert :ok = EmailNotification.send_notification("user@example.com", payload(), metadata)
 
       assert_receive {:email, email}
-      assert email.from == {"Valid Name", "noreply@zaq.local"}
+      assert email.from == {"Valid Name", "noreply@example.com"}
     end
 
     test "falls back to default name when from_name is non-binary" do

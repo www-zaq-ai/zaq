@@ -591,7 +591,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert_receive {:email, email}
       assert email.to == [{"", "recipient@example.com"}]
       assert email.subject == "Test subject"
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
     end
 
     test "uses default sender when no email:smtp ChannelConfig exists" do
@@ -629,6 +629,32 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert {"References", "<msg-1@example.com> <msg-2@example.com>"} in email.headers
     end
 
+    test "send_reply uses SMTP from_name for IMAP replies" do
+      upsert_smtp_channel(%{
+        settings: smtp_settings(%{"from_name" => "Zaq local"})
+      })
+
+      outgoing = %Zaq.Engine.Messages.Outgoing{
+        body: "Reply body",
+        channel_id: "recipient@example.com",
+        provider: :"email:imap",
+        in_reply_to: "<msg@example.com>",
+        metadata: %{
+          "email" => %{
+            "subject" => "Support request",
+            "reply_from" => "support@example.com"
+          }
+        }
+      }
+
+      assert :ok = EmailBridge.send_reply(outgoing, %{})
+
+      assert_receive {:email, email}
+      assert email.subject == "Re: Support request"
+      assert email.from == {"Zaq local", "support@example.com"}
+      assert {"In-Reply-To", "<msg@example.com>"} in email.headers
+    end
+
     test "reply without email metadata map does not set reply_from" do
       upsert_smtp_channel()
 
@@ -644,7 +670,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       assert_receive {:email, email}
       assert email.subject == "Re: Question"
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
       assert {"In-Reply-To", "<msg@example.com>"} in email.headers
     end
 
@@ -662,7 +688,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       assert_receive {:email, email}
       assert email.subject == "Security alert"
-      assert email.from == {"ZAQ", "noreply@zaq.local"}
+      assert email.from == {"ZAQ", "noreply@example.com"}
       refute Enum.any?(email.headers, fn {k, _v} -> k in ["In-Reply-To", "References"] end)
     end
 

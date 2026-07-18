@@ -21,8 +21,9 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
   alias Zaq.Utils.ParseUtils
 
   def send_notification(identifier, payload, metadata) do
-    {from_name, from_email} = email_sender(payload, metadata)
-    delivery_opts = email_delivery_opts()
+    settings = smtp_settings()
+    {from_name, from_email} = email_sender(payload, metadata, settings)
+    delivery_opts = email_delivery_opts(settings)
 
     subject = Map.get(payload, "subject", "")
     body = Map.get(metadata, "email_body") || Map.get(payload, "body", "")
@@ -101,11 +102,18 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
     |> String.replace(">", "&gt;")
   end
 
-  defp email_sender(payload, metadata) when is_map(payload) and is_map(metadata) do
-    from_name = resolve_sender_name(payload, metadata)
-    from_email = resolve_sender_email(payload, metadata)
+  defp email_sender(payload, metadata, settings) when is_map(payload) and is_map(metadata) do
+    from_name =
+      normalize_name(resolve_sender_name(payload, metadata)) ||
+        normalize_name(map_get(settings, "from_name")) ||
+        "ZAQ"
 
-    {normalize_name(from_name) || "ZAQ", normalize_email(from_email) || "noreply@zaq.local"}
+    from_email =
+      normalize_email(resolve_sender_email(payload, metadata)) ||
+        normalize_email(map_get(settings, "from_email")) ||
+        "noreply@zaq.local"
+
+    {from_name, from_email}
   end
 
   defp resolve_sender_email(payload, metadata) do
@@ -124,12 +132,15 @@ defmodule Zaq.Engine.Notifications.EmailNotification do
       from_value_name(from_value)
   end
 
-  defp email_delivery_opts do
+  defp smtp_settings do
     case ChannelConfig.get_by_provider(@smtp_provider) do
-      nil -> []
-      %ChannelConfig{settings: settings} -> build_delivery_opts_from_settings(settings)
+      nil -> %{}
+      %ChannelConfig{settings: settings} when is_map(settings) -> settings
+      %ChannelConfig{} -> %{}
     end
   end
+
+  defp email_delivery_opts(settings), do: build_delivery_opts_from_settings(settings)
 
   defp build_delivery_opts_from_settings(settings) do
     relay = map_get(settings, "relay")
