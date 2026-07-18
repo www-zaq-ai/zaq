@@ -73,16 +73,13 @@ defmodule Zaq.Channels.MessageFormatter do
     end
   end
 
+  # Providers are normalised through `Bridge.provider_to_bridge_key/1` for both
+  # atoms and strings. Sub-providers such as `:"email:imap"` are not config keys
+  # in their own right — they map back onto `:email`. Using the raw provider as
+  # the key made IMAP replies miss `:message_format` and ship as raw markdown.
   defp provider_channel_config(provider) do
-    key =
-      cond do
-        is_atom(provider) -> provider
-        is_binary(provider) -> Bridge.provider_to_bridge_key(provider)
-        true -> nil
-      end
-
     Application.get_env(:zaq, :channels, %{})
-    |> Map.get(key, %{})
+    |> Map.get(Bridge.provider_to_bridge_key(provider), %{})
   end
 
   defp provider_message_format(provider_config) when is_map(provider_config),
