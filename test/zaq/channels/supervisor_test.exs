@@ -175,6 +175,23 @@ defmodule Zaq.Channels.SupervisorTest do
     end
   end
 
+  # An `email:imap` config is rejected by the changeset unless an enabled
+  # `email:smtp` config already exists — IMAP has no way to reply without it.
+  defp upsert_smtp_prerequisite do
+    {:ok, config} =
+      ChannelConfig.upsert_by_provider("email:smtp", %{
+        name: "Email SMTP Bootstrap",
+        kind: "retrieval",
+        provider: "email:smtp",
+        enabled: true,
+        url: "smtp.example.com",
+        token: "tok",
+        settings: %{"smtp" => %{"from_email" => "noreply@example.com"}}
+      })
+
+    config
+  end
+
   setup do
     previous_channels = Application.get_env(:zaq, :channels, %{})
 
@@ -396,6 +413,81 @@ defmodule Zaq.Channels.SupervisorTest do
     assert_receive {:bootstrap_sync, "data_source", "google_drive", ^ds_id}
     refute_received {:bootstrap_sync, _, "slack", _}
     refute_received {:bootstrap_sync, _, "discord", _}
+  end
+
+  # Channel configs are stored under sub-provider keys (`email:imap`,
+  # `email:smtp`) while `config :zaq, :channels` is keyed by bridge
+  # (`email`). Bootstrap must reconcile the two, otherwise an enabled IMAP
+  # channel is skipped on every cold start and no listener is ever spawned —
+  # the channel only comes up if someone toggles it in the BO afterwards.
+  test "start_link/1 bootstraps sub-provider configs such as email:imap" do
+    Process.register(self(), :supervisor_bootstrap_observer)
+
+    on_exit(fn ->
+      if Process.whereis(:supervisor_bootstrap_observer) do
+        Process.unregister(:supervisor_bootstrap_observer)
+      end
+    end)
+
+    upsert_smtp_prerequisite()
+
+    {:ok, imap_config} =
+      ChannelConfig.upsert_by_provider("email:imap", %{
+        name: "Email IMAP Bootstrap",
+        kind: "retrieval",
+        provider: "email:imap",
+        enabled: true,
+        url: "imap.example.com",
+        token: "tok",
+        settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+      })
+
+    imap_id = imap_config.id
+
+    Application.put_env(:zaq, :channels, %{
+      email: %{bridge: BootstrapSyncBridge, adapter: StubAdapter}
+    })
+
+    with_stopped_channel_supervisor(fn ->
+      assert {:ok, _pid} = Supervisor.start_link([])
+    end)
+
+    assert_receive {:bootstrap_sync, "retrieval", "email:imap", ^imap_id}
+  end
+
+  test "start_link/1 still ignores providers absent from channel config" do
+    Process.register(self(), :supervisor_bootstrap_observer)
+
+    on_exit(fn ->
+      if Process.whereis(:supervisor_bootstrap_observer) do
+        Process.unregister(:supervisor_bootstrap_observer)
+      end
+    end)
+
+    upsert_smtp_prerequisite()
+
+    {:ok, _} =
+      ChannelConfig.upsert_by_provider("email:imap", %{
+        name: "Email IMAP Unconfigured",
+        kind: "retrieval",
+        provider: "email:imap",
+        enabled: true,
+        url: "imap.example.com",
+        token: "tok",
+        settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+      })
+
+    # No `email` key at all — widening the allowlist must not start runtimes
+    # for bridges the application is not configured for.
+    Application.put_env(:zaq, :channels, %{
+      mattermost: %{bridge: BootstrapSyncBridge, adapter: StubAdapter}
+    })
+
+    with_stopped_channel_supervisor(fn ->
+      assert {:ok, _pid} = Supervisor.start_link([])
+    end)
+
+    refute_received {:bootstrap_sync, _, "email:imap", _}
   end
 
   test "stop_bridge_runtime/2 returns not_running when missing", %{config: config} do
