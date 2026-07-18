@@ -17,7 +17,7 @@ defmodule Zaq.Channels.Supervisor do
 
   require Logger
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.{ChannelConfig, CommunicationBridge, DataSourceBridge}
 
   # ETS table: bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
   @table :zaq_channels_listeners
@@ -260,15 +260,13 @@ defmodule Zaq.Channels.Supervisor do
 
   defp bridge_id(config), do: "#{config.provider}_#{config.id}"
 
-  # Expands each configured bridge key into every provider string that may be
-  # stored under it. `config :zaq, :channels` is keyed by bridge (`:email`)
-  # while rows use sub-providers (`"email:imap"`), so comparing the raw key
-  # against `channel_configs.provider` skipped IMAP channels on every cold boot.
+  # ChannelConfig handles sub-provider matching (`email` matches `email:imap`),
+  # so the supervisor only needs to pass configured base provider keys.
   defp configured_providers do
     :zaq
     |> Application.get_env(:channels, %{})
     |> Enum.flat_map(fn {provider, cfg} ->
-      if Map.has_key?(cfg, :adapter), do: Bridge.bridge_key_to_providers(provider), else: []
+      if is_map(cfg) and Map.has_key?(cfg, :adapter), do: [to_string(provider)], else: []
     end)
   end
 end

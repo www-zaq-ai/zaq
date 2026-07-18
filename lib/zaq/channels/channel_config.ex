@@ -226,11 +226,25 @@ defmodule Zaq.Channels.ChannelConfig do
   """
   def list_enabled_by_kind(kind, providers) when kind in [:ingestion, :data_source, :retrieval] do
     kind_str = kind_to_config_kind(kind)
+    providers = normalize_filter_providers(providers)
 
     __MODULE__
-    |> where([c], c.kind == ^kind_str and c.enabled == true and c.provider in ^providers)
+    |> where(
+      [c],
+      c.kind == ^kind_str and c.enabled == true and
+        (c.provider in ^providers or fragment("split_part(?, ':', 1)", c.provider) in ^providers)
+    )
     |> Zaq.Repo.all()
   end
+
+  defp normalize_filter_providers(providers) when is_list(providers) do
+    providers
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp normalize_filter_providers(_providers), do: []
 
   defp kind_to_config_kind(:ingestion), do: "data_source"
   defp kind_to_config_kind(kind), do: Atom.to_string(kind)

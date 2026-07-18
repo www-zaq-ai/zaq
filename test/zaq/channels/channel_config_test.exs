@@ -335,6 +335,36 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert result.id == retrieval_enabled.id
   end
 
+  test "list_enabled_by_kind/2 matches provider prefix before colon" do
+    assert {:ok, smtp} =
+             ChannelConfig.upsert_by_provider("email:smtp", %{
+               name: "Email SMTP",
+               kind: "retrieval",
+               enabled: true,
+               settings: %{"relay" => "smtp.example.com", "port" => "587"}
+             })
+
+    imap = upsert_imap_config(enabled: true, mailbox: "INBOX")
+
+    result_ids =
+      :retrieval
+      |> ChannelConfig.list_enabled_by_kind(["email"])
+      |> Enum.map(& &1.id)
+
+    assert Enum.sort(result_ids) == Enum.sort([smtp.id, imap.id])
+  end
+
+  test "list_enabled_by_kind/2 excludes disabled provider-prefix matches" do
+    _disabled_imap = upsert_imap_config(enabled: false, mailbox: "Archive")
+
+    result_providers =
+      :retrieval
+      |> ChannelConfig.list_enabled_by_kind(["email"])
+      |> Enum.map(& &1.provider)
+
+    refute "email:imap" in result_providers
+  end
+
   test "get_by_provider/1 ignores disabled configs" do
     _disabled = insert_channel_config(%{provider: "mattermost", enabled: false})
     enabled = insert_channel_config(%{provider: "slack", enabled: true})
@@ -562,6 +592,33 @@ defmodule Zaq.Channels.ChannelConfigTest do
     %ChannelConfig{}
     |> ChannelConfig.changeset(Map.merge(defaults, attrs))
     |> Repo.insert!()
+  end
+
+  defp upsert_imap_config(opts) do
+    enabled = Keyword.fetch!(opts, :enabled)
+    mailbox = Keyword.fetch!(opts, :mailbox)
+
+    attrs = %{
+      name: "Email IMAP",
+      provider: "email:imap",
+      kind: "retrieval",
+      token: "imap-secret",
+      enabled: enabled,
+      settings: %{"imap" => %{"selected_mailboxes" => [mailbox]}}
+    }
+
+    case ChannelConfig.get_any_by_provider("email:imap") do
+      nil ->
+        insert_channel_config(attrs)
+
+      existing ->
+        assert {:ok, updated} =
+                 existing
+                 |> ChannelConfig.changeset(attrs)
+                 |> Repo.update()
+
+        updated
+    end
   end
 
   defp insert_configured_agent do
