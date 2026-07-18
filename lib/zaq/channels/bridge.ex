@@ -288,19 +288,6 @@ defmodule Zaq.Channels.Bridge do
 
   def provider_to_bridge_key(_provider), do: nil
 
-  @doc """
-  Inverse of `provider_to_bridge_key/1`: every provider string that may be
-  stored in `channel_configs` under a given configured bridge key.
-
-  `config :zaq, :channels` is keyed by bridge (`:email`), but rows are stored
-  under sub-providers (`"email:imap"`, `"email:smtp"`). Callers that filter
-  configs by provider string must expand the bridge key first, or enabled
-  sub-provider channels are silently skipped.
-  """
-  @spec bridge_key_to_providers(atom()) :: [String.t()]
-  def bridge_key_to_providers(:email), do: ["email", @smtp_provider, @imap_provider]
-  def bridge_key_to_providers(key) when is_atom(key), do: [Atom.to_string(key)]
-
   @doc "Resolves configured bridge for provider."
   @spec resolve_bridge(atom() | String.t()) :: {:ok, module()} | {:error, term()}
   def resolve_bridge(provider, opts \\ []) do
