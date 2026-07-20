@@ -58,14 +58,26 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert ProviderSpec.reqllm_provider("totally_nonexistent_xyz") == :openai
     end
 
-    test "catalog_only provider falls back to :openai" do
+    # The :openai fallback lives in reqllm_provider_from_llmdb/1, which is only
+    # reached when ReqLLM has no module for the provider. A catalog_only provider
+    # that *does* have one (azure, google_vertex, amazon_bedrock, ...) returns its
+    # own atom from the first branch. Selecting by catalog_only alone picks an
+    # arbitrary provider — LLMDB.providers/0 ordering is not guaranteed — so pin
+    # the search to the combination the fallback actually covers.
+    test "catalog_only provider with no ReqLLM module falls back to :openai" do
       catalog_only =
         LLMDB.providers()
-        |> Enum.find(& &1.catalog_only)
+        |> Enum.filter(& &1.catalog_only)
+        |> Enum.find(&match?({:error, _}, ReqLLM.provider(&1.id)))
 
-      if catalog_only do
-        assert ProviderSpec.reqllm_provider(to_string(catalog_only.id)) == :openai
-      end
+      assert catalog_only,
+             "expected at least one catalog_only provider without a ReqLLM module"
+
+      assert ProviderSpec.reqllm_provider(to_string(catalog_only.id)) == :openai
+    end
+
+    test "catalog_only provider with a ReqLLM module keeps its own atom" do
+      assert ProviderSpec.reqllm_provider("azure") == :azure
     end
   end
 
