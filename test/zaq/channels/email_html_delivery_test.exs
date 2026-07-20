@@ -47,7 +47,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
     test "markdown agent reply reaches SMTP as converted html" do
       upsert_smtp_channel()
 
-      assert :ok = deliver(@markdown, %{"subject" => "Deploy report"})
+      assert {:ok, _} = deliver(@markdown, %{"subject" => "Deploy report"})
 
       assert_receive {:email, email}
 
@@ -72,7 +72,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
     test "text part is the de-tagged twin of the html part" do
       upsert_smtp_channel()
 
-      assert :ok = deliver(@markdown, %{"subject" => "Deploy report"})
+      assert {:ok, _} = deliver(@markdown, %{"subject" => "Deploy report"})
 
       assert_receive {:email, email}
 
@@ -93,7 +93,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
 
       body = "Compare `a < b` and <script>alert('xss')</script> in **prod**."
 
-      assert :ok = deliver(body, %{"subject" => "Escaping"})
+      assert {:ok, _} = deliver(body, %{"subject" => "Escaping"})
 
       assert_receive {:email, email}
 
@@ -109,7 +109,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
       # Regression guard for the Api -> EmailBridge handoff: EmailBridge reads
       # `format` out of metadata to decide which body becomes the HTML part.
       # If MessageFormatter stops stamping it, text and html silently swap roles.
-      assert :ok = deliver("**bold**", %{"subject" => "Format relay"})
+      assert {:ok, _} = deliver("**bold**", %{"subject" => "Format relay"})
 
       assert_receive {:email, email}
 
@@ -125,7 +125,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
     test "markdown is converted for replies on the :\"email:imap\" provider" do
       upsert_smtp_channel()
 
-      assert :ok = deliver(@markdown, %{"subject" => "IMAP reply"}, :"email:imap")
+      assert {:ok, _} = deliver(@markdown, %{"subject" => "IMAP reply"}, :"email:imap")
 
       assert_receive {:email, email}
 
@@ -140,7 +140,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
     test "markdown is converted for the string form of the imap provider" do
       upsert_smtp_channel()
 
-      assert :ok = deliver(@markdown, %{"subject" => "IMAP reply"}, "email:imap")
+      assert {:ok, _} = deliver(@markdown, %{"subject" => "IMAP reply"}, "email:imap")
 
       assert_receive {:email, email}
 
@@ -151,7 +151,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
     test "routing metadata survives formatting" do
       upsert_smtp_channel()
 
-      assert :ok =
+      assert {:ok, _} =
                deliver("**hi**", %{
                  "subject" => "Metadata",
                  "request_id" => "req-42"
