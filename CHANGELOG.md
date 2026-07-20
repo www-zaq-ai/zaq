@@ -1,5 +1,87 @@
 # Changelog
 
+## [0.15.0](https://github.com/www-zaq-ai/zaq/compare/v0.14.0...v0.15.0) (2026-07-20)
+
+
+### Features
+
+* **action:** new action to persist message into conversation history ([403a301](https://github.com/www-zaq-ai/zaq/commit/403a3010a9e385fd5f40b08da5ffb5ad3d2f575b))
+* **Actions:** Schedule an action execution ([f496600](https://github.com/www-zaq-ai/zaq/commit/f4966007ffd34ddb3035c4c49ec0adb67cadc233)), closes [#593](https://github.com/www-zaq-ai/zaq/issues/593)
+* add system timezone handling with GMT offset config and timezone-aware rendering ([b171971](https://github.com/www-zaq-ai/zaq/commit/b1719719c61b5b24027327d931fdb116eade271c))
+* **agent:** add configurable agent skills with BO management UI ([0c54208](https://github.com/www-zaq-ai/zaq/commit/0c54208ef32f250004bea2c396306ad9e3c2ab77))
+* **agent:** add split tool and enrich leads email drafting workflow ([0113a7e](https://github.com/www-zaq-ai/zaq/commit/0113a7e6d83abdefad9c7a9528e236e21420a2ba))
+* **agent:** add web_browsing action bridging the agent-browser CLI ([6c449c4](https://github.com/www-zaq-ai/zaq/commit/6c449c4489d394932c9b8e71c2ceb7247f85b3b2))
+* **agent:** extract Command runner and add web_browsing verify/timeout ([951352c](https://github.com/www-zaq-ai/zaq/commit/951352c3bd0269fb99dabe9e632c45e07ad1313f))
+* **agent:** let run_agent carry context turns and token budget to the agent ([19fddac](https://github.com/www-zaq-ai/zaq/commit/19fddacff58073c44833bffecc418232ed018b4d))
+* **agent:** rebuild skills on progressive disclosure with load_skill tool ([7a5b74c](https://github.com/www-zaq-ai/zaq/commit/7a5b74ccd3dfb595cbbacad0856b9798202df7e9))
+* **agent:** support list concatenation and cascade-aware placeholders in concat ([e659237](https://github.com/www-zaq-ai/zaq/commit/e659237f41e92941963c962c8a9b2704b88140e0))
+* **agent:** unify conversation history to role/content vocabulary ([472b2d3](https://github.com/www-zaq-ai/zaq/commit/472b2d31f4e19a4f11c82c8d8885fc0d8fcfad92))
+* **AI provider:** support ChatGPT Plus and Pro subscriptions [[#590](https://github.com/www-zaq-ai/zaq/issues/590)](https://github.com/www-zaq-ai/zaq/issues/590) ([67f49ea](https://github.com/www-zaq-ai/zaq/commit/67f49ea7fb3b263fd99bcc7195a256447ff37887))
+* **bo:** add DesignSystem.StatusDot for active/inactive and count badges ([a81f588](https://github.com/www-zaq-ai/zaq/commit/a81f58800f43dcdd0a9f43b10ba7ab45e354fa84))
+* **bo:** add table selection bar and migrate workflows list to DS table ([f493e31](https://github.com/www-zaq-ai/zaq/commit/f493e31a0edf551d04081a840ce65190c17543f2))
+* **bo:** add table selection bar and migrate workflows list to DS table ([dfc7cfe](https://github.com/www-zaq-ai/zaq/commit/dfc7cfed945a3d9cfd4865d764d35ec217b73b36))
+* **data source:** connect data source to ingestion pipeline ([135f8ea](https://github.com/www-zaq-ai/zaq/commit/135f8ea8bdcbcfe310378d3f58938f00d3d1bf4e))
+* **ds:** generalize Toggle for multi-choice segmented control ([e359efe](https://github.com/www-zaq-ai/zaq/commit/e359efe2f5f6a9b2d8a99a3a4e32fcbf1edc059e))
+* **engine:** add "incomplete" run status for pruned-terminal workflows ([3bc5861](https://github.com/www-zaq-ai/zaq/commit/3bc5861d99d7c99c8b9ac4d0ccd4211aae78df8d))
+* **engine:** add date/datetime comparison support to workflow conditions ([525c838](https://github.com/www-zaq-ai/zaq/commit/525c8387c22e1d70ee5ec81aea999f680c172441))
+* **engine:** thread proactive emails via RFC Message-ID and In-Reply-To ([1a65d04](https://github.com/www-zaq-ai/zaq/commit/1a65d0423e545f123576c993cc87af9c2bc5da1c))
+* **Ingestion:** Make Data sources files list accessible through the ingestion page ([9eb90ee](https://github.com/www-zaq-ai/zaq/commit/9eb90eec75011e657524f0d5897eb2ac9ce5befb))
+* **live:** add markdown editor, skill mcp endpoints, unify bo tables ([e92ef0b](https://github.com/www-zaq-ai/zaq/commit/e92ef0b8fb8811ddf5ad9e7416dd8cf49bf38e49))
+* **live:** render agent info and type badges in workflow dag nodes ([7ba295b](https://github.com/www-zaq-ai/zaq/commit/7ba295b7aa3a7839b9fc201a5822358724b27063))
+
+
+### Bug Fixes
+
+* **agent:** address review comments for web_browsing action ([c484803](https://github.com/www-zaq-ai/zaq/commit/c484803ba68272279c042ed433b15facd03e40b8))
+* **agent:** address skills and fix model dropdown positioning ([59dcf47](https://github.com/www-zaq-ai/zaq/commit/59dcf4717b7376131ff9f82c6372a278cda2c373))
+* **agent:** enforce context_max_size token budget on seeded context ([c400990](https://github.com/www-zaq-ai/zaq/commit/c4009902b60031861146a7b576a76dd42e251c24))
+* **agent:** map incomplete provider responses to unavailable message ([1ffe405](https://github.com/www-zaq-ai/zaq/commit/1ffe405c161ef7f41739e239831a9cde9f923b88))
+* **agent:** register zaq_router as real ReqLLM provider and gate its models on auth ([fc0b014](https://github.com/www-zaq-ai/zaq/commit/fc0b0148454bba9d914e897a407f21d4e5e1eb94))
+* **bo:** handle ingestion upload errors in consume callback ([6e240b1](https://github.com/www-zaq-ai/zaq/commit/6e240b17a907884a1223c83a6467f3dd1393f021))
+* **channels:** bootstrap email sub-provider configs on cold start ([3ad598e](https://github.com/www-zaq-ai/zaq/commit/3ad598e47ccf7c5d0248c6e66d9f6ef7c0fa442b))
+* **channels:** normalise sub-providers so imap replies convert markdown to html ([f2ea258](https://github.com/www-zaq-ai/zaq/commit/f2ea258898bf0566e49d605999b2f29efafa6cef))
+* **email:** [Channels] Communication email from name is not respected ([4ae0beb](https://github.com/www-zaq-ai/zaq/commit/4ae0beb0f879d3d1af716c4500d896799e11f3c3)), closes [#600](https://github.com/www-zaq-ai/zaq/issues/600)
+* **engine :** Unify email threading around stored conversation anchors ([3aff7ec](https://github.com/www-zaq-ai/zaq/commit/3aff7ece73d770241da09703b6bdb63185f3ddc5))
+* **engine:** handle "incomplete" status in broadcast and interrupt guards ([9af8b36](https://github.com/www-zaq-ai/zaq/commit/9af8b360ceb5274417646e71b4b50ab55a1ff3f4))
+* **engine:** pass structs through edges, fail runs on edge crashes ([f0efa81](https://github.com/www-zaq-ai/zaq/commit/f0efa81441f8f01bf2c0525af0b1da415800447b))
+* **engine:** record email threading anchor on the notification log ([132df7f](https://github.com/www-zaq-ai/zaq/commit/132df7fd2b172d51286814676954fca270c8b768))
+* **engine:** remove run trace and split tool ([78ff2f7](https://github.com/www-zaq-ai/zaq/commit/78ff2f7ea40ed3f6f7c8a4cdfaf93ebd405b5c32))
+* **ingestion:** store chunks verbatim, embed section-path context ([fe8a995](https://github.com/www-zaq-ai/zaq/commit/fe8a995994b2ff1c79ba17c5566ffd81942dd203))
+* **migrations:** renumber threading migration to resolve version collision ([612869d](https://github.com/www-zaq-ai/zaq/commit/612869d6bfd42d3e7c2a21eff356fc88f26a874c))
+* **Utils:** Map Utils read_any/2 carry false as a value not as nil ([2bf9f4d](https://github.com/www-zaq-ai/zaq/commit/2bf9f4d066819b7bd5961c869b795ef190682cb0))
+
+
+### Refactoring
+
+* **agent:** seed run_agent context via opts as prebuilt AIContext ([457a27c](https://github.com/www-zaq-ai/zaq/commit/457a27c9cc12a5a590d5429b2d1d46936c819fe7))
+* **AI providers:** align UI and data feeding for updated management and design system component use ([7b4af7b](https://github.com/www-zaq-ai/zaq/commit/7b4af7bcfdaadb6645ca6df95bc6e1a94d866122))
+* **bo:** complete People master pane design-system migration ([b882cc0](https://github.com/www-zaq-ai/zaq/commit/b882cc0e75d402d05143b06b2a9c2b1028578a43))
+* **bo:** extract agents table and migrate section wrapper to zaq styles ([f66d685](https://github.com/www-zaq-ai/zaq/commit/f66d685cc3ca3a03bbfd2fcd4bd6c5a8a611bb85))
+* **bo:** migrate dashboard services table to DesignSystem.Table ([90e1211](https://github.com/www-zaq-ai/zaq/commit/90e1211c02ce043382d8472fb07d1f078b724266))
+* **bo:** migrate ingestion file browser to DesignSystem.Table ([dac7e14](https://github.com/www-zaq-ai/zaq/commit/dac7e149442ff458b84dc821ccbb797873800583))
+* **bo:** migrate people list to DS table components ([914f8c6](https://github.com/www-zaq-ai/zaq/commit/914f8c6c805ee9aaec96e4075a794408e408ca59))
+* **bo:** move ingestion upload into BOModal and stack chrome bands ([9bae55e](https://github.com/www-zaq-ai/zaq/commit/9bae55eaf41036d4d34739fef0304ff4702df011))
+* **bo:** replace chat agent select with SearchableSelect ([7a80fc5](https://github.com/www-zaq-ai/zaq/commit/7a80fc509c6b5427dfb671e8bb5c9378a00ac674))
+* **bo:** replace ingestion job status chips with Toggle ([358d867](https://github.com/www-zaq-ai/zaq/commit/358d867cefc4c44b2c09a61b4b5c409200dd5941))
+* **bo:** replace users table with DesignSystem.Table ([d633b1e](https://github.com/www-zaq-ai/zaq/commit/d633b1e27bbd5d4ca5ee58ed01a8401859a7d2a6))
+* **bo:** streamline ingestion file browser toolbar layout ([160f61e](https://github.com/www-zaq-ai/zaq/commit/160f61e7e6097044a4e144b6ce4c7b774af34cbd))
+* **bo:** tokenize SimplePagination and migrate People tabs to Toggle ([28b7135](https://github.com/www-zaq-ai/zaq/commit/28b713500df4839b77de5ae3fadebdc1baadee0b))
+* **bo:** unify ingestion sources in Toggle with channel icons ([c83af29](https://github.com/www-zaq-ai/zaq/commit/c83af293c162f42cb581e4b4f7d9383b5bf1a866))
+* **channels:** compute conversation identity and SMTP delivery channel-side ([27ff1ed](https://github.com/www-zaq-ai/zaq/commit/27ff1ed62e5e50ea71fe254a923d56090d146217))
+* **channels:** move email threading mechanics into EmailBridge ([a1bac47](https://github.com/www-zaq-ai/zaq/commit/a1bac47230afa05d5f1307fc77458860442c5b80))
+* **channels:** store single generic threading anchor, drop email residue ([1663e9e](https://github.com/www-zaq-ai/zaq/commit/1663e9e55a796f4c5b2d53914141db626d3885b8))
+* code review comments ([3f8a704](https://github.com/www-zaq-ai/zaq/commit/3f8a704f1231af64ee031cbc882a6986e84554e2))
+* design changes to btn tertiary ([565ba30](https://github.com/www-zaq-ai/zaq/commit/565ba30b7b6be00339888540a7b3f7fe5c8dbce1))
+* design update of BO_layout title class ([6223c6a](https://github.com/www-zaq-ai/zaq/commit/6223c6adbfa44987b6c63adfd49e4aa7c2b4b11e))
+* **ds:** apply zaq-text-body to Toggle segment labels ([6658e3f](https://github.com/www-zaq-ai/zaq/commit/6658e3f6f8a2ef6e9f279b9ebe4aa5bd6685e8fc))
+* implement code review comments to add global helper and document intent ([e5792cd](https://github.com/www-zaq-ai/zaq/commit/e5792cda6ebc8ca59a46555a088e5eebfba5b82b))
+* increase DRY on metadata_value map, make codex oauth app id configurable ([7b47bb6](https://github.com/www-zaq-ai/zaq/commit/7b47bb626951ede10c30eafe1b5790a08647a52c))
+* **ingestion,ui:** code review on ingesting daya source files ([dede25d](https://github.com/www-zaq-ai/zaq/commit/dede25dc1508a31e3f847bf616fbdace9f91acdf))
+* **ingestion:** N+1 in permissions fetching and edge case handling ([0c70ab9](https://github.com/www-zaq-ai/zaq/commit/0c70ab94e5dbf0ed32648b0e482e836aa428344c))
+* **live:** migrate agents and skills BO pages to zaq design tokens ([988e43e](https://github.com/www-zaq-ai/zaq/commit/988e43eca2ec163d0f0411602eb60cdbb5f9e6b6))
+* **notification:** move notification from async to inline ([15bfb6c](https://github.com/www-zaq-ai/zaq/commit/15bfb6ce710fa3994a7cf1acebf8b386235cce71))
+* remove unnecessary slop in Bridge, make ChannelConfig return standard provider for config ([7b31351](https://github.com/www-zaq-ai/zaq/commit/7b313513eb26a100ffec140e3b0e9a983977cfed))
+
 ## [0.14.0](https://github.com/www-zaq-ai/zaq/compare/v0.13.0...v0.14.0) (2026-07-03)
 
 
