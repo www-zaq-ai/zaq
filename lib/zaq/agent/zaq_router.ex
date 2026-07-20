@@ -10,6 +10,11 @@ defmodule Zaq.Agent.ZAQRouter do
   The model list below is the default set advertised at startup. Call `reload/1`
   with a runtime list (e.g. from the portal `/models` response) to update it
   without restarting.
+
+  This is the catalog of what the gateway *offers*. Whether a given deployment
+  can actually reach it is a per-credential question answered by
+  `Zaq.Agent.ProviderModels`, which filters this list through
+  `ReqLLM.available_models/1` using the credential's API key.
   """
 
   @provider_id :zaq_router

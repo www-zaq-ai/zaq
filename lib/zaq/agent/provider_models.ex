@@ -72,10 +72,11 @@ defmodule Zaq.Agent.ProviderModels do
         models(provider_id)
 
       true ->
-        credential
-        |> normalize_credential_provider(provider_id)
+        normalized = normalize_credential_provider(credential, provider_id)
+
+        normalized
         |> available_models_for_credential()
-        |> fallback_to_provider_models(provider_id)
+        |> fallback_to_provider_models(provider_id, normalized)
     end
   end
 
@@ -128,8 +129,37 @@ defmodule Zaq.Agent.ProviderModels do
     _ -> []
   end
 
-  defp fallback_to_provider_models([], provider_id), do: models(provider_id)
-  defp fallback_to_provider_models(models, _provider_id), do: models
+  # `ReqLLM.available_models/1` returns [] both when a provider's catalog cannot
+  # be enumerated and when the credential carries no resolvable key. The
+  # full-catalog fallback covers the first case, and keeps the model picker
+  # populated while a credential is still being filled in — most providers are
+  # selected before their key is entered, and OAuth credentials (openai_codex)
+  # legitimately resolve no api_key at all.
+  #
+  # ZAQ Router is the exception: it is a hosted gateway that always requires both
+  # an endpoint and a key, so a credential without one means "not configured yet"
+  # and must advertise no models rather than a catalog it cannot reach.
+  defp fallback_to_provider_models([], provider_id, credential) do
+    if zaq_router?(provider_id) and not credential_auth_present?(credential) do
+      []
+    else
+      models(provider_id)
+    end
+  end
+
+  defp fallback_to_provider_models(models, _provider_id, _credential), do: models
+
+  defp zaq_router?(provider_id), do: provider_id == "zaq_router"
+
+  # Mirrors what ReqLLM.Keys/Auth resolve from: credential_opts/1 omits blank
+  # api keys and tokens, so key presence is equivalent to a usable value.
+  defp credential_auth_present?(credential) do
+    opts = ProviderSpec.credential_opts(credential)
+
+    Keyword.has_key?(opts, :api_key) or Keyword.has_key?(opts, :access_token)
+  rescue
+    _ -> false
+  end
 
   defp catalog_only_provider?(provider_id) when is_binary(provider_id) do
     with {:ok, atom} <- LLMDB.Spec.parse_provider(provider_id),

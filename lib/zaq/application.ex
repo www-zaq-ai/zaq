@@ -61,6 +61,9 @@ defmodule Zaq.Application do
         # Forces ValidModalities to load so all modality atoms exist in the VM
         # before LLMDB.load/0 calls String.to_existing_atom/1 on the snapshot.
         _ = ValidModalities.list()
+        # Two independent registries: ReqLLM resolves the provider module for
+        # execution, LLMDB resolves the model catalog. ZAQ Router needs both.
+        ReqLLM.Providers.register!(Zaq.Agent.Providers.ZAQRouter)
         LLMDB.load(ZAQRouter.llmdb_opts())
         Workflows.load_cron_triggers()
         ok

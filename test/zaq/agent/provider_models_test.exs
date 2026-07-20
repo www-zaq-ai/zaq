@@ -2,7 +2,61 @@ defmodule Zaq.Agent.ProviderModelsTest do
   use ExUnit.Case, async: false
 
   alias Zaq.Agent.ProviderModels
+  alias Zaq.Agent.ZAQRouter
   alias Zaq.System.AIProviderCredential
+
+  describe "models_for_credential/1 auth gating" do
+    setup do
+      on_exit(fn -> LLMDB.load(ZAQRouter.llmdb_opts()) end)
+      {:ok, _} = ZAQRouter.reload(["openai/gpt-oss-120b", "deepseek/deepseek-v4-pro"])
+      :ok
+    end
+
+    test "returns no models when the credential has no api key" do
+      credential = %AIProviderCredential{provider: "zaq_router", endpoint: "https://llm.test/v1"}
+
+      assert ProviderModels.models_for_credential(credential) == []
+    end
+
+    test "returns no models when the api key is blank" do
+      credential = %AIProviderCredential{
+        provider: "zaq_router",
+        endpoint: "https://llm.test/v1",
+        api_key: ""
+      }
+
+      assert ProviderModels.models_for_credential(credential) == []
+    end
+
+    test "returns the catalog once an api key is present" do
+      credential = %AIProviderCredential{
+        provider: "zaq_router",
+        endpoint: "https://llm.test/v1",
+        api_key: "sk-test-123"
+      }
+
+      model_ids = credential |> ProviderModels.models_for_credential() |> Enum.map(& &1.id)
+
+      assert "openai/gpt-oss-120b" in model_ids
+      assert "deepseek/deepseek-v4-pro" in model_ids
+    end
+
+    test "gating is scoped to zaq_router — other providers keep the fallback" do
+      openai = %AIProviderCredential{provider: "openai"}
+
+      refute ProviderModels.models_for_credential(openai) == []
+    end
+
+    test "gating does not strip models from OAuth credentials without an api key" do
+      codex = %AIProviderCredential{
+        provider: "openai_codex",
+        endpoint: "https://chatgpt.com/backend-api",
+        metadata: %{"auth_kind" => "oauth2"}
+      }
+
+      refute ProviderModels.models_for_credential(codex) == []
+    end
+  end
 
   test "models returns [] for unsupported provider id types" do
     assert ProviderModels.models(123) == []
