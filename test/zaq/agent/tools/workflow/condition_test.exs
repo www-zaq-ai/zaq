@@ -576,9 +576,14 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
 
   describe "run/2 — string input as a cascade reference" do
     setup do
+      # Relative to now so the fixture never drifts out of the condition's
+      # `today - 10 days` window as wall-clock time moves on.
+      last_message_date =
+        DateTime.utc_now() |> DateTime.add(2, :day) |> DateTime.to_iso8601()
+
       cascade = %{
         "build_history" => %{
-          "metadata" => %{"total" => %{"last_message_date" => "2026-07-08T12:56:12.280911Z"}}
+          "metadata" => %{"total" => %{"last_message_date" => last_message_date}}
         }
       }
 

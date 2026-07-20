@@ -194,4 +194,48 @@ defmodule Zaq.Engine.Notifications.NotificationLogTest do
                NotificationLog.transition_status(skipped_log, "sent")
     end
   end
+
+  describe "record_threading/3" do
+    test "ignores nil thread keys" do
+      {:ok, log} = NotificationLog.create_log(@valid_attrs)
+
+      assert :ok = NotificationLog.record_threading(log, nil, %{"message_id" => "msg-1"})
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      assert reloaded.thread_key == nil
+      assert reloaded.threading == nil
+    end
+
+    test "ignores empty anchors" do
+      {:ok, log} = NotificationLog.create_log(@valid_attrs)
+
+      assert :ok = NotificationLog.record_threading(log, "Lead outreach", %{})
+
+      reloaded = Repo.get!(NotificationLog, log.id)
+      assert reloaded.thread_key == nil
+      assert reloaded.threading == nil
+    end
+  end
+
+  describe "thread_anchor/2" do
+    test "returns nil when person id or thread key is absent" do
+      assert NotificationLog.thread_anchor(nil, "Lead outreach") == nil
+      assert NotificationLog.thread_anchor(123, nil) == nil
+    end
+
+    test "returns nil for recorded threading without a binary message_id" do
+      {:ok, log} =
+        NotificationLog.create_log(
+          Map.merge(@valid_attrs, %{
+            recipient_ref_type: "person",
+            recipient_ref_id: 123
+          })
+        )
+
+      {:ok, sent_log} = NotificationLog.transition_status(log, "sent")
+      :ok = NotificationLog.record_threading(sent_log, "Lead outreach", %{"thread_id" => "thr-1"})
+
+      assert NotificationLog.thread_anchor(123, "Lead outreach") == nil
+    end
+  end
 end

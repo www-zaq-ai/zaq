@@ -647,7 +647,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert :ok = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, _} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.subject == "Re: Support request"

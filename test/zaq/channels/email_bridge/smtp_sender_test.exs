@@ -108,7 +108,7 @@ defmodule Zaq.Channels.EmailBridge.SmtpSenderTest do
         settings: smtp_settings(%{"from_name" => "SMTP Bot", "from_email" => "smtp@example.com"})
       })
 
-      assert :ok = EmailNotification.send_notification("user@example.com", payload(), %{})
+      assert :ok = SmtpSender.send_notification("user@example.com", payload(), %{})
 
       assert_receive {:email, email}
       assert email.from == {"SMTP Bot", "smtp@example.com"}
