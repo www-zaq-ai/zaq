@@ -277,6 +277,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert has_element?(view, "span", "No Preview.txt")
     end
 
+    test "provider browsing dispatches root and nested shared filters distinctly", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      assert_received {:list_files, "google_drive", root_params}
+      assert root_params["filters"] == %{}
+
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+
+      assert_received {:list_files, "google_drive",
+                       %{"filters" => %{"parent" => "folder-1", "include_shared" => false}}}
+    end
+
     test "previews provider records by URL and queues external ingestion", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
       assert_received {:list_files, "google_drive", _params}

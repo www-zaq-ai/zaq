@@ -5,6 +5,23 @@ defmodule Zaq.Utils.MapTest do
   alias Zaq.Utils.Map
 
   describe "read_any/2" do
+    test "returns the first present key even when the value is false" do
+      assert Map.read_any(%{"include_shared" => false}, [:include_shared, "include_shared"]) ==
+               false
+
+      assert Map.read_any(%{include_shared: false}, [:include_shared, "include_shared"]) == false
+    end
+
+    test "preserves other falsey values from present keys" do
+      assert Map.read_any(%{count: 0}, [:count]) == 0
+      assert Map.read_any(%{items: []}, [:items]) == []
+      assert Map.read_any(%{label: ""}, [:label]) == ""
+    end
+
+    test "returns nil only when none of the requested keys exists" do
+      assert Map.read_any(%{"include_shared" => false}, [:missing, "other_missing"]) == nil
+    end
+
     test "returns nil when map argument is invalid" do
       assert Map.read_any("not-a-map", [:subject, "subject"]) == nil
     end

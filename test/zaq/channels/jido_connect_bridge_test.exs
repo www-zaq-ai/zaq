@@ -1596,6 +1596,50 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert is_binary(params[:query]) || is_binary(params["query"])
   end
 
+  test "list_files excludes shared-with-me clause when nested filters disable shared items" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    assert {:ok, _page} =
+             JidoConnectBridge.list_files(config, %{
+               "filters" => %{
+                 "parent" => "folder-1",
+                 "include_shared" => false,
+                 "trashed" => false
+               }
+             })
+
+    assert_received {:invoke_files, params, _opts}
+    query = params[:query] || params["query"]
+
+    assert query =~ "'folder-1' in parents"
+    assert query =~ "trashed = false"
+    refute query =~ "sharedWithMe = true"
+  end
+
+  test "list_files includes shared-with-me clause when root filters enable shared items" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    assert {:ok, _page} =
+             JidoConnectBridge.list_files(config, %{
+               "filters" => %{
+                 "parent" => "root",
+                 "include_shared" => true,
+                 "trashed" => false
+               }
+             })
+
+    assert_received {:invoke_files, params, _opts}
+    query = params[:query] || params["query"]
+
+    assert query =~ "'root' in parents"
+    assert query =~ "sharedWithMe = true"
+    assert query =~ "trashed = false"
+  end
+
   test "list_files with atom filter keys" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
