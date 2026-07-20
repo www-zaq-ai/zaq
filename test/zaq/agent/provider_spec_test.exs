@@ -29,9 +29,17 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert ProviderSpec.reqllm_provider("anthropic") == :anthropic
     end
 
-    test "ZAQ router always routes through OpenAI-compatible provider" do
-      assert ProviderSpec.reqllm_provider(:zaq_router) == :openai
-      assert ProviderSpec.reqllm_provider("zaq_router") == :openai
+    test "ZAQ router resolves to its own registered ReqLLM provider" do
+      assert ProviderSpec.reqllm_provider(:zaq_router) == :zaq_router
+      assert ProviderSpec.reqllm_provider("zaq_router") == :zaq_router
+    end
+
+    test "ZAQ router is registered in the ReqLLM provider registry" do
+      assert {:ok, Zaq.Agent.Providers.ZAQRouter} = ReqLLM.provider(:zaq_router)
+    end
+
+    test "catalog-only providers still fall back to OpenAI-compatible routing" do
+      assert ProviderSpec.reqllm_provider("novita_ai") == :openai
     end
 
     test "ReqLLM-only OpenAI Codex provider returns its runtime atom" do
