@@ -2087,7 +2087,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       html =
         view
-        |> element("button.zaq-btn[phx-click='close_ai_credential_modal']")
+        |> element("button[phx-click='close_ai_credential_modal'][aria-label='Close dialog']")
         |> render_click()
 
       refute html =~ "ai-credential-form"
