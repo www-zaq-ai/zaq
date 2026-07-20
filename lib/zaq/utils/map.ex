@@ -3,7 +3,10 @@ defmodule Zaq.Utils.Map do
 
   @spec read_any(map(), [atom() | String.t()]) :: term() | nil
   def read_any(map, keys) when is_map(map) and is_list(keys) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
+    case Enum.find(keys, &Map.has_key?(map, &1)) do
+      nil -> nil
+      key -> Map.get(map, key)
+    end
   end
 
   def read_any(_map, _keys), do: nil
