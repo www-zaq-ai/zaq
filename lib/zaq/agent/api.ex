@@ -361,31 +361,62 @@ defmodule Zaq.Agent.Api do
     outgoing =
       case selected_agent_id(event.assigns) do
         nil ->
-          pipeline_module.run(
-            incoming,
-            pipeline_opts
-            |> Keyword.put(:scope, Executor.derive_scope(incoming, event.actor))
-            |> Keyword.put(:person_id, person_id)
-            |> Keyword.put(:team_ids, team_ids)
-            |> Keyword.put(:event, event)
-          )
+          # A channel can pin the default answering executor (`:agent_id` nil →
+          # Executor's built-in answering agent) instead of the legacy pipeline
+          # when no configured agent is selected. The chat channel uses this:
+          # it has no BO channel-config surface, and its grounding `:question`
+          # override only exists on the executor path.
+          if Keyword.get(pipeline_opts, :default_answering_executor, false) do
+            run_executor(executor_module, incoming, nil, pipeline_opts, event)
+          else
+            pipeline_module.run(
+              incoming,
+              pipeline_opts
+              |> Keyword.put(:scope, Executor.derive_scope(incoming, event.actor))
+              |> Keyword.put(:person_id, person_id)
+              |> Keyword.put(:team_ids, team_ids)
+              |> Keyword.put(:event, event)
+            )
+          end
 
         selected_id ->
-          executor_module.run(incoming,
-            agent_id: selected_id,
-            scope: Executor.derive_scope(incoming, event.actor),
-            person_id: person_id,
-            team_ids: team_ids,
-            source_filter: incoming.content_filter,
-            skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
-            history: Keyword.get(pipeline_opts, :history, %{}),
-            context: Keyword.get(pipeline_opts, :context),
-            telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
-            event: event
-          )
+          run_executor(executor_module, incoming, selected_id, pipeline_opts, event)
       end
 
     maybe_dispatch_return_hop(event, incoming, outgoing)
+  end
+
+  defp run_executor(executor_module, incoming, agent_id, pipeline_opts, event) do
+    executor_module.run(
+      incoming,
+      [
+        agent_id: agent_id,
+        scope: Executor.derive_scope(incoming, event.actor),
+        person_id: ActorNormalizer.person_id(event.actor),
+        team_ids: ActorNormalizer.team_ids(event.actor),
+        source_filter: incoming.content_filter,
+        skip_permissions: Keyword.get(pipeline_opts, :skip_permissions, false),
+        history: Keyword.get(pipeline_opts, :history, %{}),
+        context: Keyword.get(pipeline_opts, :context),
+        telemetry_dimensions: Keyword.get(pipeline_opts, :telemetry_dimensions, %{}),
+        event: event
+      ]
+      |> maybe_put_question(pipeline_opts)
+    )
+  end
+
+  # Per-run question override (e.g. the chat channel's grounding preamble):
+  # framed text drives the run while `incoming.content` — the clean user
+  # question — is what gets persisted. Only forwarded when present so
+  # `Executor.run/2` keeps its `incoming.content` default otherwise.
+  defp maybe_put_question(opts, pipeline_opts) do
+    case Keyword.get(pipeline_opts, :question) do
+      question when is_binary(question) and question != "" ->
+        Keyword.put(opts, :question, question)
+
+      _ ->
+        opts
+    end
   end
 
   # This function is a good candidate to go into the NodeRouter for generalization

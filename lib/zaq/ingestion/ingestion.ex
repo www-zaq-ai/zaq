@@ -10,6 +10,7 @@ defmodule Zaq.Ingestion do
     DeleteService,
     DirectorySnapshot,
     Document,
+    DocumentAccess,
     FileExplorer,
     FolderSetting,
     IngestChunkJob,
@@ -32,6 +33,9 @@ defmodule Zaq.Ingestion do
 
   @pubsub Zaq.PubSub
   @topic "ingestion:jobs"
+
+  defdelegate list_public_chat_documents(prefix), to: DocumentAccess
+  defdelegate get_public_chat_document(id), to: DocumentAccess
 
   # --- Ingestion triggers ---
 

@@ -1028,7 +1028,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         source: d.source,
         document_id: c.document_id,
         section_path: c.section_path,
-        chunk_index: c.chunk_index
+        chunk_index: c.chunk_index,
+        position: fragment("(? ->> 'position')::int", c.metadata),
+        # doc markdown carries `<!-- page: N -->` markers; resolve the chunk's
+        # page from its stored line position. This reads full document content
+        # per matched section; group by document if query scope grows.
+        doc_content: d.content
       })
       |> Repo.all()
       # Sections by fused score, then chunks in document order within each
@@ -1044,12 +1049,33 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           "source" => r.source,
           "distance" => distance_map[{r.document_id, r.section_path}],
           "document_id" => r.document_id,
-          "section_path" => r.section_path
+          "section_path" => r.section_path,
+          "position" => r.position,
+          "page" => page_for_position(r.doc_content, r.position)
         }
       end)
 
     {:ok, results}
   end
+
+  # Resolves a chunk's page from its line position: the page is the last
+  # `<!-- page: N -->` marker at or before that line. Falls back to 1 when the
+  # doc has no markers or the position is unknown.
+  defp page_for_position(content, position)
+       when is_binary(content) and is_integer(position) do
+    content
+    |> String.split("\n")
+    |> Enum.take(position + 1)
+    |> Enum.reverse()
+    |> Enum.find_value(1, fn line ->
+      case Regex.run(~r/<!-- page: (\d+) -->/, line) do
+        [_, n] -> String.to_integer(n)
+        _ -> false
+      end
+    end)
+  end
+
+  defp page_for_position(_content, _position), do: 1
 
   # ---------------------------------------------------------------------------
   # Similarity search (vector only)

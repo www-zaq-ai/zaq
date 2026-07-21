@@ -81,3 +81,6 @@ CLAUDE.local.md
 .claude/specs/
 .claude/plans/
 .claude/superpowers/
+
+# TypeScript SDK deps (not tracked)
+sdks/**/node_modules/

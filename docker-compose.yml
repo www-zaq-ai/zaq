@@ -37,6 +37,7 @@ services:
       INGESTION_VOLUMES: "${INGESTION_VOLUMES:-/}"
       INGESTION_VOLUMES_BASE: "${INGESTION_VOLUMES_BASE:-/zaq/volumes}"
       SYSTEM_CONFIG_ENCRYPTION_KEY: "${SYSTEM_CONFIG_ENCRYPTION_KEY}"
+      ZAQ_CHAT_TOKEN: "${ZAQ_CHAT_TOKEN}"
     volumes:
       - ./ingestion-volumes:/zaq/volumes
     extra_hosts:

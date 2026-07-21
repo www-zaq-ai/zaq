@@ -2,7 +2,9 @@ defmodule Zaq.Accounts.PersonChannel do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @valid_platforms ~w(mattermost slack microsoft_teams whatsapp email telegram discord)
+  # "chat" is the ChatVote OpenAI-compatible channel: its identifier is the
+  # caller's authenticated user id (see ZaqWeb.ChatCompletionsController).
+  @valid_platforms ~w(mattermost slack microsoft_teams whatsapp email telegram discord chat)
 
   @type t :: %__MODULE__{}
 

@@ -41,7 +41,8 @@ config :zaq, :channels, %{
     adapter: Zaq.Channels.EmailBridge.ImapAdapter,
     message_format: :html
   },
-  web: %{bridge: Zaq.Channels.WebBridge}
+  web: %{bridge: Zaq.Channels.WebBridge},
+  chat: %{bridge: Zaq.Channels.ChatBridge}
 }
 
 config :zaq,

@@ -757,8 +757,11 @@ defmodule Zaq.Channels.Api do
   defp normalize_delivery_response({:ok, receipt} = response) when is_map(receipt), do: response
   defp normalize_delivery_response(response), do: response
 
-  defp normalize_upsert_config(provider, {:error, _reason}) when provider in [:web, "web"],
-    do: {:ok, %{provider: "web"}}
+  # web and chat have no ChannelConfig row — their bridges deliver over local
+  # PubSub, so a missing config is normal rather than an error.
+  defp normalize_upsert_config(provider, {:error, _reason})
+       when provider in [:web, "web", :chat, "chat"],
+       do: {:ok, %{provider: to_string(provider)}}
 
   defp normalize_upsert_config(_provider, config), do: config
 end

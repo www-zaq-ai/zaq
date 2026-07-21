@@ -146,6 +146,48 @@ defmodule Zaq.Ingestion.DocumentAccess do
     end
   end
 
+  @doc """
+  Lists public source documents under a required source prefix for chat clients.
+  """
+  @spec list_public_chat_documents(String.t()) :: [struct()]
+  def list_public_chat_documents(prefix) when is_binary(prefix) and prefix != "" do
+    pattern = escape_like(prefix) <> "%"
+
+    from(d in Document,
+      as: :doc,
+      where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+      where: fragment("? @> ARRAY['public']::varchar[]", d.tags),
+      where: like(d.source, ^pattern),
+      order_by: [asc: d.source],
+      limit: 200
+    )
+    |> Repo.all()
+  end
+
+  def list_public_chat_documents(_prefix), do: []
+
+  @doc """
+  Returns a public source document by ID.
+  """
+  @spec get_public_chat_document(term()) :: struct() | nil
+  def get_public_chat_document(id) do
+    from(d in Document,
+      where: d.id == ^id,
+      where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+      where: fragment("? @> ARRAY['public']::varchar[]", d.tags)
+    )
+    |> Repo.one()
+  rescue
+    Ecto.Query.CastError -> nil
+  end
+
+  defp escape_like(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
+  end
+
   # All three access conditions unified in one named-binding dynamic to avoid
   # mixing positional and named bindings in the same where expression.
   #

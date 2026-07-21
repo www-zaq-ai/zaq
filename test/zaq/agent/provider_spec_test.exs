@@ -574,6 +574,14 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert opts[:provider_options][:chatgpt_account_id] == "acct_123"
     end
 
+    test "empty credential values are omitted from opts" do
+      agent = %{agent_base() | credential: %{api_key: "", endpoint: ""}}
+
+      opts = ProviderSpec.llm_opts(agent)
+      refute Keyword.has_key?(opts, :api_key)
+      refute Keyword.has_key?(opts, :base_url)
+    end
+
     test "atom keys in advanced_options are included" do
       agent = %{agent_base() | advanced_options: %{temperature: 0.5, top_p: 0.8}}
       opts = ProviderSpec.llm_opts(agent)
