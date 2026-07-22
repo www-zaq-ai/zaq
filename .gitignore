@@ -81,3 +81,7 @@ CLAUDE.local.md
 .claude/specs/
 .claude/plans/
 .claude/superpowers/
+
+# Local DB snapshots (may contain real test data / secrets)
+scripts/
+db_snapshots/

@@ -54,42 +54,39 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert section_heading.parent_path == ["Chapter"]
     end
 
-    test "parses bold-style numbered headings" do
+    # Golden rule: `#`…`######` are the ONLY heading markup. Bold/italic
+    # lines are body text — the chunker never invents structure from them.
+
+    test "does not promote bold numbered lines to headings" do
       md = "**1.** **Introduction**\n\nSome intro text."
       sections = DocumentChunker.parse_layout(md)
 
-      heading = Enum.find(sections, &(&1.type == :heading))
-      assert heading != nil
-      assert heading.level == 1
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
+      assert Enum.any?(sections, &String.contains?(&1.content, "**1.** **Introduction**"))
     end
 
-    test "parses italic-style numbered headings" do
+    test "does not promote italic numbered lines to headings" do
       md = "_1.1_ _Details_\n\nSome details."
       sections = DocumentChunker.parse_layout(md)
 
-      heading = Enum.find(sections, &(&1.type == :heading))
-      assert heading != nil
-      assert heading.level == 2
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
+      assert Enum.any?(sections, &String.contains?(&1.content, "_1.1_ _Details_"))
     end
 
-    test "parses simple bold heading as level 2" do
+    test "does not promote simple bold lines to headings" do
       md = "**Overview**\n\nSome details."
       sections = DocumentChunker.parse_layout(md)
 
-      heading = Enum.find(sections, &(&1.type == :heading))
-      assert heading != nil
-      assert heading.level == 2
-      assert heading.title == "Overview"
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
+      assert Enum.any?(sections, &String.contains?(&1.content, "**Overview**"))
     end
 
-    test "parses simple italic heading as level 3" do
+    test "does not promote simple italic lines to headings" do
       md = "_Overview_\n\nSome details."
       sections = DocumentChunker.parse_layout(md)
 
-      heading = Enum.find(sections, &(&1.type == :heading))
-      assert heading != nil
-      assert heading.level == 3
-      assert heading.title == "Overview"
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
+      assert Enum.any?(sections, &String.contains?(&1.content, "_Overview_"))
     end
 
     test "skips bold TOC entries" do
@@ -108,27 +105,12 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert headings == []
     end
 
-    test "parses bold two-level numbered heading as level 2" do
+    test "does not promote bold multi-level numbered lines to headings" do
       md = "**1.2** **Details**\n\nSection content."
       sections = DocumentChunker.parse_layout(md)
 
-      heading = Enum.find(sections, &(&1.type == :heading))
-      assert heading != nil
-      assert heading.level == 2
-      assert heading.title == "1.2 Details"
-    end
-
-    test "parses bold three-level numbered heading as level 3" do
-      md = "**1.2.3** **Sub-Details**\n\nSection content."
-      sections = DocumentChunker.parse_layout(md)
-
-      heading = Enum.find(sections, &(&1.type == :heading))
-
-      assert heading != nil,
-             "**1.2.3** **Sub-Details** should produce a heading but got nil (three-level bold numbering silently dropped)"
-
-      assert heading.level == 3
-      assert heading.title == "1.2.3 Sub-Details"
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
+      assert Enum.any?(sections, &String.contains?(&1.content, "**1.2** **Details**"))
     end
 
     test "skips italic numbered TOC entry ending with page number" do
@@ -139,15 +121,12 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
       assert headings == []
     end
 
-    test "parses deepest supported italic numbering deterministically" do
+    test "does not promote italic multi-level numbered lines to headings" do
       md = "_1.2.3_ _Deep Details_\n\nBody content."
       sections = DocumentChunker.parse_layout(md)
 
-      heading = Enum.find(sections, &(&1.type == :heading))
-      assert heading != nil
-      assert heading.level == 3
-      assert heading.level <= 6
-      assert heading.title == "1.2.3 Deep Details"
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
+      assert Enum.any?(sections, &String.contains?(&1.content, "_1.2.3_ _Deep Details_"))
     end
   end
 
@@ -391,13 +370,16 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
   # ---------------------------------------------------------------------------
 
   describe "parse_layout/2 bold body text vs headings" do
-    test "short bold ALL-CAPS line is treated as a heading" do
+    test "short bold ALL-CAPS line stays body text (golden rule: no invented headings)" do
       md = "**PREVENTION AND PROTECTION AT DANGER POINTS**\n\nBody content follows."
       sections = DocumentChunker.parse_layout(md)
 
-      headings = Enum.filter(sections, &(&1.type == :heading))
-      assert length(headings) == 1
-      assert hd(headings).title == "PREVENTION AND PROTECTION AT DANGER POINTS"
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
+
+      assert Enum.any?(
+               sections,
+               &String.contains?(&1.content, "**PREVENTION AND PROTECTION AT DANGER POINTS**")
+             )
     end
 
     test "long bold sentence is NOT parsed as a heading" do
@@ -472,14 +454,12 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
              "**20 cm** is a dimension, not a heading"
     end
 
-    test "bold numbered section title without dots is still a valid heading" do
+    test "bold numbered section title stays body text (golden rule: no invented headings)" do
       md = "**1 Sliding Door**\n\nContent about sliding doors."
       sections = DocumentChunker.parse_layout(md)
 
-      headings = Enum.filter(sections, &(&1.type == :heading))
-      assert length(headings) == 1
-      assert hd(headings).level == 1
-      assert hd(headings).title == "1 Sliding Door"
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
+      assert Enum.any?(sections, &String.contains?(&1.content, "**1 Sliding Door**"))
     end
   end
 
@@ -1076,14 +1056,11 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
   # ---------------------------------------------------------------------------
 
   describe "parse_layout/2 heading level capping" do
-    test "deeply nested italic heading is capped at level 6" do
-      # 6 dots => level would be 7 without the cap
+    test "deeply nested italic numbering stays body text (golden rule: no invented headings)" do
       md = "_1.2.3.4.5.6.7_ _Deep Section_\n\nContent."
       sections = DocumentChunker.parse_layout(md)
 
-      heading = Enum.find(sections, &(&1.type == :heading))
-      assert heading != nil
-      assert heading.level == 6
+      assert Enum.filter(sections, &(&1.type == :heading)) == []
     end
 
     test "standard markdown heading level 6 is not capped" do
@@ -1156,7 +1133,7 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
 
       [chunk] = DocumentChunker.chunk_sections(sections)
       assert String.starts_with?(chunk.id, "chunk_")
-      assert Regex.match?(~r/^chunk_\d+_\d+$/, chunk.id)
+      assert Regex.match?(~r/^chunk_\d+$/, chunk.id)
     end
 
     test "multiple sections produce distinct chunk IDs" do
