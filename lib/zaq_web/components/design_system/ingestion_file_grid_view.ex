@@ -22,6 +22,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, default: false
+  attr :watch_supported, :boolean, default: true
+  attr :watch_disabled_reason, :string, default: nil
 
   def file_grid_view(assigns) do
     ~H"""
@@ -66,13 +68,20 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
             </.table_actions>
           </:actions>
           <%= if record_folder?(entry) do %>
-            <.grid_folder_body entry={entry} ingestion_map={@ingestion_map} />
+            <.grid_folder_body
+              entry={entry}
+              ingestion_map={@ingestion_map}
+              watch_supported={@watch_supported}
+              watch_disabled_reason={@watch_disabled_reason}
+            />
           <% else %>
             <.grid_file_body
               entry={entry}
               ingestion_map={@ingestion_map}
               provider_mode={@provider_mode}
               current_volume={@current_volume}
+              watch_supported={@watch_supported}
+              watch_disabled_reason={@watch_disabled_reason}
             />
           <% end %>
         </.grid_card>
@@ -83,9 +92,16 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
 
   attr :entry, :map, required: true
   attr :ingestion_map, :map, required: true
+  attr :watch_supported, :boolean, required: true
+  attr :watch_disabled_reason, :string, default: nil
 
   defp grid_folder_body(assigns) do
-    folder_stats = Map.get(assigns.ingestion_map, assigns.entry.name)
+    folder_stats =
+      Map.merge(
+        %{watch_status: "unwatched", watch_error: nil, watchable?: false},
+        Map.get(assigns.ingestion_map, assigns.entry.name, %{})
+      )
+
     assigns = assign(assigns, :folder_stats, folder_stats)
 
     ~H"""
@@ -136,6 +152,17 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       >
         {@folder_stats.ingested_count}/{@folder_stats.file_count}
       </span>
+      <span class="mt-2">
+        <.watch_status_dot
+          path={record_path(@entry)}
+          status={@folder_stats.watch_status}
+          watch_error={@folder_stats.watch_error}
+          watchable={@folder_stats.watchable?}
+          watch_inherited={Map.get(@folder_stats, :watch_inherited?, false)}
+          watch_supported={@watch_supported}
+          watch_disabled_reason={@watch_disabled_reason}
+        />
+      </span>
     </button>
     """
   end
@@ -144,6 +171,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, required: true
   attr :current_volume, :string, required: true
+  attr :watch_supported, :boolean, required: true
+  attr :watch_disabled_reason, :string, default: nil
 
   defp grid_file_body(assigns) do
     ~H"""
@@ -181,6 +210,18 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
         {SizeFormat.format_size(@entry.size)}
       </span>
       <.grid_file_status entry={@entry} ingestion_map={@ingestion_map} provider_mode={@provider_mode} />
+      <% status = file_ingestion_status(@ingestion_map, @entry.name) %>
+      <span class="mt-2">
+        <.watch_status_dot
+          path={record_path(@entry)}
+          status={status.watch_status}
+          watch_error={status.watch_error}
+          watchable={status.watchable?}
+          watch_inherited={Map.get(status, :watch_inherited?, false)}
+          watch_supported={@watch_supported}
+          watch_disabled_reason={@watch_disabled_reason}
+        />
+      </span>
       <button
         :if={related_record(@entry)}
         type="button"

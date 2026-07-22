@@ -208,7 +208,16 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
   end
 
   defp resolve_entry_status(_entry, nil, _permissions_count_map) do
-    %{ingested_at: nil, stale?: false, permissions_count: 0, is_public: false, can_share?: true}
+    %{
+      ingested_at: nil,
+      stale?: false,
+      permissions_count: 0,
+      is_public: false,
+      can_share?: true,
+      watch_status: "unwatched",
+      watch_error: nil,
+      watchable?: false
+    }
   end
 
   defp resolve_entry_status(entry, doc, permissions_count_map) do
@@ -221,7 +230,10 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
       stale?: stale?,
       permissions_count: permissions_count,
       is_public: "public" in doc.tags,
-      can_share?: true
+      can_share?: true,
+      watch_status: doc.watch_status || "unwatched",
+      watch_error: doc.watch_error,
+      watchable?: not is_nil(ingested_at)
     }
   end
 
@@ -231,6 +243,7 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
       prefixes = SourcePath.source_candidates(current_volume, folder_path)
 
       doc_stats = fetch_folder_doc_stats(prefixes)
+      folder_doc = Enum.find_value(prefixes, &Document.get_by_source/1)
       total_size = FileExplorer.folder_size(current_volume, folder_path)
 
       is_public =
@@ -244,7 +257,11 @@ defmodule Zaq.Ingestion.DirectorySnapshot do
         total_size: total_size,
         file_count: doc_stats.total,
         ingested_count: doc_stats.ingested,
-        is_public: is_public
+        is_public: is_public,
+        watch_status:
+          if(folder_doc, do: folder_doc.watch_status || "unwatched", else: "unwatched"),
+        watch_error: if(folder_doc, do: folder_doc.watch_error),
+        watchable?: doc_stats.ingested > 0
       }
 
       {entry.name, stats}

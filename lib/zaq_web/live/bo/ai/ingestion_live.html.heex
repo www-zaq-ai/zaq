@@ -37,6 +37,14 @@
             ingest_mode={@ingest_mode}
             embedding_ready={@embedding_ready}
             provider_mode={@provider != "local"}
+            selected_watchable_count={
+              selected_watchable_count(@selected, @records_by_path, @ingestion_map)
+            }
+            selected_watched_count={
+              selected_watched_count(@selected, @records_by_path, @ingestion_map)
+            }
+            watch_supported={@watch_supported}
+            watch_disabled_reason={@watch_disabled_reason}
           />
         </div>
         <p
@@ -55,6 +63,8 @@
           current_volume={@current_volume}
           ingestion_map={@ingestion_map}
           provider_mode={@provider != "local"}
+          watch_supported={@watch_supported}
+          watch_disabled_reason={@watch_disabled_reason}
         />
         <.file_grid_view
           :if={@view_mode == "grid"}
@@ -64,6 +74,8 @@
           current_volume={@current_volume}
           ingestion_map={@ingestion_map}
           provider_mode={@provider != "local"}
+          watch_supported={@watch_supported}
+          watch_disabled_reason={@watch_disabled_reason}
         />
       </div>
     </div>
@@ -113,6 +125,11 @@
     share_modal_pending={@share_modal_pending}
     share_modal_read_only={@share_modal_read_only}
     share_modal_notice={@share_modal_notice}
+  />
+  <.modal_watch_error
+    :if={@modal == :watch_error}
+    modal_name={@modal_name}
+    watch_error_message={@watch_error_message}
   />
   <ZaqWeb.Components.FilePreviewModal.modal
     :if={@modal == :preview and @preview}

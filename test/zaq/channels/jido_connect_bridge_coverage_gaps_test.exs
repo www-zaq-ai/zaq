@@ -27,6 +27,7 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoConnectBridge
   alias Zaq.Engine.Connect
+  alias Zaq.Ingestion.Document
   alias Zaq.Repo
 
   defmodule StubIntegration do
@@ -229,7 +230,16 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     end
 
     def triggers(_integration),
-      do: {:ok, [%{id: "stub.file.changed", kind: :webhook, verb: :watch}]}
+      do:
+        {:ok,
+         [
+           %{
+             id: "stub.file.changed",
+             kind: :webhook,
+             verb: :watch,
+             handler: Zaq.Channels.JidoConnectBridgeCoverageGapsTest.StructWebhookVerifier
+           }
+         ]}
   end
 
   defmodule StubJidoConnectErrorReason do
@@ -293,13 +303,112 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     end
 
     def triggers(_integration),
-      do: {:ok, [%{id: "stub.file.changed", kind: :webhook, verb: :watch}]}
+      do:
+        {:ok,
+         [
+           %{
+             id: "stub.file.changed",
+             kind: :webhook,
+             verb: :watch,
+             handler: Zaq.Channels.JidoConnectBridgeCoverageGapsTest.StructWebhookVerifier
+           }
+         ]}
+  end
+
+  defmodule StubJidoConnectWatchItem do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{id: "google.drive.file.watch", resource: :file, verb: :watch, auth_profiles: [:user]},
+         %{
+           id: "google.drive.collection.watch",
+           resource: :collection,
+           verb: :watch,
+           auth_profiles: [:user]
+         },
+         %{
+           id: "google.drive.collection.changes.list",
+           resource: :collection,
+           verb: :list,
+           auth_profiles: [:user]
+         },
+         %{
+           id: "google.drive.channel.stop",
+           resource: :channel,
+           verb: :delete,
+           auth_profiles: [:user]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "google.drive.file.watch", params, _opts) do
+      send(self(), {:watch_file, params})
+
+      {:ok,
+       %{
+         channel: %{
+           "id" => params.channel_id,
+           "resource_id" => "resource-1",
+           "expiration" => "123"
+         }
+       }}
+    end
+
+    def invoke(_integration, "google.drive.collection.watch", params, _opts) do
+      send(self(), {:watch_collection, params})
+
+      {:ok,
+       %{
+         channel: %{
+           "id" => params.channel_id,
+           "resource_id" => "collection-resource-1",
+           "expiration" => "123"
+         },
+         checkpoint: "checkpoint-1",
+         collection_id: Map.get(params, :collection_id),
+         provider: "google_drive"
+       }}
+    end
+
+    def invoke(_integration, "google.drive.collection.changes.list", params, _opts) do
+      send(self(), {:list_collection_changes, params})
+
+      {:ok,
+       %{
+         checkpoint: "checkpoint-2",
+         has_more?: false,
+         signals: [
+           %{
+             provider_record_id: "changed-file-1",
+             change_type: :updated,
+             removed?: false,
+             record: %{
+               id: "changed-file-1",
+               name: "Changed file",
+               mime_type: "application/pdf",
+               parents: List.wrap(Map.get(params, :collection_id)),
+               web_url: "https://drive.example/changed-file-1"
+             }
+           },
+           %{
+             provider_record_id: "removed-file-1",
+             change_type: :deleted,
+             removed?: true
+           }
+         ]
+       }}
+    end
+
+    def invoke(_integration, "google.drive.channel.stop", params, _opts) do
+      send(self(), {:stop_channel, params})
+      {:ok, %{result: %{}}}
+    end
   end
 
   defmodule StructWebhookVerifier do
     defstruct [:normalized_signal]
 
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %__MODULE__{
          normalized_signal: %{
@@ -312,19 +421,51 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
   end
 
   defmodule StubWebhookNodeRouter do
-    def dispatch(%{opts: [action: :data_source_record_changed]} = event) do
-      send(self(), {:data_source_record_changed, event.request})
+    def dispatch(%{opts: [action: :ingest_records]} = event) do
+      send(self(), {:ingest_records, event.request})
+      %{event | response: :ok}
+    end
+
+    def dispatch(%{opts: [action: :resolve_data_source_watch_channel]} = event) do
+      %{
+        event
+        | response:
+            {:ok, Process.get(:stub_watch_channel) || default_watch_channel(event.request)}
+      }
+    end
+
+    def dispatch(%{opts: [action: :process_data_source_watch_changes]} = event) do
+      send(self(), {:process_data_source_watch_changes, event.request})
+      send(self(), {:ingest_records, event.request})
       %{event | response: :ok}
     end
 
     def dispatch(%{opts: [action: :connect_get_active_grant]} = event),
-      do: %{event | response: nil}
+      do: %{event | response: Process.get(:stub_runtime_grant)}
 
     def dispatch(%{opts: [action: :connect_fetch_credential]} = event),
-      do: %{event | response: {:error, :not_found}}
+      do: %{event | response: {:ok, Process.get(:stub_runtime_credential)}}
 
     def dispatch(%{opts: [action: :connect_oauth_redirect_uri_for]} = event),
       do: %{event | response: nil}
+
+    defp default_watch_channel(request) do
+      collection? = String.contains?(to_string(Map.get(request, :channel_id)), "collection")
+
+      %{
+        id: 1,
+        provider: Map.get(request, :provider),
+        config_id: Map.get(request, :config_id),
+        target_kind: if(collection?, do: "collection", else: "file"),
+        target_provider_id: if(collection?, do: "folder-1", else: "file-1"),
+        target_source:
+          if(collection?,
+            do: "data_source/google_drive/1/folder-1",
+            else: "data_source/google_drive/1/file-1"
+          ),
+        checkpoint: if(collection?, do: "checkpoint-1", else: nil)
+      }
+    end
   end
 
   defmodule StubRuntimeNodeRouter do
@@ -334,6 +475,22 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
 
     def dispatch(%{opts: [action: :connect_fetch_credential]} = event) do
       %{event | response: {:ok, Process.get(:stub_runtime_credential)}}
+    end
+
+    def dispatch(%{opts: [action: :upsert_data_source_watch_channel]} = event) do
+      send(self(), {:upsert_data_source_watch_channel, event.request})
+      %{event | response: {:ok, Map.put(event.request, :id, 1)}}
+    end
+
+    def dispatch(%{opts: [action: :resolve_data_source_watch_channel]} = event) do
+      case Process.get(:stub_watch_channel) do
+        nil -> %{event | response: {:error, :watch_channel_not_found}}
+        watch_channel -> %{event | response: {:ok, watch_channel}}
+      end
+    end
+
+    def dispatch(%{opts: [action: :mark_data_source_watch_channel_stopped]} = event) do
+      %{event | response: {:ok, %{id: event.request.watch_channel_id, status: "stopped"}}}
     end
   end
 
@@ -626,11 +783,312 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.id == "file-1"
-    assert request.record.change_type == :created
-    assert request.record.lifecycle_state == :active
-    assert %DateTime{} = request.record.deleted_at
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.id == "file-1"
+    assert record.change_type == :created
+    assert record.lifecycle_state == :active
+    assert record.attributes["provider"] == "google_drive"
+    assert record.attributes["config_id"] == to_string(config.id)
+    assert %DateTime{} = record.deleted_at
+  end
+
+  test "watch_item ensures config-level collection watch and unwatch can stop provider channel" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: BridgeStubIntegration}
+    })
+
+    Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnectWatchItem)
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubRuntimeNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    grant = create_active_grant!(credential, to_string(config.id))
+    Process.put(:stub_runtime_grant, grant)
+    Process.put(:stub_runtime_credential, credential)
+    config_watch_source = "data_source/google_drive/#{config.id}"
+
+    assert {:ok,
+            %{
+              status: "watched",
+              channel_id: "channel-1",
+              resource_id: "collection-resource-1",
+              checkpoint: "checkpoint-1",
+              collection_id: nil
+            }} =
+             JidoConnectBridge.watch_item(config, %{
+               "file_id" => "file-1",
+               "channel_id" => "channel-1",
+               "webhook_url" => "https://example.test/channels/webhook/data_source/google_drive"
+             })
+
+    assert_received {:watch_collection, watch_params}
+    refute Map.has_key?(watch_params, :collection_id)
+    assert watch_params.channel_id == "channel-1"
+    assert is_integer(watch_params.expiration_ms)
+
+    min_expiration_ms =
+      DateTime.utc_now()
+      |> DateTime.add(29 * 24 * 60 * 60, :second)
+      |> DateTime.to_unix(:millisecond)
+
+    assert watch_params.expiration_ms > min_expiration_ms
+
+    assert watch_params.address ==
+             "https://example.test/channels/webhook/data_source/google_drive"
+
+    assert_received {:upsert_data_source_watch_channel,
+                     %{
+                       target_source: ^config_watch_source,
+                       target_provider_id: "changes",
+                       target_kind: "collection",
+                       expiration_at: "123",
+                       metadata: %{"watch" => watch_metadata}
+                     }}
+
+    refute Map.has_key?(watch_metadata, "address")
+
+    assert {:ok, %{status: "unwatched", channel_id: "channel-1", resource_id: "resource-1"}} =
+             JidoConnectBridge.unwatch_item(config, %{
+               "channel_id" => "channel-1",
+               "resource_id" => "resource-1"
+             })
+
+    assert_received {:stop_channel, %{channel_id: "channel-1", resource_id: "resource-1"}}
+  end
+
+  test "folder watch reuses config-level collection watch action and stores checkpoint in Engine" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: BridgeStubIntegration}
+    })
+
+    Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnectWatchItem)
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubRuntimeNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    grant = create_active_grant!(credential, to_string(config.id))
+    Process.put(:stub_runtime_grant, grant)
+    Process.put(:stub_runtime_credential, credential)
+    config_watch_source = "data_source/google_drive/#{config.id}"
+
+    assert {:ok,
+            %{
+              status: "watched",
+              channel_id: "collection-channel-1",
+              resource_id: "collection-resource-1",
+              collection_id: nil,
+              checkpoint: "checkpoint-1",
+              metadata: %{
+                "watch" => %{
+                  "kind" => "collection",
+                  "collection_id" => nil,
+                  "checkpoint" => "checkpoint-1"
+                }
+              }
+            }} =
+             JidoConnectBridge.watch_item(config, %{
+               "file_id" => "folder-1",
+               "kind" => "folder",
+               "channel_id" => "collection-channel-1",
+               "webhook_url" => "https://example.test/channels/webhook/data_source/google_drive"
+             })
+
+    assert_received {:watch_collection, watch_params}
+    refute Map.has_key?(watch_params, :collection_id)
+    assert watch_params.channel_id == "collection-channel-1"
+    assert is_integer(watch_params.expiration_ms)
+
+    assert watch_params.address ==
+             "https://example.test/channels/webhook/data_source/google_drive"
+
+    assert_received {:upsert_data_source_watch_channel,
+                     %{
+                       target_source: ^config_watch_source,
+                       target_provider_id: "changes",
+                       target_kind: "collection"
+                     }}
+  end
+
+  test "watch_item reuses an existing changes watcher without provider registration" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: BridgeStubIntegration}
+    })
+
+    Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnectWatchItem)
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubRuntimeNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    Process.put(:stub_watch_channel, %{
+      id: 7,
+      channel_id: "existing-channel",
+      resource_id: "existing-resource",
+      checkpoint: "existing-checkpoint",
+      target_kind: "collection",
+      target_provider_id: "changes",
+      target_source: "data_source/google_drive/#{config.id}"
+    })
+
+    assert {:ok,
+            %{
+              status: "watched",
+              channel_id: "existing-channel",
+              resource_id: "existing-resource",
+              checkpoint: "existing-checkpoint"
+            }} =
+             JidoConnectBridge.watch_item(config, %{
+               "file_id" => "file-1",
+               "webhook_url" => "https://example.test/channels/webhook/data_source/google_drive"
+             })
+
+    refute_received {:watch_collection, _params}
+  end
+
+  test "collection webhook consumes collection changes and updates checkpoint" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: BridgeStubIntegration}
+    })
+
+    Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnectWatchItem)
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    grant = create_active_grant!(credential, to_string(config.id))
+    Process.put(:stub_runtime_grant, grant)
+    Process.put(:stub_runtime_credential, credential)
+
+    {:ok, _watched_folder} =
+      Document.insert_new(%{
+        source: "data_source/google_drive/#{config.id}/folder-1",
+        metadata: %{
+          "entry_type" => "folder",
+          "watch" => %{
+            "provider" => "google_drive",
+            "kind" => "collection",
+            "collection_id" => "folder-1",
+            "checkpoint" => "checkpoint-1",
+            "channel_id" => "collection-channel-1",
+            "resource_id" => "collection-resource-1"
+          }
+        },
+        watch_status: "watched"
+      })
+
+    {:ok, _removed_doc} =
+      Document.insert_new(%{
+        source: "data_source/google_drive/#{config.id}/removed-file-1",
+        content: "old content"
+      })
+
+    assert :ok =
+             JidoConnectBridge.process_verified_webhook_job(%{
+               "config_id" => config.id,
+               "provider" => "google_drive",
+               "trigger_id" => "google.drive.collection.changes.push",
+               "payload" => %{"headers" => %{}},
+               "delivery" => %{
+                 "normalized_signal" => %{
+                   "channel_id" => "collection-channel-1",
+                   "resource_id" => "collection-resource-1"
+                 }
+               }
+             })
+
+    assert_received {:list_collection_changes,
+                     %{checkpoint: "checkpoint-1", collection_id: "folder-1"}}
+
+    assert_received {:process_data_source_watch_changes, request}
+    assert request.watch_channel_id == 1
+    assert request.next_checkpoint == "checkpoint-2"
+
+    assert [%{provider_record_id: "changed-file-1"}, %{provider_record_id: "removed-file-1"}] =
+             request.signals
+  end
+
+  test "global changes webhook omits nil collection_id when listing changes" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: BridgeStubIntegration}
+    })
+
+    Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnectWatchItem)
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    grant = create_active_grant!(credential, to_string(config.id))
+    Process.put(:stub_runtime_grant, grant)
+    Process.put(:stub_runtime_credential, credential)
+
+    Process.put(:stub_watch_channel, %{
+      id: 1,
+      provider: "google_drive",
+      config_id: config.id,
+      channel_id: "global-channel-1",
+      resource_id: "global-resource-1",
+      target_kind: "collection",
+      target_provider_id: "changes",
+      target_source: "data_source/google_drive/#{config.id}",
+      checkpoint: "checkpoint-1"
+    })
+
+    assert :ok =
+             JidoConnectBridge.process_verified_webhook_job(%{
+               "config_id" => config.id,
+               "provider" => "google_drive",
+               "trigger_id" => "google.drive.collection.changes.push",
+               "payload" => %{"headers" => %{}},
+               "delivery" => %{
+                 "normalized_signal" => %{
+                   "channel_id" => "global-channel-1",
+                   "resource_id" => "global-resource-1"
+                 }
+               }
+             })
+
+    assert_received {:list_collection_changes, %{checkpoint: "checkpoint-1"} = params}
+    refute Map.has_key?(params, :collection_id)
   end
 
   test "list_files leaves permission projection untouched when config provider is missing" do
@@ -784,11 +1242,12 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
                  }
                })
 
-      assert_received {:data_source_record_changed, request}
-      assert request.record.id == "file-1"
-      assert request.record.change_type == :deleted
-      assert request.record.lifecycle_state == :deleted
-      assert is_nil(request.record.deleted_at)
+      assert_received {:ingest_records, request}
+      assert [record] = request.records
+      assert record.id == "file-1"
+      assert record.change_type == :deleted
+      assert record.lifecycle_state == :deleted
+      assert is_nil(record.deleted_at)
     end
 
     test "process_verified_webhook_job handles deleted webhook deliveries with atom keys" do

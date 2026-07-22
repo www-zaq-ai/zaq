@@ -256,6 +256,26 @@ defmodule Zaq.Channels.Api do
 
   def handle_event(
         %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_watch_item,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.watch_item(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_unwatch_item,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.unwatch_item(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
         :data_source_list_files,
         _context
       )

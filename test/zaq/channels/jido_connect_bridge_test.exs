@@ -821,7 +821,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   defmodule StubWebhookVerifier do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -834,7 +834,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   defmodule StubWebhookVerifierCreated do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -845,9 +845,35 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     end
   end
 
+  defmodule StubWebhookVerifierSync do
+    def normalize_signal(_payload) do
+      {:ok,
+       %{
+         normalized_signal: %{
+           resource_state: "sync",
+           resource_id: "sync-resource"
+         }
+       }}
+    end
+  end
+
   defmodule StubWebhookNodeRouter do
-    def dispatch(%{opts: [action: :data_source_record_changed], request: request} = event) do
-      send(self(), {:data_source_record_changed, request})
+    def dispatch(%{opts: [action: :ingest_records], request: request} = event) do
+      send(self(), {:ingest_records, request})
+      %{event | response: :ok}
+    end
+
+    def dispatch(%{opts: [action: :resolve_data_source_watch_channel]} = event) do
+      %{
+        event
+        | response:
+            {:ok, Process.get(:stub_watch_channel) || default_watch_channel(event.request)}
+      }
+    end
+
+    def dispatch(%{opts: [action: :process_data_source_watch_changes]} = event) do
+      send(self(), {:process_data_source_watch_changes, event.request})
+      send(self(), {:ingest_records, event.request})
       %{event | response: :ok}
     end
 
@@ -859,13 +885,36 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     def dispatch(%{opts: [action: :connect_oauth_redirect_uri_for]} = event),
       do: %{event | response: nil}
+
+    defp default_watch_channel(request) do
+      collection? = String.contains?(to_string(Map.get(request, :channel_id)), "collection")
+
+      %{
+        id: 1,
+        provider: Map.get(request, :provider),
+        config_id: Map.get(request, :config_id),
+        target_kind: if(collection?, do: "collection", else: "file"),
+        target_provider_id: if(collection?, do: "folder-1", else: "file-1"),
+        target_source:
+          if(collection?,
+            do: "data_source/google_drive/1/folder-1",
+            else: "data_source/google_drive/1/file-1"
+          ),
+        checkpoint: if(collection?, do: "checkpoint-1", else: nil)
+      }
+    end
   end
 
   defmodule StubJidoConnectWebhookOnly do
     def actions(_integration), do: {:ok, []}
 
     def triggers(_integration) do
-      {:ok, [%{id: "stub.file.changed", kind: :webhook, verb: :watch}]}
+      handler =
+        Process.get(:stub_webhook_handler) ||
+          get_in(Application.get_env(:zaq, :channels, %{}), [:google_drive, :webhook_verifier]) ||
+          Zaq.Channels.JidoConnectBridgeTest.StubWebhookVerifier
+
+      {:ok, [%{id: "stub.file.changed", kind: :webhook, verb: :watch, handler: handler}]}
     end
   end
 
@@ -3866,7 +3915,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert is_list(snapshot.unsupported)
   end
 
-  test "handle_webhook dispatches data_source_record_changed with deleted lifecycle record" do
+  test "handle_webhook dispatches ingest_records with deleted lifecycle record" do
     previous_channels = Application.get_env(:zaq, :channels)
     previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
     previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
@@ -3912,12 +3961,44 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.provider == "google_drive"
-    assert request.record.id == "deleted-file-1"
-    assert request.record.change_type == :deleted
-    assert request.record.lifecycle_state == :deleted
-    assert %DateTime{} = request.record.deleted_at
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert request.params.provider == "google_drive"
+    assert record.id == "deleted-file-1"
+    assert record.change_type == :deleted
+    assert record.lifecycle_state == :deleted
+    assert %DateTime{} = record.deleted_at
+  end
+
+  test "handle_webhook acknowledges sync notifications without enqueueing ingestion" do
+    previous_channels = Application.get_env(:zaq, :channels)
+    previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
+    previous_node_router = Application.get_env(:zaq, :jido_connect_bridge_node_router_module)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: JidoConnectBridge, integration: StubIntegration}
+    })
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectWebhookOnly
+    )
+
+    Process.put(:stub_webhook_handler, StubWebhookVerifierSync)
+    Application.put_env(:zaq, :jido_connect_bridge_node_router_module, StubWebhookNodeRouter)
+
+    on_exit(fn ->
+      Process.delete(:stub_webhook_handler)
+      restore_webhook_env(previous_channels, previous_jido_connect, previous_node_router)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{accepted: true, ignored: true, reason: :sync}} =
+             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+
+    refute_received {:ingest_records, _request}
   end
 
   test "setup_listener returns unsupported when webhook trigger is absent" do
@@ -3976,8 +4057,12 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubWebhookNodeRouterDispatchError do
-    def dispatch(%{opts: [action: :data_source_record_changed]} = event),
+    def dispatch(%{opts: [action: :process_data_source_watch_changes]} = event),
       do: %{event | response: {:error, :dispatch_failed}}
+
+    def dispatch(%{opts: [action: :resolve_data_source_watch_channel]} = event) do
+      %{event | response: {:ok, %{id: 1, target_kind: "file", target_provider_id: "file-1"}}}
+    end
 
     def dispatch(%{opts: [action: :connect_get_active_grant]} = event),
       do: %{event | response: nil}
@@ -4030,23 +4115,23 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubWebhookVerifierNonMap do
-    def verify_and_normalize(_trigger, _payload), do: {:ok, "not_a_map_nor_struct"}
+    def normalize_signal(_payload), do: {:ok, "not_a_map_nor_struct"}
   end
 
   defmodule StubWebhookVerifierMissingFileId do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok, %{normalized_signal: %{name: "no-id-file"}}}
     end
   end
 
   defmodule StubWebhookVerifierResourceId do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok, %{normalized_signal: %{resource_id: "res-1", change_type: "created"}}}
     end
   end
 
   defmodule StubWebhookVerifierNoSignalKey do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok, %{other_key: "value"}}
     end
   end
@@ -4134,7 +4219,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubWebhookVerifierRemovedString do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -4147,7 +4232,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   defmodule StubWebhookVerifierDeletedAtomKey do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -4160,7 +4245,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   defmodule StubWebhookVerifierDeletedStringKey do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -4173,7 +4258,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   defmodule StubWebhookVerifierChangeTypeAtom do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -4215,8 +4300,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.change_type == :deleted
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.change_type == :deleted
   end
 
   test "handle_webhook with :deleted atom key triggers deleted signal" do
@@ -4249,8 +4335,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.change_type == :deleted
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.change_type == :deleted
   end
 
   test "handle_webhook with \"deleted\" string key triggers deleted signal" do
@@ -4283,8 +4370,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.change_type == :deleted
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.change_type == :deleted
   end
 
   test "handle_webhook with :change_type => :deleted triggers deleted signal" do
@@ -4317,12 +4405,13 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.change_type == :deleted
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.change_type == :deleted
   end
 
   defmodule StubWebhookVerifierChangeTypeString do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -4365,8 +4454,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.change_type == :deleted
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.change_type == :deleted
   end
 
   # ---------------------------------------------------------------------------
@@ -4390,12 +4480,44 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       {:ok, %{file: %{"id" => "f1", "name" => "Fetched", "mimeType" => "application/pdf"}}}
     end
 
-    def triggers(_integration), do: {:ok, [%{id: "webhook", kind: :webhook, verb: :watch}]}
+    def triggers(_integration),
+      do:
+        {:ok,
+         [
+           %{
+             id: "webhook",
+             kind: :webhook,
+             verb: :watch,
+             handler:
+               Process.get(:stub_webhook_handler) ||
+                 get_in(Application.get_env(:zaq, :channels, %{}), [
+                   :google_drive,
+                   :webhook_verifier
+                 ]) ||
+                 Zaq.Channels.JidoConnectBridgeTest.StubWebhookVerifier
+           }
+         ]}
   end
 
   defmodule StubWebhookNodeRouterWithGrant do
-    def dispatch(%{opts: [action: :data_source_record_changed]} = event) do
-      send(self(), {:data_source_record_changed, event.request})
+    def dispatch(%{opts: [action: :ingest_records]} = event) do
+      send(self(), {:ingest_records, event.request})
+      %{event | response: :ok}
+    end
+
+    def dispatch(%{opts: [action: :resolve_data_source_watch_channel]} = event) do
+      %{
+        event
+        | response:
+            {:ok,
+             Process.get(:stub_watch_channel) ||
+               %{id: 1, target_kind: "file", target_provider_id: "file-1"}}
+      }
+    end
+
+    def dispatch(%{opts: [action: :process_data_source_watch_changes]} = event) do
+      send(self(), {:process_data_source_watch_changes, event.request})
+      send(self(), {:ingest_records, event.request})
       %{event | response: :ok}
     end
 
@@ -4485,10 +4607,11 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.id == "f1"
-    assert request.record.change_type == :created
-    assert request.record.name == "Fetched"
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.id == "f1"
+    assert record.change_type == :created
+    assert record.name == "Fetched"
   end
 
   defmodule StubJidoConnectGetItemFails do
@@ -4506,11 +4629,27 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     def invoke(_integration, "stub.files.get", _params, _opts), do: {:error, :not_found}
 
-    def triggers(_integration), do: {:ok, [%{id: "webhook", kind: :webhook, verb: :watch}]}
+    def triggers(_integration),
+      do:
+        {:ok,
+         [
+           %{
+             id: "webhook",
+             kind: :webhook,
+             verb: :watch,
+             handler:
+               Process.get(:stub_webhook_handler) ||
+                 get_in(Application.get_env(:zaq, :channels, %{}), [
+                   :google_drive,
+                   :webhook_verifier
+                 ]) ||
+                 Zaq.Channels.JidoConnectBridgeTest.StubWebhookVerifier
+           }
+         ]}
   end
 
   defmodule StubWebhookVerifierUpdated do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -4551,12 +4690,13 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.id == "f1"
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.id == "f1"
     # Since get_item_metadata fails, record is built with minimal data and signal applied
-    assert request.record.change_type == :updated
-    assert request.record.lifecycle_state == :active
-    assert request.record.deleted_at == nil
+    assert record.change_type == :updated
+    assert record.lifecycle_state == :active
+    assert record.deleted_at == nil
   end
 
   # ---------------------------------------------------------------------------
@@ -4580,7 +4720,23 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       {:ok, %{"id" => "f1", "name" => "DirectPayload"}}
     end
 
-    def triggers(_integration), do: {:ok, [%{id: "webhook", kind: :webhook, verb: :watch}]}
+    def triggers(_integration),
+      do:
+        {:ok,
+         [
+           %{
+             id: "webhook",
+             kind: :webhook,
+             verb: :watch,
+             handler:
+               Process.get(:stub_webhook_handler) ||
+                 get_in(Application.get_env(:zaq, :channels, %{}), [
+                   :google_drive,
+                   :webhook_verifier
+                 ]) ||
+                 Zaq.Channels.JidoConnectBridgeTest.StubWebhookVerifier
+           }
+         ]}
   end
 
   test "handle_webhook uses payload directly when no :file key in get_item_metadata" do
@@ -4613,8 +4769,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.id == "f1"
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.id == "f1"
   end
 
   # ---------------------------------------------------------------------------
@@ -4651,9 +4808,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.change_type == :created
-    assert request.record.lifecycle_state == :active
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.change_type == :created
+    assert record.lifecycle_state == :active
   end
 
   # ---------------------------------------------------------------------------
@@ -4661,7 +4819,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubWebhookVerifierNonBinaryTime do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -4674,7 +4832,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   defmodule StubWebhookVerifierInvalidISOTime do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %{
          normalized_signal: %{
@@ -4716,9 +4874,10 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.change_type == :deleted
-    assert request.record.deleted_at == nil
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.change_type == :deleted
+    assert record.deleted_at == nil
   end
 
   test "handle_webhook with invalid ISO time sets deleted_at to nil" do
@@ -4751,8 +4910,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.deleted_at == nil
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.deleted_at == nil
   end
 
   # ---------------------------------------------------------------------------
@@ -5166,7 +5326,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   defmodule StubVerifierMapStruct do
     defstruct [:normalized_signal]
 
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok,
        %StubVerifierMapStruct{
          normalized_signal: %{
@@ -5178,8 +5338,18 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   defmodule StubWebhookNodeRouterSimple do
-    def dispatch(%{opts: [action: :data_source_record_changed]} = event) do
-      send(self(), {:data_source_record_changed, event.request})
+    def dispatch(%{opts: [action: :ingest_records]} = event) do
+      send(self(), {:ingest_records, event.request})
+      %{event | response: :ok}
+    end
+
+    def dispatch(%{opts: [action: :resolve_data_source_watch_channel]} = event) do
+      %{event | response: {:ok, %{id: 1, target_kind: "file", target_provider_id: "file-1"}}}
+    end
+
+    def dispatch(%{opts: [action: :process_data_source_watch_changes]} = event) do
+      send(self(), {:process_data_source_watch_changes, event.request})
+      send(self(), {:ingest_records, event.request})
       %{event | response: :ok}
     end
 
@@ -5228,8 +5398,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
-    assert_received {:data_source_record_changed, request}
-    assert request.record.change_type == :updated
+    assert_received {:ingest_records, request}
+    assert [record] = request.records
+    assert record.change_type == :updated
   end
 
   # ---------------------------------------------------------------------------
@@ -5238,7 +5409,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubVerifierNoSignalKey do
-    def verify_and_normalize(_trigger, _payload) do
+    def normalize_signal(_payload) do
       {:ok, %{other_key: "value"}}
     end
   end

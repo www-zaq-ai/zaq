@@ -49,6 +49,44 @@ defmodule Zaq.Channels.Events do
     |> node_router(opts).dispatch()
   end
 
+  @spec build_data_source_watch_item_event(atom() | String.t(), map(), keyword()) :: Event.t()
+  def build_data_source_watch_item_event(provider, params, opts \\ []) when is_map(params) do
+    build_data_source_event(provider, params, :data_source_watch_item, opts)
+  end
+
+  @spec build_and_dispatch_data_source_watch_item_event(atom() | String.t(), map(), keyword()) ::
+          Event.t()
+  def build_and_dispatch_data_source_watch_item_event(provider, params, opts \\ [])
+      when is_map(params) do
+    provider
+    |> build_data_source_watch_item_event(params, opts)
+    |> node_router(opts).dispatch()
+  end
+
+  @spec build_data_source_unwatch_item_event(atom() | String.t(), map(), keyword()) :: Event.t()
+  def build_data_source_unwatch_item_event(provider, params, opts \\ []) when is_map(params) do
+    build_data_source_event(provider, params, :data_source_unwatch_item, opts)
+  end
+
+  @spec build_and_dispatch_data_source_unwatch_item_event(atom() | String.t(), map(), keyword()) ::
+          Event.t()
+  def build_and_dispatch_data_source_unwatch_item_event(provider, params, opts \\ [])
+      when is_map(params) do
+    provider
+    |> build_data_source_unwatch_item_event(params, opts)
+    |> node_router(opts).dispatch()
+  end
+
+  defp build_data_source_event(provider, params, action, opts) do
+    event_type = Keyword.get(opts, :type, :sync)
+    event_opts = Keyword.get(opts, :event_opts, [])
+
+    Event.new(%{provider: provider, params: params}, :channels,
+      type: event_type,
+      opts: [action: action] ++ event_opts
+    )
+  end
+
   defp resolve_upsert_event_type(%Outgoing{} = outgoing, nil) do
     metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
 

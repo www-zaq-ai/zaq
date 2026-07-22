@@ -822,21 +822,243 @@ defmodule Zaq.Channels.JidoConnectBridge do
   def unwatch_changes(config, _params) when is_map(config),
     do: :ok
 
+  @impl true
+  def watch_item(config, params) when is_map(config) and is_map(params) do
+    with {:ok, address} <- require_watch_address(params),
+         {:ok, channel_id} <- watch_channel_id(params) do
+      ensure_config_watch_channel(config, params, address, channel_id)
+    end
+  end
+
+  defp ensure_config_watch_channel(config, params, address, channel_id) do
+    config_watch_params = config_watch_params(config, params, address, channel_id)
+
+    if force_new_watch_channel?(params) do
+      create_config_watch_channel(config, config_watch_params)
+    else
+      resolve_or_create_config_watch_channel(config, config_watch_params)
+    end
+  end
+
+  defp resolve_or_create_config_watch_channel(config, config_watch_params) do
+    case resolve_existing_config_watch_channel(config) do
+      {:ok, watch_channel} ->
+        {:ok, watch_channel_result(config, watch_channel)}
+
+      {:error, :watch_channel_not_found} ->
+        create_config_watch_channel(config, config_watch_params)
+
+      {:error, _reason} ->
+        create_config_watch_channel(config, config_watch_params)
+    end
+  end
+
+  defp force_new_watch_channel?(params) do
+    read_any(params, [:force_new_watch_channel, "force_new_watch_channel"]) == true
+  end
+
+  defp create_config_watch_channel(config, params) do
+    watch_params =
+      params
+      |> Map.put(:address, Map.fetch!(params, :address))
+      |> Map.put(:channel_id, Map.fetch!(params, :channel_id))
+
+    with {:ok, payload} <- invoke_intent(config, :watch_collection, watch_params),
+         result =
+           normalize_watch_collection_result(payload, config, params, params.channel_id, nil),
+         {:ok, _watch_channel} <- persist_watch_channel(config, params, result, "collection") do
+      {:ok, result}
+    end
+  end
+
+  defp config_watch_params(config, _params, address, channel_id) do
+    %{
+      address: address,
+      channel_id: channel_id,
+      expiration_ms:
+        DateTime.utc_now()
+        |> DateTime.add(30 * 24 * 60 * 60, :second)
+        |> DateTime.to_unix(:millisecond),
+      kind: "collection",
+      target_source: config_watch_target_source(config),
+      target_provider_id: config_watch_target_provider_id()
+    }
+  end
+
+  defp resolve_existing_config_watch_channel(config) do
+    request = %{
+      provider: to_string(config.provider),
+      config_id: Map.get(config, :id),
+      target_source: config_watch_target_source(config),
+      target_provider_id: config_watch_target_provider_id()
+    }
+
+    event = Event.new(request, :engine, opts: [action: :resolve_data_source_watch_channel])
+
+    case node_router_module().dispatch(event).response do
+      {:ok, watch_channel} -> {:ok, watch_channel}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  defp watch_channel_result(config, watch_channel) do
+    %{
+      status: "watched",
+      provider: to_string(config.provider),
+      channel_id: read_stringish(watch_channel, [:channel_id, "channel_id"]),
+      resource_id: read_stringish(watch_channel, [:resource_id, "resource_id"]),
+      checkpoint: read_stringish(watch_channel, [:checkpoint, "checkpoint"]),
+      file_id: config_watch_target_provider_id(),
+      collection_id: nil,
+      raw: %{}
+    }
+  end
+
+  defp config_watch_target_source(config),
+    do:
+      Enum.join(["data_source", to_string(config.provider), to_string(Map.get(config, :id))], "/")
+
+  defp config_watch_target_provider_id, do: "changes"
+
+  defp persist_watch_channel(config, params, result, default_kind) when is_map(result) do
+    request = watch_channel_upsert_request(config, params, result, default_kind)
+    event = Event.new(request, :engine, opts: [action: :upsert_data_source_watch_channel])
+
+    case node_router_module().dispatch(event).response do
+      {:ok, _watch_channel} = ok -> ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  defp watch_channel_upsert_request(config, params, result, default_kind) do
+    %{
+      config_id: Map.get(config, :id),
+      provider: to_string(config.provider),
+      target_source:
+        read_stringish(params, [:target_source, "target_source", :source, "source"]) ||
+          external_target_source(config, params),
+      target_provider_id:
+        read_stringish(params, [
+          :target_provider_id,
+          "target_provider_id",
+          :file_id,
+          "file_id",
+          :collection_id,
+          "collection_id"
+        ]),
+      target_kind: watch_channel_target_kind(params, default_kind),
+      channel_id: read_stringish(result, [:channel_id, "channel_id"]),
+      resource_id: read_stringish(result, [:resource_id, "resource_id"]),
+      resource_uri: read_stringish(result, [:resource_uri, "resource_uri"]),
+      checkpoint: read_stringish(result, [:checkpoint, "checkpoint"]),
+      expiration_at:
+        read_any(result, [:expiration_at, "expiration_at", :expiration, "expiration"]),
+      status: "active",
+      metadata: Map.get(result, :metadata) || Map.get(result, "metadata") || %{}
+    }
+  end
+
+  defp watch_channel_target_kind(params, default_kind) do
+    case read_stringish(params, [:kind, "kind"]) do
+      kind when kind in ["folder", "collection"] -> "collection"
+      kind when is_binary(kind) -> kind
+      _ -> default_kind
+    end
+  end
+
+  defp external_target_source(config, params) do
+    provider_id =
+      read_stringish(params, [
+        :target_provider_id,
+        "target_provider_id",
+        :file_id,
+        "file_id",
+        :collection_id,
+        "collection_id"
+      ])
+
+    if is_binary(provider_id) do
+      Enum.join(
+        ["data_source", to_string(config.provider), to_string(Map.get(config, :id)), provider_id],
+        "/"
+      )
+    end
+  end
+
+  @impl true
+  def unwatch_item(config, params) when is_map(config) and is_map(params) do
+    with {:ok, watch_channel} <- resolve_unwatch_channel(config, params),
+         {:ok, channel_id} <- require_stringish(watch_channel, [:channel_id, "channel_id"]),
+         {:ok, resource_id} <- require_stringish(watch_channel, [:resource_id, "resource_id"]),
+         {:ok, payload} <-
+           invoke_intent(config, :unwatch_item, %{
+             channel_id: channel_id,
+             resource_id: resource_id
+           }),
+         {:ok, _watch_channel} <- mark_watch_channel_stopped(watch_channel) do
+      {:ok,
+       %{status: "unwatched", channel_id: channel_id, resource_id: resource_id, result: payload}}
+    end
+  end
+
+  defp resolve_unwatch_channel(config, params) do
+    channel_id = read_stringish(params, [:channel_id, "channel_id"])
+    resource_id = read_stringish(params, [:resource_id, "resource_id"])
+
+    if is_binary(channel_id) and is_binary(resource_id) do
+      {:ok, %{channel_id: channel_id, resource_id: resource_id}}
+    else
+      request = %{
+        provider: to_string(config.provider),
+        config_id: Map.get(config, :id),
+        target_source:
+          read_stringish(params, [:target_source, "target_source", :source, "source"])
+      }
+
+      event = Event.new(request, :engine, opts: [action: :resolve_data_source_watch_channel])
+
+      case node_router_module().dispatch(event).response do
+        {:ok, watch_channel} -> {:ok, watch_channel}
+        {:error, reason} -> {:error, reason}
+        other -> {:error, other}
+      end
+    end
+  end
+
+  defp mark_watch_channel_stopped(%{id: id}) do
+    event =
+      Event.new(%{watch_channel_id: id}, :engine,
+        opts: [action: :mark_data_source_watch_channel_stopped]
+      )
+
+    case node_router_module().dispatch(event).response do
+      {:ok, _watch_channel} = ok -> ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  defp mark_watch_channel_stopped(_watch_channel), do: {:ok, nil}
+
   @doc """
   Handles an incoming data source webhook delivery.
 
   The `payload` is expected to include request metadata used by provider-specific
-  verifiers (headers, query params, and raw body). Returns `{:ok, %{trigger_id,
-  delivery}}` when the webhook is verified, normalized, and dispatched.
+  trigger handlers (headers, query params, and raw body). Returns `{:ok,
+  %{accepted: true}}` when the webhook is normalized and dispatched.
   """
   @impl true
   def handle_webhook(config, payload) when is_map(config) and is_map(payload) do
     with {:ok, trigger} <- resolve_webhook_trigger(config.provider),
-         {:ok, verifier} <- webhook_verifier_for(config.provider),
-         {:ok, delivery} <- verifier.verify_and_normalize(trigger, payload),
+         {:ok, delivery} <- normalize_webhook_delivery(trigger, payload),
          {:ok, delivery_map} <- delivery_to_map(delivery),
          {:ok, job} <- enqueue_webhook_job(config, payload, trigger, delivery_map) do
       {:ok, %{accepted: true, job_id: job.id}}
+    else
+      {:ignore, :sync_notification} -> {:ok, %{accepted: true, ignored: true, reason: :sync}}
+      other -> other
     end
   end
 
@@ -847,8 +1069,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
          {:ok, trigger} <- fetch_webhook_trigger(args),
          {:ok, payload} <- fetch_webhook_payload(args),
          {:ok, delivery_map} <- fetch_webhook_delivery(args),
-         {:ok, record} <- load_changed_record(config, delivery_map),
-         :ok <- dispatch_record_changed(config, payload, trigger, delivery_map, record) do
+         :ok <- process_webhook_delivery(config, payload, trigger, delivery_map) do
       :ok
     else
       {:cancel, _reason} = cancel -> cancel
@@ -1875,6 +2096,79 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
+  defp require_watch_address(params) when is_map(params) do
+    require_stringish(params, [
+      :address,
+      "address",
+      :webhook_url,
+      "webhook_url",
+      :callback_url,
+      "callback_url"
+    ])
+  end
+
+  defp watch_channel_id(params) when is_map(params) do
+    case read_stringish(params, [:channel_id, "channel_id"]) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> {:ok, Ecto.UUID.generate()}
+    end
+  end
+
+  defp normalize_watch_collection_result(payload, config, _params, channel_id, collection_id) do
+    payload = payload_map(payload)
+    channel = read_any(payload, [:channel, "channel"]) |> payload_map()
+
+    resource_id =
+      read_stringish(channel, [:resource_id, "resource_id", :resourceId, "resourceId"])
+
+    expiration = read_stringish(channel, [:expiration, "expiration"])
+    resolved_channel_id = read_stringish(channel, [:id, "id"]) || channel_id
+    checkpoint = read_stringish(payload, [:checkpoint, "checkpoint", :cursor, "cursor"])
+
+    result_collection_id =
+      read_stringish(payload, [:collection_id, "collection_id"]) || collection_id
+
+    %{
+      status: "watched",
+      provider: to_string(config.provider),
+      channel_id: resolved_channel_id,
+      resource_id: resource_id,
+      file_id: result_collection_id,
+      collection_id: result_collection_id,
+      checkpoint: checkpoint,
+      expiration: expiration,
+      raw: payload,
+      metadata: %{
+        "watch" => %{
+          "provider" => to_string(config.provider),
+          "channel_id" => resolved_channel_id,
+          "resource_id" => resource_id,
+          "file_id" => result_collection_id,
+          "collection_id" => result_collection_id,
+          "kind" => "collection",
+          "checkpoint" => checkpoint,
+          "expiration" => expiration
+        }
+      }
+    }
+  end
+
+  defp require_stringish(map, keys) when is_map(map) do
+    case read_stringish(map, keys) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, {:missing_required_param, hd(keys)}}
+          trimmed -> {:ok, trimmed}
+        end
+
+      _ ->
+        {:error, {:missing_required_param, hd(keys)}}
+    end
+  end
+
+  defp payload_map(value) when is_map(value), do: value
+  defp payload_map(_value), do: %{}
+
   defp map_get_integer(map, keys) do
     case Enum.find_value(keys, &Map.get(map, &1)) do
       value when is_integer(value) -> value
@@ -1915,14 +2209,122 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp webhook_verifier_for(provider) do
-    with {:ok, cfg} <- provider_cfg(provider),
-         verifier when is_atom(verifier) <- Map.get(cfg, :webhook_verifier) do
-      {:ok, verifier}
-    else
-      _ -> {:error, :unsupported}
+  defp normalize_webhook_delivery(trigger, payload) do
+    with {:ok, handler} <- webhook_trigger_handler(trigger),
+         {:ok, delivery} <- normalize_webhook_delivery_with_handler(handler, payload),
+         {:ok, delivery_map} <- delivery_to_map(delivery) do
+      if sync_webhook_delivery?(delivery_map) do
+        {:ignore, :sync_notification}
+      else
+        {:ok, delivery}
+      end
     end
   end
+
+  defp webhook_trigger_handler(%ToolEntry{
+         integration_module: integration,
+         id: id,
+         module: module
+       })
+       when is_atom(integration) and is_binary(id) do
+    with true <- module_supports?(Jido.Connect, :trigger, 2) || {:error, :unsupported},
+         {:ok, trigger} <- Jido.Connect.trigger(integration, id),
+         handler when is_atom(handler) and not is_nil(handler) <- Map.get(trigger, :handler) do
+      {:ok, handler}
+    else
+      _ -> webhook_trigger_module(module)
+    end
+  end
+
+  defp webhook_trigger_handler(trigger) when is_map(trigger) do
+    handler = map_get_atom(trigger, [:handler, "handler"])
+
+    cond do
+      is_atom(handler) and not is_nil(handler) ->
+        {:ok, handler}
+
+      integration = map_get_atom(trigger, [:integration_module, "integration_module"]) ->
+        trigger_id = Map.get(trigger, :id) || Map.get(trigger, "id")
+
+        with true <- is_binary(trigger_id) || {:error, :unsupported},
+             true <- module_supports?(Jido.Connect, :trigger, 2) || {:error, :unsupported},
+             {:ok, spec} <- Jido.Connect.trigger(integration, trigger_id),
+             spec_handler when is_atom(spec_handler) and not is_nil(spec_handler) <-
+               Map.get(spec, :handler) do
+          {:ok, spec_handler}
+        else
+          _ -> webhook_trigger_module(map_get_atom(trigger, [:module, "module"]))
+        end
+
+      true ->
+        webhook_trigger_module(map_get_atom(trigger, [:module, "module"]))
+    end
+  end
+
+  defp webhook_trigger_handler(_), do: {:error, :unsupported}
+
+  defp webhook_trigger_module(module) when is_atom(module) and not is_nil(module),
+    do: {:ok, module}
+
+  defp webhook_trigger_module(_), do: {:error, :unsupported}
+
+  defp normalize_webhook_delivery_with_handler(handler, payload) do
+    case webhook_handler_callback(handler) do
+      :channel_notification ->
+        payload
+        |> then(&handler.normalize_channel_notification(webhook_headers(&1), webhook_body(&1)))
+        |> wrap_normalized_signal()
+
+      :signal ->
+        payload
+        |> handler.normalize_signal()
+        |> wrap_normalized_signal()
+
+      :unsupported ->
+        {:error, :unsupported}
+    end
+  end
+
+  defp webhook_handler_callback(handler) do
+    cond do
+      module_supports?(handler, :normalize_channel_notification, 2) -> :channel_notification
+      module_supports?(handler, :normalize_signal, 1) -> :signal
+      true -> :unsupported
+    end
+  end
+
+  defp webhook_headers(payload),
+    do: Map.get(payload, "headers") || Map.get(payload, :headers) || %{}
+
+  defp webhook_body(payload) do
+    Map.get(payload, "payload") || Map.get(payload, :payload) || Map.get(payload, "raw") ||
+      Map.get(payload, :raw) || Map.get(payload, "raw_body") || Map.get(payload, :raw_body)
+  end
+
+  defp wrap_normalized_signal({:ok, %{normalized_signal: _} = delivery}), do: {:ok, delivery}
+  defp wrap_normalized_signal({:ok, %{"normalized_signal" => _} = delivery}), do: {:ok, delivery}
+
+  defp wrap_normalized_signal({:ok, signal}) when is_map(signal),
+    do: {:ok, %{normalized_signal: signal}}
+
+  defp wrap_normalized_signal({:ok, _signal}), do: {:error, :invalid_delivery}
+  defp wrap_normalized_signal({:error, reason}), do: {:error, reason}
+  defp wrap_normalized_signal(other), do: other
+
+  defp sync_webhook_delivery?(delivery_map) when is_map(delivery_map) do
+    signal =
+      Map.get(delivery_map, :normalized_signal) || Map.get(delivery_map, "normalized_signal") ||
+        %{}
+
+    signal_state =
+      if is_map(signal), do: Map.get(signal, :resource_state) || Map.get(signal, "resource_state")
+
+    delivery_event = Map.get(delivery_map, :event) || Map.get(delivery_map, "event")
+
+    signal_state == "sync" or delivery_event == "sync"
+  end
+
+  defp sync_webhook_delivery?(_), do: false
 
   defp enqueue_webhook_job(config, payload, trigger, delivery_map) do
     args = %{
@@ -1971,19 +2373,134 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp fetch_webhook_delivery(_), do: {:cancel, :missing_delivery}
 
-  defp dispatch_record_changed(config, payload, trigger, delivery, record) do
+  defp process_webhook_delivery(config, payload, trigger, delivery_map) do
+    with {:ok, watch_channel} <- resolve_watch_channel(config, delivery_map) do
+      case watch_channel_kind(watch_channel) do
+        "collection" ->
+          process_collection_webhook_delivery(
+            config,
+            payload,
+            trigger,
+            delivery_map,
+            watch_channel
+          )
+
+        "folder" ->
+          process_collection_webhook_delivery(
+            config,
+            payload,
+            trigger,
+            delivery_map,
+            watch_channel
+          )
+
+        _ ->
+          process_file_webhook_delivery(config, payload, trigger, delivery_map, watch_channel)
+      end
+    end
+  end
+
+  defp process_file_webhook_delivery(config, payload, trigger, delivery_map, watch_channel) do
+    with {:ok, record} <- load_changed_record(config, delivery_map) do
+      dispatch_watch_changes_to_engine(config, payload, trigger, delivery_map, watch_channel, %{
+        records: [record]
+      })
+    end
+  end
+
+  defp process_collection_webhook_delivery(config, payload, trigger, delivery_map, watch_channel) do
+    with {:ok, changes} <- list_collection_changes(config, watch_channel) do
+      dispatch_watch_changes_to_engine(config, payload, trigger, delivery_map, watch_channel, %{
+        signals: read_any(changes, [:signals, "signals"]) || [],
+        checkpoint: watch_channel_checkpoint(watch_channel),
+        next_checkpoint: read_stringish(changes, [:checkpoint, "checkpoint", :cursor, "cursor"])
+      })
+    end
+  end
+
+  defp resolve_watch_channel(config, delivery_map) do
+    signal = normalized_delivery_signal(delivery_map)
+
+    request = %{
+      provider: to_string(config.provider),
+      channel_id: read_stringish(signal, [:channel_id, "channel_id"]),
+      resource_id: read_stringish(signal, [:resource_id, "resource_id"]),
+      delivery: delivery_map
+    }
+
+    event = Event.new(request, :engine, opts: [action: :resolve_data_source_watch_channel])
+
+    case node_router_module().dispatch(event).response do
+      {:ok, watch_channel} -> {:ok, watch_channel}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  defp list_collection_changes(config, watch_channel) do
+    params =
+      %{
+        checkpoint: watch_channel_checkpoint(watch_channel),
+        collection_id: watch_channel_collection_id(watch_channel)
+      }
+      |> compact_nil_values()
+
+    invoke_intent(config, :list_collection_changes, params)
+  end
+
+  defp compact_nil_values(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp watch_channel_collection_id(watch_channel) do
+    case watch_channel_target_provider_id(watch_channel) do
+      "changes" -> nil
+      other -> other
+    end
+  end
+
+  defp dispatch_watch_changes_to_engine(
+         config,
+         payload,
+         trigger,
+         delivery_map,
+         watch_channel,
+         attrs
+       ) do
+    attrs =
+      Map.update(
+        attrs,
+        :records,
+        [],
+        &Enum.map(&1, fn record -> put_external_record_attrs(config, record) end)
+      )
+
+    request =
+      attrs
+      |> Map.put(:watch_channel_id, Map.fetch!(watch_channel, :id))
+      |> Map.put(:provider, to_string(config.provider))
+      |> Map.put(:config_id, Map.get(config, :id))
+      |> Map.put(:target_kind, watch_channel_kind(watch_channel))
+      |> Map.put(:target_provider_id, watch_channel_target_provider_id(watch_channel))
+      |> Map.put(:target_source, Map.get(watch_channel, :target_source))
+      |> Map.put(:delivery, delivery_map)
+      |> Map.put(:payload, payload)
+      |> Map.put(:trigger_id, trigger.id)
+      |> Map.put(:params, %{
+        mode: :async,
+        provider: config.provider,
+        config_id: Map.get(config, :id),
+        trigger_id: trigger.id,
+        delivery: delivery_map,
+        payload: payload
+      })
+
     event =
-      Event.new(
-        %{
-          provider: config.provider,
-          config_id: Map.get(config, :id),
-          trigger_id: trigger.id,
-          delivery: delivery,
-          payload: payload,
-          record: record
-        },
-        :engine,
-        opts: [action: :data_source_record_changed]
+      Event.new(request, :engine,
+        type: :async,
+        opts: [action: :process_data_source_watch_changes]
       )
 
     case node_router_module().dispatch(event).response do
@@ -1991,6 +2508,33 @@ defmodule Zaq.Channels.JidoConnectBridge do
       _ -> :ok
     end
   end
+
+  defp watch_channel_kind(watch_channel),
+    do: read_stringish(watch_channel, [:target_kind, "target_kind"]) || "file"
+
+  defp watch_channel_checkpoint(watch_channel),
+    do: read_stringish(watch_channel, [:checkpoint, "checkpoint"])
+
+  defp watch_channel_target_provider_id(watch_channel),
+    do: read_stringish(watch_channel, [:target_provider_id, "target_provider_id"])
+
+  defp put_external_record_attrs(config, %Record{} = record) do
+    attrs =
+      (record.attributes || %{})
+      |> Map.put_new("provider", to_string(config.provider))
+      |> Map.put_new("config_id", to_string(Map.get(config, :id)))
+      |> Map.put_new("provider_record_id", record.id)
+
+    %{record | attributes: attrs}
+  end
+
+  defp put_external_record_attrs(_config, record), do: record
+
+  defp normalized_delivery_signal(delivery_map) when is_map(delivery_map) do
+    Map.get(delivery_map, :normalized_signal) || Map.get(delivery_map, "normalized_signal") || %{}
+  end
+
+  defp normalized_delivery_signal(_delivery_map), do: %{}
 
   defp delivery_to_map(delivery) when is_struct(delivery) do
     {:ok, Map.from_struct(delivery)}
@@ -2123,6 +2667,18 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp resolve_action_spec(tools, :get_export_options, provider),
     do: resolve_action_by_candidates(tools, provider, :get_export_options)
+
+  defp resolve_action_spec(tools, :watch_item, provider),
+    do: resolve_action_by_candidates(tools, provider, :watch_item)
+
+  defp resolve_action_spec(tools, :watch_collection, provider),
+    do: resolve_action_by_candidates(tools, provider, :watch_collection)
+
+  defp resolve_action_spec(tools, :list_collection_changes, provider),
+    do: resolve_action_by_candidates(tools, provider, :list_collection_changes)
+
+  defp resolve_action_spec(tools, :unwatch_item, provider),
+    do: resolve_action_by_candidates(tools, provider, :unwatch_item)
 
   defp resolve_action_spec(tools, :create_item, provider),
     do: resolve_action_by_candidates(tools, provider, :create_item)

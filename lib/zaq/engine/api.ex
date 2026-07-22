@@ -9,6 +9,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.DataSources
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Notifications
   alias Zaq.Engine.PeopleGateway
@@ -89,6 +90,56 @@ defmodule Zaq.Engine.Api do
       params when is_map(params) ->
         connect_module = Keyword.get(event.opts, :connect_module, Connect)
         %{event | response: connect_module.get_active_grant(params)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :upsert_data_source_watch_channel, _context) do
+    case event.request do
+      attrs when is_map(attrs) ->
+        %{event | response: DataSources.upsert_watch_channel(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :resolve_data_source_watch_channel, _context) do
+    case event.request do
+      attrs when is_map(attrs) ->
+        %{event | response: DataSources.resolve_watch_channel(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :process_data_source_watch_changes, _context) do
+    case event.request do
+      attrs when is_map(attrs) ->
+        %{event | response: DataSources.process_watch_changes(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :mark_data_source_watch_channel_error, _context) do
+    case event.request do
+      %{watch_channel_id: id, reason: reason} ->
+        %{event | response: DataSources.mark_watch_channel_error(id, reason)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :mark_data_source_watch_channel_stopped, _context) do
+    case event.request do
+      %{watch_channel_id: id} ->
+        %{event | response: DataSources.mark_watch_channel_stopped(id)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}

@@ -15,6 +15,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
   attr :provider_mode, :boolean, default: false
+  attr :selected_watchable_count, :integer, default: 0
+  attr :selected_watched_count, :integer, default: 0
+  attr :watch_supported, :boolean, default: true
+  attr :watch_disabled_reason, :string, default: nil
 
   def file_browser_header(assigns) do
     ~H"""
@@ -62,6 +66,26 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
           />
         </svg>
         Delete ({MapSet.size(@selected)})
+      </button>
+      <button
+        :if={@selected_watchable_count > 0}
+        id="bulk-watch-button"
+        phx-click="watch_selected"
+        class="zaq-btn zaq-btn-tertiary zaq-btn-text_label-default"
+        type="button"
+        disabled={not @watch_supported}
+        title={if(not @watch_supported, do: @watch_disabled_reason)}
+      >
+        Watch ({@selected_watchable_count})
+      </button>
+      <button
+        :if={@selected_watched_count > 0}
+        id="bulk-unwatch-button"
+        phx-click="unwatch_selected"
+        class="zaq-btn zaq-btn-tertiary zaq-btn-text_label-default"
+        type="button"
+      >
+        Unwatch ({@selected_watched_count})
       </button>
       <button
         :for={mode <- ~w(async inline)}

@@ -156,6 +156,7 @@ if config_env() == :prod do
       telemetry: String.to_integer(System.get_env("OBAN_TELEMETRY_CONCURRENCY", "5")),
       telemetry_remote:
         String.to_integer(System.get_env("OBAN_TELEMETRY_REMOTE_CONCURRENCY", "3")),
+      channels: String.to_integer(System.get_env("OBAN_CHANNELS_CONCURRENCY", "10")),
       default: 10
     ],
     plugins: [
