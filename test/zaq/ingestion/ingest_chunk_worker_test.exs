@@ -148,6 +148,81 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
     assert refreshed_chunk_job.status == "completed"
   end
 
+  test "rebuilds source locators from the chunk payload" do
+    defmodule LocatorCapturingProcessor do
+      def store_chunk_with_metadata(chunk, _document_id, _chunk_index) do
+        send(self(), {:captured_chunk, chunk})
+        {:ok, %{id: 1}}
+      end
+    end
+
+    Application.put_env(:zaq, :document_processor, LocatorCapturingProcessor)
+
+    job = create_job()
+    document = create_document()
+
+    chunk_job =
+      create_chunk_job(job, %{
+        document_id: document.id,
+        chunk_payload: %{
+          "id" => "chunk-1",
+          "content" => "chunk content",
+          "metadata" => %{},
+          "start_page" => 4,
+          "end_page" => 5,
+          "start_line" => 96,
+          "end_line" => 133,
+          "start_offset" => 5210,
+          "end_offset" => 7891
+        }
+      })
+
+    assert :ok =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    assert_received {:captured_chunk, chunk}
+    assert chunk.start_page == 4
+    assert chunk.end_page == 5
+    assert chunk.start_line == 96
+    assert chunk.end_line == 133
+    assert chunk.start_offset == 5210
+    assert chunk.end_offset == 7891
+  end
+
+  test "leaves locators nil for payloads enqueued before locators existed" do
+    defmodule LegacyPayloadCapturingProcessor do
+      def store_chunk_with_metadata(chunk, _document_id, _chunk_index) do
+        send(self(), {:captured_chunk, chunk})
+        {:ok, %{id: 1}}
+      end
+    end
+
+    Application.put_env(:zaq, :document_processor, LegacyPayloadCapturingProcessor)
+
+    job = create_job()
+    document = create_document()
+    chunk_job = create_chunk_job(job, %{document_id: document.id})
+
+    assert :ok =
+             IngestChunkWorker.perform(%Oban.Job{
+               args: %{"chunk_job_id" => chunk_job.id, "job_id" => job.id},
+               attempt: 1,
+               max_attempts: 5
+             })
+
+    assert_received {:captured_chunk, chunk}
+    assert chunk.start_page == nil
+    assert chunk.end_page == nil
+    assert chunk.start_line == nil
+    assert chunk.end_line == nil
+    assert chunk.start_offset == nil
+    assert chunk.end_offset == nil
+  end
+
   test "cancels when parent ingest job is missing" do
     assert {:cancel, :not_found} =
              IngestChunkWorker.perform(%Oban.Job{

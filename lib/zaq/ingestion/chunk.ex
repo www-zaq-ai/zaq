@@ -112,23 +112,24 @@ defmodule Zaq.Ingestion.Chunk do
   alone would leave every interior page unreachable. A chunk covering pages
   1-3 is returned for 1, 2 and 3 alike.
 
-  Both bounds are source locators in the `metadata` jsonb rather than columns.
-  The `CASE`/`jsonb_typeof` guard is load-bearing: `metadata` is a free-form
-  blob, and a bare `::int` cast raises for the *entire query* the moment one
-  scanned row holds a non-numeric value under either key. Rows that fail the
-  guard read as NULL and simply do not match.
+  Both bounds are source locators in the `metadata` jsonb rather than columns:
+  `start` / `end` hold `"P<page>|L<line>"` strings, and the page is extracted
+  in SQL via `substring(... FROM '^P([0-9]+)\\|')`. `substring` returns NULL
+  when the key is absent, the value is not a string of that shape, or the
+  value is a non-string jsonb node (`->>` renders it as text, which cannot
+  match the pattern) — so a malformed row reads NULL and simply does not
+  match, without poisoning the query.
 
-  `end_page_number` is absent on chunks written before page ranges existed;
-  those fall back to their start page and behave as single-page chunks.
-  Chunks predating source locators have no page at all and never match.
+  `end` is absent or malformed on some rows; those fall back to their start
+  page and behave as single-page chunks. Chunks predating source locators
+  have no page at all and never match.
   """
   def list_by_page(document_id, page_number) when is_integer(page_number) do
     from(c in __MODULE__,
       where: c.document_id == ^document_id,
       where:
         fragment(
-          "CASE WHEN jsonb_typeof(?->'page_number') = 'number' THEN (?->>'page_number')::int END <= ?",
-          c.metadata,
+          "(substring(?->>'start' FROM '^P([0-9]+)\\|'))::int <= ?",
           c.metadata,
           ^page_number
         ),
@@ -136,14 +137,10 @@ defmodule Zaq.Ingestion.Chunk do
         fragment(
           """
           COALESCE(
-            CASE WHEN jsonb_typeof(?->'end_page_number') = 'number'
-                 THEN (?->>'end_page_number')::int END,
-            CASE WHEN jsonb_typeof(?->'page_number') = 'number'
-                 THEN (?->>'page_number')::int END
+            (substring(?->>'end' FROM '^P([0-9]+)\\|'))::int,
+            (substring(?->>'start' FROM '^P([0-9]+)\\|'))::int
           ) >= ?
           """,
-          c.metadata,
-          c.metadata,
           c.metadata,
           c.metadata,
           ^page_number

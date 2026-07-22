@@ -706,7 +706,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       "content" => chunk.content,
       "section_path" => chunk.section_path,
       "tokens" => chunk.tokens,
-      "metadata" => chunk.metadata
+      "metadata" => chunk.metadata,
+      "start_page" => chunk.start_page,
+      "end_page" => chunk.end_page,
+      "start_line" => chunk.start_line,
+      "end_line" => chunk.end_line,
+      "start_offset" => chunk.start_offset,
+      "end_offset" => chunk.end_offset
     }
   end
 
@@ -755,7 +761,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       content: chunk.content,
       chunk_index: index,
       section_path: chunk.section_path,
-      metadata: build_metadata(chunk, document_id, index),
+      metadata: build_metadata(chunk),
       embedding: Pgvector.HalfVector.new(embedding),
       language: language
     }
@@ -774,21 +780,27 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   @doc """
-  Builds metadata map from chunk information.
+  Builds the metadata jsonb for a chunk.
+
+  Holds only what is not already a column on `chunks` (`document_id`,
+  `chunk_index` and `section_path` are columns — never mirrored here), plus
+  source locators tracing the chunk back to the converter markdown:
+  `start`/`end` as `"P<page>|L<line>"` strings and `start_offset`/`end_offset`
+  as character offsets. Locator keys are omitted entirely when the chunker
+  struct carries no locators (legacy path).
   """
-  def build_metadata(%DocumentChunker.Chunk{} = chunk, document_id, index) do
+  def build_metadata(%DocumentChunker.Chunk{} = chunk) do
     section_type = metadata_field(chunk.metadata, :section_type)
 
     base = %{
-      document_id: document_id,
-      chunk_index: index,
       section_id: chunk.section_id,
-      section_path: chunk.section_path,
       section_type: section_type,
       section_level: metadata_field(chunk.metadata, :section_level),
       position: metadata_field(chunk.metadata, :position),
       tokens: chunk.tokens
     }
+
+    base = put_locators(base, chunk)
 
     case section_type do
       value when value in [:figure, "figure"] ->
@@ -799,6 +811,23 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         base
     end
   end
+
+  defp put_locators(meta, %DocumentChunker.Chunk{} = chunk) do
+    meta
+    |> put_page_line(:start, chunk.start_page, chunk.start_line)
+    |> put_page_line(:end, chunk.end_page, chunk.end_line)
+    |> put_offset(:start_offset, chunk.start_offset)
+    |> put_offset(:end_offset, chunk.end_offset)
+  end
+
+  defp put_page_line(meta, key, page, line) when is_integer(page) and is_integer(line) do
+    Map.put(meta, key, "P#{page}|L#{line}")
+  end
+
+  defp put_page_line(meta, _key, _page, _line), do: meta
+
+  defp put_offset(meta, key, offset) when is_integer(offset), do: Map.put(meta, key, offset)
+  defp put_offset(meta, _key, _offset), do: meta
 
   defp metadata_field(metadata, key) when is_map(metadata) do
     Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))

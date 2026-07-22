@@ -111,7 +111,15 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
         metadata: Map.get(payload, "metadata", %{}),
         # Derived, not persisted: embedding_input is a pure function of two
         # payload keys, so old and new payloads take the same path.
-        embedding_input: DocumentChunker.Chunk.embedding_input(content, section_path)
+        embedding_input: DocumentChunker.Chunk.embedding_input(content, section_path),
+        # Source locators; absent on payloads enqueued before locators
+        # existed, in which case the persisted metadata omits them.
+        start_page: Map.get(payload, "start_page"),
+        end_page: Map.get(payload, "end_page"),
+        start_line: Map.get(payload, "start_line"),
+        end_line: Map.get(payload, "end_line"),
+        start_offset: Map.get(payload, "start_offset"),
+        end_offset: Map.get(payload, "end_offset")
       })
 
     case processor.store_chunk_with_metadata(
