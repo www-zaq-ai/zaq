@@ -19,6 +19,10 @@ defmodule Zaq.Channels.MessageFormatter do
   - `nil` / unset / `:none`: no transformation
   - `:plain_text`: markdown -> html (`Earmark`) -> plain text
   - `:html`: markdown -> html (`Earmark`)
+  - `:rich_markdown` / `:rich_html`: no transformation — the body is forwarded
+    verbatim and the platform parses it server-side. Telegram's Bot API 10.1
+    rich messages use this to render tables, headings, and nested lists, none of
+    which its `sendMessage` HTML tag set can express.
 
   Notes:
 
@@ -34,6 +38,9 @@ defmodule Zaq.Channels.MessageFormatter do
   alias Zaq.Channels.Bridge
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Utils.HtmlUtils
+
+  @rich_formats [:rich_markdown, :rich_html]
+  @stamped_formats [:html, :plain_text] ++ @rich_formats
 
   @doc """
   Formats an outbound message body according to provider `:message_format`
@@ -125,12 +132,15 @@ defmodule Zaq.Channels.MessageFormatter do
     end
   end
 
+  # Rich formats are parsed by the platform, so the markdown body ships unconverted.
+  defp format_text(text, format, _formatter) when format in @rich_formats, do: text
+
   defp format_text(text, _unknown_format, _formatter), do: text
 
   defp ensure_metadata_map(metadata) when is_map(metadata), do: metadata
   defp ensure_metadata_map(_metadata), do: %{}
 
-  defp put_format_metadata(metadata, format) when format in [:html, :plain_text] do
+  defp put_format_metadata(metadata, format) when format in @stamped_formats do
     metadata
     |> Map.delete("format")
     |> Map.put(:format, format)

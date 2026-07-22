@@ -39,6 +39,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
+
+  # Formats an adapter may receive on the wire. `:rich_markdown` / `:rich_html`
+  # ship the body unconverted so the platform parses it server-side — that is how
+  # Telegram renders tables, which its `sendMessage` HTML tag set cannot express.
+  @deliverable_formats [:html, :plain_text, :markdown, :rich_markdown, :rich_html]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
 
@@ -1593,7 +1598,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp post_metadata(metadata) when is_map(metadata) do
     case Map.get(metadata, :format) || Map.get(metadata, "format") do
-      format when format in [:html, :plain_text, :markdown] -> %{format: format}
+      format when format in @deliverable_formats -> %{format: format}
       _ -> %{}
     end
   end
@@ -1602,7 +1607,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp maybe_put_format_from_metadata(opts, metadata) when is_map(metadata) do
     case Map.get(metadata, :format) || Map.get(metadata, "format") do
-      format when format in [:html, :plain_text, :markdown] -> Keyword.put(opts, :format, format)
+      format when format in @deliverable_formats -> Keyword.put(opts, :format, format)
       _ -> opts
     end
   end
