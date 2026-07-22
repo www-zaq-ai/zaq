@@ -13,6 +13,10 @@ defmodule Zaq.Channels.ProviderCatalog do
     :download_items,
     :export_items,
     :get_export_options,
+    :watch_item,
+    :watch_collection,
+    :list_collection_changes,
+    :unwatch_item,
     :create_item,
     :update_item,
     :delete_item,
@@ -90,6 +94,10 @@ defmodule Zaq.Channels.ProviderCatalog do
   def capability_action_suffixes(:download_items), do: ["file.download"]
   def capability_action_suffixes(:export_items), do: ["file.export"]
   def capability_action_suffixes(:get_export_options), do: ["about.get"]
+  def capability_action_suffixes(:watch_item), do: ["file.watch"]
+  def capability_action_suffixes(:watch_collection), do: ["collection.watch"]
+  def capability_action_suffixes(:list_collection_changes), do: ["collection.changes.list"]
+  def capability_action_suffixes(:unwatch_item), do: ["channel.stop"]
   def capability_action_suffixes(:create_item), do: ["file.create"]
   def capability_action_suffixes(:update_item), do: ["file.update"]
   def capability_action_suffixes(:delete_item), do: ["file.delete"]

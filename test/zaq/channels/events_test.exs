@@ -196,4 +196,74 @@ defmodule Zaq.Channels.EventsTest do
     assert request.metadata.message_id == "m1"
     assert event.next_hop.type == :async
   end
+
+  test "build_data_source_watch_item_event builds channels watch event" do
+    params = %{"file_id" => "f1"}
+
+    event = Events.build_data_source_watch_item_event(:google_drive, params)
+
+    assert event.request == %{provider: :google_drive, params: params}
+    assert event.opts[:action] == :data_source_watch_item
+    assert event.next_hop.type == :sync
+  end
+
+  test "build_and_dispatch_data_source_watch_item_event dispatches built event" do
+    params = %{"channel_id" => "watch-1", "resource_id" => "resource-1"}
+
+    event =
+      Events.build_and_dispatch_data_source_watch_item_event(:google_drive, params,
+        node_router: StubNodeRouter
+      )
+
+    assert event.response == :ok
+    assert event.next_hop.type == :sync
+
+    assert_received {:node_router_dispatch,
+                     %Zaq.Event{
+                       opts: [action: :data_source_watch_item],
+                       request: %{provider: :google_drive, params: ^params}
+                     }}
+  end
+
+  test "build_and_dispatch_data_source_unwatch_item_event dispatches built event" do
+    params = %{"channel_id" => "watch-1", "resource_id" => "resource-1"}
+
+    event =
+      Events.build_and_dispatch_data_source_unwatch_item_event(:google_drive, params,
+        node_router: StubNodeRouter
+      )
+
+    assert event.response == :ok
+    assert event.next_hop.type == :sync
+
+    assert_received {:node_router_dispatch,
+                     %Zaq.Event{
+                       opts: [action: :data_source_unwatch_item],
+                       request: %{provider: :google_drive, params: ^params}
+                     }}
+  end
+
+  test "build_and_dispatch_data_source_watch_item_event dispatches with default opts" do
+    provider = "coverage-missing-watch-provider-#{System.unique_integer([:positive])}"
+    params = %{"channel_id" => "watch-1", "resource_id" => "resource-1"}
+
+    event = Events.build_and_dispatch_data_source_watch_item_event(provider, params)
+
+    assert event.request == %{provider: provider, params: params}
+    assert event.opts[:action] == :data_source_watch_item
+    assert event.next_hop == nil
+    assert event.response == {:error, {:no_bridge, provider}}
+  end
+
+  test "build_and_dispatch_data_source_unwatch_item_event dispatches with default opts" do
+    provider = "coverage-missing-unwatch-provider-#{System.unique_integer([:positive])}"
+    params = %{"channel_id" => "watch-1", "resource_id" => "resource-1"}
+
+    event = Events.build_and_dispatch_data_source_unwatch_item_event(provider, params)
+
+    assert event.request == %{provider: provider, params: params}
+    assert event.opts[:action] == :data_source_unwatch_item
+    assert event.next_hop == nil
+    assert event.response == {:error, {:no_bridge, provider}}
+  end
 end

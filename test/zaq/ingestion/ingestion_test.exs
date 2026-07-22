@@ -128,6 +128,319 @@ defmodule Zaq.IngestionTest do
     document
   end
 
+  test "mark_watch_active stores watched status without provider runtime metadata" do
+    source = "data_source/google_drive/1/file-1"
+    create_document_with_chunks(source, 0, %{"existing" => true})
+
+    assert {:ok, doc} =
+             Ingestion.mark_watch_active(
+               %{source: source, kind: :file},
+               %{
+                 metadata: %{
+                   "watch" => %{
+                     "channel_id" => "channel-1",
+                     "resource_id" => "resource-1"
+                   }
+                 }
+               }
+             )
+
+    assert doc.watch_status == "watched"
+    assert doc.watch_error == nil
+    assert doc.metadata["existing"] == true
+    refute Map.has_key?(doc.metadata, "watch")
+  end
+
+  test "mark_watch_error records provider setup failures" do
+    source = "data_source/google_drive/1/file-error"
+    create_document_with_chunks(source, 0)
+
+    assert {:ok, doc} = Ingestion.mark_watch_error(%{source: source}, :unsupported)
+
+    assert doc.watch_status == "error"
+    assert doc.watch_error == ":unsupported"
+  end
+
+  test "process_data_source_changes rejects invalid requests" do
+    assert {:error, :invalid_request} = Ingestion.process_data_source_changes(nil)
+    assert {:error, :invalid_request} = Ingestion.process_data_source_changes([])
+  end
+
+  test "file_info/2 delegates to FileExplorer" do
+    path = "file_info_#{System.unique_integer([:positive])}.md"
+    assert {:ok, _full_path} = FileExplorer.upload(path, "# info")
+
+    on_exit(fn -> FileExplorer.delete(path) end)
+
+    assert {:ok, info} = Ingestion.file_info("default", path)
+    assert info.name == Path.basename(path)
+  end
+
+  test "watch helpers return neutral values for invalid inputs" do
+    assert Ingestion.count_watched_provider_documents(nil, nil) == 0
+    assert Ingestion.count_watched_provider_documents("google_drive", nil) == 0
+    assert Ingestion.data_source_inherited_watch(nil, nil, nil) == nil
+    assert Ingestion.data_source_inherited_watch("google_drive", nil, nil) == nil
+
+    assert Ingestion.data_source_record_watch_active?(nil) == false
+    assert Ingestion.data_source_record_watch_active?(%{}) == false
+    assert Ingestion.data_source_record_watch_active?(%{watch_status: "unwatched"}) == false
+  end
+
+  test "mark_watch_active inserts a watched folder target when the document is missing" do
+    source = "data_source/google_drive/42/folder-#{System.unique_integer([:positive])}"
+
+    assert {:ok, doc} = Ingestion.mark_watch_active(%{source: source, kind: :folder}, %{})
+    assert doc.source == source
+    assert doc.content == nil
+    assert doc.metadata["entry_type"] == "folder"
+    assert doc.watch_status == "watched"
+  end
+
+  test "mark_watch_active and mark_watch_error skip invalid targets" do
+    assert :skip = Ingestion.mark_watch_active(%{}, %{})
+    assert :skip = Ingestion.mark_watch_active(%{source: nil}, %{})
+    assert :skip = Ingestion.mark_watch_error(%{}, :unsupported)
+    assert :skip = Ingestion.mark_watch_error(%{source: nil}, :unsupported)
+  end
+
+  test "mark_watch_error skips missing documents" do
+    source = "data_source/google_drive/42/missing-#{System.unique_integer([:positive])}"
+
+    assert :skip = Ingestion.mark_watch_error(%{source: source}, :unsupported)
+    assert Document.get_by_source(source) == nil
+  end
+
+  test "request_watch skips invalid targets and preserves existing metadata" do
+    source = "data_source/google_drive/42/watch-#{System.unique_integer([:positive])}"
+    {:ok, _doc} = Document.create(%{source: source, metadata: %{"existing" => true}})
+
+    assert %{updated: 0, skipped: 2} =
+             Ingestion.request_watch([
+               %{},
+               %{source: "data_source/google_drive/42/missing", kind: :file}
+             ])
+
+    assert %{updated: 1, skipped: 0} = Ingestion.request_watch([%{source: source, kind: :file}])
+
+    reloaded = Document.get_by_source(source)
+    assert reloaded.watch_status == "pending"
+    assert reloaded.metadata["existing"] == true
+  end
+
+  test "process_data_source_changes normalizes mixed record shapes without enqueuing jobs" do
+    request = %{
+      provider: nil,
+      config_id: nil,
+      records: [
+        %Record{id: "struct-record", kind: :file, name: "Struct.md"},
+        %{id: "map-record", kind: :file},
+        %{kind: :file}
+      ],
+      signals: [
+        %{
+          record: %Record{id: "deleted-record", kind: :file, name: "Deleted.md"},
+          change_type: "deleted"
+        },
+        %{
+          record: %Record{id: "atom-record", kind: :file, name: "Atom.md"},
+          change_type: :updated
+        },
+        %{provider_record_id: "fallback-record", record: %{kind: :file}, change_type: "updated"},
+        %{record: nil, change_type: "updated"},
+        %{
+          record: %Record{id: "bad-atom-record", kind: :file, name: "Bad.md"},
+          change_type: "not_an_atom"
+        }
+      ]
+    }
+
+    assert {:ok, %{jobs: [], removed: 0}} = Ingestion.process_data_source_changes(request)
+  end
+
+  test "process_data_source_changes deletes watched children and ignores missing parents" do
+    parent_source = "data_source/google_drive/42/fallback-parent"
+    child_id = "child-#{System.unique_integer([:positive])}"
+    child_source = "data_source/google_drive/42/#{child_id}"
+
+    {:ok, _parent_doc} =
+      Document.insert_new(%{
+        source: parent_source,
+        metadata: %{"entry_type" => "folder"},
+        watch_status: "watched"
+      })
+
+    {:ok, child_doc} = Document.insert_new(%{source: child_source, watch_status: "watched"})
+
+    request = %{
+      provider: "google_drive",
+      config_id: 42,
+      signals: [
+        %{
+          provider_record_id: child_id,
+          removed: true,
+          record: %{id: child_id, parents: ["fallback-parent"]}
+        },
+        %{
+          provider_record_id: "missing-1",
+          removed: true,
+          record: %{id: "missing-1", parents: ["fallback-parent", "", nil]}
+        }
+      ]
+    }
+
+    assert {:ok, %{jobs: [], removed: 1}} = Ingestion.process_data_source_changes(request)
+    assert Document.get(child_doc.id) == nil
+  end
+
+  test "process_data_source_changes deletes a source and tolerates missing external sidecar files" do
+    source_id = "sidecar-missing-#{System.unique_integer([:positive])}"
+    source = "data_source/google_drive/42/#{source_id}"
+    sidecar_path = Path.join([".external-sidecars", "google_drive", "42", "sidecar.md"])
+
+    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
+
+    {:ok, sidecar_doc} =
+      Document.insert_new(%{
+        source: source <> ".md",
+        metadata: %{"source_document_source" => source, "sidecar_file_path" => sidecar_path}
+      })
+
+    request = %{
+      provider: "google_drive",
+      config_id: 42,
+      signals: [%{provider_record_id: source_id, removed: true, record: %{id: source_id}}]
+    }
+
+    assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
+    assert Document.get(source_doc.id) == nil
+    assert Document.get(sidecar_doc.id) == nil
+  end
+
+  test "process_data_source_changes tolerates sidecars without a file path" do
+    source_id = "sidecar-nil-#{System.unique_integer([:positive])}"
+    source = "data_source/google_drive/42/#{source_id}"
+
+    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
+
+    {:ok, sidecar_doc} =
+      Document.insert_new(%{
+        source: source <> ".md",
+        metadata: %{"source_document_source" => source}
+      })
+
+    request = %{
+      provider: "google_drive",
+      config_id: 42,
+      signals: [%{provider_record_id: source_id, removed: true, record: %{id: source_id}}]
+    }
+
+    assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
+    assert Document.get(source_doc.id) == nil
+    assert Document.get(sidecar_doc.id) == nil
+  end
+
+  test "process_data_source_changes tolerates external sidecar delete errors other than enoent" do
+    source_id = "sidecar-error-#{System.unique_integer([:positive])}"
+    source = "data_source/google_drive/42/#{source_id}"
+    sidecar_path = Path.join([".external-sidecars", "google_drive", "42", source_id])
+
+    assert :ok = FileExplorer.create_directory(sidecar_path)
+
+    on_exit(fn ->
+      _ = File.rm_rf(Path.join(FileExplorer.base_path(), ".external-sidecars"))
+    end)
+
+    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
+
+    {:ok, sidecar_doc} =
+      Document.insert_new(%{
+        source: source <> ".md",
+        metadata: %{
+          "source_document_source" => source,
+          "sidecar_file_path" => sidecar_path
+        }
+      })
+
+    request = %{
+      provider: "google_drive",
+      config_id: 42,
+      signals: [%{provider_record_id: source_id, removed: true, record: %{id: source_id}}]
+    }
+
+    assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
+    assert Document.get(source_doc.id) == nil
+    assert Document.get(sidecar_doc.id) == nil
+  end
+
+  test "process_data_source_changes tolerates non-binary external sidecar paths" do
+    source_id = "sidecar-list-#{System.unique_integer([:positive])}"
+    source = "data_source/google_drive/42/#{source_id}"
+
+    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
+
+    {:ok, sidecar_doc} =
+      Document.insert_new(%{
+        source: source <> ".md",
+        metadata: %{
+          "source_document_source" => source,
+          "sidecar_file_path" => ["bad"]
+        }
+      })
+
+    request = %{
+      provider: "google_drive",
+      config_id: 42,
+      signals: [%{provider_record_id: source_id, removed: true, record: %{id: source_id}}]
+    }
+
+    assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
+    assert Document.get(source_doc.id) == nil
+    assert Document.get(sidecar_doc.id) == nil
+  end
+
+  test "process_data_source_changes stringifies atom and integer request identifiers" do
+    source_id = "123"
+    source = "data_source/google_drive/42/#{source_id}"
+
+    {:ok, _doc} = Document.insert_new(%{source: source, watch_status: "watched"})
+
+    request = %{
+      provider: :google_drive,
+      config_id: 42,
+      signals: [
+        %{
+          provider_record_id: "123",
+          change_type: :updated,
+          record: %{name: "Integer.md", mime_type: "text/markdown"}
+        }
+      ]
+    }
+
+    Oban.Testing.with_testing_mode(:manual, fn ->
+      assert {:ok, %{jobs: [], removed: 0}} = Ingestion.process_data_source_changes(request)
+    end)
+  end
+
+  test "process_data_source_changes builds removed records from provider_record_id only" do
+    source_id = "remove-fallback-#{System.unique_integer([:positive])}"
+    source = "data_source/google_drive/42/#{source_id}"
+
+    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
+
+    request = %{
+      provider: "google_drive",
+      config_id: 42,
+      signals: [%{provider_record_id: source_id, removed: true}]
+    }
+
+    Oban.Testing.with_testing_mode(:manual, fn ->
+      assert {:ok, %{jobs: [], removed: 1}} = Ingestion.process_data_source_changes(request)
+    end)
+
+    assert Document.get(source_doc.id) == nil
+  end
+
   describe "external data-source record ingestion" do
     setup do
       original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
@@ -185,6 +498,8 @@ defmodule Zaq.IngestionTest do
         name: "External Doc",
         url: "https://drive.example/file-123",
         mime_type: "application/vnd.google-apps.document",
+        parent_id: "folder-123",
+        parent_ids: ["folder-123"],
         owners: [%{"email" => "owner@example.com", "display_name" => "Owner Person"}],
         permissions: [
           %Record{
@@ -232,6 +547,8 @@ defmodule Zaq.IngestionTest do
       assert source_doc.metadata["sidecar_source"] == sidecar_source
       assert sidecar_doc.metadata["source_document_source"] == source
       assert source_doc.metadata["provider_url"] == "https://drive.example/file-123"
+      assert source_doc.metadata["provider_parent_id"] == "folder-123"
+      assert source_doc.metadata["provider_parent_ids"] == ["folder-123"]
 
       sidecar_path = ExternalSource.sidecar_relative_path(record)
 
@@ -272,9 +589,142 @@ defmodule Zaq.IngestionTest do
       assert {:ok, materialized} = RecordSource.materialize(record)
       assert String.ends_with?(materialized.path, ".pdf")
       assert [materialized.path] == materialized.cleanup_paths
+      assert materialized.processor_opts[:force_sidecar] == true
 
       assert materialized.processor_opts[:sidecar_metadata]["sidecar_file_path"] ==
                ExternalSource.sidecar_relative_path(record)
+    end
+
+    test "process_data_source_changes only enqueues watched records and watched folder children" do
+      {:ok, _folder_doc} =
+        Document.insert_new(%{
+          source: "data_source/google_drive/42/folder-1",
+          metadata: %{"entry_type" => "folder"},
+          watch_status: "watched"
+        })
+
+      {:ok, _file_doc} =
+        Document.insert_new(%{
+          source: "data_source/google_drive/42/direct-1",
+          content: "old content",
+          watch_status: "watched"
+        })
+
+      request = %{
+        provider: "google_drive",
+        config_id: 42,
+        signals: [
+          %{
+            provider_record_id: "direct-1",
+            change_type: :updated,
+            record: %{id: "direct-1", name: "Direct.md", mime_type: "text/markdown"}
+          },
+          %{
+            provider_record_id: "child-1",
+            change_type: :updated,
+            record: %{
+              id: "child-1",
+              name: "Child.md",
+              mime_type: "text/markdown",
+              parents: ["folder-1"]
+            }
+          },
+          %{
+            provider_record_id: "other-1",
+            change_type: :updated,
+            record: %{id: "other-1", name: "Other.md", mime_type: "text/markdown"}
+          }
+        ]
+      }
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: jobs, removed: 0}} = Ingestion.process_data_source_changes(request)
+        assert Enum.map(jobs, & &1.source_record["id"]) |> Enum.sort() == ["child-1", "direct-1"]
+      end)
+    end
+
+    test "process_data_source_changes deletes removed watched-folder children from persisted parent metadata",
+         %{tmp_dir: tmp_dir} do
+      {:ok, _folder_doc} =
+        Document.insert_new(%{
+          source: "data_source/google_drive/42/folder-1",
+          metadata: %{"entry_type" => "folder"},
+          watch_status: "watched"
+        })
+
+      source = "data_source/google_drive/42/child-1"
+      sidecar_source = source <> ".md"
+      sidecar_path = Path.join([".external-sidecars", "google_drive", "42", "child-1.md"])
+
+      source_doc =
+        create_document_with_chunks(source, 2, %{
+          "provider_parent_ids" => ["folder-1"],
+          "sidecar_source" => sidecar_source
+        })
+
+      sidecar_doc =
+        create_document_with_chunks(sidecar_source, 2, %{
+          "source_document_source" => source,
+          "sidecar_file_path" => sidecar_path
+        })
+
+      absolute_sidecar_path = Path.join(tmp_dir, sidecar_path)
+      File.mkdir_p!(Path.dirname(absolute_sidecar_path))
+      File.write!(absolute_sidecar_path, "# stale sidecar")
+
+      request = %{
+        provider: "google_drive",
+        config_id: 42,
+        signals: [%{provider_record_id: "child-1", removed: true}]
+      }
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
+      end)
+
+      assert Document.get(source_doc.id) == nil
+      assert Document.get(sidecar_doc.id) == nil
+      assert Chunk.count_by_document(source_doc.id) == 0
+      assert Chunk.count_by_document(sidecar_doc.id) == 0
+      refute File.exists?(absolute_sidecar_path)
+    end
+
+    test "process_data_source_changes treats removed? tombstones as deletions without reingestion" do
+      source = "data_source/google_drive/42/direct-removed"
+      doc = create_document_with_chunks(source, 1, %{})
+
+      {:ok, doc} = doc |> Document.changeset(%{watch_status: "watched"}) |> Repo.update()
+
+      request = %{
+        provider: "google_drive",
+        config_id: 42,
+        signals: [%{provider_record_id: "direct-removed", removed?: true}]
+      }
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [], removed: 1}} = Ingestion.process_data_source_changes(request)
+      end)
+
+      assert Document.get(doc.id) == nil
+      assert Chunk.count_by_document(doc.id) == 0
+    end
+
+    test "process_data_source_changes ignores removed unwatched data-source records" do
+      source = "data_source/google_drive/42/unwatched-removed"
+      doc = create_document_with_chunks(source, 1, %{})
+
+      request = %{
+        provider: "google_drive",
+        config_id: 42,
+        signals: [%{provider_record_id: "unwatched-removed", deleted: true}]
+      }
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [], removed: 0}} = Ingestion.process_data_source_changes(request)
+      end)
+
+      assert Document.get(doc.id)
+      assert Chunk.count_by_document(doc.id) == 1
     end
 
     test "base64 external PDFs store canonical data-source document rows" do
@@ -675,6 +1125,27 @@ defmodule Zaq.IngestionTest do
     test "returns error if job not found" do
       assert {:error, :not_found} = Ingestion.retry_job(Ecto.UUID.generate())
     end
+
+    test "returns transition changeset errors while retrying failed jobs" do
+      id = Ecto.UUID.generate()
+      now = DateTime.utc_now()
+
+      assert {1, nil} =
+               Repo.insert_all(IngestJob, [
+                 %{
+                   id: id,
+                   file_path: "",
+                   status: "failed",
+                   mode: "async",
+                   inserted_at: now,
+                   updated_at: now
+                 }
+               ])
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Ingestion.retry_job(id)
+      assert "can't be blank" in errors_on(changeset).file_path
+      assert Repo.get!(IngestJob, id).status == "failed"
+    end
   end
 
   describe "cancel_job/1" do
@@ -759,6 +1230,27 @@ defmodule Zaq.IngestionTest do
 
     test "returns error if job not found" do
       assert {:error, :not_found} = Ingestion.cancel_job(Ecto.UUID.generate())
+    end
+
+    test "returns rollback changeset when cancellation transition fails" do
+      id = Ecto.UUID.generate()
+      now = DateTime.utc_now()
+
+      assert {1, nil} =
+               Repo.insert_all(IngestJob, [
+                 %{
+                   id: id,
+                   file_path: "",
+                   status: "processing",
+                   mode: "async",
+                   inserted_at: now,
+                   updated_at: now
+                 }
+               ])
+
+      assert {:error, %Ecto.Changeset{} = changeset} = Ingestion.cancel_job(id)
+      assert "can't be blank" in errors_on(changeset).file_path
+      assert Repo.get!(IngestJob, id).status == "processing"
     end
   end
 

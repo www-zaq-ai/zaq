@@ -34,6 +34,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, default: false
+  attr :watch_supported, :boolean, default: true
+  attr :watch_disabled_reason, :string, default: nil
 
   def file_list_view(assigns) do
     ~H"""
@@ -59,6 +61,9 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
           <.table_cell element={:th} width="w-36" class="zaq-ingestion-meta-label">
             <.table_text label="Status" tone={:tertiary} />
           </.table_cell>
+          <.table_cell element={:th} width="w-20" nowrap class="zaq-ingestion-meta-label">
+            <.table_text label="Watch" tone={:tertiary} />
+          </.table_cell>
           <.table_cell element={:th} width="w-28" nowrap class="zaq-ingestion-meta-label">
             <.table_text label="Access" tone={:tertiary} />
           </.table_cell>
@@ -68,7 +73,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
         </.table_head_row>
       </:head>
       <:body>
-        <.table_empty :if={@entries == []} colspan={6}>
+        <.table_empty :if={@entries == []} colspan={7}>
           <span style="color: var(--zaq-text-color-body-tertiary)">Empty directory</span>
         </.table_empty>
         <%= for entry <- @entries do %>
@@ -153,6 +158,18 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
             <.table_cell width="w-36">
               <.entry_status_cell entry={entry} ingestion_map={@ingestion_map} />
             </.table_cell>
+            <.table_cell width="w-20" nowrap>
+              <% status = file_ingestion_status(@ingestion_map, entry.name) %>
+              <.watch_status_dot
+                path={record_path(entry)}
+                status={status.watch_status}
+                watch_error={status.watch_error}
+                watchable={status.watchable?}
+                watch_inherited={Map.get(status, :watch_inherited?, false)}
+                watch_supported={@watch_supported}
+                watch_disabled_reason={@watch_disabled_reason}
+              />
+            </.table_cell>
             <.table_cell width="w-28">
               <.entry_access_cell
                 entry={entry}
@@ -167,7 +184,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
           <.table_sidecar_row
             :if={related_record(entry)}
             leading_colspan={1}
-            body_colspan={5}
+            body_colspan={6}
           >
             <button
               type="button"

@@ -51,6 +51,24 @@ defmodule Zaq.Ingestion.DocumentTest do
     end
   end
 
+  describe "watch_statuses/0" do
+    test "returns the expected statuses" do
+      assert Document.watch_statuses() == ~w(unwatched pending watched error)
+    end
+
+    test "accepts known watch statuses" do
+      Enum.each(Document.watch_statuses(), fn status ->
+        attrs = Map.put(@valid_attrs, :watch_status, status)
+        assert Document.changeset(%Document{}, attrs).valid?
+      end)
+    end
+
+    test "rejects unknown watch statuses" do
+      attrs = Map.put(@valid_attrs, :watch_status, "archived")
+      refute Document.changeset(%Document{}, attrs).valid?
+    end
+  end
+
   describe "create/1" do
     test "inserts a document" do
       assert {:ok, doc} = Document.create(@valid_attrs)
@@ -64,6 +82,30 @@ defmodule Zaq.Ingestion.DocumentTest do
       assert {:ok, _} = Document.create(@valid_attrs)
       assert {:error, changeset} = Document.create(@valid_attrs)
       assert {"has already been taken", _} = changeset.errors[:source]
+    end
+  end
+
+  describe "insert_new/1" do
+    test "returns existing document on source conflict without overwriting content" do
+      source = "tracked/existing-#{System.unique_integer([:positive])}.md"
+
+      {:ok, existing} =
+        Document.create(%{
+          source: source,
+          content: "original content",
+          content_type: "markdown"
+        })
+
+      {:ok, returned} =
+        Document.insert_new(%{
+          "source" => source,
+          "content" => "replacement content",
+          "content_type" => "markdown"
+        })
+
+      assert returned.source == source
+      assert returned.content == "replacement content"
+      assert Document.get_by_source(source).content == "original content"
     end
   end
 

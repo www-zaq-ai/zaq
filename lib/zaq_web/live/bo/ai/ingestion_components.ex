@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   use Phoenix.Component
   use ZaqWeb, :verified_routes
 
+  alias ZaqWeb.Components.BOModal
   alias ZaqWeb.Components.DesignSystem.Breadcrumb
   alias ZaqWeb.Components.DesignSystem.Dropzone
   alias ZaqWeb.Components.DesignSystem.IngestionEmbeddingBanner
@@ -52,6 +53,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
   attr :provider_mode, :boolean, default: false
+  attr :selected_watchable_count, :integer, default: 0
+  attr :selected_watched_count, :integer, default: 0
+  attr :watch_supported, :boolean, default: true
+  attr :watch_disabled_reason, :string, default: nil
 
   def file_browser_header(assigns) do
     IngestionFileBrowserHeader.file_browser_header(assigns)
@@ -88,6 +93,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, default: false
+  attr :watch_supported, :boolean, default: true
+  attr :watch_disabled_reason, :string, default: nil
 
   def file_list_view(assigns) do
     IngestionFileListView.file_list_view(assigns)
@@ -101,6 +108,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, default: false
+  attr :watch_supported, :boolean, default: true
+  attr :watch_disabled_reason, :string, default: nil
 
   def file_grid_view(assigns) do
     IngestionFileGridView.file_grid_view(assigns)
@@ -210,5 +219,52 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   def modal_share(assigns) do
     ModalShare.modal_share(assigns)
+  end
+
+  attr :modal_name, :string, required: true
+  attr :watch_error_message, :string, required: true
+
+  def modal_watch_error(assigns) do
+    ~H"""
+    <BOModal.form_dialog
+      id="watch-error-modal"
+      title="Watch setup failed"
+      cancel_event="close_modal"
+      max_width_class="max-w-md"
+    >
+      <div class="zaq-layout-stack-tight">
+        <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+          Watching failed for <span class="font-semibold">{@modal_name}</span>.
+        </p>
+        <div
+          class="rounded-xl border p-3"
+          style="border-color: var(--zaq-border-color-danger); background: var(--zaq-surface-color-danger)"
+        >
+          <p
+            class="zaq-text-body-sm whitespace-pre-wrap"
+            style="color: var(--zaq-text-color-body-danger)"
+          >
+            {@watch_error_message}
+          </p>
+        </div>
+      </div>
+      <:actions>
+        <button
+          type="button"
+          phx-click="close_modal"
+          class="zaq-btn zaq-btn-secondary zaq-btn-text_label-default"
+        >
+          Close
+        </button>
+        <button
+          type="button"
+          phx-click="retry_watch"
+          class="zaq-btn zaq-btn-primary zaq-btn-text_label-default"
+        >
+          Retry
+        </button>
+      </:actions>
+    </BOModal.form_dialog>
+    """
   end
 end

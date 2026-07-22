@@ -31,7 +31,8 @@ defmodule Zaq.Channels.JidoChatBridge do
     Bridge,
     ChannelConfig,
     RetrievalChannel,
-    Supervisor
+    Supervisor,
+    WebhookUrl
   }
 
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
@@ -1027,9 +1028,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp webhook_target_url(config) do
-    with base when is_binary(base) and base != "" <- System.get_global_base_url() do
-      "#{String.trim_trailing(base, "/")}/channels/webhook/conversation/#{config.provider}"
-    end
+    WebhookUrl.build(:conversation, config.provider)
   end
 
   defp resolve_subscription_id(config, params) do

@@ -1,11 +1,13 @@
 defmodule Zaq.Engine.ApiTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Api
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Repo
 
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
@@ -38,6 +40,22 @@ defmodule Zaq.Engine.ApiTest do
       send(self(), {:notify_person_called, person_id, attrs})
       {:ok, %{status: :sent, channel: "email:smtp", channel_identifier: "person@example.com"}}
     end
+  end
+
+  defmodule StubPeople do
+    def get_person(person_id), do: {:person, person_id}
+  end
+
+  defp data_source_watch_attrs(unique) do
+    %{
+      provider: "google_drive",
+      target_source: "data_source/google_drive/api-#{unique}/folder-1",
+      target_provider_id: "folder-1",
+      target_kind: "collection",
+      channel_id: "channel-#{unique}",
+      resource_id: "resource-#{unique}",
+      checkpoint: "checkpoint-1"
+    }
   end
 
   test "handles persist_from_incoming action" do
@@ -104,6 +122,17 @@ defmodule Zaq.Engine.ApiTest do
     result = Api.handle_event(event, :people_command, nil)
 
     assert result.response == {:error, {:invalid_request, %{op: "bad", params: %{}}}}
+  end
+
+  test "handles get_person action" do
+    event =
+      Event.new(%{person_id: 123}, :engine,
+        opts: [action: :get_person, people_module: StubPeople]
+      )
+
+    result = Api.handle_event(event, :get_person, nil)
+
+    assert result.response == {:person, 123}
   end
 
   test "handles notify_person action" do
@@ -320,6 +349,89 @@ defmodule Zaq.Engine.ApiTest do
              {:error, {:invalid_request, %{}}}
   end
 
+  test "handles data source watch channel API actions" do
+    unique = System.unique_integer([:positive])
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Google Drive #{unique}",
+        provider: "google_drive",
+        kind: "data_source",
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+    attrs = data_source_watch_attrs(unique) |> Map.put(:config_id, config.id)
+
+    upsert_result =
+      Api.handle_event(Event.new(attrs, :engine), :upsert_data_source_watch_channel, nil)
+
+    assert {:ok, watch_channel} = upsert_result.response
+    assert watch_channel.channel_id == attrs.channel_id
+
+    resolve_request = %{
+      provider: attrs.provider,
+      channel_id: attrs.channel_id,
+      resource_id: attrs.resource_id
+    }
+
+    resolve_result =
+      Api.handle_event(
+        Event.new(resolve_request, :engine),
+        :resolve_data_source_watch_channel,
+        nil
+      )
+
+    assert {:ok, resolved_watch_channel} = resolve_result.response
+    assert resolved_watch_channel.id == watch_channel.id
+
+    assert Api.handle_event(
+             Event.new(%{watch_channel_id: -1, checkpoint: "checkpoint-1"}, :engine),
+             :process_data_source_watch_changes,
+             nil
+           ).response == {:error, :watch_channel_not_found}
+
+    error_result =
+      Api.handle_event(
+        Event.new(%{watch_channel_id: watch_channel.id, reason: :provider_failed}, :engine),
+        :mark_data_source_watch_channel_error,
+        nil
+      )
+
+    assert {:ok, errored_watch_channel} = error_result.response
+    assert errored_watch_channel.status == "error"
+    assert errored_watch_channel.last_error == ":provider_failed"
+
+    {:ok, _} = Repo.update(Ecto.Changeset.change(errored_watch_channel, last_error: nil))
+
+    stopped_result =
+      Api.handle_event(
+        Event.new(%{watch_channel_id: watch_channel.id}, :engine),
+        :mark_data_source_watch_channel_stopped,
+        nil
+      )
+
+    assert {:ok, stopped_watch_channel} = stopped_result.response
+    assert stopped_watch_channel.status == "stopped"
+    assert stopped_watch_channel.last_error == nil
+  end
+
+  test "returns invalid request for malformed data source watch channel payloads" do
+    invalid_cases = [
+      {:upsert_data_source_watch_channel, :bad},
+      {:resolve_data_source_watch_channel, :bad},
+      {:process_data_source_watch_changes, :bad},
+      {:mark_data_source_watch_channel_error, %{watch_channel_id: 1}},
+      {:mark_data_source_watch_channel_stopped, %{}}
+    ]
+
+    Enum.each(invalid_cases, fn {action, request} ->
+      result = Api.handle_event(Event.new(request, :engine), action, nil)
+      assert result.response == {:error, {:invalid_request, request}}
+    end)
+  end
+
   describe "handle_event/3 — :workflow events" do
     alias Zaq.Accounts.People
     alias Zaq.Engine.Workflows.WorkflowRunAgent
@@ -512,7 +624,9 @@ defmodule Zaq.Engine.ApiTest do
       {:system_config_connect_next_refresh_jobs_for_grants, %{grants: :bad}},
       {:system_config_connect_delete_grant, %{}},
       {:system_config_connect_schedule_refresh, %{}},
-      {:system_config_set_global_base_url, %{}}
+      {:system_config_set_global_base_url, %{}},
+      {:system_config_set_system_language, %{}},
+      {:system_config_set_system_timezone, %{}}
     ]
 
     Enum.each(invalid_cases, fn {action, request} ->

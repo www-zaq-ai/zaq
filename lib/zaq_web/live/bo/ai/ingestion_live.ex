@@ -4,12 +4,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   use ZaqWeb, :live_view
 
   import ZaqWeb.Live.BO.AI.IngestionComponents
-  import ZaqWeb.Components.DesignSystem.IngestionFileStatus, only: [record_path: 1]
+
+  import ZaqWeb.Components.DesignSystem.IngestionFileStatus,
+    only: [file_ingestion_status: 2, record_folder?: 1, record_path: 1]
 
   alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
+  alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Channels.ProviderCatalog
+  alias Zaq.Channels.WebhookUrl
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Document, ExternalSource, FileExplorer}
@@ -55,6 +59,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        entries: [],
        selected: MapSet.new(),
        records_by_path: %{},
+       watch_supported: watch_supported?(provider),
+       watch_disabled_reason: watch_disabled_reason(provider),
        jobs: [],
        # Set of job ids currently in their preparation phase, derived from the
        # jobs list on every change so the high-frequency :job_progress handler
@@ -93,6 +99,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        modal_name: "",
        modal_type: nil,
        modal_error: nil,
+       watch_error_target: nil,
+       watch_error_message: nil,
        # Move modal state
        move_folders: [],
        move_current_dir: ".",
@@ -474,6 +482,58 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     {:noreply, assign(socket, selected: selected)}
   end
 
+  def handle_event("toggle_watch_status", %{"path" => path} = params, socket) do
+    case watch_target_for_path(socket, path) do
+      {:ok, target, "error"} ->
+        {:noreply, open_watch_error_modal(socket, target, Map.get(params, "watch_error"))}
+
+      {:ok, target, status} when status in ["pending", "watched"] ->
+        apply_watch_update(
+          socket,
+          [target],
+          :clear,
+          "Watching disabled for #{watch_target_label(target)}."
+        )
+
+      {:ok, target, _status} ->
+        apply_watch_update(
+          socket,
+          [target],
+          :request,
+          "Watch setup requested for #{watch_target_label(target)}."
+        )
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :info, watch_skip_message(reason))}
+    end
+  end
+
+  def handle_event("watch_selected", _params, socket) do
+    targets = selected_watch_targets(socket, :request)
+    apply_bulk_watch_update(socket, targets, :request, "Watch setup requested")
+  end
+
+  def handle_event("unwatch_selected", _params, socket) do
+    targets = selected_watch_targets(socket, :clear)
+    apply_bulk_watch_update(socket, targets, :clear, "Watching disabled")
+  end
+
+  def handle_event("retry_watch", _params, %{assigns: %{watch_error_target: target}} = socket)
+      when is_map(target) do
+    socket = close_watch_error_modal(socket)
+
+    apply_watch_update(
+      socket,
+      [target],
+      :request,
+      "Watch setup requested for #{watch_target_label(target)}."
+    )
+  end
+
+  def handle_event("retry_watch", _params, socket) do
+    {:noreply, close_watch_error_modal(socket)}
+  end
+
   # View Mode
 
   def handle_event("toggle_view_mode", %{"mode" => mode}, socket) when mode in ~w(list grid) do
@@ -698,7 +758,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Close
 
   def handle_event("close_modal", _params, socket) do
-    {:noreply, assign(socket, modal: nil, modal_error: nil)}
+    {:noreply, close_watch_error_modal(socket)}
   end
 
   def handle_event("open_preview", %{"path" => path, "filename" => filename}, socket) do
@@ -1078,7 +1138,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     case dispatch_list_files(socket.assigns.provider, provider_list_params(socket)) do
       {:ok, %Zaq.Contracts.RecordPage{} = page} ->
         records = Enum.map(page.records || [], &with_provider_attrs(&1, socket))
-        {records, ingestion_map} = enrich_provider_records(records)
+        {records, ingestion_map} = enrich_provider_records(records, socket)
 
         socket
         |> assign(entries: records)
@@ -1336,9 +1396,330 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp records_by_path(entries), do: Map.new(entries, &{record_path(&1), &1})
 
-  defp enrich_provider_records(records) do
+  defp selected_watchable_count(selected, records_by_path, ingestion_map) do
+    selected
+    |> Enum.count(fn path ->
+      case Map.get(records_by_path, path) do
+        nil ->
+          false
+
+        entry ->
+          watchable_status?(entry, ingestion_map) and not watched_status?(entry, ingestion_map)
+      end
+    end)
+  end
+
+  defp selected_watched_count(selected, records_by_path, ingestion_map) do
+    selected
+    |> Enum.count(fn path ->
+      case Map.get(records_by_path, path) do
+        nil -> false
+        entry -> watchable_status?(entry, ingestion_map) and watched_status?(entry, ingestion_map)
+      end
+    end)
+  end
+
+  defp watchable_status?(entry, ingestion_map) do
+    status = file_ingestion_status(ingestion_map, entry.name)
+    Map.get(status, :watchable?, false)
+  end
+
+  defp watched_status?(entry, ingestion_map) do
+    status = file_ingestion_status(ingestion_map, entry.name)
+    status.watch_status in ["pending", "watched"]
+  end
+
+  defp selected_watch_targets(socket, mode) when mode in [:request, :clear] do
+    socket.assigns.selected
+    |> Enum.map(&watch_target_for_path(socket, &1))
+    |> Enum.flat_map(fn
+      {:ok, target, status} when mode == :request and status not in ["pending", "watched"] ->
+        [target]
+
+      {:ok, target, status} when mode == :clear and status in ["pending", "watched", "error"] ->
+        [target]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp watch_target_for_path(socket, path) do
+    with true <- socket.assigns.watch_supported || watch_support_error(socket),
+         %{} = entry <- Map.get(socket.assigns.records_by_path, path) || {:error, :missing},
+         status = file_ingestion_status(socket.assigns.ingestion_map, entry.name),
+         true <- Map.get(status, :watchable?, false) || {:error, :not_ingested},
+         true <- not Map.get(status, :watch_inherited?, false) || {:error, :watch_inherited} do
+      {:ok, watch_target(socket, entry), status.watch_status || "unwatched"}
+    end
+  end
+
+  defp watch_target(socket, entry) do
+    kind = if record_folder?(entry), do: :folder, else: :file
+
+    source =
+      if provider_mode?(socket) do
+        ExternalSource.source(with_provider_attrs(entry, socket))
+      else
+        local_watch_source(socket, entry, kind)
+      end
+
+    target = %{source: source, kind: kind, label: entry.name || record_path(entry)}
+
+    if provider_mode?(socket) do
+      Map.put(target, :provider_file_id, to_string(entry.id))
+    else
+      target
+    end
+  end
+
+  defp watch_support_error(%{assigns: %{watch_disabled_reason: reason}})
+       when is_binary(reason) and reason != "",
+       do: {:error, :watch_disabled}
+
+  defp watch_support_error(_socket), do: {:error, :unsupported}
+
+  defp local_watch_source(socket, entry, :folder) do
+    Ingestion.source_for_new_entry(socket.assigns.current_volume, record_path(entry))
+  end
+
+  defp local_watch_source(socket, entry, :file) do
+    Ingestion.source_for(socket.assigns.current_volume, record_path(entry))
+  end
+
+  defp apply_watch_update(socket, targets, :request, message) do
+    result = apply_watch_request(socket, targets)
+
+    {:noreply,
+     socket
+     |> load_entries()
+     |> put_watch_result_flash(result, message)}
+  end
+
+  defp apply_watch_update(socket, targets, :clear, message) do
+    result = apply_watch_clear(socket, targets)
+
+    {:noreply,
+     socket
+     |> load_entries()
+     |> put_watch_result_flash(result, message)}
+  end
+
+  defp apply_bulk_watch_update(socket, [], _mode, _message) do
+    {:noreply, put_flash(socket, :info, "No selected items can be updated.")}
+  end
+
+  defp apply_bulk_watch_update(socket, targets, mode, message) do
+    result =
+      case mode do
+        :request -> apply_watch_request(socket, targets)
+        :clear -> apply_watch_clear(socket, targets)
+      end
+
+    {:noreply,
+     socket
+     |> assign(selected: MapSet.new())
+     |> load_entries()
+     |> put_watch_result_flash(result, "#{message} for #{length(targets)} item(s).")}
+  end
+
+  defp open_watch_error_modal(socket, target, watch_error) do
+    assign(socket,
+      modal: :watch_error,
+      modal_error: nil,
+      modal_name: watch_target_label(target),
+      watch_error_target: target,
+      watch_error_message: normalize_watch_error(watch_error)
+    )
+  end
+
+  defp close_watch_error_modal(socket) do
+    assign(socket,
+      modal: nil,
+      modal_error: nil,
+      watch_error_target: nil,
+      watch_error_message: nil
+    )
+  end
+
+  defp normalize_watch_error(error) when is_binary(error) do
+    case String.trim(error) do
+      "" -> "Watch setup failed."
+      value -> value
+    end
+  end
+
+  defp normalize_watch_error(_error), do: "Watch setup failed."
+
+  defp apply_watch_request(socket, targets) do
+    if provider_mode?(socket) do
+      request_provider_watches(socket, targets)
+    else
+      ingestion_call(:request_watch, [targets])
+    end
+  end
+
+  defp apply_watch_clear(socket, targets) do
+    if provider_mode?(socket) do
+      clear_provider_watches(socket, targets)
+    else
+      ingestion_call(:clear_watch, [targets])
+    end
+  end
+
+  defp request_provider_watches(socket, targets) do
+    watcher_needed? = watched_provider_document_count(socket) == 0
+
+    targets
+    |> Enum.reduce(%{updated: 0, skipped: 0, watcher_ready?: not watcher_needed?}, fn target,
+                                                                                      acc ->
+      _ = ingestion_call(:request_watch, [[target]])
+
+      socket
+      |> maybe_dispatch_provider_watch(target, acc)
+      |> update_provider_watch_result(target, acc)
+    end)
+    |> Map.drop([:watcher_ready?])
+  end
+
+  defp maybe_dispatch_provider_watch(socket, target, %{watcher_ready?: false}) do
+    target
+    |> provider_watch_params(socket)
+    |> dispatch_provider_watch(socket)
+  end
+
+  defp maybe_dispatch_provider_watch(_socket, _target, %{watcher_ready?: true}) do
+    {:ok, %{status: "watched"}}
+  end
+
+  defp update_provider_watch_result({:ok, result}, target, acc) do
+    case ingestion_call(:mark_watch_active, [target, result]) do
+      {:ok, _doc} -> %{acc | updated: acc.updated + 1, watcher_ready?: true}
+      _ -> %{acc | skipped: acc.skipped + 1}
+    end
+  end
+
+  defp update_provider_watch_result({:error, reason}, target, acc) do
+    _ = ingestion_call(:mark_watch_error, [target, reason])
+    %{acc | skipped: acc.skipped + 1}
+  end
+
+  defp clear_provider_watches(socket, targets) do
+    targets
+    |> Enum.reduce(%{updated: 0, skipped: 0}, fn target, acc ->
+      update_clear_watch_result(target, acc)
+    end)
+    |> maybe_stop_provider_watcher(socket)
+  end
+
+  defp maybe_stop_provider_watcher(%{updated: updated} = result, socket) when updated > 0 do
+    if watched_provider_document_count(socket) == 0 do
+      case dispatch_provider_unwatch(socket) do
+        :ok -> result
+        {:ok, _result} -> result
+        {:error, _reason} -> %{result | skipped: result.skipped + 1}
+      end
+    else
+      result
+    end
+  end
+
+  defp maybe_stop_provider_watcher(result, _socket), do: result
+
+  defp update_clear_watch_result(target, acc) do
+    case ingestion_call(:clear_watch, [[target]]) do
+      %{updated: updated} when updated > 0 -> %{acc | updated: acc.updated + updated}
+      _ -> %{acc | skipped: acc.skipped + 1}
+    end
+  end
+
+  defp provider_watch_params(target, socket) do
+    %{
+      "config_id" => socket.assigns.provider_config_id,
+      "file_id" => Map.fetch!(target, :provider_file_id),
+      "kind" => to_string(target.kind),
+      "target_source" => target.source,
+      "webhook_url" => channel_webhook_url(socket.assigns.provider)
+    }
+  end
+
+  defp dispatch_provider_watch(params, socket) do
+    case ChannelEvents.build_and_dispatch_data_source_watch_item_event(
+           socket.assigns.provider,
+           params,
+           event_opts: [data_source_bridge_module: data_source_bridge_module()]
+         ).response do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  defp dispatch_provider_unwatch(socket) do
+    params = %{"target_source" => provider_config_watch_source(socket)}
+
+    case ChannelEvents.build_and_dispatch_data_source_unwatch_item_event(
+           socket.assigns.provider,
+           params,
+           event_opts: [data_source_bridge_module: data_source_bridge_module()]
+         ).response do
+      :ok -> :ok
+      {:ok, _result} = ok -> ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  defp watched_provider_document_count(socket) do
+    ingestion_call(:count_watched_provider_documents, [
+      socket.assigns.provider,
+      socket.assigns.provider_config_id
+    ])
+  end
+
+  defp provider_config_watch_source(socket) do
+    Enum.join(
+      ["data_source", socket.assigns.provider, to_string(socket.assigns.provider_config_id)],
+      "/"
+    )
+  end
+
+  defp channel_webhook_url(provider) do
+    WebhookUrl.build(:data_source, provider)
+  end
+
+  defp put_watch_result_flash(socket, %{updated: updated, skipped: 0}, message)
+       when updated > 0 do
+    put_flash(socket, :info, message)
+  end
+
+  defp put_watch_result_flash(socket, %{updated: updated, skipped: skipped}, message)
+       when updated > 0 do
+    put_flash(socket, :info, "#{message} #{skipped} item(s) skipped.")
+  end
+
+  defp put_watch_result_flash(socket, _result, _message) do
+    put_flash(socket, :info, "No watch status was changed.")
+  end
+
+  defp watch_target_label(%{label: label}) when is_binary(label) and label != "",
+    do: "\"#{label}\""
+
+  defp watch_target_label(_target), do: "this item"
+
+  defp watch_skip_message(:unsupported), do: "Watching is not supported for this data source."
+
+  defp watch_skip_message(:watch_disabled),
+    do: "Set System Configuration > Global > Base URL to enable external data-source watching."
+
+  defp watch_skip_message(:watch_inherited), do: "This item is watched through its parent folder."
+  defp watch_skip_message(:not_ingested), do: "Ingest this item before watching it."
+  defp watch_skip_message(_reason), do: "This item cannot be watched."
+
+  defp enrich_provider_records(records, socket) do
     documents_by_source = provider_documents_by_source(records)
     permission_counts = provider_document_permission_counts(documents_by_source)
+    inherited_watch = provider_inherited_watch(socket)
 
     Enum.map_reduce(records, %{}, fn record, acc ->
       source = ExternalSource.source(record)
@@ -1347,11 +1728,22 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       sidecar_doc = Map.get(documents_by_source, sidecar_source)
 
       record = maybe_attach_sidecar_record(record, sidecar_doc)
-      status = provider_record_status(record, doc, permission_counts)
+      status = provider_record_status(record, doc, permission_counts, inherited_watch)
 
       {record, Map.put(acc, record.name, status)}
     end)
   end
+
+  defp provider_inherited_watch(%{assigns: %{current_dir: current_dir}} = socket)
+       when is_binary(current_dir) and current_dir not in ["", "root"] do
+    Ingestion.data_source_inherited_watch(
+      socket.assigns.provider,
+      socket.assigns.provider_config_id,
+      current_dir
+    )
+  end
+
+  defp provider_inherited_watch(_socket), do: nil
 
   defp provider_documents_by_source(records) do
     records
@@ -1451,26 +1843,58 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp provider_record_status(%{kind: kind}, _doc, _permission_counts)
+  defp provider_record_status(record, doc, permission_counts, inherited_watch)
+
+  defp provider_record_status(%{kind: kind}, doc, _permission_counts, inherited_watch)
        when kind in [:folder, "folder"] do
-    %{type: :directory, total_size: 0, file_count: 0, ingested_count: 0, is_public: false}
+    watch_state = Ingestion.data_source_record_watch_state(doc, inherited_watch)
+
+    %{
+      type: :directory,
+      total_size: 0,
+      file_count: 0,
+      ingested_count: 0,
+      is_public: false,
+      watch_status: watch_state.watch_status,
+      watch_error: watch_state.watch_error,
+      watch_inherited?: watch_state.watch_inherited?,
+      watchable?: true
+    }
   end
 
-  defp provider_record_status(_record, nil, _permission_counts) do
-    %{ingested_at: nil, stale?: false, permissions_count: 0, is_public: false, can_share?: false}
+  defp provider_record_status(_record, nil, _permission_counts, inherited_watch) do
+    watch_state = Ingestion.data_source_record_watch_state(nil, inherited_watch)
+
+    %{
+      ingested_at: nil,
+      stale?: false,
+      permissions_count: 0,
+      is_public: false,
+      can_share?: false,
+      watch_status: watch_state.watch_status,
+      watch_error: watch_state.watch_error,
+      watch_inherited?: watch_state.watch_inherited?,
+      watchable?: Ingestion.data_source_record_watch_active?(watch_state)
+    }
   end
 
-  defp provider_record_status(record, doc, permission_counts) do
+  defp provider_record_status(record, doc, permission_counts, inherited_watch) do
     stale? =
       record.modified_at && doc.updated_at &&
         DateTime.compare(record.modified_at, doc.updated_at) == :gt
+
+    watch_state = Ingestion.data_source_record_watch_state(doc, inherited_watch)
 
     %{
       ingested_at: doc.updated_at,
       stale?: stale? || false,
       permissions_count: Map.get(permission_counts, to_string(doc.id), 0),
       is_public: "public" in doc.tags,
-      can_share?: false
+      can_share?: false,
+      watch_status: watch_state.watch_status,
+      watch_error: watch_state.watch_error,
+      watch_inherited?: watch_state.watch_inherited?,
+      watchable?: not is_nil(doc.content)
     }
   end
 
@@ -1514,6 +1938,50 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp ingestion_path(provider), do: "/bo/ingestion/#{provider}"
 
   defp provider_mode?(socket), do: socket.assigns.provider != "local"
+
+  defp watch_supported?("local"), do: true
+
+  defp watch_supported?(provider) do
+    bridge_module = data_source_bridge_module()
+
+    if global_base_url_present?() and function_exported?(bridge_module, :capability_snapshot, 1) do
+      provider_watch_supported?(bridge_module, provider)
+    else
+      false
+    end
+  end
+
+  defp watch_disabled_reason("local"), do: nil
+
+  defp watch_disabled_reason(_provider) do
+    unless global_base_url_present?() do
+      "Set System Configuration > Global > Base URL to enable external data-source watching."
+    end
+  end
+
+  defp global_base_url_present? do
+    case System.get_global_base_url() do
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> false
+    end
+  end
+
+  defp provider_watch_supported?(bridge_module, provider) do
+    case bridge_module.capability_snapshot(provider) do
+      {:ok, %{resolved: resolved}} when is_map(resolved) ->
+        Map.has_key?(resolved, :watch_changes_webhook) or
+          Map.has_key?(resolved, "watch_changes_webhook")
+
+      %{resolved: resolved} when is_map(resolved) ->
+        Map.has_key?(resolved, :watch_changes_webhook) or
+          Map.has_key?(resolved, "watch_changes_webhook")
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
+  end
 
   defp provider_config_id("local"), do: nil
 

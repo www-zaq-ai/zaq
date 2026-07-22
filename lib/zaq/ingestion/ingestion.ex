@@ -18,10 +18,12 @@ defmodule Zaq.Ingestion do
     JobLifecycle,
     RecordSource,
     RenameService,
+    Sidecar,
     SourcePath,
     VolumeRecords
   }
 
+  alias Zaq.Contracts.Record
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
   alias Zaq.Repo
@@ -46,6 +48,29 @@ defmodule Zaq.Ingestion do
       {:error, {:partial_failure, Enum.reverse(jobs), Enum.reverse(errors)}}
     end
   end
+
+  def process_data_source_changes(request) when is_map(request) do
+    provider = read_stringish(request, [:provider, "provider"])
+    config_id = read_stringish(request, [:config_id, "config_id"])
+
+    changed_records =
+      request
+      |> changed_records_from_request()
+      |> Enum.map(&put_data_source_attrs(&1, provider, config_id))
+
+    {records, ignored_records} =
+      Enum.split_with(changed_records, &watched_data_source_record?(&1, provider, config_id))
+
+    log_ignored_data_source_changes(ignored_records, provider, config_id)
+
+    removed_count = delete_removed_data_source_documents(request, provider, config_id)
+
+    with {:ok, jobs} <- ingest_records(records, %{mode: :async}) do
+      {:ok, %{jobs: jobs, removed: removed_count}}
+    end
+  end
+
+  def process_data_source_changes(_request), do: {:error, :invalid_request}
 
   def ingest_record(record, mode \\ :async) do
     case RecordSource.kind(record) do
@@ -332,6 +357,181 @@ defmodule Zaq.Ingestion do
       %Document{} = doc -> doc.source
       nil -> normalized
     end
+  end
+
+  def source_for_new_entry(volume_name, path) do
+    path = SourcePath.normalize_relative(path)
+    SourcePath.build_source(volume_name, path)
+  end
+
+  def request_watch(targets) when is_list(targets), do: set_watch_status(targets, "pending")
+
+  def clear_watch(targets) when is_list(targets), do: set_watch_status(targets, "unwatched")
+
+  def count_watched_provider_documents(provider, config_id)
+      when is_binary(provider) and not is_nil(config_id) do
+    prefix = Enum.join(["data_source", provider, to_string(config_id)], "/") <> "/%"
+
+    from(d in Document,
+      where: d.watch_status in ["pending", "watched"],
+      where: like(d.source, ^prefix)
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  def count_watched_provider_documents(_provider, _config_id), do: 0
+
+  def data_source_inherited_watch(provider, config_id, provider_record_id)
+      when is_binary(provider) and not is_nil(config_id) and is_binary(provider_record_id) do
+    source = data_source_record_source(provider, to_string(config_id), provider_record_id)
+
+    case Document.get_by_source(source) do
+      %Document{watch_status: status} = doc when status in ["pending", "watched"] ->
+        %{status: status || "watched", error: doc.watch_error}
+
+      _ ->
+        nil
+    end
+  end
+
+  def data_source_inherited_watch(_provider, _config_id, _provider_record_id), do: nil
+
+  def data_source_record_watch_state(doc, inherited_watch)
+
+  def data_source_record_watch_state(nil, inherited_watch) do
+    %{
+      watch_status: inherited_watch_status(inherited_watch),
+      watch_error: inherited_watch_error(inherited_watch),
+      watch_inherited?: inherited_watch_active?(inherited_watch)
+    }
+  end
+
+  def data_source_record_watch_state(%Document{} = doc, inherited_watch) do
+    %{
+      watch_status: data_source_record_watch_status(doc, inherited_watch),
+      watch_error: doc.watch_error || inherited_watch_error(inherited_watch),
+      watch_inherited?: data_source_record_watch_inherited?(doc, inherited_watch)
+    }
+  end
+
+  def data_source_record_watch_active?(%{watch_status: status}),
+    do: status in ["pending", "watched"]
+
+  def data_source_record_watch_active?(_state), do: false
+
+  def mark_watch_active(%{source: source} = target, watch_metadata) when is_binary(source) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    attrs = watch_active_attrs(watch_metadata, now)
+
+    case Document.get_by_source(source) do
+      %Document{} = doc -> update_document_watch(doc, attrs)
+      nil -> maybe_insert_folder_watch_target(target, attrs)
+    end
+  end
+
+  def mark_watch_active(_target, _watch_metadata), do: :skip
+
+  def mark_watch_error(%{source: source}, reason) when is_binary(source) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    case Document.get_by_source(source) do
+      %Document{} = doc -> update_document_watch(doc, watch_error_attrs(reason, now))
+      nil -> :skip
+    end
+  end
+
+  def mark_watch_error(_target, _reason), do: :skip
+
+  defp set_watch_status(targets, status) when status in ["pending", "unwatched"] do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Enum.reduce(targets, %{updated: 0, skipped: 0}, fn target, acc ->
+      case update_watch_target(target, status, now) do
+        {:ok, _doc} -> %{acc | updated: acc.updated + 1}
+        :skip -> %{acc | skipped: acc.skipped + 1}
+      end
+    end)
+  end
+
+  defp update_watch_target(%{source: source} = target, status, now) when is_binary(source) do
+    attrs = watch_status_attrs(status, now)
+
+    case Document.get_by_source(source) do
+      %Document{} = doc ->
+        update_document_watch(doc, attrs)
+
+      nil ->
+        maybe_insert_folder_watch_target(target, attrs)
+    end
+  end
+
+  defp update_watch_target(_target, _status, _now), do: :skip
+
+  defp maybe_insert_folder_watch_target(%{kind: :folder, source: source}, attrs) do
+    metadata = Map.merge(%{"entry_type" => "folder"}, Map.get(attrs, :metadata, %{}))
+
+    %{source: source, content: nil, metadata: metadata}
+    |> Map.merge(attrs)
+    |> Map.put(:metadata, metadata)
+    |> Document.insert_new()
+    |> case do
+      {:ok, %Document{} = doc} -> {:ok, doc}
+      _ -> :skip
+    end
+  end
+
+  defp maybe_insert_folder_watch_target(_target, _attrs), do: :skip
+
+  defp update_document_watch(%Document{} = doc, attrs) when is_map(attrs) do
+    attrs = maybe_merge_watch_metadata(doc, attrs)
+
+    doc
+    |> Document.changeset(attrs)
+    |> Repo.update()
+    |> case do
+      {:ok, doc} -> {:ok, doc}
+      {:error, _changeset} -> :skip
+    end
+  end
+
+  defp maybe_merge_watch_metadata(%Document{} = doc, %{metadata: metadata} = attrs)
+       when is_map(metadata) do
+    Map.put(attrs, :metadata, Map.merge(doc.metadata || %{}, metadata))
+  end
+
+  defp maybe_merge_watch_metadata(_doc, attrs), do: attrs
+
+  defp watch_active_attrs(_watch_metadata, now) do
+    %{
+      watch_status: "watched",
+      watch_updated_at: now,
+      watch_error: nil
+    }
+  end
+
+  defp watch_error_attrs(reason, now) do
+    %{
+      watch_status: "error",
+      watch_updated_at: now,
+      watch_error: inspect(reason)
+    }
+  end
+
+  defp watch_status_attrs("pending", now) do
+    %{
+      watch_status: "pending",
+      watch_requested_at: now,
+      watch_updated_at: now,
+      watch_error: nil
+    }
+  end
+
+  defp watch_status_attrs("unwatched", now) do
+    %{
+      watch_status: "unwatched",
+      watch_updated_at: now,
+      watch_error: nil
+    }
   end
 
   @doc """
@@ -735,6 +935,293 @@ defmodule Zaq.Ingestion do
 
   defp record_error_ref(%{id: id, name: name}), do: %{id: id, name: name}
   defp record_error_ref(record), do: inspect(record)
+
+  defp changed_records_from_request(request) do
+    explicit_records = request |> read_any([:records, "records"]) |> List.wrap()
+
+    signal_records =
+      request
+      |> read_any([:signals, "signals"])
+      |> List.wrap()
+      |> Enum.reject(&data_source_signal_removed?/1)
+      |> Enum.map(&data_source_signal_record/1)
+
+    (explicit_records ++ signal_records)
+    |> Enum.map(&normalize_data_source_record/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp watched_data_source_record?(%Record{} = record, provider, config_id) do
+    source = data_source_record_source(provider, config_id, record.id)
+
+    state =
+      source
+      |> Document.get_by_source()
+      |> data_source_record_watch_state(
+        inherited_watch_for_parent_ids(provider, config_id, record.parent_ids)
+      )
+
+    data_source_record_watch_active?(state)
+  end
+
+  defp watched_data_source_record?(_record, _provider, _config_id), do: false
+
+  defp log_ignored_data_source_changes([], _provider, _config_id), do: :ok
+
+  defp log_ignored_data_source_changes(records, provider, config_id) do
+    ignored =
+      Enum.map(records, fn %Record{} = record ->
+        %{id: record.id, parent_ids: record.parent_ids || []}
+      end)
+
+    Logger.info(
+      "[Ingestion] Ignored unwatched data-source changes " <>
+        inspect(%{provider: provider, config_id: config_id, records: ignored})
+    )
+  end
+
+  defp data_source_record_watch_status(%Document{watch_status: status}, _inherited_watch)
+       when status in ["pending", "watched", "error"],
+       do: status
+
+  defp data_source_record_watch_status(_doc, inherited_watch),
+    do: inherited_watch_status(inherited_watch)
+
+  defp data_source_record_watch_inherited?(%Document{watch_status: status}, inherited_watch) do
+    status not in ["pending", "watched", "error"] and inherited_watch_active?(inherited_watch)
+  end
+
+  defp inherited_watch_for_parent_ids(provider, config_id, parent_ids) do
+    parent_ids
+    |> List.wrap()
+    |> Enum.find_value(&data_source_inherited_watch(provider, config_id, &1))
+  end
+
+  defp inherited_watch_status(%{status: status}) when status in ["pending", "watched"], do: status
+  defp inherited_watch_status(_), do: "unwatched"
+
+  defp inherited_watch_error(%{error: error}), do: error
+  defp inherited_watch_error(_), do: nil
+
+  defp inherited_watch_active?(%{status: status}), do: status in ["pending", "watched"]
+  defp inherited_watch_active?(_), do: false
+
+  defp data_source_record_source(provider, config_id, provider_record_id)
+       when is_binary(provider) and is_binary(config_id) and is_binary(provider_record_id) do
+    Enum.join(["data_source", provider, config_id, provider_record_id], "/")
+  end
+
+  defp data_source_record_source(_provider, _config_id, _provider_record_id), do: nil
+
+  defp delete_removed_data_source_documents(request, provider, config_id) do
+    request
+    |> read_any([:signals, "signals"])
+    |> List.wrap()
+    |> Enum.filter(&data_source_signal_removed?/1)
+    |> Enum.map(&data_source_signal_record/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce(0, fn record, count ->
+      count + delete_data_source_documents(provider, config_id, record)
+    end)
+  end
+
+  defp delete_data_source_documents(provider, config_id, %Record{} = record)
+       when is_binary(provider) and is_binary(config_id) do
+    source = data_source_record_source(provider, config_id, record.id)
+    doc = Document.get_by_source(source)
+
+    parent_ids = data_source_document_parent_ids(doc, record.parent_ids)
+    inherited_watch = inherited_watch_for_parent_ids(provider, config_id, parent_ids)
+    state = data_source_record_watch_state(doc, inherited_watch)
+
+    if data_source_record_watch_active?(state) do
+      delete_data_source_document_sources(source, doc)
+    else
+      0
+    end
+  end
+
+  defp delete_data_source_documents(_provider, _config_id, _record), do: 0
+
+  defp delete_data_source_document_sources(_source, nil), do: 0
+
+  defp delete_data_source_document_sources(source, %Document{} = doc) do
+    sidecar_source = Sidecar.sidecar_source(doc) || source <> ".md"
+    sidecar_doc = Document.get_by_source(sidecar_source)
+
+    delete_external_sidecar_file(sidecar_doc)
+
+    [doc, sidecar_doc]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.reduce(0, fn doc, count -> count + delete_existing_data_source_document(doc) end)
+  end
+
+  defp data_source_document_parent_ids(%Document{metadata: metadata}, fallback_parent_ids) do
+    persisted_parent_ids =
+      case read_any(metadata || %{}, ["provider_parent_ids", :provider_parent_ids]) do
+        parent_ids when is_list(parent_ids) -> Enum.filter(parent_ids, &is_binary/1)
+        _ -> []
+      end
+
+    persisted_parent_id =
+      read_stringish(metadata || %{}, ["provider_parent_id", :provider_parent_id])
+
+    (persisted_parent_ids ++ List.wrap(persisted_parent_id) ++ List.wrap(fallback_parent_ids))
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
+
+  defp data_source_document_parent_ids(nil, fallback_parent_ids) do
+    fallback_parent_ids
+    |> List.wrap()
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
+
+  defp delete_external_sidecar_file(nil), do: :ok
+
+  defp delete_external_sidecar_file(%Document{} = sidecar_doc) do
+    sidecar_doc.metadata
+    |> read_stringish(["sidecar_file_path", :sidecar_file_path])
+    |> delete_external_sidecar_relative_path()
+  end
+
+  defp delete_external_sidecar_relative_path(path) when is_binary(path) do
+    if path |> Path.split() |> Enum.member?(".external-sidecars") do
+      case FileExplorer.delete(path) do
+        :ok -> :ok
+        {:error, :enoent} -> :ok
+        _ -> :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp delete_external_sidecar_relative_path(_path), do: :ok
+
+  defp delete_existing_data_source_document(%Document{} = doc) do
+    case Document.delete(doc) do
+      {:ok, _doc} -> 1
+      _ -> 0
+    end
+  end
+
+  defp data_source_signal_removed?(signal) when is_map(signal) do
+    read_any(signal, [:removed?, "removed?", :removed, "removed", :deleted, "deleted"]) == true or
+      read_any(signal, [:change_type, "change_type"]) in [:deleted, "deleted"]
+  end
+
+  defp data_source_signal_removed?(_signal), do: false
+
+  defp data_source_signal_record(signal) when is_map(signal) do
+    record = read_any(signal, [:record, "record"])
+
+    provider_record_id =
+      read_stringish(signal, [:provider_record_id, "provider_record_id", :id, "id"])
+
+    record
+    |> normalize_data_source_record(provider_record_id)
+    |> maybe_apply_signal_change(signal)
+  end
+
+  defp normalize_data_source_record(%Record{} = record), do: record
+  defp normalize_data_source_record(record), do: normalize_data_source_record(record, nil)
+
+  defp normalize_data_source_record(%Record{} = record, _fallback_id), do: record
+
+  defp normalize_data_source_record(record, fallback_id) when is_map(record) do
+    id =
+      read_stringish(record, [:id, "id", :provider_record_id, "provider_record_id"]) ||
+        fallback_id
+
+    if is_binary(id) do
+      %Record{
+        id: id,
+        kind: data_source_record_kind(record),
+        name: read_stringish(record, [:name, "name"]),
+        mime_type: read_stringish(record, [:mime_type, "mime_type", :mimeType, "mimeType"]),
+        url:
+          read_stringish(record, [:web_url, "web_url", :url, "url", :webViewLink, "webViewLink"]),
+        parent_ids: read_any(record, [:parents, "parents", :parent_ids, "parent_ids"]) || [],
+        raw: record,
+        attributes: %{}
+      }
+    end
+  end
+
+  defp normalize_data_source_record(_record, fallback_id) when is_binary(fallback_id) do
+    %Record{id: fallback_id, kind: :file, raw: %{}, attributes: %{}}
+  end
+
+  defp normalize_data_source_record(_record, _fallback_id), do: nil
+
+  defp maybe_apply_signal_change(nil, _signal), do: nil
+
+  defp maybe_apply_signal_change(%Record{} = record, signal) when is_map(signal) do
+    case read_any(signal, [:change_type, "change_type"]) do
+      change_type when change_type in [:deleted, "deleted"] ->
+        %{
+          record
+          | change_type: :deleted,
+            lifecycle_state: :deleted,
+            deleted_at: DateTime.utc_now(:second)
+        }
+
+      change_type when is_atom(change_type) ->
+        %{record | change_type: change_type, lifecycle_state: :active}
+
+      change_type when is_binary(change_type) ->
+        %{record | change_type: String.to_existing_atom(change_type), lifecycle_state: :active}
+    end
+  rescue
+    ArgumentError -> %{record | lifecycle_state: :active}
+  end
+
+  defp data_source_record_kind(record) do
+    kind = read_any(record, [:kind, "kind"])
+    mime_type = read_stringish(record, [:mime_type, "mime_type", :mimeType, "mimeType"])
+
+    cond do
+      kind in [:folder, "folder", :collection, "collection"] -> :folder
+      mime_type == "application/vnd.google-apps.folder" -> :folder
+      true -> :file
+    end
+  end
+
+  defp put_data_source_attrs(%Record{} = record, provider, config_id) do
+    attrs =
+      (record.attributes || %{})
+      |> maybe_put_attr("provider", provider)
+      |> maybe_put_attr("config_id", config_id)
+      |> Map.put_new("provider_record_id", record.id)
+
+    %{record | attributes: attrs}
+  end
+
+  defp maybe_put_attr(attrs, _key, nil), do: attrs
+  defp maybe_put_attr(attrs, key, value), do: Map.put_new(attrs, key, to_string(value))
+
+  defp read_stringish(map, keys) do
+    case read_any(map, keys) do
+      value when is_binary(value) -> value
+      value when is_atom(value) -> to_string(value)
+      value when is_integer(value) -> Integer.to_string(value)
+      _ -> nil
+    end
+  end
+
+  defp read_any(map, keys) when is_map(map) do
+    Enum.find_value(keys, fn key ->
+      case Map.fetch(map, key) do
+        {:ok, value} -> value
+        :error -> nil
+      end
+    end)
+  end
+
+  defp read_any(_map, _keys), do: nil
 
   defp create_job(path, mode, volume_name, source_record) do
     attrs =

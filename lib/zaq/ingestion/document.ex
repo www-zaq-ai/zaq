@@ -23,6 +23,10 @@ defmodule Zaq.Ingestion.Document do
     field :content_type, :string, default: "markdown"
     field :metadata, :map, default: %{}
     field :tags, {:array, :string}, default: []
+    field :watch_status, :string, default: "unwatched"
+    field :watch_requested_at, :utc_datetime
+    field :watch_updated_at, :utc_datetime
+    field :watch_error, :string
 
     has_many :chunks, Chunk
     has_many :permissions, Permission, foreign_key: :resource_id, references: :id
@@ -31,16 +35,21 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @required_fields ~w(source)a
-  @optional_fields ~w(title content content_type metadata tags)a
+  @watch_statuses ~w(unwatched pending watched error)
+
+  @optional_fields ~w(title content content_type metadata tags watch_status watch_requested_at watch_updated_at watch_error)a
 
   def changeset(document, attrs) do
     document
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_inclusion(:content_type, ~w(markdown text html))
+    |> validate_inclusion(:watch_status, @watch_statuses)
     |> unique_constraint(:source)
     |> maybe_set_title()
   end
+
+  def watch_statuses, do: @watch_statuses
 
   # -- Query API --
 

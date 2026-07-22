@@ -11,8 +11,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Chunk, Document, ExternalSource, IngestJob}
+  alias Zaq.Ingestion.Chunk
+  alias Zaq.Ingestion.Document
+  alias Zaq.Ingestion.ExternalSource
+  alias Zaq.Ingestion.FileExplorer
+  alias Zaq.Ingestion.IngestJob
   alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
   alias Zaq.SystemConfigFixtures
 
   defmodule ProviderBrowserBridgeStub do
@@ -91,6 +96,79 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
          }
        }}
     end
+
+    def capability_snapshot(_provider) do
+      case Application.get_env(
+             :zaq,
+             :provider_browser_capability_snapshot,
+             {:ok, %{resolved: %{watch_changes_webhook: true}}}
+           ) do
+        {:raise, reason} when is_binary(reason) -> raise reason
+        {:raise, reason} -> raise inspect(reason)
+        response -> response
+      end
+    end
+
+    def watch_item(provider, params) do
+      case Application.get_env(:zaq, :provider_browser_watch_response, :default) do
+        :default ->
+          if Map.get(params, "kind") == "folder" do
+            return_watch_collection(provider, params)
+          else
+            return_watch_item(provider, params)
+          end
+
+        response ->
+          response
+      end
+    end
+
+    def unwatch_item(provider, params) do
+      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+        send(pid, {:unwatch_item, provider, params})
+      end
+
+      Application.get_env(:zaq, :provider_browser_unwatch_response, :ok)
+    end
+
+    defp return_watch_item(provider, params) do
+      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+        send(pid, {:watch_item, provider, params})
+      end
+
+      {:ok,
+       %{
+         status: "watched",
+         channel_id: "channel-1",
+         resource_id: "resource-1",
+         metadata: %{
+           "watch" => %{"channel_id" => "channel-1", "resource_id" => "resource-1"}
+         }
+       }}
+    end
+
+    defp return_watch_collection(provider, params) do
+      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+        send(pid, {:watch_collection, provider, params})
+      end
+
+      {:ok,
+       %{
+         status: "watched",
+         channel_id: "collection-channel-1",
+         resource_id: "collection-resource-1",
+         collection_id: Map.get(params, "file_id") || Map.get(params, :collection_id),
+         checkpoint: "checkpoint-1",
+         metadata: %{
+           "watch" => %{
+             "channel_id" => "collection-channel-1",
+             "resource_id" => "collection-resource-1",
+             "kind" => "collection",
+             "checkpoint" => "checkpoint-1"
+           }
+         }
+       }}
+    end
   end
 
   defmodule ProviderBrowserErrorBridgeStub do
@@ -152,6 +230,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     original_test_pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid)
     original_provider_browser_response = Application.get_env(:zaq, :provider_browser_response)
 
+    original_provider_browser_capability_snapshot =
+      Application.get_env(:zaq, :provider_browser_capability_snapshot)
+
+    original_provider_browser_watch_response =
+      Application.get_env(:zaq, :provider_browser_watch_response)
+
+    original_provider_browser_unwatch_response =
+      Application.get_env(:zaq, :provider_browser_unwatch_response)
+
     Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir)
 
     on_exit(fn ->
@@ -170,6 +257,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       case original_provider_browser_response do
         nil -> Application.delete_env(:zaq, :provider_browser_response)
         value -> Application.put_env(:zaq, :provider_browser_response, value)
+      end
+
+      case original_provider_browser_capability_snapshot do
+        nil -> Application.delete_env(:zaq, :provider_browser_capability_snapshot)
+        value -> Application.put_env(:zaq, :provider_browser_capability_snapshot, value)
+      end
+
+      case original_provider_browser_watch_response do
+        nil -> Application.delete_env(:zaq, :provider_browser_watch_response)
+        value -> Application.put_env(:zaq, :provider_browser_watch_response, value)
+      end
+
+      case original_provider_browser_unwatch_response do
+        nil -> Application.delete_env(:zaq, :provider_browser_unwatch_response)
+        value -> Application.put_env(:zaq, :provider_browser_unwatch_response, value)
       end
 
       File.rm_rf!(tmp_dir)
@@ -287,6 +389,419 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert_received {:list_files, "google_drive",
                        %{"filters" => %{"parent" => "folder-1", "include_shared" => false}}}
+    end
+
+    test "disables provider watch when global base URL is not configured", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url(nil)
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+
+      reason =
+        "Set System Configuration > Global > Base URL to enable external data-source watching."
+
+      assert has_element?(view, ~s(#bulk-watch-button[disabled][title="#{reason}"]))
+
+      render_hook(view, "toggle_watch_status", %{"path" => "file-1"})
+      refute_received {:watch_item, _, _}
+    end
+
+    test "provider watch uses global base URL for webhook address", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root/")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "toggle_watch_status", %{"path" => "file-1"})
+
+      assert_received {:watch_item, "google_drive",
+                       %{
+                         "file_id" => "file-1",
+                         "webhook_url" =>
+                           "https://zaq.example/root/channels/webhook/data_source/google_drive"
+                       }}
+
+      assert Document.get_by_source("data_source/google_drive/#{config.id}/file-1").watch_status ==
+               "watched"
+    end
+
+    test "provider folder can be watched before a folder document exists", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      source = "data_source/google_drive/#{config.id}/folder-1"
+      refute Document.get_by_source(source)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "toggle_watch_status", %{"path" => "folder-1"})
+
+      assert_received {:watch_collection, "google_drive",
+                       %{
+                         "file_id" => "folder-1",
+                         "kind" => "folder",
+                         "webhook_url" =>
+                           "https://zaq.example/channels/webhook/data_source/google_drive"
+                       }}
+
+      assert %Document{} = doc = Document.get_by_source(source)
+      assert doc.content == nil
+      assert doc.metadata["entry_type"] == "folder"
+      refute Map.has_key?(doc.metadata, "watch")
+      assert doc.watch_status == "watched"
+    end
+
+    test "provider folder watch is shown as inherited on child items", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      {:ok, _doc} =
+        Document.insert_new(%{
+          source: "data_source/google_drive/#{config.id}/folder-1",
+          metadata: %{"entry_type" => "folder"},
+          watch_status: "watched"
+        })
+
+      {:ok, _child_doc} =
+        Document.insert_new(%{
+          source: "data_source/google_drive/#{config.id}/file-no-url",
+          content: "already ingested",
+          watch_status: "unwatched"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+
+      assert has_element?(view, ~s(button[title="Watched through parent folder"]))
+
+      render_hook(view, "toggle_watch_status", %{"path" => "file-no-url"})
+      refute_received {:watch_item, _, _}
+      refute_received {:watch_collection, _, _}
+    end
+
+    test "provider watch on an inherited child shows a skip flash", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      {:ok, _doc} =
+        Document.insert_new(%{
+          source: "data_source/google_drive/#{config.id}/folder-1",
+          metadata: %{"entry_type" => "folder"},
+          watch_status: "watched"
+        })
+
+      {:ok, _child_doc} =
+        Document.insert_new(%{
+          source: "data_source/google_drive/#{config.id}/file-no-url",
+          content: "already ingested",
+          watch_status: "unwatched"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+      render_hook(view, "toggle_watch_status", %{"path" => "file-no-url"})
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+               "This item is watched through its parent folder."
+    end
+
+    test "provider watch_supported recognizes tuple and map capability snapshots", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      for {capability_snapshot, idx} <-
+            Enum.with_index([
+              {:ok, %{resolved: %{"watch_changes_webhook" => true}}},
+              %{resolved: %{watch_changes_webhook: true}}
+            ]) do
+        Application.put_env(:zaq, :provider_browser_capability_snapshot, capability_snapshot)
+
+        selected_path = if idx == 0, do: "file-1", else: "folder-1"
+
+        case selected_path do
+          "file-1" ->
+            create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
+
+          "folder-1" ->
+            {:ok, _folder_doc} =
+              Document.insert_new(%{
+                source: "data_source/google_drive/#{config.id}/folder-1",
+                metadata: %{"entry_type" => "folder"},
+                watch_status: "unwatched"
+              })
+        end
+
+        {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+        assert_received {:list_files, "google_drive", _params}
+
+        render_hook(view, "toggle_select", %{"path" => selected_path})
+        refute has_element?(view, "#bulk-watch-button[disabled]")
+      end
+    end
+
+    test "provider watch_supported disables watching when capability snapshot raises", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      Application.put_env(:zaq, :provider_browser_capability_snapshot, {:raise, "boom"})
+      create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+
+      assert has_element?(view, "#bulk-watch-button[disabled]")
+    end
+
+    test "provider watch skips unsupported providers without a watch_changes_webhook capability",
+         %{
+           conn: conn,
+           provider_config: config
+         } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      Application.put_env(:zaq, :provider_browser_capability_snapshot, {:ok, %{resolved: %{}}})
+      create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "toggle_watch_status", %{"path" => "file-1"})
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+               "Watching is not supported for this data source."
+
+      refute_received {:watch_item, _, _}
+    end
+
+    test "provider watch_selected reuses the provider watcher after the first dispatch", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root/")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      file_source = "data_source/google_drive/#{config.id}/file-1"
+      folder_source = "data_source/google_drive/#{config.id}/folder-1"
+
+      create_document_with_chunk(file_source, %{watch_status: "unwatched"})
+
+      {:ok, _folder_doc} =
+        Document.insert_new(%{
+          source: folder_source,
+          metadata: %{"entry_type" => "folder"},
+          watch_status: "unwatched"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "select_all", %{})
+      render_hook(view, "watch_selected", %{})
+
+      assert_received {:watch_item, "google_drive", params}
+      assert params["target_source"] in [file_source, folder_source]
+      assert params["kind"] in ["file", "folder"]
+      refute_received {:watch_item, "google_drive", _}
+
+      assert Document.get_by_source(file_source).watch_status == "watched"
+      assert Document.get_by_source(folder_source).watch_status == "watched"
+    end
+
+    test "provider watch_selected surfaces provider errors and marks the document errored", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      Application.put_env(
+        :zaq,
+        :provider_browser_watch_response,
+        {:error, "provider denied"}
+      )
+
+      source = "data_source/google_drive/#{config.id}/file-1"
+      create_document_with_chunk(source, %{watch_status: "unwatched"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+      render_hook(view, "watch_selected", %{})
+
+      assert Document.get_by_source(source).watch_status == "error"
+      assert Document.get_by_source(source).watch_error == ~s("provider denied")
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+               "No watch status was changed."
+    end
+
+    test "provider unwatch_selected dispatches teardown when the last watched item is cleared", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      Application.put_env(:zaq, :provider_browser_unwatch_response, {:ok, %{}})
+
+      source = "data_source/google_drive/#{config.id}/file-1"
+      create_document_with_chunk(source, %{watch_status: "watched"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+      render_hook(view, "unwatch_selected", %{})
+
+      assert_received {:unwatch_item, "google_drive", %{"target_source" => target_source}}
+      assert target_source == "data_source/google_drive/#{config.id}"
+      assert Document.get_by_source(source).watch_status == "unwatched"
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+               "Watching disabled for 1 item(s)."
+    end
+
+    test "provider unwatch_selected also accepts a plain :ok bridge response", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      source = "data_source/google_drive/#{config.id}/file-1"
+      create_document_with_chunk(source, %{watch_status: "watched"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+      render_hook(view, "unwatch_selected", %{})
+
+      assert_received {:unwatch_item, "google_drive", %{"target_source" => _target_source}}
+      assert Document.get_by_source(source).watch_status == "unwatched"
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+               "Watching disabled for 1 item(s)."
+    end
+
+    test "provider unwatch_selected treats bridge errors as skipped work", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      Application.put_env(:zaq, :provider_browser_unwatch_response, {:error, "gone"})
+
+      source = "data_source/google_drive/#{config.id}/file-1"
+      create_document_with_chunk(source, %{watch_status: "watched"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+      render_hook(view, "unwatch_selected", %{})
+
+      assert Document.get_by_source(source).watch_status == "unwatched"
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+               "Watching disabled for 1 item(s). 1 item(s) skipped."
+    end
+
+    test "provider unwatch_selected treats unexpected bridge responses as skipped work", %{
+      conn: conn,
+      provider_config: config
+    } do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
+
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      Application.put_env(:zaq, :provider_browser_unwatch_response, :unexpected)
+
+      source = "data_source/google_drive/#{config.id}/file-1"
+      create_document_with_chunk(source, %{watch_status: "watched"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+      render_hook(view, "unwatch_selected", %{})
+
+      assert Document.get_by_source(source).watch_status == "unwatched"
+
+      state = :sys.get_state(view.pid)
+
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+               "Watching disabled for 1 item(s). 1 item(s) skipped."
     end
 
     test "previews provider records by URL and queues external ingestion", %{conn: conn} do
@@ -926,6 +1441,163 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "th.zaq-ingestion-meta-label", "Select all")
   end
 
+  test "toggle_watch_status sets an ingested file to pending and clears it", %{conn: conn} do
+    create_document_with_chunk("alpha.md")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "toggle_watch_status", %{"path" => "alpha.md"})
+    assert Document.get_by_source("alpha.md").watch_status == "pending"
+
+    render_hook(view, "toggle_watch_status", %{"path" => "alpha.md"})
+    assert Document.get_by_source("alpha.md").watch_status == "unwatched"
+  end
+
+  test "errored watch click opens details modal and retry requests watch", %{conn: conn} do
+    doc = create_document_with_chunk("alpha.md")
+
+    {:ok, _doc} =
+      doc
+      |> Document.changeset(%{watch_status: "error", watch_error: "provider denied watch"})
+      |> Repo.update()
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "toggle_watch_status", %{
+      "path" => "alpha.md",
+      "watch_error" => "provider denied watch"
+    })
+
+    assert has_element?(view, "#watch-error-modal", "Watch setup failed")
+    assert has_element?(view, "#watch-error-modal", "provider denied watch")
+
+    render_hook(view, "retry_watch", %{})
+
+    assert Document.get_by_source("alpha.md").watch_status == "pending"
+    refute has_element?(view, "#watch-error-modal")
+  end
+
+  test "watch_selected sets selected ingested files and folders to pending", %{conn: conn} do
+    create_document_with_chunk("alpha.md")
+    create_document_with_chunk("docs/readme.md")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+    current_volume = :sys.get_state(view.pid).socket.assigns.current_volume
+
+    render_hook(view, "toggle_select", %{"path" => "alpha.md"})
+    render_hook(view, "toggle_select", %{"path" => "docs"})
+    render_hook(view, "watch_selected", %{})
+
+    folder_source = Ingestion.source_for_new_entry(current_volume, "docs")
+
+    assert Document.get_by_source("alpha.md").watch_status == "pending"
+    assert Document.get_by_source(folder_source).watch_status == "pending"
+  end
+
+  test "retry_watch without an open modal just clears modal state", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "retry_watch", %{})
+
+    state = :sys.get_state(view.pid)
+
+    assert state.socket.assigns.modal == nil
+    assert state.socket.assigns.watch_error_target == nil
+  end
+
+  test "watch_selected with no eligible selected records shows a no-op flash", %{conn: conn} do
+    create_document_with_chunk("alpha.md", %{watch_status: "pending"})
+    create_document_with_chunk("notes.txt", %{watch_status: "watched"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "select_all", %{})
+    render_hook(view, "watch_selected", %{})
+
+    state = :sys.get_state(view.pid)
+
+    assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+             "No selected items can be updated."
+  end
+
+  test "unwatch_selected clears selected watched records and skips non-clearable selections", %{
+    conn: conn
+  } do
+    alpha = create_document_with_chunk("alpha.md", %{watch_status: "pending"})
+    notes = create_document_with_chunk("notes.txt", %{watch_status: "unwatched"})
+
+    current_volume =
+      FileExplorer.list_volumes()
+      |> Map.keys()
+      |> List.first()
+
+    folder_source = Ingestion.source_for_new_entry(current_volume, "docs")
+
+    folder_doc =
+      create_document_with_chunk(folder_source, %{
+        metadata: %{"entry_type" => "folder"},
+        watch_status: "watched"
+      })
+
+    assert alpha.watch_status == "pending"
+    assert notes.watch_status == "unwatched"
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "select_all", %{})
+    render_hook(view, "unwatch_selected", %{})
+
+    state = :sys.get_state(view.pid)
+
+    assert state.socket.assigns.selected == MapSet.new()
+    assert Document.get_by_source("alpha.md").watch_status == "unwatched"
+    assert Document.get_by_source("notes.txt").watch_status == "unwatched"
+    assert Document.get_by_source(folder_source).watch_status == "watched"
+    assert folder_doc.watch_status == "watched"
+
+    assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+             "Watching disabled for 1 item(s)."
+  end
+
+  test "toggle_watch_status falls back to the default watch error message", %{conn: conn} do
+    doc = create_document_with_chunk("alpha.md")
+
+    {:ok, _doc} =
+      doc
+      |> Document.changeset(%{watch_status: "error", watch_error: " "})
+      |> Repo.update()
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "toggle_watch_status", %{
+      "path" => "alpha.md",
+      "watch_error" => " "
+    })
+
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.modal == :watch_error
+    assert state.socket.assigns.watch_error_message == "Watch setup failed."
+
+    render_hook(view, "toggle_watch_status", %{"path" => "alpha.md"})
+
+    state = :sys.get_state(view.pid)
+    assert state.socket.assigns.modal == :watch_error
+    assert state.socket.assigns.watch_error_message == "Watch setup failed."
+  end
+
+  test "toggle_watch_status on a non-ingested local file shows the watch guidance flash", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    render_hook(view, "toggle_watch_status", %{"path" => "notes.txt"})
+
+    state = :sys.get_state(view.pid)
+
+    assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+             "Ingest this item before watching it."
+  end
+
   test "opens file preview inside modal", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -1482,6 +2154,56 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "span", "modal-close.txt")
   end
 
+  @tag :skip
+  test "uploads mixed valid and invalid files while keeping the modal open", %{
+    conn: conn,
+    tmp_dir: tmp_dir
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+    open_upload_modal(view)
+
+    upload =
+      file_input(view, "#upload-form", :files, [
+        %{name: "upload.txt", content: "hello upload", type: "text/plain"},
+        %{
+          name: "bad.md",
+          content: "bad upload",
+          type: "text/markdown",
+          relative_path: "../bad.md"
+        }
+      ])
+
+    assert render_upload(upload, "upload.txt", 100)
+    assert render_upload(upload, "bad.md", 100)
+
+    render_hook(view, "upload", %{})
+
+    assert File.exists?(Path.join(tmp_dir, "upload.txt"))
+    refute File.exists?(Path.join(tmp_dir, "bad.md"))
+    assert has_element?(view, "#upload-modal")
+
+    state = :sys.get_state(view.pid)
+
+    assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
+             "1 file(s) uploaded. 1 failed."
+  end
+
+  test "submitting the upload form with no entries leaves the modal open", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+    open_upload_modal(view)
+
+    view
+    |> form("#upload-form")
+    |> render_submit()
+
+    assert has_element?(view, "#upload-modal")
+
+    state = :sys.get_state(view.pid)
+
+    assert state.socket.assigns.modal == :upload
+    assert Phoenix.Flash.get(state.socket.assigns.flash, :info) == nil
+  end
+
   test "duplicate upload uses OS-style deduplication", %{conn: conn, tmp_dir: tmp_dir} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
     open_upload_modal(view)
@@ -1876,6 +2598,25 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       state = :sys.get_state(view.pid)
       assert state.socket.assigns.move_folders == []
     end
+  end
+
+  test "empty configured volumes fall back to the default current volume", %{
+    conn: conn,
+    tmp_dir: tmp_dir
+  } do
+    original = Application.get_env(:zaq, Zaq.Ingestion)
+    Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir, volumes: %{})
+
+    on_exit(fn ->
+      Application.put_env(:zaq, Zaq.Ingestion, original || [])
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    state = :sys.get_state(view.pid)
+
+    assert state.socket.assigns.current_volume == "default"
+    assert state.socket.assigns.volumes == %{"default" => Path.expand(tmp_dir)}
   end
 
   describe "mount/provider normalization" do

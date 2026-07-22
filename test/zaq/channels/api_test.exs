@@ -147,6 +147,16 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{listener_id: "l1"}}
     end
 
+    def watch_item(provider, params) do
+      send(self(), {:ds_watch_item, provider, params})
+      {:ok, %{status: "watched", channel_id: "watch-1"}}
+    end
+
+    def unwatch_item(provider, params) do
+      send(self(), {:ds_unwatch_item, provider, params})
+      {:ok, %{status: "unwatched"}}
+    end
+
     def create_file(provider, params) do
       send(self(), {:ds_create_file, provider, params})
       {:ok, %{status: "created", record: %{"id" => "f1"}}}
@@ -765,6 +775,34 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :data_source_setup_listener, nil)
     assert result.response == {:ok, %{listener_id: "l1"}}
     assert_received {:ds_setup_listener, :google_drive, %{"mode" => "delta"}}
+  end
+
+  test "handles data_source_watch_item action" do
+    params = %{"item_id" => "f1", "webhook_url" => "https://example.test/webhook"}
+
+    event =
+      Event.new(%{provider: :google_drive, params: params}, :channels,
+        opts: [action: :data_source_watch_item, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_watch_item, nil)
+
+    assert result.response == {:ok, %{status: "watched", channel_id: "watch-1"}}
+    assert_received {:ds_watch_item, :google_drive, ^params}
+  end
+
+  test "handles data_source_unwatch_item action" do
+    params = %{"channel_id" => "watch-1", "resource_id" => "resource-1"}
+
+    event =
+      Event.new(%{provider: :google_drive, params: params}, :channels,
+        opts: [action: :data_source_unwatch_item, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_unwatch_item, nil)
+
+    assert result.response == {:ok, %{status: "unwatched"}}
+    assert_received {:ds_unwatch_item, :google_drive, ^params}
   end
 
   test "handles data_source_create_file action" do

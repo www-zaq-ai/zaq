@@ -19,6 +19,11 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.ingest_records(records, params)}
   end
 
+  def handle_event(%Event{request: request} = event, :process_data_source_changes, _context)
+      when is_map(request) do
+    %{event | response: Ingestion.process_data_source_changes(request)}
+  end
+
   def handle_event(%Event{} = event, action, _context),
     do: InternalBoundaries.default_handle_event(event, action)
 end

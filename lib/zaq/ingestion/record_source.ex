@@ -146,6 +146,7 @@ defmodule Zaq.Ingestion.RecordSource do
          processor_opts: [
            source_override: source,
            sidecar_source_override: sidecar_source,
+           force_sidecar: true,
            document_title: record.name,
            document_metadata: ExternalSource.metadata(record),
            sidecar_metadata: ExternalSource.sidecar_metadata(record, sidecar_relative_path)

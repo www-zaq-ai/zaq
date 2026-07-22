@@ -213,23 +213,29 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     case Path.extname(file_path) |> String.downcase() do
       ".pdf" ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "PDF", fn -> convert_pdf(file_path, md_path, opts) end)
+
+        read_sidecar_or_convert(md_path, "PDF", opts, fn ->
+          convert_pdf(file_path, md_path, opts)
+        end)
 
       ".docx" ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "DOCX", fn -> convert_docx(file_path, md_path) end)
+        read_sidecar_or_convert(md_path, "DOCX", opts, fn -> convert_docx(file_path, md_path) end)
 
       ".pptx" ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "PPTX", fn -> convert_pptx(file_path, md_path) end)
+        read_sidecar_or_convert(md_path, "PPTX", opts, fn -> convert_pptx(file_path, md_path) end)
 
       ".xlsx" ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "XLSX", fn -> convert_xlsx(file_path, md_path) end)
+        read_sidecar_or_convert(md_path, "XLSX", opts, fn -> convert_xlsx(file_path, md_path) end)
 
       ext when ext in [".png", ".jpg", ".jpeg"] ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "image", fn -> convert_image(file_path, md_path) end)
+
+        read_sidecar_or_convert(md_path, "image", opts, fn ->
+          convert_image(file_path, md_path)
+        end)
 
       ".csv" ->
         convert_csv(file_path)
@@ -304,8 +310,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp read_sidecar_or_convert(md_path, label, convert_fn) do
-    if File.exists?(md_path) do
+  defp read_sidecar_or_convert(md_path, label, opts, convert_fn) do
+    if File.exists?(md_path) and not Keyword.get(opts, :force_sidecar, false) do
       Logger.info("[DocumentProcessor] Using existing sidecar for #{label}: #{md_path}")
       with {:ok, raw} <- File.read(md_path), do: {:ok, FTSBackend.sanitize_utf8_text(raw)}
     else
