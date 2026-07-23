@@ -1057,8 +1057,16 @@ defmodule Zaq.Channels.JidoConnectBridge do
          {:ok, job} <- enqueue_webhook_job(config, payload, trigger, delivery_map) do
       {:ok, %{accepted: true, job_id: job.id}}
     else
-      {:ignore, :sync_notification} -> {:ok, %{accepted: true, ignored: true, reason: :sync}}
-      other -> other
+      {:ignore, :sync_notification} ->
+        Logger.info(
+          "data source webhook sync notification acknowledged without ingestion " <>
+            "provider=#{inspect(config.provider)} config_id=#{inspect(Map.get(config, :id))}"
+        )
+
+        {:ok, %{accepted: true, ignored: true, reason: :sync}}
+
+      other ->
+        other
     end
   end
 
@@ -2497,6 +2505,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
         payload: payload
       })
 
+    # Async dispatch acknowledges NodeRouter handoff only; webhook processing must not wait for ingestion completion.
     event =
       Event.new(request, :engine,
         type: :async,
@@ -3041,13 +3050,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp read_stringish(map, keys) do
-    case read_any(map, keys) do
-      nil -> nil
-      value when is_binary(value) -> value
-      value when is_atom(value) -> Atom.to_string(value)
-      value when is_integer(value) -> Integer.to_string(value)
-      _ -> nil
-    end
+    MapUtils.read_stringish(map, keys)
   end
 
   defp engine_get_active_grant(params) when is_map(params) do

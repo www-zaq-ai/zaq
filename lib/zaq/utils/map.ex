@@ -11,6 +11,32 @@ defmodule Zaq.Utils.Map do
 
   def read_any(_map, _keys), do: nil
 
+  @spec read_stringish(map(), [atom() | String.t()]) :: String.t() | nil
+  def read_stringish(map, keys) do
+    map
+    |> read_any(keys)
+    |> stringish_value()
+  end
+
+  @spec read_present(map(), [atom() | String.t()]) :: term() | nil
+  def read_present(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.fetch(map, key) do
+        {:ok, value} when not is_nil(value) and value != false -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  def read_present(_map, _keys), do: nil
+
+  @spec read_present_stringish(map(), [atom() | String.t()]) :: String.t() | nil
+  def read_present_stringish(map, keys) do
+    map
+    |> read_present(keys)
+    |> stringish_value()
+  end
+
   @spec metadata_value(map(), atom() | String.t()) :: term() | nil
   def metadata_value(metadata, key) when is_map(metadata) and is_binary(key) do
     read_any(metadata, [key, existing_atom_key(key)])
@@ -44,4 +70,10 @@ defmodule Zaq.Utils.Map do
   rescue
     ArgumentError -> nil
   end
+
+  defp stringish_value(nil), do: nil
+  defp stringish_value(value) when is_binary(value), do: value
+  defp stringish_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringish_value(value) when is_integer(value), do: Integer.to_string(value)
+  defp stringish_value(_value), do: nil
 end

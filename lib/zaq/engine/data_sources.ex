@@ -13,6 +13,7 @@ defmodule Zaq.Engine.DataSources do
   alias Zaq.Engine.DataSources.WatchChannel
   alias Zaq.Engine.DataSources.WatchChannelRenewalWorker
   alias Zaq.{Event, Repo}
+  alias Zaq.Utils.Map, as: MapUtils
 
   @renewal_lead_seconds 3_600
 
@@ -374,24 +375,10 @@ defmodule Zaq.Engine.DataSources do
   end
 
   defp read_string(map, keys) do
-    case read_any(map, keys) do
-      value when is_atom(value) -> to_string(value)
-      value when is_binary(value) -> value
-      value when is_integer(value) -> Integer.to_string(value)
-      _ -> nil
-    end
+    MapUtils.read_stringish(map, keys)
   end
 
-  defp read_any(map, keys) when is_map(map) do
-    Enum.reduce_while(keys, nil, fn key, _acc ->
-      case Map.fetch(map, key) do
-        {:ok, value} -> {:halt, value}
-        :error -> {:cont, nil}
-      end
-    end)
-  end
-
-  defp read_any(_map, _keys), do: nil
+  defp read_any(map, keys), do: MapUtils.read_any(map, keys)
 
   defp read_expiration_at(attrs) do
     direct = read_any(attrs, [:expiration_at, "expiration_at"])
@@ -430,14 +417,14 @@ defmodule Zaq.Engine.DataSources do
 
     watch_updates =
       %{
-        "provider" => Map.get(attrs, :provider),
-        "channel_id" => Map.get(attrs, :channel_id),
-        "resource_id" => Map.get(attrs, :resource_id),
-        "resource_uri" => Map.get(attrs, :resource_uri),
-        "file_id" => Map.get(attrs, :target_provider_id),
-        "collection_id" => Map.get(attrs, :target_provider_id),
-        "kind" => Map.get(attrs, :target_kind),
-        "checkpoint" => Map.get(attrs, :checkpoint),
+        "provider" => watch_metadata_value(Map.get(attrs, :provider)),
+        "channel_id" => watch_metadata_value(Map.get(attrs, :channel_id)),
+        "resource_id" => watch_metadata_value(Map.get(attrs, :resource_id)),
+        "resource_uri" => watch_metadata_value(Map.get(attrs, :resource_uri)),
+        "file_id" => watch_metadata_value(Map.get(attrs, :target_provider_id)),
+        "collection_id" => watch_metadata_value(Map.get(attrs, :target_provider_id)),
+        "kind" => watch_metadata_value(Map.get(attrs, :target_kind)),
+        "checkpoint" => watch_metadata_value(Map.get(attrs, :checkpoint)),
         "expiration_at" => format_datetime(Map.get(attrs, :expiration_at))
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
@@ -452,6 +439,12 @@ defmodule Zaq.Engine.DataSources do
     do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 
   defp stringify_keys(_map), do: %{}
+
+  defp watch_metadata_value(nil), do: nil
+  defp watch_metadata_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp watch_metadata_value(value) when is_binary(value), do: value
+  defp watch_metadata_value(value) when is_integer(value), do: Integer.to_string(value)
+  defp watch_metadata_value(_value), do: nil
 
   defp format_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp format_datetime(_datetime), do: nil

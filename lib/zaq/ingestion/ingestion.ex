@@ -27,6 +27,7 @@ defmodule Zaq.Ingestion do
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
   alias Zaq.Repo
+  alias Zaq.Utils.Map, as: MapUtils
 
   import Ecto.Query
 
@@ -944,7 +945,7 @@ defmodule Zaq.Ingestion do
       |> read_any([:signals, "signals"])
       |> List.wrap()
       |> Enum.reject(&data_source_signal_removed?/1)
-      |> Enum.map(&data_source_signal_record/1)
+      |> Enum.map(&data_source_signal_record(&1, false))
 
     (explicit_records ++ signal_records)
     |> Enum.map(&normalize_data_source_record/1)
@@ -954,14 +955,18 @@ defmodule Zaq.Ingestion do
   defp watched_data_source_record?(%Record{} = record, provider, config_id) do
     source = data_source_record_source(provider, config_id, record.id)
 
-    state =
-      source
-      |> Document.get_by_source()
-      |> data_source_record_watch_state(
-        inherited_watch_for_parent_ids(provider, config_id, record.parent_ids)
-      )
+    if is_binary(source) do
+      state =
+        source
+        |> Document.get_by_source()
+        |> data_source_record_watch_state(
+          inherited_watch_for_parent_ids(provider, config_id, record.parent_ids)
+        )
 
-    data_source_record_watch_active?(state)
+      data_source_record_watch_active?(state)
+    else
+      false
+    end
   end
 
   defp watched_data_source_record?(_record, _provider, _config_id), do: false
@@ -1115,16 +1120,22 @@ defmodule Zaq.Ingestion do
 
   defp data_source_signal_removed?(_signal), do: false
 
-  defp data_source_signal_record(signal) when is_map(signal) do
+  defp data_source_signal_record(signal), do: data_source_signal_record(signal, true)
+
+  defp data_source_signal_record(signal, use_fallback_id?) when is_map(signal) do
     record = read_any(signal, [:record, "record"])
 
     provider_record_id =
-      read_stringish(signal, [:provider_record_id, "provider_record_id", :id, "id"])
+      if use_fallback_id? do
+        read_stringish(signal, [:provider_record_id, "provider_record_id", :id, "id"])
+      end
 
     record
     |> normalize_data_source_record(provider_record_id)
     |> maybe_apply_signal_change(signal)
   end
+
+  defp data_source_signal_record(_signal, _use_fallback_id?), do: nil
 
   defp normalize_data_source_record(%Record{} = record), do: record
   defp normalize_data_source_record(record), do: normalize_data_source_record(record, nil)
@@ -1204,24 +1215,10 @@ defmodule Zaq.Ingestion do
   defp maybe_put_attr(attrs, key, value), do: Map.put_new(attrs, key, to_string(value))
 
   defp read_stringish(map, keys) do
-    case read_any(map, keys) do
-      value when is_binary(value) -> value
-      value when is_atom(value) -> to_string(value)
-      value when is_integer(value) -> Integer.to_string(value)
-      _ -> nil
-    end
+    MapUtils.read_present_stringish(map, keys)
   end
 
-  defp read_any(map, keys) when is_map(map) do
-    Enum.find_value(keys, fn key ->
-      case Map.fetch(map, key) do
-        {:ok, value} -> value
-        :error -> nil
-      end
-    end)
-  end
-
-  defp read_any(_map, _keys), do: nil
+  defp read_any(map, keys), do: MapUtils.read_present(map, keys)
 
   defp create_job(path, mode, volume_name, source_record) do
     attrs =
