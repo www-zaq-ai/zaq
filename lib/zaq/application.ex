@@ -56,7 +56,7 @@ defmodule Zaq.Application do
 
     case Supervisor.start_link(children, opts) do
       {:ok, _pid} = ok ->
-        FTSBackend.detect_and_cache()
+        detect_or_heal_fts(roles)
         enqueue_release_badge_check_on_startup()
         # Forces ValidModalities to load so all modality atoms exist in the VM
         # before LLMDB.load/0 calls String.to_existing_atom/1 on the snapshot.
@@ -106,6 +106,18 @@ defmodule Zaq.Application do
       children ++ [ZaqWeb.Endpoint]
     else
       children
+    end
+  end
+
+  # The ingestion node owns the chunks table, so it is the single node allowed
+  # to run the pg_search self-heal DDL — gating it here avoids concurrent
+  # CREATE EXTENSION / CREATE INDEX races across nodes. Every other node only
+  # needs the read-only detection so its cache reflects the active backend.
+  defp detect_or_heal_fts(roles) do
+    if :all in roles or :ingestion in roles do
+      FTSBackend.self_heal()
+    else
+      FTSBackend.detect_and_cache()
     end
   end
 
