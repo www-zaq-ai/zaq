@@ -19,8 +19,6 @@ defmodule Zaq.Channels.MessageFormatter do
   - `nil` / unset / `:none`: no transformation
   - `:plain_text`: markdown -> html (`Earmark`) -> plain text
   - `:html`: markdown -> html (`Earmark`)
-  - `:markdown`: no transformation — the body ships as markdown and the provider
-    adapter decides how to render it
 
   Notes:
 
@@ -36,11 +34,6 @@ defmodule Zaq.Channels.MessageFormatter do
   alias Zaq.Channels.Bridge
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Utils.HtmlUtils
-
-  # Formats carried through to the bridge in `metadata.format`. `:markdown` is stamped
-  # like the others: the adapter cannot tell markdown from an unformatted body without
-  # it, and silently dropping it is what shipped raw markdown to Telegram.
-  @stamped_formats [:html, :plain_text, :markdown]
 
   @doc """
   Formats an outbound message body according to provider `:message_format`
@@ -132,16 +125,12 @@ defmodule Zaq.Channels.MessageFormatter do
     end
   end
 
-  # Source bodies are already markdown, so `:markdown` is a pass-through — the
-  # provider adapter renders it.
-  defp format_text(text, :markdown, _formatter), do: text
-
   defp format_text(text, _unknown_format, _formatter), do: text
 
   defp ensure_metadata_map(metadata) when is_map(metadata), do: metadata
   defp ensure_metadata_map(_metadata), do: %{}
 
-  defp put_format_metadata(metadata, format) when format in @stamped_formats do
+  defp put_format_metadata(metadata, format) when format in [:html, :plain_text, :markdown] do
     metadata
     |> Map.delete("format")
     |> Map.put(:format, format)

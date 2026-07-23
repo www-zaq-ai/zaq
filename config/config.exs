@@ -25,6 +25,7 @@ config :zaq, :channels, %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Telegram.Adapter,
     ingress_mode: :webhook,
+    # markdown is the default format, but it's an example of how to add a format for a channel.
     message_format: :markdown
   },
   google_drive: %{

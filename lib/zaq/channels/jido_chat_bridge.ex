@@ -39,11 +39,6 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
-
-  # Canonical body formats forwarded to an adapter. Platform-specific rendering
-  # (Telegram's MarkdownV2 vs rich messages, for one) is the adapter's decision —
-  # those formats must not leak into this list.
-  @deliverable_formats [:html, :plain_text, :markdown]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
 
@@ -1598,7 +1593,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp post_metadata(metadata) when is_map(metadata) do
     case Map.get(metadata, :format) || Map.get(metadata, "format") do
-      format when format in @deliverable_formats -> %{format: format}
+      format when format in [:html, :plain_text, :markdown] -> %{format: format}
       _ -> %{}
     end
   end
@@ -1607,7 +1602,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp maybe_put_format_from_metadata(opts, metadata) when is_map(metadata) do
     case Map.get(metadata, :format) || Map.get(metadata, "format") do
-      format when format in @deliverable_formats -> Keyword.put(opts, :format, format)
+      format when format in [:html, :plain_text, :markdown] -> Keyword.put(opts, :format, format)
       _ -> opts
     end
   end
