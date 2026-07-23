@@ -115,14 +115,20 @@
   z-index: 2;
   padding: var(--zaq-scale-2) 0 var(--zaq-scale-2) var(--zaq-scale-8);
   transform: translateY(-50%);
-  pointer-events: none;
   background: var(--zaq-surface-color-raised);
   border-radius: var(--zaq-scale-8);
 }
 
-.zaq-table tbody tr:hover .zaq-table-actions--overlay,
-.zaq-table tbody tr:focus-within .zaq-table-actions--overlay {
-  pointer-events: auto;
+.zaq-table-name-action-target {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 25rem;
+}
+
+.zaq-table-name-cell,
+.zaq-table-name-cell-inner {
+  min-width: 25rem;
 }
 
 /* Grid card checkbox — show on card hover or when selected */

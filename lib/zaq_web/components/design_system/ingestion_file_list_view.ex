@@ -87,13 +87,13 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                 checked={MapSet.member?(@selected, record_path(entry))}
               />
             </.table_cell>
-            <.table_cell class="max-w-0 w-full">
-              <div class="relative min-w-0">
+            <.table_cell class="zaq-table-name-cell max-w-0 w-full">
+              <div class="zaq-table-name-cell-inner relative min-w-0">
                 <%= if record_folder?(entry) do %>
                   <button
                     phx-click="navigate"
                     phx-value-path={record_path(entry)}
-                    class="flex items-center gap-2 min-w-0 w-full zaq-text-body zaq-link-underline text-left cursor-pointer"
+                    class="zaq-table-name-action-target flex items-center gap-2 min-w-0 w-full zaq-text-body zaq-link-underline text-left cursor-pointer"
                     style="color: var(--zaq-text-color-body-accent)"
                     title={entry.name}
                   >
@@ -121,7 +121,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     type="button"
                     phx-click="open_preview"
                     phx-value-path={preview_path(entry, @current_volume, @provider_mode)}
-                    class="flex items-center gap-2 min-w-0 w-full text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
+                    class="zaq-table-name-action-target flex items-center gap-2 min-w-0 w-full text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
                     title={entry.name}
                   >
                     <img
