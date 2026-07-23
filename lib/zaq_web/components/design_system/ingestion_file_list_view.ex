@@ -88,12 +88,12 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               />
             </.table_cell>
             <.table_cell class="max-w-0 w-full">
-              <div class="flex items-center justify-between gap-3 min-w-0">
+              <div class="relative min-w-0">
                 <%= if record_folder?(entry) do %>
                   <button
                     phx-click="navigate"
                     phx-value-path={record_path(entry)}
-                    class="flex items-center gap-2 min-w-0 zaq-text-body zaq-link-underline text-left cursor-pointer"
+                    class="flex items-center gap-2 min-w-0 w-full zaq-text-body zaq-link-underline text-left cursor-pointer"
                     style="color: var(--zaq-text-color-body-accent)"
                     title={entry.name}
                   >
@@ -121,7 +121,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     type="button"
                     phx-click="open_preview"
                     phx-value-path={preview_path(entry, @current_volume, @provider_mode)}
-                    class="flex items-center gap-2 min-w-0 text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
+                    class="flex items-center gap-2 min-w-0 w-full text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
                     title={entry.name}
                   >
                     <img
@@ -140,7 +140,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     <span class="truncate">{entry.name}</span>
                   </button>
                 <% end %>
-                <.table_actions reveal={:hover}>
+                <.table_actions reveal={:hover} class="zaq-table-actions--overlay">
                   <.entry_row_actions
                     entry={entry}
                     provider_mode={@provider_mode}
