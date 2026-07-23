@@ -214,6 +214,30 @@ defmodule Zaq.Engine.DataSourcesTest do
     assert updated.checkpoint == "checkpoint-2"
   end
 
+  test "upsert_watch_channel stores JSON-safe string values in watch metadata" do
+    config = insert_data_source_config()
+
+    assert {:ok, %WatchChannel{} = watch_channel} =
+             DataSources.upsert_watch_channel(
+               watch_attrs(config, %{
+                 provider: :google_drive,
+                 target_provider_id: 123,
+                 target_kind: :collection,
+                 metadata: %{watch: %{provider: :stale}}
+               })
+             )
+
+    assert watch_channel.metadata["watch"] == %{
+             "provider" => "google_drive",
+             "channel_id" => "channel-1",
+             "resource_id" => "resource-1",
+             "file_id" => "123",
+             "collection_id" => "123",
+             "kind" => "collection",
+             "checkpoint" => "checkpoint-1"
+           }
+  end
+
   test "upsert_watch_channel parses provider expiration and schedules renewal" do
     config = insert_data_source_config()
 

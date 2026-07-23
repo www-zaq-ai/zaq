@@ -151,7 +151,8 @@ defmodule Zaq.MixProject do
        override: true},
       {
         :jido_connect_google_drive,
-        #  branch: "main",
+        # Temporary: pinned until the upstream main-branch Google Drive regression is fixed.
+        # Tracked: https://github.com/agentjido/jido_connect/issues/45
         github: "agentjido/jido_connect",
         ref: "548dc6423fb80e2bed6d2a77ec92aca72cb87aa2",
         sparse: "apps/jido_connect_google_drive",
