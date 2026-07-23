@@ -319,10 +319,14 @@ defmodule Zaq.Engine.Conversations do
 
   defp assistant_metadata(result) when is_map(result) do
     %{
+      "external_message_id" =>
+        Map.get(result, :status_message_id) || Map.get(result, :message_id) ||
+          Map.get(result, "status_message_id") || Map.get(result, "message_id"),
       "measurements" =>
         result
         |> Map.get(:measurements, Map.get(result, "measurements", %{}))
         |> Measurements.metadata_measurements(),
+      "provider" => Map.get(result, :provider) || Map.get(result, "provider"),
       "model" => Map.get(result, :model) || Map.get(result, "model"),
       "agent" => Map.get(result, :agent) || Map.get(result, "agent")
     }
@@ -591,6 +595,13 @@ defmodule Zaq.Engine.Conversations do
   defp maybe_limit(query, nil), do: query
   defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)
 
+  def get_message_by_external_id(external_message_id) when is_binary(external_message_id) do
+    Repo.one(
+      from m in Message,
+        where: fragment("?->>'external_message_id' = ?", m.metadata, ^external_message_id)
+    )
+  end
+
   # ── Ratings ────────────────────────────────────────────────────────
 
   @doc "Creates a rating for a message."
@@ -683,6 +694,31 @@ defmodule Zaq.Engine.Conversations do
         end)
     end
   end
+
+  def rate_message_from_reaction(%{rating: rating} = reaction)
+      when is_integer(rating) and rating >= 1 and rating <= 5 do
+    with %Message{} = message <- get_message_by_external_id(to_string(reaction.message_id)),
+         {:ok, _rating_record} <-
+           rate_message_by_id(message.id, %{
+             channel_user_id: reaction.user.user_id,
+             rating: rating
+           }) do
+      if rating == 1 do
+        {:ok,
+         %{
+           follow_up_text:
+             "Thanks for your feedback! Could you tell us more about what we could improve?"
+         }}
+      else
+        :ok
+      end
+    else
+      nil -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def rate_message_from_reaction(_), do: :ok
 
   # ── Sharing ────────────────────────────────────────────────────────
 

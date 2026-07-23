@@ -35,8 +35,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   }
 
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
+  alias Zaq.Channels.JidoChatBridge.ReactionMapper
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Event
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
@@ -311,6 +313,9 @@ defmodule Zaq.Channels.JidoChatBridge do
           handle_message_event(config, thread, incoming)
         end
       end)
+      |> Chat.on_reaction(fn _thread, reaction ->
+        handle_reaction_event(config, reaction)
+      end)
 
     Enum.reduce(message_patterns, chat, fn pattern, acc ->
       Chat.on_new_message(acc, pattern, fn thread, incoming ->
@@ -322,6 +327,40 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp handle_channel_message_event(config, thread, incoming) do
     unless incoming.channel_meta.is_dm do
       handle_message_event(config, thread, incoming)
+    end
+  end
+
+  defp handle_reaction_event(config, reaction) do
+    provider = provider_to_atom(config.provider) || :unknown
+
+    with true <- reaction.added,
+         {:ok, rating} <- ReactionMapper.to_rating(reaction.emoji, provider) do
+      rated_reaction = Map.put(reaction, :rating, rating)
+
+      event =
+        Event.new(
+          %{reaction: rated_reaction},
+          :engine,
+          opts: [action: :rate_message_from_reaction]
+        )
+
+      case node_router_module().dispatch(event).response do
+        {:ok, %{follow_up_text: text}} when is_binary(text) ->
+          thread =
+            %{reaction.thread | metadata: Map.put(reaction.thread.metadata, :url, config.url)}
+
+          Jido.Chat.Thread.post(
+            thread,
+            text,
+            url: config.url,
+            token: config.token
+          )
+
+        _ ->
+          :ok
+      end
+    else
+      _ -> :ok
     end
   end
 

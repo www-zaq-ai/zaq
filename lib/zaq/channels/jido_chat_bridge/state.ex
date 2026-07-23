@@ -123,29 +123,34 @@ defmodule Zaq.Channels.JidoChatBridge.State do
 
   @impl GenServer
   def handle_call({:process_listener_payload, config, payload, sink_opts}, _from, state) do
-    {:ok, adapter} = bridge_module().adapter_for(config.provider)
-    transport = sink_opts[:transport] || :websocket
-
-    with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
-         incoming <- with_transport(incoming, transport),
-         thread_id <-
-           bridge_module().thread_key(
-             incoming.channel_meta.adapter_name,
-             incoming.external_room_id,
-             incoming.external_thread_id || incoming.external_room_id
-           ) do
-      Chat.process_message(
-        state.chat,
-        incoming.channel_meta.adapter_name,
-        thread_id,
-        incoming,
-        []
-      )
-
-      {:reply, :ok, %{state | ingress_status: ok_ingress_status()}}
+    if payload[:event_type] == :reaction do
+      handle_reaction_payload(config, payload)
+      {:reply, :ok, state}
     else
-      _ ->
-        {:reply, :ok, state}
+      {:ok, adapter} = bridge_module().adapter_for(config.provider)
+      transport = sink_opts[:transport] || :websocket
+
+      with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
+           incoming <- with_transport(incoming, transport),
+           thread_id <-
+             bridge_module().thread_key(
+               incoming.channel_meta.adapter_name,
+               incoming.external_room_id,
+               incoming.external_thread_id || incoming.external_room_id
+             ) do
+        Chat.process_message(
+          state.chat,
+          incoming.channel_meta.adapter_name,
+          thread_id,
+          incoming,
+          []
+        )
+
+        {:reply, :ok, %{state | ingress_status: ok_ingress_status()}}
+      else
+        _ ->
+          {:reply, :ok, state}
+      end
     end
   end
 
@@ -312,5 +317,22 @@ defmodule Zaq.Channels.JidoChatBridge.State do
 
   defp chat_module do
     bridge_module().runtime_chat_module()
+  end
+
+  defp handle_reaction_payload(config, payload) do
+    emoji_name =
+      if is_map(payload[:emoji]),
+        do: payload[:emoji][:name] || payload[:emoji]["name"],
+        else: payload[:emoji]
+
+    reaction = %{
+      added: payload[:added],
+      emoji: emoji_name,
+      user: %{user_id: to_string(payload[:user_id])},
+      message_id: payload[:message_id],
+      thread: %{metadata: %{}}
+    }
+
+    bridge_module().handle_reaction_event(config, reaction)
   end
 end
