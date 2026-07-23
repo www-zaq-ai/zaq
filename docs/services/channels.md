@@ -292,7 +292,8 @@ config :zaq, :channels, %{
   telegram: %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Telegram.Adapter,
-    message_format: :markdown
+    message_format: :html,
+    message_formatter: {Telegex.Marked, :as_html}
   }
 }
 ```
@@ -558,15 +559,15 @@ conversation-inherited threading).
 
 #### SMTP Configuration (env vars)
 
-| Variable          | Default           | Description                    |
-|-------------------|-------------------|--------------------------------|
-| SMTP_RELAY        | —                 | SMTP server hostname           |
-| SMTP_PORT         | 587               | SMTP port                      |
-| SMTP_USERNAME     | —                 | SMTP auth username             |
-| SMTP_PASSWORD     | —                 | SMTP auth password             |
-| SMTP_FROM_EMAIL   | noreply@zaq.local | Sender email address           |
-| SMTP_FROM_NAME    | ZAQ               | Sender display name            |
-| SMTP_TLS          | enabled           | TLS mode: enabled/always/never |
+| Variable        | Default           | Description                    |
+| --------------- | ----------------- | ------------------------------ |
+| SMTP_RELAY      | —                 | SMTP server hostname           |
+| SMTP_PORT       | 587               | SMTP port                      |
+| SMTP_USERNAME   | —                 | SMTP auth username             |
+| SMTP_PASSWORD   | —                 | SMTP auth password             |
+| SMTP_FROM_EMAIL | noreply@zaq.local | Sender email address           |
+| SMTP_FROM_NAME  | ZAQ               | Sender display name            |
+| SMTP_TLS        | enabled           | TLS mode: enabled/always/never |
 
 ### SMTP Helpers (`Zaq.Channels.SmtpHelpers`)
 
