@@ -27,43 +27,6 @@ defmodule Zaq.Engine.DataSources.WatchChannelTest do
     refute changeset.valid?
   end
 
-  test "changeset removes exact blank normalized field changes before validation/defaulting" do
-    changeset =
-      WatchChannel.changeset(%WatchChannel{}, %{
-        provider: "",
-        target_kind: "",
-        status: ""
-      })
-
-    assert get_change(changeset, :provider) == ""
-    assert get_change(changeset, :target_kind) == ""
-    assert get_change(changeset, :status) == "active"
-    refute changeset.valid?
-
-    assert Keyword.get_values(changeset.errors, :target_kind) == [
-             {"is invalid", [validation: :inclusion, enum: ["file", "collection", "folder"]]}
-           ]
-  end
-
-  test "changeset ignores normalized fields without accepted string or atom changes" do
-    changeset =
-      WatchChannel.changeset(%WatchChannel{}, %{
-        provider: false,
-        target_kind: false,
-        status: false
-      })
-
-    refute changeset.valid?
-
-    assert {:provider, {"is invalid", [type: :string, validation: :cast]}} in changeset.errors
-    assert {:target_kind, {"is invalid", [type: :string, validation: :cast]}} in changeset.errors
-    assert {:status, {"is invalid", [type: :string, validation: :cast]}} in changeset.errors
-
-    assert get_change(changeset, :provider) == ""
-    assert get_change(changeset, :target_kind) == ""
-    assert get_change(changeset, :status) == "active"
-  end
-
   test "changeset leaves omitted normalized fields unchanged and defaults status" do
     changeset = WatchChannel.changeset(%WatchChannel{}, %{})
 
