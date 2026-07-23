@@ -50,12 +50,14 @@ defmodule Zaq.Channels.Events do
   end
 
   @spec build_data_source_watch_item_event(atom() | String.t(), map(), keyword()) :: Event.t()
+  @doc "Builds a Channels event that requests provider data-source watch setup."
   def build_data_source_watch_item_event(provider, params, opts \\ []) when is_map(params) do
     build_data_source_event(provider, params, :data_source_watch_item, opts)
   end
 
   @spec build_and_dispatch_data_source_watch_item_event(atom() | String.t(), map(), keyword()) ::
           Event.t()
+  @doc "Builds and dispatches a provider data-source watch setup event."
   def build_and_dispatch_data_source_watch_item_event(provider, params, opts \\ [])
       when is_map(params) do
     provider
@@ -64,12 +66,14 @@ defmodule Zaq.Channels.Events do
   end
 
   @spec build_data_source_unwatch_item_event(atom() | String.t(), map(), keyword()) :: Event.t()
+  @doc "Builds a Channels event that requests provider data-source watch teardown."
   def build_data_source_unwatch_item_event(provider, params, opts \\ []) when is_map(params) do
     build_data_source_event(provider, params, :data_source_unwatch_item, opts)
   end
 
   @spec build_and_dispatch_data_source_unwatch_item_event(atom() | String.t(), map(), keyword()) ::
           Event.t()
+  @doc "Builds and dispatches a provider data-source watch teardown event."
   def build_and_dispatch_data_source_unwatch_item_event(provider, params, opts \\ [])
       when is_map(params) do
     provider

@@ -4,6 +4,11 @@ defmodule Zaq.Engine.DataSources do
 
   Provider watch channel state and checkpoints live here so Channels can remain
   DB-less while still acknowledging webhooks quickly after a durable handoff.
+
+  Channels owns provider calls and webhook normalization. Engine owns durable
+  watch-channel rows, checkpoint advancement, lifecycle error state, and renewal
+  scheduling. Ingestion owns deciding which provider deltas become re-ingestion
+  jobs or document deletions.
   """
 
   import Ecto.Query
@@ -17,7 +22,14 @@ defmodule Zaq.Engine.DataSources do
 
   @renewal_lead_seconds 3_600
 
-  @doc "Creates or updates provider watch-channel runtime state."
+  @doc """
+  Creates or updates provider watch-channel runtime state.
+
+  Attributes are normalized from atom or string keys. The resulting row stores
+  provider runtime identifiers, the current checkpoint, optional expiration, and
+  metadata returned by the provider. Active rows with `expiration_at` schedule a
+  renewal job before provider expiry.
+  """
   def upsert_watch_channel(attrs) when is_map(attrs) do
     attrs = normalize_watch_attrs(attrs)
 
@@ -27,6 +39,14 @@ defmodule Zaq.Engine.DataSources do
     end
   end
 
+  @doc """
+  Resolves an active, non-expired provider watch channel.
+
+  Webhooks resolve by provider `channel_id` and optional `resource_id`.
+  Provider watch setup and teardown can also resolve by provider, config, and
+  target source. Returns `{:error, :watch_channel_not_found}` when no usable row
+  exists.
+  """
   def resolve_watch_channel(%{provider: provider, channel_id: channel_id} = attrs)
       when is_binary(channel_id) do
     resource_id = Map.get(attrs, :resource_id) || Map.get(attrs, "resource_id")
@@ -88,7 +108,14 @@ defmodule Zaq.Engine.DataSources do
     where(query, [w], is_nil(w.expiration_at) or w.expiration_at > ^now)
   end
 
-  @doc "Processes metadata-only provider watch changes and advances checkpoint on success."
+  @doc """
+  Processes metadata-only provider watch changes and advances checkpoint on success.
+
+  The request must include `watch_channel_id` and may include `signals`,
+  `records`, `delivery`, `checkpoint`, and `next_checkpoint`. Engine validates
+  that the caller processed the stored checkpoint, dispatches to Ingestion, then
+  persists the next checkpoint only after Ingestion succeeds.
+  """
   def process_watch_changes(%{watch_channel_id: id} = request) do
     with %WatchChannel{} = watch_channel <-
            Repo.get(WatchChannel, id) || {:error, :watch_channel_not_found},
@@ -105,6 +132,7 @@ defmodule Zaq.Engine.DataSources do
 
   def process_watch_changes(_request), do: {:error, :missing_watch_channel_id}
 
+  @doc "Marks a watch channel stopped after provider teardown succeeds."
   def mark_watch_channel_stopped(id) do
     with %WatchChannel{} = watch_channel <-
            Repo.get(WatchChannel, id) || {:error, :watch_channel_not_found} do
@@ -112,6 +140,7 @@ defmodule Zaq.Engine.DataSources do
     end
   end
 
+  @doc "Marks a watch channel errored and stores an inspectable failure reason."
   def mark_watch_channel_error(id, reason) do
     case Repo.get(WatchChannel, id) do
       %WatchChannel{} = watch_channel ->
@@ -145,6 +174,14 @@ defmodule Zaq.Engine.DataSources do
     |> maybe_schedule_watch_channel_renewal()
   end
 
+  @doc """
+  Renews an expiring watch channel.
+
+  Renewal recomputes the public webhook URL from global system config, creates a
+  replacement provider channel first, stops the old provider channel, and deletes
+  the old row. Missing or already-stopped rows are treated as no-ops by the Oban
+  worker.
+  """
   def renew_watch_channel(id) do
     with %WatchChannel{} = old_watch_channel <-
            Repo.get(WatchChannel, id) || {:error, :watch_channel_not_found},

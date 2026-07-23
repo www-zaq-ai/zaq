@@ -5,6 +5,13 @@ defmodule Zaq.Ingestion.Document do
   Stores the original uploaded document content and metadata.
   Each document has many associated chunks (see `Zaq.Ingestion.Chunk`).
 
+  `watch_status`, `watch_requested_at`, `watch_updated_at`, and `watch_error`
+  are user-facing watch state for BO. Provider runtime state such as channel ids
+  and checkpoints is intentionally stored in `Zaq.Engine.DataSources.WatchChannel`,
+  not on documents. External provider documents may carry provider parent ids in
+  metadata so provider delete/tombstone signals can remove moved or deleted
+  watched descendants even when the signal is sparse.
+
   Replaces the legacy `dubai_health_files` table from zaq_agent.
   """
 
@@ -49,6 +56,7 @@ defmodule Zaq.Ingestion.Document do
     |> maybe_set_title()
   end
 
+  @doc "Returns supported user-facing document watch statuses."
   def watch_statuses, do: @watch_statuses
 
   # -- Query API --

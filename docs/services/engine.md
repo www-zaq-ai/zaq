@@ -246,6 +246,19 @@ don't resolve, starting a fresh chain.
 - Behaviour contract for notification delivery adapters.
 - Required callbacks: `available?/1`, `send_notification/2`.
 
+### Data Sources Runtime (`Zaq.Engine.DataSources`)
+- Owns durable provider watch-channel runtime state for external data-source webhooks.
+- Persists `Zaq.Engine.DataSources.WatchChannel` rows with provider channel ids, resource ids, checkpoints, expiration, operational status, and provider metadata.
+- Resolves webhook deliveries by provider `channel_id`/`resource_id`, or resolves provider setup/teardown by config and target source.
+- Dispatches metadata-only provider deltas to Ingestion through `NodeRouter.dispatch/1`; checkpoint advancement happens only after Ingestion succeeds.
+- Stores provider runtime status (`active`, `error`, `stopped`) separately from user-facing document watch status in Ingestion.
+
+### Watch Channel Renewal (`Zaq.Engine.DataSources.WatchChannelRenewalWorker`)
+- Oban worker on the `:channels` queue.
+- Scheduled when an active watch channel has `expiration_at`; default lead time is one hour before provider expiration.
+- Recomputes public webhook URL from `system.global.base_url` during renewal so URL changes are picked up.
+- Creates a replacement provider channel before stopping and deleting the old row.
+
 ### Ingestion Supervisor (`Zaq.Engine.IngestionSupervisor`)
 - Starts one child process per enabled ingestion `ChannelConfig`.
 - Registered adapters: `"google_drive"` → `Zaq.Channels.Ingestion.GoogleDrive`,
@@ -295,6 +308,14 @@ For telemetry modules (`Zaq.Engine.Telemetry`, `Buffer`, `Collector`, workers), 
 
 For telemetry schemas (`Point`, `Rollup`) and dashboard contracts, see `docs/services/telemetry.md`.
 
+**`Zaq.Engine.DataSources.WatchChannel`** (`data_source_watch_channels`)
+- Fields: `config_id`, `provider`, `target_source`, `target_provider_id`, `target_kind`,
+  `channel_id`, `resource_id`, `resource_uri`, `checkpoint`, `expiration_at`, `status`,
+  `last_error`, `metadata`.
+- Valid target kinds: `file`, `folder`, `collection`.
+- Valid statuses: `active`, `error`, `stopped`.
+- Unique constraint on `(provider, channel_id)`.
+
 ---
 
 ## Files
@@ -320,6 +341,8 @@ lib/zaq/engine/
 ├── telemetry/                        # See docs/services/telemetry.md
 ├── channel_adapter_loader.ex         # Shared child-spec builder for supervisors
 ├── conversations.ex                  # Public API: conversations/messages/ratings/shares
+├── data_sources.ex                   # Provider watch-channel runtime coordination
+├── data_sources/                     # WatchChannel schema and renewal worker
 ├── ingestion_channel.ex              # Behaviour contract for ingestion adapters
 ├── ingestion_supervisor.ex           # Supervises ingestion channel adapter processes
 ├── notification_channel.ex           # Behaviour contract for notification adapters
@@ -341,6 +364,7 @@ For all `telemetry.*` system config keys, see `docs/services/telemetry.md`.
 Oban queues used by the Engine:
 
 - `:conversations` — token usage aggregation
+- `:channels` — data-source watch-channel renewal provider calls
 - `:telemetry` and `:telemetry_remote` — see `docs/services/telemetry.md`
 
 ---
@@ -357,6 +381,8 @@ Oban queues used by the Engine:
   fragment for delivery-attempt audit trails.
 - **Conversation title is generated async** — `Task.start/1` so title generation never
   blocks message persistence; title update is broadcast on PubSub.
+- **Engine owns provider watch runtime state** — Channels may be DB-less, so provider
+  watch-channel ids, checkpoints, expiration, and renewal state live in Engine.
 - **Token aggregation via Oban** — `TokenUsageAggregator` enqueues a job per assistant
   message; aggregation is idempotent (overwrites the day's model bucket on each run).
 - **Channel adapters registered at compile time** — `IngestionSupervisor` and

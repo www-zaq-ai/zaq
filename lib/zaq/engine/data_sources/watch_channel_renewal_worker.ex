@@ -1,5 +1,11 @@
 defmodule Zaq.Engine.DataSources.WatchChannelRenewalWorker do
-  @moduledoc "Renews expiring provider data-source watch channels."
+  @moduledoc """
+  Renews expiring provider data-source watch channels.
+
+  Jobs run on the `:channels` queue because renewal performs provider calls via
+  the Channels boundary. Missing rows and already-stopped rows are no-ops; other
+  provider or persistence failures are retried by Oban.
+  """
 
   use Oban.Worker, queue: :channels, max_attempts: 3
 

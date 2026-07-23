@@ -113,6 +113,15 @@ For generic KPI tiles without telemetry chrome, prefer **`DesignSystem.MetricCar
 | `ConnectCredentialForm` | Credential connection flows |
 | `ChannelCapabilities` | Channel capability configuration UI |
 
+### Ingestion file browser watch UI
+
+Use the ingestion design-system components rather than reimplementing watch badges or row controls:
+
+- `ZaqWeb.Components.DesignSystem.IngestionFileStatus` renders ingestion and watch status, including `pending`, `watched`, `error`, and inherited folder watch state.
+- `ZaqWeb.Components.DesignSystem.IngestionFileListView` and `IngestionFileGridView` pass watch status through to each file/folder row or card.
+- Provider watch errors open the LiveView retry/error modal; do not surface raw provider errors inline outside the shared status affordance.
+- Inherited watch state is display-only for descendants. Users should clear or retry the directly watched parent folder instead of toggling a child inherited row.
+
 ### Core components — legacy for non-BO or gradual migration
 
 Auto-imported via `use ZaqWeb, :html` — **`core_components.ex`**. Prefer **`DesignSystem.*`** for new BO work.

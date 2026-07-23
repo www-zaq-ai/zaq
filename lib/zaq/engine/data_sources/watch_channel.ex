@@ -4,6 +4,14 @@ defmodule Zaq.Engine.DataSources.WatchChannel do
 
   Engine owns this state because Channels nodes may run without database access,
   while provider watch channels require durable checkpoint and lifecycle data.
+
+  `target_source` is ZAQ's stable source identifier for the watched scope.
+  `target_provider_id` is the provider-side id used to resolve the scope.
+  `target_kind` describes the watched scope (`file`, `folder`, or `collection`).
+  `checkpoint` is advanced only after Ingestion accepts provider deltas.
+  `expiration_at` drives scheduled renewal when the provider returns an expiry.
+  `status` is operational runtime state, distinct from the user-facing
+  `Zaq.Ingestion.Document.watch_status`.
   """
 
   use Ecto.Schema
@@ -31,6 +39,7 @@ defmodule Zaq.Engine.DataSources.WatchChannel do
     timestamps(type: :utc_datetime)
   end
 
+  @doc "Builds a changeset for persisted provider watch-channel runtime state."
   def changeset(watch_channel, attrs) when is_map(attrs) do
     watch_channel
     |> cast(attrs, [
@@ -55,8 +64,10 @@ defmodule Zaq.Engine.DataSources.WatchChannel do
     |> unique_constraint([:provider, :channel_id])
   end
 
+  @doc "Returns supported watch-channel runtime statuses."
   def statuses, do: @statuses
 
+  @doc "Returns supported watch-channel target kinds."
   def target_kinds, do: @target_kinds
 
   defp normalize_string_fields(changeset, fields) do

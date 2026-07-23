@@ -111,10 +111,10 @@ Role mapping:
 
 | Service | Supervisor | Responsibility |
 |---|---|---|
-| `engine` | `Zaq.Engine.Supervisor` | Orchestration, conversations, notifications, telemetry, adapter lifecycle |
+| `engine` | `Zaq.Engine.Supervisor` | Orchestration, conversations, notifications, telemetry, adapter lifecycle, data-source watch-channel runtime state |
 | `agent` | `Zaq.Agent.Supervisor` | RAG pipeline, configured-agent runtime, LLM calls, query rewriting, answering, prompt security |
-| `ingestion` | `Zaq.Ingestion.Supervisor` | Document processing, chunking, embedding, Oban jobs, Python pipeline |
-| `channels` | `Zaq.Channels.Supervisor` | Channel configs, PendingQuestions, Mattermost adapter |
+| `ingestion` | `Zaq.Ingestion.Supervisor` | Document processing, chunking, embedding, Oban jobs, Python pipeline, watched-record filtering/deletion |
+| `channels` | `Zaq.Channels.Supervisor` | Channel configs, provider calls, webhook normalization, PendingQuestions, Mattermost adapter |
 | `bo` | `ZaqWeb.Endpoint` | Back Office LiveView UI, API controllers |
 
 ---
@@ -140,6 +140,20 @@ Full telemetry subsystem with in-memory buffer, rollups, and benchmark connector
 - `Zaq.Engine.Telemetry.Contracts.*` — typed payload contracts (scalar, series, category, etc.)
 - `Zaq.Engine.Telemetry.Workers.*` — Oban workers: aggregate rollups, prune points, pull benchmarks, push rollups
 - `Zaq.Engine.Telemetry.BenchmarkConnector` — HTTP connector for external benchmark data
+
+### Data Sources (`lib/zaq/engine/data_sources/`)
+
+Provider watch ownership is split intentionally:
+
+- Channels owns provider-facing watch/list/stop calls and webhook normalization.
+- Engine owns durable watch-channel rows, checkpoints, expiration, renewal, and runtime error state.
+- Ingestion owns user-facing document watch state, changed-record filtering, and deletion of removed watched documents and sidecars.
+
+Engine modules:
+
+- `Zaq.Engine.DataSources` — provider watch-channel coordination and checkpoint advancement.
+- `Zaq.Engine.DataSources.WatchChannel` — durable provider channel ids, resource ids, checkpoints, expiration, runtime status, and provider metadata.
+- `Zaq.Engine.DataSources.WatchChannelRenewalWorker` — scheduled renewal before provider expiration.
 
 ### Adapter Lifecycle (`lib/zaq/engine/`)
 - `Zaq.Engine.IngestionSupervisor` — loads ingestion configs from DB, starts adapters dynamically

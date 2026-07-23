@@ -2,6 +2,12 @@ defmodule Zaq.Ingestion do
   @moduledoc """
   Public API for coordinating ingestion: trigger inline or async ingestion,
   query job statuses, retry and cancel jobs.
+
+  Ingestion also owns user-facing document watch state and provider delta
+  handling. Channels/Engine provide metadata-only provider changes; this context
+  decides which watched records should be re-ingested, which removed records
+  should delete existing documents and sidecars, and how folder watch inheritance
+  is reflected in the BO UI.
   """
 
   alias Zaq.Ingestion.{
@@ -50,6 +56,14 @@ defmodule Zaq.Ingestion do
     end
   end
 
+  @doc """
+  Processes metadata-only provider changes for a data-source watch channel.
+
+  Records and provider signals are filtered through the same direct/inherited
+  watch-state rules used by BO. Watched changed records are scheduled for async
+  ingestion. Removed records delete matching source documents, chunks, linked
+  sidecars, and external sidecar files when the watch state permits deletion.
+  """
   def process_data_source_changes(request) when is_map(request) do
     provider = read_stringish(request, [:provider, "provider"])
     config_id = read_stringish(request, [:config_id, "config_id"])
@@ -360,15 +374,19 @@ defmodule Zaq.Ingestion do
     end
   end
 
+  @doc "Builds a stable source for a new local entry that may not have a document yet."
   def source_for_new_entry(volume_name, path) do
     path = SourcePath.normalize_relative(path)
     SourcePath.build_source(volume_name, path)
   end
 
+  @doc "Marks local or provider document targets as pending watch requests."
   def request_watch(targets) when is_list(targets), do: set_watch_status(targets, "pending")
 
+  @doc "Clears local or provider document watch state."
   def clear_watch(targets) when is_list(targets), do: set_watch_status(targets, "unwatched")
 
+  @doc "Counts directly watched provider documents for a data-source config."
   def count_watched_provider_documents(provider, config_id)
       when is_binary(provider) and not is_nil(config_id) do
     prefix = Enum.join(["data_source", provider, to_string(config_id)], "/") <> "/%"
@@ -382,6 +400,7 @@ defmodule Zaq.Ingestion do
 
   def count_watched_provider_documents(_provider, _config_id), do: 0
 
+  @doc "Returns active inherited watch state for a provider record id, if any."
   def data_source_inherited_watch(provider, config_id, provider_record_id)
       when is_binary(provider) and not is_nil(config_id) and is_binary(provider_record_id) do
     source = data_source_record_source(provider, to_string(config_id), provider_record_id)
@@ -397,6 +416,7 @@ defmodule Zaq.Ingestion do
 
   def data_source_inherited_watch(_provider, _config_id, _provider_record_id), do: nil
 
+  @doc "Returns BO-facing watch display state for a document plus inherited watch state."
   def data_source_record_watch_state(doc, inherited_watch)
 
   def data_source_record_watch_state(nil, inherited_watch) do
@@ -415,11 +435,13 @@ defmodule Zaq.Ingestion do
     }
   end
 
+  @doc "Returns whether a BO-facing watch state should be treated as active."
   def data_source_record_watch_active?(%{watch_status: status}),
     do: status in ["pending", "watched"]
 
   def data_source_record_watch_active?(_state), do: false
 
+  @doc "Marks a watched target active after provider watch setup succeeds."
   def mark_watch_active(%{source: source} = target, watch_metadata) when is_binary(source) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     attrs = watch_active_attrs(watch_metadata, now)
@@ -432,6 +454,7 @@ defmodule Zaq.Ingestion do
 
   def mark_watch_active(_target, _watch_metadata), do: :skip
 
+  @doc "Marks a watched target errored after provider watch setup fails."
   def mark_watch_error(%{source: source}, reason) when is_binary(source) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 

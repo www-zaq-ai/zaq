@@ -3,9 +3,15 @@ defmodule Zaq.Channels.DataSourceBridge do
   DataSource-domain bridge routing and delegation helpers.
 
   This module is the Channels boundary for DataSource operations (auth,
-  resource listing/download, listener setup/teardown). It resolves provider
-  bridge modules via `Zaq.Channels.Bridge` and delegates transport-specific
-  behavior to the concrete bridge implementation.
+  resource listing/download, listener setup/teardown, provider watch setup and
+  teardown, and webhook handling). It resolves provider bridge modules via
+  `Zaq.Channels.Bridge` and delegates transport-specific behavior to the
+  concrete bridge implementation.
+
+  Provider watch callbacks are intentionally provider-facing. Durable watch
+  channel runtime state and checkpoints are stored by `Zaq.Engine.DataSources`,
+  while watched-record filtering and document deletion are owned by
+  `Zaq.Ingestion`.
 
   ## Adding a new Data Source provider
 

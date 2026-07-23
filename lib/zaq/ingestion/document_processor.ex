@@ -138,6 +138,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   Returns `{ :ok, document, indexed_chunk_payloads }` where payloads are
   `{chunk_payload_map, chunk_index}` tuples.
+
+  Pass `force_sidecar: true` when materializing external provider files from a
+  watch delta so binary sidecar Markdown is regenerated from the latest provider
+  content instead of reusing a stale local sidecar file.
   """
   def prepare_file_chunks(file_path, opts \\ []) do
     Logger.info("Preparing file chunks: #{file_path}")
@@ -171,6 +175,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   @doc """
   Processes a single file and returns an ingestion report with chunk-level progress.
+
+  The `force_sidecar: true` option forces binary-to-Markdown conversion even when
+  a sidecar file already exists. External provider re-ingestion uses this to keep
+  converted sidecars aligned with the latest downloaded file.
   """
   def process_single_file_with_report(file_path, opts \\ []) do
     Logger.info("Processing file: #{file_path}")

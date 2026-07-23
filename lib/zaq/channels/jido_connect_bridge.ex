@@ -5,6 +5,11 @@ defmodule Zaq.Channels.JidoConnectBridge do
   Credentials and grants are resolved exclusively through `Zaq.Engine.Connect`
   and mapped to runtime contracts by `Zaq.Channels.JidoConnectBridge.RuntimeMapper`.
 
+  For data-source watches, this bridge owns provider-facing calls and webhook
+  normalization only. Durable watch-channel state, checkpoints, and renewal are
+  delegated to `Zaq.Engine.DataSources`; changed-record filtering and deletion
+  are delegated to `Zaq.Ingestion` through Engine.
+
   JWT bearer grant refresh is intentionally synchronous during runtime context
   resolution so tools execute with a fresh token on the same request path.
   If minting or cache persistence fails, the bridge degrades to the existing
@@ -30,8 +35,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
      - Configure credential/grant records through `Zaq.Engine.Connect` (via BO screens).
      - Validate OAuth profile and required scopes when the provider uses OAuth.
      - Verify end-to-end actions used by this bridge: list/get/create/update/
-       delete/search/download files, permissions listing, webhook watch/receive,
-       and export options as applicable.
+        delete/search/download files, permissions listing, collection watch,
+        collection change listing, webhook receive, and export options as
+        applicable.
 
   4. Update field normalization when needed.
      - Review `Zaq.Channels.JidoConnectBridge.FieldNormalization` for provider-

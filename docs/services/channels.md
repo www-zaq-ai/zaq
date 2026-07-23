@@ -117,7 +117,7 @@ defstruct [
 
 `Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
 
-`Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, `list_files`, file CRUD/search, listener setup/teardown).
+`Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, `list_files`, file CRUD/search, listener setup/teardown, provider watch setup/teardown, and webhook normalization).
 
 ### Data source required capabilities
 
@@ -134,8 +134,18 @@ defstruct [
 - `update_item`
 - `delete_item`
 - `search_items`
+- `sheet_inspect`
+- `sheet_get`
+- `sheet_create`
+- `sheet_add_tab`
+- `sheet_update_values`
+- `sheet_append_values`
+- `sheet_clear_values`
+- `sheet_delete_tab`
 - `watch_changes_webhook`
 - `receive_change_webhook`
+
+`Zaq.Channels.ProviderCatalog` maps provider watch work to connector actions such as `collection.watch`, `collection.changes.list`, and `channel.stop` when the provider exposes them.
 
 ### Data source API actions
 
@@ -154,12 +164,16 @@ defstruct [
 - `:data_source_setup_listener`
 - `:data_source_teardown_listener`
 - `:data_source_channel_stats`
+- `:data_source_watch_item`
+- `:data_source_unwatch_item`
 - `:data_source_oauth_authorize_url`
 - `:data_source_oauth_exchange_code`
 - `:data_source_oauth_refresh_token`
 - `:data_source_oauth_default_scopes`
 
 `Zaq.Channels.Bridge` provides shared bridge behaviour callbacks and runtime helper defaults.
+
+Provider watch calls are provider-facing only. Durable watch-channel runtime state is stored by `Zaq.Engine.DataSources`; Channels passes provider responses to Engine through `NodeRouter.dispatch/1` and does not own checkpoint persistence.
 
 ### Webhook ingress
 
@@ -189,7 +203,10 @@ Response behavior:
 
 - Conversation providers can return `%{webhook_response: %{status, headers, body}}` to pass through transport-specific verification responses.
 - Data source providers return accepted/rejected JSON envelopes from the channels controller.
-- For `jido_connect` data source webhooks, verification remains synchronous in `handle_webhook/2`, then post-verification record loading and `:data_source_record_changed` dispatch run asynchronously via `Zaq.Channels.JidoConnectBridge.WebhookWorker` (Oban queue `:channels`).
+- For `jido_connect` data-source webhooks, verification remains synchronous in `handle_webhook/2`, then post-verification processing runs asynchronously via `Zaq.Channels.JidoConnectBridge.WebhookWorker` on the `:channels` queue.
+- Data-source collection webhooks are metadata-only. Channels normalizes the delivery, resolves the Engine watch channel, calls the provider's collection change listing action with the stored checkpoint, and dispatches the resulting signals to Engine.
+- Provider sync notifications, such as Google Drive `resource_state: "sync"`, are accepted but treated as no-ops.
+- Public webhook URLs are built with `Zaq.Channels.WebhookUrl` from `system.global.base_url`. If the global base URL is unset, external provider watch setup is unavailable until configured.
 
 Authentication and signature verification are provider-specific and handled inside bridge/verifier modules (for example jido_connect webhook verifiers and jido_chat adapter webhook handlers).
 

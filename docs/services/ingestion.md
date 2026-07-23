@@ -63,6 +63,13 @@ File path
 **Content filter / source search**
 - `list_document_sources/1` — builds @-mention source choices from configured connectors + indexed document sources; supports name search and folder browse semantics
 
+**Watch state and provider deltas**
+- `request_watch/1`, `clear_watch/1` — update user-facing document watch status for local or provider targets.
+- `mark_watch_active/2`, `mark_watch_error/2` — called after provider watch setup succeeds or fails.
+- `process_data_source_changes/1` — consumes metadata-only provider deltas from Engine, schedules watched changed records for async ingestion, and deletes removed watched records.
+- `count_watched_provider_documents/2` — counts watched provider documents for a data-source config.
+- `data_source_inherited_watch/3`, `data_source_record_watch_state/2`, `data_source_record_watch_active?/1` — shared BO/processing helpers for direct and inherited folder watch state.
+
 **Access control**
 - `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; documents tagged `"public"` are accessible to all; documents with no permission rows and no public tag are private (admin-only)
 - `list_document_permissions/1` — list all permissions for a document (preloads `:person`, `:team`)
@@ -118,6 +125,7 @@ File path
 ### Document Processor (`Zaq.Ingestion.DocumentProcessor`)
 - `process_single_file/1` — full pipeline: read → upsert doc → chunk → embed → store
 - `prepare_file_chunks/1` — parses document and returns persisted chunk payloads for child jobs
+- `force_sidecar: true` — option used by external provider re-ingestion to regenerate binary sidecar Markdown from the latest downloaded content
 - `process_folder/1` — processes supported files in a directory (`.md .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg`)
 - `store_chunk_with_metadata/3` — embeds `embedding_input || content`, validates dimension, inserts verbatim `content`
 - `hybrid_search/2` — full-text + vector search with RRF fusion (Reciprocal Rank Fusion, k=60); accepts optional `:source_filter` list of path prefixes — files matched by exact source, folders matched by `LIKE prefix/%`
@@ -220,7 +228,10 @@ File path
 ### Schemas
 
 **`Zaq.Ingestion.Document`**
-- Fields: `source` (unique), `content`, `title`, `content_type`, `metadata`, `tags`
+- Fields: `source` (unique), `content`, `title`, `content_type`, `metadata`, `tags`, `watch_status`, `watch_requested_at`, `watch_updated_at`, `watch_error`
+- Watch statuses: `unwatched`, `pending`, `watched`, `error`.
+- Watch fields are user-facing BO state only. Provider channel ids, resource ids, checkpoints, expiration, and runtime errors live in `Zaq.Engine.DataSources.WatchChannel`.
+- External provider documents store provider parent ids in metadata so sparse delete/tombstone signals can still remove watched descendants and sidecars.
 - `upsert/1` — conflict on `source`, replaces content/title/metadata
 - `get_by_source/1` — lookup by source string
 - `delete/1` — deletes document and cascades to chunks
@@ -371,6 +382,9 @@ Unset or empty `INGESTION_VOLUMES` exposes `INGESTION_VOLUMES_BASE` as the defau
 - **Python pre-processing pipeline** — non-Markdown files are converted to Markdown before chunking; image descriptions are injected via Scaleway Vision API when a key is configured
 - **Multi-format conversion path** — non-Markdown files (`PDF`, `DOCX`, `PPTX`, `XLSX`, `CSV`, images) are normalized to Markdown before chunking
 - **Sidecar Markdown pattern** — binary files (`.pdf`, `.docx`, etc.) store their converted `.md` as a linked sidecar document; renames/deletes cascade to the sidecar
+- **Provider watch ownership split** — Ingestion owns user-facing `Document.watch_status`, direct/inherited watch decisions, changed-record filtering, and document/sidecar deletion. Engine owns provider watch-channel runtime state. Channels owns provider calls and webhook normalization.
+- **Provider delta processing** — changed provider records are re-ingested only when directly watched or inherited through a watched folder. Removed/tombstone records delete existing documents and linked sidecars only when the same shared watch-state logic says the record is watched.
+- **External sidecar freshness** — provider re-ingestion forces sidecar regeneration so converted Markdown does not lag behind remote binary file updates.
 - **Volume-prefixed sources** — document sources are prefixed with volume name (`"documents/path/to/file.md"`) in multi-volume mode for namespace isolation
 - **JobLifecycle extracted** — all IngestJob state transitions go through `JobLifecycle` to ensure PubSub broadcast is never missed
 - **Permissions centralized for search/listing** — `DocumentAccess` is the canonical query surface for permission-scoped document visibility
@@ -403,4 +417,4 @@ If a change touches one of these areas and no property test is added, document t
 ### Nice to Have
 - [ ] Implement HTML parsing in `DocumentChunker`
 - [ ] Batch embedding requests to reduce LLM roundtrips
-- [ ] Ingestion webhooks for external notification on completion
+- [ ] Outbound ingestion-completion notifications for external systems

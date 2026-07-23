@@ -77,7 +77,7 @@ Sourced from service docs `What's Left` sections. Updated continuously.
 ### Nice to Have
 - [ ] Implement HTML parsing in `DocumentChunker`
 - [ ] Batch embedding requests to reduce LLM roundtrips
-- [ ] Ingestion webhooks for external notification on completion
+- [ ] Outbound ingestion-completion notifications for external systems
 
 ---
 
