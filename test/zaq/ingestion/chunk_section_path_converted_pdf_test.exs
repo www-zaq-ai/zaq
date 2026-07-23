@@ -246,21 +246,19 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
       end
     end
 
-    test "every chunk carries ordered page/line/offset locators", %{chunks: chunks} do
+    test "every chunk carries ordered page/line locators", %{chunks: chunks} do
       for chunk <- chunks do
         assert is_integer(chunk.start_page) and is_integer(chunk.end_page)
         assert is_integer(chunk.start_line) and is_integer(chunk.end_line)
-        assert is_integer(chunk.start_offset) and is_integer(chunk.end_offset)
         assert chunk.start_page <= chunk.end_page
         assert chunk.start_line <= chunk.end_line
-        assert chunk.start_offset < chunk.end_offset
       end
     end
 
-    test "chunks stay in document order with monotonic pages and offsets", %{chunks: chunks} do
-      offsets = Enum.map(chunks, & &1.start_offset)
-      assert offsets == Enum.sort(offsets)
-      assert offsets == Enum.uniq(offsets)
+    test "chunks stay in document order with monotonic pages and lines", %{chunks: chunks} do
+      lines = Enum.map(chunks, & &1.start_line)
+      assert lines == Enum.sort(lines)
+      assert lines == Enum.uniq(lines)
 
       pages = Enum.map(chunks, & &1.start_page)
       assert pages == Enum.sort(pages)
@@ -269,22 +267,6 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
     test "the fixture spans pages 1 through 11", %{chunks: chunks} do
       assert List.first(chunks).start_page == 1
       assert List.last(chunks).end_page == 11
-    end
-
-    test "offset spans locate each chunk in the source (locator, not slice)", %{
-      source: source,
-      chunks: chunks
-    } do
-      for chunk <- chunks do
-        slice =
-          String.slice(source, chunk.start_offset, chunk.end_offset - chunk.start_offset)
-
-        # Stripping page markers and blank lines from the located slice
-        # reconstructs the chunk's own lines — nothing rewritten, nothing lost.
-        assert meaningful_lines(slice) == meaningful_lines(chunk.content),
-               "span [#{chunk.start_offset}, #{chunk.end_offset}) does not locate " <>
-                 "chunk #{chunk.id} in the source"
-      end
     end
   end
 
@@ -354,7 +336,6 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
 
     test "a table exceeding max splits at row boundaries with the header repeated" do
       header = "|Colonne un|Colonne deux|Colonne trois|"
-      delimiter = "|---|---|---|"
 
       md = rules_fixture("oversized_table.md")
       chunks = chunk!(md)
@@ -384,23 +365,6 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
       for i <- 1..250 do
         row = "|cellule #{i} alpha|cellule #{i} beta|cellule #{i} gamma|"
         assert length(chunks_containing(chunks, row)) == 1, "row #{i} lost or duplicated"
-      end
-
-      # Locator exemption: a continuation chunk's span covers only its source
-      # rows — the repeated header/delimiter have no source position of their
-      # own and are the one sanctioned addition outside the span.
-      for {chunk, index} <- Enum.with_index(chunks) do
-        slice = String.slice(md, chunk.start_offset, chunk.end_offset - chunk.start_offset)
-
-        expected =
-          if index == 0 do
-            meaningful_lines(chunk.content)
-          else
-            meaningful_lines(chunk.content) -- [header, delimiter]
-          end
-
-        assert meaningful_lines(slice) == expected,
-               "span of table part #{chunk.id} must cover exactly its source rows"
       end
     end
   end

@@ -171,9 +171,7 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
           "start_page" => 4,
           "end_page" => 5,
           "start_line" => 96,
-          "end_line" => 133,
-          "start_offset" => 5210,
-          "end_offset" => 7891
+          "end_line" => 133
         }
       })
 
@@ -189,8 +187,6 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
     assert chunk.end_page == 5
     assert chunk.start_line == 96
     assert chunk.end_line == 133
-    assert chunk.start_offset == 5210
-    assert chunk.end_offset == 7891
   end
 
   test "leaves locators nil for payloads enqueued before locators existed" do
@@ -219,8 +215,6 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
     assert chunk.end_page == nil
     assert chunk.start_line == nil
     assert chunk.end_line == nil
-    assert chunk.start_offset == nil
-    assert chunk.end_offset == nil
   end
 
   test "cancels when parent ingest job is missing" do

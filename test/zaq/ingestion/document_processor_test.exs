@@ -380,7 +380,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       refute Map.has_key?(meta, :section_path)
     end
 
-    test "emits P|L locators and character offsets from the chunker struct" do
+    test "emits P|L locators from the chunker struct" do
       chunk = %DocumentChunker.Chunk{
         id: "chunk_0_0",
         section_id: "sec1",
@@ -391,17 +391,13 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         start_page: 4,
         end_page: 5,
         start_line: 96,
-        end_line: 133,
-        start_offset: 5210,
-        end_offset: 7891
+        end_line: 133
       }
 
       meta = DocumentProcessor.build_metadata(chunk)
 
       assert meta.start == "P4|L96"
       assert Map.fetch!(meta, :end) == "P5|L133"
-      assert meta.start_offset == 5210
-      assert meta.end_offset == 7891
     end
 
     test "omits locator keys when the chunker struct carries no locators" do
@@ -418,8 +414,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       refute Map.has_key?(meta, :start)
       refute Map.has_key?(meta, :end)
-      refute Map.has_key?(meta, :start_offset)
-      refute Map.has_key?(meta, :end_offset)
     end
 
     test "omits a locator when either of its components is missing" do
@@ -433,17 +427,13 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         start_page: 4,
         start_line: nil,
         end_page: nil,
-        end_line: 12,
-        start_offset: 100,
-        end_offset: nil
+        end_line: 12
       }
 
       meta = DocumentProcessor.build_metadata(chunk)
 
       refute Map.has_key?(meta, :start)
       refute Map.has_key?(meta, :end)
-      assert meta.start_offset == 100
-      refute Map.has_key?(meta, :end_offset)
     end
 
     test "adds figure_title for figure chunks" do
@@ -589,8 +579,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       for chunk <- db_chunks do
         assert chunk.metadata["start"] =~ ~r/^P\d+\|L\d+$/
         assert chunk.metadata["end"] =~ ~r/^P\d+\|L\d+$/
-        assert is_integer(chunk.metadata["start_offset"])
-        assert is_integer(chunk.metadata["end_offset"])
 
         refute Map.has_key?(chunk.metadata, "document_id")
         refute Map.has_key?(chunk.metadata, "chunk_index")
@@ -1384,8 +1372,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       assert Enum.all?(indexed_payloads, fn {payload, _index} ->
                is_integer(payload["start_page"]) and is_integer(payload["end_page"]) and
-                 is_integer(payload["start_line"]) and is_integer(payload["end_line"]) and
-                 is_integer(payload["start_offset"]) and is_integer(payload["end_offset"])
+                 is_integer(payload["start_line"]) and is_integer(payload["end_line"])
              end)
     end
 

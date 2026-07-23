@@ -127,9 +127,7 @@ defmodule Zaq.Ingestion.ChunkTest do
     defp locator_meta(start_page, end_page) do
       %{
         "start" => "P#{start_page}|L1",
-        "end" => "P#{end_page}|L40",
-        "start_offset" => 0,
-        "end_offset" => 100
+        "end" => "P#{end_page}|L40"
       }
     end
 

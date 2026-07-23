@@ -37,10 +37,8 @@ defmodule Zaq.Ingestion.DocumentChunker do
       :end_page,
       :start_line,
       :end_line,
-      :start_offset,
-      :end_offset,
       # source line entries backing content's meaningful lines, in order —
-      # each %{line, page, text, start, stop} (character offsets)
+      # each %{line, page, text}
       :source_lines
     ]
   end
@@ -55,9 +53,8 @@ defmodule Zaq.Ingestion.DocumentChunker do
         byte-exact slice: packed sections are joined with `"\n\n"`, page
         markers are stripped, and a row-split table part repeats its header
         row. The `start_*`/`end_*` fields are a source **locator** — the
-        span `[start_offset, end_offset)` (character offsets) contains the
-        chunk's lines plus any stripped markers/blank runs; it does not
-        equal `content`.
+        page/line span contains the chunk's lines plus any stripped
+        markers/blank runs; it does not equal `content`.
       * `embedding_input` is the embed-only enrichment, built from exactly
         two fields and nothing else (no `metadata`, no document identifiers):
 
@@ -85,9 +82,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
       :start_page,
       :end_page,
       :start_line,
-      :end_line,
-      :start_offset,
-      :end_offset
+      :end_line
     ]
 
     @doc """
@@ -993,9 +988,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
       start_page: first && first.page,
       end_page: last && last.page,
       start_line: first && first.line,
-      end_line: last && last.line,
-      start_offset: first && first.start,
-      end_offset: last && last.stop
+      end_line: last && last.line
     }
   end
 
@@ -1005,8 +998,8 @@ defmodule Zaq.Ingestion.DocumentChunker do
 
   @page_marker ~r/^<!--\s*page:\s*(\d+)\s*-->$/
 
-  # Builds a source line table (character offsets; pages driven by the
-  # <!-- page: N --> markers) and gives every section its span. Matching is
+  # Builds a source line table (pages driven by the <!-- page: N -->
+  # markers) and gives every section its span. Matching is
   # whole-line equality behind a monotonic cursor — substring search would
   # mismatch: the corpus repeats many lines verbatim.
   defp annotate_source_positions(sections, source) do
@@ -1022,7 +1015,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
   defp build_line_entries(source) do
     source
     |> String.split("\n")
-    |> Enum.map_reduce({1, 0, 1}, fn line, {line_no, offset, page} ->
+    |> Enum.map_reduce({1, 1}, fn line, {line_no, page} ->
       text = String.trim(line)
 
       page =
@@ -1031,16 +1024,14 @@ defmodule Zaq.Ingestion.DocumentChunker do
           nil -> page
         end
 
-      line_length = String.length(line)
-
       entry =
         if text == "" or String.starts_with?(text, "<!--") do
           nil
         else
-          %{line: line_no, page: page, text: text, start: offset, stop: offset + line_length}
+          %{line: line_no, page: page, text: text}
         end
 
-      {entry, {line_no + 1, offset + line_length + 1, page}}
+      {entry, {line_no + 1, page}}
     end)
     |> elem(0)
     |> Enum.reject(&is_nil/1)
@@ -1072,9 +1063,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
         start_page: first.page,
         end_page: last.page,
         start_line: first.line,
-        end_line: last.line,
-        start_offset: first.start,
-        end_offset: last.stop
+        end_line: last.line
     }
   end
 

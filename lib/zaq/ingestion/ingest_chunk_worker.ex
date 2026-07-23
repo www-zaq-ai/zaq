@@ -117,9 +117,7 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
         start_page: Map.get(payload, "start_page"),
         end_page: Map.get(payload, "end_page"),
         start_line: Map.get(payload, "start_line"),
-        end_line: Map.get(payload, "end_line"),
-        start_offset: Map.get(payload, "start_offset"),
-        end_offset: Map.get(payload, "end_offset")
+        end_line: Map.get(payload, "end_line")
       })
 
     case processor.store_chunk_with_metadata(

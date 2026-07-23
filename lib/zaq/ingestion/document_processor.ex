@@ -710,9 +710,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       "start_page" => chunk.start_page,
       "end_page" => chunk.end_page,
       "start_line" => chunk.start_line,
-      "end_line" => chunk.end_line,
-      "start_offset" => chunk.start_offset,
-      "end_offset" => chunk.end_offset
+      "end_line" => chunk.end_line
     }
   end
 
@@ -785,9 +783,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Holds only what is not already a column on `chunks` (`document_id`,
   `chunk_index` and `section_path` are columns — never mirrored here), plus
   source locators tracing the chunk back to the converter markdown:
-  `start`/`end` as `"P<page>|L<line>"` strings and `start_offset`/`end_offset`
-  as character offsets. Locator keys are omitted entirely when the chunker
-  struct carries no locators (legacy path).
+  `start`/`end` as `"P<page>|L<line>"` strings. Locator keys are omitted
+  entirely when the chunker struct carries no locators (legacy path).
   """
   def build_metadata(%DocumentChunker.Chunk{} = chunk) do
     section_type = metadata_field(chunk.metadata, :section_type)
@@ -816,8 +813,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     meta
     |> put_page_line(:start, chunk.start_page, chunk.start_line)
     |> put_page_line(:end, chunk.end_page, chunk.end_line)
-    |> put_offset(:start_offset, chunk.start_offset)
-    |> put_offset(:end_offset, chunk.end_offset)
   end
 
   defp put_page_line(meta, key, page, line) when is_integer(page) and is_integer(line) do
@@ -825,9 +820,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp put_page_line(meta, _key, _page, _line), do: meta
-
-  defp put_offset(meta, key, offset) when is_integer(offset), do: Map.put(meta, key, offset)
-  defp put_offset(meta, _key, _offset), do: meta
 
   defp metadata_field(metadata, key) when is_map(metadata) do
     Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
