@@ -19,10 +19,8 @@ defmodule Zaq.Channels.MessageFormatter do
   - `nil` / unset / `:none`: no transformation
   - `:plain_text`: markdown -> html (`Earmark`) -> plain text
   - `:html`: markdown -> html (`Earmark`)
-  - `:rich_markdown` / `:rich_html`: no transformation — the body is forwarded
-    verbatim and the platform parses it server-side. Telegram's Bot API 10.1
-    rich messages use this to render tables, headings, and nested lists, none of
-    which its `sendMessage` HTML tag set can express.
+  - `:markdown`: no transformation — the body ships as markdown and the provider
+    adapter decides how to render it
 
   Notes:
 
@@ -39,8 +37,10 @@ defmodule Zaq.Channels.MessageFormatter do
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Utils.HtmlUtils
 
-  @rich_formats [:rich_markdown, :rich_html]
-  @stamped_formats [:html, :plain_text] ++ @rich_formats
+  # Formats carried through to the bridge in `metadata.format`. `:markdown` is stamped
+  # like the others: the adapter cannot tell markdown from an unformatted body without
+  # it, and silently dropping it is what shipped raw markdown to Telegram.
+  @stamped_formats [:html, :plain_text, :markdown]
 
   @doc """
   Formats an outbound message body according to provider `:message_format`
@@ -132,8 +132,9 @@ defmodule Zaq.Channels.MessageFormatter do
     end
   end
 
-  # Rich formats are parsed by the platform, so the markdown body ships unconverted.
-  defp format_text(text, format, _formatter) when format in @rich_formats, do: text
+  # Source bodies are already markdown, so `:markdown` is a pass-through — the
+  # provider adapter renders it.
+  defp format_text(text, :markdown, _formatter), do: text
 
   defp format_text(text, _unknown_format, _formatter), do: text
 

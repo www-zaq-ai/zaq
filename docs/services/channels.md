@@ -292,8 +292,7 @@ config :zaq, :channels, %{
   telegram: %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Telegram.Adapter,
-    message_format: :html,
-    message_formatter: {Telegex.Marked, :as_html}
+    message_format: :markdown
   }
 }
 ```
@@ -303,6 +302,17 @@ Supported values:
 - `nil` / unset / `:none` -> keep body unchanged
 - `:plain_text` -> markdown source rendered through `Earmark` then converted to text
 - `:html` -> markdown source rendered through `Earmark` and delivered as HTML
+- `:markdown` -> body kept as markdown and stamped in `metadata.format` so the
+  provider adapter can render it
+
+Only these three formats cross the bridge. How a platform renders them is the
+adapter's business: `jido_chat_telegram`, for one, maps `:markdown` onto Bot API
+10.1 rich messages because Telegram's `sendMessage` parse modes cannot express
+tables. Adapter-specific format names must never appear in this config.
+
+Note that `:markdown` still has to be declared — with no `message_format` the
+formatter stamps nothing, the bridge forwards nothing, and the adapter falls back
+to an unparsed send.
 
 If `message_formatter` is configured as `{Module, function_name}`, it is called
 with arity 1 (`function_name.(body)`) and takes precedence over the default

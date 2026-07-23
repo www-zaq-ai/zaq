@@ -25,7 +25,7 @@ config :zaq, :channels, %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Telegram.Adapter,
     ingress_mode: :webhook,
-    message_format: :rich_markdown
+    message_format: :markdown
   },
   google_drive: %{
     bridge: Zaq.Channels.JidoConnectBridge,

@@ -40,10 +40,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
 
-  # Formats an adapter may receive on the wire. `:rich_markdown` / `:rich_html`
-  # ship the body unconverted so the platform parses it server-side — that is how
-  # Telegram renders tables, which its `sendMessage` HTML tag set cannot express.
-  @deliverable_formats [:html, :plain_text, :markdown, :rich_markdown, :rich_html]
+  # Canonical body formats forwarded to an adapter. Platform-specific rendering
+  # (Telegram's MarkdownV2 vs rich messages, for one) is the adapter's decision —
+  # those formats must not leak into this list.
+  @deliverable_formats [:html, :plain_text, :markdown]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
 
