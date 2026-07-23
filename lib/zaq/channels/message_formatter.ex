@@ -82,10 +82,14 @@ defmodule Zaq.Channels.MessageFormatter do
     |> Map.get(Bridge.provider_to_bridge_key(provider), %{})
   end
 
+  # `:markdown` is the default when a channel omits `:message_format`: source bodies
+  # are already markdown and every chat adapter can render it. A channel opts out of
+  # formatting explicitly with `message_format: :none` (or `nil`), which normalizes
+  # back to `nil` and ships the body untouched.
   defp provider_message_format(provider_config) when is_map(provider_config),
-    do: provider_config |> Map.get(:message_format) |> normalize_format()
+    do: provider_config |> Map.get(:message_format, :markdown) |> normalize_format()
 
-  defp provider_message_format(_provider_config), do: nil
+  defp provider_message_format(_provider_config), do: :markdown
 
   defp provider_message_formatter(provider_config) when is_map(provider_config),
     do: Map.get(provider_config, :message_formatter)
