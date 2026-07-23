@@ -74,9 +74,7 @@ defmodule Zaq.Engine.DataSources.WatchChannel do
     Enum.reduce(fields, changeset, fn field, changeset ->
       case get_change(changeset, field) do
         value when is_atom(value) -> put_change(changeset, field, to_string(value))
-        "" -> delete_change(changeset, field)
         value when is_binary(value) -> put_change(changeset, field, String.trim(value))
-        _ -> changeset
       end
     end)
   end
