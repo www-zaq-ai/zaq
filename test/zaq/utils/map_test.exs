@@ -31,6 +31,13 @@ defmodule Zaq.Utils.MapTest do
     end
   end
 
+  describe "read_present/2" do
+    test "returns nil when inputs are invalid" do
+      assert Map.read_present("not-a-map", [:subject]) == nil
+      assert Map.read_present(%{subject: "hello"}, :subject) == nil
+    end
+  end
+
   describe "metadata_value/2" do
     test "reads either string or existing atom keys" do
       assert Map.metadata_value(%{"subject" => "string"}, "subject") == "string"

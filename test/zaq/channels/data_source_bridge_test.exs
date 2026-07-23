@@ -162,6 +162,16 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       :ok
     end
 
+    def watch_item(config, params) do
+      send(self(), {:watch_item, config.id, params})
+      {:ok, %{channel_id: "watch-channel-1"}}
+    end
+
+    def unwatch_item(config, params) do
+      send(self(), {:unwatch_item, config.id, params})
+      {:ok, %{status: "unwatched"}}
+    end
+
     def handle_webhook(config, payload) do
       send(self(), {:handle_webhook, config.id, payload})
       {:ok, %{processed: true}}
@@ -394,6 +404,23 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert {:ok, %{records: []}} =
              DataSourceBridge.list_files(:google_drive, %{"config_id" => "not-an-integer"})
+  end
+
+  test "watch item wrappers delegate through scoped config" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+    watch_params = %{"resource_id" => "folder-1", config_id: config_id}
+    unwatch_params = %{"config_id" => Integer.to_string(config_id), "resource_id" => "folder-1"}
+
+    assert {:ok, %{channel_id: "watch-channel-1"}} =
+             DataSourceBridge.watch_item(:google_drive, watch_params)
+
+    assert_received {:watch_item, ^config_id, ^watch_params}
+
+    assert {:ok, %{status: "unwatched"}} =
+             DataSourceBridge.unwatch_item(:google_drive, unwatch_params)
+
+    assert_received {:unwatch_item, ^config_id, ^unwatch_params}
   end
 
   test "capability snapshot delegates" do
