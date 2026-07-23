@@ -2,6 +2,8 @@ defmodule Zaq.Engine.DataSourcesTest do
   use Zaq.DataCase, async: false
   use Oban.Testing, repo: Zaq.Repo
 
+  import Ecto.Query
+
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.DataSources
   alias Zaq.Engine.DataSources.WatchChannel
@@ -490,6 +492,16 @@ defmodule Zaq.Engine.DataSourcesTest do
         })
       )
 
+    Repo.update_all(
+      from(w in WatchChannel, where: w.id == ^newer_watch_channel.id),
+      set: [updated_at: ~U[2026-01-01 00:00:00Z]]
+    )
+
+    Repo.update_all(
+      from(w in WatchChannel, where: w.id == ^older_watch_channel.id),
+      set: [updated_at: ~U[2026-01-02 00:00:00Z]]
+    )
+
     assert {:ok, resolved} =
              DataSources.resolve_watch_channel(%{
                provider: "google_drive",
@@ -508,7 +520,7 @@ defmodule Zaq.Engine.DataSourcesTest do
                target_provider_id: "folder-1"
              })
 
-    assert resolved.id == newer_watch_channel.id
+    assert resolved.id == older_watch_channel.id
 
     assert {:ok, resolved} =
              DataSources.resolve_watch_channel(%{
@@ -517,7 +529,7 @@ defmodule Zaq.Engine.DataSourcesTest do
                target_provider_id: "folder-1"
              })
 
-    assert resolved.id == newer_watch_channel.id
+    assert resolved.id == older_watch_channel.id
   end
 
   test "resolve_watch_channel ignores blank resource filters" do

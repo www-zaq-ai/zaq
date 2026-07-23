@@ -53,7 +53,7 @@ defmodule Zaq.Engine.DataSources do
     |> filter_resolvable_watch_channel(target_source, changes_watch_lookup?(attrs))
     |> filter_unexpired()
     |> maybe_filter_config_id(config_id)
-    |> order_by([w], desc: w.updated_at)
+    |> order_by([w], desc: w.updated_at, desc: w.id)
     |> limit(1)
     |> Repo.one()
     |> case do
