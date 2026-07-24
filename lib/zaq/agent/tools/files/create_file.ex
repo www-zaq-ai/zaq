@@ -27,23 +27,31 @@ defmodule Zaq.Agent.Tools.Files.CreateFile do
 
   @impl Jido.Action
   def run(params, _context) do
-    md_name = Path.rootname(params.filename) <> ".md"
+    ext = mime_to_ext(params.mime_type)
+    out_name = Path.rootname(params.filename) <> ext
+    out_mime = ext_to_mime(ext)
 
     rel_path =
       if params[:path] do
-        Path.join(params[:path], md_name)
+        Path.join(params[:path], out_name)
       else
-        "generated/#{md_name}"
+        "generated/#{out_name}"
       end
 
     {:ok,
      %{
-       name: md_name,
+       name: out_name,
        path: rel_path,
-       mime_type: "text/markdown",
+       mime_type: out_mime,
        url: "/bo/files/#{rel_path}",
        size: byte_size(params.data),
        data: params.data
      }}
   end
+
+  defp mime_to_ext("text/plain"), do: ".txt"
+  defp mime_to_ext(_), do: ".md"
+
+  defp ext_to_mime(".txt"), do: "text/plain"
+  defp ext_to_mime(_), do: "text/markdown"
 end
