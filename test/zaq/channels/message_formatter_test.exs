@@ -9,12 +9,12 @@ defmodule Zaq.Channels.MessageFormatterTest do
     def raise_error(_text), do: raise("boom")
   end
 
-  test "returns outgoing unchanged when format is not configured" do
+  test "keeps markdown unchanged and stamps markdown when format is not configured" do
     outgoing = %Outgoing{provider: :web, channel_id: "c1", body: "**hello**", metadata: %{a: 1}}
 
     formatted = MessageFormatter.format_outgoing(outgoing)
     assert formatted.body == outgoing.body
-    assert formatted.metadata == %{a: 1}
+    assert formatted.metadata == %{a: 1, format: :markdown}
   end
 
   test "formats markdown-like text when provider expects plain_text" do
@@ -109,18 +109,30 @@ defmodule Zaq.Channels.MessageFormatterTest do
     end
   end
 
-  test "clears existing format hint when formatting is a no-op" do
-    outgoing = %Outgoing{
-      provider: :web,
-      channel_id: "c1",
-      body: "hello",
-      metadata: %{format: :html, request_id: "r1"}
-    }
+  test "clears existing format hint when formatting is explicitly disabled" do
+    original = Application.get_env(:zaq, :channels)
 
-    formatted = MessageFormatter.format_outgoing(outgoing)
+    try do
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(original, :web, %{bridge: Zaq.Channels.WebBridge, message_format: :none})
+      )
 
-    refute Map.has_key?(formatted.metadata, :format)
-    assert formatted.metadata[:request_id] == "r1"
+      outgoing = %Outgoing{
+        provider: :web,
+        channel_id: "c1",
+        body: "hello",
+        metadata: %{format: :html, request_id: "r1"}
+      }
+
+      formatted = MessageFormatter.format_outgoing(outgoing)
+
+      refute Map.has_key?(formatted.metadata, :format)
+      assert formatted.metadata[:request_id] == "r1"
+    after
+      Application.put_env(:zaq, :channels, original)
+    end
   end
 
   test "uses custom formatter when message_formatter is configured" do
@@ -252,7 +264,7 @@ defmodule Zaq.Channels.MessageFormatterTest do
       end
     end
 
-    test "C: unsupported provider type and no-op format cleanup" do
+    test "C: unsupported provider type uses markdown default and cleans legacy string format" do
       original = Application.get_env(:zaq, :channels)
 
       try do
@@ -268,7 +280,7 @@ defmodule Zaq.Channels.MessageFormatterTest do
         formatted = MessageFormatter.format_outgoing(outgoing)
 
         assert formatted.body == "hello"
-        refute Map.has_key?(formatted.metadata, :format)
+        assert formatted.metadata[:format] == :markdown
         refute Map.has_key?(formatted.metadata, "format")
         assert formatted.metadata.keep == 1
       after
@@ -276,7 +288,7 @@ defmodule Zaq.Channels.MessageFormatterTest do
       end
     end
 
-    test "D: provider config not a map" do
+    test "D: provider config not a map uses markdown default" do
       original = Application.get_env(:zaq, :channels)
 
       try do
@@ -287,7 +299,7 @@ defmodule Zaq.Channels.MessageFormatterTest do
         formatted = MessageFormatter.format_outgoing(outgoing)
 
         assert formatted.body == "hello"
-        refute Map.has_key?(formatted.metadata, :format)
+        assert formatted.metadata[:format] == :markdown
         refute Map.has_key?(formatted.metadata, "format")
         assert formatted.metadata.a == 1
       after

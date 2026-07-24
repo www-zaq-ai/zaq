@@ -329,8 +329,11 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == {:ok, %{}}
 
-    assert_received {:bridge_send_reply, ^outgoing,
+    assert_received {:bridge_send_reply, delivered_outgoing,
                      %{url: "https://example.test", token: "token"}}
+
+    assert %Outgoing{metadata: %{format: :markdown}} = delivered_outgoing
+    assert %{delivered_outgoing | metadata: %{}} == outgoing
   end
 
   test "deliver_outgoing injects status_message_id into message_id" do
@@ -390,8 +393,11 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == {:ok, %{}}
 
-    assert_received {:bridge_send_reply, ^outgoing,
+    assert_received {:bridge_send_reply, delivered_outgoing,
                      %{url: "https://example.test", token: "token"}}
+
+    assert %Outgoing{metadata: %{format: :markdown}} = delivered_outgoing
+    assert %{delivered_outgoing | metadata: %{}} == outgoing
   end
 
   test "handles upsert_message action" do
@@ -1549,7 +1555,9 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :deliver_outgoing, nil)
     assert result.response == {:ok, %{}}
-    assert_received {:bridge_send_reply, ^outgoing, _details}
+    assert_received {:bridge_send_reply, delivered_outgoing, _details}
+    assert %Outgoing{metadata: %{format: :markdown}} = delivered_outgoing
+    assert %{delivered_outgoing | metadata: %{}} == outgoing
   end
 
   test "falls back to default bridge module when opts are not a keyword list" do

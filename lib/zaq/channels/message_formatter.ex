@@ -16,7 +16,8 @@ defmodule Zaq.Channels.MessageFormatter do
 
   Supported values:
 
-  - `nil` / unset / `:none`: no transformation
+  - `nil` / unset / `:markdown`: source markdown is passed through and stamped
+  - `:none`: no transformation and no format stamp
   - `:plain_text`: markdown -> html (`Earmark`) -> plain text
   - `:html`: markdown -> html (`Earmark`)
 
@@ -82,10 +83,10 @@ defmodule Zaq.Channels.MessageFormatter do
     |> Map.get(Bridge.provider_to_bridge_key(provider), %{})
   end
 
-  # `:markdown` is the default when a channel omits `:message_format`: source bodies
-  # are already markdown and every chat adapter can render it. A channel opts out of
-  # formatting explicitly with `message_format: :none` (or `nil`), which normalizes
-  # back to `nil` and ships the body untouched.
+  # `:markdown` is the default when a channel omits `:message_format` or sets it to
+  # nil: source bodies are already markdown and every chat adapter can render it. A
+  # channel opts out of formatting explicitly with `message_format: :none`, which
+  # normalizes back to `nil` and ships the body without a format stamp.
   defp provider_message_format(provider_config) when is_map(provider_config),
     do: provider_config |> Map.get(:message_format, :markdown) |> normalize_format()
 
@@ -96,7 +97,8 @@ defmodule Zaq.Channels.MessageFormatter do
 
   defp provider_message_formatter(_provider_config), do: nil
 
-  defp normalize_format(format) when format in [nil, "", :none], do: nil
+  defp normalize_format(nil), do: :markdown
+  defp normalize_format(format) when format in ["", :none], do: nil
 
   defp normalize_format(format) when is_binary(format) do
     String.to_existing_atom(format)
