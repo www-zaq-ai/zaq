@@ -55,7 +55,6 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
 
     defp payload(content, idx) do
       %{
-        "id" => "chunk-#{idx}",
         "section_id" => "sec-#{idx}",
         "content" => content,
         "section_path" => ["Sec #{idx}"],
@@ -629,7 +628,6 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
           document_id: document.id,
           chunk_index: 1,
           chunk_payload: %{
-            "id" => "chunk-1",
             "content" => "retry me",
             "metadata" => %{}
           },

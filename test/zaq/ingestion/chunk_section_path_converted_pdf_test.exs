@@ -81,7 +81,7 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
     test "no chunk exceeds chunk_max_tokens", %{chunks: chunks, max: max} do
       for chunk <- chunks do
         assert chunk.tokens <= max,
-               "chunk #{chunk.id} has #{chunk.tokens} tokens (max #{max})"
+               "chunk #{inspect(chunk.section_path)} has #{chunk.tokens} tokens (max #{max})"
       end
     end
 
@@ -172,7 +172,7 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
         lines = meaningful_lines(chunk.content)
 
         refute Enum.all?(lines, &String.starts_with?(&1, "|")),
-               "chunk #{chunk.id} is table-rows-only:\n#{chunk.content}"
+               "chunk #{inspect(chunk.section_path)} is table-rows-only:\n#{chunk.content}"
       end
     end
 
@@ -184,7 +184,7 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
 
         if Enum.any?(lines, &String.starts_with?(&1, "|")) do
           assert Enum.any?(lines, &Regex.match?(@table_delimiter_re, &1)),
-                 "chunk #{chunk.id} has orphan table rows without a header/delimiter:\n" <>
+                 "chunk #{inspect(chunk.section_path)} has orphan table rows without a header/delimiter:\n" <>
                    chunk.content
         end
       end
@@ -196,10 +196,10 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
 
       for chunk <- owners do
         assert String.contains?(chunk.content, "Vote :"),
-               "vote table in chunk #{chunk.id} lost its `Vote :` lead-in"
+               "vote table in chunk #{inspect(chunk.section_path)} lost its `Vote :` lead-in"
 
         assert String.contains?(chunk.content, "Adopté"),
-               "vote table in chunk #{chunk.id} lost its `Adopté` outcome"
+               "vote table in chunk #{inspect(chunk.section_path)} lost its `Adopté` outcome"
       end
     end
 
@@ -345,7 +345,7 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
 
       for chunk <- chunks do
         assert chunk.tokens <= max,
-               "table part #{chunk.id} exceeds max (#{chunk.tokens} tokens)"
+               "table part #{inspect(chunk.section_path)} exceeds max (#{chunk.tokens} tokens)"
 
         lines = meaningful_lines(chunk.content)
         data_index = Enum.find_index(lines, &String.contains?(&1, "cellule"))
@@ -354,10 +354,10 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
           preceding = Enum.take(lines, data_index)
 
           assert header in preceding,
-                 "chunk #{chunk.id} holds data rows without the repeated header row"
+                 "chunk #{inspect(chunk.section_path)} holds data rows without the repeated header row"
 
           assert Enum.any?(preceding, &Regex.match?(@table_delimiter_re, &1)),
-                 "chunk #{chunk.id} holds data rows without the delimiter row"
+                 "chunk #{inspect(chunk.section_path)} holds data rows without the delimiter row"
         end
       end
 
@@ -473,12 +473,12 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
           previous = Enum.at(group, index - 1)
 
           assert previous.tokens + chunk.tokens > max,
-                 "under-min tail #{chunk.id} (#{chunk.tokens} tokens) could have " <>
-                   "merged into #{previous.id} (#{previous.tokens} tokens)"
+                 "under-min tail #{inspect(chunk.section_path)} (#{chunk.tokens} tokens) could have " <>
+                   "merged into #{inspect(previous.section_path)} (#{previous.tokens} tokens)"
 
         true ->
           flunk(
-            "under-min chunk #{chunk.id} (#{chunk.tokens} tokens) is fragmentation " <>
+            "under-min chunk #{inspect(chunk.section_path)} (#{chunk.tokens} tokens) is fragmentation " <>
               "inside a #{inspect(chunk.section_path)} run"
           )
       end

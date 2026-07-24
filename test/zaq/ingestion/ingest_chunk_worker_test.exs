@@ -76,7 +76,7 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
           ingest_job_id: job.id,
           document_id: 123,
           chunk_index: 1,
-          chunk_payload: %{"id" => "chunk-1", "content" => "chunk content", "metadata" => %{}},
+          chunk_payload: %{"content" => "chunk content", "metadata" => %{}},
           status: "pending"
         },
         attrs
@@ -165,7 +165,6 @@ defmodule Zaq.Ingestion.IngestChunkWorkerTest do
       create_chunk_job(job, %{
         document_id: document.id,
         chunk_payload: %{
-          "id" => "chunk-1",
           "content" => "chunk content",
           "metadata" => %{},
           "start_page" => 4,

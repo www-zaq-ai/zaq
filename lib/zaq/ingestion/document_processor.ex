@@ -701,7 +701,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp chunk_to_payload(%DocumentChunker.Chunk{} = chunk) do
     %{
-      "id" => chunk.id,
       "section_id" => chunk.section_id,
       "content" => chunk.content,
       "section_path" => chunk.section_path,

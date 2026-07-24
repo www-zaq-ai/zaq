@@ -1113,51 +1113,6 @@ defmodule Zaq.Ingestion.DocumentChunkerTest do
   end
 
   # ---------------------------------------------------------------------------
-  # chunk_sections/2 — chunk ID format
-  # ---------------------------------------------------------------------------
-
-  describe "chunk ID format" do
-    test "chunk IDs follow chunk_N_M pattern" do
-      sections = [
-        %Section{
-          id: "s1",
-          type: :paragraph,
-          level: nil,
-          title: nil,
-          content: "First paragraph.",
-          parent_path: [],
-          position: 0,
-          tokens: 3
-        }
-      ]
-
-      [chunk] = DocumentChunker.chunk_sections(sections)
-      assert String.starts_with?(chunk.id, "chunk_")
-      assert Regex.match?(~r/^chunk_\d+$/, chunk.id)
-    end
-
-    test "multiple sections produce distinct chunk IDs" do
-      sections =
-        Enum.map(1..3, fn i ->
-          %Section{
-            id: "s#{i}",
-            type: :paragraph,
-            level: nil,
-            title: nil,
-            content: "Content for section #{i}.",
-            parent_path: [],
-            position: i,
-            tokens: 4
-          }
-        end)
-
-      chunks = DocumentChunker.chunk_sections(sections)
-      ids = Enum.map(chunks, & &1.id)
-      assert ids == Enum.uniq(ids)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
   # chunk_sections/2 — combine_paragraphs final accumulation
   # ---------------------------------------------------------------------------
 

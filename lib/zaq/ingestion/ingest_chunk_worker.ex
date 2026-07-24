@@ -103,7 +103,6 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
 
     chunk =
       struct(DocumentChunker.Chunk, %{
-        id: Map.get(payload, "id"),
         section_id: Map.get(payload, "section_id"),
         content: content,
         section_path: section_path,

@@ -69,7 +69,6 @@ defmodule Zaq.Ingestion.DocumentChunker do
         previously stored vectors (requires a re-embed migration).
     """
     defstruct [
-      :id,
       :section_id,
       :content,
       # ["Chapter 1", "Section 1.1", "Subsection 1.1.1"]
@@ -186,8 +185,6 @@ defmodule Zaq.Ingestion.DocumentChunker do
     end)
     |> Enum.chunk_by(&get_current_path/1)
     |> Enum.flat_map(&chunk_path_run/1)
-    |> Enum.with_index()
-    |> Enum.map(fn {chunk, index} -> %{chunk | id: "chunk_#{index}"} end)
   end
 
   # ---------------------------------------------------------------------------
@@ -988,8 +985,6 @@ defmodule Zaq.Ingestion.DocumentChunker do
     section = hd(pieces).section
 
     %Chunk{
-      # id assigned by chunk_sections/2 once all runs are flattened
-      id: nil,
       section_id: section.id,
       content: content,
       section_path: section_path,

@@ -342,7 +342,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   describe "build_metadata/1" do
     test "builds base metadata for heading chunk" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_0",
         section_id: "sec1",
         content: "Some content",
         section_path: ["Chapter 1"],
@@ -365,7 +364,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "omits fields that are already columns on chunks" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_0",
         section_id: "sec1",
         content: "Some content",
         section_path: ["Chapter 1"],
@@ -382,7 +380,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "emits P|L locators from the chunker struct" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_0",
         section_id: "sec1",
         content: "Some content",
         section_path: ["Chapter 1"],
@@ -402,7 +399,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "omits locator keys when the chunker struct carries no locators" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_legacy",
         section_id: "sec-legacy",
         content: "Legacy content",
         section_path: ["Chapter 1"],
@@ -418,7 +414,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "omits a locator when either of its components is missing" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_partial",
         section_id: "sec-partial",
         content: "Partial locators",
         section_path: [],
@@ -438,7 +433,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "adds figure_title for figure chunks" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_1_0",
         section_id: "sec2",
         content: "Figure content",
         section_path: ["Chapter", "chart.png"],
@@ -458,7 +452,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "supports string-key metadata from persisted chunk payloads" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_1_1",
         section_id: "sec4",
         content: "Heading content",
         section_path: ["Chapter 2"],
@@ -480,7 +473,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "adds figure_title when section_type is string figure" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_2_1",
         section_id: "sec5",
         content: "Figure content",
         section_path: ["Chapter", "diagram.png"],
@@ -496,7 +488,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "uses empty figure_title when section_path is empty" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_2_0",
         section_id: "sec3",
         content: "Figure content",
         section_path: [],
@@ -511,7 +502,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
     test "falls back to nil metadata fields when metadata is not a map" do
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_nil_meta",
         section_id: "sec-nil",
         content: "Content without metadata map.",
         section_path: ["No Metadata"],
@@ -715,7 +705,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_0",
         section_id: "sec1",
         content: "## Intro\n\nSome chunk content.",
         section_path: ["Intro"],
@@ -737,7 +726,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_2",
         section_id: "sec2",
         content: "Plain chunk content without heading.",
         section_path: ["Original Path"],
@@ -756,7 +744,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_replace_1",
         section_id: "sec-replace",
         content: "### **Legacy Heading**\n\nSome chunk content.",
         section_path: ["Legacy Heading"],
@@ -775,7 +762,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_embed_2",
         section_id: "sec-embed-2",
         content: "#### Workloads\n\n- zaq-os",
         section_path: ["Cluster Kubernetes", "Workloads"],
@@ -794,7 +780,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_0",
         section_id: "sec1",
         content: "Content",
         section_path: [],
@@ -811,7 +796,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       doc = create_document()
 
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_0_0",
         section_id: "sec1",
         content: "Content",
         section_path: [],
@@ -827,7 +811,6 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       stub_embedding_success()
 
       chunk = %DocumentChunker.Chunk{
-        id: "chunk_fk_0",
         section_id: "sec-fk",
         content: "Foreign key should fail for missing document.",
         section_path: ["Missing Doc"],
