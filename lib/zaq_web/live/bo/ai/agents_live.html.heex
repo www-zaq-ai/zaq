@@ -85,748 +85,738 @@
       </form>
     </section>
 
-    <ZaqWeb.Components.MasterDetailLayout.master_detail
-      show_detail={@mode in [:new, :edit]}
-      master_id="agents-master-pane"
-      detail_id="agents-detail-pane"
+    <section class="zaq-card-default">
+      <div id="agents-master-pane" class="zaq-layout-stack-tight">
+        <h2
+          class="zaq-text-caption uppercase"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          Agents ({@total_agents})
+        </h2>
+
+        <.agents_table agents={@agents} selected_agent_id={@selected_agent_id} />
+      </div>
+    </section>
+
+    <% selected_keys = @form[:enabled_tool_keys].value || [] %>
+    <% selected_mcp_ids = @form[:enabled_mcp_endpoint_ids].value || [] %>
+    <% unselected_tool_options =
+      @tools
+      |> Enum.reject(&(&1.key in selected_keys))
+      |> Enum.map(&{"#{&1.label} (#{&1.key})", &1.key}) %>
+    <% unselected_mcp_options =
+      @mcp_endpoints
+      |> Enum.filter(&(&1.status == "enabled"))
+      |> Enum.reject(&(&1.id in selected_mcp_ids))
+      |> Enum.map(&{"#{&1.name} (##{&1.id})", &1.id}) %>
+    <% selected_agent_skill_ids = @form[:enabled_skill_ids].value || [] %>
+    <% unselected_skill_options =
+      @skills_catalog
+      |> Enum.filter(& &1.active)
+      |> Enum.reject(&(&1.id in selected_agent_skill_ids))
+      |> Enum.map(fn skill ->
+        label =
+          if skill.tags == [],
+            do: skill.name,
+            else: "#{skill.name} (#{Enum.join(skill.tags, ", ")})"
+
+        {label, skill.id}
+      end) %>
+    <% drawer_return_focus_id =
+      if @mode == :new do
+        "new-agent-button"
+      else
+        if is_integer(@selected_agent_id),
+          do: "agent-row-#{@selected_agent_id}",
+          else: "new-agent-button"
+      end %>
+
+    <Drawer.form_drawer
+      id="agent-form-drawer"
+      is_open={@mode in [:new, :edit]}
+      on_close="cancel_agent_form"
+      title={if @mode == :new, do: "Create Agent", else: "Edit Agent"}
+      placement={:right}
+      size={:two_thirds}
+      return_focus_id={drawer_return_focus_id}
+      data-testid="agents-detail-pane"
     >
-      <:master>
-        <div class="zaq-layout-stack-tight">
-          <h2
-            class="zaq-text-caption uppercase"
-            style="color: var(--zaq-text-color-body-tertiary)"
-          >
-            Agents ({@total_agents})
-          </h2>
+      <div
+        :if={@form_notice}
+        class="rounded-lg border px-3 py-2 zaq-text-caption"
+        style="background-color: var(--zaq-surface-color-success); border-color: var(--zaq-border-color-success); color: var(--zaq-text-color-body-success)"
+      >
+        {@form_notice}
+      </div>
 
-          <.agents_table agents={@agents} selected_agent_id={@selected_agent_id} />
+      <.form
+        for={@form}
+        id="configured-agent-form"
+        phx-change="validate"
+        phx-submit="save"
+        phx-hook="ScrollToFirstError"
+        class="space-y-4"
+      >
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">
+              Name
+            </label>
+            <input
+              type="text"
+              name="configured_agent[name]"
+              value={@form[:name].value}
+              class={[
+                "w-full zaq-control-text",
+                if(error_messages(@changeset, :name) != [],
+                  do: "zaq-control-error",
+                  else: ""
+                )
+              ]}
+            />
+            <p
+              :for={msg <- error_messages(@changeset, :name)}
+              data-error-message
+              class="zaq-field-error mt-1"
+            >
+              {msg}
+            </p>
+          </div>
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">
+              Strategy
+            </label>
+            <select
+              name="configured_agent[strategy]"
+              class={[
+                "w-full zaq-control-select",
+                if(error_messages(@changeset, :strategy) != [],
+                  do: "zaq-control-error",
+                  else: ""
+                )
+              ]}
+            >
+              <option value="react" selected={@form[:strategy].value == "react"}>
+                react
+              </option>
+              <option value="cot" selected={@form[:strategy].value == "cot"}>cot</option>
+            </select>
+            <p
+              :for={msg <- error_messages(@changeset, :strategy)}
+              data-error-message
+              class="zaq-field-error mt-1"
+            >
+              {msg}
+            </p>
+          </div>
         </div>
-      </:master>
 
-      <:detail>
-        <% selected_keys = @form[:enabled_tool_keys].value || [] %>
-        <% selected_mcp_ids = @form[:enabled_mcp_endpoint_ids].value || [] %>
-        <% unselected_tool_options =
-          @tools
-          |> Enum.reject(&(&1.key in selected_keys))
-          |> Enum.map(&{"#{&1.label} (#{&1.key})", &1.key}) %>
-        <% unselected_mcp_options =
-          @mcp_endpoints
-          |> Enum.filter(&(&1.status == "enabled"))
-          |> Enum.reject(&(&1.id in selected_mcp_ids))
-          |> Enum.map(&{"#{&1.name} (##{&1.id})", &1.id}) %>
-        <% selected_agent_skill_ids = @form[:enabled_skill_ids].value || [] %>
-        <% unselected_skill_options =
-          @skills_catalog
-          |> Enum.filter(& &1.active)
-          |> Enum.reject(&(&1.id in selected_agent_skill_ids))
-          |> Enum.map(fn skill ->
-            label =
-              if skill.tags == [],
-                do: skill.name,
-                else: "#{skill.name} (#{Enum.join(skill.tags, ", ")})"
+        <div>
+          <label class="zaq-field-label-uppercase block mb-1">
+            Description
+          </label>
+          <input
+            type="text"
+            name="configured_agent[description]"
+            value={@form[:description].value || ""}
+            class={[
+              "w-full zaq-control-text",
+              if(error_messages(@changeset, :description) != [],
+                do: "zaq-control-error",
+                else: ""
+              )
+            ]}
+          />
+          <p
+            :for={msg <- error_messages(@changeset, :description)}
+            data-error-message
+            class="zaq-field-error mt-1"
+          >
+            {msg}
+          </p>
+        </div>
 
-            {label, skill.id}
-          end) %>
+        <div>
+          <label class="zaq-field-label-uppercase block mb-1">
+            Job Prompt
+          </label>
+          <.markdown_editor
+            id="configured-agent-job-input"
+            field={@form[:job]}
+            preview={@job_preview}
+            toggle_event="toggle_job_preview"
+            rows={4}
+            placeholder="Markdown job prompt injected into the agent's system prompt..."
+          />
+          <p
+            :for={msg <- error_messages(@changeset, :job)}
+            data-error-message
+            class="zaq-field-error mt-1"
+          >
+            {msg}
+          </p>
+        </div>
 
-        <section class="zaq-card-default">
-          <div class="flex items-center justify-between">
-            <h2
-              class="zaq-text-h5 uppercase tracking-widest"
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">
+              Credential
+            </label>
+            <select
+              name="configured_agent[credential_id]"
+              class={[
+                "w-full zaq-control-select",
+                if(error_messages(@changeset, :credential_id) != [],
+                  do: "zaq-control-error",
+                  else: ""
+                )
+              ]}
+            >
+              <option value="">Select credential</option>
+              <option
+                :for={credential <- @credentials}
+                value={credential.id}
+                selected={to_string(@form[:credential_id].value) == to_string(credential.id)}
+              >
+                {credential.name} ({credential.provider})
+              </option>
+            </select>
+            <p
+              :for={msg <- error_messages(@changeset, :credential_id)}
+              data-error-message
+              class="zaq-field-error mt-1"
+            >
+              {msg}
+            </p>
+          </div>
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">
+              Model
+            </label>
+            <.searchable_select
+              :if={@model_options != []}
+              id="configured-agent-model-select"
+              name="configured_agent[model]"
+              value={@form[:model].value}
+              options={@model_options}
+              placeholder="Search models..."
+              empty_label="Select a model..."
+              compact={true}
+            />
+            <input
+              :if={@model_options == []}
+              type="text"
+              name="configured_agent[model]"
+              value={@form[:model].value || ""}
+              class={[
+                "w-full zaq-control-text",
+                if(error_messages(@changeset, :model) != [],
+                  do: "zaq-control-error",
+                  else: ""
+                )
+              ]}
+            />
+            <p
+              :for={msg <- error_messages(@changeset, :model)}
+              data-error-message
+              class="zaq-field-error mt-1"
+            >
+              {msg}
+            </p>
+            <div
+              :if={@selected_model_supports_tools == false}
+              class="mt-2 rounded-lg border px-3 py-2 zaq-text-caption"
+              style="background-color: var(--zaq-surface-color-danger); border-color: var(--zaq-border-color-danger); color: var(--zaq-text-color-body-danger)"
+            >
+              Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model.
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="mb-2 flex items-center justify-between">
+            <label class="zaq-field-label-uppercase block">
+              MCP Endpoints
+            </label>
+            <button
+              id="add-mcp-button"
+              type="button"
+              phx-click="open_mcp_picker"
+              class="zaq-btn zaq-btn-secondary"
+              disabled={@selected_model_supports_tools == false}
+            >
+              + Add MCP
+            </button>
+          </div>
+          <div
+            :if={@mcp_notice || @mcp_endpoints == []}
+            class="mb-2 rounded-lg border px-3 py-2 zaq-text-caption"
+            style="background-color: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
+          >
+            <span :if={@mcp_notice}>{@mcp_notice}</span>
+            <span :if={@mcp_notice}>
+              <a href={~p"/bo/system-config?tab=mcps"} class="zaq-link-underline">
+                Open MCP settings
+              </a>
+              .
+            </span>
+            <span :if={!@mcp_notice}>
+              No MCP endpoints are configured. Activate one in <a
+                href={~p"/bo/system-config?tab=mcps"}
+                class="zaq-link-underline"
+              >
+                    System Config
+                  </a>.
+            </span>
+          </div>
+          <input type="hidden" name="configured_agent[enabled_mcp_endpoint_ids][]" value="" />
+          <input
+            :for={endpoint_id <- selected_mcp_ids}
+            type="hidden"
+            name="configured_agent[enabled_mcp_endpoint_ids][]"
+            value={endpoint_id}
+          />
+          <.selected_mcp_panel
+            :if={@mcp_endpoints != []}
+            mcp_endpoints={@mcp_endpoints}
+            selected_endpoint_ids={selected_mcp_ids}
+          />
+          <p
+            :for={msg <- error_messages(@changeset, :enabled_mcp_endpoint_ids)}
+            data-error-message
+            class="zaq-field-error mt-1"
+          >
+            {msg}
+          </p>
+        </div>
+
+        <div>
+          <div class="mb-2 flex items-center justify-between">
+            <label class="zaq-field-label-uppercase block">
+              Enabled Tools
+            </label>
+            <button
+              id="add-tools-button"
+              type="button"
+              phx-click="open_tools_picker"
+              class="zaq-btn zaq-btn-secondary"
+              disabled={@selected_model_supports_tools == false or unselected_tool_options == []}
+            >
+              + Add tools
+            </button>
+          </div>
+          <input type="hidden" name="configured_agent[enabled_tool_keys][]" value="" />
+          <input
+            :for={tool_key <- selected_keys}
+            type="hidden"
+            name="configured_agent[enabled_tool_keys][]"
+            value={tool_key}
+          />
+          <div
+            :if={@tools == []}
+            class="rounded-lg border border-dashed px-3 py-2 zaq-text-caption"
+            style="border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
+          >
+            No tools are currently registered in code.
+          </div>
+          <.selected_tools_panel
+            :if={@tools != []}
+            tools={@tools}
+            selected_keys={selected_keys}
+          />
+          <p
+            :for={msg <- error_messages(@changeset, :enabled_tool_keys)}
+            data-error-message
+            class="zaq-field-error mt-1"
+          >
+            {msg}
+          </p>
+        </div>
+
+        <div>
+          <div class="mb-2 flex items-center justify-between">
+            <label class="zaq-field-label-uppercase block">
+              Skills
+            </label>
+            <button
+              id="add-skills-button"
+              type="button"
+              phx-click="open_skills_picker"
+              class="zaq-btn zaq-btn-secondary"
+              disabled={unselected_skill_options == []}
+            >
+              + Add skills
+            </button>
+          </div>
+          <input type="hidden" name="configured_agent[enabled_skill_ids][]" value="" />
+          <input
+            :for={skill_id <- selected_agent_skill_ids}
+            type="hidden"
+            name="configured_agent[enabled_skill_ids][]"
+            value={skill_id}
+          />
+          <div
+            :if={@skills_catalog == [] and selected_agent_skill_ids == []}
+            class="rounded-lg border border-dashed px-3 py-2 zaq-text-caption"
+            style="border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
+          >
+            No skills defined yet. Create one on the
+            <a href={~p"/bo/skills"} class="zaq-link-underline">Skills</a>
+            page.
+          </div>
+          <.selected_skills_panel
+            :if={@skills_catalog != [] or selected_agent_skill_ids != []}
+            skills_catalog={@skills_catalog}
+            selected_skill_ids={selected_agent_skill_ids}
+          />
+          <p
+            :for={msg <- error_messages(@changeset, :enabled_skill_ids)}
+            data-error-message
+            class="zaq-field-error mt-1"
+          >
+            {msg}
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.42fr)_minmax(0,1fr)]">
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">
+              Max number of iterations
+            </label>
+            <.input
+              type="number"
+              field={@form[:max_iterations]}
+              placeholder="Default: 10"
+              class="w-full zaq-control-text"
+            />
+            <p
+              class="mt-1 zaq-text-caption"
               style="color: var(--zaq-text-color-body-tertiary)"
             >
-              {if @mode == :new, do: "Create Agent", else: "Edit Agent"}
-            </h2>
-            <button
-              id="close-agent-detail"
-              type="button"
-              phx-click="cancel_agent_form"
-              aria-label="Close"
-              class="zaq-btn zaq-btn-icon zaq-btn-secondary"
+              Leave blank to use the default of 10 iterations.
+            </p>
+            <p
+              :for={msg <- error_messages(@changeset, :max_iterations)}
+              data-error-message
+              class="zaq-field-error mt-1"
             >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              {msg}
+            </p>
+          </div>
+
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">
+              Advanced Options (JSON)
+            </label>
+            <textarea
+              name="configured_agent[advanced_options_json]"
+              rows="5"
+              class="w-full zaq-control-text"
+            >{@advanced_options_json}</textarea>
+            <p
+              :if={@advanced_options_error}
+              class="zaq-field-error mt-1"
+            >
+              {@advanced_options_error}
+            </p>
+            <p
+              :for={msg <- error_messages(@changeset, :advanced_options)}
+              data-error-message
+              class="zaq-field-error mt-1"
+            >
+              {msg}
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">
+              Idle Timeout (seconds)
+            </label>
+            <input
+              type="number"
+              name="configured_agent[idle_time_seconds]"
+              value={@form[:idle_time_seconds].value || ""}
+              placeholder="Default: 1800"
+              class="w-full zaq-control-text"
+            />
+            <p
+              class="mt-1 zaq-text-caption"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
+              Leave blank to use the system default (30 min).
+            </p>
+            <p
+              :for={msg <- error_messages(@changeset, :idle_time_seconds)}
+              data-error-message
+              class="zaq-field-error mt-1"
+            >
+              {msg}
+            </p>
+          </div>
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">
+              Memory Context Size (tokens)
+            </label>
+            <input
+              type="number"
+              name="configured_agent[memory_context_max_size]"
+              value={@form[:memory_context_max_size].value || ""}
+              placeholder="Default: 5000"
+              class="w-full zaq-control-text"
+            />
+            <p
+              class="mt-1 zaq-text-caption"
+              style="color: var(--zaq-text-color-body-tertiary)"
+            >
+              Max conversation history tokens loaded on process restart.
+            </p>
+            <p
+              :for={msg <- error_messages(@changeset, :memory_context_max_size)}
+              data-error-message
+              class="zaq-field-error mt-1"
+            >
+              {msg}
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div
+            class="rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3"
+            style="background-color: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default)"
+          >
+            <div>
+              <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">
+                Conversation enabled
+              </p>
+              <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
+                Can be reached through conversation channels
+              </p>
+            </div>
+            <input
+              type="hidden"
+              name="configured_agent[conversation_enabled]"
+              value={
+                if @form[:conversation_enabled].value in [true, "true"],
+                  do: "true",
+                  else: "false"
+              }
+            />
+            <button
+              type="button"
+              phx-click="toggle_form_boolean"
+              phx-value-field="conversation_enabled"
+              class={[
+                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
+                if(@form[:conversation_enabled].value in [true, "true"],
+                  do: "bg-[var(--zaq-color-accent)]",
+                  else: "bg-black/20"
+                )
+              ]}
+              role="switch"
+              aria-checked={to_string(@form[:conversation_enabled].value in [true, "true"])}
+            >
+              <span class={[
+                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200",
+                if(@form[:conversation_enabled].value in [true, "true"],
+                  do: "translate-x-4",
+                  else: "translate-x-0"
+                )
+              ]} />
             </button>
+            <p
+              :for={msg <- error_messages(@changeset, :conversation_enabled)}
+              data-error-message
+              class="zaq-field-error mt-1"
+            >
+              {msg}
+            </p>
           </div>
 
           <div
-            :if={@form_notice}
-            class="mt-3 rounded-lg border px-3 py-2 zaq-text-caption"
-            style="background-color: var(--zaq-surface-color-success); border-color: var(--zaq-border-color-success); color: var(--zaq-text-color-body-success)"
+            class="rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3"
+            style="background-color: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default)"
           >
-            {@form_notice}
-          </div>
-
-          <.form
-            for={@form}
-            id="configured-agent-form"
-            phx-change="validate"
-            phx-submit="save"
-            phx-hook="ScrollToFirstError"
-            class="mt-4 space-y-4"
-          >
-            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div>
-                <label class="zaq-field-label-uppercase block mb-1">
-                  Name
-                </label>
-                <input
-                  type="text"
-                  name="configured_agent[name]"
-                  value={@form[:name].value}
-                  class={[
-                    "w-full zaq-control-text",
-                    if(error_messages(@changeset, :name) != [],
-                      do: "zaq-control-error",
-                      else: ""
-                    )
-                  ]}
-                />
-                <p
-                  :for={msg <- error_messages(@changeset, :name)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-              <div>
-                <label class="zaq-field-label-uppercase block mb-1">
-                  Strategy
-                </label>
-                <select
-                  name="configured_agent[strategy]"
-                  class={[
-                    "w-full zaq-control-select",
-                    if(error_messages(@changeset, :strategy) != [],
-                      do: "zaq-control-error",
-                      else: ""
-                    )
-                  ]}
-                >
-                  <option value="react" selected={@form[:strategy].value == "react"}>
-                    react
-                  </option>
-                  <option value="cot" selected={@form[:strategy].value == "cot"}>cot</option>
-                </select>
-                <p
-                  :for={msg <- error_messages(@changeset, :strategy)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-            </div>
-
             <div>
-              <label class="zaq-field-label-uppercase block mb-1">
-                Description
-              </label>
-              <input
-                type="text"
-                name="configured_agent[description]"
-                value={@form[:description].value || ""}
-                class={[
-                  "w-full zaq-control-text",
-                  if(error_messages(@changeset, :description) != [],
-                    do: "zaq-control-error",
-                    else: ""
-                  )
-                ]}
-              />
-              <p
-                :for={msg <- error_messages(@changeset, :description)}
-                data-error-message
-                class="zaq-field-error mt-1"
-              >
-                {msg}
+              <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">
+                Active
+              </p>
+              <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
+                Agent can process requests
               </p>
             </div>
-
-            <div>
-              <label class="zaq-field-label-uppercase block mb-1">
-                Job Prompt
-              </label>
-              <.markdown_editor
-                id="configured-agent-job-input"
-                field={@form[:job]}
-                preview={@job_preview}
-                toggle_event="toggle_job_preview"
-                rows={4}
-                placeholder="Markdown job prompt injected into the agent's system prompt..."
-              />
-              <p
-                :for={msg <- error_messages(@changeset, :job)}
-                data-error-message
-                class="zaq-field-error mt-1"
-              >
-                {msg}
-              </p>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div>
-                <label class="zaq-field-label-uppercase block mb-1">
-                  Credential
-                </label>
-                <select
-                  name="configured_agent[credential_id]"
-                  class={[
-                    "w-full zaq-control-select",
-                    if(error_messages(@changeset, :credential_id) != [],
-                      do: "zaq-control-error",
-                      else: ""
-                    )
-                  ]}
-                >
-                  <option value="">Select credential</option>
-                  <option
-                    :for={credential <- @credentials}
-                    value={credential.id}
-                    selected={to_string(@form[:credential_id].value) == to_string(credential.id)}
-                  >
-                    {credential.name} ({credential.provider})
-                  </option>
-                </select>
-                <p
-                  :for={msg <- error_messages(@changeset, :credential_id)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-              <div>
-                <label class="zaq-field-label-uppercase block mb-1">
-                  Model
-                </label>
-                <.searchable_select
-                  :if={@model_options != []}
-                  id="configured-agent-model-select"
-                  name="configured_agent[model]"
-                  value={@form[:model].value}
-                  options={@model_options}
-                  placeholder="Search models..."
-                  empty_label="Select a model..."
-                  compact={true}
-                />
-                <input
-                  :if={@model_options == []}
-                  type="text"
-                  name="configured_agent[model]"
-                  value={@form[:model].value || ""}
-                  class={[
-                    "w-full zaq-control-text",
-                    if(error_messages(@changeset, :model) != [],
-                      do: "zaq-control-error",
-                      else: ""
-                    )
-                  ]}
-                />
-                <p
-                  :for={msg <- error_messages(@changeset, :model)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-                <div
-                  :if={@selected_model_supports_tools == false}
-                  class="mt-2 rounded-lg border px-3 py-2 zaq-text-caption"
-                  style="background-color: var(--zaq-surface-color-danger); border-color: var(--zaq-border-color-danger); color: var(--zaq-text-color-body-danger)"
-                >
-                  Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model.
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <div class="mb-2 flex items-center justify-between">
-                <label class="zaq-field-label-uppercase block">
-                  MCP Endpoints
-                </label>
-                <button
-                  id="add-mcp-button"
-                  type="button"
-                  phx-click="open_mcp_picker"
-                  class="zaq-btn zaq-btn-secondary"
-                  disabled={@selected_model_supports_tools == false}
-                >
-                  + Add MCP
-                </button>
-              </div>
-              <div
-                :if={@mcp_notice || @mcp_endpoints == []}
-                class="mb-2 rounded-lg border px-3 py-2 zaq-text-caption"
-                style="background-color: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
-              >
-                <span :if={@mcp_notice}>{@mcp_notice}</span>
-                <span :if={@mcp_notice}>
-                  <a href={~p"/bo/system-config?tab=mcps"} class="zaq-link-underline">
-                    Open MCP settings
-                  </a>
-                  .
-                </span>
-                <span :if={!@mcp_notice}>
-                  No MCP endpoints are configured. Activate one in <a
-                    href={~p"/bo/system-config?tab=mcps"}
-                    class="zaq-link-underline"
-                  >
-                    System Config
-                  </a>.
-                </span>
-              </div>
-              <input type="hidden" name="configured_agent[enabled_mcp_endpoint_ids][]" value="" />
-              <input
-                :for={endpoint_id <- selected_mcp_ids}
-                type="hidden"
-                name="configured_agent[enabled_mcp_endpoint_ids][]"
-                value={endpoint_id}
-              />
-              <.selected_mcp_panel
-                :if={@mcp_endpoints != []}
-                mcp_endpoints={@mcp_endpoints}
-                selected_endpoint_ids={selected_mcp_ids}
-              />
-              <p
-                :for={msg <- error_messages(@changeset, :enabled_mcp_endpoint_ids)}
-                data-error-message
-                class="zaq-field-error mt-1"
-              >
-                {msg}
-              </p>
-            </div>
-
-            <div>
-              <div class="mb-2 flex items-center justify-between">
-                <label class="zaq-field-label-uppercase block">
-                  Enabled Tools
-                </label>
-                <button
-                  id="add-tools-button"
-                  type="button"
-                  phx-click="open_tools_picker"
-                  class="zaq-btn zaq-btn-secondary"
-                  disabled={
-                    @selected_model_supports_tools == false or unselected_tool_options == []
-                  }
-                >
-                  + Add tools
-                </button>
-              </div>
-              <input type="hidden" name="configured_agent[enabled_tool_keys][]" value="" />
-              <input
-                :for={tool_key <- selected_keys}
-                type="hidden"
-                name="configured_agent[enabled_tool_keys][]"
-                value={tool_key}
-              />
-              <div
-                :if={@tools == []}
-                class="rounded-lg border border-dashed px-3 py-2 zaq-text-caption"
-                style="border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
-              >
-                No tools are currently registered in code.
-              </div>
-              <.selected_tools_panel
-                :if={@tools != []}
-                tools={@tools}
-                selected_keys={selected_keys}
-              />
-              <p
-                :for={msg <- error_messages(@changeset, :enabled_tool_keys)}
-                data-error-message
-                class="zaq-field-error mt-1"
-              >
-                {msg}
-              </p>
-            </div>
-
-            <div>
-              <div class="mb-2 flex items-center justify-between">
-                <label class="zaq-field-label-uppercase block">
-                  Skills
-                </label>
-                <button
-                  id="add-skills-button"
-                  type="button"
-                  phx-click="open_skills_picker"
-                  class="zaq-btn zaq-btn-secondary"
-                  disabled={unselected_skill_options == []}
-                >
-                  + Add skills
-                </button>
-              </div>
-              <input type="hidden" name="configured_agent[enabled_skill_ids][]" value="" />
-              <input
-                :for={skill_id <- selected_agent_skill_ids}
-                type="hidden"
-                name="configured_agent[enabled_skill_ids][]"
-                value={skill_id}
-              />
-              <div
-                :if={@skills_catalog == [] and selected_agent_skill_ids == []}
-                class="rounded-lg border border-dashed px-3 py-2 zaq-text-caption"
-                style="border-color: var(--zaq-border-color-default); color: var(--zaq-text-color-body-tertiary)"
-              >
-                No skills defined yet. Create one on the
-                <a href={~p"/bo/skills"} class="zaq-link-underline">Skills</a>
-                page.
-              </div>
-              <.selected_skills_panel
-                :if={@skills_catalog != [] or selected_agent_skill_ids != []}
-                skills_catalog={@skills_catalog}
-                selected_skill_ids={selected_agent_skill_ids}
-              />
-              <p
-                :for={msg <- error_messages(@changeset, :enabled_skill_ids)}
-                data-error-message
-                class="zaq-field-error mt-1"
-              >
-                {msg}
-              </p>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.42fr)_minmax(0,1fr)]">
-              <div>
-                <label class="zaq-field-label-uppercase block mb-1">
-                  Max number of iterations
-                </label>
-                <.input
-                  type="number"
-                  field={@form[:max_iterations]}
-                  placeholder="Default: 10"
-                  class="w-full zaq-control-text"
-                />
-                <p
-                  class="mt-1 zaq-text-caption"
-                  style="color: var(--zaq-text-color-body-tertiary)"
-                >
-                  Leave blank to use the default of 10 iterations.
-                </p>
-                <p
-                  :for={msg <- error_messages(@changeset, :max_iterations)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-
-              <div>
-                <label class="zaq-field-label-uppercase block mb-1">
-                  Advanced Options (JSON)
-                </label>
-                <textarea
-                  name="configured_agent[advanced_options_json]"
-                  rows="5"
-                  class="w-full zaq-control-text"
-                >{@advanced_options_json}</textarea>
-                <p
-                  :if={@advanced_options_error}
-                  class="zaq-field-error mt-1"
-                >
-                  {@advanced_options_error}
-                </p>
-                <p
-                  :for={msg <- error_messages(@changeset, :advanced_options)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div>
-                <label class="zaq-field-label-uppercase block mb-1">
-                  Idle Timeout (seconds)
-                </label>
-                <input
-                  type="number"
-                  name="configured_agent[idle_time_seconds]"
-                  value={@form[:idle_time_seconds].value || ""}
-                  placeholder="Default: 1800"
-                  class="w-full zaq-control-text"
-                />
-                <p
-                  class="mt-1 zaq-text-caption"
-                  style="color: var(--zaq-text-color-body-tertiary)"
-                >
-                  Leave blank to use the system default (30 min).
-                </p>
-                <p
-                  :for={msg <- error_messages(@changeset, :idle_time_seconds)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-              <div>
-                <label class="zaq-field-label-uppercase block mb-1">
-                  Memory Context Size (tokens)
-                </label>
-                <input
-                  type="number"
-                  name="configured_agent[memory_context_max_size]"
-                  value={@form[:memory_context_max_size].value || ""}
-                  placeholder="Default: 5000"
-                  class="w-full zaq-control-text"
-                />
-                <p
-                  class="mt-1 zaq-text-caption"
-                  style="color: var(--zaq-text-color-body-tertiary)"
-                >
-                  Max conversation history tokens loaded on process restart.
-                </p>
-                <p
-                  :for={msg <- error_messages(@changeset, :memory_context_max_size)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div
-                class="rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3"
-                style="background-color: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default)"
-              >
-                <div>
-                  <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">
-                    Conversation enabled
-                  </p>
-                  <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
-                    Can be reached through conversation channels
-                  </p>
-                </div>
-                <input
-                  type="hidden"
-                  name="configured_agent[conversation_enabled]"
-                  value={
-                    if @form[:conversation_enabled].value in [true, "true"],
-                      do: "true",
-                      else: "false"
-                  }
-                />
-                <button
-                  type="button"
-                  phx-click="toggle_form_boolean"
-                  phx-value-field="conversation_enabled"
-                  class={[
-                    "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-                    if(@form[:conversation_enabled].value in [true, "true"],
-                      do: "bg-[var(--zaq-color-accent)]",
-                      else: "bg-black/20"
-                    )
-                  ]}
-                  role="switch"
-                  aria-checked={to_string(@form[:conversation_enabled].value in [true, "true"])}
-                >
-                  <span class={[
-                    "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200",
-                    if(@form[:conversation_enabled].value in [true, "true"],
-                      do: "translate-x-4",
-                      else: "translate-x-0"
-                    )
-                  ]} />
-                </button>
-                <p
-                  :for={msg <- error_messages(@changeset, :conversation_enabled)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-
-              <div
-                class="rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3"
-                style="background-color: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default)"
-              >
-                <div>
-                  <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">
-                    Active
-                  </p>
-                  <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
-                    Agent can process requests
-                  </p>
-                </div>
-                <input
-                  type="hidden"
-                  name="configured_agent[active]"
-                  value={if @form[:active].value in [true, "true"], do: "true", else: "false"}
-                />
-                <button
-                  type="button"
-                  phx-click="toggle_form_boolean"
-                  phx-value-field="active"
-                  class={[
-                    "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-                    if(@form[:active].value in [true, "true"],
-                      do: "bg-[var(--zaq-color-accent)]",
-                      else: "bg-black/20"
-                    )
-                  ]}
-                  role="switch"
-                  aria-checked={to_string(@form[:active].value in [true, "true"])}
-                >
-                  <span class={[
-                    "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200",
-                    if(@form[:active].value in [true, "true"],
-                      do: "translate-x-4",
-                      else: "translate-x-0"
-                    )
-                  ]} />
-                </button>
-                <p
-                  :for={msg <- error_messages(@changeset, :active)}
-                  data-error-message
-                  class="zaq-field-error mt-1"
-                >
-                  {msg}
-                </p>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <button
-                id="save-agent-button"
-                type="submit"
-                class="zaq-btn zaq-btn-secondary"
-              >
-                {if @mode == :new, do: "Create Agent", else: "Save Agent"}
-              </button>
-              <button
-                :if={@mode == :edit and is_integer(@selected_agent_id)}
-                id="delete-agent-button"
-                type="button"
-                phx-click="delete_agent"
-                phx-value-id={@selected_agent_id}
-                class="zaq-btn zaq-btn-tertiary zaq-btn-danger"
-              >
-                Delete Agent
-              </button>
-            </div>
-          </.form>
-        </section>
-
-        <ZaqWeb.Components.BOModal.modal_shell
-          :if={@mcp_picker_open}
-          id="agent-mcp-picker-modal"
-          cancel_event="close_mcp_picker"
-          title="Add MCP endpoint"
-          max_width_class="zaq-modal--width-lg"
-        >
-          <form phx-change="add_mcp_from_picker">
-            <.searchable_select
-              id="agent-mcp-picker-select"
-              name="endpoint_id"
-              value={@mcp_picker_value}
-              options={unselected_mcp_options}
-              placeholder="Search MCP endpoints..."
-              empty_label="Choose an endpoint to add..."
-              compact={true}
+            <input
+              type="hidden"
+              name="configured_agent[active]"
+              value={if @form[:active].value in [true, "true"], do: "true", else: "false"}
             />
-          </form>
-
-          <div class="mt-4">
-            <p
-              class="mb-2 uppercase tracking-wider zaq-text-caption"
-              style="color: var(--zaq-text-color-body-tertiary)"
+            <button
+              type="button"
+              phx-click="toggle_form_boolean"
+              phx-value-field="active"
+              class={[
+                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
+                if(@form[:active].value in [true, "true"],
+                  do: "bg-[var(--zaq-color-accent)]",
+                  else: "bg-black/20"
+                )
+              ]}
+              role="switch"
+              aria-checked={to_string(@form[:active].value in [true, "true"])}
             >
-              Selected MCP endpoints
-            </p>
-            <.selected_mcp_panel
-              mcp_endpoints={@mcp_endpoints}
-              selected_endpoint_ids={selected_mcp_ids}
-            />
-          </div>
-        </ZaqWeb.Components.BOModal.modal_shell>
-
-        <ZaqWeb.Components.BOModal.modal_shell
-          :if={@tools_picker_open}
-          id="agent-tools-picker-modal"
-          cancel_event="close_tools_picker"
-          title="Add tools"
-          max_width_class="zaq-modal--width-lg"
-        >
-          <form phx-change="add_tool_from_picker">
-            <.searchable_select
-              id="agent-tools-picker-select"
-              name="tool_key"
-              value={@tools_picker_value}
-              options={unselected_tool_options}
-              placeholder="Search by tool name..."
-              empty_label="Choose a tool to add..."
-              compact={true}
-            />
-          </form>
-
-          <div class="mt-4">
+              <span class={[
+                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200",
+                if(@form[:active].value in [true, "true"],
+                  do: "translate-x-4",
+                  else: "translate-x-0"
+                )
+              ]} />
+            </button>
             <p
-              class="mb-2 uppercase tracking-wider zaq-text-caption"
-              style="color: var(--zaq-text-color-body-tertiary)"
+              :for={msg <- error_messages(@changeset, :active)}
+              data-error-message
+              class="zaq-field-error mt-1"
             >
-              Enabled tools
+              {msg}
             </p>
-            <.selected_tools_panel tools={@tools} selected_keys={selected_keys} />
           </div>
+        </div>
+      </.form>
 
-          <p class="mt-3 zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
-            Pick one tool at a time. This modal stays open to add multiple tools quickly.
-          </p>
-        </ZaqWeb.Components.BOModal.modal_shell>
-
-        <ZaqWeb.Components.BOModal.modal_shell
-          :if={@skills_picker_open}
-          id="agent-skills-picker-modal"
-          cancel_event="close_skills_picker"
-          title="Add skills"
-          max_width_class="zaq-modal--width-lg"
+      <:actions>
+        <button
+          id="close-agent-detail"
+          type="button"
+          phx-click="cancel_agent_form"
+          class="zaq-btn zaq-btn-secondary"
         >
-          <form phx-change="add_skill_from_picker">
-            <.searchable_select
-              id="agent-skills-picker-select"
-              name="skill_id"
-              value={@skills_picker_value}
-              options={unselected_skill_options}
-              placeholder="Search by skill name or tag..."
-              empty_label="Choose a skill to add..."
-              compact={true}
-            />
-          </form>
+          Cancel
+        </button>
+        <button
+          id="save-agent-button"
+          type="submit"
+          form="configured-agent-form"
+          class="zaq-btn zaq-btn-primary"
+        >
+          {if @mode == :new, do: "Create Agent", else: "Save Agent"}
+        </button>
+        <button
+          :if={@mode == :edit and is_integer(@selected_agent_id)}
+          id="delete-agent-button"
+          type="button"
+          phx-click="delete_agent"
+          phx-value-id={@selected_agent_id}
+          class="zaq-btn zaq-btn-tertiary zaq-btn-danger"
+        >
+          Delete Agent
+        </button>
+      </:actions>
+    </Drawer.form_drawer>
 
-          <div class="mt-4">
-            <p
-              class="mb-2 uppercase tracking-wider zaq-text-caption"
-              style="color: var(--zaq-text-color-body-tertiary)"
-            >
-              Attached skills
-            </p>
-            <.selected_skills_panel
-              skills_catalog={@skills_catalog}
-              selected_skill_ids={selected_agent_skill_ids}
-            />
-          </div>
+    <ZaqWeb.Components.BOModal.modal_shell
+      :if={@mcp_picker_open}
+      id="agent-mcp-picker-modal"
+      cancel_event="close_mcp_picker"
+      title="Add MCP endpoint"
+      max_width_class="zaq-modal--width-lg"
+    >
+      <form phx-change="add_mcp_from_picker">
+        <.searchable_select
+          id="agent-mcp-picker-select"
+          name="endpoint_id"
+          value={@mcp_picker_value}
+          options={unselected_mcp_options}
+          placeholder="Search MCP endpoints..."
+          empty_label="Choose an endpoint to add..."
+          compact={true}
+        />
+      </form>
 
-          <p class="mt-3 zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
-            Pick one skill at a time. This modal stays open to add multiple skills quickly.
-          </p>
-        </ZaqWeb.Components.BOModal.modal_shell>
-      </:detail>
-    </ZaqWeb.Components.MasterDetailLayout.master_detail>
+      <div class="mt-4">
+        <p
+          class="mb-2 uppercase tracking-wider zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          Selected MCP endpoints
+        </p>
+        <.selected_mcp_panel
+          mcp_endpoints={@mcp_endpoints}
+          selected_endpoint_ids={selected_mcp_ids}
+        />
+      </div>
+    </ZaqWeb.Components.BOModal.modal_shell>
+
+    <ZaqWeb.Components.BOModal.modal_shell
+      :if={@tools_picker_open}
+      id="agent-tools-picker-modal"
+      cancel_event="close_tools_picker"
+      title="Add tools"
+      max_width_class="zaq-modal--width-lg"
+    >
+      <form phx-change="add_tool_from_picker">
+        <.searchable_select
+          id="agent-tools-picker-select"
+          name="tool_key"
+          value={@tools_picker_value}
+          options={unselected_tool_options}
+          placeholder="Search by tool name..."
+          empty_label="Choose a tool to add..."
+          compact={true}
+        />
+      </form>
+
+      <div class="mt-4">
+        <p
+          class="mb-2 uppercase tracking-wider zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          Enabled tools
+        </p>
+        <.selected_tools_panel tools={@tools} selected_keys={selected_keys} />
+      </div>
+
+      <p class="mt-3 zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
+        Pick one tool at a time. This modal stays open to add multiple tools quickly.
+      </p>
+    </ZaqWeb.Components.BOModal.modal_shell>
+
+    <ZaqWeb.Components.BOModal.modal_shell
+      :if={@skills_picker_open}
+      id="agent-skills-picker-modal"
+      cancel_event="close_skills_picker"
+      title="Add skills"
+      max_width_class="zaq-modal--width-lg"
+    >
+      <form phx-change="add_skill_from_picker">
+        <.searchable_select
+          id="agent-skills-picker-select"
+          name="skill_id"
+          value={@skills_picker_value}
+          options={unselected_skill_options}
+          placeholder="Search by skill name or tag..."
+          empty_label="Choose a skill to add..."
+          compact={true}
+        />
+      </form>
+
+      <div class="mt-4">
+        <p
+          class="mb-2 uppercase tracking-wider zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary)"
+        >
+          Attached skills
+        </p>
+        <.selected_skills_panel
+          skills_catalog={@skills_catalog}
+          selected_skill_ids={selected_agent_skill_ids}
+        />
+      </div>
+
+      <p class="mt-3 zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
+        Pick one skill at a time. This modal stays open to add multiple skills quickly.
+      </p>
+    </ZaqWeb.Components.BOModal.modal_shell>
   </div>
 </ZaqWeb.Components.BOLayout.bo_layout>

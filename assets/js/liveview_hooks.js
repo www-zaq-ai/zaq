@@ -5,6 +5,7 @@ import OntologyTree from "./hooks/ontology_tree_hook"
 import ChartTooltip from "./hooks/chart_tooltip_hook"
 import ContentFilter from "./hooks/content_filter"
 import FolderDrop from "./hooks/folder_drop"
+import DialogOverlay from "./hooks/dialog_overlay"
 
 export const liveViewHooks = {
   ...colocatedHooks,
@@ -12,6 +13,7 @@ export const liveViewHooks = {
   ChartTooltip,
   ContentFilter,
   FolderDrop,
+  DialogOverlay,
   DownloadFile: {
     mounted() {
       this.handleEvent("download_file", ({ filename, content, content_type }) => {

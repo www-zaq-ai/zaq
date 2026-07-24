@@ -89,7 +89,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "AI Agents"
     assert has_element?(view, "#new-agent-button")
     refute has_element?(view, "#configured-agent-form")
-    refute has_element?(view, "#agents-detail-pane")
+    refute has_element?(view, "#agent-form-drawer")
 
     {ai_pos, _} = :binary.match(html, "section-ai")
     {data_pos, _} = :binary.match(html, "section-data")
@@ -107,7 +107,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     render_click(element(view, "#new-agent-button"))
 
     assert has_element?(view, "#configured-agent-form")
-    assert has_element?(view, "#agents-detail-pane")
+    assert has_element?(view, "#agent-form-drawer")
     assert render(view) =~ "Create Agent"
     assert render(view) =~ "Max number of iterations"
     assert render(view) =~ "Default: 10"
