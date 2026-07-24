@@ -86,6 +86,75 @@ defmodule Zaq.Ingestion.Chunk do
   end
 
   @doc """
+  Returns the chunk at `chunk_index` within a document, or `nil` if there is none.
+
+  `chunk_index` is the chunk's ordinal position in the source, assigned at
+  ingestion time and unique per document. That uniqueness is an invariant of
+  the ingestion pipeline rather than a database constraint, so this raises
+  `Ecto.MultipleResultsError` if it is ever violated — a duplicate index means
+  a document was re-ingested without its old chunks being deleted first, and
+  silently returning one of the two would hide it.
+  """
+  def get_by_index(document_id, chunk_index) do
+    from(c in __MODULE__,
+      where: c.document_id == ^document_id and c.chunk_index == ^chunk_index
+    )
+    |> Repo.one()
+  end
+
+  @doc """
+  Returns every chunk of a document that *covers* `page_number`, ordered by
+  `chunk_index`.
+
+  A chunk holds a page range, not a single page: pages run 62-598 tokens in
+  real converter output against a ~900-token budget, so one chunk routinely
+  swallows a whole page and spills into the next. Matching on the start page
+  alone would leave every interior page unreachable. A chunk covering pages
+  1-3 is returned for 1, 2 and 3 alike.
+
+  Both bounds are source locators in the `metadata` jsonb rather than columns:
+  `start` / `end` hold `"P<page>|L<line>"` strings, and the page is extracted
+  in SQL via `substring(... FROM '^P([0-9]+)\\|')`. `substring` returns NULL
+  when the key is absent, the value is not a string of that shape, or the
+  value is a non-string jsonb node (`->>` renders it as text, which cannot
+  match the pattern) — so a malformed row reads NULL and simply does not
+  match, without poisoning the query.
+
+  `end` is absent or malformed on some rows; those fall back to their start
+  page and behave as single-page chunks. Chunks predating source locators
+  have no page at all and never match.
+
+  The page bounds are extracted from JSON metadata with `substring`, so this is
+  not an index-optimized page lookup. The query is intentionally scoped by
+  `document_id` first and is appropriate for per-document navigation.
+  """
+  def list_by_page(document_id, page_number) when is_integer(page_number) do
+    from(c in __MODULE__,
+      where: c.document_id == ^document_id,
+      where:
+        fragment(
+          "(substring(?->>'start' FROM '^P([0-9]+)\\|'))::int <= ?",
+          c.metadata,
+          ^page_number
+        ),
+      where:
+        fragment(
+          """
+          COALESCE(
+            (substring(?->>'end' FROM '^P([0-9]+)\\|'))::int,
+            (substring(?->>'start' FROM '^P([0-9]+)\\|'))::int
+          ) >= ?
+          """,
+          c.metadata,
+          c.metadata,
+          ^page_number
+        ),
+      order_by: [asc: c.chunk_index]
+    )
+    |> Repo.all()
+  end
+
+  @doc """
   Deletes all chunks for a given document.
   Used before re-ingesting a document.
   """

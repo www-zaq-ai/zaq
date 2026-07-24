@@ -18,7 +18,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
   alias Zaq.Agent.TokenEstimator
 
   defmodule Section do
-    @moduledoc "Represents a document section with metadata."
+    @moduledoc "Represents a document section with metadata and source locators."
     defstruct [
       :id,
       # :heading, :paragraph, :table, :figure, :caption
@@ -31,7 +31,15 @@ defmodule Zaq.Ingestion.DocumentChunker do
       :parent_path,
       # original position in document
       :position,
-      :tokens
+      :tokens,
+      # source locators (annotated post-parse; pages driven by <!-- page: N -->)
+      :start_page,
+      :end_page,
+      :start_line,
+      :end_line,
+      # source line entries backing content's meaningful lines, in order —
+      # each %{line, page, text}
+      :source_lines
     ]
   end
 
@@ -41,8 +49,12 @@ defmodule Zaq.Ingestion.DocumentChunker do
 
     Invariants:
 
-      * `content` is a byte-exact substring of the source document — never
-        synthesized, trimmed, or rewritten.
+      * `content` carries the source's lines verbatim, but is not a
+        byte-exact slice: packed sections are joined with `"\n\n"`, page
+        markers are stripped, and a row-split table part repeats its header
+        row. The `start_*`/`end_*` fields are a source **locator** — the
+        page/line span contains the chunk's lines plus any stripped
+        markers/blank runs; it does not equal `content`.
       * `embedding_input` is the embed-only enrichment, built from exactly
         two fields and nothing else (no `metadata`, no document identifiers):
 
@@ -65,7 +77,12 @@ defmodule Zaq.Ingestion.DocumentChunker do
       :tokens,
       :metadata,
       # transient — embed only, never persisted (see moduledoc)
-      :embedding_input
+      :embedding_input,
+      # source locators (see moduledoc: locator, not a slice)
+      :start_page,
+      :end_page,
+      :start_line,
+      :end_line
     ]
 
     @doc """
@@ -142,9 +159,9 @@ defmodule Zaq.Ingestion.DocumentChunker do
       format = Keyword.get(opts, :format, :markdown)
 
       case format do
-        :markdown -> parse_markdown(text)
+        :markdown -> text |> parse_markdown() |> annotate_source_positions(text)
         :html -> parse_html(text)
-        :text -> parse_plain_text(text)
+        :text -> text |> parse_plain_text() |> annotate_source_positions(text)
         _ -> {:error, {:invalid_format, format}}
       end
     end
@@ -153,6 +170,13 @@ defmodule Zaq.Ingestion.DocumentChunker do
   @doc """
   Chunk sections into token-bounded pieces.
 
+  Runs of consecutive sections sharing a `section_path` are packed
+  together toward `chunk_max_tokens`; packing never crosses a path
+  boundary. Tables travel with their surrounding blocks and split at row
+  boundaries (header repeated) only when they exceed the budget on their
+  own. Every chunk carries source locators — the span locates the chunk
+  in the source, it is not a byte-exact slice.
+
   Min/max token sizes are read from `config :zaq, Zaq.Ingestion`.
   """
   def chunk_sections(sections, _opts \\ []) when is_list(sections) do
@@ -160,10 +184,10 @@ defmodule Zaq.Ingestion.DocumentChunker do
     |> Enum.filter(fn section ->
       String.trim(section.content || "") != ""
     end)
+    |> Enum.chunk_by(&get_current_path/1)
+    |> Enum.flat_map(&chunk_path_run/1)
     |> Enum.with_index()
-    |> Enum.flat_map(fn {section, idx} ->
-      chunk_section(section, idx)
-    end)
+    |> Enum.map(fn {chunk, index} -> %{chunk | id: "chunk_#{index}"} end)
   end
 
   # ---------------------------------------------------------------------------
@@ -196,7 +220,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
          position
        ) do
     cond do
-      heading = parse_any_heading(line) ->
+      heading = parse_heading(line) ->
         handle_heading(
           line,
           heading,
@@ -268,10 +292,6 @@ defmodule Zaq.Ingestion.DocumentChunker do
   # ---------------------------------------------------------------------------
   # Heading detection
   # ---------------------------------------------------------------------------
-
-  defp parse_any_heading(line) do
-    parse_heading(line) || parse_bold_heading(line) || parse_italic_heading(line)
-  end
 
   defp handle_heading(
          line,
@@ -490,140 +510,19 @@ defmodule Zaq.Ingestion.DocumentChunker do
     String.match?(String.trim(line), ~r/^<!--.*-->$/)
   end
 
-  defp bold_heading_candidate?(text) do
-    word_count = text |> String.split(~r/\s+/, trim: true) |> length()
-
-    cond do
-      # Sentence-like: ends with terminating punctuation
-      String.match?(text, ~r/[.!?»"]\s*$/) -> false
-      # Too many words to be a title
-      word_count > 8 -> false
-      # Measurement: a bare number followed by a single unit word (e.g. "2.5 m", "20 cm")
-      Regex.match?(~r/^\d+[\.,]?\d*\s+[a-zA-Z]+$/, text) -> false
-      true -> true
-    end
-  end
-
   # ---------------------------------------------------------------------------
-  # Heading parsers
+  # Heading parser
   # ---------------------------------------------------------------------------
 
+  # Golden rule: markdown `#`…`######` headings are the ONLY source of
+  # structure. The chunker never promotes bold/italic lines, bullets, or
+  # id patterns to headings — structure defects in the markdown are
+  # converter bugs, fixed upstream.
   defp parse_heading(line) do
     case Regex.run(~r/^(#+)\s+(.+)$/, line) do
       [_, hashes, title] -> {String.length(hashes), String.trim(title)}
       nil -> nil
     end
-  end
-
-  defp parse_bold_heading(line) do
-    case Regex.run(~r/^\*\*(\d+(?:\.\d+)*\.?)\*\*\s+\*\*(.+?)\*\*\s*$/, line) do
-      [_, number, title] -> handle_bold_numbered_heading(line, number, title)
-      nil -> handle_bold_simple_heading(line)
-    end
-  end
-
-  defp handle_bold_numbered_heading(line, number, title) do
-    if Regex.match?(~r/\*\*\s*\d+\s*\*\*\s*$/, line) do
-      nil
-    else
-      level = determine_heading_level(number)
-      clean_title = String.trim(title)
-      {level, "#{number} #{clean_title}"}
-    end
-  end
-
-  defp handle_bold_simple_heading(line) do
-    case Regex.run(~r/^\*\*([^*]+)\*\*\s*$/, line) do
-      [_, title] ->
-        if bold_heading_candidate?(String.trim(title)), do: process_bold_title(title), else: nil
-
-      nil ->
-        nil
-    end
-  end
-
-  defp process_bold_title(title) do
-    clean_title = String.trim(title)
-
-    if Regex.match?(~r/^\d+(?:\.\d+)*\.?\s+/, clean_title) do
-      extract_level_from_bold_title(clean_title)
-    else
-      handle_non_numbered_bold_title(title, clean_title)
-    end
-  end
-
-  defp extract_level_from_bold_title(clean_title) do
-    case Regex.run(~r/^(\d+(?:\.\d+)*\.?)\s+(.+)$/, clean_title) do
-      [_, number, _text] ->
-        level = determine_heading_level(number)
-        {level, String.trim(clean_title)}
-
-      nil ->
-        {2, clean_title}
-    end
-  end
-
-  defp handle_non_numbered_bold_title(title, clean_title) do
-    if String.match?(title, ~r/\*\*\s*\d+\s*\*\*\s*$/) do
-      nil
-    else
-      {2, clean_title}
-    end
-  end
-
-  defp parse_italic_heading(line) do
-    case Regex.run(~r/^_(\d+(?:\.\d+)*)_\s+_(.+?)_\s*$/, line) do
-      [_, number, title] -> handle_numbered_heading(line, number, title)
-      nil -> handle_simple_heading(line)
-    end
-  end
-
-  defp handle_numbered_heading(line, number, title) do
-    if Regex.match?(~r/_\s*\d+\s*_\s*$/, line) do
-      nil
-    else
-      level = determine_heading_level(number)
-      clean_title = String.trim(title)
-      {level, "#{number} #{clean_title}"}
-    end
-  end
-
-  defp handle_simple_heading(line) do
-    case Regex.run(~r/^_([^_]+)_\s*$/, line) do
-      [_, title] -> process_simple_title(title)
-      nil -> nil
-    end
-  end
-
-  defp process_simple_title(title) do
-    clean_title = String.trim(title)
-
-    if String.match?(title, ~r/_\s*\d+\s*_\s*$/) do
-      nil
-    else
-      extract_heading_level(clean_title)
-    end
-  end
-
-  defp extract_heading_level(clean_title) do
-    if Regex.match?(~r/^\d+(?:\.\d+)*\s+/, clean_title) do
-      case Regex.run(~r/^(\d+(?:\.\d+)*)\s+(.+)$/, clean_title) do
-        [_, number, _text] ->
-          level = determine_heading_level(number)
-          {level, String.trim(clean_title)}
-
-        nil ->
-          {3, clean_title}
-      end
-    else
-      {3, clean_title}
-    end
-  end
-
-  defp determine_heading_level(number_str) do
-    cleaned = String.trim_trailing(number_str, ".")
-    dots = String.graphemes(cleaned) |> Enum.count(&(&1 == "."))
-    min(dots + 1, 6)
   end
 
   # ---------------------------------------------------------------------------
@@ -756,32 +655,268 @@ defmodule Zaq.Ingestion.DocumentChunker do
   end
 
   # ---------------------------------------------------------------------------
-  # Chunking
+  # Chunking — cross-section packing (Rules 3–6)
   # ---------------------------------------------------------------------------
 
-  defp chunk_section(section, section_idx) do
-    # Budget the SPLIT so that embedding_input (prefix + content) stays
-    # under chunk_max_tokens; the prefix itself never eats the whole budget
-    # (Chunk.context_prefix/1 collapses to "" in that case).
-    overhead = TokenEstimator.estimate(Chunk.context_prefix(get_current_path(section)))
-    effective_max = max(1, chunk_max_tokens() - overhead)
+  @section_separator "\n\n"
 
-    if section.tokens <= effective_max do
-      [create_chunk(section, section.content, section_idx, 0)]
+  # A run is a maximal list of consecutive sections sharing one path.
+  # Pieces (packable fragments carrying their source-line entries) are
+  # packed greedily toward the effective max; tables glue to one block on
+  # each side and row-split with the header repeated when oversized.
+  defp chunk_path_run([first | _] = run) do
+    path = get_current_path(first)
+    effective_max = effective_max_tokens(path)
+
+    run
+    |> Enum.flat_map(&section_pieces(&1, effective_max))
+    |> glue_tables()
+    |> Enum.flat_map(&fit_unit(&1, effective_max))
+    |> pack_units(effective_max)
+    |> merge_undersized(chunk_min_tokens(), effective_max)
+    |> Enum.map(&build_chunk(&1, path))
+  end
+
+  # Budget so that embedding_input (prefix + content) stays under
+  # chunk_max_tokens; the prefix itself never eats the whole budget
+  # (Chunk.context_prefix/1 collapses to "" in that case).
+  defp effective_max_tokens(path) do
+    overhead = TokenEstimator.estimate(Chunk.context_prefix(path))
+    max(1, chunk_max_tokens() - overhead)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Pieces — packable fragments of a section
+  # ---------------------------------------------------------------------------
+
+  defp piece(section, text, entries) do
+    %{
+      section: section,
+      type: section.type,
+      text: text,
+      entries: entries,
+      tokens: TokenEstimator.estimate(text)
+    }
+  end
+
+  # Tables stay atomic pieces; other sections explode into blocks so the
+  # packer can fill chunks densely. Entries distribute positionally: a
+  # section's meaningful content lines map 1:1, in order, onto its
+  # source_lines.
+  defp section_pieces(%Section{type: :table} = section, _effective_max) do
+    [piece(section, section.content, section.source_lines || [])]
+  end
+
+  defp section_pieces(section, effective_max) do
+    section.content
+    |> String.split(~r/\n\n+/)
+    |> Enum.reject(&(String.trim(&1) == ""))
+    |> distribute_entries(section.source_lines || [])
+    |> Enum.flat_map(fn {block, entries} ->
+      split_oversized_block(section, block, entries, effective_max)
+    end)
+  end
+
+  defp distribute_entries(blocks, entries) do
+    {pairs, _rest} =
+      Enum.map_reduce(blocks, entries, fn block, remaining ->
+        {taken, rest} = Enum.split(remaining, length(meaningful_lines(block)))
+        {{block, taken}, rest}
+      end)
+
+    pairs
+  end
+
+  # A single block over budget splits at sentence boundaries; the parts
+  # share the block's source span (a locator, not a slice).
+  defp split_oversized_block(section, block, entries, effective_max) do
+    if TokenEstimator.estimate(block) <= effective_max do
+      [piece(section, block, entries)]
     else
-      split_into_chunks(section, section_idx, effective_max)
+      block
+      |> split_large_paragraph(effective_max)
+      |> Enum.map(&piece(section, &1, entries))
     end
   end
 
-  defp split_into_chunks(section, section_idx, effective_max) do
-    section.content
-    |> split_preserving_separators(~r/\n\n+/)
-    |> combine_to_target_size(chunk_min_tokens(), effective_max)
+  # ---------------------------------------------------------------------------
+  # Table glue and row-splitting (Rule 3)
+  # ---------------------------------------------------------------------------
+
+  # A table glues to the block immediately before it and the block
+  # immediately after it; the glued unit is atomic for packing.
+  defp glue_tables(pieces) do
+    pieces
+    |> Enum.reduce({[], false}, fn piece, {units, glue_next?} ->
+      cond do
+        piece.type == :table and units != [] ->
+          [current | rest] = units
+          {[current ++ [piece] | rest], true}
+
+        piece.type == :table ->
+          {[[piece]], true}
+
+        glue_next? ->
+          [current | rest] = units
+          {[current ++ [piece] | rest], false}
+
+        true ->
+          {[[piece] | units], false}
+      end
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+  end
+
+  # A unit over budget row-splits its oversized tables (the preceding
+  # block's tokens are budgeted into the first part so the glue survives),
+  # then repacks its pieces greedily.
+  defp fit_unit(unit, effective_max) do
+    if unit_tokens(unit) <= effective_max do
+      [unit]
+    else
+      unit
+      |> row_split_oversized_tables(effective_max)
+      |> Enum.map(&[&1])
+      |> pack_units(effective_max)
+    end
+  end
+
+  defp row_split_oversized_tables(pieces, effective_max) do
+    pieces
+    |> Enum.reduce({[], 0}, fn piece, {acc, prev_tokens} ->
+      if piece.type == :table and piece.tokens > effective_max do
+        first_budget = max(1, effective_max - prev_tokens)
+        parts = row_split(piece, first_budget, effective_max)
+        {Enum.reverse(parts, acc), 0}
+      else
+        {[piece | acc], piece.tokens}
+      end
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+  end
+
+  # Splits a table at row boundaries. Every continuation part repeats the
+  # header + delimiter rows (so no part holds orphan rows), but only the
+  # part's own source rows back its locator entries — the repeated header
+  # has no source position of its own.
+  defp row_split(piece, first_budget, effective_max) do
+    [header_line, delimiter_line | rows] = String.split(piece.text, "\n")
+    rows = Enum.reject(rows, &(String.trim(&1) == ""))
+    {header_entries, row_entries} = Enum.split(piece.entries, 2)
+
+    head = header_line <> "\n" <> delimiter_line
+
+    rows
+    |> pair_rows_with_entries(row_entries)
+    |> chunk_rows(head, first_budget, effective_max)
     |> Enum.with_index()
-    |> Enum.map(fn {chunk_content, chunk_idx} ->
-      create_chunk(section, chunk_content, section_idx, chunk_idx)
+    |> Enum.map(fn {{text, entries}, index} ->
+      entries = if index == 0, do: header_entries ++ entries, else: entries
+      %{piece | text: text, entries: entries, tokens: TokenEstimator.estimate(text)}
     end)
   end
+
+  defp pair_rows_with_entries([], _row_entries), do: []
+
+  defp pair_rows_with_entries(rows, row_entries) do
+    {pairs, _remaining_entries} =
+      Enum.map_reduce(rows, row_entries, fn row, entries ->
+        case entries do
+          [entry | rest] -> {{row, entry}, rest}
+          [] -> {{row, nil}, []}
+        end
+      end)
+
+    pairs
+  end
+
+  defp chunk_rows([], head, _first_budget, _effective_max), do: [{head, []}]
+
+  defp chunk_rows(rows_with_entries, head, first_budget, effective_max) do
+    {parts, current, _budget} =
+      Enum.reduce(rows_with_entries, {[], [], first_budget}, fn pair, {parts, current, budget} ->
+        candidate = part_text(head, Enum.reverse([pair | current]))
+
+        cond do
+          current == [] ->
+            {parts, [pair], budget}
+
+          TokenEstimator.estimate(candidate) <= budget ->
+            {parts, [pair | current], budget}
+
+          true ->
+            {[Enum.reverse(current) | parts], [pair], effective_max}
+        end
+      end)
+
+    parts = if current == [], do: parts, else: [Enum.reverse(current) | parts]
+
+    parts
+    |> Enum.reverse()
+    |> Enum.map(fn pairs ->
+      entries = pairs |> Enum.map(&elem(&1, 1)) |> Enum.reject(&is_nil/1)
+      {part_text(head, pairs), entries}
+    end)
+  end
+
+  defp part_text(head, pairs) do
+    head <> "\n" <> Enum.map_join(pairs, "\n", &elem(&1, 0))
+  end
+
+  # ---------------------------------------------------------------------------
+  # Packing (Rules 4–6)
+  # ---------------------------------------------------------------------------
+
+  # Greedy packing of atomic units toward the effective max. The budget is
+  # measured on the joined candidate string — never the sum of per-piece
+  # estimates — so a packed group can never exceed the budget.
+  defp pack_units(units, effective_max) do
+    {groups, current} =
+      Enum.reduce(units, {[], []}, fn unit, {groups, current} ->
+        cond do
+          current == [] ->
+            {groups, unit}
+
+          group_tokens(current ++ unit) <= effective_max ->
+            {groups, current ++ unit}
+
+          true ->
+            {[current | groups], unit}
+        end
+      end)
+
+    groups = if current == [], do: groups, else: [current | groups]
+    Enum.reverse(groups)
+  end
+
+  # An under-min group merges into its neighbor whenever the merged result
+  # still fits; under-min chunks survive only for genuinely short runs.
+  defp merge_undersized(groups, min, effective_max) do
+    groups
+    |> Enum.reduce([], &merge_group(&1, &2, min, effective_max))
+    |> Enum.reverse()
+  end
+
+  defp merge_group(group, [], _min, _effective_max), do: [group]
+
+  defp merge_group(group, [previous | rest] = acc, min, effective_max) do
+    if (group_tokens(group) < min or group_tokens(previous) < min) and
+         group_tokens(previous ++ group) <= effective_max do
+      [previous ++ group | rest]
+    else
+      [group | acc]
+    end
+  end
+
+  defp group_tokens(pieces) do
+    pieces
+    |> Enum.map_join(@section_separator, & &1.text)
+    |> TokenEstimator.estimate()
+  end
+
+  defp unit_tokens(unit), do: group_tokens(unit)
 
   # Splits on the pattern, pairing every piece with the verbatim separator
   # that followed it in the source ("" for the last), so pieces combined
@@ -801,51 +936,6 @@ defmodule Zaq.Ingestion.DocumentChunker do
   # dropped — it lies between two chunks, inside neither.
   defp join_pairs([{last, _sep_after_chunk} | earlier]) do
     Enum.reduce(earlier, last, fn {piece, sep}, acc -> piece <> sep <> acc end)
-  end
-
-  defp combine_to_target_size(paragraph_pairs, min_tokens, max_tokens) do
-    combine_paragraphs(paragraph_pairs, [], [], 0, min_tokens, max_tokens)
-  end
-
-  defp combine_paragraphs([], chunks, current, _current_tokens, _min, _max) do
-    final_chunks = if current != [], do: [join_pairs(current) | chunks], else: chunks
-
-    Enum.reverse(final_chunks)
-  end
-
-  defp combine_paragraphs(
-         [{para, _sep} = pair | rest],
-         chunks,
-         current,
-         current_tokens,
-         min_tokens,
-         max_tokens
-       ) do
-    para_tokens = TokenEstimator.estimate(para)
-    new_tokens = current_tokens + para_tokens
-
-    cond do
-      current == [] && para_tokens > max_tokens ->
-        # `chunks` accumulates in reverse; prepend the split results
-        # reversed so the final Enum.reverse restores reading order.
-        split_chunks = split_large_paragraph(para, max_tokens)
-
-        combine_paragraphs(
-          rest,
-          Enum.reverse(split_chunks, chunks),
-          [],
-          0,
-          min_tokens,
-          max_tokens
-        )
-
-      current == [] || new_tokens <= max_tokens ->
-        combine_paragraphs(rest, chunks, [pair | current], new_tokens, min_tokens, max_tokens)
-
-      true ->
-        chunk = join_pairs(current)
-        combine_paragraphs([pair | rest], [chunk | chunks], [], 0, min_tokens, max_tokens)
-    end
   end
 
   defp split_large_paragraph(para, max_tokens) do
@@ -890,11 +980,16 @@ defmodule Zaq.Ingestion.DocumentChunker do
   # Chunk creation
   # ---------------------------------------------------------------------------
 
-  defp create_chunk(section, content, section_idx, chunk_idx) do
-    section_path = get_current_path(section)
+  defp build_chunk(pieces, section_path) do
+    content = Enum.map_join(pieces, @section_separator, & &1.text)
+    entries = Enum.flat_map(pieces, & &1.entries)
+    first = List.first(entries)
+    last = List.last(entries)
+    section = hd(pieces).section
 
     %Chunk{
-      id: "chunk_#{section_idx}_#{chunk_idx}",
+      # id assigned by chunk_sections/2 once all runs are flattened
+      id: nil,
       section_id: section.id,
       content: content,
       section_path: section_path,
@@ -904,8 +999,94 @@ defmodule Zaq.Ingestion.DocumentChunker do
         section_type: section.type,
         section_level: section.level,
         position: section.position
-      }
+      },
+      start_page: first && first.page,
+      end_page: last && last.page,
+      start_line: first && first.line,
+      end_line: last && last.line
     }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Source-position annotation (Rules 1 & 7)
+  # ---------------------------------------------------------------------------
+
+  @page_marker ~r/^<!--\s*page:\s*(\d+)\s*-->$/
+
+  # Builds a source line table (pages driven by the <!-- page: N -->
+  # markers) and gives every section its span. Matching is
+  # whole-line equality behind a monotonic cursor — substring search would
+  # mismatch: the corpus repeats many lines verbatim.
+  defp annotate_source_positions(sections, source) do
+    {annotated, _remaining} =
+      Enum.map_reduce(sections, build_line_entries(source), fn section, remaining ->
+        {entries, rest} = take_section_entries(section, remaining)
+        {apply_span(section, entries), rest}
+      end)
+
+    annotated
+  end
+
+  defp build_line_entries(source) do
+    source
+    |> String.split("\n")
+    |> Enum.map_reduce({1, 1}, fn line, {line_no, page} ->
+      text = String.trim(line)
+
+      page =
+        case Regex.run(@page_marker, text) do
+          [_, number] -> String.to_integer(number)
+          nil -> page
+        end
+
+      entry =
+        if text == "" or String.starts_with?(text, "<!--") do
+          nil
+        else
+          %{line: line_no, page: page, text: text}
+        end
+
+      {entry, {line_no + 1, page}}
+    end)
+    |> elem(0)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp take_section_entries(section, remaining) do
+    {taken, rest} =
+      section.content
+      |> meaningful_lines()
+      |> Enum.reduce({[], remaining}, fn line, {taken, rest} ->
+        case Enum.split_while(rest, &(&1.text != line)) do
+          {_skipped, [match | after_match]} -> {[match | taken], after_match}
+          {_all, []} -> {taken, rest}
+        end
+      end)
+
+    {Enum.reverse(taken), rest}
+  end
+
+  defp apply_span(section, []), do: %{section | source_lines: []}
+
+  defp apply_span(section, entries) do
+    first = hd(entries)
+    last = List.last(entries)
+
+    %{
+      section
+      | source_lines: entries,
+        start_page: first.page,
+        end_page: last.page,
+        start_line: first.line,
+        end_line: last.line
+    }
+  end
+
+  defp meaningful_lines(text) do
+    text
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(fn line -> line == "" or String.starts_with?(line, "<!--") end)
   end
 
   # ---------------------------------------------------------------------------

@@ -110,6 +110,93 @@ defmodule Zaq.Ingestion.ChunkTest do
     end
   end
 
+  describe "get_by_index/2" do
+    test "returns the chunk at the given index", %{document: doc} do
+      {:ok, _} = Chunk.create(chunk_attrs(doc, %{chunk_index: 0, content: "First"}))
+      {:ok, _} = Chunk.create(chunk_attrs(doc, %{chunk_index: 1, content: "Second"}))
+
+      assert %Chunk{content: "Second"} = Chunk.get_by_index(doc.id, 1)
+    end
+
+    test "returns nil when no chunk exists at the index", %{document: doc} do
+      assert Chunk.get_by_index(doc.id, 99) == nil
+    end
+  end
+
+  describe "list_by_page/2" do
+    defp locator_meta(start_page, end_page) do
+      %{
+        "start" => "P#{start_page}|L1",
+        "end" => "P#{end_page}|L40"
+      }
+    end
+
+    test "returns a chunk spanning pages 1-3 for every covered page, ordered by chunk_index",
+         %{document: doc} do
+      {:ok, _} = Chunk.create(chunk_attrs(doc, %{chunk_index: 1, metadata: locator_meta(2, 3)}))
+      {:ok, _} = Chunk.create(chunk_attrs(doc, %{chunk_index: 0, metadata: locator_meta(1, 3)}))
+      {:ok, _} = Chunk.create(chunk_attrs(doc, %{chunk_index: 2, metadata: locator_meta(4, 4)}))
+
+      assert Enum.map(Chunk.list_by_page(doc.id, 1), & &1.chunk_index) == [0]
+      assert Enum.map(Chunk.list_by_page(doc.id, 2), & &1.chunk_index) == [0, 1]
+      assert Enum.map(Chunk.list_by_page(doc.id, 3), & &1.chunk_index) == [0, 1]
+      assert Enum.map(Chunk.list_by_page(doc.id, 4), & &1.chunk_index) == [2]
+    end
+
+    test "single-page chunk matches only its own page", %{document: doc} do
+      {:ok, chunk} =
+        Chunk.create(chunk_attrs(doc, %{chunk_index: 0, metadata: locator_meta(5, 5)}))
+
+      assert Enum.map(Chunk.list_by_page(doc.id, 5), & &1.id) == [chunk.id]
+      assert Chunk.list_by_page(doc.id, 4) == []
+      assert Chunk.list_by_page(doc.id, 6) == []
+    end
+
+    test "chunk with start but no end falls back to the start page", %{document: doc} do
+      {:ok, chunk} =
+        Chunk.create(chunk_attrs(doc, %{chunk_index: 0, metadata: %{"start" => "P7|L10"}}))
+
+      assert Enum.map(Chunk.list_by_page(doc.id, 7), & &1.id) == [chunk.id]
+      assert Chunk.list_by_page(doc.id, 8) == []
+    end
+
+    test "legacy and malformed rows never match and never raise", %{document: doc} do
+      {:ok, _} = Chunk.create(chunk_attrs(doc, %{chunk_index: 0, metadata: %{}}))
+
+      {:ok, _} =
+        Chunk.create(chunk_attrs(doc, %{chunk_index: 1, metadata: %{"start" => "garbage"}}))
+
+      {:ok, _} = Chunk.create(chunk_attrs(doc, %{chunk_index: 2, metadata: %{"start" => 5}}))
+
+      {:ok, matching} =
+        Chunk.create(chunk_attrs(doc, %{chunk_index: 3, metadata: locator_meta(5, 5)}))
+
+      assert Enum.map(Chunk.list_by_page(doc.id, 5), & &1.id) == [matching.id]
+    end
+
+    test "malformed end falls back to the start page", %{document: doc} do
+      {:ok, chunk} =
+        Chunk.create(
+          chunk_attrs(doc, %{
+            chunk_index: 0,
+            metadata: %{"start" => "P3|L1", "end" => "garbage"}
+          })
+        )
+
+      assert Enum.map(Chunk.list_by_page(doc.id, 3), & &1.id) == [chunk.id]
+      assert Chunk.list_by_page(doc.id, 4) == []
+    end
+
+    test "does not return chunks from other documents", %{document: doc} do
+      {:ok, other_doc} = Document.create(%{source: "other.md", content: "Other"})
+
+      {:ok, _} =
+        Chunk.create(chunk_attrs(other_doc, %{chunk_index: 0, metadata: locator_meta(1, 1)}))
+
+      assert Chunk.list_by_page(doc.id, 1) == []
+    end
+  end
+
   describe "delete_by_document/1" do
     test "deletes all chunks for a document", %{document: doc} do
       {:ok, _} = Chunk.create(chunk_attrs(doc, %{chunk_index: 0}))

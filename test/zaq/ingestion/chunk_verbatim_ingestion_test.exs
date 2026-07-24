@@ -200,32 +200,32 @@ defmodule Zaq.Ingestion.ChunkVerbatimIngestionTest do
   # ---------------------------------------------------------------------------
   # §1 — Chunk count
   #
-  # Expected post-fix breakdown (min/max token budget 400/900):
-  #   Intro H1 section  → 3 chunks: the seeded heading line flushes alone
-  #     (7 tokens, next paragraph would blow the budget), then the 923-word
-  #     paragraph (~1200 tokens > ~894 effective max) sentence-splits into 2.
+  # Expected breakdown under cross-section packing (min/max budget 400/900,
+  # see docs/exec-plans/active/2026-07-22-chunker-md-section-rules.md):
+  #   Intro H1 section  → 2 chunks: the 923-word paragraph (~1200 tokens >
+  #     ~894 effective max) sentence-splits in two; the under-min heading
+  #     line packs into the first split instead of flushing alone.
   #   Quarterly H2      → 1 chunk (heading + paragraph + list, well under max)
-  #   Emergency H2      → 1 chunk (heading-only section — retained, not dropped)
+  #   Emergency H2      → 1 chunk (heading-only section — retained, not
+  #     dropped; an isolated under-min run is allowed)
   #   Warranty H1       → 1 chunk (heading + paragraph)
-  # Today's chunker produces 4 (intro 2, quarterly 1, warranty 1, emergency
-  # dropped) — this test is the plan's red gate.
   # ---------------------------------------------------------------------------
 
   describe "§1 chunk count" do
-    test "fixture yields exactly 6 chunks: 3 + 1 + 1 + 1 per section" do
+    test "fixture yields exactly 5 chunks: 2 + 1 + 1 + 1 per section" do
       {_document, chunks} = ingest_fixture!()
 
       counts = Enum.frequencies_by(chunks, & &1.section_path)
 
       assert counts == %{
-               @intro_path => 3,
+               @intro_path => 2,
                @quarterly_path => 1,
                @emergency_path => 1,
                @warranty_path => 1
              },
              "per-section chunk counts diverged: #{inspect(counts)}"
 
-      assert length(chunks) == 6
+      assert length(chunks) == 5
     end
   end
 

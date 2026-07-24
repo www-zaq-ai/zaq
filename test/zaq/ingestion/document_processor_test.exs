@@ -336,10 +336,10 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   end
 
   # ---------------------------------------------------------------------------
-  # build_metadata/3
+  # build_metadata/1
   # ---------------------------------------------------------------------------
 
-  describe "build_metadata/3" do
+  describe "build_metadata/1" do
     test "builds base metadata for heading chunk" do
       chunk = %DocumentChunker.Chunk{
         id: "chunk_0_0",
@@ -354,15 +354,86 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         }
       }
 
-      meta = DocumentProcessor.build_metadata(chunk, 42, 1)
+      meta = DocumentProcessor.build_metadata(chunk)
 
-      assert meta.document_id == 42
-      assert meta.chunk_index == 1
       assert meta.section_id == "sec1"
       assert meta.section_type == :heading
       assert meta.section_level == 1
       assert meta.tokens == 10
       refute Map.has_key?(meta, :figure_title)
+    end
+
+    test "omits fields that are already columns on chunks" do
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_0_0",
+        section_id: "sec1",
+        content: "Some content",
+        section_path: ["Chapter 1"],
+        tokens: 10,
+        metadata: %{section_type: :heading, section_level: 1, position: 0}
+      }
+
+      meta = DocumentProcessor.build_metadata(chunk)
+
+      refute Map.has_key?(meta, :document_id)
+      refute Map.has_key?(meta, :chunk_index)
+      refute Map.has_key?(meta, :section_path)
+    end
+
+    test "emits P|L locators from the chunker struct" do
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_0_0",
+        section_id: "sec1",
+        content: "Some content",
+        section_path: ["Chapter 1"],
+        tokens: 10,
+        metadata: %{section_type: :heading, section_level: 1, position: 0},
+        start_page: 4,
+        end_page: 5,
+        start_line: 96,
+        end_line: 133
+      }
+
+      meta = DocumentProcessor.build_metadata(chunk)
+
+      assert meta.start == "P4|L96"
+      assert Map.fetch!(meta, :end) == "P5|L133"
+    end
+
+    test "omits locator keys when the chunker struct carries no locators" do
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_legacy",
+        section_id: "sec-legacy",
+        content: "Legacy content",
+        section_path: ["Chapter 1"],
+        tokens: 10,
+        metadata: %{section_type: :heading, section_level: 1, position: 0}
+      }
+
+      meta = DocumentProcessor.build_metadata(chunk)
+
+      refute Map.has_key?(meta, :start)
+      refute Map.has_key?(meta, :end)
+    end
+
+    test "omits a locator when either of its components is missing" do
+      chunk = %DocumentChunker.Chunk{
+        id: "chunk_partial",
+        section_id: "sec-partial",
+        content: "Partial locators",
+        section_path: [],
+        tokens: 2,
+        metadata: %{section_type: :heading, section_level: 1, position: 0},
+        start_page: 4,
+        start_line: nil,
+        end_page: nil,
+        end_line: 12
+      }
+
+      meta = DocumentProcessor.build_metadata(chunk)
+
+      refute Map.has_key?(meta, :start)
+      refute Map.has_key?(meta, :end)
     end
 
     test "adds figure_title for figure chunks" do
@@ -379,7 +450,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         }
       }
 
-      meta = DocumentProcessor.build_metadata(chunk, 42, 2)
+      meta = DocumentProcessor.build_metadata(chunk)
 
       assert meta.figure_title == "chart.png"
       assert meta.section_type == :figure
@@ -399,7 +470,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         }
       }
 
-      meta = DocumentProcessor.build_metadata(chunk, 101, 4)
+      meta = DocumentProcessor.build_metadata(chunk)
 
       assert meta.section_type == "heading"
       assert meta.section_level == 2
@@ -417,7 +488,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         metadata: %{"section_type" => "figure", "section_level" => nil, "position" => 5}
       }
 
-      meta = DocumentProcessor.build_metadata(chunk, 88, 8)
+      meta = DocumentProcessor.build_metadata(chunk)
 
       assert meta.figure_title == "diagram.png"
       assert meta.section_type == "figure"
@@ -433,7 +504,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         metadata: %{section_type: :figure, section_level: nil, position: 1}
       }
 
-      meta = DocumentProcessor.build_metadata(chunk, 99, 7)
+      meta = DocumentProcessor.build_metadata(chunk)
 
       assert meta.figure_title == ""
     end
@@ -448,7 +519,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         metadata: nil
       }
 
-      meta = DocumentProcessor.build_metadata(chunk, 123, 9)
+      meta = DocumentProcessor.build_metadata(chunk)
 
       assert meta.section_type == nil
       assert meta.section_level == nil
@@ -482,6 +553,49 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       db_chunks = Repo.all(from(c in Chunk, where: c.document_id == ^doc.id))
       assert db_chunks != []
+    end
+
+    test "persisted rows carry source locators and no column mirrors" do
+      stub_embedding_success()
+      doc = create_document()
+
+      content = """
+      <!-- page: 1 -->
+      # Introduction
+
+      This is the introduction paragraph with enough words to form a chunk.
+
+      <!-- page: 2 -->
+      ## Details
+
+      Here are some more details about the topic at hand.
+      """
+
+      {:ok, _results} = DocumentProcessor.process_and_store_chunks(content, doc.id)
+
+      db_chunks = Repo.all(from(c in Chunk, where: c.document_id == ^doc.id))
+      assert db_chunks != []
+
+      for chunk <- db_chunks do
+        assert chunk.metadata["start"] =~ ~r/^P\d+\|L\d+$/
+        assert chunk.metadata["end"] =~ ~r/^P\d+\|L\d+$/
+
+        refute Map.has_key?(chunk.metadata, "document_id")
+        refute Map.has_key?(chunk.metadata, "chunk_index")
+        refute Map.has_key?(chunk.metadata, "section_path")
+      end
+
+      pages =
+        Enum.map(db_chunks, fn chunk ->
+          [_, page] = Regex.run(~r/^P(\d+)\|/, chunk.metadata["start"])
+          String.to_integer(page)
+        end)
+
+      assert 2 in pages
+
+      last = Enum.max_by(db_chunks, & &1.chunk_index)
+      assert Chunk.list_by_page(doc.id, 2) != []
+      assert last.id in Enum.map(Chunk.list_by_page(doc.id, 2), & &1.id)
     end
 
     test "returns error when embedding fails" do
@@ -1244,6 +1358,22 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
              end)
 
       assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^doc.id), :count) == 0
+    end
+
+    test "payloads carry the chunk's source locators", %{tmp_dir: tmp_dir} do
+      path =
+        create_test_md_file(
+          tmp_dir,
+          "prepare-locators.md",
+          "# Prep\n\n" <> String.duplicate("prepared content ", 120)
+        )
+
+      assert {:ok, %Document{}, indexed_payloads} = DocumentProcessor.prepare_file_chunks(path)
+
+      assert Enum.all?(indexed_payloads, fn {payload, _index} ->
+               is_integer(payload["start_page"]) and is_integer(payload["end_page"]) and
+                 is_integer(payload["start_line"]) and is_integer(payload["end_line"])
+             end)
     end
 
     test "returns file read errors" do
