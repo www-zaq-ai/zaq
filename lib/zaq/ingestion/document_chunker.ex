@@ -809,8 +809,7 @@ defmodule Zaq.Ingestion.DocumentChunker do
     head = header_line <> "\n" <> delimiter_line
 
     rows
-    |> Enum.with_index()
-    |> Enum.map(fn {row, index} -> {row, Enum.at(row_entries, index)} end)
+    |> pair_rows_with_entries(row_entries)
     |> chunk_rows(head, first_budget, effective_max)
     |> Enum.with_index()
     |> Enum.map(fn {{text, entries}, index} ->
@@ -818,6 +817,22 @@ defmodule Zaq.Ingestion.DocumentChunker do
       %{piece | text: text, entries: entries, tokens: TokenEstimator.estimate(text)}
     end)
   end
+
+  defp pair_rows_with_entries([], _row_entries), do: []
+
+  defp pair_rows_with_entries(rows, row_entries) do
+    {pairs, _remaining_entries} =
+      Enum.map_reduce(rows, row_entries, fn row, entries ->
+        case entries do
+          [entry | rest] -> {{row, entry}, rest}
+          [] -> {{row, nil}, []}
+        end
+      end)
+
+    pairs
+  end
+
+  defp chunk_rows([], head, _first_budget, _effective_max), do: [{head, []}]
 
   defp chunk_rows(rows_with_entries, head, first_budget, effective_max) do
     {parts, current, _budget} =

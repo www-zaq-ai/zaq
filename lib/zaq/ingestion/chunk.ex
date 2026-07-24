@@ -123,6 +123,10 @@ defmodule Zaq.Ingestion.Chunk do
   `end` is absent or malformed on some rows; those fall back to their start
   page and behave as single-page chunks. Chunks predating source locators
   have no page at all and never match.
+
+  The page bounds are extracted from JSON metadata with `substring`, so this is
+  not an index-optimized page lookup. The query is intentionally scoped by
+  `document_id` first and is appropriate for per-document navigation.
   """
   def list_by_page(document_id, page_number) when is_integer(page_number) do
     from(c in __MODULE__,

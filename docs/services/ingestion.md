@@ -111,16 +111,23 @@ File path
 
 ### Document Chunking (`Zaq.Ingestion.DocumentChunker`)
 - Layout-aware, hierarchical section detection for Markdown
-- Detects: ATX headings (`#`), bold headings (`**...**`), italic headings (`_..._`),
+- Detects: ATX headings (`#`),
   tables (`|...|`), figures (`![...](...)`), vision image blocks (`> **[Image: ...]**`)
 - Builds heading stack to track parent path for each section
 - Chunks sections into 400–900 token pieces (configurable via `config :zaq, Zaq.Ingestion`)
 - Large sections split by paragraphs, then sentences if needed
-- Store-raw / embed-enriched split: `chunk.content` is a byte-exact substring of the
-  source document (headings kept verbatim, whitespace preserved); the transient
-  `chunk.embedding_input` (section-path context prefix + content) is used for embedding
-  only — never persisted, FTS-indexed, or shown to users
+- Store-raw / embed-enriched split: `chunk.content` preserves source lines but may join
+  packed sections with blank lines, strip page markers, or repeat a row-split table
+  header; the transient `chunk.embedding_input` (section-path context prefix + content)
+  is used for embedding only — never persisted, FTS-indexed, or shown to users
+- Source locators are added during parsing: chunk metadata stores `start`/`end` as
+  `P<page>|L<line>` strings so callers can trace chunks back to converter Markdown
 - Token counts via `Zaq.Agent.TokenEstimator`
+
+### Chunks (`Zaq.Ingestion.Chunk`)
+- `list_by_page/2` returns every chunk in one document whose source locator range covers
+  a page number; it extracts page bounds from metadata and is intended for scoped,
+  per-document navigation rather than an index-optimized global page search
 
 ### Document Processor (`Zaq.Ingestion.DocumentProcessor`)
 - `process_single_file/1` — full pipeline: read → upsert doc → chunk → embed → store

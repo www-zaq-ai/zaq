@@ -367,6 +367,29 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
         assert length(chunks_containing(chunks, row)) == 1, "row #{i} lost or duplicated"
       end
     end
+
+    test "an oversized table with only blank data rows keeps its header" do
+      System.set_config("embedding.chunk_min_tokens", 1)
+      System.set_config("embedding.chunk_max_tokens", 5)
+
+      header = "|Colonne un tres longue|Colonne deux tres longue|Colonne trois tres longue|"
+      delimiter = "|---|---|---|"
+
+      md = """
+      # Long
+
+      #{header}
+      #{delimiter}
+
+      """
+
+      chunks = chunk!(md)
+      table_chunk = Enum.find(chunks, &String.starts_with?(&1.content, header))
+
+      assert table_chunk
+      assert table_chunk.content == header <> "\n" <> delimiter
+      assert table_chunk.section_path == ["Long"]
+    end
   end
 
   # ---------------------------------------------------------------------------
