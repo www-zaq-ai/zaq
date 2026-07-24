@@ -20,7 +20,6 @@ defmodule Zaq.Agent.Tools.Files.CreateFileTest do
       assert result.name == "report.md"
       assert result.path == "generated/report.md"
       assert result.mime_type == "text/markdown"
-      assert result.url == "/bo/files/generated/report.md"
       assert result.size == 16
       assert result.data == "# Report\ncontent"
     end
@@ -37,8 +36,7 @@ defmodule Zaq.Agent.Tools.Files.CreateFileTest do
                  @ctx
                )
 
-      assert result.path == "archives/notes.md"
-      assert result.url == "/bo/files/archives/notes.md"
+      assert result.path == "archives/notes.txt"
     end
 
     test "handles filename without extension" do
@@ -50,6 +48,17 @@ defmodule Zaq.Agent.Tools.Files.CreateFileTest do
 
       assert result.name == "README.md"
       assert result.path == "generated/README.md"
+    end
+
+    test "returns error when required fields are missing" do
+      assert {:error, :missing_required_fields} =
+               CreateFile.run(%{data: "hello", mime_type: "text/plain"}, @ctx)
+
+      assert {:error, :missing_required_fields} =
+               CreateFile.run(%{filename: "test.txt", mime_type: "text/plain"}, @ctx)
+
+      assert {:error, :missing_required_fields} =
+               CreateFile.run(%{filename: "test.txt", data: "hello"}, @ctx)
     end
   end
 end

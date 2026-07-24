@@ -448,10 +448,19 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   defp resolve_data_source_config(provider, params) do
     case normalize_config_id(params) do
-      {:ok, id} -> fetch_scoped_data_source_config(provider, id)
-      :error -> Bridge.fetch_channel_config(provider)
+      {:ok, id} ->
+        fetch_scoped_data_source_config(provider, id)
+
+      :error ->
+        case Bridge.fetch_channel_config(provider) do
+          {:ok, config} -> {:ok, config}
+          {:error, _} -> fallback_config(provider)
+        end
     end
   end
+
+  defp fallback_config("disk"), do: {:ok, %{}}
+  defp fallback_config(provider), do: {:error, {:channel_not_configured, provider}}
 
   defp normalize_config_id(params) do
     case Map.get(params, "config_id") || Map.get(params, :config_id) do

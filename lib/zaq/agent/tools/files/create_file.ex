@@ -17,33 +17,41 @@ defmodule Zaq.Agent.Tools.Files.CreateFile do
       ]
     ],
     output_schema: [
-      name: [type: :string, required: true, doc: "Saved filename (.md extension)"],
+      name: [type: :string, required: true, doc: "Saved filename"],
       path: [type: :string, required: true, doc: "Relative path from base directory"],
       mime_type: [type: :string, required: true, doc: "MIME type"],
-      url: [type: :string, required: true, doc: "Download URL"],
       size: [type: :integer, required: true, doc: "File size in bytes"],
       data: [type: :string, required: true, doc: "Raw file content (plain text)"]
     ]
 
   @impl Jido.Action
-  def run(params, _context) do
-    md_name = Path.rootname(params.filename) <> ".md"
+  def run(%{filename: _, mime_type: _, data: _} = params, _context) do
+    ext = mime_to_ext(params.mime_type)
+    out_name = Path.rootname(params.filename) <> ext
+    out_mime = ext_to_mime(ext)
 
     rel_path =
       if params[:path] do
-        Path.join(params[:path], md_name)
+        Path.join(params[:path], out_name)
       else
-        "generated/#{md_name}"
+        "generated/#{out_name}"
       end
 
     {:ok,
      %{
-       name: md_name,
+       name: out_name,
        path: rel_path,
-       mime_type: "text/markdown",
-       url: "/bo/files/#{rel_path}",
+       mime_type: out_mime,
        size: byte_size(params.data),
        data: params.data
      }}
   end
+
+  def run(_params, _context), do: {:error, :missing_required_fields}
+
+  defp mime_to_ext("text/plain"), do: ".txt"
+  defp mime_to_ext(_), do: ".md"
+
+  defp ext_to_mime(".txt"), do: "text/plain"
+  defp ext_to_mime(_), do: "text/markdown"
 end

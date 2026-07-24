@@ -303,13 +303,36 @@ defmodule Zaq.Channels.Api do
     %{event | response: disk_module.create_file(params)}
   end
 
-  def handle_event(
-        %Event{request: %{filename: _, content: _} = params} = event,
-        :disk_persist_file,
-        _context
-      ) do
-    disk_module = Keyword.get(event.opts, :disk_bridge_module, DiskBridge)
-    %{event | response: disk_module.create_file(params)}
+  def handle_event(%Event{request: params} = event, :persist_file, _context) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    provider = params[:provider] || "disk"
+
+    normalized = %{
+      name: params.filename,
+      content: params.data,
+      mime_type: params.mime_type,
+      path: params[:path]
+    }
+
+    response =
+      case data_source_module.create_file(provider, normalized) do
+        {:ok, %{status: "created", record: record}} ->
+          {:ok,
+           %{
+             name: record.name,
+             path: record.id,
+             mime_type: record.mime_type,
+             size: record.size
+           }}
+
+        {:ok, %{name: _, path: _, mime_type: _, size: _} = result} ->
+          {:ok, result}
+
+        {:error, _} = err ->
+          err
+      end
+
+    %{event | response: response}
   end
 
   def handle_event(

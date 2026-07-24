@@ -34,6 +34,9 @@ config :zaq, :channels, %{
     bridge: Zaq.Channels.JidoConnectBridge,
     integration: Jido.Connect.Sharepoint
   },
+  disk: %{
+    bridge: Zaq.Channels.DiskBridge
+  },
   email: %{
     bridge: Zaq.Channels.EmailBridge,
     adapter: Zaq.Channels.EmailBridge.ImapAdapter,

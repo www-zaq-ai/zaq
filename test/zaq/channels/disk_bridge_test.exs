@@ -31,7 +31,6 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert result.name == "report.md"
       assert result.path == "generated/report.md"
       assert result.mime_type == "text/markdown"
-      assert result.url == "/bo/files/generated/report.md"
 
       assert {:ok, abs_path} = FileExplorer.resolve_path("generated/report.md")
       assert File.exists?(abs_path)
@@ -50,9 +49,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       assert {:ok, result} = DiskBridge.create_file(params)
 
-      assert result.name == "notes.md"
-      assert result.path == "archives/notes.md"
-      assert result.url == "/bo/files/archives/notes.md"
+      assert result.name == "notes.txt"
+      assert result.path == "archives/notes.txt"
     end
 
     test "falls back to generated/ when path does not resolve" do
