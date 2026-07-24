@@ -2,7 +2,7 @@ defmodule Zaq.Channels.DiskBridge do
   @moduledoc """
   Bridge that writes files to the local disk via `FileExplorer`.
 
-  Accepts plain text content (no base64), always saves with `.md` extension
+  Accepts base64-encoded content, always saves with `.md` extension
   regardless of the original filename, and places it under `generated/` unless
   an existing `path` is provided.
   """
@@ -14,14 +14,14 @@ defmodule Zaq.Channels.DiskBridge do
 
   Params:
     - `filename` (required) — original filename (extension is replaced with .md)
-    - `data` (required) — plain text content
+    - `content` (required) — base64-encoded file content
     - `path` (optional) — directory to write into; if it resolves, used as-is,
       otherwise falls back to `generated/`
     - `mime_type` (optional, ignored) — kept for LLM convenience
   """
   @spec create_file(map()) :: {:ok, map()} | {:error, term()}
   def create_file(params) do
-    %{filename: filename, data: data} = params
+    %{filename: filename, content: content} = params
     md_name = Path.rootname(filename) <> ".md"
 
     rel_path =
@@ -31,17 +31,25 @@ defmodule Zaq.Channels.DiskBridge do
         "generated/#{md_name}"
       end
 
-    with {:ok, abs_path} <- FileExplorer.resolve_path(rel_path),
+    with {:ok, decoded} <- decode_content(content),
+         {:ok, abs_path} <- FileExplorer.resolve_path(rel_path),
          :ok <- abs_path |> Path.dirname() |> File.mkdir_p(),
-         :ok <- File.write(abs_path, data) do
+         :ok <- File.write(abs_path, decoded) do
       {:ok,
        %{
          name: md_name,
          path: rel_path,
          mime_type: "text/markdown",
          url: "/bo/files/#{rel_path}",
-         size: byte_size(data)
+         size: byte_size(decoded)
        }}
+    end
+  end
+
+  defp decode_content(content) do
+    case Base.decode64(content) do
+      {:ok, decoded} -> {:ok, decoded}
+      _ -> {:error, :invalid_base64}
     end
   end
 
