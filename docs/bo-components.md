@@ -84,6 +84,17 @@ Modal **shell** — feature content often lives in `DesignSystem.Modal*`. Use:
 | `<BOModal.confirm_dialog>` | Standard delete / destructive-action confirmation dialog |
 | `<BOModal.form_dialog>` | Add/edit popins with max-height and internal scroll |
 
+### `ZaqWeb.Components.Drawer` — `lib/zaq_web/components/drawer.ex`
+
+Drawer **shell** for slide-over create/edit flows (e.g. Agents). Parent owns `is_open`; no internal open state.
+
+| Component | When to use |
+|---|---|
+| `<Drawer.drawer>` | Low-level shell — `:header`, body, and `:footer` slots |
+| `<Drawer.form_drawer>` | Create/edit drawer with title header and footer actions slot |
+
+Attributes: `placement` (`:left` \| `:right` \| `:top` \| `:bottom`), `size` (`:one_third` \| `:two_thirds`), `padding` (`:default` \| `:flush`), `on_close` (event string or `%JS{}`), optional `return_focus_id`. Uses `DialogOverlay` hook for focus trap and scroll lock.
+
 ### `ZaqWeb.Components.BOTelemetryComponents` — chart-heavy telemetry pages
 
 | Component | When to use |

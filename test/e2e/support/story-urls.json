@@ -32,6 +32,7 @@
   "/storybook/components/forms/searchable_select",
   "/storybook/components/forms/secret_input",
   "/storybook/components/forms/select",
+  "/storybook/components/forms/switch",
   "/storybook/components/icons/channel_icons",
   "/storybook/components/icons/mcp_endpoint_icons",
   "/storybook/components/table/table",

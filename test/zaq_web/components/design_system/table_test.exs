@@ -218,6 +218,87 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
     assert String.contains?(html, "Empty")
   end
 
+  test "table/1 scrollable applies default scroll preset on wrapper" do
+    html =
+      render_component(fn assigns ->
+        ~H"""
+        <Table.table id="scroll-table" scrollable>
+          <:body>
+            <Table.table_row>
+              <Table.table_cell>
+                <Table.table_text label="Row" />
+              </Table.table_cell>
+            </Table.table_row>
+          </:body>
+        </Table.table>
+        """
+      end)
+
+    assert String.contains?(html, "zaq-table-scroll")
+    assert String.contains?(html, "zaq-table-scroll--default")
+    refute String.contains?(html, "zaq-table-scroll--lg")
+  end
+
+  test "table/1 scroll_max applies preset modifier on wrapper" do
+    html =
+      render_component(fn assigns ->
+        ~H"""
+        <Table.table id="scroll-table" scrollable scroll_max={:lg}>
+          <:body>
+            <Table.table_row>
+              <Table.table_cell>
+                <Table.table_text label="Row" />
+              </Table.table_cell>
+            </Table.table_row>
+          </:body>
+        </Table.table>
+        """
+      end)
+
+    assert String.contains?(html, "zaq-table-scroll--lg")
+  end
+
+  test "table/1 wrapper_class applies to scroll wrapper not table element" do
+    html =
+      render_component(fn assigns ->
+        ~H"""
+        <Table.table id="wrap-table" wrapper_class="overflow-x-auto" class="my-table-shell">
+          <:body>
+            <Table.table_row>
+              <Table.table_cell>
+                <Table.table_text label="Row" />
+              </Table.table_cell>
+            </Table.table_row>
+          </:body>
+        </Table.table>
+        """
+      end)
+
+    assert String.contains?(
+             html,
+             ~s(id="wrap-table" class="zaq-table zaq-border-default w-full my-table-shell")
+           )
+
+    assert String.contains?(html, "overflow-x-auto")
+  end
+
+  test "grid/1 scrollable applies scroll_max preset on shell" do
+    html =
+      render_component(fn assigns ->
+        ~H"""
+        <Grid.grid id="scroll-grid" scrollable scroll_max={:sm}>
+          <:cards>
+            <Grid.grid_card>
+              Card
+            </Grid.grid_card>
+          </:cards>
+        </Grid.grid>
+        """
+      end)
+
+    assert String.contains?(html, "zaq-table-scroll--sm")
+  end
+
   test "grid/1 renders header table and card grid container" do
     html =
       render_component(fn assigns ->

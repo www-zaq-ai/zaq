@@ -25,7 +25,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleTable do
 
   def people_table(assigns) do
     ~H"""
-    <.table id="people-table" scrollable={true}>
+    <.table id="people-table">
       <:head>
         <.table_head_row>
           <.table_cell element={:th} width="w-10" />

@@ -22,7 +22,7 @@ defmodule ZaqWeb.Live.BO.System.TeamsTable do
 
   def teams_table(assigns) do
     ~H"""
-    <.table id="teams-table" scrollable={true}>
+    <.table id="teams-table">
       <:head>
         <.table_head_row>
           <.table_cell element={:th}>

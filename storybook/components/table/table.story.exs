@@ -177,10 +177,64 @@ defmodule Storybook.Components.Table.Story do
       </.story_section>
 
       <.story_section
+        title="Scrollable region + height presets"
+        description={
+          "`scrollable` opts into an inner scroll region (default off — page scroll + pagination). " <>
+            "`scroll_max`: :default / :md (45vh), :sm (240px), :lg (60vh), :fill (flex child). " <>
+            "`wrapper_class` targets the scroll wrapper; `class` styles the table."
+        }
+      >
+        <div class="flex flex-col gap-8 min-w-0">
+          <.story_subsection
+            title="scroll_max={:sm} — compact panel"
+            description="Picker-style height (~240px). Sticky header when combined with table_head_row sticky_header."
+          >
+            <.table id="story-table-scroll-sm" scrollable scroll_max={:sm}>
+              <:head>
+                <.table_head_row sticky_header>
+                  <.table_cell element={:th}>
+                    <.table_text label="Name" tone={:tertiary} />
+                  </.table_cell>
+                </.table_head_row>
+              </:head>
+              <:body>
+                <.table_row :for={row <- scroll_demo_rows()}>
+                  <.table_cell>
+                    <.table_text label={row} />
+                  </.table_cell>
+                </.table_row>
+              </:body>
+            </.table>
+          </.story_subsection>
+          <.story_subsection
+            title="scroll_max={:lg} — tall panel"
+            description="Default sidecar demo uses scrollable without scroll_max (:default 45vh)."
+          >
+            <.table id="story-table-scroll-lg" scrollable scroll_max={:lg}>
+              <:head>
+                <.table_head_row sticky_header>
+                  <.table_cell element={:th}>
+                    <.table_text label="Name" tone={:tertiary} />
+                  </.table_cell>
+                </.table_head_row>
+              </:head>
+              <:body>
+                <.table_row :for={row <- scroll_demo_rows()}>
+                  <.table_cell>
+                    <.table_text label={row} />
+                  </.table_cell>
+                </.table_row>
+              </:body>
+            </.table>
+          </.story_subsection>
+        </div>
+      </.story_section>
+
+      <.story_section
         title="Sidecar sub-row"
         description="Data row plus sidecar preview control spanning columns."
       >
-        <.table id="story-table-sidecar" scrollable>
+        <.table id="story-table-sidecar" scrollable scroll_max={:default}>
           <:head>
             <.table_head_row sticky_header>
               <.table_cell element={:th}><.table_text label="Name" tone={:tertiary} /></.table_cell>
@@ -479,5 +533,9 @@ defmodule Storybook.Components.Table.Story do
       %{name: "draft.docx", status: "pending", selected: true, path: "draft.docx", size: "44 KB"},
       %{name: "bad.csv", status: "failed", selected: false, path: "bad.csv", size: "200 B"}
     ]
+  end
+
+  defp scroll_demo_rows do
+    Enum.map(1..12, &"Document #{&1}.pdf")
   end
 end

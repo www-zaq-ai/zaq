@@ -24,7 +24,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsTable do
 
   def agents_table(assigns) do
     ~H"""
-    <.table id="agents-table" scrollable={true}>
+    <.table id="agents-table">
       <:head>
         <.table_head_row>
           <.table_cell element={:th}>

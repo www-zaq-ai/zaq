@@ -77,9 +77,30 @@
 }
 
 .zaq-table-scroll {
-  max-height: 45vh;
   overflow-y: auto;
   overflow-x: auto;
+}
+
+/* Scroll height presets — compose with `.zaq-table-scroll` via `scroll_max` on `table/1` and `grid/1`. */
+.zaq-table-scroll--default {
+  max-height: 45vh;
+}
+
+.zaq-table-scroll--sm {
+  max-height: 240px;
+}
+
+.zaq-table-scroll--md {
+  max-height: 45vh;
+}
+
+.zaq-table-scroll--lg {
+  max-height: 60vh;
+}
+
+.zaq-table-scroll--fill {
+  max-height: 100%;
+  min-height: 0;
 }
 
 .zaq-table-caption {

@@ -1,0 +1,144 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   BO drawer shell — token-backed slide-over panels (used by Drawer.drawer/1)
+   Loaded via @import in styles.css (semantics.css already applied in app.css).
+   Backdrop reuses .zaq-bo-modal-backdrop from modal.css.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.zaq-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
+.zaq-drawer-overlay .zaq-bo-modal-backdrop {
+  position: absolute;
+  inset: 0;
+}
+
+/* Sliding panel — flex column with viewport-safe scroll regions */
+.zaq-drawer-panel {
+  position: fixed;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  max-height: 100vh;
+  max-width: 100vw;
+  border: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-raised);
+  overflow: hidden;
+  box-shadow:
+    0 var(--zaq-scale-24) var(--zaq-scale-48) calc(var(--zaq-scale-4) * -1)
+      color-mix(in srgb, var(--zaq-text-color-body-default) 22%, transparent);
+  transition: transform 0.24s ease-out;
+}
+
+/* Placement anchors */
+.zaq-drawer-panel.zaq-drawer--right {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.zaq-drawer-panel.zaq-drawer--left {
+  top: 0;
+  left: 0;
+  bottom: 0;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.zaq-drawer-panel.zaq-drawer--top {
+  top: 0;
+  left: 0;
+  right: 0;
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.zaq-drawer-panel.zaq-drawer--bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Size presets — width for left/right, height for top/bottom */
+.zaq-drawer--right.zaq-drawer--size-one-third,
+.zaq-drawer--left.zaq-drawer--size-one-third {
+  width: 33.333vw;
+}
+
+.zaq-drawer--right.zaq-drawer--size-two-thirds,
+.zaq-drawer--left.zaq-drawer--size-two-thirds {
+  width: 66.666vw;
+}
+
+.zaq-drawer--top.zaq-drawer--size-one-third,
+.zaq-drawer--bottom.zaq-drawer--size-one-third {
+  height: 33.333vh;
+}
+
+.zaq-drawer--top.zaq-drawer--size-two-thirds,
+.zaq-drawer--bottom.zaq-drawer--size-two-thirds {
+  height: 66.666vh;
+}
+
+/* Header — mirrors modal header rhythm */
+.zaq-drawer-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--zaq-scale-16);
+  padding: var(--zaq-scale-16) var(--zaq-scale-24);
+  border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+}
+
+.zaq-drawer-header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.zaq-drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-layout-inline-gap);
+  flex-shrink: 0;
+}
+
+/* Scrollable body */
+.zaq-drawer-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.zaq-drawer-body--padded {
+  padding: var(--zaq-scale-16) var(--zaq-scale-24);
+}
+
+.zaq-drawer-body--flush {
+  padding: 0;
+}
+
+/* Footer — mirrors modal form footer */
+.zaq-drawer-footer {
+  flex-shrink: 0;
+  padding: var(--zaq-scale-16) var(--zaq-scale-24);
+  border-top: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-raised);
+}
+
+.zaq-drawer-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--zaq-layout-stack-gap);
+}

@@ -104,13 +104,14 @@ Skip steps that do not apply (e.g. migrate-only on an existing file, replace not
 | Page shell, sidebar, flash | `BOLayout.bo_layout` |
 | Buttons, links, inputs, badges, empty states | `DesignSystem.*` (see inventory below) |
 | Modal shell (backdrop, panel, confirm) | `BOModal.*` — feature bodies often in `DesignSystem.Modal*` |
+| Drawer (slide-over create/edit) | `Drawer.*` — parent-controlled `is_open`; see `drawer.css` |
 | KPI tile (generic) | `DesignSystem.MetricCard` |
 | KPI + charts on telemetry pages | `BOTelemetryComponents.metric_card` |
 | Long option lists | `SearchableSelect` |
 | Master/detail layout | `MasterDetailLayout` |
 | Legacy portal / non-BO forms | `core_components` (`<.input>`, `<.button>`) — migrate to `DesignSystem.*` in BO |
 
-**CSS load order:** `form.css` and `modal.css` are imported from `styles.css` (not directly from `app.css`). Do not re-import them in templates.
+**CSS load order:** `form.css`, `modal.css`, and `drawer.css` are imported from `styles.css` (not directly from `app.css`). Do not re-import them in templates.
 
 ---
 
@@ -124,6 +125,7 @@ Skip steps that do not apply (e.g. migrate-only on an existing file, replace not
 | `btn.css` | `.zaq-btn-*`, internal `--zaq-btn-*` vars | Button classes only; never reference `--zaq-btn-*` outside this file |
 | `form.css` | `.zaq-control-*`, `.zaq-field-*` | Form shells and field layout |
 | `modal.css` | `.zaq-modal`, `.zaq-bo-modal-backdrop`, flush variant | Modal chrome |
+| `drawer.css` | `.zaq-drawer-*`, slide-over panel layout | Drawer chrome |
 | `table.css` | `.zaq-table` and cell patterns | Data tables and dense list grids |
 | `layout.css` | `.zaq-layout-stack`, `.zaq-layout-inline`, gap modifiers | Role-based spacing utilities |
 | `styles.css` | Cards, borders, feature patterns (`.zaq-chat-*`), generic BO chrome | Shared non-role primitives |
@@ -465,6 +467,20 @@ Shell classes consume semantic tokens and adapt in dark mode automatically.
 | Confirm dialog | `confirm_dialog/1` | destructive confirmation |
 | Form dialog | `form_dialog/1` | add/edit with scroll and footer actions slot |
 | Iframe dialog | `iframe_dialog/1` | embedded external content |
+
+#### Drawers
+
+> Canonical: `assets/css/drawer.css` + `ZaqWeb.Components.Drawer` + `storybook/modals/drawer.story.exs`.
+
+- Reuses `.zaq-bo-modal-backdrop` for the scrim
+- `DialogOverlay` hook — focus trap + body scroll lock (planned BOModal retrofit)
+
+**Primitives** — `ZaqWeb.Components.Drawer`
+
+| Component | Function | When to use |
+|---|---|---|
+| Drawer shell | `drawer/1` | low-level wrapper; `:header`, body, `:footer` slots |
+| Form drawer | `form_drawer/1` | create/edit slide-over with title and footer actions |
 
 **Composed modals**
 

@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.System
+  alias ZaqWeb.Components.Drawer
 
   @impl true
   def mount(_params, _session, socket) do

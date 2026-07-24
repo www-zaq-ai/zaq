@@ -27,7 +27,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
 
   def file_grid_view(assigns) do
     ~H"""
-    <.grid id="ingestion-file-grid" scrollable={true}>
+    <.grid id="ingestion-file-grid">
       <:header>
         <.table_head_row sticky_header={true}>
           <.table_cell element={:th} width="w-6" class="xl:px-3">

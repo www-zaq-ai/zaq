@@ -41,7 +41,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
     ~H"""
     <.table
       id="ingestion-file-list"
-      scrollable={true}
       class="min-w-[700px] xl:min-w-0"
     >
       <:head>

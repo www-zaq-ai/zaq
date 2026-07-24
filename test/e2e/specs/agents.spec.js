@@ -93,11 +93,15 @@ test.describe("Agents", () => {
     await req.dispose()
   })
 
-  test("agents page renders master-detail layout shell", async ({ page }) => {
+  test("agents page renders list and opens create drawer", async ({ page }) => {
     await loginToBackOffice(page)
     await gotoBackOfficeLive(page, AGENTS_PATH)
-    await expect(page.locator('[data-testid="bo-master-detail-layout"]')).toBeVisible()
     await expect(page.locator("#agents-master-pane")).toBeVisible()
+    await expect(page.locator("#agent-form-drawer")).toHaveCount(0)
+
+    await page.locator("#new-agent-button").click()
+    await expect(page.locator("#agent-form-drawer")).toBeVisible()
+    await expect(page.locator("#configured-agent-form")).toBeVisible()
   })
 
   // ─── Existing tests (with model-picker fix applied) ───────────────────────

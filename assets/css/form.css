@@ -266,3 +266,120 @@
 .zaq-searchable-select-create:hover {
   background: var(--zaq-surface-color-accent);
 }
+
+/* ── Pill switch — `DesignSystem.Switch` ─────────────────────────────────── */
+
+/* Solid primary accent surface (public token — same chain as `.zaq-btn-primary` hover fill). */
+.zaq-btn-surface-primary,
+.zaq-switch-input:checked + .zaq-switch-track {
+  background: var(--zaq-glow-interactive-inner);
+}
+
+.zaq-switch-label,
+.zaq-switch-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zaq-scale-8);
+  min-height: var(--zaq-scale-32);
+  cursor: pointer;
+  width: fit-content;
+}
+
+.zaq-switch-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Fixed geometry (layout scale tokens): track 64×32px, knob 24×24px
+ */
+.zaq-switch-track {
+  --zaq-switch-width: var(--zaq-scale-64);
+  --zaq-switch-height: var(--zaq-scale-32);
+  --zaq-switch-knob: var(--zaq-scale-24);
+  --zaq-switch-inset: var(--zaq-scale-4);
+  --zaq-switch-knob-travel: calc(
+    var(--zaq-switch-width) - var(--zaq-switch-knob) - (2 * var(--zaq-switch-inset))
+  );
+
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: var(--zaq-switch-width);
+  height: var(--zaq-switch-height);
+  min-height: var(--zaq-scale-32);
+  border-radius: var(--zaq-scale-999);
+  background: var(--zaq-surface-color-elevated);
+  transition: background-color 150ms ease;
+}
+
+.zaq-switch-knob {
+  position: absolute;
+  top: var(--zaq-switch-inset);
+  left: var(--zaq-switch-inset);
+  display: grid;
+  place-items: center;
+  width: var(--zaq-switch-knob);
+  height: var(--zaq-switch-knob);
+  border-radius: var(--zaq-scale-999);
+  background: var(--zaq-surface-color-raised);
+  box-shadow: 0 var(--zaq-scale-1) var(--zaq-scale-2)
+    color-mix(in srgb, var(--zaq-text-color-body-default) 12%, transparent);
+  transition: transform 150ms ease;
+}
+
+.zaq-switch-knob-icon {
+  width: var(--zaq-scale-16);
+  height: var(--zaq-scale-16);
+  color: var(--zaq-icon-color-accent);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.zaq-switch-input:checked + .zaq-switch-track .zaq-switch-knob-icon {
+  opacity: 1;
+}
+
+.zaq-switch-input:checked + .zaq-switch-track .zaq-switch-knob {
+  transform: translateX(var(--zaq-switch-knob-travel));
+}
+
+.zaq-switch-input:disabled + .zaq-switch-track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.zaq-switch-text {
+  color: var(--zaq-text-color-body-secondary);
+}
+
+.zaq-switch-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--zaq-scale-16);
+  padding-block: var(--zaq-scale-8);
+  border-bottom: var(--zaq-scale-1) solid var(--zaq-border-color-default);
+}
+
+.zaq-switch-setting-copy {
+  min-width: 0;
+}
+
+.zaq-switch-setting-title {
+  color: var(--zaq-text-color-body-default);
+  font-weight: var(--zaq-font-weight-semibold);
+}
+
+.zaq-switch-setting-description {
+  margin-top: var(--zaq-scale-4);
+  color: var(--zaq-text-color-body-tertiary);
+}

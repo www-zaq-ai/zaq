@@ -10,6 +10,11 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   Row surface hover and `cursor-pointer` apply only when a destination is set.
   Checkboxes and `table_actions/1` stop propagation so nested controls do not trigger the row.
   Bulk selection: `table_selection_bar/1` above the table; page tracks `selected_count` and passes actions.
+
+  Scroll: `scrollable={false}` (default) lets the page grow; opt in with `scrollable` for a bounded
+  inner region. Pass `scroll_max` for preset heights (`:default` 45vh, `:sm` 240px, `:md` 45vh,
+  `:lg` 60vh, `:fill` 100% of flex parent). Use `wrapper_class` for layout on the scroll wrapper;
+  `class` styles the `<table>` element.
   """
 
   use Phoenix.Component
@@ -22,6 +27,8 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   @doc "List table shell — `.zaq-table` with optional scroll wrapper and caption."
   attr :id, :string, required: true
   attr :scrollable, :boolean, default: false
+  attr :scroll_max, :atom, default: :default, values: [:default, :sm, :md, :lg, :fill]
+  attr :wrapper_class, :any, default: nil
   attr :sticky_header, :boolean, default: false
   attr :min_width, :string, default: nil
   attr :class, :any, default: nil
@@ -32,7 +39,7 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
 
   def table(assigns) do
     ~H"""
-    <div class={scroll_wrapper_class(@scrollable)}>
+    <div class={[scroll_wrapper_classes(@scrollable, @scroll_max), @wrapper_class]}>
       <p :for={cap <- @caption} class="zaq-table-caption zaq-text-caption mb-3">
         {render_slot(cap)}
       </p>
@@ -303,9 +310,22 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
     """
   end
 
-  @doc "Scroll wrapper class when `scrollable` is true — shared with `Table.Grid`."
-  def scroll_wrapper_class(true), do: "zaq-table-scroll"
-  def scroll_wrapper_class(_), do: nil
+  @doc """
+  Scroll wrapper classes when `scrollable` is true — shared with `Table.Grid`.
+
+  `scroll_max` presets: `:default` / `:md` (45vh), `:sm` (240px), `:lg` (60vh), `:fill` (flex child).
+  """
+  def scroll_wrapper_classes(false, _scroll_max), do: nil
+
+  def scroll_wrapper_classes(true, scroll_max) do
+    ["zaq-table-scroll", scroll_max_class(scroll_max)]
+  end
+
+  defp scroll_max_class(:default), do: "zaq-table-scroll--default"
+  defp scroll_max_class(:sm), do: "zaq-table-scroll--sm"
+  defp scroll_max_class(:md), do: "zaq-table-scroll--md"
+  defp scroll_max_class(:lg), do: "zaq-table-scroll--lg"
+  defp scroll_max_class(:fill), do: "zaq-table-scroll--fill"
 
   @doc "Whether row/card assigns include a primary destination — shared with `Table.Grid`."
   def row_click?(assigns) do
@@ -411,7 +431,7 @@ defmodule ZaqWeb.Components.DesignSystem.Table.Grid do
 
   import ZaqWeb.Components.DesignSystem.Table,
     only: [
-      scroll_wrapper_class: 1,
+      scroll_wrapper_classes: 2,
       row_click?: 1
     ]
 
@@ -419,7 +439,9 @@ defmodule ZaqWeb.Components.DesignSystem.Table.Grid do
 
   @doc "Grid shell — sticky header table + card grid body."
   attr :id, :string, required: true
-  attr :scrollable, :boolean, default: true
+  attr :scrollable, :boolean, default: false
+  attr :scroll_max, :atom, default: :default, values: [:default, :sm, :md, :lg, :fill]
+  attr :wrapper_class, :any, default: nil
   attr :columns, :integer, default: 4
   attr :class, :any, default: nil
   slot :header
@@ -432,7 +454,8 @@ defmodule ZaqWeb.Components.DesignSystem.Table.Grid do
       id={@id}
       class={[
         "zaq-file-preview-shell flex flex-col min-h-0",
-        scroll_wrapper_class(@scrollable),
+        scroll_wrapper_classes(@scrollable, @scroll_max),
+        @wrapper_class,
         @class
       ]}
     >

@@ -395,7 +395,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLive do
         </div>
 
         <%!-- Workflows table --%>
-        <DSTable.table id="workflows-table" scrollable={true}>
+        <DSTable.table id="workflows-table">
           <:head>
             <.table_head_row>
               <.table_cell element={:th} width="w-10">
