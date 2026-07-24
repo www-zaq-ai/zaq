@@ -27,6 +27,7 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
     docx_to_md.py
     pptx_to_md.py
     xlsx_to_md.py
+    md_to_doc.py
     image_dedup.py
     image_to_text.py
     clean_md.py
