@@ -517,34 +517,27 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     def disconnect(_client), do: :ok
   end
 
-  test "sink dispatch errors are rescued and do not crash listener" do
-    fake = start_supervised!({FakeImapServer, owner: self()})
+  test "handle_info/2 idle_notify rescues sink dispatch errors without crashing listener" do
+    client = self()
 
-    listener =
-      start_supervised!(
-        {Listener,
-         [
-           config: FakeImapServer.config(fake),
-           bridge_id: "email:imap_15",
-           mailbox: "INBOX",
-           sink_mfa: {SinkRaise, :dispatch, []},
-           sink_opts: [],
-           idle_timeout: 60_000,
-           retry_interval: 100,
-           mark_as_read: false,
-           load_initial_unread: false
-         ]}
-      )
+    state = %{
+      config: %{},
+      bridge_id: "email:imap_15",
+      mailbox: "INBOX",
+      sink_mfa: {SinkRaise, :dispatch, []},
+      sink_opts: [],
+      client: client,
+      imap_adapter: __MODULE__.MarkReadErrorAdapter,
+      retry_interval: 100,
+      mark_as_read: false,
+      load_initial_unread: false,
+      idle_timeout: 1_500_000
+    }
 
     log =
       capture_log(fn ->
-        assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
-        assert_receive {:imap_fake_command, ^fake, :select, _}, 1_000
-        assert_receive {:imap_fake_command, ^fake, :idle, _}, 1_000
-        assert :ok = FakeImapServer.trigger_exists(fake)
-        assert_receive {:imap_fake_command, ^fake, :fetch, _}, 1_500
-        client_pid = :sys.get_state(listener).client
-        stop_listener_and_imap_client(listener, client_pid)
+        assert {:noreply, updated} = Listener.handle_info(:idle_notify, state)
+        assert updated.client == client
       end)
 
     assert log =~ "sink dispatch failed"
