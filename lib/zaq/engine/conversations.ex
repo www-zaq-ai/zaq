@@ -36,6 +36,26 @@ defmodule Zaq.Engine.Conversations do
   @doc "Fetches a conversation by id, returns nil if not found."
   def get_conversation(id), do: Repo.get(Conversation, id)
 
+  @doc """
+  Creates a chat-channel conversation with a caller-supplied `id`, owned by
+  `channel_user_id`.
+
+  The same id keys the conversation across client and server so history rehydrates
+  by `conversation_id`. A primary-key race surfaces as `{:error, changeset}` (via
+  the `conversations_pkey` unique constraint) instead of raising.
+  """
+  def create_chat_conversation(id, channel_user_id)
+      when is_binary(id) and is_binary(channel_user_id) do
+    %Conversation{id: id}
+    |> Conversation.changeset(%{
+      channel_user_id: channel_user_id,
+      channel_type: "chat",
+      status: "active"
+    })
+    |> Ecto.Changeset.unique_constraint(:id, name: "conversations_pkey")
+    |> Repo.insert()
+  end
+
   @doc "Fetches a conversation by id, raises if not found."
   def get_conversation!(id) do
     Repo.get!(Conversation, id)

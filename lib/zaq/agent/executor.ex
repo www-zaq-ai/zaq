@@ -116,6 +116,10 @@ defmodule Zaq.Agent.Executor do
       when is_binary(id) and id != "",
       do: "bo:conv:#{id}"
 
+  def derive_scope(%Incoming{provider: :chat, metadata: %{conversation_id: id}}, _actor)
+      when is_binary(id) and id != "",
+      do: "chat:conv:#{id}"
+
   def derive_scope(%Incoming{provider: provider} = incoming, actor) do
     case ActorNormalizer.person_id(actor) do
       nil -> derive_scope_without_person(incoming)
@@ -157,26 +161,19 @@ defmodule Zaq.Agent.Executor do
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
   def run(%Incoming{} = incoming, opts \\ []) do
     started_at = System.monotonic_time(:millisecond)
-    agent_module = Keyword.get(opts, :agent_module, Agent)
-    server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
-    factory_module = Keyword.get(opts, :factory_module, Factory)
-    opts = ensure_scope_for_answering_path(opts, incoming)
+
+    {agent_module, factory_module, server_manager_module, opts, question} =
+      resolve_deps_and_question(opts, incoming)
+
     selected_agent_result = load_selected_agent(opts, agent_module, factory_module)
     dims = telemetry_dimensions(incoming, selected_agent_result)
 
     :ok = Telemetry.record("qa.message.count", 1, dims)
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
 
-    question =
-      opts
-      |> Keyword.get(:question, incoming.content)
-      |> timestamp_question()
-
     result =
-      with {:ok, configured_agent} <- selected_agent_result,
-           configured_agent <- apply_system_prompt_override(configured_agent, opts),
-           {:ok, server_id} <-
-             ensure_agent_server(server_manager_module, configured_agent, opts),
+      with {:ok, configured_agent, server_id} <-
+             setup_agent_and_server(selected_agent_result, opts, server_manager_module),
            _ <-
              Event.new(
                %{provider: incoming.provider, channel_id: incoming.channel_id},
@@ -195,15 +192,7 @@ defmodule Zaq.Agent.Executor do
            %Incoming{} = incoming <- normalize_status_result(status_result, incoming),
            {:ok, %{request: _request, events: events}} <-
              factory_module.ask_with_config(server_id, question, configured_agent,
-               tool_context: %{
-                 incoming: incoming,
-                 person_id: Keyword.get(opts, :person_id),
-                 team_ids: Keyword.get(opts, :team_ids, []),
-                 source_filter: Keyword.get(opts, :source_filter),
-                 skip_permissions: Keyword.get(opts, :skip_permissions, false),
-                 actor: execution_actor(opts, incoming),
-                 node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
-               }
+               tool_context: tool_context(incoming, opts)
              ),
            {:ok, stream_result} <-
              StreamEvents.consume(events, incoming,
@@ -255,6 +244,68 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
+  @doc """
+  Streaming variant of `run/2` for token-by-token transports (the SSE chat
+  channel).
+
+  Runs the SAME native setup as `run/2` — agent selection, scope derivation,
+  server ensure, and `Factory.ask_with_config/4` — but returns the RAW jido
+  event enumerable instead of consuming it with `StreamEvents.consume/3`. The
+  caller folds the events itself (forwarding tokens as they arrive) and owns the
+  downstream concerns the consuming path handles internally: wire formatting and
+  persistence.
+
+  Retrieval comes from the configured agent's own `enabled_tool_keys`
+  (`search_knowledge_base` / `knowledge_base_overview`) — exactly like `run/2` —
+  so no per-run tool override is needed.
+
+  Unlike `run/2` this emits no typing/status side effects (those are BO-channel
+  concerns); a token stream is its own progress signal.
+
+  Returns `{:ok, %{events, incoming, server_id, agent}}` or `{:error, reason}`.
+  Accepts the same options as `run/2`.
+  """
+  @spec stream(Incoming.t(), keyword()) ::
+          {:ok,
+           %{
+             events: Enumerable.t(),
+             incoming: Incoming.t(),
+             server_id: String.t(),
+             agent: Zaq.Agent.ConfiguredAgent.t()
+           }}
+          | {:error, term()}
+  def stream(%Incoming{} = incoming, opts \\ []) do
+    {agent_module, factory_module, server_manager_module, opts, question} =
+      resolve_deps_and_question(opts, incoming)
+
+    with {:ok, configured_agent, server_id} <-
+           setup_agent_and_server(
+             load_selected_agent(opts, agent_module, factory_module),
+             opts,
+             server_manager_module
+           ),
+         {:ok, %{events: events}} <-
+           factory_module.ask_with_config(server_id, question, configured_agent,
+             stream_to: {:pid, self()},
+             stream_timeout_ms: 320_000,
+             tool_context: tool_context(incoming, opts)
+           ) do
+      {:ok, %{events: events, incoming: incoming, server_id: server_id, agent: configured_agent}}
+    end
+  end
+
+  defp tool_context(incoming, opts) do
+    %{
+      incoming: incoming,
+      person_id: Keyword.get(opts, :person_id),
+      team_ids: Keyword.get(opts, :team_ids, []),
+      source_filter: Keyword.get(opts, :source_filter),
+      skip_permissions: Keyword.get(opts, :skip_permissions, false),
+      actor: execution_actor(opts, incoming),
+      node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
+    }
+  end
+
   # Suppress only when a streaming surface exists AND answer content was actually
   # delivered to the user. The mere presence of a status placeholder is not proof
   # that any tokens reached the user.
@@ -291,6 +342,37 @@ defmodule Zaq.Agent.Executor do
   defp ensure_agent_server(server_manager_module, configured_agent, opts) do
     server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
     server_manager_module.ensure_server(configured_agent, server_id, Keyword.get(opts, :context))
+  end
+
+  # Shared `run/2` + `stream/2` setup: resolves injectable dependencies from
+  # opts, ensures :scope is set for the answering path, and builds the
+  # timestamped question. Pure — no side effects, so callers may compute
+  # telemetry (or anything else) before or after this without behavior change.
+  defp resolve_deps_and_question(opts, incoming) do
+    agent_module = Keyword.get(opts, :agent_module, Agent)
+    factory_module = Keyword.get(opts, :factory_module, Factory)
+    server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
+    opts = ensure_scope_for_answering_path(opts, incoming)
+
+    question =
+      opts
+      |> Keyword.get(:question, incoming.content)
+      |> timestamp_question()
+
+    {agent_module, factory_module, server_manager_module, opts, question}
+  end
+
+  # Shared `run/2` + `stream/2` chain: applies the per-run system-prompt
+  # override to the selected agent, then ensures its Jido server is running.
+  # `selected_agent_result` is `{:ok, configured_agent} | {:error, reason}` —
+  # on error, this `with` (no `else`) returns that value unchanged so callers'
+  # own error handling is untouched.
+  defp setup_agent_and_server(selected_agent_result, opts, server_manager_module) do
+    with {:ok, configured_agent} <- selected_agent_result,
+         configured_agent <- apply_system_prompt_override(configured_agent, opts),
+         {:ok, server_id} <- ensure_agent_server(server_manager_module, configured_agent, opts) do
+      {:ok, configured_agent, server_id}
+    end
   end
 
   defp load_selected_agent(opts, agent_module, _factory_module) do

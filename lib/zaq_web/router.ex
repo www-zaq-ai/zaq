@@ -39,6 +39,11 @@ defmodule ZaqWeb.Router do
     plug :fetch_query_params
   end
 
+  pipeline :chat_bearer_auth do
+    plug :fetch_query_params
+    plug ZaqWeb.Plugs.ChatBearerAuth
+  end
+
   scope "/", ZaqWeb do
     pipe_through :browser
 
@@ -140,6 +145,20 @@ defmodule ZaqWeb.Router do
     get "/health", ChannelsController, :health
     get "/oauth2/:provider/redirect", ChannelsController, :oauth2_redirect
     post "/webhook/:type/:provider", ChannelsController, :webhook
+  end
+
+  scope "/chat", ZaqWeb do
+    pipe_through :chat_bearer_auth
+
+    get "/documents", ChatDocumentsController, :index
+    get "/documents/:id", ChatDocumentsController, :show
+    get "/documents/:id/file", ChatDocumentsController, :file
+  end
+
+  scope "/v1", ZaqWeb do
+    pipe_through :chat_bearer_auth
+
+    post "/chat/completions", ChatCompletionsController, :completions
   end
 
   if Application.compile_env(:zaq, :e2e_routes, false) do
