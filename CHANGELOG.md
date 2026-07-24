@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.16.0](https://github.com/www-zaq-ai/zaq/compare/v0.15.0...v0.16.0) (2026-07-24)
+
+
+### Features
+
+* **channels:** deliver telegram messages as rich markdown for table support ([27000f6](https://github.com/www-zaq-ai/zaq/commit/27000f63341d2f03036633cac36a7028e16c7742))
+* **data source:** add a watcher to data sources - phase 4 [Ingestion] Generic UI for external Data Sources ([fa6ad61](https://github.com/www-zaq-ai/zaq/commit/fa6ad611beb781c2419f71261050a09195abf196)), closes [#486](https://github.com/www-zaq-ai/zaq/issues/486)
+
+
+### Bug Fixes
+
+* **channels:** default nil message_format to markdown so it stamps a format ([84a4c7f](https://github.com/www-zaq-ai/zaq/commit/84a4c7fd06e265717071dbf92c1de6add1e63133))
+* **channels:** stamp :markdown format so telegram renders rich messages ([e51b2b6](https://github.com/www-zaq-ai/zaq/commit/e51b2b6cb2612e1604c1a1200a265480c950372e))
+* **ingestion:** Action icons hover over file name instead of next to it ([49e4c92](https://github.com/www-zaq-ai/zaq/commit/49e4c92ba2640f1ae249de1616feae31b1f07416))
+* **ingestion:** provide wider space for the filename so it is always visible and clickable ([02eee6c](https://github.com/www-zaq-ai/zaq/commit/02eee6ca06d84f0a083b44ac79411cbfdf96ea0a))
+* **test:** stabilize NodeRouterMock stub in batch trigger integration test ([0a026a8](https://github.com/www-zaq-ai/zaq/commit/0a026a8f92f816a2b596952edece6223501b8972))
+* **test:** target modal header close in AI credential modal test ([af1e470](https://github.com/www-zaq-ai/zaq/commit/af1e4709cc5744b95f41b3f3cc8d3cad275527f9))
+
+
+### Refactoring
+
+* **bo:** design, increase contrast in dark mode ([09229fb](https://github.com/www-zaq-ai/zaq/commit/09229fb397dae8bcbb454d7f7b27f91a3c68acc2))
+* **bo:** migrate BOModal form_dialog to token-backed modal shell ([f472432](https://github.com/www-zaq-ai/zaq/commit/f4724323e8509dec3fcd29bedc522bb363ef7379))
+* **bo:** unify BOModal header across shell and dialog variants ([bebad47](https://github.com/www-zaq-ai/zaq/commit/bebad471b5d9547e8a19fa6c90730d63460f07bc))
+* **channels:** keep telegram rich-message format out of the bridge ([10174d0](https://github.com/www-zaq-ai/zaq/commit/10174d08261ab9b9b505f65e61a885a24288cab3))
+* **helpers, comments:** use helper function to avoid redeclaring shared utils, added docs to clarify intent ([a9ed457](https://github.com/www-zaq-ai/zaq/commit/a9ed457d5f9bd191168d5097993b5c3d33a87589))
+* **storybook:** add live chart previews to Charts story ([08a0381](https://github.com/www-zaq-ai/zaq/commit/08a0381ebd8194577197cb52133aeb183627ee3a))
+* **storybook:** migrate BOModal previews and consolidate modal stories ([0b32641](https://github.com/www-zaq-ai/zaq/commit/0b32641232211de4467756e26e92f941b9f30a73))
+* **storybook:** move Empty State and Embedding Banner stories ([b24f37f](https://github.com/www-zaq-ai/zaq/commit/b24f37fd2cbf24798f8cdd8827a907482587ab11))
+* **storybook:** update BOModal form_dialog and iframe previews ([d96e0ea](https://github.com/www-zaq-ai/zaq/commit/d96e0eafd9e816407a4b5ec64b521e108799b064))
+
 ## [0.15.0](https://github.com/www-zaq-ai/zaq/compare/v0.14.0...v0.15.0) (2026-07-20)
 
 
