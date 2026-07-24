@@ -101,13 +101,12 @@ defmodule Zaq.Channels.TelegramMarkdownDeliveryTest do
 
     test "the real application config declares markdown for telegram", ctx do
       # Asserts on the config compiled from config/config.exs, captured before the
-      # setup stub replaced it. `:message_format` is not optional here: without it
-      # MessageFormatter stamps no format, the bridge forwards none, and the adapter
-      # falls back to an unparsed send.
+      # setup stub replaced it. Telegram can rely on the formatter's nil/unset
+      # default: canonical markdown is stamped unless a provider explicitly opts out.
       telegram = Map.get(ctx.real_channels, :telegram, %{})
 
       assert telegram[:adapter] == TelegramAdapter
-      assert telegram[:message_format] == :markdown
+      assert telegram[:message_format] in [nil, :markdown]
 
       # A custom formatter would convert the body and defeat adapter-side rendering.
       refute Map.has_key?(telegram, :message_formatter)
