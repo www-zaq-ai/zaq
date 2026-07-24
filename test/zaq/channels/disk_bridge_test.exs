@@ -22,8 +22,9 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   describe "create_file/1" do
-    test "creates a file with .md extension and returns metadata" do
-      params = %{filename: "report.pdf", data: "# Report\ncontent", mime_type: "application/pdf"}
+    test "creates a file from base64 content and returns metadata" do
+      content = Base.encode64("# Report\ncontent")
+      params = %{filename: "report.pdf", content: content, mime_type: "application/pdf"}
 
       assert {:ok, result} = DiskBridge.create_file(params)
 
@@ -38,7 +39,14 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "creates file in custom path when provided and resolvable" do
-      params = %{filename: "notes.txt", data: "hello", path: "archives", mime_type: "text/plain"}
+      content = Base.encode64("hello")
+
+      params = %{
+        filename: "notes.txt",
+        content: content,
+        path: "archives",
+        mime_type: "text/plain"
+      }
 
       assert {:ok, result} = DiskBridge.create_file(params)
 
@@ -48,7 +56,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "falls back to generated/ when path does not resolve" do
-      params = %{filename: "test.txt", data: "data", path: "../nonexistent"}
+      content = Base.encode64("data")
+      params = %{filename: "test.txt", content: content, path: "../nonexistent"}
 
       assert {:ok, result} = DiskBridge.create_file(params)
 
@@ -56,7 +65,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "handles filename without extension" do
-      params = %{filename: "README", data: "# Readme"}
+      content = Base.encode64("# Readme")
+      params = %{filename: "README", content: content}
 
       assert {:ok, result} = DiskBridge.create_file(params)
 
@@ -65,11 +75,18 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "falls back to generated/ when path is a traversal attempt" do
-      params = %{filename: "evil.txt", data: "bad", path: ".."}
+      content = Base.encode64("bad")
+      params = %{filename: "evil.txt", content: content, path: ".."}
 
       assert {:ok, result} = DiskBridge.create_file(params)
 
       assert result.path == "generated/evil.md"
+    end
+
+    test "returns error for invalid base64 content" do
+      params = %{filename: "test.txt", content: "not-valid-base64!!!"}
+
+      assert {:error, :invalid_base64} = DiskBridge.create_file(params)
     end
   end
 end

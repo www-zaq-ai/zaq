@@ -152,9 +152,18 @@ defmodule Zaq.Agent.Tools.Registry do
       key: "files.create_file",
       label: "Create file",
       description:
-        "Creates a file on local disk. Provide filename, data as text, and optional path. " <>
-          "Saved as markdown. Use @path in your response to let the user preview.",
+        "Stages a file in memory with filename, content, and optional directory path. " <>
+          "Returns file metadata for @path references but does NOT write to disk. " <>
+          "Call persist_file with the same params to save it.",
       module: Zaq.Agent.Tools.Files.CreateFile
+    },
+    %{
+      key: "files.persist_file",
+      label: "Persist file",
+      description:
+        "Persists a staged file to disk. Provide filename, data as text, and optional path. " <>
+          "Saved as markdown. Use @path in your response to let the user preview.",
+      module: Zaq.Agent.Tools.Files.PersistFile
     },
     ## Requires permission
     # %{
