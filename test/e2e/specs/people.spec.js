@@ -2,6 +2,7 @@ const { test, expect, request: apiRequest } = require("@playwright/test")
 const {
   gotoBackOfficeLive,
   loginToBackOffice,
+  pickSearchableSelect,
   resetE2EState,
 } = require("../support/bo")
 
@@ -140,7 +141,7 @@ test.describe("People", () => {
     await page.locator(SEL.filterName).fill(`${ts}`)
 
     // Select person A → open merge modal
-    await page.getByText(nameA).click()
+    await selectPerson(page, nameA)
     await page.locator('[phx-click="open_merge_modal"]').first().click()
 
     await expect(page.locator(SEL.modalOverlay)).toBeVisible()
@@ -171,7 +172,7 @@ test.describe("People", () => {
     await expect(page.getByText(nameSurvivor)).toBeVisible()
 
     // Select survivor → open merge modal
-    await page.getByText(nameSurvivor).first().click()
+    await selectPerson(page, nameSurvivor)
     await page.locator('[phx-click="open_merge_modal"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).toBeVisible()
 
@@ -205,7 +206,7 @@ test.describe("People", () => {
     await page.locator(SEL.filterName).fill(name)
     const personRow = page.getByText(name).first()
     await expect(personRow).toBeVisible()
-    await personRow.click()
+    await selectPerson(page, name)
     await page.locator(SEL.addChannelButton).click()
     await expect(page.locator(SEL.modalOverlay)).toBeVisible()
 
@@ -372,7 +373,7 @@ test.describe("People", () => {
 
     // Filter to person and select them
     await page.locator(SEL.filterName).fill(`${ts}`)
-    await page.getByText(personName).click()
+    await selectPerson(page, personName)
 
     // Assign team from detail panel
     await pickSearchableSelect(page, 'form[phx-change="assign_team_select"]', teamName)
@@ -396,14 +397,10 @@ test.describe("People", () => {
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
     await page.locator(SEL.filterName).fill(`${ts}`)
-    await page.getByText(personName).click()
+    await selectPerson(page, personName)
 
     // Open the team assign select, type a new team name, hit Create
-    const teamSelectForm = 'form[phx-change="assign_team_select"]'
-    await page.locator(`${teamSelectForm} [data-select-trigger]`).click()
-    await page.locator(`${teamSelectForm} [data-select-search]`).fill(teamName)
-    await expect(page.locator(`${teamSelectForm} [data-select-create]`)).toBeVisible()
-    await page.locator(`${teamSelectForm} [data-select-create]`).click()
+    await createAndAssignTeam(page, teamName)
 
     // Team badge appears on the person
     await expect(teamBadge(page, teamName)).toBeVisible()
@@ -427,25 +424,19 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    const teamSelectForm = 'form[phx-change="assign_team_select"]'
-
     // Assign teamA to survivor
     await page.locator(SEL.filterName).fill(`${ts}`)
-    await page.getByText(survivorName).first().click()
-    await page.locator(`${teamSelectForm} [data-select-trigger]`).click()
-    await page.locator(`${teamSelectForm} [data-select-search]`).fill(teamA)
-    await page.locator(`${teamSelectForm} [data-select-create]`).click()
+    await selectPerson(page, survivorName)
+    await createAndAssignTeam(page, teamA)
     await expect(teamBadge(page, teamA)).toBeVisible()
 
     // Assign teamB to loser
-    await page.getByText(loserName).first().click()
-    await page.locator(`${teamSelectForm} [data-select-trigger]`).click()
-    await page.locator(`${teamSelectForm} [data-select-search]`).fill(teamB)
-    await page.locator(`${teamSelectForm} [data-select-create]`).click()
+    await selectPerson(page, loserName)
+    await createAndAssignTeam(page, teamB)
     await expect(teamBadge(page, teamB)).toBeVisible()
 
     // Merge loser into survivor
-    await page.getByText(survivorName).first().click()
+    await selectPerson(page, survivorName)
     await page.locator('[phx-click="open_merge_modal"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).toBeVisible()
 
@@ -457,7 +448,7 @@ test.describe("People", () => {
     await expect(page.getByText("Persons merged successfully")).toBeVisible()
 
     // Survivor should now carry both teams (detail panel already open)
-    await page.getByText(survivorName).first().click()
+    await selectPerson(page, survivorName)
     await expect(teamBadge(page, teamA)).toBeVisible()
     await expect(teamBadge(page, teamB)).toBeVisible()
   })
@@ -465,10 +456,42 @@ test.describe("People", () => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function pickSearchableSelect(page, containerSel, optionLabel) {
-  await page.locator(`${containerSel} [data-select-trigger]`).click()
-  await page.locator(`${containerSel} [data-select-search]`).fill(optionLabel)
-  await page.locator(`${containerSel} [data-select-option="${optionLabel}"]`).click()
+async function selectPerson(page, name) {
+  const row = page.locator("#people-table tbody tr", { hasText: name }).first()
+  await expect(row).toBeVisible()
+  await row.click()
+
+  const detail = page.locator("#people-detail-pane")
+  await expect(detail).toBeVisible()
+  await expect(detail.locator("h3")).toHaveText(name)
+}
+
+async function createAndAssignTeam(page, teamName) {
+  const containerSel = 'form[phx-change="assign_team_select"]'
+  const trigger = page.locator(`${containerSel} [data-select-trigger]`)
+  const panel = page.locator(`${containerSel} [data-select-panel]`)
+  const search = page.locator(`${containerSel} [data-select-search]`)
+  const create = page.locator(`${containerSel} [data-select-create]`)
+
+  await expect(trigger).toBeVisible()
+
+  let opened = false
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await trigger.click({ force: true })
+    try {
+      await expect(panel).toBeVisible({ timeout: 600 })
+      await expect(search).toBeVisible({ timeout: 600 })
+      opened = true
+      break
+    } catch (_error) {
+      await page.waitForTimeout(120)
+    }
+  }
+
+  expect(opened).toBeTruthy()
+  await search.fill(teamName)
+  await expect(create).toBeVisible()
+  await create.click()
 }
 
 function teamBadge(page, teamName) {
