@@ -94,6 +94,9 @@ defmodule Zaq.Ingestion.Chunk do
   `Ecto.MultipleResultsError` if it is ever violated — a duplicate index means
   a document was re-ingested without its old chunks being deleted first, and
   silently returning one of the two would hide it.
+
+  Notice: not being used by the runtime code but useful for additional observability
+  Could also be used for chunks detailed review in the BO later on
   """
   def get_by_index(document_id, chunk_index) do
     from(c in __MODULE__,
@@ -127,6 +130,9 @@ defmodule Zaq.Ingestion.Chunk do
   The page bounds are extracted from JSON metadata with `substring`, so this is
   not an index-optimized page lookup. The query is intentionally scoped by
   `document_id` first and is appropriate for per-document navigation.
+
+    Notice: not being used by the runtime code but useful for additional observability
+  Could also be used for chunks detailed review in the BO later on
   """
   def list_by_page(document_id, page_number) when is_integer(page_number) do
     from(c in __MODULE__,
