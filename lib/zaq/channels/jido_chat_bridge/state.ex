@@ -30,6 +30,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
+  alias Zaq.Channels.JidoChatBridge.ReactionPayload
 
   @type state :: %{
           bridge_id: String.t(),
@@ -123,34 +124,34 @@ defmodule Zaq.Channels.JidoChatBridge.State do
 
   @impl GenServer
   def handle_call({:process_listener_payload, config, payload, sink_opts}, _from, state) do
-    if payload[:event_type] == :reaction do
-      handle_reaction_payload(config, payload)
-      {:reply, :ok, state}
+    transport = sink_opts[:transport] || :websocket
+
+    with :message <- payload_event(payload),
+         {:ok, adapter} <- bridge_module().adapter_for(config.provider),
+         {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
+         incoming <- with_transport(incoming, transport),
+         thread_id <-
+           bridge_module().thread_key(
+             incoming.channel_meta.adapter_name,
+             incoming.external_room_id,
+             incoming.external_thread_id || incoming.external_room_id
+           ) do
+      Chat.process_message(
+        state.chat,
+        incoming.channel_meta.adapter_name,
+        thread_id,
+        incoming,
+        []
+      )
+
+      {:reply, :ok, %{state | ingress_status: ok_ingress_status()}}
     else
-      {:ok, adapter} = bridge_module().adapter_for(config.provider)
-      transport = sink_opts[:transport] || :websocket
+      :reaction ->
+        handle_reaction_payload(config, payload)
+        {:reply, :ok, state}
 
-      with {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
-           incoming <- with_transport(incoming, transport),
-           thread_id <-
-             bridge_module().thread_key(
-               incoming.channel_meta.adapter_name,
-               incoming.external_room_id,
-               incoming.external_thread_id || incoming.external_room_id
-             ) do
-        Chat.process_message(
-          state.chat,
-          incoming.channel_meta.adapter_name,
-          thread_id,
-          incoming,
-          []
-        )
-
-        {:reply, :ok, %{state | ingress_status: ok_ingress_status()}}
-      else
-        _ ->
-          {:reply, :ok, state}
-      end
+      _ ->
+        {:reply, :ok, state}
     end
   end
 
@@ -319,20 +320,16 @@ defmodule Zaq.Channels.JidoChatBridge.State do
     bridge_module().runtime_chat_module()
   end
 
+  defp payload_event(payload), do: ReactionPayload.event_type(payload)
+
   defp handle_reaction_payload(config, payload) do
-    emoji_name =
-      if is_map(payload[:emoji]),
-        do: payload[:emoji][:name] || payload[:emoji]["name"],
-        else: payload[:emoji]
+    provider = JidoChatBridge.provider_to_atom(config.provider) || :unknown
 
-    reaction = %{
-      added: payload[:added],
-      emoji: emoji_name,
-      user: %{user_id: to_string(payload[:user_id])},
-      message_id: payload[:message_id],
-      thread: %{metadata: %{}}
-    }
-
-    bridge_module().handle_reaction_event(config, reaction)
+    with {:ok, adapter} <- bridge_module().adapter_for(config.provider),
+         {:ok, reaction} <- ReactionPayload.to_reaction_event(payload, provider, adapter) do
+      bridge_module().handle_reaction_event(config, reaction)
+    else
+      _ -> :ok
+    end
   end
 end

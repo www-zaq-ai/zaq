@@ -35,6 +35,8 @@ defmodule Zaq.Channels.JidoChatBridge do
     WebhookUrl
   }
 
+  alias Jido.Chat.ReactionEvent
+  alias Jido.Chat.Thread
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
   alias Zaq.Channels.JidoChatBridge.ReactionMapper
   alias Zaq.Channels.JidoChatBridge.State
@@ -331,11 +333,20 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp handle_reaction_event(config, reaction) do
+  @doc """
+  Rates a normalized reaction event and posts the engine's follow-up, if any.
+
+  Both ingress paths converge here: the in-process `Jido.Chat.on_reaction/2`
+  handler and the listener sink (via `ReactionPayload.to_reaction_event/3`), so
+  `reaction` is always a `%Jido.Chat.ReactionEvent{}`. Removals and unmapped
+  emoji are ignored.
+  """
+  @spec handle_reaction_event(map(), ReactionEvent.t()) :: :ok | {:ok, term()} | {:error, term()}
+  def handle_reaction_event(config, %ReactionEvent{} = reaction) do
     provider = provider_to_atom(config.provider) || :unknown
 
     with true <- reaction.added,
-         {:ok, rating} <- ReactionMapper.to_rating(reaction.emoji, provider) do
+         {:ok, rating} <- ReactionMapper.to_rating(provider, reaction.emoji) do
       rated_reaction = Map.put(reaction, :rating, rating)
 
       event =
@@ -347,15 +358,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
       case node_router_module().dispatch(event).response do
         {:ok, %{follow_up_text: text}} when is_binary(text) ->
-          thread =
-            %{reaction.thread | metadata: Map.put(reaction.thread.metadata, :url, config.url)}
-
-          Jido.Chat.Thread.post(
-            thread,
-            text,
-            url: config.url,
-            token: config.token
-          )
+          post_reaction_follow_up(config, reaction.thread, text)
 
         _ ->
           :ok
@@ -364,6 +367,18 @@ defmodule Zaq.Channels.JidoChatBridge do
       _ -> :ok
     end
   end
+
+  def handle_reaction_event(_config, _reaction), do: :ok
+
+  # A reaction can be rated without a postable thread handle (the engine still
+  # records the rating); only the follow-up message needs one.
+  defp post_reaction_follow_up(config, %Thread{} = thread, text) do
+    thread = %{thread | metadata: Map.put(thread.metadata || %{}, :url, config.url)}
+
+    Thread.post(thread, text, url: config.url, token: config.token)
+  end
+
+  defp post_reaction_follow_up(_config, _thread, _text), do: :ok
 
   @doc "Processes a normalized incoming message from the listener pipeline."
   def handle_from_listener(config, %Chat.Incoming{} = incoming, _sink_opts) do

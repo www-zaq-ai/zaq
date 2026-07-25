@@ -1,13 +1,37 @@
 defmodule Zaq.Channels.JidoChatBridge.StateTest do
   use ExUnit.Case, async: false
 
+  alias Jido.Chat.EventEnvelope
   alias Jido.Chat.Incoming, as: ChatIncoming
+  alias Jido.Chat.ReactionEvent
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.Outgoing
 
+  # Records reaction dispatch while delegating everything else the state process
+  # needs to the real bridge.
+  defmodule StubBridge do
+    defdelegate adapter_for(provider), to: JidoChatBridge
+    defdelegate register_handlers(chat, config, handler_opts), to: JidoChatBridge
+    defdelegate runtime_chat_module(), to: JidoChatBridge
+    defdelegate provider_to_atom(provider), to: JidoChatBridge
+    defdelegate thread_key(provider, channel_id, thread_id), to: JidoChatBridge
+
+    def handle_reaction_event(config, reaction) do
+      if pid = Process.whereis(:state_test_observer) do
+        send(pid, {:state_handle_reaction, config, reaction})
+      end
+
+      :ok
+    end
+  end
+
   defmodule StubAdapter do
-    def transform_incoming(_payload) do
+    def transform_incoming(payload) do
+      if pid = Process.whereis(:state_test_observer) do
+        send(pid, {:state_transform_incoming, payload})
+      end
+
       {:ok,
        %ChatIncoming{
          text: "hello",
@@ -83,6 +107,35 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
     end)
 
     {:ok, pid: pid, config: config}
+  end
+
+  # Mirrors the envelope shape gateway/polling workers push into the sink.
+  defp reaction_envelope(overrides \\ %{}) do
+    payload =
+      Map.merge(
+        %{
+          adapter_name: :mattermost,
+          thread_id: "mattermost:chan-1",
+          message_id: "msg-1",
+          emoji: "thumbsup",
+          added: true,
+          user: %{user_id: "user-1"},
+          raw: %{},
+          metadata: %{channel_id: "chan-1"}
+        },
+        overrides
+      )
+
+    EventEnvelope.new(%{
+      adapter_name: :mattermost,
+      event_type: :reaction,
+      thread_id: "mattermost:chan-1",
+      channel_id: "chan-1",
+      message_id: "msg-1",
+      payload: payload,
+      raw: %{},
+      metadata: %{}
+    })
   end
 
   test "process_listener_payload/4 updates state atomically", %{pid: pid, config: config} do
@@ -283,6 +336,79 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
     assert opts[:token] == "tok"
 
     Process.unregister(:state_test_observer)
+  end
+
+  describe "process_listener_payload/4 reaction ingress" do
+    setup do
+      previous = Application.get_env(:zaq, JidoChatBridge, [])
+
+      Application.put_env(
+        :zaq,
+        JidoChatBridge,
+        Keyword.put(previous, :bridge_module, StubBridge)
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, JidoChatBridge, previous) end)
+
+      Process.register(self(), :state_test_observer)
+
+      :ok
+    end
+
+    test "hands a normalized reaction event to the bridge", %{pid: pid, config: config} do
+      assert :ok =
+               State.process_listener_payload(pid, config, reaction_envelope(),
+                 transport: :websocket
+               )
+
+      assert_received {:state_handle_reaction, ^config, %ReactionEvent{} = reaction}
+      assert reaction.emoji == "thumbsup"
+      assert reaction.added
+      assert reaction.message_id == "msg-1"
+      assert reaction.adapter_name == :mattermost
+      assert reaction.user.user_id == "user-1"
+      assert %Jido.Chat.Thread{external_room_id: "chan-1"} = reaction.thread
+    end
+
+    test "never routes a reaction through transform_incoming", %{pid: pid, config: config} do
+      assert :ok =
+               State.process_listener_payload(pid, config, reaction_envelope(),
+                 transport: :websocket
+               )
+
+      refute_received {:state_transform_incoming, _payload}
+    end
+
+    test "leaves ingress status untouched for reactions", %{pid: pid, config: config} do
+      before_status = State.ingress_status(pid)
+
+      assert :ok =
+               State.process_listener_payload(pid, config, reaction_envelope(),
+                 transport: :websocket
+               )
+
+      assert State.ingress_status(pid) == before_status
+    end
+
+    test "ignores a reaction with no usable emoji instead of crashing", %{
+      pid: pid,
+      config: config
+    } do
+      payload = reaction_envelope(%{emoji: nil})
+
+      assert :ok = State.process_listener_payload(pid, config, payload, transport: :websocket)
+      refute_received {:state_handle_reaction, _config, _reaction}
+      assert Process.alive?(pid)
+    end
+
+    test "still processes message payloads through the adapter", %{pid: pid, config: config} do
+      assert :ok =
+               State.process_listener_payload(pid, config, %{"event" => "posted"},
+                 transport: :websocket
+               )
+
+      assert %{status: :ok} = State.ingress_status(pid)
+    end
   end
 
   test "send_reply/3 returns error for unsupported provider", %{pid: pid} do

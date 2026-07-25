@@ -114,7 +114,9 @@ defmodule Zaq.MixProject do
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat", override: true},
       {:jido_chat, github: "agentjido/jido_chat", branch: "main", override: true},
       {:jido_chat_discord, "~> 1.0"},
-      {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
+      # {:jido_chat_mattermost, path: "../jido_chat_mattermost", override: true},
+      {:jido_chat_mattermost,
+       github: "www-zaq-ai/jido_chat_mattermost", branch: "feat/inbound-reaction-events"},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
       # {:jido_chat_telegram,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat_telegram",

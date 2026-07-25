@@ -703,15 +703,19 @@ defmodule Zaq.Engine.Conversations do
              channel_user_id: reaction.user.user_id,
              rating: rating
            }) do
-      if rating == 1 do
-        {:ok,
-         %{
-           follow_up_text:
-             "Thanks for your feedback! Could you tell us more about what we could improve?"
-         }}
-      else
-        :ok
-      end
+      # Disabled until the follow-up reply is wired to capture the reason the
+      # user sends back — today the prompt is asked and the answer goes nowhere.
+      #
+      # if rating == 1 do
+      #   {:ok,
+      #    %{
+      #      follow_up_text:
+      #        "Thanks for your feedback! Could you tell us more about what we could improve?"
+      #    }}
+      # else
+      #   :ok
+      # end
+      :ok
     else
       nil -> :ok
       {:error, reason} -> {:error, reason}
