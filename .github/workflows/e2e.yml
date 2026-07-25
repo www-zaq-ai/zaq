@@ -93,14 +93,14 @@ jobs:
 
       - name: Install Playwright browser
         if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: npx --prefix test/e2e playwright install --with-deps chromium
+        run: npx --prefix test/e2e playwright install --with-deps chromium firefox webkit
 
       - name: Install Playwright system deps (cached browser)
         if: steps.pw-cache.outputs.cache-hit == 'true'
-        run: npx --prefix test/e2e playwright install-deps chromium
+        run: npx --prefix test/e2e playwright install-deps chromium firefox webkit
 
       - name: Run full E2E suite
-        run: npm --prefix test/e2e run test
+        run: npm --prefix test/e2e run test:journeys
 
       - name: Upload Playwright artifacts
         if: always()

@@ -48,7 +48,17 @@ module.exports = defineConfig({
   ],
   projects: [
     {
-      name: "chromium",
+      name: "journeys-firefox",
+      testDir: "./specs",
+      use: { ...devices["Desktop Firefox"] },
+    },
+        {
+      name: "journeys-webkit",
+      testDir: "./specs",
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
+      name: "journeys-chromium",
       testDir: "./specs",
       use: { ...devices["Desktop Chrome"] },
     },
