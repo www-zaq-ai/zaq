@@ -127,17 +127,21 @@ defmodule Zaq.Channels.JidoChatBridge.MattermostReactionIngressTest do
     assert :ok = deliver(pid, config, reaction_frame("thumbsup"))
 
     assert_received {:node_router_dispatch, event}
-    assert event.opts[:action] == :rate_message_from_reaction
-    assert event.request.reaction.rating == 5
-    assert event.request.reaction.message_id == "post-1"
-    assert event.request.reaction.user.user_id == "user-123"
+    assert event.opts[:action] == :rate_message
+
+    # Identical to the shape `telegram_reaction_webhook_test.exs` asserts: the
+    # two ingress modes converge on one origin-agnostic rating payload.
+    assert %{
+             message_ref: {:external_id, "post-1"},
+             rater_attrs: %{channel_user_id: "user-123", rating: 5}
+           } = event.request
   end
 
   test "a thumbs-down reaction reaches the engine as a low rating", %{pid: pid, config: config} do
     assert :ok = deliver(pid, config, reaction_frame("thumbsdown"))
 
     assert_received {:node_router_dispatch, event}
-    assert event.request.reaction.rating == 1
+    assert event.request.rater_attrs.rating == 1
   end
 
   test "removing a reaction dispatches nothing", %{pid: pid, config: config} do

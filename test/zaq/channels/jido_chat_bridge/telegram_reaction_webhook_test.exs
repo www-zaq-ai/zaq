@@ -93,16 +93,18 @@ defmodule Zaq.Channels.JidoChatBridge.TelegramReactionWebhookTest do
     State.process_webhook_request(pid, config, webhook_payload())
 
     assert_received {:node_router_dispatch, event}
-    assert event.opts[:action] == :rate_message_from_reaction
-    assert event.request.reaction.rating == 5
-    assert to_string(event.request.reaction.message_id) == "678"
+    assert event.opts[:action] == :rate_message
+
+    # Identical to the shape `mattermost_reaction_ingress_test.exs` asserts —
+    # webhook and listener ingress converge on one origin-agnostic payload.
+    assert %{message_ref: {:external_id, "678"}, rater_attrs: %{rating: 5}} = event.request
   end
 
   test "a telegram thumbs-down webhook dispatches the low rating", %{pid: pid, config: config} do
     State.process_webhook_request(pid, config, webhook_payload("\u{1F44E}"))
 
     assert_received {:node_router_dispatch, event}
-    assert event.request.reaction.rating == 1
+    assert event.request.rater_attrs.rating == 1
   end
 
   test "an unmapped telegram emoji dispatches nothing", %{pid: pid, config: config} do

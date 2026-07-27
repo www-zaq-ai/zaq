@@ -1150,4 +1150,59 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       assert is_nil(AgentRouting.first_active_selection(candidates, Zaq.Agent))
     end
   end
+
+  describe "dispatch_message_rating/3" do
+    defmodule RatingNodeRouter do
+      def dispatch(event) do
+        send(self(), {:rating_dispatch, event})
+        %{event | response: Process.get(:rating_response, {:ok, :rated})}
+      end
+    end
+
+    test "builds the canonical rate_message event for an external id" do
+      attrs = %{channel_user_id: "user-123", rating: 5}
+
+      assert {:ok, :rated} =
+               CommunicationBridge.dispatch_message_rating(
+                 {:external_id, "post-1"},
+                 attrs,
+                 node_router: RatingNodeRouter
+               )
+
+      assert_received {:rating_dispatch, event}
+      assert event.opts[:action] == :rate_message
+      assert event.request == %{message_ref: {:external_id, "post-1"}, rater_attrs: attrs}
+    end
+
+    test "builds the canonical rate_message event for a message uuid" do
+      attrs = %{user_id: 7, rating: 1}
+
+      assert {:ok, :rated} =
+               CommunicationBridge.dispatch_message_rating(
+                 {:id, "uuid-1"},
+                 attrs,
+                 node_router: RatingNodeRouter
+               )
+
+      assert_received {:rating_dispatch, event}
+      assert event.request == %{message_ref: {:id, "uuid-1"}, rater_attrs: attrs}
+    end
+
+    test "returns the engine response verbatim, including errors" do
+      Process.put(:rating_response, {:error, :not_found})
+      on_exit(fn -> Process.delete(:rating_response) end)
+
+      assert {:error, :not_found} =
+               CommunicationBridge.dispatch_message_rating(
+                 {:external_id, "nope"},
+                 %{rating: 5},
+                 node_router: RatingNodeRouter
+               )
+    end
+
+    test "every bridge inherits the seam through `use`" do
+      # The dispatch hop must be shared, not reimplemented per bridge.
+      assert function_exported?(Zaq.Channels.JidoChatBridge, :dispatch_message_rating, 3)
+    end
+  end
 end

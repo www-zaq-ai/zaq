@@ -184,6 +184,86 @@ defmodule Zaq.Engine.ApiTest do
     assert result.response == {:error, {:unsupported_action, :unknown}}
   end
 
+  describe "rate_message action" do
+    defmodule StubRatingConversations do
+      def rate_message_by_id(message_id, rater_attrs) do
+        {:ok, {:by_id, message_id, rater_attrs}}
+      end
+
+      def rate_message_by_external_id(external_id, rater_attrs) do
+        {:ok, {:by_external_id, external_id, rater_attrs}}
+      end
+    end
+
+    defp rate_event(request) do
+      Event.new(request, :engine,
+        opts: [action: :rate_message, conversations_module: StubRatingConversations]
+      )
+    end
+
+    test "routes an {:id, uuid} reference to rate_message_by_id/2" do
+      attrs = %{user_id: 7, rating: 5}
+      event = rate_event(%{message_ref: {:id, "uuid-1"}, rater_attrs: attrs})
+
+      result = Api.handle_event(event, :rate_message, nil)
+
+      assert result.response == {:ok, {:by_id, "uuid-1", attrs}}
+    end
+
+    test "routes an {:external_id, id} reference to rate_message_by_external_id/2" do
+      attrs = %{channel_user_id: "user-123", rating: 1}
+      event = rate_event(%{message_ref: {:external_id, "post-1"}, rater_attrs: attrs})
+
+      result = Api.handle_event(event, :rate_message, nil)
+
+      assert result.response == {:ok, {:by_external_id, "post-1", attrs}}
+    end
+
+    test "the action carries no reaction vocabulary" do
+      # A reaction-shaped request must not be accepted: Channels maps emoji to a
+      # rating before dispatch, so the engine only ever sees a rating.
+      event = rate_event(%{reaction: %{message_id: "post-1", rating: 5}})
+
+      result = Api.handle_event(event, :rate_message, nil)
+
+      assert {:error, {:invalid_request, _}} = result.response
+    end
+
+    test "rejects a smuggled message_id in rater_attrs" do
+      for attrs <- [%{rating: 5, message_id: "other"}, %{"message_id" => "other", rating: 5}] do
+        event = rate_event(%{message_ref: {:id, "uuid-1"}, rater_attrs: attrs})
+
+        result = Api.handle_event(event, :rate_message, nil)
+
+        assert {:error, {:invalid_request, %{rater_attrs: ^attrs}}} = result.response
+      end
+    end
+
+    test "rejects an unrecognized message reference" do
+      event = rate_event(%{message_ref: "post-1", rater_attrs: %{rating: 5}})
+
+      result = Api.handle_event(event, :rate_message, nil)
+
+      assert result.response == {:error, {:invalid_request, %{message_ref: "post-1"}}}
+    end
+
+    test "rejects a non-map rater_attrs" do
+      event = rate_event(%{message_ref: {:id, "uuid-1"}, rater_attrs: [rating: 5]})
+
+      result = Api.handle_event(event, :rate_message, nil)
+
+      assert {:error, {:invalid_request, _}} = result.response
+    end
+
+    test "the reaction-specific action no longer exists" do
+      event = Event.new(%{reaction: %{}}, :engine)
+
+      result = Api.handle_event(event, :rate_message_from_reaction, nil)
+
+      assert result.response == {:error, {:unsupported_action, :rate_message_from_reaction}}
+    end
+  end
+
   test "handles connect_get_active_grant action" do
     params = %{provider: "google_drive", resource_type: "data_source", resource_id: 1}
     event = Event.new(params, :engine, opts: [connect_module: StubConnect])

@@ -125,6 +125,33 @@ Adapter inbound path:
   rating CRUD.
 - `rate_message_by_id/2` — upserts a rating by message UUID; dispatches `:feedback_provided`
   hook after success.
+- `rate_message_by_external_id/3` — resolves a message by its provider-assigned external id, then
+  delegates to `rate_message_by_id/2`. Returns `{:error, :not_found}` when no message carries that
+  id. Origin-agnostic: it takes the same `rater_attrs` map as `rate_message_by_id/2` and carries no
+  channel or reaction vocabulary.
+
+#### Rating a message from any origin
+
+Ratings reach the engine through a single action, `:rate_message`, whose request is:
+
+```elixir
+%{
+  message_ref: {:id, uuid} | {:external_id, provider_message_id},
+  rater_attrs: %{optional(:user_id) => integer(), optional(:channel_user_id) => String.t(),
+                 :rating => 1..5, optional(:comment) => String.t()}
+}
+```
+
+`rater_attrs` is the same map the back-office builds (`MessageHelpers.positive_rater_attrs/1`) and
+feeds straight into `MessageRating.changeset/2`. Only `message_ref` differs by origin: the BO holds
+a message UUID, a channel only has the provider's identifier.
+
+The engine cannot tell a reaction-originated rating from a back-office one — that is deliberate.
+Channels map their provider's emoji vocabulary to a ZAQ rating *before* dispatch (see
+`Zaq.Channels.JidoChatBridge.ReactionMapper`) and dispatch through the shared
+`CommunicationBridge.dispatch_message_rating/3` seam. A `:message_id` key inside `rater_attrs` is
+rejected rather than ignored, since it would silently override the message resolved from
+`message_ref`.
 - `share_conversation/2`, `list_shares/1`, `revoke_share/1` — share link management.
 - `get_conversation_by_token/1` — resolves a conversation from a share token.
 

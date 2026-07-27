@@ -388,9 +388,25 @@ Shared helper:
 
 1. The adapter listener calls `from_listener/3` (configured as `sink_mfa` target).
 2. `from_listener/3` ensures the runtime is started and looks up the `State` pid.
-3. `State.process_listener_payload/4` transforms the raw payload via `Jido.Chat.Adapter.transform_incoming/2`, annotates it with transport mode, and processes it through `Chat.process_message/5`.
-4. The `Chat` handlers fire: `on_new_mention`, `on_new_message`, `on_subscribed_message`.
+3. `State.process_listener_payload/4` branches on the payload shape:
+   - **`%Jido.Chat.EventEnvelope{}`** — the adapter's normalized form for inbound events that `transform_incoming/1` has no representation for (reactions today). Handed straight to `Chat.route_event/4`, which classifies `event_type` and fires the matching handler. ZAQ does not classify or normalize these itself.
+   - **anything else** — a raw message payload: transformed via `Jido.Chat.Adapter.transform_incoming/2`, annotated with transport mode, and processed through `Chat.process_message/5`.
+4. The `Chat` handlers fire: `on_new_mention`, `on_new_message`, `on_subscribed_message`, `on_reaction`.
 5. For qualifying messages, `handle_message_event/3` converts the `Chat.Incoming` to an `%Incoming{}` via `to_internal/2`, resolves the author's role IDs, runs the pipeline, and delivers the `%Outgoing{}` result.
+
+Both ingress modes converge on the handlers registered in `register_handlers/3`: webhook-mode providers (Telegram) reach them through `Chat.handle_webhook_request/4`, listener-mode providers (Mattermost, Discord) through `Chat.route_event/4`. Reaction normalization belongs to the adapter and `Jido.Chat.EventNormalizer` — never to ZAQ.
+
+### Reaction flow
+
+Reactions are feedback, not a separate domain. The channel layer owns exactly one thing — turning a provider's emoji into a ZAQ rating — and from there the rating is indistinguishable from a back-office one.
+
+1. `on_reaction` fires `JidoChatBridge.handle_reaction_event/2` with a `%Jido.Chat.ReactionEvent{}`.
+2. Removals (`added: false`) are ignored.
+3. `ReactionMapper.to_rating/2` maps the emoji to `1..5`, or `:ignored` for anything unmapped — this is the only reaction-aware step.
+4. `CommunicationBridge.dispatch_message_rating/3` dispatches the engine's `:rate_message` action with `{:external_id, message_id}` and a `rater_attrs` map. **No bridge builds this event itself** — the seam is inherited by every bridge through `use Zaq.Channels.CommunicationBridge`.
+5. `[:zaq, :chat_bridge, :reaction, :processed | :failed]` telemetry is emitted, mirroring the message path.
+
+Nothing downstream of step 3 knows a reaction was involved. See `docs/services/engine.md` for the `:rate_message` contract.
 
 ### Outbound flow
 

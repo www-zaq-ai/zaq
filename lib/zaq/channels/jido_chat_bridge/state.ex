@@ -27,10 +27,10 @@ defmodule Zaq.Channels.JidoChatBridge.State do
 
   alias Jido.Chat
   alias Jido.Chat.Adapter
+  alias Jido.Chat.EventEnvelope
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
-  alias Zaq.Channels.JidoChatBridge.ReactionPayload
 
   @type state :: %{
           bridge_id: String.t(),
@@ -123,11 +123,31 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   end
 
   @impl GenServer
+  def handle_call(
+        {:process_listener_payload, config, %EventEnvelope{} = envelope, _sink_opts},
+        _from,
+        state
+      ) do
+    # Adapters emit a normalized `%EventEnvelope{}` for every inbound event that
+    # `transform_incoming/1` has no representation for (reactions today, more
+    # event types later). `Jido.Chat` owns envelope routing: it classifies the
+    # `event_type` and fires the handlers registered in
+    # `JidoChatBridge.register_handlers/3` — the same path webhook-mode ingress
+    # already takes. ZAQ must not classify or normalize these itself.
+    #
+    # The routed chat is discarded to match the message branch below, which also
+    # drops `Chat.process_message/5`'s result.
+    adapter_name = envelope.adapter_name || JidoChatBridge.provider_to_atom(config.provider)
+
+    chat_module().route_event(state.chat, adapter_name, envelope, [])
+
+    {:reply, :ok, state}
+  end
+
   def handle_call({:process_listener_payload, config, payload, sink_opts}, _from, state) do
     transport = sink_opts[:transport] || :websocket
 
-    with :message <- payload_event(payload),
-         {:ok, adapter} <- bridge_module().adapter_for(config.provider),
+    with {:ok, adapter} <- bridge_module().adapter_for(config.provider),
          {:ok, incoming} <- Adapter.transform_incoming(adapter, payload),
          incoming <- with_transport(incoming, transport),
          thread_id <-
@@ -146,10 +166,6 @@ defmodule Zaq.Channels.JidoChatBridge.State do
 
       {:reply, :ok, %{state | ingress_status: ok_ingress_status()}}
     else
-      :reaction ->
-        handle_reaction_payload(config, payload)
-        {:reply, :ok, state}
-
       _ ->
         {:reply, :ok, state}
     end
@@ -318,18 +334,5 @@ defmodule Zaq.Channels.JidoChatBridge.State do
 
   defp chat_module do
     bridge_module().runtime_chat_module()
-  end
-
-  defp payload_event(payload), do: ReactionPayload.event_type(payload)
-
-  defp handle_reaction_payload(config, payload) do
-    provider = JidoChatBridge.provider_to_atom(config.provider) || :unknown
-
-    with {:ok, adapter} <- bridge_module().adapter_for(config.provider),
-         {:ok, reaction} <- ReactionPayload.to_reaction_event(payload, provider, adapter) do
-      bridge_module().handle_reaction_event(config, reaction)
-    else
-      _ -> :ok
-    end
   end
 end

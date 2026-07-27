@@ -1198,6 +1198,112 @@ defmodule Zaq.Engine.ConversationsTest do
 
   # ── get_message_by_external_id/1 ────────────────────────────────────────────
 
+  describe "rate_message_by_external_id/3" do
+    defp message_with_external_id(external_id) do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      {:ok, msg} =
+        Conversations.add_message(conv, %{
+          role: "assistant",
+          content: "answer",
+          metadata: %{"external_message_id" => external_id}
+        })
+
+      msg
+    end
+
+    test "creates a rating for a message identified by its external id" do
+      msg = message_with_external_id("post-1")
+
+      assert {:ok, rating} =
+               Conversations.rate_message_by_external_id("post-1", %{
+                 channel_user_id: "user-123",
+                 rating: 5
+               })
+
+      assert rating.message_id == msg.id
+      assert rating.channel_user_id == "user-123"
+      assert rating.rating == 5
+    end
+
+    test "is origin-agnostic: accepts the back-office rater shape too" do
+      user = user_fixture()
+      msg = message_with_external_id("post-2")
+
+      assert {:ok, rating} =
+               Conversations.rate_message_by_external_id("post-2", %{
+                 user_id: user.id,
+                 rating: 4
+               })
+
+      assert rating.message_id == msg.id
+      assert rating.user_id == user.id
+    end
+
+    test "upserts on a second rating from the same channel user" do
+      message_with_external_id("post-3")
+
+      attrs = %{channel_user_id: "user-123", rating: 5}
+      {:ok, _} = Conversations.rate_message_by_external_id("post-3", attrs)
+
+      assert {:ok, updated} =
+               Conversations.rate_message_by_external_id("post-3", %{attrs | rating: 1})
+
+      assert updated.rating == 1
+    end
+
+    test "accepts a non-binary external id" do
+      msg = message_with_external_id("678")
+
+      assert {:ok, rating} =
+               Conversations.rate_message_by_external_id(678, %{
+                 channel_user_id: "user-1",
+                 rating: 5
+               })
+
+      assert rating.message_id == msg.id
+    end
+
+    test "returns not_found for an unknown external id" do
+      assert {:error, :not_found} =
+               Conversations.rate_message_by_external_id("no-such-post", %{
+                 channel_user_id: "user-123",
+                 rating: 5
+               })
+    end
+
+    test "rejects an out-of-range rating through the changeset" do
+      message_with_external_id("post-4")
+
+      assert {:error, changeset} =
+               Conversations.rate_message_by_external_id("post-4", %{
+                 channel_user_id: "user-123",
+                 rating: 9
+               })
+
+      assert %{rating: _} = errors_on(changeset)
+    end
+
+    # Pins the current authorization boundary rather than asserting it is
+    # correct: a channel user id is provider-supplied and unverified, so it can
+    # rate any message resolvable by external id. Pre-existing behaviour,
+    # tracked as a follow-up in
+    # docs/exec-plans/active/pr-627-reaction-unification.md.
+    test "an unknown channel user can rate, but only the referenced message" do
+      target = message_with_external_id("post-5")
+      other = message_with_external_id("post-6")
+
+      assert {:ok, rating} =
+               Conversations.rate_message_by_external_id("post-5", %{
+                 channel_user_id: "never-seen-before",
+                 rating: 1
+               })
+
+      assert rating.message_id == target.id
+      refute rating.message_id == other.id
+    end
+  end
+
   describe "get_message_by_external_id/1" do
     test "returns the message when external_message_id matches" do
       {:ok, conv} = Conversations.create_conversation(conv_attrs())

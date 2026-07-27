@@ -41,7 +41,6 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.JidoChatBridge.ReactionMapper
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.Event
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.{NodeRouter, System}
   alias Zaq.Types.EncryptedString
@@ -336,10 +335,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   @doc """
   Rates a normalized reaction event and posts the engine's follow-up, if any.
 
-  Both ingress paths converge here: the in-process `Jido.Chat.on_reaction/2`
-  handler and the listener sink (via `ReactionPayload.to_reaction_event/3`), so
-  `reaction` is always a `%Jido.Chat.ReactionEvent{}`. Removals and unmapped
-  emoji are ignored.
+  Registered as the `Jido.Chat.on_reaction/2` handler in `register_handlers/3`,
+  so both ingress modes converge here through `Jido.Chat`: webhook-mode providers
+  via `Chat.handle_webhook_request/4`, listener-mode providers via
+  `Chat.route_event/4`. Normalization into a `%Jido.Chat.ReactionEvent{}` belongs
+  to the adapter and to jido_chat's own event normalizer — never to this bridge.
+
+  Removals and unmapped emoji are ignored.
   """
   @spec handle_reaction_event(map(), ReactionEvent.t()) :: :ok | {:ok, term()} | {:error, term()}
   def handle_reaction_event(config, %ReactionEvent{} = reaction) do
@@ -347,28 +349,63 @@ defmodule Zaq.Channels.JidoChatBridge do
 
     with true <- reaction.added,
          {:ok, rating} <- ReactionMapper.to_rating(provider, reaction.emoji) do
-      rated_reaction = Map.put(reaction, :rating, rating)
-
-      event =
-        Event.new(
-          %{reaction: rated_reaction},
-          :engine,
-          opts: [action: :rate_message_from_reaction]
+      # Mapping the provider's emoji to a ZAQ rating is the channel's job; from
+      # here the rating is origin-agnostic and travels the same engine action a
+      # back-office rating does.
+      result =
+        dispatch_message_rating(
+          {:external_id, to_string(reaction.message_id)},
+          %{
+            channel_user_id: reaction.user && reaction.user.user_id,
+            rating: rating
+          },
+          node_router: node_router_module()
         )
 
-      case node_router_module().dispatch(event).response do
-        {:ok, %{follow_up_text: text}} when is_binary(text) ->
-          post_reaction_follow_up(config, reaction.thread, text)
-
-        _ ->
-          :ok
-      end
+      handle_rating_result(config, reaction, provider, result)
     else
       _ -> :ok
     end
   end
 
   def handle_reaction_event(_config, _reaction), do: :ok
+
+  defp handle_rating_result(_config, reaction, provider, {:error, reason}) do
+    :telemetry.execute([:zaq, :chat_bridge, :reaction, :failed], %{count: 1}, %{
+      provider: provider,
+      reason: inspect(reason)
+    })
+
+    Logger.error(
+      "[JidoChatBridge] Failed to rate message from reaction " <>
+        "message=#{inspect(reaction.message_id)} provider=#{provider} " <>
+        "reason=#{inspect(reason)}"
+    )
+
+    :ok
+  end
+
+  # Disabled until the follow-up reply is wired to capture the reason the user
+  # sends back — today the prompt is asked and the answer goes nowhere. The
+  # engine returns the persisted rating, which never matches this shape, so the
+  # clause is inert; it stays to document the deferral at the point where the
+  # follow-up would actually be posted.
+  defp handle_rating_result(config, reaction, provider, {:ok, %{follow_up_text: text}})
+       when is_binary(text) do
+    reaction_processed(provider)
+    post_reaction_follow_up(config, reaction.thread, text)
+  end
+
+  defp handle_rating_result(_config, _reaction, provider, _result) do
+    reaction_processed(provider)
+    :ok
+  end
+
+  defp reaction_processed(provider) do
+    :telemetry.execute([:zaq, :chat_bridge, :reaction, :processed], %{count: 1}, %{
+      provider: provider
+    })
+  end
 
   # A reaction can be rated without a postable thread handle (the engine still
   # records the rating); only the follow-up message needs one.

@@ -514,13 +514,13 @@ defmodule Zaq.Engine.Api do
     end
   end
 
-  def handle_event(%Event{} = event, :rate_message_from_reaction, _context) do
+  def handle_event(%Event{} = event, :rate_message, _context) do
     case event.request do
-      %{reaction: reaction} ->
+      %{message_ref: message_ref, rater_attrs: rater_attrs} when is_map(rater_attrs) ->
         conversations_module =
           Keyword.get(event.opts, :conversations_module, Conversations)
 
-        %{event | response: conversations_module.rate_message_from_reaction(reaction)}
+        %{event | response: handle_rate_message(conversations_module, message_ref, rater_attrs)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}
@@ -529,6 +529,37 @@ defmodule Zaq.Engine.Api do
 
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
+  end
+
+  # Ratings reach the engine as an origin-agnostic payload: a message reference
+  # plus the same `rater_attrs` map BO builds. The engine deliberately cannot
+  # tell whether a rating came from a reaction or from the back-office — only
+  # how the message is identified differs.
+  #
+  # `:message_id` is rejected rather than ignored: it would silently override the
+  # message resolved from `message_ref` inside `MessageRating.changeset/2`.
+  defp handle_rate_message(conversations_module, message_ref, rater_attrs) do
+    if smuggled_message_id?(rater_attrs) do
+      {:error, {:invalid_request, %{rater_attrs: rater_attrs}}}
+    else
+      rate_by_message_ref(conversations_module, message_ref, rater_attrs)
+    end
+  end
+
+  defp smuggled_message_id?(rater_attrs) do
+    Map.has_key?(rater_attrs, :message_id) or Map.has_key?(rater_attrs, "message_id")
+  end
+
+  defp rate_by_message_ref(conversations_module, {:id, message_id}, rater_attrs) do
+    conversations_module.rate_message_by_id(message_id, rater_attrs)
+  end
+
+  defp rate_by_message_ref(conversations_module, {:external_id, external_id}, rater_attrs) do
+    conversations_module.rate_message_by_external_id(external_id, rater_attrs)
+  end
+
+  defp rate_by_message_ref(_conversations_module, other, _rater_attrs) do
+    {:error, {:invalid_request, %{message_ref: other}}}
   end
 
   defp handle_workflow_approve(run_id, person_id, decision, approved_by, opts) do

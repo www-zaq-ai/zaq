@@ -10,9 +10,10 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionEventTest do
       send(self(), {:reaction_event_dispatched, event})
 
       response =
-        case Process.get(:reaction_follow_up) do
-          nil -> {:ok, %{}}
-          text -> {:ok, %{follow_up_text: text}}
+        cond do
+          error = Process.get(:reaction_dispatch_error) -> error
+          text = Process.get(:reaction_follow_up) -> {:ok, %{follow_up_text: text}}
+          true -> {:ok, %{}}
         end
 
       %{event | response: response}
@@ -72,17 +73,23 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionEventTest do
     assert :ok = JidoChatBridge.handle_reaction_event(config, reaction())
 
     assert_received {:reaction_event_dispatched, event}
-    assert event.opts[:action] == :rate_message_from_reaction
-    assert %{reaction: rated} = event.request
-    assert rated.rating == 5
-    assert rated.message_id == "msg-1"
+    assert event.opts[:action] == :rate_message
+
+    # The engine receives no reaction vocabulary — only a message reference and
+    # the same `rater_attrs` shape the back-office builds.
+    assert %{
+             message_ref: {:external_id, "msg-1"},
+             rater_attrs: %{channel_user_id: "user-1", rating: 5}
+           } = event.request
+
+    refute Map.has_key?(event.request, :reaction)
   end
 
   test "maps a negative emoji to the low rating", %{config: config} do
     assert :ok = JidoChatBridge.handle_reaction_event(config, reaction(%{emoji: "thumbsdown"}))
 
     assert_received {:reaction_event_dispatched, event}
-    assert event.request.reaction.rating == 1
+    assert event.request.rater_attrs.rating == 1
   end
 
   test "ignores reaction removals", %{config: config} do
@@ -130,5 +137,54 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionEventTest do
     assert :ok = JidoChatBridge.handle_reaction_event(config, nil)
 
     refute_received {:reaction_event_dispatched, _event}
+  end
+
+  describe "telemetry and dispatch failures" do
+    setup do
+      handler_id = "reaction-telemetry-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :telemetry.attach_many(
+        handler_id,
+        [
+          [:zaq, :chat_bridge, :reaction, :processed],
+          [:zaq, :chat_bridge, :reaction, :failed]
+        ],
+        fn event, measurements, metadata, _ ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      :ok
+    end
+
+    test "emits :processed after a successful rating", %{config: config} do
+      assert :ok = JidoChatBridge.handle_reaction_event(config, reaction())
+
+      assert_received {:telemetry, [:zaq, :chat_bridge, :reaction, :processed], %{count: 1},
+                       %{provider: :mattermost}}
+    end
+
+    test "emits :failed and does not raise when the engine rejects the rating", %{config: config} do
+      Process.put(:reaction_dispatch_error, {:error, :not_found})
+      on_exit(fn -> Process.delete(:reaction_dispatch_error) end)
+
+      assert :ok = JidoChatBridge.handle_reaction_event(config, reaction())
+
+      assert_received {:telemetry, [:zaq, :chat_bridge, :reaction, :failed], %{count: 1},
+                       %{provider: :mattermost, reason: reason}}
+
+      assert reason =~ "not_found"
+      refute_received {:telemetry, [:zaq, :chat_bridge, :reaction, :processed], _m, _md}
+    end
+
+    test "emits nothing when the emoji is unmapped", %{config: config} do
+      assert :ok = JidoChatBridge.handle_reaction_event(config, reaction(%{emoji: "tada"}))
+
+      refute_received {:telemetry, [:zaq, :chat_bridge, :reaction, _], _m, _md}
+    end
   end
 end

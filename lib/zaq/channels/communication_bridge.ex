@@ -9,8 +9,9 @@ defmodule Zaq.Channels.CommunicationBridge do
   - Coordinate runtime sync delegation (`sync_config_runtime/2`,
     `sync_provider_runtime/1`) with fallback behavior when optional callbacks
     are not implemented by a bridge.
-  - Build and dispatch agent pipeline events through `Zaq.NodeRouter` for
-    channel-originated incoming messages.
+  - Build and dispatch events through `Zaq.NodeRouter` for channel-originated
+    activity: agent pipeline events for incoming messages, and message ratings
+    once a channel has mapped its provider vocabulary to a ZAQ rating.
   - Enforce conversation-agent eligibility for selection helpers.
 
   This module is stateless and does not own bridge runtime process internals;
@@ -91,6 +92,9 @@ defmodule Zaq.Channels.CommunicationBridge do
                   to: Zaq.Channels.CommunicationBridge
 
       defdelegate route_incoming_message(msg, pipeline_opts, candidates, actor, opts \\ []),
+        to: Zaq.Channels.CommunicationBridge
+
+      defdelegate dispatch_message_rating(message_ref, rater_attrs, opts \\ []),
         to: Zaq.Channels.CommunicationBridge
     end
   end
@@ -502,6 +506,35 @@ defmodule Zaq.Channels.CommunicationBridge do
       opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
     )
     |> put_agent_selection_assign(agent_selection)
+  end
+
+  @doc """
+  Dispatches a channel-originated message rating to the engine.
+
+  `rater_attrs` is the origin-agnostic payload the engine's `:rate_message`
+  action takes — the same map the back-office builds. Channels are responsible
+  for mapping their provider's reaction vocabulary to a ZAQ rating *before*
+  calling this; the engine never learns the rating came from a reaction.
+
+  `message_ref` is `{:id, uuid}` when the caller already holds the message's
+  primary key, or `{:external_id, provider_message_id}` when it only has the
+  provider's identifier.
+
+  Returns the engine's response verbatim.
+  """
+  @spec dispatch_message_rating(
+          {:id, String.t()} | {:external_id, String.t()},
+          map(),
+          keyword()
+        ) :: {:ok, term()} | {:error, term()}
+  def dispatch_message_rating(message_ref, rater_attrs, opts \\ [])
+      when is_map(rater_attrs) and is_list(opts) do
+    node_router_module = Keyword.get(opts, :node_router, NodeRouter)
+
+    %{message_ref: message_ref, rater_attrs: rater_attrs}
+    |> Event.new(:engine, opts: [action: :rate_message])
+    |> node_router_module.dispatch()
+    |> Map.fetch!(:response)
   end
 
   defp resolve_incoming_actor(%Incoming{} = msg, actor, pipeline_opts, opts) when is_map(actor) do

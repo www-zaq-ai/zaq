@@ -695,34 +695,21 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  def rate_message_from_reaction(%{rating: rating} = reaction)
-      when is_integer(rating) and rating >= 1 and rating <= 5 do
-    with %Message{} = message <- get_message_by_external_id(to_string(reaction.message_id)),
-         {:ok, _rating_record} <-
-           rate_message_by_id(message.id, %{
-             channel_user_id: reaction.user.user_id,
-             rating: rating
-           }) do
-      # Disabled until the follow-up reply is wired to capture the reason the
-      # user sends back — today the prompt is asked and the answer goes nowhere.
-      #
-      # if rating == 1 do
-      #   {:ok,
-      #    %{
-      #      follow_up_text:
-      #        "Thanks for your feedback! Could you tell us more about what we could improve?"
-      #    }}
-      # else
-      #   :ok
-      # end
-      :ok
-    else
-      nil -> :ok
-      {:error, reason} -> {:error, reason}
+  @doc """
+  Creates or updates a rating for a message identified by its provider-assigned
+  external id.
+
+  Origin-agnostic: `rater_attrs` is the same map `rate_message_by_id/2` takes, so
+  a channel-originated rating and a back-office one differ only in how the
+  message is looked up. Returns `{:error, :not_found}` when no message carries
+  that external id.
+  """
+  def rate_message_by_external_id(external_message_id, rater_attrs, _opts \\ []) do
+    case get_message_by_external_id(to_string(external_message_id)) do
+      %Message{} = message -> rate_message_by_id(message.id, rater_attrs)
+      nil -> {:error, :not_found}
     end
   end
-
-  def rate_message_from_reaction(_), do: :ok
 
   # ── Sharing ────────────────────────────────────────────────────────
 
