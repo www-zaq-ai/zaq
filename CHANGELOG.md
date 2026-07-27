@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.16.0](https://github.com/www-zaq-ai/zaq/compare/v0.15.0...v0.16.0) (2026-07-27)
+
+
+### Features
+
+* **channels:** deliver telegram messages as rich markdown for table support ([27000f6](https://github.com/www-zaq-ai/zaq/commit/27000f63341d2f03036633cac36a7028e16c7742))
+* convert reactions to feedback rating ([cfd9481](https://github.com/www-zaq-ai/zaq/commit/cfd9481244aa48efe256b4d084d1e207221a43c5))
+* **data source:** add a watcher to data sources - phase 4 [Ingestion] Generic UI for external Data Sources ([fa6ad61](https://github.com/www-zaq-ai/zaq/commit/fa6ad611beb781c2419f71261050a09195abf196)), closes [#486](https://github.com/www-zaq-ai/zaq/issues/486)
+* **ingestion:** replace metadata column mirrors with source locators ([5183c47](https://github.com/www-zaq-ai/zaq/commit/5183c47263b1d25d53ae7f479620bd64bacd5e3b))
+
+
+### Bug Fixes
+
+* **channels:** default nil message_format to markdown so it stamps a format ([84a4c7f](https://github.com/www-zaq-ai/zaq/commit/84a4c7fd06e265717071dbf92c1de6add1e63133))
+* **channels:** repair reaction ingress across telegram and mattermost ([b9e3a6b](https://github.com/www-zaq-ai/zaq/commit/b9e3a6be73dfeeb941e27f2b81255155b7c760cf))
+* **channels:** stamp :markdown format so telegram renders rich messages ([e51b2b6](https://github.com/www-zaq-ai/zaq/commit/e51b2b6cb2612e1604c1a1200a265480c950372e))
+* **chore:** install firefox and webkit browsers on cached e2e runs ([8a804cb](https://github.com/www-zaq-ai/zaq/commit/8a804cbff348137b4b09449634284adfd906f34a))
+* include missing state.ex changes ([f8ad846](https://github.com/www-zaq-ai/zaq/commit/f8ad846b450a03b63e69c28c574f72dd4f3b66a9))
+* **ingestion:** Action icons hover over file name instead of next to it ([49e4c92](https://github.com/www-zaq-ai/zaq/commit/49e4c92ba2640f1ae249de1616feae31b1f07416))
+* **ingestion:** keep table header when packing rows with empty entries ([431d7d3](https://github.com/www-zaq-ai/zaq/commit/431d7d31b9dbbe9a3b3c4be99570feb28c917577))
+* **ingestion:** pack section chunks by path and add source locators ([7e9acae](https://github.com/www-zaq-ai/zaq/commit/7e9acae9bbc928c98e6a54004a7c07f7f9ecb9b5))
+* **ingestion:** provide wider space for the filename so it is always visible and clickable ([02eee6c](https://github.com/www-zaq-ai/zaq/commit/02eee6ca06d84f0a083b44ac79411cbfdf96ea0a))
+* **test:** stabilize NodeRouterMock stub in batch trigger integration test ([0a026a8](https://github.com/www-zaq-ai/zaq/commit/0a026a8f92f816a2b596952edece6223501b8972))
+* **test:** target modal header close in AI credential modal test ([af1e470](https://github.com/www-zaq-ai/zaq/commit/af1e4709cc5744b95f41b3f3cc8d3cad275527f9))
+
+
+### Refactoring
+
+* **bo:** design, increase contrast in dark mode ([09229fb](https://github.com/www-zaq-ai/zaq/commit/09229fb397dae8bcbb454d7f7b27f91a3c68acc2))
+* **bo:** migrate BOModal form_dialog to token-backed modal shell ([f472432](https://github.com/www-zaq-ai/zaq/commit/f4724323e8509dec3fcd29bedc522bb363ef7379))
+* **bo:** unify BOModal header across shell and dialog variants ([bebad47](https://github.com/www-zaq-ai/zaq/commit/bebad471b5d9547e8a19fa6c90730d63460f07bc))
+* **channels:** keep telegram rich-message format out of the bridge ([10174d0](https://github.com/www-zaq-ai/zaq/commit/10174d08261ab9b9b505f65e61a885a24288cab3))
+* **channels:** route reactions through Chat and unify rating path ([19b44b2](https://github.com/www-zaq-ai/zaq/commit/19b44b2bbe607555cddd28176bba8ac0827c88aa))
+* **helpers, comments:** use helper function to avoid redeclaring shared utils, added docs to clarify intent ([a9ed457](https://github.com/www-zaq-ai/zaq/commit/a9ed457d5f9bd191168d5097993b5c3d33a87589))
+* **ingestion:** drop start_offset/end_offset chunk locators ([dd03de5](https://github.com/www-zaq-ai/zaq/commit/dd03de56010754e9753022315283e06f13de1ae6))
+* **ingestion:** drop unused chunk id field from chunk struct and payload ([64498cb](https://github.com/www-zaq-ai/zaq/commit/64498cb78160021362f203b7eff9803c14f34bd1))
+* move reaction-to-rating mapping into JidoChatBridge ([345b848](https://github.com/www-zaq-ai/zaq/commit/345b848d3df8a536d603050a73f9f1417a016b3c))
+* reorganize reaction rating flow ([518b7d0](https://github.com/www-zaq-ai/zaq/commit/518b7d0a54dcedbe8534a5f9a274a74409d11e20))
+* **storybook:** add live chart previews to Charts story ([08a0381](https://github.com/www-zaq-ai/zaq/commit/08a0381ebd8194577197cb52133aeb183627ee3a))
+* **storybook:** migrate BOModal previews and consolidate modal stories ([0b32641](https://github.com/www-zaq-ai/zaq/commit/0b32641232211de4467756e26e92f941b9f30a73))
+* **storybook:** move Empty State and Embedding Banner stories ([b24f37f](https://github.com/www-zaq-ai/zaq/commit/b24f37fd2cbf24798f8cdd8827a907482587ab11))
+* **storybook:** update BOModal form_dialog and iframe previews ([d96e0ea](https://github.com/www-zaq-ai/zaq/commit/d96e0eafd9e816407a4b5ec64b521e108799b064))
+
 ## [0.15.0](https://github.com/www-zaq-ai/zaq/compare/v0.14.0...v0.15.0) (2026-07-20)
 
 
