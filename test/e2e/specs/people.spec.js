@@ -4,9 +4,13 @@ const {
   loginToBackOffice,
   pickSearchableSelect,
   resetE2EState,
+  waitForServerRoundTrip,
 } = require("../support/bo")
 
 const PEOPLE_PATH = "/bo/people"
+
+// Mirrors phx-debounce on the people filter inputs (people_live.ex).
+const FILTER_DEBOUNCE_MS = 300
 
 const SEL = {
   tabPeople: '[phx-value-tab="people"]',
@@ -94,7 +98,7 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await expect(page.getByText(name)).toBeVisible()
   })
 
@@ -110,7 +114,7 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
 
     // Select the person to verify incomplete badge in detail panel
     await page.getByText(name).click()
@@ -138,7 +142,7 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
 
     // Select person A → open merge modal
     await selectPerson(page, nameA)
@@ -168,7 +172,7 @@ test.describe("People", () => {
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
     // Filter to just these two people so they're visible regardless of page
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await expect(page.getByText(nameSurvivor)).toBeVisible()
 
     // Select survivor → open merge modal
@@ -203,7 +207,7 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill(name)
+    await filterByName(page, name)
     const personRow = page.getByText(name).first()
     await expect(personRow).toBeVisible()
     await selectPerson(page, name)
@@ -232,7 +236,7 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill(nameA)
+    await filterByName(page, nameA)
     await expect(page.getByText(nameA)).toBeVisible()
     await expect(page.getByText(nameB)).not.toBeVisible()
   })
@@ -271,7 +275,7 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await page.locator(SEL.filterComplete).selectOption("complete")
     await expect(page.getByText(completeName)).toBeVisible()
     await expect(page.getByText(incompleteName)).not.toBeVisible()
@@ -295,7 +299,7 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await page.locator(SEL.filterComplete).selectOption("incomplete")
     await expect(page.getByText(incompleteName)).toBeVisible()
     await expect(page.getByText(completeName)).not.toBeVisible()
@@ -310,11 +314,11 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill("zzz-no-match")
+    await filterByName(page, "zzz-no-match")
     await expect(page.getByText(name)).not.toBeVisible()
 
     // Clear no-match filter and re-filter by unique ts — person must be visible again
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await expect(page.getByText(name)).toBeVisible()
   })
 
@@ -342,7 +346,7 @@ test.describe("People", () => {
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
     // Filter to exactly this one person
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await expect(page.getByText(name)).toBeVisible()
 
     await expect(page.locator(SEL.nextPage)).not.toBeVisible()
@@ -372,7 +376,7 @@ test.describe("People", () => {
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
     // Filter to person and select them
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await selectPerson(page, personName)
 
     // Assign team from detail panel
@@ -380,7 +384,7 @@ test.describe("People", () => {
     await expect(teamBadge(page, teamName)).toBeVisible()
 
     // Filter by team — person should appear in the list
-    await page.locator(SEL.filterName).clear()
+    await filterByName(page, "")
     await pickSearchableSelect(page, '#filter-team-select', teamName)
     await expect(page.getByText(personName).first()).toBeVisible()
   })
@@ -396,7 +400,7 @@ test.describe("People", () => {
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await selectPerson(page, personName)
 
     // Open the team assign select, type a new team name, hit Create
@@ -425,7 +429,7 @@ test.describe("People", () => {
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
     // Assign teamA to survivor
-    await page.locator(SEL.filterName).fill(`${ts}`)
+    await filterByName(page, `${ts}`)
     await selectPerson(page, survivorName)
     await createAndAssignTeam(page, teamA)
     await expect(teamBadge(page, teamA)).toBeVisible()
@@ -455,6 +459,18 @@ test.describe("People", () => {
 })
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// The filter inputs carry phx-debounce="300", so the LiveView patch lands up to
+// ~300ms after .fill() has already resolved. Acting on the list inside that
+// window silently loses the interaction: morphdom is re-keying #people-table's
+// tbody, and LiveView's delegated handler resolves the click target after the
+// row node was detached, so the phx-click is dropped with no error. Outlast the
+// debounce, then wait for the resulting round trip to finish patching the DOM.
+async function filterByName(page, term) {
+  await page.locator(SEL.filterName).fill(`${term}`)
+  await page.waitForTimeout(FILTER_DEBOUNCE_MS + 50)
+  await waitForServerRoundTrip(page)
+}
 
 async function selectPerson(page, name) {
   const row = page.locator("#people-table tbody tr", { hasText: name }).first()
