@@ -9,9 +9,15 @@
   "id": "zaq-gs8",
   "labels": [],
   "parent": "zaq-liw",
+  "comments": [
+    {
+      "text": "Implemented Incoming.RoutingContext contract and tests. Added rule schema/context/resolver/router foundations as part of phase 1 work. Email mailbox routing is modeled with topic_id on IncomingMessageRoutingRule.",
+      "timestamp": "2026-07-28T13:10:30Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#625] Add Incoming routing context contract",
   "type": "task",
-  "updated_at": "2026-07-28T12:52:29Z"
+  "updated_at": "2026-07-28T13:10:30Z"
 }
