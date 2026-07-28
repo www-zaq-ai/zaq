@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-28T12:52:28Z",
+  "description": "Add Engine route_incoming_message action and IncomingMessageRouter that resolves identity, resolves routing rules, and returns executable Event routing fields.",
+  "id": "zaq-lov",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[#625] Route incoming messages in Engine",
+  "type": "task",
+  "updated_at": "2026-07-28T12:52:28Z"
+}
