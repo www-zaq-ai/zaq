@@ -1,64 +1,96 @@
 defmodule Zaq.Channels.DiskBridge do
   @moduledoc """
-  Bridge that writes files to the local disk via `FileExplorer`.
+  DataSource bridge that writes files to the local ZAQ volume via `FileExplorer`.
 
-  Accepts base64-encoded content, derives the file extension from the provided
-  MIME type (defaults to `.md`), and places it under `generated/` unless
-  an existing `path` is provided.
+  Implements the `create_file/2` callback of `Zaq.Channels.DataSourceBridge`, so
+  `provider: "disk"` travels the same path as remote providers:
+  `Zaq.Agent.Tools.DataSource.CreateDocument` -> `:data_source_create_file` ->
+  `DataSourceBridge.create_file/2` -> this bridge.
+
+  The file extension is derived from the MIME type (defaults to `.md`) and the
+  file is placed under `generated/` unless a resolvable `path` is provided.
   """
 
   alias Zaq.Ingestion.FileExplorer
 
-  @doc """
-  DataSourceBridge-compatible entry point. Base64-encodes `data` into `content`
-  and delegates to `create_file/1`.
-  """
-  @spec create_file(map(), map()) :: {:ok, map()} | {:error, term()}
-  def create_file(_config, params) do
-    params
-    |> Map.put(:filename, params.name)
-    |> Map.put(:content, Base.encode64(params.content))
-    |> Map.drop([:name])
-    |> create_file()
-  end
+  @default_mime_type "text/markdown"
+  @default_dir "generated"
 
   @doc """
-  Writes the given file content to disk.
+  Creates a file on disk and returns the standard datasource
+  `%{status: "created", record: ...}` shape.
+
+  Accepts atom- or string-keyed params: datasource agent tools dispatch string
+  keys, and the event request map is caller-built, so neither shape is assumed.
 
   Params:
-    - `filename` (required) — original filename (extension is derived from MIME type)
-    - `content` (required) — base64-encoded file content
-    - `path` (optional) — directory to write into; if it resolves, used as-is,
-      otherwise falls back to `generated/`
-    - `mime_type` (optional) — MIME type used to determine extension; defaults to text/markdown
+    - `name` (or `filename`, required) — extension is derived from the MIME type
+    - `content` (optional) — plain text; omitted creates an empty document
+    - `path` (optional) — directory to write into; falls back to `generated/`
+      when it does not resolve
+    - `mime_type` (optional) — defaults to `text/markdown`
+
+  Provider keys with no disk equivalent (`parent_id`, `config_id`) are ignored.
   """
-  @spec create_file(map()) :: {:ok, map()} | {:error, term()}
-  def create_file(params) do
-    %{filename: filename, content: content} = params
-    mime_type = Map.get(params, :mime_type, "text/markdown")
-    ext = mime_to_ext(mime_type)
+  @spec create_file(map(), map()) :: {:ok, map()} | {:error, term()}
+  def create_file(_config, params) when is_map(params) do
+    with {:ok, filename} <- fetch_filename(params),
+         {:ok, content} <- fetch_content(params) do
+      write_file(filename, content, get_param(params, :path), get_param(params, :mime_type))
+    end
+  end
+
+  defp write_file(filename, content, path, mime_type) do
+    ext = mime_to_ext(mime_type || @default_mime_type)
     out_name = Path.rootname(filename) <> ext
-    out_mime = ext_to_mime(ext)
+    rel_path = build_rel_path(path, out_name)
 
-    rel_path =
-      if params[:path] && resolve_path(params[:path]) do
-        Path.join(params[:path], out_name)
-      else
-        "generated/#{out_name}"
-      end
-
-    with {:ok, decoded} <- decode_content(content),
-         {:ok, abs_path} <- FileExplorer.resolve_path(rel_path),
+    with {:ok, abs_path} <- FileExplorer.resolve_path(rel_path),
          :ok <- abs_path |> Path.dirname() |> File.mkdir_p(),
-         :ok <- File.write(abs_path, decoded) do
+         :ok <- File.write(abs_path, content) do
       {:ok,
        %{
-         name: out_name,
-         path: rel_path,
-         mime_type: out_mime,
-         size: byte_size(decoded)
+         status: "created",
+         record: %{
+           id: rel_path,
+           name: out_name,
+           path: rel_path,
+           mime_type: ext_to_mime(ext),
+           size: byte_size(content)
+         }
        }}
     end
+  end
+
+  defp build_rel_path(path, out_name) when is_binary(path) do
+    case FileExplorer.resolve_path(path) do
+      {:ok, _} -> Path.join(path, out_name)
+      _ -> Path.join(@default_dir, out_name)
+    end
+  end
+
+  defp build_rel_path(_path, out_name), do: Path.join(@default_dir, out_name)
+
+  defp fetch_filename(params) do
+    case get_param(params, :name) || get_param(params, :filename) do
+      name when is_binary(name) ->
+        if String.trim(name) == "", do: {:error, :missing_name}, else: {:ok, name}
+
+      _ ->
+        {:error, :missing_name}
+    end
+  end
+
+  defp fetch_content(params) do
+    case get_param(params, :content) do
+      nil -> {:ok, ""}
+      content when is_binary(content) -> {:ok, content}
+      _ -> {:error, :invalid_content}
+    end
+  end
+
+  defp get_param(params, key) do
+    Map.get(params, key) || Map.get(params, Atom.to_string(key))
   end
 
   defp mime_to_ext("text/plain"), do: ".txt"
@@ -66,18 +98,4 @@ defmodule Zaq.Channels.DiskBridge do
 
   defp ext_to_mime(".txt"), do: "text/plain"
   defp ext_to_mime(_), do: "text/markdown"
-
-  defp decode_content(content) do
-    case Base.decode64(content) do
-      {:ok, decoded} -> {:ok, decoded}
-      _ -> {:error, :invalid_base64}
-    end
-  end
-
-  defp resolve_path(path) do
-    case FileExplorer.resolve_path(path) do
-      {:ok, _} -> true
-      _ -> false
-    end
-  end
 end

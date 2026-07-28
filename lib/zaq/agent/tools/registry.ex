@@ -68,9 +68,20 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.DataSource.DownloadDocument
     },
     %{
+      key: "data_source.list_providers",
+      label: "List datasource providers",
+      description:
+        "Lists the datasource providers documents can be written to, so the user " <>
+          "can be asked where a document should go before it is created.",
+      module: Zaq.Agent.Tools.DataSource.ListProviders
+    },
+    %{
       key: "data_source.create_document",
       label: "Create document",
-      description: "Create a document on a specific datasource provider",
+      description:
+        "Create a document on a specific datasource provider. Provider keys come " <>
+          "from data_source.list_providers; \"disk\" writes to the local volume, " <>
+          "and the returned path can be referenced with @path for preview.",
       module: Zaq.Agent.Tools.DataSource.CreateDocument
     },
     %{
@@ -148,23 +159,6 @@ defmodule Zaq.Agent.Tools.Registry do
     #   description: "Copy a file to another path",
     #   module: Jido.Tools.Files.CopyFile
     # },
-    %{
-      key: "files.create_file",
-      label: "Create file",
-      description:
-        "Stages a file in memory with filename, content, and optional directory path. " <>
-          "Returns file metadata for @path references but does NOT write to disk. " <>
-          "Call persist_file with the same params to save it.",
-      module: Zaq.Agent.Tools.Files.CreateFile
-    },
-    %{
-      key: "files.persist_file",
-      label: "Persist file",
-      description:
-        "Persists a staged file to disk. Provide filename, data as text, and optional path. " <>
-          "Saved as markdown. Use @path in your response to let the user preview.",
-      module: Zaq.Agent.Tools.Files.PersistFile
-    },
     ## Requires permission
     # %{
     #   key: "files.move_file",

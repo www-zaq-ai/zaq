@@ -1,8 +1,10 @@
 defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
-  use Zaq.DataCase, async: true
+  # async: false — the disk provider tests override :zaq, Zaq.Ingestion globally
+  use Zaq.DataCase, async: false
 
   alias Zaq.Agent.Tools.DataSource.CreateDocument
   alias Zaq.Event
+  alias Zaq.Ingestion.FileExplorer
 
   defmodule StubNodeRouter do
     def dispatch(%Event{request: %{provider: "google_drive", params: params}, opts: opts}) do
@@ -70,5 +72,46 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
              CreateDocument.run(%{provider: "google_drive"}, %{node_router: UnexpectedNodeRouter})
 
     assert message == "Unexpected data source response: :ok"
+  end
+
+  describe "disk provider" do
+    @test_base "test/tmp/create_document"
+
+    defmodule LocalNodeRouter do
+      @moduledoc false
+      alias Zaq.Channels.Api
+
+      def dispatch(%Event{} = event),
+        do: Api.handle_event(event, :data_source_create_file, nil)
+    end
+
+    setup do
+      File.rm_rf!(@test_base)
+      File.mkdir_p!(@test_base)
+
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+        File.rm_rf!(@test_base)
+      end)
+
+      :ok
+    end
+
+    test "writes to the local volume through the real disk bridge" do
+      assert {:ok, %{status: "created", record: record}} =
+               CreateDocument.run(
+                 %{provider: "disk", name: "Summary", content: "hello", mime_type: "text/plain"},
+                 %{node_router: LocalNodeRouter}
+               )
+
+      assert record.name == "Summary.txt"
+      assert record.path == "generated/Summary.txt"
+
+      assert {:ok, abs_path} = FileExplorer.resolve_path("generated/Summary.txt")
+      assert File.read!(abs_path) == "hello"
+    end
   end
 end

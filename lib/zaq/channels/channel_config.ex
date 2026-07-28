@@ -237,6 +237,24 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Zaq.Repo.all()
   end
 
+  @doc """
+  Returns the distinct provider keys of every enabled config for `kind`.
+
+  Unlike `list_enabled_by_kind/2` this takes no provider filter — callers that
+  need to discover what is configured, rather than check a known set, use this.
+  """
+  @spec list_enabled_providers_by_kind(:ingestion | :data_source | :retrieval) :: [String.t()]
+  def list_enabled_providers_by_kind(kind) when kind in [:ingestion, :data_source, :retrieval] do
+    kind_str = kind_to_config_kind(kind)
+
+    __MODULE__
+    |> where([c], c.kind == ^kind_str and c.enabled == true)
+    |> select([c], c.provider)
+    |> distinct(true)
+    |> Zaq.Repo.all()
+    |> Enum.sort()
+  end
+
   defp normalize_filter_providers(providers) when is_list(providers) do
     providers
     |> Enum.map(&to_string/1)

@@ -21,70 +21,109 @@ defmodule Zaq.Channels.DiskBridgeTest do
     :ok
   end
 
-  describe "create_file/1" do
-    test "creates a file from base64 content and returns metadata" do
-      content = Base.encode64("# Report\ncontent")
-      params = %{filename: "report.pdf", content: content, mime_type: "application/pdf"}
+  describe "create_file/2" do
+    test "creates a file and returns the datasource record shape" do
+      params = %{
+        filename: "report.pdf",
+        content: "# Report\ncontent",
+        mime_type: "application/pdf"
+      }
 
-      assert {:ok, result} = DiskBridge.create_file(params)
+      assert {:ok, %{status: "created", record: record}} = DiskBridge.create_file(%{}, params)
 
-      assert result.name == "report.md"
-      assert result.path == "generated/report.md"
-      assert result.mime_type == "text/markdown"
+      assert record.name == "report.md"
+      assert record.path == "generated/report.md"
+      assert record.id == "generated/report.md"
+      assert record.mime_type == "text/markdown"
+      assert record.size == byte_size("# Report\ncontent")
 
       assert {:ok, abs_path} = FileExplorer.resolve_path("generated/report.md")
-      assert File.exists?(abs_path)
       assert File.read!(abs_path) == "# Report\ncontent"
     end
 
-    test "creates file in custom path when provided and resolvable" do
-      content = Base.encode64("hello")
+    test "accepts string-keyed params from datasource agent tools" do
+      params = %{
+        "name" => "Report",
+        "content" => "body",
+        "path" => "archives",
+        "mime_type" => "text/plain",
+        "parent_id" => "ignored",
+        "config_id" => "ignored"
+      }
 
+      assert {:ok, %{status: "created", record: record}} = DiskBridge.create_file(%{}, params)
+
+      assert record.name == "Report.txt"
+      assert record.path == "archives/Report.txt"
+      assert record.mime_type == "text/plain"
+
+      assert {:ok, abs_path} = FileExplorer.resolve_path("archives/Report.txt")
+      assert File.read!(abs_path) == "body"
+    end
+
+    test "creates file in custom path when provided and resolvable" do
       params = %{
         filename: "notes.txt",
-        content: content,
+        content: "hello",
         path: "archives",
         mime_type: "text/plain"
       }
 
-      assert {:ok, result} = DiskBridge.create_file(params)
+      assert {:ok, %{record: record}} = DiskBridge.create_file(%{}, params)
 
-      assert result.name == "notes.txt"
-      assert result.path == "archives/notes.txt"
+      assert record.name == "notes.txt"
+      assert record.path == "archives/notes.txt"
     end
 
     test "falls back to generated/ when path does not resolve" do
-      content = Base.encode64("data")
-      params = %{filename: "test.txt", content: content, path: "../nonexistent"}
+      params = %{filename: "test.txt", content: "data", path: "../nonexistent"}
 
-      assert {:ok, result} = DiskBridge.create_file(params)
+      assert {:ok, %{record: record}} = DiskBridge.create_file(%{}, params)
 
-      assert result.path == "generated/test.md"
-    end
-
-    test "handles filename without extension" do
-      content = Base.encode64("# Readme")
-      params = %{filename: "README", content: content}
-
-      assert {:ok, result} = DiskBridge.create_file(params)
-
-      assert result.name == "README.md"
-      assert result.path == "generated/README.md"
+      assert record.path == "generated/test.md"
     end
 
     test "falls back to generated/ when path is a traversal attempt" do
-      content = Base.encode64("bad")
-      params = %{filename: "evil.txt", content: content, path: ".."}
+      params = %{filename: "evil.txt", content: "bad", path: ".."}
 
-      assert {:ok, result} = DiskBridge.create_file(params)
+      assert {:ok, %{record: record}} = DiskBridge.create_file(%{}, params)
 
-      assert result.path == "generated/evil.md"
+      assert record.path == "generated/evil.md"
     end
 
-    test "returns error for invalid base64 content" do
-      params = %{filename: "test.txt", content: "not-valid-base64!!!"}
+    test "handles filename without extension" do
+      params = %{filename: "README", content: "# Readme"}
 
-      assert {:error, :invalid_base64} = DiskBridge.create_file(params)
+      assert {:ok, %{record: record}} = DiskBridge.create_file(%{}, params)
+
+      assert record.name == "README.md"
+      assert record.path == "generated/README.md"
+    end
+
+    test "falls back to filename when name is absent" do
+      assert {:ok, %{record: record}} =
+               DiskBridge.create_file(%{}, %{"filename" => "legacy.txt", "content" => "x"})
+
+      assert record.name == "legacy.md"
+    end
+
+    test "creates an empty document when content is omitted" do
+      assert {:ok, %{record: record}} = DiskBridge.create_file(%{}, %{"name" => "empty"})
+
+      assert record.size == 0
+
+      assert {:ok, abs_path} = FileExplorer.resolve_path("generated/empty.md")
+      assert File.read!(abs_path) == ""
+    end
+
+    test "returns missing_name when no usable name is provided" do
+      assert {:error, :missing_name} = DiskBridge.create_file(%{}, %{"content" => "x"})
+      assert {:error, :missing_name} = DiskBridge.create_file(%{}, %{"name" => "   "})
+    end
+
+    test "returns invalid_content for non-binary content" do
+      assert {:error, :invalid_content} =
+               DiskBridge.create_file(%{}, %{"name" => "n", "content" => %{"a" => 1}})
     end
   end
 end

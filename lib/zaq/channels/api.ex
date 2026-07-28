@@ -19,7 +19,7 @@ defmodule Zaq.Channels.Api do
 
   @behaviour Zaq.InternalBoundaries
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge, DiskBridge}
+  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Channels.MessageFormatter
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
@@ -284,6 +284,11 @@ defmodule Zaq.Channels.Api do
     %{event | response: data_source_module.list_files(provider, params)}
   end
 
+  def handle_event(%Event{} = event, :data_source_list_providers, _context) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.list_providers()}
+  end
+
   def handle_event(
         %Event{request: %{provider: provider, params: params}} = event,
         :data_source_create_file,
@@ -292,47 +297,6 @@ defmodule Zaq.Channels.Api do
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
     %{event | response: data_source_module.create_file(provider, params)}
-  end
-
-  def handle_event(
-        %Event{request: %{mime_type: _, filename: _, data: _} = params} = event,
-        :disk_create_file,
-        _context
-      ) do
-    disk_module = Keyword.get(event.opts, :disk_bridge_module, DiskBridge)
-    %{event | response: disk_module.create_file(params)}
-  end
-
-  def handle_event(%Event{request: params} = event, :persist_file, _context) do
-    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    provider = params[:provider] || "disk"
-
-    normalized = %{
-      name: params.filename,
-      content: params.data,
-      mime_type: params.mime_type,
-      path: params[:path]
-    }
-
-    response =
-      case data_source_module.create_file(provider, normalized) do
-        {:ok, %{status: "created", record: record}} ->
-          {:ok,
-           %{
-             name: record.name,
-             path: record.id,
-             mime_type: record.mime_type,
-             size: record.size
-           }}
-
-        {:ok, %{name: _, path: _, mime_type: _, size: _} = result} ->
-          {:ok, result}
-
-        {:error, _} = err ->
-          err
-      end
-
-    %{event | response: response}
   end
 
   def handle_event(
