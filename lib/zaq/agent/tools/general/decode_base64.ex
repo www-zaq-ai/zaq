@@ -1,12 +1,12 @@
 defmodule Zaq.Agent.Tools.General.DecodeBase64 do
   @moduledoc """
-  ReAct tool: decodes a Base64 string back to text.
+  Workflow action and ReAct tool: decodes a Base64 string back to its bytes.
 
   Pure — no I/O, no context keys. The counterpart is
   `Zaq.Agent.Tools.General.EncodeBase64`.
 
   Decoding is deliberately lenient about the things that trip up real-world
-  input, and strict about the one thing that matters:
+  input:
 
   - **Whitespace is stripped** first, so a PEM-style blob wrapped across lines
     decodes as-is (`Base` itself rejects embedded newlines).
@@ -14,10 +14,28 @@ defmodule Zaq.Agent.Tools.General.DecodeBase64 do
   - **The alphabet is auto-detected** by default: standard (`+`, `/`) is tried
     first, then URL-safe (`-`, `_`). They are mutually exclusive, so a value
     that decodes under one cannot be silently misread as the other.
-  - **Non-text results are refused.** Base64 often carries binary (an image, a
-    zip). This tool returns text, so a payload that is not valid UTF-8 comes
-    back as an error naming its size rather than as mojibake the model would
-    then reason about as if it were content.
+
+  ## Text and binary
+
+  Base64 carries both, so this decodes both and reports which it got:
+  `decoded` holds the raw bytes, `text?` says whether they are valid UTF-8, and
+  `byte_size` counts bytes rather than codepoints.
+
+  The two consumers differ in what they can accept, which is why the refusal
+  that used to live here is now a description hint rather than a hard error:
+
+  - **In a workflow**, the output travels along a DAG edge straight into the
+    next action. Nothing serialises it, so binary passes through intact — which
+    is the case that matters for building a file from a decoded payload.
+  - **In a ReAct turn**, the result becomes a tool message; `ReqLLM`'s
+    `encode_tool_output/1` calls `Jason.encode!/1` on it, which raises on bytes
+    that are not valid UTF-8. Binary genuinely cannot travel that path, and no
+    encoding here would change that — it would only re-encode the input.
+
+  So the action decodes both, and the tool *description* — read only by the
+  model, never by a workflow — steers the model away from calling this on
+  binary and toward passing the still-encoded string to a provider that
+  materialises it at the write.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -30,9 +48,16 @@ defmodule Zaq.Agent.Tools.General.DecodeBase64 do
     optional and surrounding whitespace or line breaks are ignored, so JWT
     segments and wrapped PEM-style blobs decode as-is.
 
-    This tool returns TEXT. If the Base64 carries binary data — an image, a
-    PDF, a zip — decoding fails with a message saying so; do not retry it, and
-    do not present the payload as if it were readable content.
+    The result has `decoded` (the bytes), `text?` (true when they are readable
+    text) and `byte_size`.
+
+    Use this for TEXT. Do NOT use it to save binary — an image, a PDF, a zip —
+    to a file: those bytes cannot travel back through this conversation, and
+    you will not be able to pass them on to another tool. To persist binary,
+    leave it encoded and hand the original Base64 string to the tool that
+    creates the file, together with the right mime_type (for example
+    "image/png"), which decodes it on the way to storage. Never edit, truncate
+    or summarise a Base64 string you are passing along.
 
     Base64 is an encoding, not encryption. Decoding reveals nothing that was
     protected; treat the result with the same care as the input.
@@ -50,7 +75,9 @@ defmodule Zaq.Agent.Tools.General.DecodeBase64 do
       ]
     ],
     output_schema: [
-      decoded: [type: :string, required: true, doc: "The decoded text"]
+      decoded: [type: :string, required: true, doc: "The decoded bytes"],
+      text?: [type: :boolean, required: true, doc: "True when the bytes are valid UTF-8 text"],
+      byte_size: [type: :non_neg_integer, required: true, doc: "Size in bytes, not codepoints"]
     ]
 
   @whitespace ~r/\s/
@@ -60,7 +87,7 @@ defmodule Zaq.Agent.Tools.General.DecodeBase64 do
     stripped = String.replace(data, @whitespace, "")
 
     case decode(variant, stripped) do
-      {:ok, decoded} -> as_text(decoded)
+      {:ok, decoded} -> {:ok, describe(decoded)}
       :error -> {:error, error_message(variant)}
     end
   end
@@ -75,14 +102,12 @@ defmodule Zaq.Agent.Tools.General.DecodeBase64 do
     end
   end
 
-  defp as_text(decoded) do
-    if String.valid?(decoded) do
-      {:ok, %{decoded: decoded}}
-    else
-      {:error,
-       "decoded #{byte_size(decoded)} bytes of binary data, not text — " <>
-         "this tool returns text only"}
-    end
+  defp describe(decoded) do
+    %{
+      decoded: decoded,
+      text?: String.valid?(decoded),
+      byte_size: byte_size(decoded)
+    }
   end
 
   defp error_message("auto"),

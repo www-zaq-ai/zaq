@@ -79,6 +79,31 @@ defmodule Zaq.Agent.Tools.General.ExecuteHttpRequestTest do
     assert Keyword.get(opts, :timeout_ms) == 5_000
   end
 
+  test "the response passes output validation, string-keyed headers and all" do
+    assert {:ok, response} =
+             ExecuteHttpRequest.run(
+               %{request: request_spec(), timeout_ms: 5_000},
+               %{node_router: StubNodeRouter}
+             )
+
+    # The tool-call path validates the output against `output_schema`, so a
+    # schema that rejects real response headers fails every live request.
+    assert {:ok, validated} = ExecuteHttpRequest.validate_output(response)
+    assert validated.headers == %{"content-type" => "application/json"}
+  end
+
+  test "output validation accepts a response with no headers" do
+    assert {:ok, _} =
+             ExecuteHttpRequest.validate_output(%{
+               status: 204,
+               success: true,
+               headers: %{},
+               body: "",
+               truncated: false,
+               url: "https://api.acme.test/v1/things"
+             })
+  end
+
   test "formats a dispatch error for the agent" do
     assert {:error, message} =
              ExecuteHttpRequest.run(

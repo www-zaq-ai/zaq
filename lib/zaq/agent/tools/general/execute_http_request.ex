@@ -60,7 +60,13 @@ defmodule Zaq.Agent.Tools.General.ExecuteHttpRequest do
     output_schema: [
       status: [type: :pos_integer, required: true, doc: "HTTP response status code"],
       success: [type: :boolean, required: true, doc: "True when the status is 2xx"],
-      headers: [type: :map, required: true, doc: "Response headers, lowercased"],
+      # `{:map, :string, :string}`, not `:map` — NimbleOptions reads a bare
+      # `:map` as `{:map, :atom, :any}`, and response header names are strings.
+      headers: [
+        type: {:map, :string, :string},
+        required: true,
+        doc: "Response headers, lowercased"
+      ],
       body: [type: :any, required: true, doc: "Response body, decoded when JSON"],
       truncated: [
         type: :boolean,
