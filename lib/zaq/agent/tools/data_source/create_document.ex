@@ -13,7 +13,8 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
     description: """
     Create a document on a specific datasource provider.
     The provider is never assumed: when the user has not said where the document
-    should go, call list_data_source_providers and ask them to choose first.
+    should go, call list_channel_providers with kind "data_source" and ask them
+    to choose first.
     With provider "disk" the document lands on the local ZAQ volume — reference
     the returned path with @path so the user can preview it.
     Returns provider metadata for the created document.
@@ -24,7 +25,7 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
         required: true,
         doc:
           ~s|Datasource provider key (e.g. "disk", "google_drive", "sharepoint") — | <>
-            "get the valid keys from list_data_source_providers"
+            ~s|get the valid keys from list_channel_providers with kind "data_source"|
       ],
       name: [type: :string, required: true, doc: "Document name/title"],
       content: [type: :string, required: false, doc: "Optional textual content to create"],

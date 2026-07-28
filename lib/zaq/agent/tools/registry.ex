@@ -37,6 +37,40 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.KnowledgeBaseOverview
     },
     %{
+      key: "general.build_http_request",
+      label: "Build HTTP request",
+      description:
+        "Turn what an API's documentation specifies into a validated HTTP request " <>
+          "(method, url, headers, body) for the HTTP client to execute later. Credentials " <>
+          "are passed as named references, never literal values, and the tool never sends " <>
+          "the request itself.",
+      module: Zaq.Agent.Tools.General.BuildHttpRequest
+    },
+    %{
+      key: "general.execute_http_request",
+      label: "Execute HTTP request",
+      description:
+        "Send a request prepared by general.build_http_request and return the status, " <>
+          "headers, and body. Credential placeholders are resolved and the destination " <>
+          "is checked on the channels node — the agent never holds a secret or opens a socket.",
+      module: Zaq.Agent.Tools.General.ExecuteHttpRequest
+    },
+    %{
+      key: "general.encode_base64",
+      label: "Encode Base64",
+      description:
+        "Encode text as Base64, in the standard or URL-safe alphabet, with optional padding",
+      module: Zaq.Agent.Tools.General.EncodeBase64
+    },
+    %{
+      key: "general.decode_base64",
+      label: "Decode Base64",
+      description:
+        "Decode a Base64 string back to text, auto-detecting the standard or URL-safe " <>
+          "alphabet and tolerating missing padding and line breaks",
+      module: Zaq.Agent.Tools.General.DecodeBase64
+    },
+    %{
       key: "conversation.persist_message_history",
       label: "Persist message history",
       description:
@@ -69,11 +103,13 @@ defmodule Zaq.Agent.Tools.Registry do
     },
     %{
       key: "data_source.list_providers",
-      label: "List datasource providers",
+      label: "List channel providers",
       description:
-        "Lists the datasource providers documents can be written to, so the user " <>
-          "can be asked where a document should go before it is created.",
-      module: Zaq.Agent.Tools.DataSource.ListProviders
+        "Lists the providers available for a channel kind — \"data_source\" for " <>
+          "places a document can be written to, \"communication\" for places a " <>
+          "message can be sent through — so the user can be asked where " <>
+          "something should go before it is created or sent.",
+      module: Zaq.Agent.Tools.General.ListProviders
     },
     %{
       key: "data_source.create_document",

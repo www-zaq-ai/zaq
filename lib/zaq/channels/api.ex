@@ -10,6 +10,9 @@ defmodule Zaq.Channels.Api do
   - Re-broadcast `{:broadcast, topic, message}` events over `Zaq.PubSub` (the
     `:broadcast` action) so engine-side producers (e.g. workflow run/step
     updates) reach BO LiveView subscribers without owning PubSub directly.
+  - Execute prepared HTTP request specs through `Zaq.Channels.Req` (the
+    `:http_request` action), so agents never open a socket or hold a
+    credential themselves.
   - Resolve provider bridge modules through `Zaq.Channels.Bridge`.
   - Delegate transport-specific behavior to bridge callbacks.
 
@@ -284,9 +287,13 @@ defmodule Zaq.Channels.Api do
     %{event | response: data_source_module.list_files(provider, params)}
   end
 
-  def handle_event(%Event{} = event, :data_source_list_providers, _context) do
-    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.list_providers()}
+  def handle_event(%Event{request: %{kind: kind}} = event, :channel_list_providers, _context)
+      when kind in [:data_source, :communication] do
+    %{event | response: list_providers_for_kind(event, kind)}
+  end
+
+  def handle_event(%Event{request: request} = event, :channel_list_providers, _context) do
+    %{event | response: {:error, {:unknown_channel_kind, Map.get(request, :kind)}}}
   end
 
   def handle_event(
@@ -623,6 +630,17 @@ defmodule Zaq.Channels.Api do
     end
   end
 
+  def handle_event(%Event{request: %{request: request}} = event, :http_request, _context)
+      when is_map(request) do
+    # Full name on purpose: a bare `Req` alias here would shadow the external
+    # Req library and read as the wrong module.
+    http_module = Keyword.get(event.opts, :http_module, Zaq.Channels.Req)
+    %{event | response: http_module.request(request, event.opts)}
+  end
+
+  def handle_event(%Event{} = event, :http_request, _context),
+    do: %{event | response: {:error, {:invalid_request, :missing_http_request_spec}}}
+
   def handle_event(%Event{request: {:broadcast, topic, message}} = event, :broadcast, _context)
       when is_binary(topic) do
     Phoenix.PubSub.broadcast(Zaq.PubSub, topic, message)
@@ -662,6 +680,16 @@ defmodule Zaq.Channels.Api do
   defp supports_callback?(bridge, fun, arity)
        when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
     Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
+  end
+
+  defp list_providers_for_kind(%Event{opts: opts}, :data_source) do
+    data_source_module = Keyword.get(opts, :data_source_bridge_module, DataSourceBridge)
+    data_source_module.list_providers()
+  end
+
+  defp list_providers_for_kind(%Event{} = event, :communication) do
+    communication_module = communication_bridge_module(event)
+    communication_module.list_providers()
   end
 
   defp bridge_module(%Event{opts: opts}) when is_list(opts) do
