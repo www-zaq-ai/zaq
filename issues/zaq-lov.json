@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-te1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ij9"
+  ],
   "created": "2026-07-28T12:52:28Z",
   "description": "Add Engine route_incoming_message action and IncomingMessageRouter that resolves identity, resolves routing rules, and returns executable Event routing fields.",
   "id": "zaq-lov",
