@@ -4,7 +4,9 @@
     "zaq-ij9",
     "zaq-lp1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-tp3"
+  ],
   "created": "2026-07-28T12:52:28Z",
   "description": "Update global/provider/retrieval/email mailbox routing write paths and usage checks to use IncomingMessageRoutingRule only.",
   "id": "zaq-se2",
