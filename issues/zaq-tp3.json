@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-28T12:52:28Z",
+  "description": "Update service docs, run format/tests/mix q, and record validation/coverage status.",
+  "id": "zaq-tp3",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[#625] Validate and document routing refactor",
+  "type": "task",
+  "updated_at": "2026-07-28T12:52:28Z"
+}
