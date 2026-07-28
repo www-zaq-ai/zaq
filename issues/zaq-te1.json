@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-gs8"
+  ],
   "blocks": [],
   "created": "2026-07-28T12:52:27Z",
   "description": "Create IncomingMessageRoutingRule schema/table/context, scope validations, indexes, uniqueness constraints, and resolver APIs.",
