@@ -6,6 +6,7 @@
   "description": "Migrate global system default, provider routing settings, retrieval-channel assignments, and email mailbox routing settings into IncomingMessageRoutingRule. New rules must be the sole source of truth.",
   "id": "zaq-lp1",
   "labels": [],
+  "parent": "zaq-liw",
   "priority": 1,
   "status": "open",
   "title": "[#625] Migrate legacy incoming routing data",
