@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-te1"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-liw",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[#625] Add Incoming routing context contract",
   "type": "task",
-  "updated_at": "2026-07-28T12:52:28Z"
+  "updated_at": "2026-07-28T12:52:29Z"
 }
