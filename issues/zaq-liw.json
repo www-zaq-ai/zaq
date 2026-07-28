@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-28T12:52:27Z",
+  "description": "Epic for PRD issue #625 phase 1: move all existing incoming-message routing persistence and execution, including email mailbox routing, to IncomingMessageRoutingRule and Engine-based routing.",
+  "id": "zaq-liw",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[#625] Phase 1 incoming routing refactor",
+  "type": "task",
+  "updated_at": "2026-07-28T12:52:27Z"
+}
