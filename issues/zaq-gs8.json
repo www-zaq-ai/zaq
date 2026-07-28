@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-28T12:52:27Z",
+  "description": "Add Incoming.RoutingContext, normalize routing_context in Incoming.new/1, and derive telemetry routing identifiers from the typed context.",
+  "id": "zaq-gs8",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[#625] Add Incoming routing context contract",
+  "type": "task",
+  "updated_at": "2026-07-28T12:52:27Z"
+}
