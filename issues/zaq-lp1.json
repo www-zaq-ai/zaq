@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-te1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-se2"
+  ],
   "created": "2026-07-28T12:52:28Z",
   "description": "Migrate global system default, provider routing settings, retrieval-channel assignments, and email mailbox routing settings into IncomingMessageRoutingRule. New rules must be the sole source of truth.",
   "id": "zaq-lp1",
