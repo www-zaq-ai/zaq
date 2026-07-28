@@ -6,6 +6,7 @@
   "description": "Update global/provider/retrieval/email mailbox routing write paths and usage checks to use IncomingMessageRoutingRule only.",
   "id": "zaq-se2",
   "labels": [],
+  "parent": "zaq-liw",
   "priority": 1,
   "status": "open",
   "title": "[#625] Move admin routing writes to rules",
