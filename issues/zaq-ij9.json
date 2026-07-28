@@ -6,6 +6,7 @@
   "description": "Remove Channels-side destination selection, populate routing context, and dispatch incoming Events to Engine for JidoChat and Email paths.",
   "id": "zaq-ij9",
   "labels": [],
+  "parent": "zaq-liw",
   "priority": 1,
   "status": "open",
   "title": "[#625] Rewire Channels incoming dispatch",
