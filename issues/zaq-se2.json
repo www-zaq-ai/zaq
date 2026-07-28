@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "zaq-ij9",
     "zaq-lp1"
   ],
   "blocks": [],
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "[#625] Move admin routing writes to rules",
   "type": "task",
-  "updated_at": "2026-07-28T12:52:28Z"
+  "updated_at": "2026-07-28T12:52:29Z"
 }
