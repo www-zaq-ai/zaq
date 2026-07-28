@@ -6,9 +6,10 @@
   "description": "Create IncomingMessageRoutingRule schema/table/context, scope validations, indexes, uniqueness constraints, and resolver APIs.",
   "id": "zaq-te1",
   "labels": [],
+  "parent": "zaq-liw",
   "priority": 1,
   "status": "open",
   "title": "[#625] Add incoming message routing rules",
   "type": "task",
-  "updated_at": "2026-07-28T12:52:27Z"
+  "updated_at": "2026-07-28T12:52:28Z"
 }
