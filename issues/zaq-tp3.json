@@ -6,6 +6,7 @@
   "description": "Update service docs, run format/tests/mix q, and record validation/coverage status.",
   "id": "zaq-tp3",
   "labels": [],
+  "parent": "zaq-liw",
   "priority": 1,
   "status": "open",
   "title": "[#625] Validate and document routing refactor",
