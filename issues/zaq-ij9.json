@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-28T12:52:28Z",
+  "description": "Remove Channels-side destination selection, populate routing context, and dispatch incoming Events to Engine for JidoChat and Email paths.",
+  "id": "zaq-ij9",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[#625] Rewire Channels incoming dispatch",
+  "type": "task",
+  "updated_at": "2026-07-28T12:52:28Z"
+}
