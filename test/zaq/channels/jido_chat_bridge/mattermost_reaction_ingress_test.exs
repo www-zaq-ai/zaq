@@ -1,17 +1,14 @@
 defmodule Zaq.Channels.JidoChatBridge.MattermostReactionIngressTest do
   @moduledoc """
-  End-to-end regression test for the Mattermost reaction ingress seam.
+  Regression test for the ZAQ side of Mattermost reaction ingress.
 
-  Mattermost runs in `:websocket` ingress mode, so a reaction has to survive two
-  hops that used to be broken: the adapter's WebSocket client (which dropped
-  every non-`posted` event) and `process_listener_payload/4` (which could not
-  read the resulting envelope). This drives a real Mattermost WS frame through
-  `Jido.Chat.Mattermost.WebSocket.Client` and feeds whatever it emits into the
-  bridge state process, stubbing only the node router at the far end.
+  The Mattermost adapter owns WebSocket frame parsing and emits a normalized
+  `%Jido.Chat.EventEnvelope{}` for reactions. These tests feed that envelope into
+  the bridge state process and verify it reaches Engine as a rating event.
   """
   use ExUnit.Case, async: false
 
-  alias Jido.Chat.Mattermost.WebSocket.Client
+  alias Jido.Chat.EventEnvelope
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
 
@@ -27,14 +24,6 @@ defmodule Zaq.Channels.JidoChatBridge.MattermostReactionIngressTest do
 
       %{event | response: {:ok, %{}}}
     end
-  end
-
-  def sink_capture(payload, opts) do
-    if pid = Process.whereis(:mattermost_reaction_observer) do
-      send(pid, {:sink_called, payload, opts})
-    end
-
-    :ok
   end
 
   setup do
@@ -82,49 +71,53 @@ defmodule Zaq.Channels.JidoChatBridge.MattermostReactionIngressTest do
     {:ok, pid: pid, config: config}
   end
 
-  defp ws_state do
-    %{
-      token: "tok",
-      bot_user_id: "bot-uid",
-      bot_name: "zaq",
-      channel_ids: :all,
-      bridge_id: "mattermost_1",
-      sink_mfa: {__MODULE__, :sink_capture, []},
-      sink_opts: []
-    }
-  end
+  defp reaction_envelope(emoji_name, event_name \\ "reaction_added") do
+    channel_id = "chan-abc"
+    post_id = "post-1"
+    user_id = "user-123"
+    thread_id = "mattermost:#{channel_id}"
+    added = event_name == "reaction_added"
 
-  # Shape Mattermost pushes over the WebSocket when a user reacts to a post.
-  defp reaction_frame(emoji_name, event_name \\ "reaction_added") do
     reaction =
-      Jason.encode!(%{
-        "user_id" => "user-123",
-        "post_id" => "post-1",
+      %{
+        "user_id" => user_id,
+        "post_id" => post_id,
         "emoji_name" => emoji_name,
         "create_at" => 1_700_000_000
-      })
+      }
 
-    frame =
-      Jason.encode!(%{
+    EventEnvelope.new(%{
+      adapter_name: :mattermost,
+      event_type: :reaction,
+      thread_id: thread_id,
+      channel_id: channel_id,
+      message_id: post_id,
+      payload: %{
+        adapter_name: :mattermost,
+        thread_id: thread_id,
+        channel_id: channel_id,
+        message_id: post_id,
+        emoji: emoji_name,
+        added: added,
+        user: %{user_id: user_id},
+        raw: reaction,
+        metadata: %{channel_id: channel_id}
+      },
+      raw: %{
         "event" => event_name,
-        "data" => %{"reaction" => reaction, "channel_type" => "D"},
-        "broadcast" => %{"channel_id" => "chan-abc"}
-      })
-
-    {:text, frame}
+        "data" => %{"reaction" => Jason.encode!(reaction), "channel_type" => "D"},
+        "broadcast" => %{"channel_id" => channel_id}
+      },
+      metadata: %{source: :websocket, ws_event: event_name}
+    })
   end
 
-  # Drives the frame through the adapter's WS client, then hands whatever it
-  # emitted to the bridge exactly as the sink MFA would in production.
-  defp deliver(pid, config, frame) do
-    assert {:ok, _ws_state} = Client.handle_in(frame, ws_state())
-    assert_received {:sink_called, payload, sink_opts}
-
-    State.process_listener_payload(pid, config, payload, sink_opts)
+  defp deliver(pid, config, envelope) do
+    State.process_listener_payload(pid, config, envelope, transport: "websocket")
   end
 
   test "a thumbs-up reaction reaches the engine as a rating", %{pid: pid, config: config} do
-    assert :ok = deliver(pid, config, reaction_frame("thumbsup"))
+    assert :ok = deliver(pid, config, reaction_envelope("thumbsup"))
 
     assert_received {:node_router_dispatch, event}
     assert event.opts[:action] == :rate_message
@@ -138,38 +131,21 @@ defmodule Zaq.Channels.JidoChatBridge.MattermostReactionIngressTest do
   end
 
   test "a thumbs-down reaction reaches the engine as a low rating", %{pid: pid, config: config} do
-    assert :ok = deliver(pid, config, reaction_frame("thumbsdown"))
+    assert :ok = deliver(pid, config, reaction_envelope("thumbsdown"))
 
     assert_received {:node_router_dispatch, event}
     assert event.request.rater_attrs.rating == 1
   end
 
   test "removing a reaction dispatches nothing", %{pid: pid, config: config} do
-    assert :ok = deliver(pid, config, reaction_frame("thumbsup", "reaction_removed"))
+    assert :ok = deliver(pid, config, reaction_envelope("thumbsup", "reaction_removed"))
 
     refute_received {:node_router_dispatch, _event}
   end
 
   test "an unmapped emoji dispatches nothing", %{pid: pid, config: config} do
-    assert :ok = deliver(pid, config, reaction_frame("tada"))
+    assert :ok = deliver(pid, config, reaction_envelope("tada"))
 
     refute_received {:node_router_dispatch, _event}
-  end
-
-  test "the bot's own reaction never reaches the bridge" do
-    reaction =
-      Jason.encode!(%{"user_id" => "bot-uid", "post_id" => "post-1", "emoji_name" => "thumbsup"})
-
-    frame =
-      {:text,
-       Jason.encode!(%{
-         "event" => "reaction_added",
-         "data" => %{"reaction" => reaction, "channel_type" => "D"},
-         "broadcast" => %{"channel_id" => "chan-abc"}
-       })}
-
-    assert {:ok, _ws_state} = Client.handle_in(frame, ws_state())
-
-    refute_received {:sink_called, _payload, _opts}
   end
 end

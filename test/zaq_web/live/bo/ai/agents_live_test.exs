@@ -13,6 +13,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Skills
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
   alias ZaqWeb.Live.BO.AI.AgentsLive
@@ -455,7 +456,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         credential_id: credential.id,
         strategy: "react",
         enabled_tool_keys: [],
-        conversation_enabled: false,
+        conversation_enabled: true,
         active: true,
         advanced_options: %{}
       })
@@ -484,7 +485,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         credential_id: credential.id,
         strategy: "react",
         enabled_tool_keys: [],
-        conversation_enabled: false,
+        conversation_enabled: true,
         active: true,
         advanced_options: %{}
       })
@@ -511,7 +512,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         credential_id: credential.id,
         strategy: "react",
         enabled_tool_keys: [],
-        conversation_enabled: false,
+        conversation_enabled: true,
         active: true,
         advanced_options: %{}
       })
@@ -526,17 +527,28 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         settings: %{}
       })
 
-    %RetrievalChannel{}
-    |> RetrievalChannel.changeset(%{
+    retrieval_channel =
+      %RetrievalChannel{}
+      |> RetrievalChannel.changeset(%{
+        channel_config_id: config.id,
+        channel_id: "guard-chan",
+        channel_name: "Guard",
+        team_id: "team-1",
+        team_name: "Team",
+        active: true
+      })
+      |> Repo.insert!()
+
+    Repo.insert!(%IncomingMessageRoutingRule{
       channel_config_id: config.id,
-      channel_id: "guard-chan",
-      channel_name: "Guard",
-      team_id: "team-1",
-      team_name: "Team",
-      active: true,
+      retrieval_channel_id: retrieval_channel.id,
+      routing_mode: :agent,
       configured_agent_id: agent.id
     })
-    |> Repo.insert!()
+
+    previous_default_agent_id = ZaqSystem.get_global_default_agent_id()
+    :ok = ZaqSystem.set_global_default_agent_id(nil)
+    on_exit(fn -> ZaqSystem.set_global_default_agent_id(previous_default_agent_id) end)
 
     :ok = ZaqSystem.set_global_default_agent_id(agent.id)
 
@@ -550,8 +562,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     |> element("#delete-agent-button")
     |> render_click()
 
-    assert render(view) =~ "retrieval channel"
-    assert render(view) =~ "global default"
+    assert render(view) =~ "incoming routing channel rule"
+    assert render(view) =~ "incoming routing global default"
   end
 
   test "lists credential provider and sovereign status", %{conn: conn} do
@@ -571,7 +583,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         credential_id: sovereign_credential.id,
         strategy: "react",
         enabled_tool_keys: [],
-        conversation_enabled: false,
+        conversation_enabled: true,
         active: true,
         advanced_options: %{}
       })
@@ -2130,12 +2142,13 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         credential_id: credential.id,
         strategy: "react",
         enabled_tool_keys: [],
-        conversation_enabled: false,
+        conversation_enabled: true,
         active: true,
         advanced_options: %{}
       })
 
     previous_default_agent_id = ZaqSystem.get_global_default_agent_id()
+    :ok = ZaqSystem.set_global_default_agent_id(nil)
     :ok = ZaqSystem.set_global_default_agent_id(agent.id)
 
     on_exit(fn -> ZaqSystem.set_global_default_agent_id(previous_default_agent_id) end)
@@ -2147,7 +2160,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     html = render_click(element(view, "#delete-agent-button"))
 
     assert html =~ "Agent is in use by:"
-    assert html =~ "global default channels.global_default_agent_id"
+    assert html =~ "incoming routing global default"
     assert Enum.any?(Zaq.Agent.list_agents(), &(&1.id == agent.id))
     assert has_element?(view, "#configured-agent-form")
   end

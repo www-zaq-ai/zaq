@@ -16,10 +16,10 @@ defmodule Zaq.Channels.EmailBridge do
 
   require Logger
 
-  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig}
+  alias Zaq.Channels.{Bridge, ChannelConfig}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.{NodeRouter, System}
+  alias Zaq.NodeRouter
   alias Zaq.Utils.EmailUtils
 
   @doc "Converts an email adapter payload to the internal `%Incoming{}` format."
@@ -216,9 +216,9 @@ defmodule Zaq.Channels.EmailBridge do
     case route_incoming_message(
            incoming,
            [],
-           agent_candidates(config, connection[:mailbox]),
            actor_from_incoming(incoming),
            channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
+           topic_id: connection[:mailbox],
            pipeline_module: pipeline_module(),
            node_router: node_router_module()
          ) do
@@ -269,48 +269,7 @@ defmodule Zaq.Channels.EmailBridge do
 
   defp provider_key(provider), do: Bridge.provider_to_bridge_key(provider)
 
-  @impl true
-  def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do
-    mailbox = Keyword.get(opts, :mailbox)
-
-    config
-    |> agent_candidates(mailbox)
-    |> AgentRouting.first_active_selection()
-  end
-
-  defp agent_candidates(config, mailbox) do
-    [
-      {:mailbox_assignment, mailbox_assignment_agent_choice(config, mailbox)},
-      {:provider_default, ChannelConfig.get_provider_agent_choice(config)},
-      {:global_default, System.get_global_default_agent_id()}
-    ]
-  end
-
-  defp mailbox_assignment_agent_choice(config, mailbox) do
-    mailbox = normalize_mailbox(mailbox)
-
-    with mailbox when is_binary(mailbox) <- mailbox,
-         settings when is_map(settings) <-
-           Map.get(config, :settings) || Map.get(config, "settings"),
-         imap when is_map(imap) <- Map.get(settings, "imap"),
-         routing when is_map(routing) <- Map.get(imap, "agent_routing"),
-         mailboxes when is_map(mailboxes) <- Map.get(routing, "mailboxes") do
-      Map.get(mailboxes, mailbox)
-    else
-      _ -> nil
-    end
-  end
-
-  defp normalize_mailbox(mailbox) when is_binary(mailbox) do
-    case String.trim(mailbox) do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  defp normalize_mailbox(_), do: nil
-
-  # person is resolved by CommunicationBridge before dispatching to the agent node.
+  # person is resolved by Engine before routing to the final destination.
   defp actor_from_incoming(%Incoming{} = incoming) do
     %{
       id: incoming.author_id,

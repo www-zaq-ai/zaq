@@ -14,6 +14,7 @@ defmodule Zaq.Channels.ChannelConfig do
   require Logger
 
   alias Zaq.Channels.AgentRouting
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
 
@@ -365,81 +366,53 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Enum.reject(&(&1 == ""))
   end
 
-  @doc "Returns provider-level default configured agent id from settings."
-  def get_provider_default_agent_id(%__MODULE__{} = config) do
+  @doc "Returns provider-level default configured agent id from the routing-rule table."
+  def get_provider_default_agent_id(config) do
     config
-    |> provider_routing_settings()
-    |> Map.get("default_agent_id")
-    |> ParseUtils.parse_optional_int()
+    |> get_provider_agent_choice()
+    |> agent_choice_id()
   end
 
-  def get_provider_default_agent_id(%{settings: _settings} = config) do
-    config
-    |> provider_routing_settings()
-    |> Map.get("default_agent_id")
-    |> ParseUtils.parse_optional_int()
-  end
+  defp agent_choice_id(nil), do: nil
+  defp agent_choice_id(choice) when is_integer(choice), do: choice
 
-  def get_provider_default_agent_id(_), do: nil
+  defp agent_choice_id(choice) do
+    if choice == AgentRouting.none_value(), do: nil, else: choice
+  end
 
   @doc "Returns provider-level agent routing choice, including NONE when configured."
-  def get_provider_agent_choice(config) do
-    case provider_routing_settings(config) do
-      %{"default_agent_id" => value} when value in ["__none__", "none", :none] ->
-        AgentRouting.none_value()
-
-      %{"default_agent_mode" => "none"} ->
-        AgentRouting.none_value()
-
-      routing ->
-        Map.get(routing, "default_agent_id") |> ParseUtils.parse_optional_int()
+  def get_provider_agent_choice(%__MODULE__{id: id}) when is_integer(id) do
+    case IncomingMessageRouting.get_rule(%{channel_config_id: id}) do
+      %{routing_mode: :none} -> AgentRouting.none_value()
+      %{routing_mode: :agent, configured_agent_id: configured_agent_id} -> configured_agent_id
+      _ -> nil
     end
   end
+
+  def get_provider_agent_choice(_config), do: nil
 
   @doc "Sets or clears provider-level default configured agent id in settings."
   def set_provider_default_agent_id(%__MODULE__{} = config, agent_id) do
-    settings = config.settings || %{}
-    routing = provider_routing_settings(config)
-
-    updated_routing =
+    result =
       cond do
         agent_id in [AgentRouting.none_value(), "none", :none] ->
-          routing
-          |> Map.put("default_agent_id", AgentRouting.none_value())
-          |> Map.put("default_agent_mode", "none")
+          IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{
+            routing_mode: :none
+          })
 
         is_nil(ParseUtils.parse_optional_int(agent_id)) ->
-          routing
-          |> Map.delete("default_agent_id")
-          |> Map.delete("default_agent_mode")
+          IncomingMessageRouting.delete_rule(%{channel_config_id: config.id})
 
         true ->
-          routing
-          |> Map.put("default_agent_id", ParseUtils.parse_optional_int(agent_id))
-          |> Map.delete("default_agent_mode")
+          IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{
+            routing_mode: :agent,
+            configured_agent_id: ParseUtils.parse_optional_int(agent_id)
+          })
       end
 
-    updated_settings =
-      if map_size(updated_routing) == 0 do
-        Map.delete(settings, "routing")
-      else
-        Map.put(settings, "routing", updated_routing)
-      end
-
-    config
-    |> changeset(%{settings: updated_settings})
-    |> Zaq.Repo.update()
-  end
-
-  defp provider_routing_settings(%__MODULE__{settings: settings}),
-    do: provider_routing_settings(%{settings: settings})
-
-  defp provider_routing_settings(%{settings: settings}) when is_map(settings) do
-    case Map.get(settings, "routing") do
-      %{} = routing -> routing
-      _ -> %{}
+    case result do
+      {:ok, _rule_or_nil} -> {:ok, config}
+      {:error, changeset} -> {:error, changeset}
     end
   end
-
-  defp provider_routing_settings(_), do: %{}
 end

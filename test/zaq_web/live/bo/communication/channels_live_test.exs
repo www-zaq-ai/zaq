@@ -6,9 +6,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   import Zaq.AccountsFixtures
   import Zaq.SystemConfigFixtures
   alias Zaq.Accounts
+  alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
   alias ZaqWeb.Live.BO.Communication.ChannelsLive
@@ -950,6 +952,223 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
 
     render_hook(view, "add_channel", %{"channel-id" => "c-2", "channel-name" => "general"})
     assert render(view) =~ "Failed to add channel"
+  end
+
+  describe "coverage gaps" do
+    test "retries pending ingress status refresh for provider detail page", %{conn: conn} do
+      config = insert_channel_config(%{})
+      BridgeFake.put(:channel_ingress_status, {:ok, %{status: :ok, summary: "Healthy"}})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+      send(view.pid, :refresh_pending_ingress_statuses)
+
+      send(self(), {:ingress_dispatch, :mattermost, :channel_ingress_status})
+
+      assert_receive {:ingress_dispatch, :mattermost, :channel_ingress_status}
+      assert has_element?(view, "#config-card-#{config.id}")
+    end
+
+    test "ingress status modal ignores invalid ids and closes", %{conn: conn} do
+      config = insert_channel_config(%{})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+      render_hook(view, "open_ingress_status", %{"id" => "not-an-int"})
+      refute has_element?(view, "#ingress-status-modal")
+
+      render_hook(view, "open_ingress_status", %{"id" => to_string(config.id)})
+      assert has_element?(view, "#ingress-status-modal")
+
+      render_hook(view, "close_ingress_status", %{})
+      refute has_element?(view, "#ingress-status-modal")
+    end
+
+    test "delete config handles all teardown ingress responses", %{conn: conn} do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: BridgeFake, ingress_mode: :webhook},
+        web: %{bridge: Zaq.Channels.WebBridge},
+        email: %{bridge: Zaq.Channels.EmailBridge}
+      })
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+      end)
+
+      delete_case = fn response, expect_deleted?, expect_flash, expect_error_fragment ->
+        BridgeFake.put(:delete_ingress_subscription, response)
+        BridgeFake.put(:channel_ingress_status, {:ok, %{status: :ok, summary: "Healthy"}})
+
+        config = insert_channel_config(%{})
+        {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+        view |> element("#confirm-delete-config-#{config.id}") |> render_click()
+        view |> element("#delete-config-button") |> render_click()
+
+        if expect_deleted? do
+          refute Repo.get(ChannelConfig, config.id)
+        else
+          assert Repo.get(ChannelConfig, config.id)
+        end
+
+        assert render(view) =~ expect_flash
+
+        if expect_error_fragment do
+          assert render(view) =~ expect_error_fragment
+        else
+          refute render(view) =~ "Cannot delete config"
+        end
+      end
+
+      delete_case.({:ok, %{deleted: true}}, true, "Channel config deleted.", nil)
+      delete_case.({:error, :unsupported}, true, "Channel config deleted.", nil)
+      delete_case.({:error, :boom}, false, "Cannot delete config", ":boom")
+
+      Repo.delete_all(ChannelConfig)
+
+      delete_case.(:weird, false, "Cannot delete config", "unexpected_response")
+    end
+
+    test "send_message treats bare :ok dispatch response as success", %{conn: conn} do
+      insert_channel_config(%{})
+
+      BridgeFake.put(:send_reply, :ok)
+      BridgeFake.put(:channel_ingress_status, {:ok, %{status: :ok, summary: "Healthy"}})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+      view
+      |> element("form[phx-submit=\"send_message\"]")
+      |> render_submit(%{"channel_id" => " ch-1 ", "message" => " hello "})
+
+      assert render(view) =~ "Message sent!"
+      assert :sys.get_state(view.pid).socket.assigns.send_status == :ok
+      assert :sys.get_state(view.pid).socket.assigns.send_message == ""
+    end
+
+    test "refresh_channels reports missing config and missing selected team", %{conn: conn} do
+      disabled_config = insert_channel_config(%{enabled: false})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+      render_hook(view, "refresh_channels", %{})
+      assert render(view) =~ "No enabled Mattermost config found."
+
+      Repo.delete!(disabled_config)
+
+      config = insert_channel_config(%{})
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+      assert Repo.get(ChannelConfig, config.id)
+      render_hook(view, "refresh_channels", %{})
+      assert render(view) =~ "Select a Mattermost team first."
+    end
+
+    test "retrieval channel agent assignment supports none and specific agent values", %{
+      conn: conn
+    } do
+      config = insert_channel_config(%{})
+      retrieval = insert_retrieval_channel(config)
+      agent = create_conversation_agent(true, "routing")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+      render_hook(view, "set_retrieval_channel_agent", %{
+        "retrieval_channel_id" => to_string(retrieval.id),
+        "configured_agent_id" => AgentRouting.none_value()
+      })
+
+      assert IncomingMessageRouting.get_rule(%{
+               channel_config_id: config.id,
+               retrieval_channel_id: retrieval.id
+             }).routing_mode == :none
+
+      assert ChannelsLive.retrieval_channel_agent_value(retrieval) == AgentRouting.none_value()
+
+      render_hook(view, "set_retrieval_channel_agent", %{
+        "retrieval_channel_id" => to_string(retrieval.id),
+        "configured_agent_id" => to_string(agent.id)
+      })
+
+      assert IncomingMessageRouting.get_rule(%{
+               channel_config_id: config.id,
+               retrieval_channel_id: retrieval.id
+             }).routing_mode == :agent
+
+      assert IncomingMessageRouting.get_rule(%{
+               channel_config_id: config.id,
+               retrieval_channel_id: retrieval.id
+             }).configured_agent_id == agent.id
+
+      assert ChannelsLive.retrieval_channel_agent_value(retrieval) == to_string(agent.id)
+    end
+
+    test "available channel normalization handles unknown types and DM fallback", %{conn: conn} do
+      config =
+        insert_channel_config(%{settings: %{"jido_chat" => %{"bot_user_id" => "bot-user-1"}}})
+
+      MattermostAPIFake.put(
+        :list_accessible_channels,
+        {:ok,
+         [
+           %{id: "unknown-1", display_name: "", name: "", purpose: "", type: "X"},
+           %{
+             id: "dm-fallback",
+             display_name: "",
+             name: "bot-user-1__missing-user",
+             purpose: "",
+             type: "D"
+           }
+         ]}
+      )
+
+      MattermostAPIFake.put(:fetch_users, %{})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+      render_hook(view, "select_team", %{"team_id" => "t1", "team_name" => "Platform"})
+
+      assert has_element?(view, "#available-channel-unknown-1[data-channel-kind='channel']")
+      assert render(view) =~ "Channel unknown-1"
+      assert has_element?(view, "#available-channel-dm-fallback[data-channel-kind='dm']")
+      assert render(view) =~ "bot-user-1__missing-user"
+      assert Repo.get(ChannelConfig, config.id)
+    end
+
+    test "deliver_outgoing accepts atom provider" do
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.opts[:action] do
+          :deliver_outgoing ->
+            assert event.request.provider == :mattermost
+            %{event | response: {:ok, %{id: "sent"}}}
+
+          _ ->
+            %{event | response: :ok}
+        end
+      end)
+
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{
+          __changed__: %{},
+          provider: :mattermost,
+          send_status: :idle,
+          send_channel_id: "",
+          send_message: ""
+        }
+      }
+
+      assert {:noreply, updated} =
+               ChannelsLive.handle_event(
+                 "send_message",
+                 %{"channel_id" => "ch-1", "message" => "hello"},
+                 socket
+               )
+
+      assert updated.assigns.send_status == :ok
+      assert updated.assigns.send_message == ""
+    end
   end
 
   test "retrieval channel toggles and removals trigger bridge reload", %{conn: conn} do

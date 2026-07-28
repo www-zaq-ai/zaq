@@ -9,7 +9,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
   @spec to_incoming(map(), map(), keyword()) :: Incoming.t() | {:error, term()}
   def to_incoming(raw_email, config, opts \\ [])
 
-  def to_incoming(raw_email, _config, opts) when is_map(raw_email) and is_list(opts) do
+  def to_incoming(raw_email, config, opts) when is_map(raw_email) and is_list(opts) do
     mailbox = Keyword.get(opts, :mailbox)
     parsed_email = parse_email(maybe_string(get(raw_email, "raw_rfc822", :raw_rfc822)))
     bodies = extract_bodies(raw_email, parsed_email)
@@ -23,10 +23,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
 
     from = sender(raw_email)
 
-    Incoming.new(%{
+    %{
       content: bodies.text,
       channel_id: from.address,
-      channel_config_id: "email",
       author_id: from.address,
       author_name: from.name,
       thread_id: thread_key,
@@ -43,12 +42,29 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
           reply_from,
           bodies.html
         )
-    })
+    }
+    |> maybe_put_channel_config_id(config)
+    |> Incoming.new()
   rescue
     error -> {:error, {:invalid_email_payload, Exception.message(error)}}
   end
 
   def to_incoming(_raw_email, _config, _opts), do: {:error, :invalid_email_payload}
+
+  defp maybe_put_channel_config_id(attrs, config) do
+    case channel_config_id(config) do
+      nil -> attrs
+      id -> Map.put(attrs, :channel_config_id, id)
+    end
+  end
+
+  defp channel_config_id(config) do
+    get(config, "id", :id) ||
+      case get(config, "config", :config) do
+        nested when is_map(nested) -> get(nested, "id", :id)
+        _ -> nil
+      end
+  end
 
   defp build_metadata(
          raw_email,

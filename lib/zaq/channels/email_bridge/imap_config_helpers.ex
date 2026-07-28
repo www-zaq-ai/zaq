@@ -47,6 +47,7 @@ defmodule Zaq.Channels.EmailBridge.ImapConfigHelpers do
   @spec normalize_bridge_config(map()) :: map()
   def normalize_bridge_config(config) when is_map(config) do
     %{
+      id: get(config, :id),
       settings: normalize_settings(config),
       provider: get(config, :provider) || "email:imap",
       url: get(config, :url),

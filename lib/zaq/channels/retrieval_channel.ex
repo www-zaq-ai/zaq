@@ -98,4 +98,26 @@ defmodule Zaq.Channels.RetrievalChannel do
   def get_by_config_and_channel(config_id, channel_id) do
     Repo.get_by(__MODULE__, channel_config_id: config_id, channel_id: channel_id)
   end
+
+  @doc "Returns the internal retrieval-channel id for a config and provider channel id."
+  @spec id_by_config_and_channel(map() | integer() | nil, String.t() | nil) :: integer() | nil
+  def id_by_config_and_channel(config_or_id, channel_id) when is_binary(channel_id) do
+    case config_id(config_or_id) do
+      id when is_integer(id) ->
+        case get_by_config_and_channel(id, channel_id) do
+          %__MODULE__{id: retrieval_channel_id} -> retrieval_channel_id
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def id_by_config_and_channel(_config_or_id, _channel_id), do: nil
+
+  defp config_id(id) when is_integer(id), do: id
+  defp config_id(%{id: id}) when is_integer(id), do: id
+  defp config_id(%{"id" => id}) when is_integer(id), do: id
+  defp config_id(_), do: nil
 end

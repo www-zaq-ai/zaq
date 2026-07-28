@@ -80,11 +80,17 @@ defstruct [
 ]
 ```
 
-Channel identity belongs to `Incoming.person` at the channel boundary. Bridges resolve
-the author through `Zaq.People.IdentityResolver` before dispatching onward. Agent and
-Engine boundaries promote that transport identity into canonical `%Zaq.Event.actor`
-via `Zaq.Identity.ActorNormalizer`. The incoming payload is intentionally minimal and
-JSON-safe because `%Incoming{}` may cross nodes.
+Channel adapters populate transport identity fields such as `author_id` and
+`author_name`. Engine resolves the canonical `Incoming.person` payload before applying
+incoming-message routing policy. Agent and Engine boundaries promote that identity into
+canonical `%Zaq.Event.actor` via `Zaq.Identity.ActorNormalizer`. The incoming payload is
+intentionally minimal and JSON-safe because `%Incoming{}` may cross nodes.
+
+Incoming routing facts belong to `Incoming.routing_context`, not ad-hoc metadata or
+provider settings. Communication bridges may populate `channel_config_id`,
+`retrieval_channel_id`, and provider-normalized `topic_id` values such as an IMAP
+mailbox. They must not resolve the destination agent or workflow; final routing policy
+is resolved by Engine through `Zaq.Engine.IncomingMessageRoutingRule`.
 
 ### `Zaq.Engine.Messages.Outgoing`
 

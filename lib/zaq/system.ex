@@ -8,6 +8,7 @@ defmodule Zaq.System do
   import Ecto.Query
 
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
@@ -33,7 +34,6 @@ defmodule Zaq.System do
   @embedding_write_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @image_to_text_read_fields ~w(credential_id model)
   @image_to_text_write_fields ~w(credential_id model)
-  @global_default_agent_key "channels.global_default_agent_id"
   @global_base_url_key "system.global.base_url"
   @system_language_key "system.global.language"
   @system_timezone_key "system.global.timezone"
@@ -64,17 +64,27 @@ defmodule Zaq.System do
   @doc "Returns globally configured default agent id, or nil when unset."
   @spec get_global_default_agent_id() :: integer() | nil
   def get_global_default_agent_id do
-    @global_default_agent_key
-    |> get_config()
-    |> ParseUtils.parse_optional_int(nil)
+    case IncomingMessageRouting.get_rule(%{}) do
+      %{routing_mode: :agent, configured_agent_id: configured_agent_id} -> configured_agent_id
+      _ -> nil
+    end
   end
 
   @doc "Sets or clears globally configured default agent id."
   @spec set_global_default_agent_id(integer() | String.t() | nil) :: :ok | {:error, term()}
   def set_global_default_agent_id(agent_id) do
-    case ParseUtils.parse_optional_int(agent_id, nil) do
-      nil -> persist_global_default_agent_id("")
-      id -> persist_global_default_agent_id(id)
+    result =
+      case ParseUtils.parse_optional_int(agent_id, nil) do
+        nil ->
+          IncomingMessageRouting.delete_rule(%{})
+
+        id ->
+          IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :agent, configured_agent_id: id})
+      end
+
+    case result do
+      {:ok, _rule_or_nil} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -529,12 +539,5 @@ defmodule Zaq.System do
     end
 
     :ok
-  end
-
-  defp persist_global_default_agent_id(value) do
-    case set_config(@global_default_agent_key, value) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
   end
 end

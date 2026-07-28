@@ -2,10 +2,11 @@ defmodule Zaq.Channels.EmailBridgeTest do
   use Zaq.DataCase, async: false
   import ExUnit.CaptureLog
 
-  alias Zaq.Channels.{AgentRouting, ChannelConfig}
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Channels.EmailBridge.SmtpSender
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -189,6 +190,13 @@ defmodule Zaq.Channels.EmailBridgeTest do
     def dispatch(event) do
       response =
         case event.opts[:action] do
+          :route_incoming_message ->
+            %Outgoing{
+              body: "from-node-router",
+              channel_id: event.request.channel_id,
+              provider: :email
+            }
+
           :run_pipeline ->
             %Outgoing{
               body: "from-node-router",
@@ -226,6 +234,16 @@ defmodule Zaq.Channels.EmailBridgeTest do
     def dispatch(event) do
       response =
         case event.opts[:action] do
+          :route_incoming_message ->
+            send(self(), {:node_router_route_incoming_event, event})
+
+            %Outgoing{
+              body: "captured",
+              channel_id: event.request.channel_id,
+              provider: :email,
+              metadata: %{answer: "captured"}
+            }
+
           :run_pipeline ->
             send(self(), {:node_router_run_pipeline_event, event})
 
@@ -286,6 +304,8 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
   describe "to_internal/2" do
     test "maps imap payload into Incoming message" do
+      config = %{id: 42}
+
       payload = %{
         "body_text" => "hello from imap",
         "body_html" => "<p>hello from imap</p>",
@@ -305,6 +325,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       assert incoming =
                EmailBridge.to_internal(payload, %{
+                 config: config,
                  mailbox: "INBOX",
                  adapter: Zaq.Channels.EmailBridge.ImapAdapter
                })
@@ -316,6 +337,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert incoming.thread_id == "a@example.com"
       assert incoming.message_id == "<msg-1@example.com>"
       assert incoming.provider == :"email:imap"
+      assert incoming.routing_context.channel_config_id == 42
       assert incoming.metadata["email"]["html_body"] == "<p>hello from imap</p>"
 
       assert [%{"filename" => "manual.pdf", "download_ref" => "att-1"}] =
@@ -401,20 +423,14 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
     end
 
-    test "returns invalid_pipeline_response when NodeRouter pipeline response is unexpected" do
+    test "treats non-error route responses as acknowledged" do
       Application.put_env(:zaq, :email_bridge_node_router_module, NodeRouterBadPipelineStub)
 
       config = %{provider: "email:imap", id: 1}
       payload = %{"body_text" => "hello"}
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
-      log =
-        capture_log(fn ->
-          assert {:error, {:invalid_pipeline_response, :unexpected}} =
-                   EmailBridge.from_listener(config, payload, sink_opts)
-        end)
-
-      assert log =~ "Failed to process inbound message"
+      assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
     end
 
     test "returns pipeline error when NodeRouter responds with {:error, reason}" do
@@ -433,7 +449,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert log =~ "Failed to process inbound message"
     end
 
-    test "includes provider default agent selection in run_pipeline event assigns" do
+    test "routes with email imap channel config id for provider rule lookup" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
 
       config = insert_imap_channel_config(%{})
@@ -446,13 +462,34 @@ defmodule Zaq.Channels.EmailBridgeTest do
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
       assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
-      assert_received {:node_router_run_pipeline_event, event}
+      assert_received {:node_router_route_incoming_event, event}
 
-      selected_id = get_in(event.assigns, ["agent_selection", "agent_id"])
-      assert selected_id == provider_agent.id
+      assert event.request.routing_context.channel_config_id == config.id
+
+      assert %{
+               source: :provider,
+               configured_agent_id: configured_agent_id
+             } = IncomingMessageRouting.resolve(event.request)
+
+      assert configured_agent_id == provider_agent.id
     end
 
-    test "run_pipeline event does not carry an actor" do
+    test "runtime-normalized email imap config preserves channel config id for routing" do
+      Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      config = insert_imap_channel_config(%{})
+      normalized = ImapConfigHelpers.normalize_bridge_config(config)
+
+      payload = %{"body_text" => "hello"}
+      sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
+
+      assert :ok = EmailBridge.from_listener(normalized, payload, sink_opts)
+      assert_received {:node_router_route_incoming_event, event}
+
+      assert event.request.routing_context.channel_config_id == config.id
+    end
+
+    test "route_incoming_message event carries channel actor" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
 
       Application.put_env(
@@ -466,12 +503,16 @@ defmodule Zaq.Channels.EmailBridgeTest do
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
       assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
-      assert_received {:node_router_run_pipeline_event, event}
+      assert_received {:node_router_route_incoming_event, event}
 
-      assert event.actor == nil
+      assert event.actor == %{
+               id: "author@example.com",
+               name: nil,
+               provider: :"email:imap"
+             }
     end
 
-    test "falls back to global default agent selection when provider default is absent" do
+    test "routes with global default when provider default is absent" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
 
       on_exit(fn ->
@@ -486,13 +527,15 @@ defmodule Zaq.Channels.EmailBridgeTest do
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
       assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
-      assert_received {:node_router_run_pipeline_event, event}
+      assert_received {:node_router_route_incoming_event, event}
 
-      selected_id = get_in(event.assigns, ["agent_selection", "agent_id"])
-      assert selected_id == global_agent.id
+      assert %{source: :global, configured_agent_id: configured_agent_id} =
+               IncomingMessageRouting.resolve(event.request)
+
+      assert configured_agent_id == global_agent.id
     end
 
-    test "keeps legacy pipeline path when no explicit or global selection is configured" do
+    test "routes to default ZAQ agent when no explicit or global selection is configured" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
 
       on_exit(fn ->
@@ -508,8 +551,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
       assert :ok = EmailBridge.from_listener(config, payload, sink_opts)
-      assert_received {:node_router_run_pipeline_event, event}
-      refute Map.has_key?(event.assigns || %{}, "agent_selection")
+      assert_received {:node_router_route_incoming_event, event}
+
+      assert %{source: :default_zaq_agent, configured_agent_id: nil} =
+               IncomingMessageRouting.resolve(event.request)
     end
 
     test "keeps mailbox-specific agent routing when using runtime-prepared config" do
@@ -521,16 +566,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       :ok = Zaq.System.set_global_default_agent_id(nil)
 
-      mailbox_agent = insert_configured_agent(true)
-
       config = %{
         provider: "email:imap",
         settings: %{
-          "routing" => %{"default_agent_id" => mailbox_agent.id + 1},
-          "imap" => %{
-            "selected_mailboxes" => ["INBOX"],
-            "agent_routing" => %{"mailboxes" => %{"INBOX" => mailbox_agent.id}}
-          }
+          "imap" => %{"selected_mailboxes" => ["INBOX"]}
         }
       }
 
@@ -539,10 +578,11 @@ defmodule Zaq.Channels.EmailBridgeTest do
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
       assert :ok = EmailBridge.from_listener(prepared, payload, sink_opts)
-      assert_received {:node_router_run_pipeline_event, event}
+      assert_received {:node_router_route_incoming_event, event}
 
-      assert get_in(event.assigns, ["agent_selection", "agent_id"]) == mailbox_agent.id
-      assert get_in(event.assigns, ["agent_selection", "source"]) == "mailbox_assignment"
+      assert event.opts[:action] == :route_incoming_message
+      assert event.request.routing_context.topic_id == "INBOX"
+      refute Map.has_key?(event.assigns || %{}, "agent_selection")
     end
 
     test "NONE mailbox routing fires trigger event without agent dispatch" do
@@ -552,18 +592,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
         :ok = Zaq.System.set_global_default_agent_id(nil)
       end)
 
-      provider_agent = insert_configured_agent(true)
-      :ok = Zaq.System.set_global_default_agent_id(provider_agent.id)
-
       config = %{
         provider: "email:imap",
         settings: %{
-          "imap" => %{
-            "selected_mailboxes" => ["INBOX"],
-            "agent_routing" => %{
-              "mailboxes" => %{"INBOX" => AgentRouting.none_value()}
-            }
-          }
+          "imap" => %{"selected_mailboxes" => ["INBOX"]}
         }
       }
 
@@ -572,9 +604,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
       sink_opts = [adapter: IncomingAdapterStub, mailbox: "INBOX"]
 
       assert :ok = EmailBridge.from_listener(prepared, payload, sink_opts)
-      assert_received {:node_router_fire_event, event}
+      assert_received {:node_router_route_incoming_event, event}
       assert event.request.content == "incoming"
-      assert event.name == "channels:message_received.workflow_only.email_imap.unknown"
+      assert event.name == :incoming_message_routing_requested
+      assert event.request.routing_context.topic_id == "INBOX"
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
       refute_received {:node_router_run_pipeline_event, _}
     end
@@ -1356,54 +1389,6 @@ defmodule Zaq.Channels.EmailBridgeTest do
         end)
 
       assert log =~ "Failed to process inbound message"
-    end
-  end
-
-  describe "resolve_agent_selection/3" do
-    test "blank mailbox ignores mailbox assignment and falls back to provider default" do
-      provider_agent = insert_configured_agent(true)
-
-      config = %{
-        settings: %{
-          "routing" => %{"default_agent_id" => provider_agent.id},
-          "imap" => %{
-            "agent_routing" => %{"mailboxes" => %{"INBOX" => provider_agent.id + 1}}
-          }
-        }
-      }
-
-      selection =
-        EmailBridge.resolve_agent_selection(
-          config,
-          %Zaq.Engine.Messages.Incoming{content: "x", channel_id: "c", provider: :"email:imap"},
-          mailbox: "   "
-        )
-
-      assert %{"agent_id" => agent_id, "source" => "provider_default"} = selection
-      assert agent_id == provider_agent.id
-    end
-
-    test "non-binary mailbox ignores mailbox assignment and falls back to provider default" do
-      provider_agent = insert_configured_agent(true)
-
-      config = %{
-        settings: %{
-          "routing" => %{"default_agent_id" => provider_agent.id},
-          "imap" => %{
-            "agent_routing" => %{"mailboxes" => %{"INBOX" => provider_agent.id + 1}}
-          }
-        }
-      }
-
-      selection =
-        EmailBridge.resolve_agent_selection(
-          config,
-          %Zaq.Engine.Messages.Incoming{content: "x", channel_id: "c", provider: :"email:imap"},
-          mailbox: :INBOX
-        )
-
-      assert %{"agent_id" => agent_id, "source" => "provider_default"} = selection
-      assert agent_id == provider_agent.id
     end
   end
 

@@ -2,6 +2,7 @@ defmodule Zaq.Channels.ChannelConfigTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Channels.{AgentRouting, ChannelConfig, RetrievalChannel}
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
   alias Zaq.SystemConfigFixtures
@@ -456,7 +457,7 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert ChannelConfig.imap_settings(%{settings: %{"imap" => "bad"}}) == %{}
   end
 
-  test "set_provider_default_agent_id/2 persists provider default agent id in settings" do
+  test "set_provider_default_agent_id/2 persists provider default agent id as routing rule" do
     config = insert_channel_config(%{provider: "mattermost", settings: %{}})
     agent = insert_configured_agent()
 
@@ -465,6 +466,11 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
     reloaded = Repo.get!(ChannelConfig, config.id)
     assert ChannelConfig.get_provider_default_agent_id(reloaded) == agent.id
+
+    assert %{routing_mode: :agent, configured_agent_id: configured_agent_id} =
+             IncomingMessageRouting.get_rule(%{channel_config_id: config.id})
+
+    assert configured_agent_id == agent.id
   end
 
   test "set_provider_default_agent_id/2 clears provider default agent id with nil" do
@@ -475,6 +481,7 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert {:ok, cleared} = ChannelConfig.set_provider_default_agent_id(updated, nil)
 
     assert ChannelConfig.get_provider_default_agent_id(cleared) == nil
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: config.id}) == nil
   end
 
   test "set_provider_default_agent_id/2 persists NONE as provider agent choice" do
@@ -493,10 +500,11 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
     reloaded = Repo.get!(ChannelConfig, config.id)
 
-    assert reloaded.settings["routing"]["default_agent_mode"] == "none"
-
     assert ChannelConfig.get_provider_agent_choice(reloaded) ==
              AgentRouting.none_value()
+
+    assert %{routing_mode: :none, configured_agent_id: nil} =
+             IncomingMessageRouting.get_rule(%{channel_config_id: config.id})
   end
 
   test "get_provider_default_agent_id/1 returns nil for invalid value" do
@@ -513,7 +521,7 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert ChannelConfig.get_provider_default_agent_id(%{settings: "bad"}) == nil
   end
 
-  test "set_provider_default_agent_id/2 removes routing map when clearing last field" do
+  test "set_provider_default_agent_id/2 deletes provider routing rule when clearing" do
     config =
       insert_channel_config(%{
         provider: "discord",
@@ -521,7 +529,8 @@ defmodule Zaq.Channels.ChannelConfigTest do
       })
 
     assert {:ok, cleared} = ChannelConfig.set_provider_default_agent_id(config, nil)
-    refute Map.has_key?(cleared.settings || %{}, "routing")
+    assert ChannelConfig.get_provider_agent_choice(cleared) == nil
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: config.id}) == nil
   end
 
   test "imap and jido_chat helpers normalize non-map payloads" do

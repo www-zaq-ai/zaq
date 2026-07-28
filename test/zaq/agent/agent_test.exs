@@ -9,6 +9,8 @@ defmodule Zaq.AgentTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Engine.IncomingMessageRouting
+  alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
 
@@ -495,20 +497,33 @@ defmodule Zaq.AgentTest do
         url: "https://mattermost.example.com",
         token: "tok",
         enabled: true,
-        settings: %{"routing" => %{"default_agent_id" => agent.id}}
+        settings: %{}
       })
 
-    %RetrievalChannel{}
-    |> RetrievalChannel.changeset(%{
+    {:ok, _provider_rule} =
+      IncomingMessageRouting.upsert_rule(%{channel_config_id: mattermost_config.id}, %{
+        routing_mode: :agent,
+        configured_agent_id: agent.id
+      })
+
+    retrieval_channel =
+      %RetrievalChannel{}
+      |> RetrievalChannel.changeset(%{
+        channel_config_id: mattermost_config.id,
+        channel_id: "chan-1",
+        channel_name: "General",
+        team_id: "team-1",
+        team_name: "Team",
+        active: true
+      })
+      |> Repo.insert!()
+
+    Repo.insert!(%IncomingMessageRoutingRule{
       channel_config_id: mattermost_config.id,
-      channel_id: "chan-1",
-      channel_name: "General",
-      team_id: "team-1",
-      team_name: "Team",
-      active: true,
+      retrieval_channel_id: retrieval_channel.id,
+      routing_mode: :agent,
       configured_agent_id: agent.id
     })
-    |> Repo.insert!()
 
     {:ok, _smtp_config} =
       ChannelConfig.upsert_by_provider("email:smtp", %{
@@ -518,7 +533,7 @@ defmodule Zaq.AgentTest do
         settings: %{"relay" => "", "port" => "587", "transport_mode" => "starttls"}
       })
 
-    {:ok, _imap_config} =
+    {:ok, imap_config} =
       ChannelConfig.upsert_by_provider("email:imap", %{
         name: "IMAP",
         kind: "retrieval",
@@ -527,11 +542,19 @@ defmodule Zaq.AgentTest do
         token: "imap-token",
         settings: %{
           "imap" => %{
-            "selected_mailboxes" => ["INBOX"],
-            "agent_routing" => %{"mailboxes" => %{"INBOX" => agent.id}}
+            "selected_mailboxes" => ["INBOX"]
           }
         }
       })
+
+    {:ok, _mailbox_rule} =
+      IncomingMessageRouting.upsert_rule(
+        %{channel_config_id: imap_config.id, topic_id: "INBOX"},
+        %{
+          routing_mode: :agent,
+          configured_agent_id: agent.id
+        }
+      )
 
     :ok = ZaqSystem.set_global_default_agent_id(agent.id)
 
@@ -539,10 +562,10 @@ defmodule Zaq.AgentTest do
 
     assert [message | _] = errors_on(changeset).base
     assert message =~ "Agent is in use by:\n"
-    assert message =~ "- retrieval channel"
-    assert message =~ "- provider default"
-    assert message =~ "- imap mailbox"
-    assert message =~ "- global default"
+    assert message =~ "- incoming routing channel rule"
+    assert message =~ "- incoming routing provider"
+    assert message =~ "- incoming routing topic email:imap:INBOX"
+    assert message =~ "- incoming routing global default"
   end
 
   test "delete_agent/1 succeeds when agent is unreferenced" do

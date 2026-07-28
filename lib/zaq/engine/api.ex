@@ -10,6 +10,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.DataSources
+  alias Zaq.Engine.IncomingMessageRouter
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Notifications
   alias Zaq.Engine.PeopleGateway
@@ -43,6 +44,12 @@ defmodule Zaq.Engine.Api do
   end
 
   def handle_event(%Event{} = event, :noop, _context), do: event
+
+  def handle_event(%Event{request: %Incoming{}} = event, :route_incoming_message, _context),
+    do: IncomingMessageRouter.route(event)
+
+  def handle_event(%Event{} = event, :route_incoming_message, _context),
+    do: %{event | response: {:error, {:invalid_request, event.request}}}
 
   def handle_event(%Event{} = event, :invoke, _context),
     do: InternalBoundaries.invoke_request(event)

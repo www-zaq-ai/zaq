@@ -2,6 +2,7 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig, CommunicationBridge}
+  alias Zaq.Channels.EventNames
   alias Zaq.Repo
 
   defmodule StubBridge do
@@ -813,6 +814,15 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                  StubNodeRouter
                )
 
+      assert :ok =
+               CommunicationBridge.run_pipeline_with_node_router(
+                 msg,
+                 [node_router_response: {:ok, %{delivered: true, provider_message_id: "post-1"}}],
+                 %{"agent_id" => "2"},
+                 actor,
+                 StubNodeRouter
+               )
+
       assert {:error, {:invalid_pipeline_response, :unexpected}} =
                CommunicationBridge.run_pipeline_with_node_router(
                  msg,
@@ -850,19 +860,69 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
       assert_received {:node_router_dispatch, event_without_assign}
       assert event_without_assign.assigns == %{}
+
+      _ =
+        CommunicationBridge.run_pipeline_with_node_router(
+          msg,
+          [node_router_response: :ok],
+          nil,
+          actor,
+          StubNodeRouter
+        )
+
+      assert_received {:node_router_dispatch, event_with_nil_selection}
+      assert event_with_nil_selection.assigns == %{}
+      refute Map.has_key?(event_with_nil_selection.assigns, "agent_selection")
+    end
+
+    test "uses workflow-only event name for :none selection" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert :ok =
+               CommunicationBridge.run_pipeline_with_node_router(
+                 msg,
+                 [node_router_response: :ok],
+                 :none,
+                 actor,
+                 StubNodeRouter
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.assigns == %{}
+      assert event.name == EventNames.message_received(msg, :workflow_only)
     end
   end
 
-  describe "route_incoming_message/5" do
+  describe "route_incoming_message/4" do
     test "rejects invalid actor through the generated default opts arity before routing" do
       msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
 
       assert_raise FunctionClauseError, fn ->
-        CommunicationBridge.route_incoming_message(msg, [], [], :invalid_actor)
+        CommunicationBridge.route_incoming_message(msg, [], :invalid_actor)
       end
     end
 
-    test "dispatches the canonical event when an agent resolves" do
+    test "builds the canonical incoming routing event with default opts" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      event = CommunicationBridge.build_incoming_routing_event(msg, [foo: :bar], actor)
+
+      assert %Zaq.Event{} = event
+      assert event.request == msg
+      assert event.next_hop.destination == :engine
+      assert event.name == :incoming_message_routing_requested
+      assert event.next_hop.type == :sync
+      assert event.actor == actor
+      assert event.opts[:action] == :route_incoming_message
+      assert event.opts[:pipeline_opts] == [foo: :bar]
+      refute Keyword.has_key?(event.opts, :identity_opts)
+      refute Keyword.has_key?(event.opts, :identity_resolver)
+      refute Keyword.has_key?(event.opts, :node_router)
+    end
+
+    test "dispatches the canonical Engine routing event with routing context" do
       msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
       actor = %{id: "u1", provider: :mattermost}
 
@@ -870,22 +930,44 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                CommunicationBridge.route_incoming_message(
                  msg,
                  [],
-                 [{:channel_assignment, "3"}],
                  actor,
                  node_router: StubNodeRouter,
-                 agent_module: StubAgent,
-                 channel_config_id: 123
+                 channel_config_id: 123,
+                 retrieval_channel_id: 456,
+                 topic_id: "general"
                )
 
       assert_received {:node_router_dispatch, event}
-      assert %{event.request | metadata: %{}} == msg
-      assert event.request.metadata["channel_config_id"] == "123"
-      assert event.request.metadata["telemetry_dimensions"]["channel_config_id"] == "123"
-      assert event.next_hop.destination == :agent
-      assert event.name == "channels:message_received.agent_requested.mattermost.123"
-      assert get_in(event.assigns, ["agent_selection", "agent_id"]) == 3
-      assert get_in(event.assigns, ["agent_selection", "source"]) == "channel_assignment"
+      assert %{event.request | metadata: %{}, routing_context: msg.routing_context} == msg
+      assert event.request.routing_context.channel_config_id == 123
+      assert event.request.routing_context.retrieval_channel_id == 456
+      assert event.request.routing_context.topic_id == "general"
+      assert event.next_hop.destination == :engine
+      assert event.name == :incoming_message_routing_requested
+      assert event.opts[:action] == :route_incoming_message
       refute_received {:node_router_fire, _}
+    end
+
+    test "returns outgoing from an ok tuple response" do
+      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      outgoing = %Zaq.Engine.Messages.Outgoing{
+        body: "wrapped",
+        provider: :mattermost,
+        channel_id: "c1"
+      }
+
+      assert ^outgoing =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [node_router_response: {:ok, outgoing}],
+                 actor,
+                 node_router: StubNodeRouter
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.opts[:action] == :route_incoming_message
     end
 
     test "trims and attaches string channel_config_id before delegated pipeline execution" do
@@ -905,15 +987,13 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                CommunicationBridge.route_incoming_message(
                  msg,
                  [],
-                 [{:channel_assignment, "3"}],
                  actor,
                  agent_module: StubAgent,
                  pipeline_module: StubPipeline,
                  channel_config_id: "  cfg-7  "
                )
 
-      assert routed_msg.metadata["channel_config_id"] == "cfg-7"
-      assert routed_msg.metadata["telemetry_dimensions"]["channel_config_id"] == "cfg-7"
+      assert routed_msg.routing_context.channel_config_id == nil
       assert routed_msg.metadata["telemetry_dimensions"]["tenant"] == "acme"
       assert routed_msg.metadata["kept"] == true
       assert_received {:stub_pipeline_run, ^routed_msg, []}
@@ -936,7 +1016,6 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                CommunicationBridge.route_incoming_message(
                  msg,
                  [],
-                 [{:channel_assignment, "3"}],
                  actor,
                  agent_module: StubAgent,
                  pipeline_module: StubPipeline,
@@ -965,7 +1044,6 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                CommunicationBridge.route_incoming_message(
                  msg,
                  [],
-                 [{:channel_assignment, "3"}],
                  actor,
                  agent_module: StubAgent,
                  pipeline_module: StubPipeline,
@@ -994,7 +1072,6 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                CommunicationBridge.route_incoming_message(
                  msg,
                  [],
-                 [{:channel_assignment, "3"}],
                  actor,
                  agent_module: StubAgent,
                  pipeline_module: StubPipeline,
@@ -1004,85 +1081,6 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       refute Map.has_key?(routed_msg.metadata || %{}, "channel_config_id")
       refute get_in(routed_msg.metadata || %{}, ["telemetry_dimensions", "channel_config_id"])
       assert_received {:stub_pipeline_run, ^routed_msg, []}
-    end
-
-    test "fires without dispatch when NONE resolves" do
-      msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
-      actor = %{id: "u1", provider: :mattermost}
-
-      assert :ok =
-               CommunicationBridge.route_incoming_message(
-                 msg,
-                 [],
-                 [
-                   {:channel_assignment, AgentRouting.none_value()},
-                   {:global_default, "3"}
-                 ],
-                 actor,
-                 node_router: StubNodeRouter,
-                 agent_module: StubAgent,
-                 channel_config_id: 123
-               )
-
-      assert_received {:node_router_fire, event}
-      assert %{event.request | metadata: %{}} == msg
-      assert event.request.metadata["channel_config_id"] == "123"
-      assert event.request.metadata["telemetry_dimensions"]["channel_config_id"] == "123"
-      assert event.next_hop.destination == :agent
-      assert event.name == "channels:message_received.workflow_only.mattermost.123"
-      refute Map.has_key?(event.assigns || %{}, "agent_selection")
-      refute_received {:node_router_dispatch, _}
-    end
-
-    test "uses incoming telemetry channel_config_id when option is absent" do
-      msg = %Zaq.Engine.Messages.Incoming{
-        content: "hi",
-        provider: :mattermost,
-        channel_id: "c1",
-        metadata: %{"telemetry_dimensions" => %{"channel_config_id" => "cfg-9"}}
-      }
-
-      actor = %{id: "u1", provider: :mattermost}
-
-      assert %Zaq.Engine.Messages.Outgoing{} =
-               CommunicationBridge.route_incoming_message(
-                 msg,
-                 [],
-                 [{:channel_assignment, "3"}],
-                 actor,
-                 node_router: StubNodeRouter,
-                 agent_module: StubAgent
-               )
-
-      assert_received {:node_router_dispatch, event}
-      assert event.name == "channels:message_received.agent_requested.mattermost.cfg_9"
-    end
-
-    test "resolves incoming person before dispatching to the agent node" do
-      msg = %Zaq.Engine.Messages.Incoming{
-        content: "hi",
-        provider: :mattermost,
-        channel_id: "c1",
-        author_id: "u1",
-        author_name: "ada"
-      }
-
-      actor = %{id: "u1", name: "ada", provider: :mattermost}
-
-      assert %Zaq.Engine.Messages.Outgoing{} =
-               CommunicationBridge.route_incoming_message(
-                 msg,
-                 [],
-                 [{:channel_assignment, "3"}],
-                 actor,
-                 node_router: StubNodeRouter,
-                 agent_module: StubAgent,
-                 identity_resolver: StubIdentityResolver
-               )
-
-      assert_received {:node_router_dispatch, event}
-      assert event.request.person == %{id: 42, full_name: "Ada Lovelace", team_ids: [7, 9]}
-      assert event.actor == nil
     end
 
     test "keeps incoming person unresolved when person resolution fails" do
@@ -1099,7 +1097,6 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
                CommunicationBridge.route_incoming_message(
                  msg,
                  [],
-                 [{:channel_assignment, "3"}],
                  actor,
                  node_router: StubNodeRouter,
                  agent_module: StubAgent,
@@ -1108,7 +1105,7 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
       assert_received {:node_router_dispatch, event}
       assert event.request.person == nil
-      assert event.actor == nil
+      assert event.actor == actor
     end
   end
 
@@ -1186,6 +1183,13 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
       assert_received {:rating_dispatch, event}
       assert event.request == %{message_ref: {:id, "uuid-1"}, rater_attrs: attrs}
+    end
+
+    test "uses the generated default arity with invalid attrs and returns the engine response" do
+      attrs = %{message_id: "smuggled", rating: 5}
+
+      assert {:error, {:invalid_request, %{rater_attrs: ^attrs}}} =
+               CommunicationBridge.dispatch_message_rating({:id, "uuid-1"}, attrs)
     end
 
     test "returns the engine response verbatim, including errors" do

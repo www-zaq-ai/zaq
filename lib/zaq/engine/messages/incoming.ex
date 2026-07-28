@@ -13,6 +13,7 @@ defmodule Zaq.Engine.Messages.Incoming do
   For cross-node routing, this struct is wrapped by `%Zaq.Event{request: %Incoming{...}}`.
   """
 
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Identity.ActorNormalizer
 
   @enforce_keys [:content, :channel_id, :provider]
@@ -26,6 +27,7 @@ defmodule Zaq.Engine.Messages.Incoming do
     :message_id,
     :provider,
     :person,
+    routing_context: %RoutingContext{},
     is_dm: false,
     metadata: %{},
     content_filter: []
@@ -40,6 +42,7 @@ defmodule Zaq.Engine.Messages.Incoming do
           message_id: String.t() | integer() | nil,
           provider: atom() | String.t(),
           person: map() | nil,
+          routing_context: RoutingContext.t(),
           is_dm: boolean(),
           metadata: map(),
           content_filter: [String.t()]
@@ -49,6 +52,7 @@ defmodule Zaq.Engine.Messages.Incoming do
   @spec new(map()) :: t()
   def new(attrs) when is_map(attrs) do
     metadata = normalize_metadata(Map.get(attrs, :metadata) || Map.get(attrs, "metadata"))
+    routing_context = normalize_routing_context(attrs, metadata)
 
     incoming = %__MODULE__{
       content: fetch_required!(attrs, :content),
@@ -59,6 +63,7 @@ defmodule Zaq.Engine.Messages.Incoming do
       thread_id: fetch_optional(attrs, :thread_id),
       message_id: fetch_optional(attrs, :message_id),
       person: normalize_person(fetch_optional(attrs, :person)),
+      routing_context: routing_context,
       is_dm: fetch_optional(attrs, :is_dm) == true,
       content_filter: normalize_content_filter(fetch_optional(attrs, :content_filter)),
       metadata: metadata
@@ -87,22 +92,29 @@ defmodule Zaq.Engine.Messages.Incoming do
 
   defp build_telemetry_dimensions(%__MODULE__{} = incoming, attrs) do
     provider = normalize_channel_type(incoming.provider)
-    channel_config_id = resolve_channel_config_id(attrs, incoming.metadata)
+    channel_config_id = resolve_channel_config_id(incoming, attrs)
+    retrieval_channel_id = resolve_retrieval_channel_id(incoming, attrs)
 
     %{
       "channel_type" => provider,
       "channel_config_id" => channel_config_id,
+      "retrieval_channel_id" => retrieval_channel_id,
       "provider" => to_string(incoming.provider),
       "channel_id" => incoming.channel_id
     }
   end
 
-  defp resolve_channel_config_id(attrs, metadata) do
+  defp resolve_channel_config_id(%__MODULE__{routing_context: context}, attrs) do
     value =
-      fetch_optional(attrs, :channel_config_id) ||
-        Map.get(metadata, "channel_config_id") ||
-        Map.get(metadata, :channel_config_id)
+      context.channel_config_id ||
+        fetch_optional(attrs, :channel_config_id) ||
+        Map.get(attrs, "channel_config_id")
 
+    normalize_channel_config_id(value)
+  end
+
+  defp resolve_retrieval_channel_id(%__MODULE__{routing_context: context}, attrs) do
+    value = context.retrieval_channel_id || fetch_optional(attrs, :retrieval_channel_id)
     normalize_channel_config_id(value)
   end
 
@@ -132,6 +144,26 @@ defmodule Zaq.Engine.Messages.Incoming do
 
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
   defp normalize_metadata(_), do: %{}
+
+  defp normalize_routing_context(attrs, metadata) do
+    attrs
+    |> fetch_optional(:routing_context)
+    |> maybe_merge_legacy_routing_context(attrs, metadata)
+    |> RoutingContext.normalize()
+  end
+
+  defp maybe_merge_legacy_routing_context(nil, attrs, metadata) do
+    %{
+      channel_config_id:
+        fetch_optional(attrs, :channel_config_id) ||
+          Map.get(metadata, "channel_config_id") || Map.get(metadata, :channel_config_id),
+      retrieval_channel_id:
+        fetch_optional(attrs, :retrieval_channel_id) ||
+          Map.get(metadata, "retrieval_channel_id") || Map.get(metadata, :retrieval_channel_id)
+    }
+  end
+
+  defp maybe_merge_legacy_routing_context(context, _attrs, _metadata), do: context
 
   defp normalize_person(person), do: ActorNormalizer.person(%{person: person})
 

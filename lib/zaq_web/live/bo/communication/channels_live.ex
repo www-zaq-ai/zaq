@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig}
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
   alias Zaq.Engine.Connect.Credential
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
@@ -504,9 +505,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          %RetChannel{} = retrieval_channel <- Repo.get(RetChannel, rc_id),
          {:ok, configured_agent_id} <- AgentRouting.validate_choice(raw_id),
          {:ok, _updated} <-
-           retrieval_channel
-           |> RetChannel.changeset(retrieval_channel_agent_attrs(configured_agent_id))
-           |> Repo.update() do
+           set_retrieval_channel_agent_rule(retrieval_channel, configured_agent_id) do
       config = first_enabled_config(socket)
 
       {:noreply,
@@ -912,20 +911,48 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       |> ChannelConfig.get_provider_agent_choice()
       |> AgentRouting.select_value()
 
-  defp retrieval_channel_agent_attrs(:none),
-    do: %{agent_routing_mode: "none", configured_agent_id: nil}
+  defp set_retrieval_channel_agent_rule(%RetChannel{} = retrieval_channel, :none) do
+    IncomingMessageRouting.upsert_rule(
+      %{
+        channel_config_id: retrieval_channel.channel_config_id,
+        retrieval_channel_id: retrieval_channel.id
+      },
+      %{routing_mode: :none}
+    )
+  end
 
-  defp retrieval_channel_agent_attrs(nil),
-    do: %{agent_routing_mode: nil, configured_agent_id: nil}
+  defp set_retrieval_channel_agent_rule(%RetChannel{} = retrieval_channel, nil) do
+    IncomingMessageRouting.delete_rule(%{
+      channel_config_id: retrieval_channel.channel_config_id,
+      retrieval_channel_id: retrieval_channel.id
+    })
+  end
 
-  defp retrieval_channel_agent_attrs(id),
-    do: %{agent_routing_mode: "agent", configured_agent_id: id}
+  defp set_retrieval_channel_agent_rule(%RetChannel{} = retrieval_channel, id) do
+    IncomingMessageRouting.upsert_rule(
+      %{
+        channel_config_id: retrieval_channel.channel_config_id,
+        retrieval_channel_id: retrieval_channel.id
+      },
+      %{routing_mode: :agent, configured_agent_id: id}
+    )
+  end
 
-  def retrieval_channel_agent_value(%RetChannel{agent_routing_mode: "none"}),
-    do: AgentRouting.none_value()
+  def retrieval_channel_agent_value(%RetChannel{} = retrieval_channel) do
+    case IncomingMessageRouting.get_rule(%{
+           channel_config_id: retrieval_channel.channel_config_id,
+           retrieval_channel_id: retrieval_channel.id
+         }) do
+      %{routing_mode: :none} ->
+        AgentRouting.none_value()
 
-  def retrieval_channel_agent_value(%RetChannel{configured_agent_id: configured_agent_id}),
-    do: AgentRouting.select_value(configured_agent_id)
+      %{routing_mode: :agent, configured_agent_id: configured_agent_id} ->
+        AgentRouting.select_value(configured_agent_id)
+
+      _ ->
+        ""
+    end
+  end
 
   defp fetch_and_assign_channels(socket, cfg, team_id) do
     case mattermost_api().list_accessible_channels(cfg, team_id) do

@@ -51,6 +51,7 @@ defmodule Zaq.Channels.EmailBridge.ImapConfigHelpersTest do
 
   test "normalize_bridge_config/1 normalizes selected mailboxes and token fallback" do
     config = %{
+      id: 42,
       provider: "email:imap",
       password: "secret",
       settings: %{
@@ -64,6 +65,7 @@ defmodule Zaq.Channels.EmailBridge.ImapConfigHelpersTest do
     normalized = ImapConfigHelpers.normalize_bridge_config(config)
 
     assert normalized.token == "secret"
+    assert normalized.id == 42
     assert normalized.username == "imap-user"
     assert normalized.selected_mailboxes == ["INBOX", "Support"]
   end

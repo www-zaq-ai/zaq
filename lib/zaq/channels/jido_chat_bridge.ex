@@ -11,7 +11,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   `register_handlers/3` is called to attach function handlers per events
 
-  All external module calls are configurable via Application env for testability.
+  All external module calls are configurable through the central config helper for testability.
   """
 
   @behaviour Zaq.Channels.Bridge
@@ -27,7 +27,6 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Jido.Chat.Thread
 
   alias Zaq.Channels.{
-    AgentRouting,
     Bridge,
     ChannelConfig,
     RetrievalChannel,
@@ -42,7 +41,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
-  alias Zaq.{NodeRouter, System}
+  alias Zaq.NodeRouter
   alias Zaq.Types.EncryptedString
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
@@ -711,9 +710,10 @@ defmodule Zaq.Channels.JidoChatBridge do
              route_incoming_message(
                msg,
                [role_ids: role_ids],
-               agent_candidates(config, msg.channel_id),
                actor_from_incoming(msg),
                channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
+               retrieval_channel_id:
+                 RetrievalChannel.id_by_config_and_channel(config, msg.channel_id),
                pipeline_module: pipeline_module(),
                node_router: node_router_module()
              )
@@ -1386,40 +1386,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp normalize_pipeline_result(other), do: {:error, {:invalid_pipeline_response, other}}
 
-  @impl true
-  def resolve_agent_selection(config, %Incoming{} = _incoming, opts) do
-    channel_id = Keyword.get(opts, :channel_id)
-
-    config
-    |> agent_candidates(channel_id)
-    |> AgentRouting.first_active_selection()
-  end
-
-  defp agent_candidates(config, channel_id) do
-    [
-      {:channel_assignment, channel_assignment_agent_choice(config, channel_id)},
-      {:provider_default, ChannelConfig.get_provider_agent_choice(config)},
-      {:global_default, System.get_global_default_agent_id()}
-    ]
-  end
-
-  defp channel_assignment_agent_choice(config, channel_id) when is_binary(channel_id) do
-    case Map.get(config, :id) || Map.get(config, "id") do
-      id when is_integer(id) ->
-        case RetrievalChannel.get_by_config_and_channel(id, channel_id) do
-          %RetrievalChannel{agent_routing_mode: "none"} -> AgentRouting.none_value()
-          %RetrievalChannel{configured_agent_id: configured_agent_id} -> configured_agent_id
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp channel_assignment_agent_choice(_config, _channel_id), do: nil
-
-  # person is resolved by CommunicationBridge before dispatching to the agent node.
+  # person is resolved by Engine before routing to the final destination.
   defp actor_from_incoming(%Incoming{} = incoming) do
     %{
       id: incoming.author_id,
@@ -1429,35 +1396,35 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp hooks_module do
-    Application.get_env(:zaq, :pipeline_hooks_module, Zaq.Hooks)
+    Zaq.Config.get(:zaq, :pipeline_hooks_module, Zaq.Hooks)
   end
 
   defp pipeline_module do
-    Application.get_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+    Zaq.Config.get(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
   end
 
   def runtime_chat_module do
-    Application.get_env(:zaq, :chat_bridge_chat_module, Chat)
+    Zaq.Config.get(:zaq, :chat_bridge_chat_module, Chat)
   end
 
   defp accounts_module do
-    Application.get_env(:zaq, :chat_bridge_accounts_module, Zaq.Accounts)
+    Zaq.Config.get(:zaq, :chat_bridge_accounts_module, Zaq.Accounts)
   end
 
   defp permissions_module do
-    Application.get_env(:zaq, :chat_bridge_permissions_module, Zaq.Accounts.Permissions)
+    Zaq.Config.get(:zaq, :chat_bridge_permissions_module, Zaq.Accounts.Permissions)
   end
 
   defp node_router_module do
-    Application.get_env(:zaq, :chat_bridge_node_router_module, NodeRouter)
+    Zaq.Config.get(:zaq, :chat_bridge_node_router_module, NodeRouter)
   end
 
   defp supervisor_module do
-    Application.get_env(:zaq, :chat_bridge_supervisor_module, Supervisor)
+    Zaq.Config.get(:zaq, :chat_bridge_supervisor_module, Supervisor)
   end
 
   defp oban_module do
-    Application.get_env(:zaq, :chat_bridge_oban_module, Oban)
+    Zaq.Config.get(:zaq, :chat_bridge_oban_module, Oban)
   end
 
   defp resolve_adapter_for_provider(provider) do

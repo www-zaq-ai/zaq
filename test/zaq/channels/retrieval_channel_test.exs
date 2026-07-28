@@ -204,6 +204,44 @@ defmodule Zaq.Channels.RetrievalChannelTest do
              RetrievalChannel.get_by_config_and_channel(config.id, "channel-42")
   end
 
+  test "id_by_config_and_channel/2 returns id when config is an integer id" do
+    config = insert_channel_config(%{provider: "mattermost"})
+
+    inserted =
+      insert_retrieval_channel(config.id, %{
+        channel_id: "channel-int-id",
+        channel_name: "Support",
+        team_id: "team-1",
+        team_name: "Team"
+      })
+
+    assert inserted.id ==
+             RetrievalChannel.id_by_config_and_channel(config.id, "channel-int-id")
+  end
+
+  test "id_by_config_and_channel/2 returns id when config is a string-key id map" do
+    config = insert_channel_config(%{provider: "mattermost"})
+
+    inserted =
+      insert_retrieval_channel(config.id, %{
+        channel_id: "channel-string-map-id",
+        channel_name: "Support",
+        team_id: "team-1",
+        team_name: "Team"
+      })
+
+    assert inserted.id ==
+             RetrievalChannel.id_by_config_and_channel(
+               %{"id" => config.id},
+               "channel-string-map-id"
+             )
+  end
+
+  test "id_by_config_and_channel/2 returns nil when channel_id is not binary" do
+    assert nil == RetrievalChannel.id_by_config_and_channel(%{"id" => 123}, nil)
+    assert nil == RetrievalChannel.id_by_config_and_channel(123, 456)
+  end
+
   defp insert_channel_config(attrs) do
     unique = System.unique_integer([:positive])
 

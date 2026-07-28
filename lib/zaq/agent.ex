@@ -6,7 +6,8 @@ defmodule Zaq.Agent do
   alias Ecto.Changeset
   alias Zaq.Agent.{ConfiguredAgent, MCP, QueryFilters, ServerManager}
   alias Zaq.Agent.Tools.Registry
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
@@ -324,67 +325,33 @@ defmodule Zaq.Agent do
   defp runtime_provider_from_id(_), do: {:error, :invalid_provider}
 
   defp usage_locations_for_agent(agent_id) do
-    retrieval_channel_usages(agent_id) ++
-      provider_default_usages(agent_id) ++
-      imap_mailbox_usages(agent_id) ++
-      global_default_usage(agent_id)
-  end
-
-  defp retrieval_channel_usages(agent_id) do
-    RetrievalChannel
-    |> join(:inner, [r], c in ChannelConfig, on: r.channel_config_id == c.id)
-    |> where([r], r.configured_agent_id == ^agent_id)
-    |> select([r, c], {c.provider, r.channel_name, r.channel_id})
+    IncomingMessageRoutingRule
+    |> where([rule], rule.configured_agent_id == ^agent_id)
+    |> join(:left, [rule], config in ChannelConfig, on: config.id == rule.channel_config_id)
+    |> preload([rule, config], channel_config: config)
     |> Repo.all()
-    |> Enum.map(fn {provider, channel_name, channel_id} ->
-      "retrieval channel #{provider}:#{channel_name || channel_id}"
-    end)
+    |> Enum.map(&routing_rule_usage/1)
   end
 
-  defp provider_default_usages(agent_id) do
-    ChannelConfig
-    |> where(
-      [config],
-      fragment("?->'routing'->>'default_agent_id' = ?", config.settings, ^to_string(agent_id))
-    )
-    |> select([config], config.provider)
-    |> Repo.all()
-    |> Enum.map(&"provider default #{&1}")
-  end
+  defp routing_rule_usage(%IncomingMessageRoutingRule{retrieval_channel_id: id})
+       when not is_nil(id),
+       do: "incoming routing channel rule #{id}"
 
-  defp imap_mailbox_usages(agent_id) do
-    imap_mailbox_assignments()
-    |> imap_mailbox_usages_for_agent(agent_id)
-  end
+  defp routing_rule_usage(%IncomingMessageRoutingRule{topic_id: topic_id, channel_config: config})
+       when not is_nil(topic_id),
+       do: "incoming routing topic #{provider_label(config)}:#{topic_id}"
 
-  defp imap_mailbox_assignments do
-    case ChannelConfig.get_any_by_provider("email:imap") do
-      %{settings: settings} when is_map(settings) ->
-        case get_in(settings, ["imap", "agent_routing", "mailboxes"]) do
-          mailboxes when is_map(mailboxes) -> mailboxes
-          _ -> %{}
-        end
+  defp routing_rule_usage(%IncomingMessageRoutingRule{
+         channel_config_id: id,
+         channel_config: config
+       })
+       when not is_nil(id),
+       do: "incoming routing provider #{provider_label(config)}"
 
-      _ ->
-        %{}
-    end
-  end
+  defp routing_rule_usage(_rule), do: "incoming routing global default"
 
-  defp imap_mailbox_usages_for_agent(mailboxes, agent_id) when is_map(mailboxes) do
-    mailboxes
-    |> Enum.filter(fn {_mailbox, assigned_id} ->
-      ParseUtils.parse_optional_int(assigned_id) == agent_id
-    end)
-    |> Enum.map(fn {mailbox, _assigned_id} -> "imap mailbox #{mailbox}" end)
-  end
-
-  defp global_default_usage(agent_id) do
-    if System.get_global_default_agent_id() == agent_id do
-      ["global default channels.global_default_agent_id"]
-    else
-      []
-    end
-  end
+  defp provider_label(%ChannelConfig{provider: provider}), do: provider
+  defp provider_label(_config), do: "unknown"
 
   defp in_use_changeset(%ConfiguredAgent{} = agent, usage_locations) do
     message =

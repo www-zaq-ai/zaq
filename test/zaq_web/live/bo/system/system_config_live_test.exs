@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Agent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ProviderModels
   alias Zaq.Engine.Connect
@@ -2753,14 +2754,32 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "accepts numeric global_default_agent_id", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      {:ok, agent} =
+        Agent.create_agent(%{
+          name: "Global Default Agent #{:erlang.unique_integer([:positive])}",
+          description: "",
+          job: "Handle global messages",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          conversation_enabled: true,
+          active: true,
+          advanced_options: %{}
+        })
+
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
 
       html =
         render_submit(view, "save_global_default_agent", %{
-          "global_default_agent_id" => "99999999"
+          "global_default_agent_id" => Integer.to_string(agent.id)
         })
 
       assert html =~ "Global default agent saved."
+      assert System.get_global_default_agent_id() == agent.id
     end
   end
 

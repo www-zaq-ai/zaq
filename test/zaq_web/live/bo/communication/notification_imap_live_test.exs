@@ -7,7 +7,9 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias ZaqWeb.Live.BO.Communication.NotificationImapLive
 
@@ -235,6 +237,49 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     assert channel.settings["imap"]["idle_timeout"] == 900_000
   end
 
+  test "mount renders persisted mailbox NONE routing and parses persisted numeric strings", %{
+    conn: conn
+  } do
+    channel =
+      insert_imap_channel(%{
+        settings: %{
+          "imap" => %{
+            "username" => "zaq@example.com",
+            "port" => "1143",
+            "ssl_depth" => "2",
+            "poll_interval" => "45000",
+            "idle_timeout" => "900000",
+            "selected_mailboxes" => ["INBOX"]
+          }
+        }
+      })
+
+    IncomingMessageRouting.upsert_rule(
+      %{channel_config_id: channel.id, topic_id: "INBOX"},
+      %{routing_mode: :none}
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    assert has_element?(view, "#imap-config-form input[name='imap_config[port]'][value='1143']")
+    assert has_element?(view, "#imap-config-form input[name='imap_config[ssl_depth]'][value='2']")
+
+    assert has_element?(
+             view,
+             "#imap-config-form input[name='imap_config[poll_interval]'][value='45000']"
+           )
+
+    assert has_element?(
+             view,
+             "#imap-config-form input[name='imap_config[idle_timeout]'][value='900000']"
+           )
+
+    assert has_element?(
+             view,
+             "select[name='imap_config[mailbox_agent_ids][INBOX]'] option[value='#{AgentRouting.none_value()}'][selected]"
+           )
+  end
+
   test "save persists provider default, filters mailbox agent ids, and mounts with decrypted fallback defaults",
        %{conn: conn} do
     insert_smtp_enabled()
@@ -287,8 +332,11 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     updated = Repo.get!(ChannelConfig, channel.id)
     assert ChannelConfig.get_provider_default_agent_id(updated) == nil
 
-    assert get_in(updated.settings, ["imap", "agent_routing", "mailboxes"]) ==
-             %{"INBOX" => enabled_agent.id}
+    assert %{routing_mode: :agent, configured_agent_id: configured_agent_id} =
+             IncomingMessageRouting.get_rule(%{channel_config_id: updated.id, topic_id: "INBOX"})
+
+    assert configured_agent_id == enabled_agent.id
+    assert get_in(updated.settings, ["imap", "agent_routing"]) == nil
   end
 
   test "save ignores malformed mailbox agent params", %{conn: conn} do
@@ -318,8 +366,70 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
     channel = ChannelConfig.get_any_by_provider("email:imap")
     assert ChannelConfig.get_provider_default_agent_id(channel) == enabled_agent.id
-    assert get_in(channel.settings, ["imap", "agent_routing", "mailboxes"]) == %{}
+
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: channel.id, topic_id: "INBOX"}) ==
+             nil
+
+    assert get_in(channel.settings, ["imap", "agent_routing"]) == nil
   end
+
+  test "save ignores blank mailbox keys and persists mailbox NONE route", %{conn: conn} do
+    enabled_agent = create_conversation_agent(true, "imap-mailbox-none-enabled")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{
+      "imap_config" => %{
+        "enabled" => "false",
+        "url" => "imap.example.com",
+        "port" => "993",
+        "ssl_depth" => "3",
+        "ssl" => "true",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "mailbox_agent_ids" => %{
+          "" => to_string(enabled_agent.id),
+          "INBOX" => AgentRouting.none_value(),
+          "Support" => to_string(enabled_agent.id)
+        },
+        "selected_mailboxes" => ["INBOX", "Support"],
+        "mark_as_read" => "true",
+        "poll_interval" => "30000",
+        "idle_timeout" => "1500000"
+      }
+    })
+
+    channel = ChannelConfig.get_any_by_provider("email:imap")
+
+    assert has_element?(view, "#save-status-ok")
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: channel.id}) == nil
+
+    assert %{routing_mode: :none, configured_agent_id: nil} =
+             IncomingMessageRouting.get_rule(%{
+               channel_config_id: channel.id,
+               topic_id: "INBOX"
+             })
+
+    assert %{routing_mode: :agent, configured_agent_id: configured_agent_id} =
+             IncomingMessageRouting.get_rule(%{
+               channel_config_id: channel.id,
+               topic_id: "Support"
+             })
+
+    assert configured_agent_id == enabled_agent.id
+  end
+
+  # Unreachable missed lines from the current public LiveView contract:
+  # - 116 and 147 require persist_imap_config/2 to return {:error, reason} where reason is not
+  #   an %Ecto.Changeset{}.
+  # - 295 and 301 are defensive private clauses after normalization already guarantees sanitized
+  #   mailbox choices.
+  # - 343 requires mailbox rule persistence to fail after choice validation without an injectable
+  #   seam.
+  # - 509 requires decrypt_token/1 to receive an encrypted-looking invalid token, but corrupt DB
+  #   values normalize to nil before that function sees them.
 
   test "handle_info formats generic binary and atom reasons", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")

@@ -179,10 +179,18 @@ rejected rather than ignored, since it would silently override the message resol
 ### Messages — Incoming (`Zaq.Engine.Messages.Incoming`)
 - Canonical struct for all inbound messages crossing the adapter boundary.
 - Enforce keys: `:content`, `:channel_id`, `:provider`.
-- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person`, `:metadata`.
+- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person`, `:metadata`, `:routing_context`.
 - All channel adapters must map their transport payload to this struct before passing to any
   ZAQ component.
 - When crossing nodes, this payload is carried in `%Zaq.Event.request`.
+
+### Incoming Message Routing
+- `Zaq.Engine.IncomingMessageRoutingRule` is the single persistence model for incoming-message routing policy.
+- `Zaq.Engine.Messages.Incoming.RoutingContext` carries transport-derived routing facts: `channel_config_id`, `retrieval_channel_id`, `topic_id`, and normalized attributes.
+- Channels populate routing context and dispatch `%Incoming{}` to Engine with action `:route_incoming_message`.
+- `Zaq.Engine.IncomingMessageRouter` resolves Person identity, resolves the most specific valid routing rule, and returns an executable `%Zaq.Event{}` for `NodeRouter` continuation.
+- Email mailbox routing is represented by topic-scoped rules using `channel_config_id + topic_id`.
+- Legacy global settings, provider settings, retrieval-channel fields, and IMAP `agent_routing` settings are not routing sources of truth.
 
 ### Messages — Outgoing (`Zaq.Engine.Messages.Outgoing`)
 - Canonical struct for all outbound messages.

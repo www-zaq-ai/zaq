@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   alias Zaq.Channels.{AgentRouting, ChannelConfig}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.NodeRouter
   alias Zaq.System.ImapConfig
   alias Zaq.Types.EncryptedString
@@ -205,28 +206,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     channel = ChannelConfig.get_any_by_provider(@imap_provider)
     existing_settings = if(channel, do: channel.settings || %{}, else: %{})
 
-    provider_default =
-      raw_params
-      |> Map.get("provider_default_agent_id")
-      |> sanitize_agent_choice()
-
-    mailbox_agents =
-      raw_params
-      |> Map.get("mailbox_agent_ids", %{})
-      |> parse_mailbox_agents()
-      |> sanitize_mailbox_agents()
-
-    routing_settings =
-      existing_settings
-      |> Map.get("routing", %{})
-      |> update_default_agent_id(provider_default)
-
-    imap_routing_settings =
-      existing_settings
-      |> get_in(["imap", "agent_routing"])
-      |> normalize_map()
-      |> update_mailbox_agents(mailbox_agents)
-
     attrs = %{
       name: "Email IMAP",
       kind: "retrieval",
@@ -235,7 +214,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
       enabled: config.enabled,
       settings:
         existing_settings
-        |> Map.put("routing", routing_settings)
         |> Map.put("imap", %{
           "port" => config.port,
           "ssl" => config.ssl,
@@ -245,12 +223,15 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
           "mark_as_read" => config.mark_as_read,
           "load_initial_unread" => config.load_initial_unread,
           "poll_interval" => config.poll_interval,
-          "idle_timeout" => config.idle_timeout,
-          "agent_routing" => imap_routing_settings
+          "idle_timeout" => config.idle_timeout
         })
     }
 
-    ChannelConfig.upsert_by_provider(@imap_provider, attrs)
+    with {:ok, channel} <- ChannelConfig.upsert_by_provider(@imap_provider, attrs),
+         {:ok, _} <- maybe_persist_provider_default_rule(channel, raw_params),
+         {:ok, _} <- maybe_persist_mailbox_agent_rules(channel, raw_params) do
+      {:ok, channel}
+    end
   end
 
   defp persist_imap_config(%Ecto.Changeset{valid?: false} = changeset, _raw_params),
@@ -267,10 +248,21 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp mailbox_agent_assignments(nil), do: %{}
 
   defp mailbox_agent_assignments(channel) do
-    channel
-    |> Map.get(:settings, %{})
-    |> get_in(["imap", "agent_routing", "mailboxes"])
-    |> normalize_map()
+    channel.settings
+    |> get_in(["imap", "selected_mailboxes"])
+    |> selected_mailboxes()
+    |> Map.new(fn mailbox ->
+      value =
+        case IncomingMessageRouting.get_rule(%{channel_config_id: channel.id, topic_id: mailbox}) do
+          %{routing_mode: :none} -> AgentRouting.none_value()
+          %{routing_mode: :agent, configured_agent_id: configured_agent_id} -> configured_agent_id
+          _ -> nil
+        end
+
+      {mailbox, value}
+    end)
+    |> Enum.reject(fn {_mailbox, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   def mailbox_agent_value(assignments, mailbox) when is_map(assignments) do
@@ -316,17 +308,55 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     end
   end
 
-  defp update_default_agent_id(routing, nil),
-    do: Map.delete(normalize_map(routing), "default_agent_id")
+  defp maybe_persist_provider_default_rule(channel, %{"provider_default_agent_id" => raw_id}) do
+    case sanitize_agent_choice(raw_id) do
+      nil -> IncomingMessageRouting.delete_rule(%{channel_config_id: channel.id})
+      choice -> persist_route_choice(%{channel_config_id: channel.id}, choice)
+    end
+  end
 
-  defp update_default_agent_id(routing, id),
-    do: Map.put(normalize_map(routing), "default_agent_id", id)
+  defp maybe_persist_provider_default_rule(_channel, _raw_params), do: {:ok, nil}
 
-  defp update_mailbox_agents(routing, mailbox_agents),
-    do: Map.put(normalize_map(routing), "mailboxes", mailbox_agents)
+  defp maybe_persist_mailbox_agent_rules(channel, %{"mailbox_agent_ids" => mailbox_agent_ids}) do
+    mailbox_agents =
+      mailbox_agent_ids
+      |> parse_mailbox_agents()
+      |> sanitize_mailbox_agents()
 
-  defp normalize_map(map) when is_map(map), do: map
-  defp normalize_map(_), do: %{}
+    selected = channel.settings |> get_in(["imap", "selected_mailboxes"]) |> selected_mailboxes()
+
+    Enum.reduce_while(selected, {:ok, []}, fn mailbox, {:ok, rules} ->
+      result =
+        case Map.get(mailbox_agents, mailbox) do
+          nil ->
+            IncomingMessageRouting.delete_rule(%{
+              channel_config_id: channel.id,
+              topic_id: mailbox
+            })
+
+          choice ->
+            persist_route_choice(%{channel_config_id: channel.id, topic_id: mailbox}, choice)
+        end
+
+      case result do
+        {:ok, rule} -> {:cont, {:ok, [rule | rules]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp maybe_persist_mailbox_agent_rules(_channel, _raw_params), do: {:ok, []}
+
+  defp persist_route_choice(scope, configured_agent_id) do
+    if configured_agent_id in [:none, "none"] or configured_agent_id == AgentRouting.none_value() do
+      IncomingMessageRouting.upsert_rule(scope, %{routing_mode: :none})
+    else
+      IncomingMessageRouting.upsert_rule(scope, %{
+        routing_mode: :agent,
+        configured_agent_id: configured_agent_id
+      })
+    end
+  end
 
   defp selected_mailboxes(value), do: ImapConfig.normalize_mailboxes(value)
 

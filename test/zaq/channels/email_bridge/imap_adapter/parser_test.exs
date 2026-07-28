@@ -105,6 +105,19 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
     assert {:error, :invalid_email_payload} = Parser.to_incoming("not-a-map", %{})
   end
 
+  test "rescues internal parser errors for invalid config shapes" do
+    payload = %{
+      body_text: "body",
+      from: %{address: "sender@example.com"}
+    }
+
+    result = Parser.to_incoming(payload, :invalid_config, mailbox: "Support")
+
+    assert {:error, {:invalid_email_payload, message}} = result
+    assert is_binary(message)
+    assert message != ""
+  end
+
   test "falls back to raw payload fields when RFC822 parsing fails" do
     payload = %{
       raw_rfc822: <<255>>,
@@ -185,6 +198,39 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
     incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
 
     assert incoming.metadata["email"]["headers"]["references"] == nil
+  end
+
+  test "normalizes non-binary references to nil" do
+    payload = %{
+      body_text: "plain body",
+      message_id: "<msg@example.com>",
+      references: ["<root@example.com>"],
+      from: %{address: "sender@example.com"}
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.metadata["email"]["headers"]["references"] == nil
+    assert incoming.thread_id == "msg@example.com"
+
+    assert incoming.metadata["threading"]["anchor"] == %{
+             "message_id" => "msg@example.com",
+             "thread_id" => "msg@example.com",
+             "references" => []
+           }
+  end
+
+  test "normalizes blank reply_from to nil" do
+    payload = %{
+      raw_rfc822: <<255>>,
+      body_text: "body",
+      to: "   ",
+      from: %{address: "sender@example.com"}
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.metadata["email"]["reply_from"] == nil
   end
 
   test "supports sender variants and filters nil attachment fields" do
