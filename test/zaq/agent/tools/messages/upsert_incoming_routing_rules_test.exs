@@ -33,5 +33,12 @@ defmodule Zaq.Agent.Tools.Messages.UpsertIncomingRoutingRulesTest do
       assert {:error, "rules must be a list"} = UpsertIncomingRoutingRules.run(%{}, %{})
       assert {:error, "rules must be a list"} = UpsertIncomingRoutingRules.run(%{rules: %{}}, %{})
     end
+
+    test "requires params to be a map" do
+      assert {:error, "params must be a map"} =
+               UpsertIncomingRoutingRules.run(nil, %{node_router: FakeNodeRouter})
+
+      refute_receive {:dispatched, _event}
+    end
   end
 end

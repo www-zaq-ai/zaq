@@ -2,6 +2,7 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Channels.EventNames
   alias Zaq.Engine.{IncomingMessageRouter, IncomingMessageRouting}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -26,7 +27,7 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
 
       assert routed.next_hop.destination == :agent
       assert routed.next_hop.type == :async
-      assert routed.name == :incoming_message_agent_requested
+      assert routed.name == EventNames.message_received(routed.request, :agent_requested)
       assert routed.opts == [action: :run_pipeline, pipeline_opts: [role_ids: [1]]]
       assert routed.assigns["agent_selection"] == %{"agent_id" => agent.id, "source" => "global"}
 
@@ -59,13 +60,15 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       assert routed.opts[:action] == :run_pipeline
     end
 
-    test "translates none rule into workflow-only event without a next hop" do
+    test "translates none rule into workflow-only event for trigger broadcast" do
       {:ok, rule} = IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :none})
 
       routed = route(incoming())
 
-      assert routed.next_hop == nil
-      assert routed.name == :incoming_message_workflow_only
+      assert routed.next_hop.destination == :engine
+      assert routed.next_hop.type == :sync
+      assert routed.opts == [action: :noop]
+      assert routed.name == EventNames.message_received(routed.request, :workflow_only)
       assert routed.assigns["incoming_message_routing"]["mode"] == "none"
       assert routed.assigns["incoming_message_routing"]["rule_id"] == rule.id
       refute Map.has_key?(routed.assigns, "agent_selection")
@@ -75,9 +78,16 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       routed = route(incoming())
 
       assert routed.next_hop.destination == :agent
-      assert routed.name == :incoming_message_agent_requested
+      assert routed.name == EventNames.message_received(routed.request, :agent_requested)
       refute Map.has_key?(routed.assigns, "agent_selection")
       assert routed.assigns["incoming_message_routing"]["source"] == "default_zaq_agent"
+    end
+
+    test "uses routing context channel config id in restored channel event name" do
+      routed = route(incoming(%{routing_context: %{channel_config_id: 42}}))
+
+      assert routed.name == "channels:message_received.agent_requested.mattermost.42"
+      assert routed.assigns["incoming_message_routing"]["channel_config_id"] == 42
     end
   end
 
@@ -93,13 +103,15 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
     |> IncomingMessageRouter.route()
   end
 
-  defp incoming do
-    Incoming.new(%{
+  defp incoming(attrs \\ %{}) do
+    %{
       content: "hello",
       channel_id: "ch1",
       author_id: "u1",
       provider: :mattermost
-    })
+    }
+    |> Map.merge(attrs)
+    |> Incoming.new()
   end
 
   defp insert_agent! do

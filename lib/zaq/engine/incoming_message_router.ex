@@ -7,6 +7,7 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   and returns the same event with executable routing fields for `NodeRouter`.
   """
 
+  alias Zaq.Channels.EventNames
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -45,7 +46,7 @@ defmodule Zaq.Engine.IncomingMessageRouter do
 
     event
     |> Map.put(:next_hop, EventHop.new(:agent, agent_hop_type, DateTime.utc_now()))
-    |> Map.put(:name, :incoming_message_agent_requested)
+    |> Map.put(:name, EventNames.message_received(event.request, :agent_requested))
     |> Map.put(:opts,
       action: :run_pipeline,
       pipeline_opts: Keyword.get(event.opts, :pipeline_opts, [])
@@ -56,8 +57,9 @@ defmodule Zaq.Engine.IncomingMessageRouter do
 
   defp apply_resolution(%Event{} = event, %{mode: :none} = resolution, person_resolved?) do
     event
-    |> Map.put(:next_hop, nil)
-    |> Map.put(:name, :incoming_message_workflow_only)
+    |> Map.put(:next_hop, EventHop.new(:engine, :sync, DateTime.utc_now()))
+    |> Map.put(:name, EventNames.message_received(event.request, :workflow_only))
+    |> Map.put(:opts, action: :noop)
     |> put_routing_assign(resolution, person_resolved?)
   end
 

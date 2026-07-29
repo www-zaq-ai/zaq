@@ -5,6 +5,7 @@ defmodule Zaq.Agent.ApiTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.RequestRegistry
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Event
 
   defmodule StubPipeline do
@@ -717,7 +718,8 @@ defmodule Zaq.Agent.ApiTest do
       content: "hi",
       channel_id: "c1",
       provider: :mattermost,
-      metadata: %{"telemetry_dimensions" => %{"channel_config_id" => "cfg-1"}}
+      routing_context: %RoutingContext{channel_config_id: 42},
+      metadata: %{}
     }
 
     defmodule ReturnHopPipeline do
@@ -731,7 +733,7 @@ defmodule Zaq.Agent.ApiTest do
       end
     end
 
-    inbound_name = "channels:message_received.agent_requested.mattermost.cfg_1"
+    inbound_name = "channels:message_received.agent_requested.mattermost.42"
 
     event =
       Event.new(incoming, :agent,
@@ -761,7 +763,7 @@ defmodule Zaq.Agent.ApiTest do
     assert result.next_hop.destination == :channels
     assert result.next_hop.type == :sync
     assert result.opts[:action] == :deliver_outgoing
-    assert result.name == "channels:agent_response.delivering.mattermost.cfg_1"
+    assert result.name == "channels:agent_response.delivering.mattermost.42"
     refute result.name == inbound_name
     assert result.request == result.response
   end

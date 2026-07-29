@@ -3,6 +3,7 @@ defmodule Zaq.Channels.EventNamesTest do
 
   alias Zaq.Channels.EventNames
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
 
   test "message_received builds agent-requested inbound channel event names" do
     incoming = incoming(provider: :mattermost, channel_config_id: "Team Inbox")
@@ -23,6 +24,64 @@ defmodule Zaq.Channels.EventNamesTest do
 
     assert EventNames.message_received(incoming, :workflow_only, channel_config_id: "opt-id") ==
              "channels:message_received.workflow_only.email.opt_id"
+  end
+
+  test "message_received reads channel config id from incoming routing context" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "c1",
+      provider: :mattermost,
+      routing_context: %RoutingContext{channel_config_id: 42}
+    }
+
+    assert EventNames.message_received(incoming, :agent_requested) ==
+             "channels:message_received.agent_requested.mattermost.42"
+  end
+
+  test "channel_config_id reads atom channel config id from map routing context" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "c1",
+      provider: :mattermost,
+      routing_context: %{channel_config_id: "map-context-id"}
+    }
+
+    assert EventNames.channel_config_id(incoming, "fallback-id") == "map-context-id"
+  end
+
+  test "channel_config_id reads string channel config id from map routing context" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "c1",
+      provider: :mattermost,
+      routing_context: %{"channel_config_id" => "string-map-context-id"}
+    }
+
+    assert EventNames.channel_config_id(incoming, "fallback-id") == "string-map-context-id"
+  end
+
+  test "channel_config_id ignores unsupported routing context and falls back to metadata" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "c1",
+      provider: :mattermost,
+      routing_context: :legacy_context,
+      metadata: %{"channel_config_id" => "metadata-id"}
+    }
+
+    assert EventNames.channel_config_id(incoming, "fallback-id") == "metadata-id"
+  end
+
+  test "channel_config_id returns fallback when routing context is unsupported and metadata has no id" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "c1",
+      provider: :mattermost,
+      routing_context: :legacy_context,
+      metadata: %{}
+    }
+
+    assert EventNames.channel_config_id(incoming, "fallback-id") == "fallback-id"
   end
 
   test "agent_response_delivering prefers outgoing channel config id" do
@@ -47,6 +106,20 @@ defmodule Zaq.Channels.EventNamesTest do
 
     assert EventNames.agent_response_delivering(outgoing, incoming) ==
              "channels:agent_response.delivering.mattermost.incoming_id"
+  end
+
+  test "agent_response_delivering falls back to incoming routing context" do
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "c1",
+      provider: :mattermost,
+      routing_context: %RoutingContext{channel_config_id: 42}
+    }
+
+    outgoing = outgoing(provider: :mattermost, channel_config_id: "unknown")
+
+    assert EventNames.agent_response_delivering(outgoing, incoming) ==
+             "channels:agent_response.delivering.mattermost.42"
   end
 
   test "channel_config_id returns fallback for unsupported payloads" do

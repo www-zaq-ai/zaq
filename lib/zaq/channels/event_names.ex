@@ -4,6 +4,7 @@ defmodule Zaq.Channels.EventNames do
   """
 
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
 
   @doc "Builds the event name for a received channel message."
   @spec message_received(Incoming.t(), :agent_requested | :workflow_only, keyword()) :: String.t()
@@ -28,8 +29,14 @@ defmodule Zaq.Channels.EventNames do
   @spec channel_config_id(term(), term()) :: term()
   def channel_config_id(payload, fallback \\ "unknown")
 
-  def channel_config_id(%Incoming{metadata: metadata}, fallback),
-    do: channel_config_id(metadata, fallback)
+  def channel_config_id(%Incoming{routing_context: routing_context, metadata: metadata}, fallback) do
+    [
+      routing_context_channel_config_id(routing_context),
+      channel_config_id(metadata, nil)
+    ]
+    |> Enum.find_value(&present_channel_config_id/1)
+    |> Kernel.||(fallback)
+  end
 
   def channel_config_id(%Outgoing{metadata: metadata}, fallback),
     do: channel_config_id(metadata, fallback)
@@ -74,4 +81,12 @@ defmodule Zaq.Channels.EventNames do
 
   defp present_channel_config_id(value) when is_integer(value), do: value
   defp present_channel_config_id(_value), do: nil
+
+  defp routing_context_channel_config_id(%RoutingContext{channel_config_id: id}), do: id
+
+  defp routing_context_channel_config_id(context) when is_map(context) do
+    Map.get(context, :channel_config_id) || Map.get(context, "channel_config_id")
+  end
+
+  defp routing_context_channel_config_id(_context), do: nil
 end

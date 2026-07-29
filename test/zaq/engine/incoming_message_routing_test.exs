@@ -280,6 +280,26 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
       assert rule_id == topic_rule.id
     end
 
+    test "ignores non-map transient routing attributes" do
+      config = insert_channel_config!()
+      provider_agent = insert_agent!()
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{
+          routing_mode: :agent,
+          configured_agent_id: provider_agent.id
+        })
+
+      incoming =
+        incoming(channel_config_id: config.id)
+        |> Map.update!(:routing_context, &%{&1 | attributes: :not_a_map})
+
+      assert %{source: :provider, configured_agent_id: configured_agent_id} =
+               IncomingMessageRouting.resolve(incoming)
+
+      assert configured_agent_id == provider_agent.id
+    end
+
     test "invalid agent rule falls through" do
       config = insert_channel_config!()
       invalid_agent = insert_agent!(conversation_enabled: false)
@@ -306,6 +326,28 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
       assert configured_agent_id == provider_agent.id
     end
 
+    test "ignores malformed transient configured agent strings" do
+      config = insert_channel_config!()
+      provider_agent = insert_agent!()
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{
+          routing_mode: :agent,
+          configured_agent_id: provider_agent.id
+        })
+
+      incoming =
+        incoming(
+          channel_config_id: config.id,
+          attributes: %{"configured_agent_id" => "not-an-id"}
+        )
+
+      assert %{source: :provider, configured_agent_id: configured_agent_id} =
+               IncomingMessageRouting.resolve(incoming)
+
+      assert configured_agent_id == provider_agent.id
+    end
+
     test "falls back to default ZAQ agent when no rule matches" do
       assert %{mode: :agent, source: :default_zaq_agent, rule: nil, configured_agent_id: nil} =
                IncomingMessageRouting.resolve(incoming())
@@ -328,6 +370,28 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
                IncomingMessageRouting.get_rule(%{})
 
       assert configured_agent_id == agent.id
+    end
+
+    test "blank topic command values are ignored when building scope" do
+      config = insert_channel_config!()
+
+      assert {:ok, %{count: 1, results: [%{status: "upserted", rule: rule}]}} =
+               IncomingMessageRouting.apply_rule_commands([
+                 %{channel_config_id: config.id, topic_id: "   ", routing_mode: :none}
+               ])
+
+      assert rule.topic_id == nil
+      assert rule.channel_config_id == config.id
+
+      assert %{routing_mode: :none, topic_id: nil} =
+               IncomingMessageRouting.get_rule(%{channel_config_id: config.id})
+    end
+
+    test "formats none-routing command changeset errors" do
+      assert {:error, %{channel_config_id: ["is required for channel rules"]}} =
+               IncomingMessageRouting.apply_rule_commands([
+                 %{retrieval_channel_id: 123, routing_mode: :none}
+               ])
     end
 
     test "updates rules in batch and clears omitted mailbox selections" do

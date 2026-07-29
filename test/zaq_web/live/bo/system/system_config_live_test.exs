@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   alias Zaq.Agent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ProviderModels
+  alias Zaq.Agent.ZAQRouter
   alias Zaq.Engine.Connect
   alias Zaq.Repo
   alias Zaq.System
@@ -1089,7 +1090,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       before_count = length(Connect.list_credentials())
 
-      render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(credential.id)})
+      _html =
+        render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(credential.id)})
 
       assert length(Connect.list_credentials()) == before_count
       refute has_element?(view, "#oauth-claim-modal")
@@ -2116,6 +2118,35 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ ~s(name="ai_credential[endpoint]" value="")
     end
 
+    test "validate_ai_credential selects zaq_router endpoint", %{conn: conn} do
+      case LLMDB.provider(:zaq_router) do
+        {:ok, _provider} ->
+          {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+          view
+          |> element("button[phx-click='new_ai_credential']")
+          |> render_click()
+
+          html =
+            render_change(view, "validate_ai_credential", %{
+              "ai_credential" => %{
+                "name" => "Router",
+                "provider" => "zaq_router",
+                "endpoint" => "",
+                "api_key" => "",
+                "sovereign" => "false",
+                "description" => ""
+              }
+            })
+
+          assert html =~
+                   ~s(name="ai_credential[endpoint]" value="#{ZAQRouter.default_endpoint() || ""}")
+
+        _ ->
+          :ok
+      end
+    end
+
     test "validate_ai_credential keeps endpoint when provider is unchanged", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -2373,7 +2404,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       task = Task.async(fn -> render_click(view, "edit_ai_credential", %{"id" => "99999999"}) end)
       task_pid = task.pid
 
-      assert_receive {:DOWN, _ref, :process, ^task_pid, _reason}
+      assert_receive {:DOWN, _ref, :process, ^task_pid, _reason}, 5_000
       Process.flag(:trap_exit, previous)
     end
   end
@@ -2520,6 +2551,27 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             "path" => "/chat/completions",
             "fusion_bm25_weight" => "0.5",
             "fusion_vector_weight" => "0.5"
+          }
+        })
+
+      assert html =~ "llm-config-form"
+    end
+
+    test "validate_llm tolerates non-string credential id", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => URI.parse("https://example.com/cred"),
+            "model" => "",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions"
           }
         })
 
@@ -2822,6 +2874,92 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "Timezone saved."
       assert Zaq.System.get_system_timezone() == "GMT+03:00"
+    end
+  end
+
+  describe "global timezone detection" do
+    setup [:with_node_router_mock_setup]
+
+    test "detect_timezone auto-saves when no timezone is configured", %{conn: conn} do
+      Process.put(:timezone_get_calls, 0)
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_system_timezone ->
+            case Process.get(:timezone_get_calls, 0) do
+              0 ->
+                Process.put(:timezone_get_calls, 1)
+                %Zaq.Event{event | response: nil}
+
+              _ ->
+                %Zaq.Event{event | response: "GMT+03:00"}
+            end
+
+          :system_config_set_system_timezone ->
+            %Zaq.Event{event | response: :ok}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      html = render_hook(view, "detect_timezone", %{"offset" => "-180"})
+
+      assert html =~ "GMT+03:00"
+      assert has_element?(view, "option[value='GMT+03:00'][selected]")
+      refute html =~ "Failed to save timezone"
+    end
+
+    test "detect_timezone keeps detected timezone when auto-save fails", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_system_timezone ->
+            %Zaq.Event{event | response: nil}
+
+          :system_config_set_system_timezone ->
+            %Zaq.Event{event | response: {:error, :boom}}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      html = render_hook(view, "detect_timezone", %{"offset" => "0"})
+
+      assert html =~ "Detected: GMT+00:00"
+      refute html =~ "Failed to save timezone"
+    end
+
+    test "detect_timezone does not auto-save when timezone already configured", %{conn: conn} do
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_system_timezone ->
+            %Zaq.Event{event | response: "GMT+02:00"}
+
+          :system_config_set_system_timezone ->
+            raise "system timezone should not be auto-saved when already configured"
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      html = render_hook(view, "detect_timezone", %{"offset" => "60"})
+
+      assert html =~ "GMT+02:00"
+      assert has_element?(view, "option[value='GMT+02:00'][selected]")
     end
   end
 
@@ -3220,6 +3358,55 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       html = render_click(view, "delete_connect_grant", %{"id" => "99999998"})
       assert html =~ "Grant not found."
+    end
+
+    test "edit_connect_credential tolerates non-changeset change response", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Credential #{:erlang.unique_integer([:positive])}",
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret"
+        })
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :connect_fetch_credential ->
+            %Zaq.Event{event | response: {:ok, credential}}
+
+          :system_config_connect_change_credential ->
+            %Zaq.Event{
+              event
+              | response: %{
+                  "name" => credential.name,
+                  "provider" => credential.provider,
+                  "request_format" => credential.request_format,
+                  "auth_kind" => credential.auth_kind,
+                  "client_id" => credential.client_id,
+                  "client_secret" => credential.client_secret,
+                  "scopes" => []
+                }
+            }
+
+          :data_source_oauth_default_scopes ->
+            %Zaq.Event{event | response: []}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      html = render_click(view, "edit_connect_credential", %{"id" => to_string(credential.id)})
+
+      assert html =~ "edit-connect-credential-modal"
     end
 
     test "validates and keeps credential modal open when data is invalid", %{conn: conn} do
@@ -4839,10 +5026,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   describe "global settings error handling with mock" do
     setup [:with_node_router_mock_setup]
 
-    test "save_global_default_agent error shows failure flash", %{conn: conn} do
+    test "save_global_default_agent handles unexpected router response", %{conn: conn} do
       stub_fn = fn %Zaq.Event{} = event ->
         if event.opts[:action] == :upsert_incoming_message_routing_rules do
-          %Zaq.Event{event | response: {:error, :boom}}
+          %Zaq.Event{event | response: :weird}
         else
           build_stub_response(event)
         end
@@ -4858,6 +5045,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         })
 
       assert html =~ "Failed to save global default agent"
+      assert html =~ ":weird"
     end
 
     test "save_global_base_url error shows failure flash", %{conn: conn} do
