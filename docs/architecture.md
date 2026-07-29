@@ -185,8 +185,9 @@ Key agent modules:
 - <code>Zaq.Agent.CitationNormalizer</code> — normalizes citations in answers
 
 Configured-agent execution path:
-- BO chat always dispatches to agent role with `action: :run_pipeline`
-- Optional explicit selection is carried in `event.assigns["agent_selection"]`
+- BO chat dispatches `%Incoming{provider: :web}` to Engine with `action: :route_incoming_message`
+- Optional explicit BO selection is carried in `event.assigns["agent_selection"]` with `source: "bo_explicit"`
+- Engine incoming routing turns the request into the executable agent `:run_pipeline` hop
 - On the agent node, `Zaq.Agent.Api` decides:
   - no selection -> `Zaq.Agent.Pipeline.run/2`
   - explicit selection -> `Zaq.Agent.Executor.run/2`

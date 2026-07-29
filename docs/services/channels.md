@@ -90,7 +90,8 @@ Incoming routing facts belong to `Incoming.routing_context`, not ad-hoc metadata
 provider settings. Communication bridges may populate `channel_config_id`,
 `retrieval_channel_id`, and provider-normalized `topic_id` values such as an IMAP
 mailbox. They must not resolve the destination agent or workflow; final routing policy
-is resolved by Engine through `Zaq.Engine.IncomingMessageRoutingRule`.
+is resolved by Engine through `Zaq.Engine.IncomingMessageRouter` and
+`Zaq.Engine.IncomingMessageRoutingRule`.
 
 ### `Zaq.Engine.Messages.Outgoing`
 
@@ -222,8 +223,8 @@ Authentication and signature verification are provider-specific and handled insi
 
 ### Incoming person shape
 
-When a bridge dispatches a `run_pipeline` event, it sets the incoming message `person`
-from the resolved channel author:
+When a bridge dispatches an incoming-routing event, Engine resolves the incoming message
+`person` from the channel author before returning the executable Agent event:
 
 ```elixir
 %{
@@ -235,9 +236,8 @@ from the resolved channel author:
 
 `author_id` and `author_name` remain provider identity fields on `%Incoming{}`.
 `person.id` is the ZAQ Person ID and is present only when the channel author resolves
-to a Person. Channel-originated events may leave `%Zaq.Event.actor` unset; Agent and
-Engine trigger boundaries derive canonical `actor.person` from `%Incoming.person` early
-in execution.
+to a Person. Engine incoming routing promotes the normalized identity into
+`%Zaq.Event.actor` before the event continues to Agent.
 
 ### Public API
 
@@ -251,6 +251,7 @@ in execution.
 | `sync_config_runtime/2`      | Synchronizes runtime processes when a channel config changes |
 | `test_connection/2`          | Runs bridge-specific connection test                         |
 | `bridge_for/2`               | Returns the configured bridge module for a provider          |
+| `route_incoming_message/4`   | Dispatches a canonical `%Incoming{}` to Engine routing       |
 
 ### Bridge resolution
 
@@ -348,7 +349,7 @@ Conversation-channel routing only selects agents that are both:
 - `active == true`
 - `conversation_enabled == true`
 
-Selection is enforced in shared channel helper flow (`Zaq.Channels.Bridge.first_active_selection/2`) via agent eligibility lookup.
+Selection is enforced by `Zaq.Engine.IncomingMessageRouting` via agent eligibility lookup.
 
 Implication:
 
@@ -385,7 +386,7 @@ Shared helper:
 ### Bridge-Adapter Contract (mandatory)
 
 - Bridge ingress callback name is standardized as `from_listener/3`.
-- Bridges orchestrate only: convert to `%Incoming{}`, run pipeline, deliver `%Outgoing{}`, persist conversation.
+- Bridges orchestrate only: convert to `%Incoming{}`, dispatch Engine incoming routing, deliver `%Outgoing{}`, persist conversation.
 - Adapters own transport runtime details: connection lifecycle, listener child specs, and transport parsing.
 - Bridges must request runtime specs from adapters (for example `adapter.runtime_specs/3`) instead of building listener specs directly.
 - Adapter-specific callback names (for example `from_imap_listener/3`) are not allowed in bridge public APIs.
@@ -398,7 +399,7 @@ Shared helper:
    - **`%Jido.Chat.EventEnvelope{}`** — the adapter's normalized form for inbound events that `transform_incoming/1` has no representation for (reactions today). Handed straight to `Chat.route_event/4`, which classifies `event_type` and fires the matching handler. ZAQ does not classify or normalize these itself.
    - **anything else** — a raw message payload: transformed via `Jido.Chat.Adapter.transform_incoming/2`, annotated with transport mode, and processed through `Chat.process_message/5`.
 4. The `Chat` handlers fire: `on_new_mention`, `on_new_message`, `on_subscribed_message`, `on_reaction`.
-5. For qualifying messages, `handle_message_event/3` converts the `Chat.Incoming` to an `%Incoming{}` via `to_internal/2`, resolves the author's role IDs, runs the pipeline, and delivers the `%Outgoing{}` result.
+5. For qualifying messages, `handle_message_event/3` converts the `Chat.Incoming` to an `%Incoming{}` via `to_internal/2`, resolves the author's role IDs, calls `CommunicationBridge.route_incoming_message/4`, and delivers the `%Outgoing{}` result returned after Engine routing and Agent execution.
 
 Both ingress modes converge on the handlers registered in `register_handlers/3`: webhook-mode providers (Telegram) reach them through `Chat.handle_webhook_request/4`, listener-mode providers (Mattermost, Discord) through `Chat.route_event/4`. Reaction normalization belongs to the adapter and `Jido.Chat.EventNormalizer` — never to ZAQ.
 
@@ -545,7 +546,7 @@ The `CommunicationBridge` dispatchers (`conversation_channel_type/2`,
 application config only — never `ChannelConfig` — so the persist path stays free of
 DB lookups. Identity never crosses into the engine as a function call: inbound
 envelopes are stamped with `metadata["conversation"]`
-(`put_conversation_identity/2`, applied in `route_incoming_message/5` and
+(`put_conversation_identity/2`, applied in `route_incoming_message/4` and
 `Bridge.persist_from_incoming/5`), and engine/agent callers ask the channels node
 via the `:conversation_identity` event (`Zaq.Channels.Api`), passing either
 `%{platform, topic, subject}` (identity map back) or `%{incoming}` (stamped
@@ -605,6 +606,7 @@ Internal utility module used by the email bridge. Not part of the public API.
 
 - `to_internal/2` — converts ChatLive form params to `%Incoming{provider: :web}`. Expects params keys `:content`, `:channel_id`, `:session_id`, `:request_id`.
 - `send_reply/2` — broadcasts `{:pipeline_result, request_id, outgoing, user_content}` to the `"chat:<session_id>"` PubSub topic.
+- ChatLive dispatches `%Incoming{provider: :web, channel_id: "bo"}` to Engine with `action: :route_incoming_message`. Its agent selector is carried as transient `event.assigns["agent_selection"]` (`source: "bo_explicit"`) and is resolved by Engine before the event continues to Agent.
 
 ---
 

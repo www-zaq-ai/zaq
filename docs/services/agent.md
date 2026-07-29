@@ -83,7 +83,8 @@ IDs never resolve to an identity.
 
 ```
 User question (BO Chat / Channel)
-  → Api.handle_event/3  (:run_pipeline)     ← role boundary; runs on agent node
+  → Engine incoming routing (:route_incoming_message)
+  → Api.handle_event/3  (:run_pipeline)     ← final agent role boundary; runs on agent node
       → PromptGuard.validate/1              ← blocks prompt injection (single gate)
       → Status.broadcast(:validating)       ← PubSub → ChatLive
       → normalizes channel-resolved Incoming.person into Event.actor
@@ -104,7 +105,7 @@ User question (BO Chat / Channel)
           → Hooks.dispatch_async(:answer_generated, ...)
           → Hooks.dispatch_async(:pipeline_complete, ...)
 
-    [Configured-agent path — explicit agent_selection]
+    [Configured-agent path — explicit or Engine-resolved agent_selection]
       → Executor.run/2  (agent_id: N)
           → Status.broadcast(:answering)    ← PubSub → ChatLive
           → Factory.ask_with_config/4
@@ -152,7 +153,8 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - `:run_pipeline` is a single entrypoint with three sequential responsibilities:
   1. **Guard**: `PromptGuard.validate/1` — if it fails, returns a guard-blocked `Outgoing` through the standard persist + channels return-hop path (same delivery flow as regular pipeline responses)
   2. **Signal**: `Status.broadcast(:validating)` — fired once after the guard passes, before routing
-  3. **Route**: no `event.assigns["agent_selection"]` → `Pipeline.run/2`; explicit `agent_id` → `Executor.run/2`
+  3. **Route**: no `event.assigns["agent_selection"]` → `Pipeline.run/2`; `agent_id` present → `Executor.run/2`
+- `event.assigns["agent_selection"]` is produced upstream by Engine incoming routing. It may come from transient BO Chat explicit selection (`source: "bo_explicit"`) or persisted routing policy (`source: "channel"`, `"topic"`, `"provider"`, `"global"`, etc.). Agent API consumes both the same way.
 - Both `prompt_guard:` and `status_module:` are injectable via event opts for testing
 - `Zaq.Agent.Executor` loads the configured agent (or default answering agent), ensures server presence, broadcasts `:answering`, delegates dispatch to `Factory`, then consumes stream events through `StreamEvents`
 - **Auditability rule (mandatory):** channel delivery is allowed only after persistence succeeds. In `Zaq.Agent.Api`, `persist_from_incoming` must complete successfully before scheduling the `:deliver_outgoing` return hop. If persistence fails, the API must return `{:error, {:persist_failed, reason}}` and must not dispatch to Channels.

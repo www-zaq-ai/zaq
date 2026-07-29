@@ -187,10 +187,26 @@ rejected rather than ignored, since it would silently override the message resol
 ### Incoming Message Routing
 - `Zaq.Engine.IncomingMessageRoutingRule` is the single persistence model for incoming-message routing policy.
 - `Zaq.Engine.Messages.Incoming.RoutingContext` carries transport-derived routing facts: `channel_config_id`, `retrieval_channel_id`, `topic_id`, and normalized attributes.
-- Channels populate routing context and dispatch `%Incoming{}` to Engine with action `:route_incoming_message`.
-- `Zaq.Engine.IncomingMessageRouter` resolves Person identity, resolves the most specific valid routing rule, and returns an executable `%Zaq.Event{}` for `NodeRouter` continuation.
+- Channels and BO Chat dispatch `%Incoming{}` to Engine with action `:route_incoming_message`.
+- `Zaq.Engine.IncomingMessageRouter` resolves Person identity, honors any explicit event `agent_selection`, resolves the most specific valid routing rule, and returns an executable `%Zaq.Event{}` for `NodeRouter` continuation.
+- BO Chat's agent selector is transient event state (`event.assigns["agent_selection"]`, `source: "bo_explicit"`), not a persisted routing rule.
 - Email mailbox routing is represented by topic-scoped rules using `channel_config_id + topic_id`.
 - Legacy global settings, provider settings, retrieval-channel fields, and IMAP `agent_routing` settings are not routing sources of truth.
+
+Routing precedence:
+
+1. Explicit event `agent_selection` (for example BO Chat selector)
+2. Person + retrieval-channel rule
+3. Person + topic rule
+4. Person + provider rule
+5. Person global rule
+6. Retrieval-channel rule
+7. Topic rule
+8. Provider rule
+9. Global rule
+10. Default ZAQ agent
+
+Agent-targeting rules and explicit selections must resolve to agents that are active and conversation-enabled; invalid configured-agent references are skipped during resolution.
 
 ### Messages — Outgoing (`Zaq.Engine.Messages.Outgoing`)
 - Canonical struct for all outbound messages.

@@ -155,7 +155,7 @@ File path
 - Struct representing a user-selected content filter applied to a chat message
 - Fields: `:connector` (string, e.g. volume name), `:source_prefix` (path prefix used in DB query), `:label` (display name shown in UI), `:type` (`:connector | :folder | :file | :current_folder`)
 - `from_source/1` — parses a `Document.source` string into a `ContentSource`; returns `nil` on invalid input
-- Used by `ChatLive` to pass `:source_filter` to the agent pipeline, which is forwarded to `DocumentProcessor.hybrid_search/2`
+- Used by `ChatLive` to populate `Incoming.content_filter`; the value travels through Engine incoming routing into the agent pipeline and is forwarded to `DocumentProcessor.hybrid_search/2` as `:source_filter`
 
 ### Folder Settings (`Zaq.Ingestion.FolderSetting`)
 - Persists folder-level tag policies (`volume_name + folder_path + tags`) used to reapply tags across re-ingests
