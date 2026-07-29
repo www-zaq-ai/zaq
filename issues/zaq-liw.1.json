@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-29T08:36:43Z",
+  "description": "Add a batch-capable Jido workflow action/tool for incoming message routing rule writes and wire BO global/provider/retrieval-channel rule updates through the standardized Engine action.",
+  "id": "zaq-liw.1",
+  "labels": [],
+  "parent": "zaq-liw",
+  "priority": 2,
+  "status": "open",
+  "title": "[#625] Standardize incoming routing rule writes through action",
+  "type": "task",
+  "updated_at": "2026-07-29T08:36:43Z"
+}
