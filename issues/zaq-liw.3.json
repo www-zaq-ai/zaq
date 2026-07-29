@@ -7,9 +7,15 @@
   "id": "zaq-liw.3",
   "labels": [],
   "parent": "zaq-liw",
+  "comments": [
+    {
+      "text": "Converted message.upsert_incoming_routing_rules input/output schemas to Zoi. Added rule-level Zoi.refine validation, pre-validation string-key conversion for Jido.Exec/tool calls, JSON schema shape coverage, and regression tests for agent-style JSON params. mix q passes.",
+      "timestamp": "2026-07-29T20:35:18Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[#625] Make incoming routing tool JSON-callable with Zoi",
   "type": "task",
-  "updated_at": "2026-07-29T20:24:06Z"
+  "updated_at": "2026-07-29T20:35:18Z"
 }
