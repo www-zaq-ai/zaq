@@ -41,9 +41,10 @@ defmodule Zaq.Engine.IncomingMessageRouter do
 
   defp apply_resolution(%Event{} = event, %{mode: :agent} = resolution, person_resolved?) do
     configured_agent_id = resolution.configured_agent_id
+    agent_hop_type = Keyword.get(event.opts, :agent_hop_type, :async)
 
     event
-    |> Map.put(:next_hop, EventHop.new(:agent, :async, DateTime.utc_now()))
+    |> Map.put(:next_hop, EventHop.new(:agent, agent_hop_type, DateTime.utc_now()))
     |> Map.put(:name, :incoming_message_agent_requested)
     |> Map.put(:opts,
       action: :run_pipeline,

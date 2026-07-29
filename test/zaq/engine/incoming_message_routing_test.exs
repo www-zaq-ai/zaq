@@ -170,6 +170,56 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
   end
 
   describe "resolve/2" do
+    test "uses transient incoming configured agent before persisted rules" do
+      config = insert_channel_config!()
+      provider_agent = insert_agent!()
+      incoming_agent = insert_agent!()
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{
+          routing_mode: :agent,
+          configured_agent_id: provider_agent.id
+        })
+
+      incoming =
+        incoming(
+          channel_config_id: config.id,
+          attributes: %{"configured_agent_id" => Integer.to_string(incoming_agent.id)}
+        )
+
+      assert %{
+               mode: :agent,
+               source: :incoming,
+               rule: nil,
+               configured_agent_id: configured_agent_id
+             } = IncomingMessageRouting.resolve(incoming)
+
+      assert configured_agent_id == incoming_agent.id
+    end
+
+    test "ignores invalid transient incoming configured agent and falls through" do
+      config = insert_channel_config!()
+      invalid_agent = insert_agent!(conversation_enabled: false)
+      provider_agent = insert_agent!()
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{
+          routing_mode: :agent,
+          configured_agent_id: provider_agent.id
+        })
+
+      incoming =
+        incoming(
+          channel_config_id: config.id,
+          attributes: %{"configured_agent_id" => invalid_agent.id}
+        )
+
+      assert %{source: :provider, configured_agent_id: configured_agent_id} =
+               IncomingMessageRouting.resolve(incoming)
+
+      assert configured_agent_id == provider_agent.id
+    end
+
     test "uses topic before provider and global rules" do
       config = insert_channel_config!()
       global_agent = insert_agent!()

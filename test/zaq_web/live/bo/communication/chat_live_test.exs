@@ -222,6 +222,20 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         api_key: "x"
       })
 
+    {:ok, disabled_agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Chat Selector Disabled Agent #{:erlang.unique_integer([:positive])}",
+        description: "test",
+        job: "You are a test agent",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
     {:ok, configured_agent} =
       Zaq.Agent.create_agent(%{
         name: "Chat Selector Agent #{:erlang.unique_integer([:positive])}",
@@ -231,7 +245,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         credential_id: credential.id,
         strategy: "react",
         enabled_tool_keys: [],
-        conversation_enabled: false,
+        conversation_enabled: true,
         active: true,
         advanced_options: %{}
       })
@@ -256,6 +270,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     {:ok, view, html} = live(conn, ~p"/bo/chat")
 
     assert html =~ "Default pipeline"
+    assert html =~ disabled_agent.name
     assert html =~ configured_agent.name
 
     # SearchableSelect uses a JS hook for option picks; fire the change event directly.
@@ -265,10 +280,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     assert_receive {:chat_dispatch_event, %Event{} = dispatched_event}, 1_000
 
-    assert dispatched_event.assigns["agent_selection"] == %{
-             "agent_id" => to_string(configured_agent.id),
-             "source" => "bo_explicit"
-           }
+    assert dispatched_event.next_hop.destination == :engine
+    assert dispatched_event.opts[:action] == :route_incoming_message
+    assert dispatched_event.opts[:agent_hop_type] == :sync
+
+    assert dispatched_event.request.routing_context.attributes["configured_agent_id"] ==
+             to_string(configured_agent.id)
+
+    refute Map.has_key?(dispatched_event.assigns, "agent_selection")
   end
 
   test "copy_message pushes clipboard event", %{conn: conn} do

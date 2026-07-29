@@ -14,7 +14,7 @@ defmodule Zaq.Engine.IncomingMessageRouting do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Repo
 
-  @type source :: :topic | :channel | :provider | :global | :default_zaq_agent
+  @type source :: :incoming | :topic | :channel | :provider | :global | :default_zaq_agent
 
   @doc "Returns a changeset for an incoming-message routing rule."
   def change_rule(%IncomingMessageRoutingRule{} = rule, attrs \\ %{}) do
@@ -52,6 +52,16 @@ defmodule Zaq.Engine.IncomingMessageRouting do
   def resolve(%Incoming{} = incoming, opts \\ []) do
     agent_module = Keyword.get(opts, :agent_module, Agent)
 
+    case transient_resolution(incoming, agent_module) do
+      {:ok, resolution} ->
+        resolution
+
+      :none ->
+        persisted_rule_resolution(incoming, agent_module)
+    end
+  end
+
+  defp persisted_rule_resolution(%Incoming{} = incoming, agent_module) do
     incoming
     |> candidate_rules_query()
     |> Repo.all()
@@ -62,6 +72,49 @@ defmodule Zaq.Engine.IncomingMessageRouting do
         resolution -> {:halt, resolution}
       end
     end)
+  end
+
+  defp transient_resolution(%Incoming{} = incoming, agent_module) do
+    incoming.routing_context.attributes
+    |> transient_configured_agent_id()
+    |> case do
+      nil ->
+        :none
+
+      configured_agent_id ->
+        case agent_module.get_conversation_enabled_agent(configured_agent_id) do
+          {:ok, _agent} ->
+            {:ok,
+             %{
+               mode: :agent,
+               source: :incoming,
+               rule: nil,
+               configured_agent_id: configured_agent_id
+             }}
+
+          {:error, _reason} ->
+            :none
+        end
+    end
+  end
+
+  defp transient_configured_agent_id(attributes) when is_map(attributes) do
+    attributes
+    |> Map.get("configured_agent_id")
+    |> case do
+      id when is_integer(id) and id > 0 -> id
+      id when is_binary(id) -> parse_positive_int(id)
+      _ -> nil
+    end
+  end
+
+  defp transient_configured_agent_id(_attributes), do: nil
+
+  defp parse_positive_int(value) do
+    case Integer.parse(String.trim(value)) do
+      {id, ""} when id > 0 -> id
+      _ -> nil
+    end
   end
 
   defp exact_scope_query(query, scope_attrs) do

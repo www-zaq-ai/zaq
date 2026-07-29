@@ -43,6 +43,22 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
              }
     end
 
+    test "can route the final agent hop synchronously" do
+      agent = insert_agent!()
+
+      {:ok, _rule} =
+        IncomingMessageRouting.upsert_rule(%{}, %{
+          routing_mode: :agent,
+          configured_agent_id: agent.id
+        })
+
+      routed = route(incoming(), agent_hop_type: :sync)
+
+      assert routed.next_hop.destination == :agent
+      assert routed.next_hop.type == :sync
+      assert routed.opts[:action] == :run_pipeline
+    end
+
     test "translates none rule into workflow-only event without a next hop" do
       {:ok, rule} = IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :none})
 
@@ -68,7 +84,7 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   defp route(%Incoming{} = incoming, opts \\ []) do
     event_opts =
       opts
-      |> Keyword.take([:pipeline_opts])
+      |> Keyword.take([:pipeline_opts, :agent_hop_type])
       |> Keyword.put(:action, :route_incoming_message)
       |> Keyword.put(:identity_resolver, RejectingIdentityResolver)
 

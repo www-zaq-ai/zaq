@@ -660,7 +660,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           request_id: request_id,
           user_content: user_msg,
           conversation_id: conversation_id
-        }
+        },
+        routing_context: transient_routing_context(selected_agent_id)
       })
 
     # Explicit: BO-authenticated users with no person record get full access.
@@ -668,9 +669,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     bo_user_without_person = is_nil(Map.get(current_user, :person_id))
 
     event =
-      Event.new(incoming, :agent,
+      Event.new(incoming, :engine,
+        name: :incoming_message_routing_requested,
+        type: :sync,
         opts: [
-          action: :run_pipeline,
+          action: :route_incoming_message,
+          agent_hop_type: :sync,
           pipeline_opts: [
             history: history,
             skip_permissions: bo_user_without_person,
@@ -678,7 +682,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           ]
         ]
       )
-      |> maybe_put_agent_selection(selected_agent_id)
 
     dispatched_event = node_router().dispatch(event)
     outgoing = build_outgoing_from_event(dispatched_event, incoming)
@@ -755,14 +758,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp error_outgoing?(_), do: false
 
-  defp maybe_put_agent_selection(%Event{} = event, selected_agent_id) do
+  defp transient_routing_context(selected_agent_id) do
     case selected_agent_id do
       id when id in [nil, ""] ->
-        event
+        %{}
 
       id ->
-        selection = %{"agent_id" => id, "source" => "bo_explicit"}
-        %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
+        %{attributes: %{"configured_agent_id" => id, "routing_source" => "bo_explicit"}}
     end
   end
 
