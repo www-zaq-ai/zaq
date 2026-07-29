@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-29T20:24:06Z",
+  "description": "Convert message.upsert_incoming_routing_rules input and output schemas to Zoi with rule-level refinements so agent JSON tool calls validate and execute.",
+  "id": "zaq-liw.3",
+  "labels": [],
+  "parent": "zaq-liw",
+  "priority": 2,
+  "status": "open",
+  "title": "[#625] Make incoming routing tool JSON-callable with Zoi",
+  "type": "task",
+  "updated_at": "2026-07-29T20:24:06Z"
+}
