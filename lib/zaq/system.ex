@@ -10,7 +10,9 @@ defmodule Zaq.System do
   alias Zaq.Engine.Connect
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Telemetry.Collector
+  alias Zaq.Event
   alias Zaq.Ingestion.Chunk
+  alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.Config
@@ -73,19 +75,23 @@ defmodule Zaq.System do
   @doc "Sets or clears globally configured default agent id."
   @spec set_global_default_agent_id(integer() | String.t() | nil) :: :ok | {:error, term()}
   def set_global_default_agent_id(agent_id) do
-    result =
+    rule =
       case ParseUtils.parse_optional_int(agent_id, nil) do
-        nil ->
-          IncomingMessageRouting.delete_rule(%{})
-
-        id ->
-          IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :agent, configured_agent_id: id})
+        nil -> %{routing_mode: :clear}
+        id -> %{routing_mode: :agent, configured_agent_id: id}
       end
 
-    case result do
-      {:ok, _rule_or_nil} -> :ok
+    case dispatch_incoming_routing_rules([rule]) do
+      {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp dispatch_incoming_routing_rules(rules) do
+    %{rules: rules, raw_errors: true}
+    |> Event.new(:engine, opts: [action: :upsert_incoming_message_routing_rules])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
   end
 
   @doc "Returns globally configured base URL, or nil when unset."

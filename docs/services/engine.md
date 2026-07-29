@@ -186,6 +186,7 @@ rejected rather than ignored, since it would silently override the message resol
 
 ### Incoming Message Routing
 - `Zaq.Engine.IncomingMessageRoutingRule` is the single persistence model for incoming-message routing policy.
+- Routing rule writes enter the Engine node through action `:upsert_incoming_message_routing_rules`. The Engine command normalizes rule maps and reuses `IncomingMessageRouting.upsert_rule/2` and `delete_rule/1` for all persistence and validation.
 - `Zaq.Engine.Messages.Incoming.RoutingContext` carries transport-derived routing facts: `channel_config_id`, `retrieval_channel_id`, `topic_id`, and normalized attributes.
 - Channels and BO Chat dispatch `%Incoming{}` to Engine with action `:route_incoming_message`.
 - `Zaq.Engine.IncomingMessageRouter` resolves Person identity, honors any explicit event `agent_selection`, resolves the most specific valid routing rule, and returns an executable `%Zaq.Event{}` for `NodeRouter` continuation.
@@ -207,6 +208,8 @@ Routing precedence:
 10. Default ZAQ agent
 
 Agent-targeting rules and explicit selections must resolve to agents that are active and conversation-enabled; invalid configured-agent references are skipped during resolution.
+
+Rule write commands accept a required `rules` list. Each rule carries optional scope keys (`person_id`, `channel_config_id`, `retrieval_channel_id`, `topic_id`), `routing_mode: "agent" | "none" | "clear"`, and `configured_agent_id` for agent mode. Example: `%{rules: [%{channel_config_id: 12, topic_id: "INBOX", routing_mode: "agent", configured_agent_id: 34}]}`. Single-rule updates submit a one-item list; IMAP mailbox saves use the same batch form so selected mailbox rules are updated through one standardized action call.
 
 ### Messages — Outgoing (`Zaq.Engine.Messages.Outgoing`)
 - Canonical struct for all outbound messages.

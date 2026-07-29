@@ -1382,8 +1382,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp engine_get_global_default_agent_id,
     do: dispatch_engine(:system_config_get_global_default_agent_id)
 
-  defp engine_set_global_default_agent_id(id),
-    do: dispatch_engine(:system_config_set_global_default_agent_id, %{id: id})
+  defp engine_set_global_default_agent_id(id) do
+    rule =
+      case id do
+        nil -> %{routing_mode: :clear}
+        id -> %{routing_mode: :agent, configured_agent_id: id}
+      end
+
+    case dispatch_engine(:upsert_incoming_message_routing_rules, %{rules: [rule]}) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
 
   defp engine_get_global_base_url,
     do: dispatch_engine(:system_config_get_global_base_url)

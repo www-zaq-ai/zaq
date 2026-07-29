@@ -11,6 +11,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.DataSources
   alias Zaq.Engine.IncomingMessageRouter
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Notifications
   alias Zaq.Engine.PeopleGateway
@@ -50,6 +51,20 @@ defmodule Zaq.Engine.Api do
 
   def handle_event(%Event{} = event, :route_incoming_message, _context),
     do: %{event | response: {:error, {:invalid_request, event.request}}}
+
+  def handle_event(%Event{} = event, :upsert_incoming_message_routing_rules, _context) do
+    case event.request do
+      %{rules: rules} = params ->
+        opts = [
+          raw_errors: Map.get(params, :raw_errors, false) || Map.get(params, "raw_errors", false)
+        ]
+
+        %{event | response: IncomingMessageRouting.apply_rule_commands(rules, opts)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
 
   def handle_event(%Event{} = event, :invoke, _context),
     do: InternalBoundaries.invoke_request(event)

@@ -312,6 +312,102 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
     end
   end
 
+  describe "apply_rule_commands/2" do
+    test "creates an agent routing rule through existing upsert validation" do
+      agent = insert_agent!()
+
+      assert {:ok, %{count: 1, results: [%{status: "upserted", rule: rule}]}} =
+               IncomingMessageRouting.apply_rule_commands([
+                 %{routing_mode: :agent, configured_agent_id: agent.id}
+               ])
+
+      assert rule.routing_mode == "agent"
+      assert rule.configured_agent_id == agent.id
+
+      assert %{routing_mode: :agent, configured_agent_id: configured_agent_id} =
+               IncomingMessageRouting.get_rule(%{})
+
+      assert configured_agent_id == agent.id
+    end
+
+    test "updates rules in batch and clears omitted mailbox selections" do
+      config = insert_channel_config!()
+      channel = insert_retrieval_channel!(config)
+      agent = insert_agent!()
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(
+          %{channel_config_id: config.id, topic_id: "Archive"},
+          %{routing_mode: :agent, configured_agent_id: agent.id}
+        )
+
+      assert {:ok, %{count: 3, results: results}} =
+               IncomingMessageRouting.apply_rule_commands([
+                 %{
+                   channel_config_id: config.id,
+                   retrieval_channel_id: channel.id,
+                   routing_mode: :none
+                 },
+                 %{
+                   channel_config_id: config.id,
+                   topic_id: "INBOX",
+                   routing_mode: :agent,
+                   configured_agent_id: agent.id
+                 },
+                 %{channel_config_id: config.id, topic_id: "Archive", routing_mode: :clear}
+               ])
+
+      assert Enum.map(results, & &1.status) == ["upserted", "upserted", "deleted"]
+
+      assert %{routing_mode: :none} =
+               IncomingMessageRouting.get_rule(%{
+                 channel_config_id: config.id,
+                 retrieval_channel_id: channel.id
+               })
+
+      assert %{routing_mode: :agent, configured_agent_id: configured_agent_id} =
+               IncomingMessageRouting.get_rule(%{channel_config_id: config.id, topic_id: "INBOX"})
+
+      assert configured_agent_id == agent.id
+
+      assert is_nil(
+               IncomingMessageRouting.get_rule(%{
+                 channel_config_id: config.id,
+                 topic_id: "Archive"
+               })
+             )
+    end
+
+    test "returns noop when clearing an absent rule" do
+      assert {:ok, %{count: 1, results: [%{status: "noop", rule: nil}]}} =
+               IncomingMessageRouting.apply_rule_commands([%{routing_mode: :clear}])
+    end
+
+    test "rejects invalid commands" do
+      assert {:error, "rules must be a list"} = IncomingMessageRouting.apply_rule_commands(%{})
+
+      assert {:error, "each rule must be a map"} =
+               IncomingMessageRouting.apply_rule_commands([:bad])
+
+      assert {:error, "invalid routing_mode \"bad\""} =
+               IncomingMessageRouting.apply_rule_commands([%{routing_mode: "bad"}])
+
+      assert {:error, "configured_agent_id is required for agent routing"} =
+               IncomingMessageRouting.apply_rule_commands([%{routing_mode: :agent}])
+    end
+
+    test "formats changeset errors safely unless raw errors are requested" do
+      agent = insert_agent!(conversation_enabled: false)
+      command = [%{routing_mode: :agent, configured_agent_id: agent.id}]
+
+      assert {:error, %{configured_agent_id: ["must be conversation-enabled"]}} =
+               IncomingMessageRouting.apply_rule_commands(command)
+
+      assert {:error, %Ecto.Changeset{}} =
+               IncomingMessageRouting.apply_rule_commands(command, raw_errors: true)
+    end
+  end
+
   defp incoming(attrs \\ []) do
     Incoming.new(%{
       content: "hello",

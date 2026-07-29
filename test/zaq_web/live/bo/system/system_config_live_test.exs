@@ -4841,7 +4841,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
     test "save_global_default_agent error shows failure flash", %{conn: conn} do
       stub_fn = fn %Zaq.Event{} = event ->
-        if event.opts[:action] == :system_config_set_global_default_agent_id do
+        if event.opts[:action] == :upsert_incoming_message_routing_rules do
           %Zaq.Event{event | response: {:error, :boom}}
         else
           build_stub_response(event)

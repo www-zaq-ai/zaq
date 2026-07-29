@@ -9,12 +9,16 @@ defmodule Zaq.Engine.IncomingMessageRouting do
 
   import Ecto.Query
 
+  alias Ecto.Changeset
   alias Zaq.Agent
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.MapUtils
   alias Zaq.Repo
+  alias Zaq.Utils.ParseUtils
 
   @type source :: :incoming | :topic | :channel | :provider | :global | :default_zaq_agent
+  @scope_keys [:person_id, :channel_config_id, :retrieval_channel_id, :topic_id]
 
   @doc "Returns a changeset for an incoming-message routing rule."
   def change_rule(%IncomingMessageRoutingRule{} = rule, attrs \\ %{}) do
@@ -40,6 +44,150 @@ defmodule Zaq.Engine.IncomingMessageRouting do
       %IncomingMessageRoutingRule{} = rule -> Repo.delete(rule)
     end
   end
+
+  @doc "Applies incoming-message routing rule write commands in order."
+  def apply_rule_commands(rules, opts \\ [])
+
+  def apply_rule_commands(rules, opts) when is_list(rules) do
+    rules
+    |> Enum.reduce_while({:ok, []}, fn rule, {:ok, acc} ->
+      case apply_rule_command(rule, opts) do
+        {:ok, result} -> {:cont, {:ok, [result | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, results} ->
+        results = Enum.reverse(results)
+        {:ok, %{results: results, count: length(results)}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def apply_rule_commands(_rules, _opts), do: {:error, "rules must be a list"}
+
+  defp apply_rule_command(rule, opts) when is_map(rule) do
+    with {:ok, scope} <- command_scope_attrs(rule),
+         {:ok, mode} <- command_routing_mode(rule) do
+      persist_rule_command(scope, mode, rule, opts)
+    end
+  end
+
+  defp apply_rule_command(_rule, _opts), do: {:error, "each rule must be a map"}
+
+  defp command_scope_attrs(rule) do
+    scope =
+      @scope_keys
+      |> Enum.reduce(%{}, fn key, acc ->
+        value = MapUtils.fetch(rule, key)
+
+        case normalize_command_scope_value(key, value) do
+          nil -> acc
+          normalized -> Map.put(acc, key, normalized)
+        end
+      end)
+
+    if Map.has_key?(scope, :topic_id) and not Map.has_key?(scope, :channel_config_id) do
+      {:error, "channel_config_id is required for topic rules"}
+    else
+      {:ok, scope}
+    end
+  end
+
+  defp normalize_command_scope_value(:topic_id, value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      topic -> topic
+    end
+  end
+
+  defp normalize_command_scope_value(:topic_id, _value), do: nil
+  defp normalize_command_scope_value(_key, value), do: ParseUtils.parse_optional_int(value)
+
+  defp command_routing_mode(rule) do
+    case MapUtils.fetch(rule, :routing_mode) || MapUtils.fetch(rule, :mode) do
+      mode when mode in [:agent, "agent"] -> {:ok, :agent}
+      mode when mode in [:none, "none"] -> {:ok, :none}
+      mode when mode in [:default, "default", :clear, "clear", nil, ""] -> {:ok, :clear}
+      other -> {:error, "invalid routing_mode #{inspect(other)}"}
+    end
+  end
+
+  defp persist_rule_command(scope, :clear, _rule, opts) do
+    case delete_rule(scope) do
+      {:ok, nil} ->
+        {:ok, %{status: "noop", rule: nil}}
+
+      {:ok, %IncomingMessageRoutingRule{} = rule} ->
+        {:ok, %{status: "deleted", rule: rule_payload(rule)}}
+
+      {:error, reason} ->
+        {:error, format_command_error(reason, opts)}
+    end
+  end
+
+  defp persist_rule_command(scope, :none, _rule, opts) do
+    case upsert_rule(scope, %{routing_mode: :none}) do
+      {:ok, %IncomingMessageRoutingRule{} = rule} ->
+        {:ok, %{status: "upserted", rule: rule_payload(rule)}}
+
+      {:error, reason} ->
+        {:error, format_command_error(reason, opts)}
+    end
+  end
+
+  defp persist_rule_command(scope, :agent, rule, opts) do
+    case ParseUtils.parse_optional_int(MapUtils.fetch(rule, :configured_agent_id)) do
+      nil ->
+        {:error, "configured_agent_id is required for agent routing"}
+
+      configured_agent_id ->
+        case upsert_rule(scope, %{routing_mode: :agent, configured_agent_id: configured_agent_id}) do
+          {:ok, %IncomingMessageRoutingRule{} = rule} ->
+            {:ok, %{status: "upserted", rule: rule_payload(rule)}}
+
+          {:error, reason} ->
+            {:error, format_command_error(reason, opts)}
+        end
+    end
+  end
+
+  defp rule_payload(%IncomingMessageRoutingRule{} = rule) do
+    %{
+      id: rule.id,
+      person_id: rule.person_id,
+      channel_config_id: rule.channel_config_id,
+      retrieval_channel_id: rule.retrieval_channel_id,
+      topic_id: rule.topic_id,
+      routing_mode: to_string(rule.routing_mode),
+      configured_agent_id: rule.configured_agent_id
+    }
+  end
+
+  defp format_command_error(reason, opts) do
+    if Keyword.get(opts, :raw_errors, false) do
+      reason
+    else
+      json_safe_error(reason)
+    end
+  end
+
+  defp json_safe_error(%Changeset{} = changeset),
+    do: Changeset.traverse_errors(changeset, &translate_error/1)
+
+  defp json_safe_error(reason), do: inspect(reason)
+
+  defp translate_error({message, opts}) do
+    Enum.reduce(opts, message, fn {key, value}, acc ->
+      String.replace(acc, "%{#{key}}", to_string(value))
+    end)
+  end
+
+  defp translate_error(message) when is_binary(message), do: message
 
   @doc "Fetches the rule at an exact scope."
   def get_rule(scope_attrs) when is_map(scope_attrs) do
@@ -198,5 +346,5 @@ defmodule Zaq.Engine.IncomingMessageRouting do
     %{mode: :agent, source: :default_zaq_agent, rule: nil, configured_agent_id: nil}
   end
 
-  defp scope_keys, do: [:person_id, :channel_config_id, :retrieval_channel_id, :topic_id]
+  defp scope_keys, do: @scope_keys
 end

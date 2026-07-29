@@ -1,13 +1,16 @@
 defmodule Zaq.Engine.ApiTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Api
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Workflows
   alias Zaq.Event
   alias Zaq.Repo
+  alias Zaq.SystemConfigFixtures
 
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
@@ -175,6 +178,25 @@ defmodule Zaq.Engine.ApiTest do
     assert result == event
     assert result.request == %{marker: 1}
     assert result.response == event.response
+  end
+
+  test "handles incoming routing rule upsert action" do
+    agent = insert_agent!()
+
+    event =
+      Event.new(
+        %{rules: [%{routing_mode: :agent, configured_agent_id: agent.id}]},
+        :engine,
+        opts: [action: :upsert_incoming_message_routing_rules]
+      )
+
+    assert %{response: {:ok, %{count: 1}}} =
+             Api.handle_event(event, :upsert_incoming_message_routing_rules, %{})
+
+    assert %{routing_mode: :agent, configured_agent_id: configured_agent_id} =
+             IncomingMessageRouting.get_rule(%{})
+
+    assert configured_agent_id == agent.id
   end
 
   test "returns unsupported action" do
@@ -822,5 +844,24 @@ defmodule Zaq.Engine.ApiTest do
       result = Api.handle_event(event, :trigger, nil)
       assert {:error, {:invalid_request, _}} = result.response
     end
+  end
+
+  defp insert_agent! do
+    credential = SystemConfigFixtures.ai_credential_fixture()
+
+    %ConfiguredAgent{}
+    |> ConfiguredAgent.changeset(%{
+      name: "API Routing Agent #{System.unique_integer([:positive, :monotonic])}",
+      description: "",
+      job: "Route incoming messages",
+      model: "gpt-4.1-mini",
+      credential_id: credential.id,
+      strategy: "react",
+      enabled_tool_keys: [],
+      conversation_enabled: true,
+      active: true,
+      advanced_options: %{}
+    })
+    |> Repo.insert!()
   end
 end

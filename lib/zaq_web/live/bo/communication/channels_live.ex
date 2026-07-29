@@ -473,13 +473,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
          %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
          {:ok, configured_agent_id} <- AgentRouting.validate_choice(raw_id),
-         {:ok, updated} <-
-           ChannelConfig.set_provider_default_agent_id(
-             config,
-             configured_agent_id
-           ) do
-      sync_result = sync_channel_runtime(config, updated)
-
+         {:ok, _result} <-
+           upsert_incoming_routing_rule(provider_rule(config, configured_agent_id)) do
       configs = list_configs(socket.assigns.provider)
       first_config = List.first(configs)
 
@@ -489,7 +484,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
        |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
        |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
        |> schedule_ingress_status_refresh(configs)
-       |> maybe_put_runtime_sync_flash(sync_result, "Provider default agent updated.")}
+       |> put_flash(:info, "Provider default agent updated.")}
     else
       _ ->
         {:noreply, put_flash(socket, :error, "Failed to update provider default agent.")}
@@ -505,7 +500,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          %RetChannel{} = retrieval_channel <- Repo.get(RetChannel, rc_id),
          {:ok, configured_agent_id} <- AgentRouting.validate_choice(raw_id),
          {:ok, _updated} <-
-           set_retrieval_channel_agent_rule(retrieval_channel, configured_agent_id) do
+           upsert_incoming_routing_rule(
+             retrieval_channel_rule(retrieval_channel, configured_agent_id)
+           ) do
       config = first_enabled_config(socket)
 
       {:noreply,
@@ -911,32 +908,27 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       |> ChannelConfig.get_provider_agent_choice()
       |> AgentRouting.select_value()
 
-  defp set_retrieval_channel_agent_rule(%RetChannel{} = retrieval_channel, :none) do
-    IncomingMessageRouting.upsert_rule(
+  defp provider_rule(%ChannelConfig{} = config, configured_agent_id),
+    do: routing_rule(%{channel_config_id: config.id}, configured_agent_id)
+
+  defp retrieval_channel_rule(%RetChannel{} = retrieval_channel, configured_agent_id) do
+    routing_rule(
       %{
         channel_config_id: retrieval_channel.channel_config_id,
         retrieval_channel_id: retrieval_channel.id
       },
-      %{routing_mode: :none}
+      configured_agent_id
     )
   end
 
-  defp set_retrieval_channel_agent_rule(%RetChannel{} = retrieval_channel, nil) do
-    IncomingMessageRouting.delete_rule(%{
-      channel_config_id: retrieval_channel.channel_config_id,
-      retrieval_channel_id: retrieval_channel.id
-    })
-  end
+  defp routing_rule(scope, :none), do: Map.put(scope, :routing_mode, :none)
+  defp routing_rule(scope, nil), do: Map.put(scope, :routing_mode, :clear)
 
-  defp set_retrieval_channel_agent_rule(%RetChannel{} = retrieval_channel, id) do
-    IncomingMessageRouting.upsert_rule(
-      %{
-        channel_config_id: retrieval_channel.channel_config_id,
-        retrieval_channel_id: retrieval_channel.id
-      },
-      %{routing_mode: :agent, configured_agent_id: id}
-    )
-  end
+  defp routing_rule(scope, configured_agent_id),
+    do: Map.merge(scope, %{routing_mode: :agent, configured_agent_id: configured_agent_id})
+
+  defp upsert_incoming_routing_rule(rule),
+    do: dispatch_engine(:upsert_incoming_message_routing_rules, %{rules: [rule]})
 
   def retrieval_channel_agent_value(%RetChannel{} = retrieval_channel) do
     case IncomingMessageRouting.get_rule(%{

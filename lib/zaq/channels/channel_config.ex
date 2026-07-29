@@ -15,6 +15,8 @@ defmodule Zaq.Channels.ChannelConfig do
 
   alias Zaq.Channels.AgentRouting
   alias Zaq.Engine.IncomingMessageRouting
+  alias Zaq.Event
+  alias Zaq.NodeRouter
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
 
@@ -393,26 +395,32 @@ defmodule Zaq.Channels.ChannelConfig do
 
   @doc "Sets or clears provider-level default configured agent id in settings."
   def set_provider_default_agent_id(%__MODULE__{} = config, agent_id) do
-    result =
+    rule =
       cond do
         agent_id in [AgentRouting.none_value(), "none", :none] ->
-          IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{
-            routing_mode: :none
-          })
+          %{channel_config_id: config.id, routing_mode: :none}
 
         is_nil(ParseUtils.parse_optional_int(agent_id)) ->
-          IncomingMessageRouting.delete_rule(%{channel_config_id: config.id})
+          %{channel_config_id: config.id, routing_mode: :clear}
 
         true ->
-          IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{
+          %{
+            channel_config_id: config.id,
             routing_mode: :agent,
             configured_agent_id: ParseUtils.parse_optional_int(agent_id)
-          })
+          }
       end
 
-    case result do
-      {:ok, _rule_or_nil} -> {:ok, config}
-      {:error, changeset} -> {:error, changeset}
+    case dispatch_incoming_routing_rules([rule]) do
+      {:ok, _result} -> {:ok, config}
+      {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp dispatch_incoming_routing_rules(rules) do
+    %{rules: rules, raw_errors: true}
+    |> Event.new(:engine, opts: [action: :upsert_incoming_message_routing_rules])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
   end
 end

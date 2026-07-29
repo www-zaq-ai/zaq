@@ -11,6 +11,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
              "conversation.persist_message_history",
+             "message.upsert_incoming_routing_rules",
              "data_source.get_document",
              "data_source.list_documents",
              "data_source.search_documents",
@@ -105,6 +106,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              Registry.resolve_modules(["conversation.persist_message_history"])
   end
 
+  test "message.upsert_incoming_routing_rules resolves to the routing rule tool" do
+    assert Registry.valid_tool_key?("message.upsert_incoming_routing_rules")
+
+    assert {:ok, [Zaq.Agent.Tools.Messages.UpsertIncomingRoutingRules]} =
+             Registry.resolve_modules(["message.upsert_incoming_routing_rules"])
+  end
+
   test "web.browsing resolves to the browsing tool" do
     assert Registry.valid_tool_key?("web.browsing")
 
@@ -118,6 +126,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
              "conversation.persist_message_history",
+             "message.upsert_incoming_routing_rules",
              "data_source.get_document",
              "data_source.list_documents",
              "data_source.search_documents",

@@ -164,6 +164,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
   - `:mcp_endpoint_updated`
   - `:agent_skill_updated`
   - `:agent_skill_deleted`
+- Registered tool `message.upsert_incoming_routing_rules` creates, updates, or clears incoming-message routing rules by dispatching to the Engine node. It accepts a required `rules` list; single-rule updates use a one-item list, e.g. `%{rules: [%{channel_config_id: 12, topic_id: "INBOX", routing_mode: "agent", configured_agent_id: 34}]}`. This is the same command used by BO routing screens and workflows.
 
 ### Configured Agents (`Zaq.Agent` context)
 - Schema: `Zaq.Agent.ConfiguredAgent` (`configured_agents` table)

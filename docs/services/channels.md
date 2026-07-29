@@ -93,6 +93,11 @@ mailbox. They must not resolve the destination agent or workflow; final routing 
 is resolved by Engine through `Zaq.Engine.IncomingMessageRouter` and
 `Zaq.Engine.IncomingMessageRoutingRule`.
 
+BO routing writes for global defaults, provider defaults, retrieval-channel assignments,
+and IMAP mailbox rules dispatch to Engine action `:upsert_incoming_message_routing_rules`.
+The registered tool `message.upsert_incoming_routing_rules` uses the same Engine dispatch
+path for agents and workflows. IMAP mailbox saves use the action's batch `rules` input.
+
 ### `Zaq.Engine.Messages.Outgoing`
 
 Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered through `Zaq.Channels.Events.build_and_dispatch_deliver_outgoing_event/2` to `Zaq.Channels.Api` (`:deliver_outgoing`).

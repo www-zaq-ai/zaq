@@ -44,6 +44,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Conversations.PersistMessageHistory
     },
     %{
+      key: "message.upsert_incoming_routing_rules",
+      label: "Update incoming routing rules",
+      description:
+        "Create, update, or clear one or more incoming-message routing rules used by Engine message routing",
+      module: Zaq.Agent.Tools.Messages.UpsertIncomingRoutingRules
+    },
+    %{
       key: "data_source.get_document",
       label: "Get document",
       description: "Get a document by id from a specific datasource provider",

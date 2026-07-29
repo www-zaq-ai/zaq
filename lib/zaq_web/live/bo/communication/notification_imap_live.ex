@@ -310,8 +310,11 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   defp maybe_persist_provider_default_rule(channel, %{"provider_default_agent_id" => raw_id}) do
     case sanitize_agent_choice(raw_id) do
-      nil -> IncomingMessageRouting.delete_rule(%{channel_config_id: channel.id})
-      choice -> persist_route_choice(%{channel_config_id: channel.id}, choice)
+      nil ->
+        upsert_incoming_routing_rule(routing_rule(%{channel_config_id: channel.id}, nil))
+
+      choice ->
+        upsert_incoming_routing_rule(routing_rule(%{channel_config_id: channel.id}, choice))
     end
   end
 
@@ -325,38 +328,32 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
     selected = channel.settings |> get_in(["imap", "selected_mailboxes"]) |> selected_mailboxes()
 
-    Enum.reduce_while(selected, {:ok, []}, fn mailbox, {:ok, rules} ->
-      result =
-        case Map.get(mailbox_agents, mailbox) do
-          nil ->
-            IncomingMessageRouting.delete_rule(%{
-              channel_config_id: channel.id,
-              topic_id: mailbox
-            })
+    rules =
+      Enum.map(selected, fn mailbox ->
+        scope = %{channel_config_id: channel.id, topic_id: mailbox}
+        routing_rule(scope, Map.get(mailbox_agents, mailbox))
+      end)
 
-          choice ->
-            persist_route_choice(%{channel_config_id: channel.id, topic_id: mailbox}, choice)
-        end
-
-      case result do
-        {:ok, rule} -> {:cont, {:ok, [rule | rules]}}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
+    upsert_incoming_routing_rules(rules)
   end
 
   defp maybe_persist_mailbox_agent_rules(_channel, _raw_params), do: {:ok, []}
 
-  defp persist_route_choice(scope, configured_agent_id) do
+  defp routing_rule(scope, nil), do: Map.put(scope, :routing_mode, :clear)
+
+  defp routing_rule(scope, configured_agent_id) do
     if configured_agent_id in [:none, "none"] or configured_agent_id == AgentRouting.none_value() do
-      IncomingMessageRouting.upsert_rule(scope, %{routing_mode: :none})
+      Map.put(scope, :routing_mode, :none)
     else
-      IncomingMessageRouting.upsert_rule(scope, %{
-        routing_mode: :agent,
-        configured_agent_id: configured_agent_id
-      })
+      Map.merge(scope, %{routing_mode: :agent, configured_agent_id: configured_agent_id})
     end
   end
+
+  defp upsert_incoming_routing_rule(rule),
+    do: upsert_incoming_routing_rules([rule])
+
+  defp upsert_incoming_routing_rules(rules),
+    do: dispatch_engine(:upsert_incoming_message_routing_rules, %{rules: rules})
 
   defp selected_mailboxes(value), do: ImapConfig.normalize_mailboxes(value)
 
@@ -450,6 +447,13 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     else
       node_router_mod.call(:channels, channels_mod, :list_mailboxes, [@imap_provider, config])
     end
+  end
+
+  defp dispatch_engine(action, request) do
+    node_router = node_router_module()
+
+    node_router.dispatch(Zaq.Event.new(request, :engine, opts: [action: action]))
+    |> Map.get(:response)
   end
 
   defp assign_persisted_imap_state(socket, fresh, channel, fresh_changeset) do
