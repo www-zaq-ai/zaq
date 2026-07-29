@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-29T15:26:50Z",
+  "description": "Add People BO UI for person-scoped global, provider, retrieval-channel, and IMAP mailbox incoming routing rules. Reuse Engine upsert dispatch.",
+  "id": "zaq-liw.2",
+  "labels": [],
+  "parent": "zaq-liw",
+  "priority": 2,
+  "status": "open",
+  "title": "[#625] Add person incoming routing UI",
+  "type": "task",
+  "updated_at": "2026-07-29T15:26:50Z"
+}
