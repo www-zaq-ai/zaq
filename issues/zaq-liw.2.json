@@ -7,9 +7,15 @@
   "id": "zaq-liw.2",
   "labels": [],
   "parent": "zaq-liw",
+  "comments": [
+    {
+      "text": "Implemented People BO person-scoped incoming routing UI for global person, provider config, retrieval channel, and IMAP mailbox scopes. Added ChannelConfig incoming-routing resolver for platform mapping; email maps to email:imap only. Added tests and mix q passes.",
+      "timestamp": "2026-07-29T16:03:22Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[#625] Add person incoming routing UI",
   "type": "task",
-  "updated_at": "2026-07-29T15:26:50Z"
+  "updated_at": "2026-07-29T16:03:22Z"
 }
