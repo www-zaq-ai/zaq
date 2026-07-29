@@ -579,6 +579,31 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert "can't be blank" in errors_on(imap_changeset).token
   end
 
+  describe "list_providers_by_kind/1" do
+    test "keeps disabled configs, unlike list_enabled_providers_by_kind/1" do
+      insert_channel_config(%{name: "gd", provider: "google_drive", kind: "data_source"})
+
+      insert_channel_config(%{
+        name: "sp",
+        provider: "sharepoint",
+        kind: "data_source",
+        enabled: false
+      })
+
+      assert ChannelConfig.list_providers_by_kind(:data_source) ==
+               [{"google_drive", true}, {"sharepoint", false}]
+
+      assert ChannelConfig.list_enabled_providers_by_kind(:data_source) == ["google_drive"]
+    end
+
+    test "ignores other kinds and returns an empty list when nothing is configured" do
+      insert_channel_config(%{name: "mm", provider: "mattermost", kind: "retrieval"})
+
+      assert ChannelConfig.list_providers_by_kind(:data_source) == []
+      assert {"mattermost", true} in ChannelConfig.list_providers_by_kind(:retrieval)
+    end
+  end
+
   defp insert_channel_config(attrs) do
     defaults = %{
       name: "Config",

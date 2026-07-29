@@ -38,7 +38,6 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Contracts.RecordPage
 
   # Writes to local storage go through `Zaq.Channels.DiskBridge`, which needs no
@@ -271,33 +270,11 @@ defmodule Zaq.Channels.DataSourceBridge do
   @doc """
   Lists datasource providers available for document operations.
 
-  Always includes `"disk"` (the local ZAQ volume, which needs no channel config)
-  followed by every enabled `data_source` config whose bridge can actually
-  create files. A provider that only supports reading — or has no bridge wired
-  at all — is not a place a document can go, so it is not offered.
-
-  Listing order carries no precedence: document operations take an explicit
-  provider, so this is a menu to choose from, not a default to fall back on.
+  Delegates to `Zaq.Channels.Bridge.list_providers/2`, which owns the menu for
+  every channel kind — see that function for what makes a provider eligible.
   """
   @spec list_providers() :: {:ok, map()}
-  def list_providers do
-    providers =
-      :data_source
-      |> ChannelConfig.list_enabled_providers_by_kind()
-      |> Enum.filter(&writable_provider?/1)
-      |> then(&[@disk_provider | &1])
-      |> Enum.uniq()
-      |> Enum.map(&%{provider: &1, label: ProviderCatalog.label(&1)})
-
-    {:ok, %{providers: providers}}
-  end
-
-  defp writable_provider?(provider) do
-    case Bridge.resolve_bridge(provider) do
-      {:ok, bridge} -> supports_callback?(bridge, :create_file, 2)
-      _ -> false
-    end
-  end
+  def list_providers, do: Bridge.list_providers(:data_source)
 
   @doc "Lists provider files through the configured DataSource bridge."
   @spec list_files(atom() | String.t(), map()) :: {:ok, RecordPage.t()} | {:error, term()}

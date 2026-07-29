@@ -64,7 +64,7 @@ defmodule Zaq.Agent.Tools.General.ListProvidersTest do
         do: Api.handle_event(event, :channel_list_providers, nil)
     end
 
-    test "data_source lists disk plus every enabled, writable data_source config" do
+    test "data_source lists disk plus every writable data_source config with its status" do
       insert_config("google_drive", "data_source", true)
       insert_config("sharepoint", "data_source", false)
       insert_config("mattermost", "retrieval", true)
@@ -72,8 +72,9 @@ defmodule Zaq.Agent.Tools.General.ListProvidersTest do
       assert {:ok, %{providers: providers}} =
                ListProviders.run(%{kind: "data_source"}, %{node_router: LocalNodeRouter})
 
-      assert Enum.map(providers, & &1.provider) == ["disk", "google_drive"]
-      assert Enum.map(providers, & &1.label) == ["Disk", "Google Drive"]
+      assert Enum.map(providers, & &1.provider) == ["disk", "google_drive", "sharepoint"]
+      assert Enum.map(providers, & &1.label) == ["Disk", "Google Drive", "SharePoint"]
+      assert Enum.map(providers, & &1.status) == [:active, :active, :inactive]
     end
 
     test "data_source lists disk alone when nothing is configured" do
@@ -81,7 +82,7 @@ defmodule Zaq.Agent.Tools.General.ListProvidersTest do
                ListProviders.run(%{kind: "data_source"}, %{node_router: LocalNodeRouter})
     end
 
-    test "communication lists only enabled retrieval configs, never disk" do
+    test "communication lists retrieval configs with a status, never disk" do
       insert_config("mattermost", "retrieval", true)
       insert_config("slack", "retrieval", false)
       insert_config("google_drive", "data_source", true)
@@ -93,13 +94,18 @@ defmodule Zaq.Agent.Tools.General.ListProvidersTest do
 
       refute "disk" in keys
       refute "google_drive" in keys
+      # slack has no bridge wired, so it is not a place a message can go
       refute "slack" in keys
       assert Enum.all?(providers, &Map.has_key?(&1, :label))
+      assert Enum.all?(providers, &(&1.status in [:active, :inactive]))
     end
 
-    test "communication lists nothing when no retrieval config is enabled" do
-      assert {:ok, %{providers: []}} =
+    test "communication offers nothing active when no retrieval config is enabled" do
+      assert {:ok, %{providers: providers}} =
                ListProviders.run(%{kind: "communication"}, %{node_router: LocalNodeRouter})
+
+      # The seeded email:smtp config ships disabled, so it is listed but not usable.
+      assert Enum.all?(providers, &(&1.status == :inactive))
     end
 
     test "an unknown kind is rejected at the channels boundary" do

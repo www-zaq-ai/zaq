@@ -24,6 +24,8 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email (SMTP) delivery                |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
+| `Zaq.Channels.HttpRequest`          | `lib/zaq/channels/http_request.ex`           | Validated outbound HTTP request spec            |
+| `Zaq.Channels.HttpClient`           | `lib/zaq/channels/http_client.ex`            | Sends a validated `HttpRequest` — no validation |
 | `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | DynamicSupervisor — process lifecycle           |
 | `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs                 |
 | `Zaq.Engine.Connect`                | `lib/zaq/engine/connect.ex`                  | Credential/grant lifecycle for Data Source auth |
@@ -173,7 +175,52 @@ defstruct [
 
 `Zaq.Channels.Bridge` provides shared bridge behaviour callbacks and runtime helper defaults.
 
+### Provider listing
+
+`Zaq.Channels.Bridge.list_providers/2` owns the provider menu for every channel kind — `CommunicationBridge.list_providers/0` and `DataSourceBridge.list_providers/0` are delegations, not separate implementations.
+
+A provider is listed only when its bridge can carry the operation for that kind: `send_reply/2` for `:communication`, `create_file/2` for `:data_source`. `:data_source` always includes `"disk"`, the local ZAQ volume, which needs no channel config.
+
+Each entry is `%{provider:, label:, status:}` where `status` is:
+
+- `:active` — an enabled `ChannelConfig` exists (or the provider is `"disk"`); usable now.
+- `:inactive` — a config exists but is switched off. Still listed, so a caller can say "that channel is turned off" rather than "that channel does not exist".
+
+Providers that were never configured are not listed — this is a menu of channels that exist, not a catalogue of channels that could be set up. `ChannelConfig.list_providers_by_kind/1` backs the status field; `list_enabled_providers_by_kind/1` remains for callers that only want usable providers.
+
 Provider watch calls are provider-facing only. Durable watch-channel runtime state is stored by `Zaq.Engine.DataSources`; Channels passes provider responses to Engine through `NodeRouter.dispatch/1` and does not own checkpoint persistence.
+
+### Outbound HTTP requests
+
+Agents reach third-party APIs through the `:http_request` action — one tool, one turn:
+
+```
+general.http_request (agent tool, agent node)
+  → Zaq.Channels.HttpRequest.build/2   — ALL validation, produces %HttpRequest{}
+  → NodeRouter :http_request → Zaq.Channels.Api
+  → Zaq.Channels.HttpClient            — sends it, validates nothing
+```
+
+`HttpClient.request/2` accepts `%Zaq.Channels.HttpRequest{}` and nothing else. That struct can only come from `build/2`, so holding one *is* the proof that validation ran; a bare map is refused with `{:invalid_request, :unvalidated_spec}` rather than re-normalised. `Zaq.Channels.Api` enforces the same rule at the role boundary. A build failure short-circuits in the tool — nothing is dispatched and no socket opens.
+
+This used to be two tools (`build_http_request` then `execute_http_request`). The model never inspected the intermediate spec, so the split cost a turn and forced the spec through the model's context as JSON, which meant re-validating whatever came back. Keeping the LLM out of the network path does not need a second tool call — the struct plus the NodeRouter hop already guarantee it.
+
+Destination policy lives in `HttpRequest`, not in the client, under its own config key:
+
+```elixir
+config :zaq, Zaq.Channels.HttpRequest,
+  allowed_hosts: ["api.acme.com", ".internal.acme.com"]
+```
+
+Only `http` and `https` are accepted, a host is required, and redirects are never followed.
+
+> **Private-address blocking is not implemented.** Checking whether a host resolves into a loopback, private, link-local, or CGNAT range is DNS I/O, and it was removed rather than run on the wrong node. Until it is reinstated, `allowed_hosts` is the only defence against an agent being prompted into reaching an internal service or a cloud metadata endpoint (`169.254.169.254`). Configure it wherever the agent can be prompted by an untrusted party.
+
+#### No credentials, deliberately
+
+There is no way to authenticate an outbound request on this path. `build/2` **rejects** a literal `authorization` or `proxy-authorization` header, because the model writes tool parameters: a credential passed that way enters its context and is persisted in conversation history and every export of it.
+
+That confines the tool to endpoints needing no authorization. An earlier design rendered credentials as `{{secret:name}}` references to be resolved on the channels node; it was removed rather than shipped half-built, since a placeholder that is never substituted just sends `{{secret:name}}` to the remote API. Restoring authenticated calls means resolving a named reference on the channels node — never a header the model can write.
 
 ### Webhook ingress
 

@@ -10,7 +10,7 @@ defmodule Zaq.Channels.Api do
   - Re-broadcast `{:broadcast, topic, message}` events over `Zaq.PubSub` (the
     `:broadcast` action) so engine-side producers (e.g. workflow run/step
     updates) reach BO LiveView subscribers without owning PubSub directly.
-  - Execute prepared HTTP request specs through `Zaq.Channels.Req` (the
+  - Execute validated HTTP requests through `Zaq.Channels.HttpClient` (the
     `:http_request` action), so agents never open a socket or hold a
     credential themselves.
   - Resolve provider bridge modules through `Zaq.Channels.Bridge`.
@@ -23,6 +23,7 @@ defmodule Zaq.Channels.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.{HttpClient, HttpRequest}
   alias Zaq.Channels.MessageFormatter
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
@@ -630,13 +631,20 @@ defmodule Zaq.Channels.Api do
     end
   end
 
-  def handle_event(%Event{request: %{request: request}} = event, :http_request, _context)
-      when is_map(request) do
-    # Full name on purpose: a bare `Req` alias here would shadow the external
-    # Req library and read as the wrong module.
-    http_module = Keyword.get(event.opts, :http_module, Zaq.Channels.Req)
+  def handle_event(
+        %Event{request: %{request: %HttpRequest{} = request}} = event,
+        :http_request,
+        _context
+      ) do
+    http_module = Keyword.get(event.opts, :http_module, HttpClient)
     %{event | response: http_module.request(request, event.opts)}
   end
+
+  # A plain map never reaches the executor: only `Zaq.Channels.HttpRequest`
+  # carries proof that the spec was validated.
+  def handle_event(%Event{request: %{request: request}} = event, :http_request, _context)
+      when is_map(request),
+      do: %{event | response: {:error, {:invalid_request, :unvalidated_spec}}}
 
   def handle_event(%Event{} = event, :http_request, _context),
     do: %{event | response: {:error, {:invalid_request, :missing_http_request_spec}}}

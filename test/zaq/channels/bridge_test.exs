@@ -646,4 +646,144 @@ defmodule Zaq.Channels.BridgeTest do
       assert :image in snapshot.unsupported
     end
   end
+
+  defmodule SendableBridge do
+    @moduledoc false
+    def send_reply(_outgoing, _connection_details), do: :ok
+  end
+
+  defmodule WritableBridge do
+    @moduledoc false
+    def create_file(_config, _params), do: {:ok, %{}}
+  end
+
+  defmodule InertBridge do
+    @moduledoc false
+    def to_internal(_config, _payload), do: {:error, :unsupported}
+  end
+
+  defmodule InertChannelsConfig do
+    @moduledoc false
+    def get(_app, :channels, _default, _opts), do: %{google_drive: %{bridge: InertBridge}}
+    def get(app, key, default, _opts), do: Application.get_env(app, key, default)
+  end
+
+  describe "list_providers/2" do
+    setup do
+      Application.put_env(:zaq, :channels, %{
+        disk: %{bridge: WritableBridge},
+        google_drive: %{bridge: WritableBridge},
+        mattermost: %{bridge: SendableBridge},
+        telegram: %{bridge: InertBridge}
+      })
+
+      :ok
+    end
+
+    test "data_source always offers disk, even with nothing configured" do
+      assert {:ok, %{providers: [%{provider: "disk", label: "Disk"}]}} =
+               Bridge.list_providers(:data_source)
+    end
+
+    test "data_source lists disk plus every enabled writable provider" do
+      insert_config(:google_drive, %{kind: "data_source"})
+
+      assert {:ok, %{providers: providers}} = Bridge.list_providers(:data_source)
+      assert Enum.map(providers, & &1.provider) == ["disk", "google_drive"]
+      assert Enum.map(providers, & &1.label) == ["Disk", "Google Drive"]
+    end
+
+    test "data_source excludes an enabled provider whose bridge cannot create files" do
+      insert_config(:telegram, %{kind: "data_source"})
+
+      assert {:ok, %{providers: providers}} = Bridge.list_providers(:data_source)
+      refute "telegram" in Enum.map(providers, & &1.provider)
+    end
+
+    test "data_source excludes a provider with no bridge wired" do
+      insert_config(:slack, %{kind: "data_source"})
+
+      assert {:ok, %{providers: providers}} = Bridge.list_providers(:data_source)
+      refute "slack" in Enum.map(providers, & &1.provider)
+    end
+
+    test "data_source keeps a disabled config, marked inactive" do
+      insert_config(:google_drive, %{kind: "data_source", enabled: false})
+
+      assert {:ok, %{providers: providers}} = Bridge.list_providers(:data_source)
+
+      assert providers == [
+               %{provider: "disk", label: "Disk", status: :active},
+               %{provider: "google_drive", label: "Google Drive", status: :inactive}
+             ]
+    end
+
+    test "an enabled config is marked active" do
+      insert_config(:google_drive, %{kind: "data_source"})
+
+      assert {:ok, %{providers: providers}} = Bridge.list_providers(:data_source)
+      assert %{provider: "google_drive", status: :active} = List.last(providers)
+    end
+
+    test "disk is active without any config row" do
+      assert {:ok, %{providers: [%{provider: "disk", status: :active}]}} =
+               Bridge.list_providers(:data_source)
+    end
+
+    test "a disabled provider whose bridge cannot carry the operation is still excluded" do
+      insert_config(:telegram, %{kind: "data_source", enabled: false})
+
+      assert {:ok, %{providers: [%{provider: "disk"}]}} = Bridge.list_providers(:data_source)
+    end
+
+    test "communication marks a disabled config inactive" do
+      insert_config(:mattermost, %{kind: "retrieval", enabled: false})
+
+      assert {:ok, %{providers: [%{provider: "mattermost", status: :inactive}]}} =
+               Bridge.list_providers(:communication)
+    end
+
+    test "data_source offers disk exactly once" do
+      insert_config(:google_drive, %{kind: "data_source"})
+      insert_config(:sharepoint, %{kind: "data_source"})
+
+      assert {:ok, %{providers: providers}} = Bridge.list_providers(:data_source)
+      assert Enum.count(providers, &(&1.provider == "disk")) == 1
+    end
+
+    test "communication lists every enabled provider that can send a reply" do
+      insert_config(:mattermost, %{kind: "retrieval"})
+
+      assert {:ok, %{providers: [%{provider: "mattermost", label: label}]}} =
+               Bridge.list_providers(:communication)
+
+      assert is_binary(label)
+    end
+
+    test "communication excludes an enabled provider whose bridge cannot send a reply" do
+      insert_config(:google_drive, %{kind: "retrieval"})
+
+      assert {:ok, %{providers: []}} = Bridge.list_providers(:communication)
+    end
+
+    test "communication never offers disk" do
+      insert_config(:mattermost, %{kind: "retrieval"})
+
+      assert {:ok, %{providers: providers}} = Bridge.list_providers(:communication)
+      refute "disk" in Enum.map(providers, & &1.provider)
+    end
+
+    test "communication ignores data_source configs" do
+      insert_config(:google_drive, %{kind: "data_source"})
+
+      assert {:ok, %{providers: []}} = Bridge.list_providers(:communication)
+    end
+
+    test "the bridge lookup honours a config override passed through opts" do
+      insert_config(:google_drive, %{kind: "data_source"})
+
+      assert {:ok, %{providers: [%{provider: "disk"}]}} =
+               Bridge.list_providers(:data_source, config: InertChannelsConfig)
+    end
+  end
 end

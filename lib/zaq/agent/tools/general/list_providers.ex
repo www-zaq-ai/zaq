@@ -16,6 +16,10 @@ defmodule Zaq.Agent.Tools.General.ListProviders do
     `"disk"`, the local ZAQ volume).
   - `"communication"` — providers a message can be sent through.
 
+  Every entry carries a `status` so the agent can tell a channel that is usable
+  now (`:active`) from one that exists but is switched off (`:inactive`) — see
+  `Zaq.Channels.Bridge.list_providers/2`.
+
   Delegates to Channels through `NodeRouter.dispatch/1`.
 
   ## Expected context keys
@@ -36,10 +40,16 @@ defmodule Zaq.Agent.Tools.General.ListProviders do
     Pass kind "data_source" for places a document can be written to, or
     "communication" for places a message can be sent through.
 
-    Each entry has a `provider` key (pass this to create_document) and a
-    human-readable `label` (show this to the user). For kind "data_source",
-    "disk" is the local ZAQ volume and is always available, even with no
-    connectors configured.
+    Each entry has a `provider` key (pass this to create_document), a
+    human-readable `label` (show this to the user), and a `status`:
+
+    - "active" — the channel has an enabled configuration and can be used now.
+    - "inactive" — the channel is configured but switched off. Do NOT send to
+      it. Tell the user it is turned off and needs enabling in the settings.
+
+    Only offer active providers as choices. For kind "data_source", "disk" is
+    the local ZAQ volume and is always active, even with no connectors
+    configured. A provider that was never configured is not listed at all.
     """,
     schema: [
       kind: [
@@ -54,15 +64,17 @@ defmodule Zaq.Agent.Tools.General.ListProviders do
       providers: [
         type: {:list, :map},
         required: true,
-        doc: ~s|Provider menu — each entry has a `provider` key and a `label`|
+        doc:
+          ~s|Provider menu — each entry has a `provider` key, a `label`, and a | <>
+            ~s|`status` of "active" (usable now) or "inactive" (configured but off)|
       ]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
 
   @impl Jido.Action
   def run(%{kind: kind}, context) do
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :channel_list_providers,
       %{kind: kind_atom(kind)},
       context,

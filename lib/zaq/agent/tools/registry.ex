@@ -37,23 +37,14 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.KnowledgeBaseOverview
     },
     %{
-      key: "general.build_http_request",
-      label: "Build HTTP request",
+      key: "general.http_request",
+      label: "HTTP request",
       description:
-        "Turn what an API's documentation specifies into a validated HTTP request " <>
-          "(method, url, headers, body) for the HTTP client to execute later. Credentials " <>
-          "are passed as named references, never literal values, and the tool never sends " <>
-          "the request itself.",
-      module: Zaq.Agent.Tools.General.BuildHttpRequest
-    },
-    %{
-      key: "general.execute_http_request",
-      label: "Execute HTTP request",
-      description:
-        "Send a request prepared by general.build_http_request and return the status, " <>
-          "headers, and body. Credential placeholders are resolved and the destination " <>
-          "is checked on the channels node — the agent never holds a secret or opens a socket.",
-      module: Zaq.Agent.Tools.General.ExecuteHttpRequest
+        "Send an HTTP request to an external API — turn what the documentation specifies " <>
+          "(method, url, headers, body) into a validated request, send it, and return the " <>
+          "status, headers, and body. Credentials are passed as named references, resolved " <>
+          "on the channels node: the agent never holds a secret or opens a socket.",
+      module: Zaq.Agent.Tools.General.HttpRequest
     },
     %{
       key: "general.encode_base64",

@@ -19,7 +19,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   """
 
   alias Zaq.{Agent, Event, NodeRouter}
-  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig, EventNames, ProviderCatalog}
+  alias Zaq.Channels.{AgentRouting, Bridge, EventNames}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.People.IdentityResolver
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
@@ -102,31 +102,11 @@ defmodule Zaq.Channels.CommunicationBridge do
   @doc """
   Lists communication providers a message can be sent through.
 
-  Returns every enabled `retrieval` channel config whose bridge implements
-  `send_reply/2`. A provider with no bridge wired — or one that can only
-  receive — is not a place a message can go, so it is not offered.
-
-  Listing order carries no precedence: communication operations take an
-  explicit provider, so this is a menu to choose from, not a default to fall
-  back on.
+  Delegates to `Zaq.Channels.Bridge.list_providers/2`, which owns the menu for
+  every channel kind — see that function for what makes a provider eligible.
   """
   @spec list_providers() :: {:ok, map()}
-  def list_providers do
-    providers =
-      :retrieval
-      |> ChannelConfig.list_enabled_providers_by_kind()
-      |> Enum.filter(&sendable_provider?/1)
-      |> Enum.map(&%{provider: &1, label: ProviderCatalog.label(&1)})
-
-    {:ok, %{providers: providers}}
-  end
-
-  defp sendable_provider?(provider) do
-    case Bridge.resolve_bridge(provider) do
-      {:ok, bridge} -> Code.ensure_loaded?(bridge) and function_exported?(bridge, :send_reply, 2)
-      _ -> false
-    end
-  end
+  def list_providers, do: Bridge.list_providers(:communication)
 
   @doc "Sends typing indicator through the provider bridge."
   @spec send_typing(atom() | String.t(), String.t() | integer()) :: :ok | {:error, term()}

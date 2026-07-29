@@ -27,7 +27,7 @@ defmodule Zaq.Agent.Tools.Sheets.DeleteSheetTab do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
 
   @impl Jido.Action
 
@@ -37,10 +37,10 @@ defmodule Zaq.Agent.Tools.Sheets.DeleteSheetTab do
       ) do
     request =
       %{"spreadsheet_id" => spreadsheet_id, "sheet_id" => sheet_id}
-      |> DataSourceTool.merge_optional(params, [:config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_sheet_delete_tab,
       request,
       context,

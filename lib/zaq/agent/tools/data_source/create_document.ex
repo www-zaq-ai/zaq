@@ -35,13 +35,13 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
 
   @impl Jido.Action
   def run(%{provider: provider} = params, context) do
     request =
       %{}
-      |> DataSourceTool.merge_optional(params, [
+      |> ChannelTool.merge_optional(params, [
         :name,
         :content,
         :path,
@@ -49,9 +49,9 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
         :mime_type,
         :config_id
       ])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_create_file,
       request,
       context,

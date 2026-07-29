@@ -27,17 +27,17 @@ defmodule Zaq.Agent.Tools.Sheets.ClearSheetValues do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
 
   @impl Jido.Action
 
   def run(%{provider: provider, spreadsheet_id: spreadsheet_id, range: range} = params, context) do
     request =
       %{"spreadsheet_id" => spreadsheet_id, "range" => range}
-      |> DataSourceTool.merge_optional(params, [:config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_sheet_clear_values,
       request,
       context,

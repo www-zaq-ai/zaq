@@ -8,6 +8,8 @@ defmodule Zaq.Channels.Bridge do
   - Provide optional runtime/lifecycle callback contracts used by bridge-specific
     runtimes.
   - Provide shared provider resolution and connection/config lookup helpers.
+  - Own the provider menu for every channel kind (`list_providers/2`), which the
+    communication and data source bridges delegate to.
   - Provide shared incoming routing hooks and persistence helper
     (`persist_from_incoming/5`) that routes through `NodeRouter.dispatch/1` when
     using the default engine conversations module.
@@ -16,13 +18,14 @@ defmodule Zaq.Channels.Bridge do
   bridge modules own transport-specific behavior.
   """
 
-  alias Zaq.Channels.{ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.{ChannelConfig, CommunicationBridge, DataSourceBridge, ProviderCatalog}
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.{Event, NodeRouter}
 
   @smtp_provider "email:smtp"
   @imap_provider "email:imap"
+  @disk_provider "disk"
 
   @callback to_internal(map(), map()) :: Incoming.t() | {:error, term()}
   @callback capability_snapshot(map()) :: {:ok, map()} | {:error, term()}
@@ -417,6 +420,72 @@ defmodule Zaq.Channels.Bridge do
   @spec capability_meta(:communication | :data_source) :: map()
   def capability_meta(:communication), do: @communication_capability_meta
   def capability_meta(:data_source), do: DataSourceBridge.capability_meta()
+
+  @doc """
+  Lists the providers something can be sent to for a given channel kind.
+
+  A provider is offered only when its bridge can actually carry the operation —
+  `send_reply/2` for `:communication`, `create_file/2` for `:data_source`. A
+  provider with no bridge wired, or one whose bridge can only receive, is not a
+  place anything can go, so it is not offered at all.
+
+  `:data_source` always includes `"disk"` (the local ZAQ volume), which needs no
+  channel config to be writable.
+
+  Each entry carries a `status`:
+
+  - `:active` — an enabled config exists, so the provider is usable now;
+  - `:inactive` — a config exists but is switched off. It is still listed so a
+    caller can say "that channel is turned off" rather than "that channel does
+    not exist".
+
+  A provider that has never been configured is **not** listed: this is a menu of
+  channels that exist, not a catalogue of channels that could be set up.
+
+  Listing order carries no precedence: channel operations take an explicit
+  provider, so this is a menu to choose from, not a default to fall back on.
+  """
+  @spec list_providers(:communication | :data_source, keyword()) :: {:ok, map()}
+  def list_providers(kind, opts \\ []) when kind in [:communication, :data_source] do
+    %{config_kind: config_kind, capability: {fun, arity}, always: always} = provider_spec(kind)
+
+    configured =
+      config_kind
+      |> ChannelConfig.list_providers_by_kind()
+      |> Enum.filter(fn {provider, _enabled} ->
+        provider_supports?(provider, fun, arity, opts)
+      end)
+      |> Enum.map(fn {provider, enabled} -> {provider, status(enabled)} end)
+
+    providers =
+      always
+      |> Enum.map(&{&1, :active})
+      |> Kernel.++(configured)
+      |> Enum.uniq_by(&elem(&1, 0))
+      |> Enum.map(fn {provider, status} ->
+        %{provider: provider, label: ProviderCatalog.label(provider), status: status}
+      end)
+
+    {:ok, %{providers: providers}}
+  end
+
+  defp status(true), do: :active
+  defp status(false), do: :inactive
+
+  # `config_kind` is the `ChannelConfig` kind backing the channel kind — a
+  # communication provider is configured as `:retrieval`.
+  defp provider_spec(:communication),
+    do: %{config_kind: :retrieval, capability: {:send_reply, 2}, always: []}
+
+  defp provider_spec(:data_source),
+    do: %{config_kind: :data_source, capability: {:create_file, 2}, always: [@disk_provider]}
+
+  defp provider_supports?(provider, fun, arity, opts) do
+    case resolve_bridge(provider, opts) do
+      {:ok, bridge} -> bridge_supports?(bridge, fun, arity)
+      {:error, _reason} -> false
+    end
+  end
 
   defp fallback_sync_provider_runtime(config) do
     if config.enabled do
