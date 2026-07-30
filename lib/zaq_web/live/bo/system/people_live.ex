@@ -7,14 +7,19 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Accounts.Team
+  alias Zaq.Channels.{AgentRouting, ChannelConfig, RetrievalChannel}
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
+  alias Zaq.Repo
+  alias Zaq.Utils.ParseUtils
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Components.DesignSystem.EmptyState
   alias ZaqWeb.Components.DesignSystem.SimplePagination
   alias ZaqWeb.Components.DesignSystem.Toggle, as: DSToggle
   alias ZaqWeb.Helpers.Timezone
+  alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
   alias ZaqWeb.Live.BO.System.PeopleTable
   alias ZaqWeb.Live.BO.System.TeamsTable
 
@@ -48,6 +53,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:page, 1)
       |> assign(:per_page, 20)
       |> assign(:total_count, 0)
+      |> assign(:agent_options, AgentRoutingOptions.agent_options())
 
     {:ok, socket |> refresh_teams() |> refresh_people()}
   end
@@ -415,21 +421,25 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       end
 
     case result do
-      {:ok, _person} ->
+      {:ok, person} ->
+        routing_result = maybe_persist_person_global_rule(person, attrs)
+
         selected =
           if socket.assigns.selected_person do
             fetch_person_with_channels!(socket.assigns.selected_person.id)
           end
 
-        {:noreply,
-         socket
-         |> assign(:selected_person, selected)
-         |> assign(:person_channels, if(selected, do: selected.channels, else: []))
-         |> assign(:modal, nil)
-         |> assign(:modal_entity, nil)
-         |> assign(:modal_changeset, nil)
-         |> assign(:modal_errors, [])
-         |> refresh_people()}
+        socket =
+          socket
+          |> assign(:selected_person, selected)
+          |> assign(:person_channels, if(selected, do: selected.channels, else: []))
+          |> assign(:modal, nil)
+          |> assign(:modal_entity, nil)
+          |> assign(:modal_changeset, nil)
+          |> assign(:modal_errors, [])
+          |> refresh_people()
+
+        {:noreply, maybe_put_routing_error(socket, routing_result)}
 
       {:error, changeset} ->
         {:noreply, assign(socket, :modal_changeset, changeset)}
@@ -455,17 +465,20 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
     case result do
       {:ok, _channel} ->
+        routing_result = maybe_persist_channel_routing_rules(person_id, attrs)
         person = fetch_person_with_channels!(person_id)
 
-        {:noreply,
-         socket
-         |> assign(:selected_person, person)
-         |> assign(:person_channels, person.channels)
-         |> assign(:modal, nil)
-         |> assign(:modal_entity, nil)
-         |> assign(:modal_changeset, nil)
-         |> assign(:modal_errors, [])
-         |> refresh_people()}
+        socket =
+          socket
+          |> assign(:selected_person, person)
+          |> assign(:person_channels, person.channels)
+          |> assign(:modal, nil)
+          |> assign(:modal_entity, nil)
+          |> assign(:modal_changeset, nil)
+          |> assign(:modal_errors, [])
+          |> refresh_people()
+
+        {:noreply, maybe_put_routing_error(socket, routing_result)}
 
       {:error, changeset} ->
         {:noreply, assign(socket, :modal_changeset, changeset)}
@@ -754,6 +767,211 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     |> Map.get(:response)
   end
 
+  defp dispatch_engine(action, request) do
+    request
+    |> Event.new(:engine, opts: [action: action])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
+  defp maybe_persist_person_global_rule(%Person{id: person_id}, %{"routing_agent_id" => raw_id}) do
+    with {:ok, choice} <- AgentRouting.validate_choice(raw_id) do
+      %{person_id: person_id}
+      |> AgentRouting.rule_attrs(choice)
+      |> then(&dispatch_routing_rules([&1]))
+    end
+  end
+
+  defp maybe_persist_person_global_rule(_person, _attrs), do: {:ok, :skipped}
+
+  defp maybe_persist_channel_routing_rules(person_id, attrs) do
+    attrs
+    |> channel_routing_rules(person_id)
+    |> case do
+      {:ok, []} -> {:ok, :skipped}
+      {:ok, rules} -> dispatch_routing_rules(rules)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp channel_routing_rules(attrs, person_id) do
+    with {:ok, provider_rules} <- provider_routing_rules(attrs, person_id),
+         {:ok, retrieval_rules} <- retrieval_routing_rules(attrs, person_id),
+         {:ok, topic_rules} <- topic_routing_rules(attrs, person_id) do
+      {:ok, provider_rules ++ retrieval_rules ++ topic_rules}
+    end
+  end
+
+  defp provider_routing_rules(%{"provider_agent_ids" => agent_ids}, person_id)
+       when is_map(agent_ids) do
+    reduce_choice_map(agent_ids, fn config_id, choice ->
+      with {:ok, id} <- ParseUtils.parse_int_strict(config_id) do
+        {:ok, AgentRouting.rule_attrs(%{person_id: person_id, channel_config_id: id}, choice)}
+      end
+    end)
+  end
+
+  defp provider_routing_rules(_attrs, _person_id), do: {:ok, []}
+
+  defp retrieval_routing_rules(%{"retrieval_agent_ids" => agent_ids}, person_id)
+       when is_map(agent_ids) do
+    reduce_choice_map(agent_ids, fn retrieval_channel_id, choice ->
+      with {:ok, id} <- ParseUtils.parse_int_strict(retrieval_channel_id),
+           %RetrievalChannel{} = retrieval_channel <- Repo.get(RetrievalChannel, id) do
+        {:ok,
+         AgentRouting.rule_attrs(
+           %{
+             person_id: person_id,
+             channel_config_id: retrieval_channel.channel_config_id,
+             retrieval_channel_id: retrieval_channel.id
+           },
+           choice
+         )}
+      else
+        _ -> {:error, :invalid_retrieval_channel}
+      end
+    end)
+  end
+
+  defp retrieval_routing_rules(_attrs, _person_id), do: {:ok, []}
+
+  defp topic_routing_rules(%{"topic_agent_ids" => agent_ids}, person_id) when is_map(agent_ids) do
+    agent_ids
+    |> Enum.reduce_while({:ok, []}, fn {config_id, mailbox_choices}, {:ok, acc} ->
+      with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
+           true <- is_map(mailbox_choices),
+           {:ok, rules} <- topic_config_routing_rules(id, mailbox_choices, person_id) do
+        {:cont, {:ok, acc ++ rules}}
+      else
+        _ -> {:halt, {:error, :invalid_topic_rule}}
+      end
+    end)
+  end
+
+  defp topic_routing_rules(_attrs, _person_id), do: {:ok, []}
+
+  defp topic_config_routing_rules(config_id, mailbox_choices, person_id) do
+    reduce_choice_map(mailbox_choices, fn mailbox, choice ->
+      {:ok,
+       AgentRouting.rule_attrs(
+         %{person_id: person_id, channel_config_id: config_id, topic_id: mailbox},
+         choice
+       )}
+    end)
+  end
+
+  defp reduce_choice_map(choice_map, build_rule) do
+    Enum.reduce_while(choice_map, {:ok, []}, fn {key, raw_id}, {:ok, acc} ->
+      with {:ok, choice} <- AgentRouting.validate_choice(raw_id),
+           {:ok, rule} <- build_rule.(key, choice) do
+        {:cont, {:ok, [rule | acc]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+        _ -> {:halt, {:error, :invalid_routing_choice}}
+      end
+    end)
+    |> case do
+      {:ok, rules} -> {:ok, Enum.reverse(rules)}
+      error -> error
+    end
+  end
+
+  defp dispatch_routing_rules(rules),
+    do: dispatch_engine(:upsert_incoming_message_routing_rules, %{rules: rules})
+
+  defp maybe_put_routing_error(socket, {:ok, _result}), do: socket
+
+  defp maybe_put_routing_error(socket, {:error, reason}),
+    do: put_flash(socket, :error, "Routing rule save failed: #{inspect(reason)}")
+
+  defp person_global_agent_value(nil), do: ""
+
+  defp person_global_agent_value(%Person{id: person_id}) do
+    %{person_id: person_id}
+    |> IncomingMessageRouting.get_rule()
+    |> routing_rule_select_value()
+  end
+
+  defp person_provider_agent_value(nil, _config), do: ""
+
+  defp person_provider_agent_value(%Person{id: person_id}, %ChannelConfig{} = config) do
+    %{person_id: person_id, channel_config_id: config.id}
+    |> IncomingMessageRouting.get_rule()
+    |> routing_rule_select_value()
+  end
+
+  defp person_retrieval_agent_value(nil, _retrieval_channel), do: ""
+
+  defp person_retrieval_agent_value(
+         %Person{id: person_id},
+         %RetrievalChannel{} = retrieval_channel
+       ) do
+    %{
+      person_id: person_id,
+      channel_config_id: retrieval_channel.channel_config_id,
+      retrieval_channel_id: retrieval_channel.id
+    }
+    |> IncomingMessageRouting.get_rule()
+    |> routing_rule_select_value()
+  end
+
+  defp person_topic_agent_value(nil, _config, _mailbox), do: ""
+
+  defp person_topic_agent_value(%Person{id: person_id}, %ChannelConfig{} = config, mailbox) do
+    %{person_id: person_id, channel_config_id: config.id, topic_id: mailbox}
+    |> IncomingMessageRouting.get_rule()
+    |> routing_rule_select_value()
+  end
+
+  defp routing_rule_select_value(%{routing_mode: :none}), do: AgentRouting.none_value()
+
+  defp routing_rule_select_value(%{
+         routing_mode: :agent,
+         configured_agent_id: configured_agent_id
+       }),
+       do: AgentRouting.select_value(configured_agent_id)
+
+  defp routing_rule_select_value(_rule), do: ""
+
+  defp routing_choice_label("", _agent_options), do: "Default"
+
+  defp routing_choice_label(value, agent_options) do
+    if value == AgentRouting.none_value(),
+      do: "NONE",
+      else: routing_agent_label(value, agent_options)
+  end
+
+  defp routing_agent_label(value, agent_options) do
+    Enum.find_value(agent_options, "Agent #{value}", fn {label, option_value} ->
+      if to_string(option_value) == to_string(value), do: label
+    end)
+  end
+
+  defp routing_select_options(agent_options), do: [{"Default", ""} | agent_options]
+
+  defp person_channel_routing_configs(%PersonChannel{platform: platform}) do
+    routing_configs_for_platform(platform)
+  end
+
+  defp person_channel_routing_configs(_channel), do: []
+
+  defp routing_configs_for_platform(platform) do
+    platform
+    |> ChannelConfig.list_incoming_routing_configs_for_platform()
+    |> Enum.map(fn config ->
+      %{
+        config: config,
+        retrieval_channels: RetrievalChannel.list_by_config(config.id),
+        mailboxes: mailbox_routing_targets(config)
+      }
+    end)
+  end
+
+  defp mailbox_routing_targets(%ChannelConfig{provider: "email:imap"} = config),
+    do: ChannelConfig.imap_selected_mailboxes(config)
+
+  defp mailbox_routing_targets(_config), do: []
+
   defp fetch_person_with_channels(id) do
     case people_command(:get_with_channels, %{id: id}) do
       {:ok, person} -> person
@@ -996,6 +1214,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               >
                 incomplete
               </span>
+              <% global_routing_value = person_global_agent_value(@selected_person) %>
+              <span
+                id="person-global-routing-badge"
+                class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded zaq-bg-accent-soft zaq-text-accent border border-[var(--zaq-color-accent)]"
+              >
+                routes: {routing_choice_label(global_routing_value, @agent_options)}
+              </span>
             </div>
           </div>
           <div>
@@ -1139,6 +1364,35 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
                   |> Timezone.shift()
                   |> Calendar.strftime("%Y-%m-%d %H:%M")}
                 </p>
+                <div
+                  :for={routing <- person_channel_routing_configs(channel)}
+                  class="mt-2 rounded-lg border border-black/6 bg-white px-2.5 py-2"
+                >
+                  <p class="font-mono text-[0.62rem] text-black/45 truncate">
+                    {routing.config.name} ({routing.config.provider}) · provider route: {routing_choice_label(
+                      person_provider_agent_value(@selected_person, routing.config),
+                      @agent_options
+                    )}
+                  </p>
+                  <p
+                    :for={retrieval_channel <- routing.retrieval_channels}
+                    class="font-mono text-[0.6rem] text-black/35 truncate mt-1"
+                  >
+                    #{retrieval_channel.channel_name}: {routing_choice_label(
+                      person_retrieval_agent_value(@selected_person, retrieval_channel),
+                      @agent_options
+                    )}
+                  </p>
+                  <p
+                    :for={mailbox <- routing.mailboxes}
+                    class="font-mono text-[0.6rem] text-black/35 truncate mt-1"
+                  >
+                    mailbox {mailbox}: {routing_choice_label(
+                      person_topic_agent_value(@selected_person, routing.config, mailbox),
+                      @agent_options
+                    )}
+                  </p>
+                </div>
               </div>
               <span
                 :if={idx == 0}
@@ -1260,8 +1514,18 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             </svg>
           </button>
         </div>
-        <.person_form :if={@modal_entity == :person} modal_changeset={@modal_changeset} />
-        <.channel_form :if={@modal_entity == :channel} modal_changeset={@modal_changeset} />
+        <.person_form
+          :if={@modal_entity == :person}
+          modal={@modal}
+          modal_changeset={@modal_changeset}
+          agent_options={@agent_options}
+        />
+        <.channel_form
+          :if={@modal_entity == :channel}
+          modal_changeset={@modal_changeset}
+          selected_person={@selected_person}
+          agent_options={@agent_options}
+        />
         <.merge_form
           :if={@modal == :merge}
           merge_survivor={@merge_survivor}
@@ -1358,6 +1622,27 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             </option>
           </select>
         </div>
+        <div :if={@modal == :edit}>
+          <label class="block font-mono text-[0.7rem] text-black/50 mb-1.5">
+            Incoming routing
+          </label>
+          <select
+            id="person-global-routing-select"
+            name="person[routing_agent_id]"
+            class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
+          >
+            <option
+              :for={{label, value} <- routing_select_options(@agent_options)}
+              value={value}
+              selected={person_global_agent_value(@modal_changeset.data) == to_string(value)}
+            >
+              {label}
+            </option>
+          </select>
+          <p class="font-mono text-[0.65rem] text-black/35 mt-1">
+            Overrides the default incoming-message route for this person.
+          </p>
+        </div>
         <div class="flex justify-end gap-2 pt-2">
           <button
             type="button"
@@ -1391,6 +1676,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> Phoenix.HTML.raw()
 
     assigns = assign(assigns, :platform_options, platform_options)
+    assigns = assign(assigns, :routing_configs, routing_configs_for_platform(current))
 
     ~H"""
     <div class="px-6 py-5">
@@ -1446,6 +1732,81 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-black/[0.02] focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
             placeholder="Mattermost DM channel ID"
           />
+        </div>
+        <div
+          :if={@selected_person && @routing_configs != []}
+          class="space-y-3 rounded-xl border border-black/8 bg-black/[0.015] px-3 py-3"
+        >
+          <div>
+            <p class="font-mono text-[0.7rem] text-black/50">Incoming routing</p>
+            <p class="font-mono text-[0.65rem] text-black/35 mt-0.5">
+              Person-specific overrides for matching receiving configs.
+            </p>
+          </div>
+          <div :for={routing <- @routing_configs} class="space-y-2">
+            <div>
+              <label class="block font-mono text-[0.65rem] text-black/45 mb-1">
+                {routing.config.name} ({routing.config.provider})
+              </label>
+              <select
+                id={"person-provider-routing-select-#{routing.config.id}"}
+                name={"channel[provider_agent_ids][#{routing.config.id}]"}
+                class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
+              >
+                <option
+                  :for={{label, value} <- routing_select_options(@agent_options)}
+                  value={value}
+                  selected={
+                    person_provider_agent_value(@selected_person, routing.config) == to_string(value)
+                  }
+                >
+                  {label}
+                </option>
+              </select>
+            </div>
+            <div :for={retrieval_channel <- routing.retrieval_channels}>
+              <label class="block font-mono text-[0.65rem] text-black/45 mb-1">
+                #{retrieval_channel.channel_name}
+              </label>
+              <select
+                id={"person-retrieval-routing-select-#{retrieval_channel.id}"}
+                name={"channel[retrieval_agent_ids][#{retrieval_channel.id}]"}
+                class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
+              >
+                <option
+                  :for={{label, value} <- routing_select_options(@agent_options)}
+                  value={value}
+                  selected={
+                    person_retrieval_agent_value(@selected_person, retrieval_channel) ==
+                      to_string(value)
+                  }
+                >
+                  {label}
+                </option>
+              </select>
+            </div>
+            <div :for={mailbox <- routing.mailboxes}>
+              <label class="block font-mono text-[0.65rem] text-black/45 mb-1">
+                mailbox {mailbox}
+              </label>
+              <select
+                id={"person-topic-routing-select-#{routing.config.id}-#{Base.url_encode64(mailbox, padding: false)}"}
+                name={"channel[topic_agent_ids][#{routing.config.id}][#{mailbox}]"}
+                class="w-full font-mono text-black text-sm px-3 py-2 rounded-lg border border-black/15 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--zaq-color-accent-border)]"
+              >
+                <option
+                  :for={{label, value} <- routing_select_options(@agent_options)}
+                  value={value}
+                  selected={
+                    person_topic_agent_value(@selected_person, routing.config, mailbox) ==
+                      to_string(value)
+                  }
+                >
+                  {label}
+                </option>
+              </select>
+            </div>
+          </div>
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button

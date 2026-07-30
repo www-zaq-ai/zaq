@@ -366,6 +366,23 @@ defmodule Zaq.Channels.ChannelConfigTest do
     refute "email:imap" in result_providers
   end
 
+  test "list_incoming_routing_configs_for_platform/1 maps email to enabled imap config only" do
+    assert {:ok, _smtp} =
+             ChannelConfig.upsert_by_provider("email:smtp", %{
+               name: "Email SMTP",
+               kind: "retrieval",
+               enabled: true,
+               settings: %{"relay" => "smtp.example.com", "port" => "587"}
+             })
+
+    imap = upsert_imap_config(enabled: true, mailbox: "INBOX")
+
+    result = ChannelConfig.list_incoming_routing_configs_for_platform("email")
+
+    assert Enum.map(result, & &1.id) == [imap.id]
+    assert Enum.map(result, & &1.provider) == ["email:imap"]
+  end
+
   test "get_by_provider/1 ignores disabled configs" do
     _disabled = insert_channel_config(%{provider: "mattermost", enabled: false})
     enabled = insert_channel_config(%{provider: "slack", enabled: true})

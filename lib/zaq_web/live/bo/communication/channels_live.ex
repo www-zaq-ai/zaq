@@ -909,10 +909,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       |> AgentRouting.select_value()
 
   defp provider_rule(%ChannelConfig{} = config, configured_agent_id),
-    do: routing_rule(%{channel_config_id: config.id}, configured_agent_id)
+    do: AgentRouting.rule_attrs(%{channel_config_id: config.id}, configured_agent_id)
 
   defp retrieval_channel_rule(%RetChannel{} = retrieval_channel, configured_agent_id) do
-    routing_rule(
+    AgentRouting.rule_attrs(
       %{
         channel_config_id: retrieval_channel.channel_config_id,
         retrieval_channel_id: retrieval_channel.id
@@ -920,12 +920,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       configured_agent_id
     )
   end
-
-  defp routing_rule(scope, :none), do: Map.put(scope, :routing_mode, :none)
-  defp routing_rule(scope, nil), do: Map.put(scope, :routing_mode, :clear)
-
-  defp routing_rule(scope, configured_agent_id),
-    do: Map.merge(scope, %{routing_mode: :agent, configured_agent_id: configured_agent_id})
 
   defp upsert_incoming_routing_rule(rule),
     do: dispatch_engine(:upsert_incoming_message_routing_rules, %{rules: [rule]})

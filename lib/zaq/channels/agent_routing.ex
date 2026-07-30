@@ -46,6 +46,15 @@ defmodule Zaq.Channels.AgentRouting do
     end
   end
 
+  @doc "Builds incoming routing rule attrs for a scope and validated agent choice."
+  @spec rule_attrs(map(), nil | :none | integer()) :: map()
+  def rule_attrs(scope, :none) when is_map(scope), do: Map.put(scope, :routing_mode, :none)
+  def rule_attrs(scope, nil) when is_map(scope), do: Map.put(scope, :routing_mode, :clear)
+
+  def rule_attrs(scope, configured_agent_id) when is_map(scope) do
+    Map.merge(scope, %{routing_mode: :agent, configured_agent_id: configured_agent_id})
+  end
+
   @doc "Returns first effective agent selection from ordered candidates."
   @spec resolve_selection([{atom(), term()}], module()) :: {:ok, map() | :none | nil}
   def resolve_selection(candidates, agent_module \\ Agent)

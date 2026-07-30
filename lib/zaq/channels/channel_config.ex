@@ -240,6 +240,24 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Zaq.Repo.all()
   end
 
+  @doc "Returns enabled receiving channel configs that can route incoming messages for a person channel platform."
+  def list_incoming_routing_configs_for_platform(platform) when is_binary(platform) do
+    :retrieval
+    |> list_enabled_by_kind([platform])
+    |> Enum.filter(&incoming_routing_config_for_platform?(&1, platform))
+  end
+
+  def list_incoming_routing_configs_for_platform(_platform), do: []
+
+  defp incoming_routing_config_for_platform?(%__MODULE__{provider: @imap_provider}, "email"),
+    do: true
+
+  defp incoming_routing_config_for_platform?(%__MODULE__{provider: @smtp_provider}, "email"),
+    do: false
+
+  defp incoming_routing_config_for_platform?(%__MODULE__{provider: provider}, platform),
+    do: provider == platform
+
   defp normalize_filter_providers(providers) when is_list(providers) do
     providers
     |> Enum.map(&to_string/1)

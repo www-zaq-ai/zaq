@@ -97,6 +97,9 @@ BO routing writes for global defaults, provider defaults, retrieval-channel assi
 and IMAP mailbox rules dispatch to Engine action `:upsert_incoming_message_routing_rules`.
 The registered tool `message.upsert_incoming_routing_rules` uses the same Engine dispatch
 path for agents and workflows. IMAP mailbox saves use the action's batch `rules` input.
+The People BO page uses the same action for person-scoped global, provider,
+retrieval-channel, and IMAP mailbox routing overrides; email person channels map to
+the receiving `email:imap` config, not `email:smtp` delivery config.
 
 ### `Zaq.Engine.Messages.Outgoing`
 

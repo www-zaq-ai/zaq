@@ -3,11 +3,17 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
 
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
+  import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Channels.AgentRouting
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
+  alias Zaq.Repo
 
   setup %{conn: conn} do
     user = admin_fixture(%{username: "people_live_admin_#{System.unique_integer([:positive])}"})
@@ -347,6 +353,171 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     |> render_submit()
 
     assert render(view) =~ channel_identifier
+  end
+
+  test "edit person modal saves person-scoped global routing", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Routed Person"})
+    agent = create_conversation_agent(true, "people-global")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    view
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='person'][phx-value-id='#{person.id}']"
+    )
+    |> render_click()
+
+    assert has_element?(view, "#person-global-routing-select")
+
+    view
+    |> form("#person-modal-form", %{
+      "person" => %{
+        "full_name" => "Routed Person",
+        "routing_agent_id" => to_string(agent.id)
+      }
+    })
+    |> render_submit()
+
+    assert IncomingMessageRouting.get_rule(%{person_id: person.id}).configured_agent_id ==
+             agent.id
+
+    assert render(view) =~ "routes:"
+  end
+
+  test "channel edit modal saves person provider and retrieval routing", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Channel Routed"})
+
+    channel =
+      channel_fixture(person, %{"platform" => "slack", "channel_identifier" => "@routing"})
+
+    config = insert_channel_config(%{provider: "slack", name: "Slack Workspace"})
+
+    retrieval =
+      insert_retrieval_channel(config, %{channel_name: "support", channel_id: "support-1"})
+
+    provider_agent = create_conversation_agent(true, "people-provider")
+    retrieval_agent = create_conversation_agent(true, "people-retrieval")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    assert render(view) =~ "Slack Workspace"
+
+    view
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='channel'][phx-value-id='#{channel.id}']"
+    )
+    |> render_click()
+
+    assert has_element?(view, "#person-provider-routing-select-#{config.id}")
+    assert has_element?(view, "#person-retrieval-routing-select-#{retrieval.id}")
+
+    view
+    |> form("#channel-modal-form", %{
+      "channel" => %{
+        "platform" => "slack",
+        "channel_identifier" => "@routing",
+        "provider_agent_ids" => %{to_string(config.id) => to_string(provider_agent.id)},
+        "retrieval_agent_ids" => %{to_string(retrieval.id) => to_string(retrieval_agent.id)}
+      }
+    })
+    |> render_submit()
+
+    assert IncomingMessageRouting.get_rule(%{
+             person_id: person.id,
+             channel_config_id: config.id
+           }).configured_agent_id == provider_agent.id
+
+    assert IncomingMessageRouting.get_rule(%{
+             person_id: person.id,
+             channel_config_id: config.id,
+             retrieval_channel_id: retrieval.id
+           }).configured_agent_id == retrieval_agent.id
+  end
+
+  test "email person channel uses imap receiving config and saves mailbox routing", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Email Routed"})
+
+    channel_fixture(person, %{"platform" => "email", "channel_identifier" => "routed@example.com"})
+
+    assert {:ok, _smtp} =
+             ChannelConfig.upsert_by_provider("email:smtp", %{
+               name: "Email SMTP",
+               kind: "retrieval",
+               enabled: true,
+               settings: %{"relay" => "smtp.example.com", "port" => "587"}
+             })
+
+    assert {:ok, imap} =
+             ChannelConfig.upsert_by_provider("email:imap", %{
+               name: "Email IMAP",
+               kind: "retrieval",
+               enabled: true,
+               url: "imap.example.com",
+               token: "imap-token",
+               settings: %{"imap" => %{"selected_mailboxes" => ["INBOX", "Support"]}}
+             })
+
+    agent = create_conversation_agent(true, "people-mailbox")
+
+    {:ok, view, _html} = live(conn, ~p"/bo/people")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{person.id}']")
+    |> render_click()
+
+    html = render(view)
+    assert html =~ "Email IMAP"
+    refute html =~ "Email SMTP"
+    assert html =~ "mailbox INBOX"
+
+    channel =
+      person.id
+      |> People.get_person_with_channels!()
+      |> Map.fetch!(:channels)
+      |> Enum.find(&(&1.channel_identifier == "routed@example.com"))
+
+    view
+    |> element(
+      "[phx-click='open_modal'][phx-value-action='edit'][phx-value-entity='channel'][phx-value-id='#{channel.id}']"
+    )
+    |> render_click()
+
+    assert has_element?(view, "#person-topic-routing-select-#{imap.id}-SU5CT1g")
+
+    view
+    |> form("#channel-modal-form", %{
+      "channel" => %{
+        "platform" => "email",
+        "channel_identifier" => "routed@example.com",
+        "topic_agent_ids" => %{
+          to_string(imap.id) => %{
+            "INBOX" => AgentRouting.none_value(),
+            "Support" => to_string(agent.id)
+          }
+        }
+      }
+    })
+    |> render_submit()
+
+    assert IncomingMessageRouting.get_rule(%{
+             person_id: person.id,
+             channel_config_id: imap.id,
+             topic_id: "INBOX"
+           }).routing_mode == :none
+
+    assert IncomingMessageRouting.get_rule(%{
+             person_id: person.id,
+             channel_config_id: imap.id,
+             topic_id: "Support"
+           }).configured_agent_id == agent.id
   end
 
   # ── Teams tab ─────────────────────────────────────────────────────────────
@@ -1190,5 +1361,64 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     state = :sys.get_state(view.pid)
     assert state.socket.assigns.active_tab == :people
     assert state.socket.assigns.selected_person == nil
+  end
+
+  defp insert_channel_config(attrs) do
+    params =
+      %{
+        name: "Mattermost Main",
+        provider: "mattermost",
+        kind: "retrieval",
+        url: "https://mattermost.local",
+        token: "test-token",
+        enabled: true
+      }
+      |> Map.merge(attrs)
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(params)
+    |> Repo.insert!()
+  end
+
+  defp insert_retrieval_channel(config, attrs) do
+    params =
+      %{
+        channel_config_id: config.id,
+        channel_id: "channel-#{System.unique_integer([:positive])}",
+        channel_name: "engineering",
+        team_id: "team-1",
+        team_name: "Platform",
+        active: true
+      }
+      |> Map.merge(attrs)
+
+    %RetrievalChannel{}
+    |> RetrievalChannel.changeset(params)
+    |> Repo.insert!()
+  end
+
+  defp create_conversation_agent(conversation_enabled, name_suffix) do
+    credential =
+      ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "x"
+      })
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "People #{name_suffix} #{System.unique_integer([:positive])}",
+        description: "test",
+        job: "You are a test agent",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: conversation_enabled,
+        active: true,
+        advanced_options: %{}
+      })
+
+    agent
   end
 end
