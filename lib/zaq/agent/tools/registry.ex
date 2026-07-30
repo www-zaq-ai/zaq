@@ -57,6 +57,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.People.EnsurePerson
     },
     %{
+      key: "resources.query",
+      label: "Query resources",
+      description:
+        "Query allowlisted ZAQ resources: agent, mcp, skill, user, person, ai_provider, incoming_message_routing_rule. Supports describe, get, search, filters, sorting, and pagination.",
+      module: Zaq.Agent.Tools.Resources.QueryResources
+    },
+    %{
       key: "data_source.get_document",
       label: "Get document",
       description: "Get a document by id from a specific datasource provider",
