@@ -107,6 +107,30 @@ defmodule Zaq.Engine.Workflows.BatchFieldTest.TwoMaps do
   def run(_, _), do: {:ok, %{out: true}}
 end
 
+defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiList do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_required_zoi_list",
+    schema: Zoi.object(%{items: Zoi.list(Zoi.map())}),
+    output_schema: Zoi.object(%{out: Zoi.any()})
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiString do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_required_zoi_string",
+    schema: Zoi.object(%{name: Zoi.string()}),
+    output_schema: Zoi.object(%{out: Zoi.any()})
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
 defmodule Zaq.Engine.Workflows.ActionTest do
   use ExUnit.Case, async: true
 
@@ -120,6 +144,8 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     RequiredMap,
     RequiredParamList,
     RequiredString,
+    RequiredZoiList,
+    RequiredZoiString,
     TwoLists,
     TwoMaps
   }
@@ -143,6 +169,14 @@ defmodule Zaq.Engine.Workflows.ActionTest do
 
     test "one required :list + one required :map → list wins unambiguously" do
       assert {:ok, {:items, :list}} = Action.batch_field(ListAndMap)
+    end
+
+    test "one required Zoi list field → {:ok, {field, :list}}" do
+      assert {:ok, {:items, :list}} = Action.batch_field(RequiredZoiList)
+    end
+
+    test "one required Zoi non-list field → {:ok, {field, :item}}" do
+      assert {:ok, {:name, :item}} = Action.batch_field(RequiredZoiString)
     end
 
     test "zero required fields → {:error, {:no_batch_field, module}}" do

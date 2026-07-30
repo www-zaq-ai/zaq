@@ -1,7 +1,7 @@
 defmodule Zaq.Agent.Tools.RegistryTest do
   use ExUnit.Case, async: false
 
-  alias Jido.Action.Tool
+  alias Jido.Action.Schema
   alias Zaq.Agent.Tools.Registry
 
   test "tools returns expected whitelisted tool descriptors" do
@@ -13,6 +13,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "answering.knowledge_base_overview",
              "conversation.persist_message_history",
              "message.upsert_incoming_routing_rules",
+             "people.ensure_person",
              "data_source.get_document",
              "data_source.list_documents",
              "data_source.search_documents",
@@ -59,36 +60,28 @@ defmodule Zaq.Agent.Tools.RegistryTest do
   end
 
   test "every registered tool has valid param and output schemas" do
-    # The tool-exec paths build runtime schemas from these declarations. Load
-    # modules before checking exports so this test is deterministic regardless
-    # of test order.
+    # The chat tool-exec path validates through Jido.Action.Schema, which supports
+    # both legacy NimbleOptions and Zoi schemas. Validate the whole catalog here.
     for %{key: key, module: module} <- Registry.tools() do
       Code.ensure_loaded!(module)
 
       if function_exported?(module, :schema, 0) do
-        assert_valid_tool_schema!(module.schema(), key, :schema)
+        schema = module.schema()
+
+        assert :ok = Schema.validate_config_schema(schema), "invalid schema: #{key}"
+        assert is_map(Schema.to_json_schema(schema)), "invalid JSON schema: #{key}"
       end
 
       if function_exported?(module, :output_schema, 0) do
-        assert_valid_tool_schema!(module.output_schema(), key, :output_schema)
+        output_schema = module.output_schema()
+
+        assert :ok = Schema.validate_config_schema(output_schema),
+               "invalid output_schema: #{key}"
+
+        assert is_map(Schema.to_json_schema(output_schema)),
+               "invalid output JSON schema: #{key}"
       end
     end
-  end
-
-  defp assert_valid_tool_schema!(schema, key, kind) when is_list(schema) do
-    assert %NimbleOptions{} = NimbleOptions.new!(schema), "invalid #{kind}: #{key}"
-  end
-
-  defp assert_valid_tool_schema!(%{__struct__: module} = schema, key, kind) do
-    if module |> Module.split() |> List.first() == "Zoi" do
-      assert %{} = Tool.build_parameters_schema(schema), "invalid #{kind}: #{key}"
-    else
-      flunk("invalid #{kind}: #{key} returned #{inspect(module)}")
-    end
-  end
-
-  defp assert_valid_tool_schema!(schema, key, kind) do
-    flunk("invalid #{kind}: #{key} returned #{inspect(schema)}")
   end
 
   test "every registered tool module is loadable and runnable" do
@@ -131,6 +124,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              Registry.resolve_modules(["message.upsert_incoming_routing_rules"])
   end
 
+  test "people.ensure_person resolves to the ensure person tool" do
+    assert Registry.valid_tool_key?("people.ensure_person")
+
+    assert {:ok, [Zaq.Agent.Tools.People.EnsurePerson]} =
+             Registry.resolve_modules(["people.ensure_person"])
+  end
+
   test "web.browsing resolves to the browsing tool" do
     assert Registry.valid_tool_key?("web.browsing")
 
@@ -145,6 +145,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "answering.knowledge_base_overview",
              "conversation.persist_message_history",
              "message.upsert_incoming_routing_rules",
+             "people.ensure_person",
              "data_source.get_document",
              "data_source.list_documents",
              "data_source.search_documents",

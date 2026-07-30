@@ -1,6 +1,8 @@
 defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
   use Zaq.DataCase, async: true
 
+  alias Jido.Action.Runtime
+  alias Jido.Action.Schema
   alias Zaq.Accounts.People
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
@@ -11,6 +13,65 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
 
   defmodule FailingPeople do
     def find_or_create_from_channel(_platform, _attrs), do: {:error, :people_down}
+  end
+
+  describe "Jido schemas" do
+    test "params and output schemas are valid Zoi schemas" do
+      assert Schema.schema_type(EnsurePerson.schema()) == :zoi
+      assert Schema.schema_type(EnsurePerson.output_schema()) == :zoi
+      assert :ok = Schema.validate_config_schema(EnsurePerson.schema())
+      assert :ok = Schema.validate_config_schema(EnsurePerson.output_schema())
+    end
+
+    test "runtime param validation preserves passthrough fields" do
+      assert {:ok, params} =
+               Runtime.validate_params(
+                 %{
+                   "company" => "Acme",
+                   platform: "email",
+                   email: "schema@example.com",
+                   row_index: 3
+                 },
+                 EnsurePerson
+               )
+
+      assert params.platform == "email"
+      assert params.email == "schema@example.com"
+      assert params["company"] == "Acme"
+      assert params.row_index == 3
+    end
+
+    test "runtime output validation accepts the action payload shape" do
+      assert {:ok, _output} =
+               Runtime.validate_output(
+                 %{
+                   person: %{
+                     id: 1,
+                     full_name: "Schema Person",
+                     email: "schema@example.com",
+                     phone: nil,
+                     role: "member",
+                     status: "active",
+                     incomplete: false
+                   },
+                   row: %{"email" => "schema@example.com"}
+                 },
+                 EnsurePerson
+               )
+    end
+
+    test "tool schema exposes platform as a required parameter" do
+      tool = EnsurePerson.to_tool()
+
+      assert tool.name == "ensure_person"
+
+      assert get_in(tool.parameters_schema, [:properties, :platform, :type]) in [
+               :string,
+               "string"
+             ]
+
+      assert :platform in Map.get(tool.parameters_schema, :required, [])
+    end
   end
 
   describe "run/2 — email platform, existing person" do

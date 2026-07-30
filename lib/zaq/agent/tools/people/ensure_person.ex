@@ -38,37 +38,36 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   use Zaq.Engine.Workflows.Action,
     name: "ensure_person",
     description: "Find or create a Person from a communication channel identifier.",
-    schema: [
-      platform: [
-        type: :string,
-        required: true,
-        doc: "Channel platform: email, mattermost, slack, etc."
-      ],
-      channel_id: [
-        type: :string,
-        required: false,
-        doc: "Primary channel identifier. Defaults to email when platform is 'email'."
-      ],
-      display_name: [type: :string, required: false, doc: "Person display name for new entries."],
-      email: [
-        type: :string,
-        required: false,
-        doc: "Email address; also used as channel_id for 'email' platform."
-      ],
-      phone: [type: :string, required: false, doc: "Phone number for matching."]
-    ],
-    output_schema: [
-      person: [
-        type: :map,
-        required: true,
-        doc: "Found or created person payload."
-      ],
-      row: [
-        type: :map,
-        required: true,
-        doc: "Input data passed through as string-keyed map for downstream steps."
-      ]
-    ]
+    schema:
+      Zoi.object(
+        %{
+          platform: Zoi.string(description: "Channel platform: email, mattermost, slack, etc."),
+          channel_id:
+            Zoi.string(
+              description:
+                "Primary channel identifier. Defaults to email when platform is 'email'."
+            )
+            |> Zoi.optional(),
+          display_name:
+            Zoi.string(description: "Person display name for new entries.")
+            |> Zoi.optional(),
+          email:
+            Zoi.string(
+              description: "Email address; also used as channel_id for 'email' platform."
+            )
+            |> Zoi.optional(),
+          phone: Zoi.string(description: "Phone number for matching.") |> Zoi.optional()
+        },
+        unrecognized_keys: :preserve
+      ),
+    output_schema:
+      Zoi.object(%{
+        person: Zoi.map(description: "Found or created person payload."),
+        row:
+          Zoi.map(
+            description: "Input data passed through as string-keyed map for downstream steps."
+          )
+      })
 
   require Logger
 

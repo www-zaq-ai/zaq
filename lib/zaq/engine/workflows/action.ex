@@ -72,6 +72,8 @@ defmodule Zaq.Engine.Workflows.Action do
   modules that only `alias` this module (e.g. `StepRunner`).
   """
 
+  alias Zoi.Types.Meta
+
   @doc """
   Turns the calling module into a workflow action.
 
@@ -253,12 +255,28 @@ defmodule Zaq.Engine.Workflows.Action do
   defp detect_batch_field(module) do
     if function_exported?(module, :schema, 0) do
       module.schema()
-      |> Enum.filter(fn {_field, opts} -> opts[:required] == true end)
+      |> required_schema_fields()
       |> classify_batch_fields(module)
     else
       {:error, {:no_batch_field, module}}
     end
   end
+
+  defp required_schema_fields(schema) when is_list(schema) do
+    Enum.filter(schema, fn {_field, opts} -> opts[:required] == true end)
+  end
+
+  defp required_schema_fields(%Zoi.Types.Map{fields: fields}) when is_list(fields) do
+    fields
+    |> Enum.filter(fn {_field, schema} -> Meta.required?(schema.meta) end)
+    |> Enum.map(fn {field, schema} -> {field, [type: zoi_batch_type(schema)]} end)
+  end
+
+  defp required_schema_fields(_schema), do: []
+
+  defp zoi_batch_type(%Zoi.Types.Array{}), do: :list
+  defp zoi_batch_type(%Zoi.Types.Map{}), do: :map
+  defp zoi_batch_type(_schema), do: :any
 
   defp classify_batch_fields(required_fields, module) do
     {list_fields, item_fields} =

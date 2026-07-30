@@ -51,6 +51,12 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Messages.UpsertIncomingRoutingRules
     },
     %{
+      key: "people.ensure_person",
+      label: "Ensure person",
+      description: "Find or create a Person from a communication channel identifier",
+      module: Zaq.Agent.Tools.People.EnsurePerson
+    },
+    %{
       key: "data_source.get_document",
       label: "Get document",
       description: "Get a document by id from a specific datasource provider",
