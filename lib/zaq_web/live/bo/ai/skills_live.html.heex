@@ -333,6 +333,85 @@
       </label>
     </.form>
 
+    <%!-- Resources: reference files stored on an ingestion volume under
+          .agents/skills/{slug}/references/ --%>
+    <div class="zaq-card-default mt-6">
+      <div class="flex items-center justify-between mb-4">
+        <div class="zaq-layout-stack-tight">
+          <p class="zaq-text-h4" style="color: var(--zaq-text-color-body-default)">
+            Resources
+          </p>
+          <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
+            {if @mode == :new,
+              do: "Name the skill to add resources — they upload when you save.",
+              else: "Reference files, stored on an ingestion volume."}
+          </p>
+        </div>
+        <%!-- Hidden until a name exists, because the destination path is derived from
+              it. A disabled button would read as "temporarily off" rather than "not
+              applicable yet". Secondary variant — the drawer footer already owns this
+              drawer's single primary button. --%>
+        <DSButton.button
+          :if={resources_addable?(assigns)}
+          id="add-resource-button"
+          variant={:secondary}
+          type="button"
+          class="shrink-0"
+          phx-click="open_resource_upload"
+        >
+          Add resource
+        </DSButton.button>
+      </div>
+
+      <DSTable.table id="skill-resources-table">
+        <:head>
+          <DSTable.table_head_row>
+            <DSTable.table_cell element={:th}>File</DSTable.table_cell>
+            <DSTable.table_cell element={:th}>Size</DSTable.table_cell>
+            <DSTable.table_cell element={:th}>Modified</DSTable.table_cell>
+          </DSTable.table_head_row>
+        </:head>
+        <:body>
+          <DSTable.table_empty
+            :if={@skill_resources == [] and @uploads.skill_resources.entries == []}
+            colspan={3}
+          >
+            No resources yet.
+          </DSTable.table_empty>
+          <%!-- Staged: uploaded to the server but not yet written to a volume, because
+                the skill has no destination until it is saved. --%>
+          <DSTable.table_row :for={entry <- @uploads.skill_resources.entries}>
+            <DSTable.table_cell>
+              <DSTable.table_text label={entry.client_name} />
+            </DSTable.table_cell>
+            <DSTable.table_cell>
+              <DSTable.table_text
+                label={ZaqWeb.Helpers.SizeFormat.format_size(entry.client_size)}
+                tone={:secondary}
+              />
+            </DSTable.table_cell>
+            <DSTable.table_cell>
+              <span class="zaq-pill zaq-text-caption zaq-pill--elevated">Pending</span>
+            </DSTable.table_cell>
+          </DSTable.table_row>
+          <DSTable.table_row :for={resource <- @skill_resources}>
+            <DSTable.table_cell>
+              <DSTable.table_text label={resource.name} />
+            </DSTable.table_cell>
+            <DSTable.table_cell>
+              <DSTable.table_text
+                label={ZaqWeb.Helpers.SizeFormat.format_size(resource.size)}
+                tone={:secondary}
+              />
+            </DSTable.table_cell>
+            <DSTable.table_cell>
+              <DSTable.table_datetime value={resource.modified_at} />
+            </DSTable.table_cell>
+          </DSTable.table_row>
+        </:body>
+      </DSTable.table>
+    </div>
+
     <:actions>
       <div class={[
         "flex w-full items-center",
@@ -346,7 +425,7 @@
           type="button"
           phx-click="delete_skill"
           phx-value-id={@selected_skill.id}
-          data-confirm="Delete this skill? Agents using it will lose its tools and instructions."
+          data-confirm="Delete this skill? Agents using it will lose its tools and instructions, and its uploaded resources will be removed from the volume."
         >
           Delete Skill
         </DSButton.button>
@@ -371,6 +450,18 @@
       </div>
     </:actions>
   </Drawer.form_drawer>
+
+  <ZaqWeb.Components.DesignSystem.ModalSkillResources.modal_skill_resources
+    :if={@resource_modal == :upload}
+    uploads={@uploads}
+    volumes={@volumes}
+    current_volume={@resource_volume}
+    destination={resource_destination(assigns)}
+  />
+
+  <ZaqWeb.Components.DesignSystem.ModalNoVolume.modal_no_volume :if={
+    @resource_modal == :no_volume
+  } />
 
   <ZaqWeb.Components.BOModal.modal_shell
     :if={@tools_picker_open}

@@ -271,6 +271,55 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     end
   end
 
+  describe "volumes_configured?/0" do
+    test "is false when no volumes key is configured" do
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
+
+      refute FileExplorer.volumes_configured?()
+    end
+
+    test "is false when the volumes map is configured but empty" do
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base, volumes: %{})
+
+      refute FileExplorer.volumes_configured?()
+    end
+
+    test "is false when base_path is set but no volumes are" do
+      base = Path.join(@test_base, "only_base")
+      File.mkdir_p!(base)
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: base)
+
+      # `list_volumes/0` still synthesizes a "default" volume here — that synthesized
+      # entry must NOT be read as "a volume is connected".
+      assert FileExplorer.list_volumes() == %{"default" => Path.expand(base)}
+      refute FileExplorer.volumes_configured?()
+    end
+
+    test "is true with a single configured volume" do
+      vol = Path.join(@test_base, "vol_one")
+      File.mkdir_p!(vol)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
+
+      assert FileExplorer.volumes_configured?()
+    end
+
+    test "is true with several configured volumes" do
+      vol_a = Path.join(@test_base, "vol_many_a")
+      vol_b = Path.join(@test_base, "vol_many_b")
+      File.mkdir_p!(vol_a)
+      File.mkdir_p!(vol_b)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol_a, "archives" => vol_b})
+
+      assert FileExplorer.volumes_configured?()
+    end
+
+    test "is false when the ingestion config is absent entirely" do
+      Application.delete_env(:zaq, Zaq.Ingestion)
+
+      refute FileExplorer.volumes_configured?()
+    end
+  end
+
   describe "resolve_path/2 (volume-aware)" do
     setup do
       vol = Path.join(@test_base, "vol_resolve")

@@ -236,6 +236,64 @@ assembly only. Set it `false` to restore the eager renderer (`effective_system_p
 - **MCP endpoints stay eagerly provisioned** at attach time, not at activation (Part 2 M6 weighs
   lazy connection on telemetry).
 
+### Skill resources (`Zaq.Agent.Skill.Resources`)
+
+Pure path derivation for a skill's reference files. Files live on an **ingestion volume**
+under `.agents/skills/{slug}/references/`, so they appear in the BO ingestion browser like
+any other ingested file — there is no separate storage mechanism.
+
+- `default_root/1` — `.agents/skills/{slug}` derived from `Skill.name`
+- `root/1` — the skill's effective root: the stored `resource_root` when present and safe,
+  else `default_root/1`. This is the directory removed on skill deletion
+- `references_dir/1` — `{root}/references`, where uploads land
+- `destination/2` — `{references_dir}/{basename}`; the client filename is reduced to a bare
+  basename so directory components and traversal segments cannot survive
+- `slug/1` — defensive normaliser; identity for any persisted skill, since Jido already
+  constrains `name` to `~r/^[a-z0-9]+(-[a-z0-9]+)*$/`
+
+**The module never touches the filesystem.** It derives path *strings* only; resolution and
+the authoritative containment check belong to the `:ingestion` role, the only node
+guaranteed to have the volume mounted. The sanitising here is a shape guard, not a security
+boundary — `FileExplorer.resolve_path/2` still rejects traversal independently.
+
+`resource_root` is **sticky**: written once on the first successful upload and reused
+thereafter, so renaming a skill does not orphan files already uploaded under the old name.
+
+**Write path (BO):** `SkillsLive` → `NodeRouter` (`:ingestion`) → `Ingestion.upload_file/3`
++ `track_upload/2`. Uploading is gated on `Ingestion.volumes_configured?/0`. Wiring these
+files into the skill at runtime (progressive disclosure via `load_skill`) is not implemented
+yet.
+
+**Staged uploads on an unsaved skill.** Resources can be added before a skill exists, as
+soon as a name is typed — the name is all the destination needs. Those entries are held in
+the LiveView's own upload buffer (uploaded to the server, deliberately **not** consumed) and
+written by `save_skill/2` once the record exists, against the name as *saved* rather than
+the one typed at staging time. A failed save keeps entries staged so the operator can
+correct and retry.
+
+No staging directory is created on the volume, so an abandoned form leaves nothing to clean
+up. The temp file is owned by the `UploadChannel` process (via `Plug.Upload.random_file/1`),
+which monitors the LiveView; when the LiveView dies the channel stops and `Plug.Upload`
+deletes the file. Note the guarantee comes from `Plug.Upload`'s process ownership, **not**
+from `UploadTmpFileWriter.close/2`, which only closes the handle.
+
+Staged entries must be dropped whenever the form changes which skill it is about —
+`new_skill`, `select_skill` and `reset_form` all call `drop_staged_resources/1`.
+`consume_uploaded_entries/3` consumes *every* done entry in the config, so a leftover entry
+would otherwise be written into the next skill the operator touches.
+
+**Delete path (BO):** deleting a skill removes its whole `root/1` directory via
+`Ingestion.delete_path/4` (`"directory"`), which also clears the tracked `Document` rows.
+`Ingestion.file_info/2` gates each removal, because a skill that never had an upload has no
+directory and `delete_path/4` reports `{:error, :not_a_directory}` for a missing path.
+
+**Known gap — the volume is not persisted.** The upload modal lets the operator pick a
+volume, but only the volume-relative `resource_root` is stored, so which volume holds a
+skill's files is not recoverable from the record. Deletion therefore **sweeps every
+configured volume**, removing the root wherever it exists. This is correct but O(volumes);
+persisting a `resource_volume` column would make it a direct lookup and is the right fix if
+volume counts grow.
+
 ### `load_skill` tool (`Zaq.Agent.Tools.Skills.LoadSkill`, key `skills.load_skill`)
 - Returns a skill's full `instructions` as a tool result. **Stateless** — records nothing; the
   conversation transcript *is* the record of what was loaded, so a repeat call is idempotent and a

@@ -21,6 +21,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Repo
   alias Zaq.System
   alias ZaqWeb.Components.Drawer
+  alias ZaqWeb.Helpers.UploadFlash
   alias ZaqWeb.Live.BO.PreviewHelpers
 
   import Ecto.Query
@@ -996,29 +997,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp put_upload_result_flash(socket, uploaded, failed) do
-    cond do
-      uploaded != [] && failed == [] ->
-        put_flash(socket, :info, "#{length(uploaded)} file(s) uploaded.")
-
-      uploaded != [] && failed != [] ->
-        put_flash(
-          socket,
-          :info,
-          "#{length(uploaded)} file(s) uploaded. #{length(failed)} failed."
-        )
-
-      failed != [] ->
-        reasons =
-          failed
-          |> Enum.map(fn {:error, reason} -> inspect(reason) end)
-          |> Enum.uniq()
-          |> Enum.join(", ")
-
-        put_flash(socket, :error, "Upload failed: #{reasons}")
-
-      true ->
-        socket
-    end
+    UploadFlash.put_result(socket, uploaded, failed)
   end
 
   defp maybe_close_upload_modal(socket, uploaded, failed) do

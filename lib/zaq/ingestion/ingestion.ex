@@ -338,6 +338,14 @@ defmodule Zaq.Ingestion do
 
   def list_volumes, do: FileExplorer.list_volumes()
 
+  @doc """
+  Returns `true` when at least one ingestion volume is explicitly configured.
+
+  Callers must use this rather than inspecting `list_volumes/0`, which never returns an
+  empty map — see `Zaq.Ingestion.FileExplorer.volumes_configured?/0`.
+  """
+  def volumes_configured?, do: FileExplorer.volumes_configured?()
+
   def list_entries(volume_name, path), do: FileExplorer.list(volume_name, path)
 
   def create_directory(volume_name, path), do: FileExplorer.create_directory(volume_name, path)

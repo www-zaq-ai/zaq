@@ -35,6 +35,22 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
+  Returns `true` when at least one volume is explicitly configured.
+
+  This is **not** `list_volumes/0 != %{}` — `list_volumes/0` synthesizes a `"default"`
+  volume from `base_path` and therefore can never be empty. That synthesized entry is a
+  fallback so single-volume deployments keep working; it does not mean an operator has
+  connected a volume. Callers that must refuse an action when nothing is mounted (the BO
+  skill-resources upload) need this predicate, not the map.
+  """
+  def volumes_configured? do
+    :zaq
+    |> Application.get_env(Zaq.Ingestion, [])
+    |> Keyword.get(:volumes, %{})
+    |> map_size() > 0
+  end
+
+  @doc """
   Resolves a relative path against the base path (single-volume, legacy).
   Rejects path traversal attempts (e.g. `..`).
 

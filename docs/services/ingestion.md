@@ -50,7 +50,8 @@ File path
 - `subscribe/0` — subscribe to `"ingestion:jobs"` PubSub topic for real-time updates
 
 **Filesystem operations**
-- `list_volumes/0` — returns configured volumes map
+- `list_volumes/0` — returns configured volumes map. **Never empty**: when no `volumes:` are configured it synthesizes `%{"default" => base_path}`, so it cannot be used to test whether a volume is connected
+- `volumes_configured?/0` — `true` only when `volumes:` is explicitly configured and non-empty. Use this (not `list_volumes/0`) to gate actions that require a connected volume
 - `list_entries/2` — list directory entries for a volume + path
 - `create_directory/2` — create a directory in a volume
 - `upload_file/3` — write file content into a volume

@@ -11,13 +11,16 @@ defmodule ZaqWeb.Components.DesignSystem.ModalUpload do
   attr :uploads, :any, required: true
   attr :embedding_ready, :boolean, default: true
   attr :folder_drop_skipped, :list, default: []
+  attr :id, :string, default: "upload-modal"
+  attr :title, :string, default: "Upload data"
+  attr :cancel_event, :string, default: "close_modal"
 
   def modal_upload(assigns) do
     ~H"""
     <.form_dialog
-      id="upload-modal"
-      cancel_event="close_modal"
-      title="Upload data"
+      id={@id}
+      cancel_event={@cancel_event}
+      title={@title}
       max_width_class="zaq-modal--width-xl"
     >
       <.upload_section

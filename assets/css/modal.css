@@ -144,6 +144,12 @@
   color: var(--zaq-text-color-body-danger);
 }
 
+/* Non-destructive variant of the badge: a blocked/unavailable notice, not a deletion. */
+.zaq-modal-confirm-icon-badge--warning {
+  background-color: var(--zaq-surface-color-warning);
+  color: var(--zaq-text-color-body-warning);
+}
+
 .zaq-modal-confirm-copy {
   margin-bottom: var(--zaq-scale-24);
 }

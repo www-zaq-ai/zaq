@@ -4,7 +4,27 @@ defmodule Storybook.Components.DesignSystem.Dropzone do
 
   import ZaqWeb.Components.DesignSystem.Dropzone
 
-  def description, do: "BO ingestion upload drop zone, queue, and skipped-folder list."
+  def description,
+    do: "BO upload drop zone, queue, and skipped-folder list. Defaults to the ingestion wiring."
+
+  defp skill_resource_uploads do
+    %{
+      skill_resources: %Phoenix.LiveView.UploadConfig{
+        ref: "phx-skill-upload-ref",
+        entries: [],
+        errors: [],
+        name: :skill_resources,
+        accept: :any,
+        max_entries: 10,
+        max_file_size: 20_000_000,
+        chunk_size: 64_000,
+        chunk_timeout: 10_000,
+        external: false,
+        auto_upload?: false,
+        progress_event: nil
+      }
+    }
+  end
 
   defp empty_uploads do
     %{
@@ -98,6 +118,27 @@ defmodule Storybook.Components.DesignSystem.Dropzone do
           uploads={uploads_with_entry()}
           embedding_ready={false}
           folder_drop_skipped={[]}
+        />
+      </section>
+      <section>
+        <p
+          class="zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);"
+        >
+          Configured for another LiveView (skill resources): own upload name, id prefix, events and
+          copy, folder drop off
+        </p>
+        <.upload_section
+          uploads={skill_resource_uploads()}
+          upload_name={:skill_resources}
+          id_prefix="skill-resource"
+          submit_event="upload_skill_resource"
+          change_event="validate_skill_resource"
+          cancel_event="cancel_skill_resource"
+          label="Reference file"
+          submit_label="Add"
+          hint=".md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg — max 20 MB"
+          folder_drop?={false}
         />
       </section>
     </div>
