@@ -2,13 +2,14 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-07-30T16:00:37Z",
   "created": "2026-07-30T15:57:18Z",
   "description": "",
   "id": "zaq-jtx",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[resources-query-channel-config] Add channel configs to resources.query",
   "type": "task",
-  "updated_at": "2026-07-30T15:57:18Z"
+  "updated_at": "2026-07-30T16:00:37Z"
 }
