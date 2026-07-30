@@ -2,13 +2,14 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-07-30T15:30:45Z",
   "created": "2026-07-30T15:27:41Z",
   "description": "",
   "id": "zaq-mik",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[resources-query-routing-rules] Add incoming message routing rules to resources.query",
   "type": "task",
-  "updated_at": "2026-07-30T15:27:41Z"
+  "updated_at": "2026-07-30T15:30:45Z"
 }
