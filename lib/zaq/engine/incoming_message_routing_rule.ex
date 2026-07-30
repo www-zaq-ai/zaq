@@ -73,16 +73,22 @@ defmodule Zaq.Engine.IncomingMessageRoutingRule do
   end
 
   defp normalize_topic_id(changeset) do
-    update_change(changeset, :topic_id, fn
-      topic_id when is_binary(topic_id) ->
+    case fetch_change(changeset, :topic_id) do
+      {:ok, topic_id} when is_binary(topic_id) ->
         case String.trim(topic_id) do
-          "" -> nil
-          normalized -> normalized
+          "" -> put_change(changeset, :topic_id, nil)
+          normalized -> put_change(changeset, :topic_id, normalized)
         end
 
-      _ ->
-        nil
-    end)
+      {:ok, nil} ->
+        put_change(changeset, :topic_id, nil)
+
+      {:ok, _topic_id} ->
+        add_error(changeset, :topic_id, "must be a string")
+
+      :error ->
+        changeset
+    end
   end
 
   defp normalize_destination(changeset) do

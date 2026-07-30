@@ -17,7 +17,17 @@ defmodule Zaq.Engine.IncomingMessageRouting do
   alias Zaq.Repo
   alias Zaq.Utils.ParseUtils
 
-  @type source :: :incoming | :topic | :channel | :provider | :global | :default_zaq_agent
+  @type source ::
+          :incoming
+          | :topic
+          | :channel
+          | :provider
+          | :global
+          | :person_topic
+          | :person_channel
+          | :person_provider
+          | :person_global
+          | :default_zaq_agent
   @scope_keys [:person_id, :channel_config_id, :retrieval_channel_id, :topic_id]
 
   @doc "Returns a changeset for an incoming-message routing rule."
@@ -332,15 +342,26 @@ defmodule Zaq.Engine.IncomingMessageRouting do
     end
   end
 
-  defp source(%IncomingMessageRoutingRule{retrieval_channel_id: id}) when not is_nil(id),
-    do: :channel
+  defp source(%IncomingMessageRoutingRule{retrieval_channel_id: id, person_id: person_id})
+       when not is_nil(id),
+       do: scoped_source(person_id, :channel)
 
-  defp source(%IncomingMessageRoutingRule{topic_id: id}) when not is_nil(id), do: :topic
+  defp source(%IncomingMessageRoutingRule{topic_id: id, person_id: person_id})
+       when not is_nil(id),
+       do: scoped_source(person_id, :topic)
 
-  defp source(%IncomingMessageRoutingRule{channel_config_id: id}) when not is_nil(id),
-    do: :provider
+  defp source(%IncomingMessageRoutingRule{channel_config_id: id, person_id: person_id})
+       when not is_nil(id),
+       do: scoped_source(person_id, :provider)
 
-  defp source(_rule), do: :global
+  defp source(%IncomingMessageRoutingRule{person_id: person_id}),
+    do: scoped_source(person_id, :global)
+
+  defp scoped_source(nil, source), do: source
+  defp scoped_source(_person_id, :channel), do: :person_channel
+  defp scoped_source(_person_id, :topic), do: :person_topic
+  defp scoped_source(_person_id, :provider), do: :person_provider
+  defp scoped_source(_person_id, :global), do: :person_global
 
   defp default_resolution do
     %{mode: :agent, source: :default_zaq_agent, rule: nil, configured_agent_id: nil}

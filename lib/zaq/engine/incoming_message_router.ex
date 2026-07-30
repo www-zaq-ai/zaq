@@ -13,6 +13,7 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   alias Zaq.Event
   alias Zaq.EventHop
   alias Zaq.Identity.ActorNormalizer
+  alias Zaq.NodeRouter
   alias Zaq.People.IdentityResolver
 
   @doc "Routes an incoming-message event to its resolved destination."
@@ -57,10 +58,16 @@ defmodule Zaq.Engine.IncomingMessageRouter do
 
   defp apply_resolution(%Event{} = event, %{mode: :none} = resolution, person_resolved?) do
     event
-    |> Map.put(:next_hop, EventHop.new(:engine, :sync, DateTime.utc_now()))
+    |> Map.put(:next_hop, nil)
     |> Map.put(:name, EventNames.message_received(event.request, :workflow_only))
-    |> Map.put(:opts, action: :noop)
     |> put_routing_assign(resolution, person_resolved?)
+    |> fire_terminal_event()
+  end
+
+  defp fire_terminal_event(%Event{} = event) do
+    event.opts
+    |> Keyword.get(:node_router, NodeRouter)
+    |> then(& &1.fire(event))
   end
 
   defp put_routing_assign(%Event{} = event, resolution, person_resolved?) do

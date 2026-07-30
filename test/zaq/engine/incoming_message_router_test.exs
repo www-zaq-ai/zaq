@@ -13,6 +13,13 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
     def person_payload(person), do: person
   end
 
+  defmodule RecordingNodeRouter do
+    def fire(event) do
+      send(self(), {:node_router_fire, event})
+      event
+    end
+  end
+
   describe "route/1" do
     test "translates agent rule into an Agent hop" do
       agent = insert_agent!()
@@ -63,15 +70,16 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
     test "translates none rule into workflow-only event for trigger broadcast" do
       {:ok, rule} = IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :none})
 
-      routed = route(incoming())
+      routed = route(incoming(), node_router: RecordingNodeRouter)
 
-      assert routed.next_hop.destination == :engine
-      assert routed.next_hop.type == :sync
-      assert routed.opts == [action: :noop]
+      assert routed.next_hop == nil
+      assert routed.opts[:action] == :route_incoming_message
       assert routed.name == EventNames.message_received(routed.request, :workflow_only)
       assert routed.assigns["incoming_message_routing"]["mode"] == "none"
       assert routed.assigns["incoming_message_routing"]["rule_id"] == rule.id
       refute Map.has_key?(routed.assigns, "agent_selection")
+
+      assert_receive {:node_router_fire, ^routed}
     end
 
     test "default route keeps agent selection absent" do
@@ -94,7 +102,7 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   defp route(%Incoming{} = incoming, opts \\ []) do
     event_opts =
       opts
-      |> Keyword.take([:pipeline_opts, :agent_hop_type])
+      |> Keyword.take([:pipeline_opts, :agent_hop_type, :node_router])
       |> Keyword.put(:action, :route_incoming_message)
       |> Keyword.put(:identity_resolver, RejectingIdentityResolver)
 

@@ -1314,8 +1314,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp refresh_fingerprint(config) do
     %{
       bot_name: ChannelConfig.jido_chat_bot_name(config),
-      message_patterns: normalized_message_patterns(config),
-      provider_default_agent_id: ChannelConfig.get_provider_default_agent_id(config)
+      message_patterns: normalized_message_patterns(config)
     }
   end
 

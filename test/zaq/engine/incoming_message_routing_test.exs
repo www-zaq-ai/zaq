@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.IncomingMessageRoutingTest do
   use Zaq.DataCase, async: false
 
+  alias Zaq.Accounts.Person
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Engine.{IncomingMessageRouting, IncomingMessageRoutingRule}
@@ -69,6 +70,20 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
 
       assert changeset.valid?
       assert get_field(changeset, :topic_id) == nil
+    end
+
+    test "non-string topic IDs are rejected instead of silently dropped" do
+      config = insert_channel_config!()
+
+      changeset =
+        IncomingMessageRouting.change_rule(%IncomingMessageRoutingRule{}, %{
+          routing_mode: :none,
+          channel_config_id: config.id,
+          topic_id: 123
+        })
+
+      refute changeset.valid?
+      assert "is invalid" in errors_on(changeset).topic_id
     end
 
     test "missing routing mode leaves destination validation unchanged" do
@@ -280,6 +295,70 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
       assert rule_id == topic_rule.id
     end
 
+    test "person-scoped rules expose person-aware source labels" do
+      person = insert_person!()
+      config = insert_channel_config!()
+      retrieval = insert_retrieval_channel!(config)
+      agent = insert_agent!()
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(%{person_id: person.id}, %{
+          routing_mode: :agent,
+          configured_agent_id: agent.id
+        })
+
+      assert %{source: :person_global} =
+               IncomingMessageRouting.resolve(incoming(person: %{id: person.id}))
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(
+          %{person_id: person.id, channel_config_id: config.id},
+          %{
+            routing_mode: :agent,
+            configured_agent_id: agent.id
+          }
+        )
+
+      assert %{source: :person_provider} =
+               IncomingMessageRouting.resolve(
+                 incoming(person: %{id: person.id}, channel_config_id: config.id)
+               )
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(
+          %{person_id: person.id, channel_config_id: config.id, topic_id: "INBOX"},
+          %{routing_mode: :agent, configured_agent_id: agent.id}
+        )
+
+      assert %{source: :person_topic} =
+               IncomingMessageRouting.resolve(
+                 incoming(
+                   person: %{id: person.id},
+                   channel_config_id: config.id,
+                   topic_id: "INBOX"
+                 )
+               )
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(
+          %{
+            person_id: person.id,
+            channel_config_id: config.id,
+            retrieval_channel_id: retrieval.id
+          },
+          %{routing_mode: :agent, configured_agent_id: agent.id}
+        )
+
+      assert %{source: :person_channel} =
+               IncomingMessageRouting.resolve(
+                 incoming(
+                   person: %{id: person.id},
+                   channel_config_id: config.id,
+                   retrieval_channel_id: retrieval.id
+                 )
+               )
+    end
+
     test "ignores non-map transient routing attributes" do
       config = insert_channel_config!()
       provider_agent = insert_agent!()
@@ -473,11 +552,14 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
   end
 
   defp incoming(attrs \\ []) do
+    attrs = Map.new(attrs)
+
     Incoming.new(%{
       content: "hello",
       channel_id: "ch1",
       provider: :email,
-      routing_context: Map.new(attrs)
+      person: Map.get(attrs, :person),
+      routing_context: Map.drop(attrs, [:person])
     })
   end
 
@@ -510,6 +592,13 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
     %RetrievalChannel{}
     |> RetrievalChannel.changeset(Map.merge(defaults, attrs))
     |> Repo.insert!()
+  end
+
+  defp insert_person! do
+    Repo.insert!(%Person{
+      full_name: "Routing Person #{System.unique_integer([:positive, :monotonic])}",
+      status: "active"
+    })
   end
 
   defp insert_agent!(attrs \\ []) do
