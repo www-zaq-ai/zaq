@@ -7,6 +7,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Agent
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.Skill
   alias Zaq.Agent.Tools.Resources.QueryResources
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
@@ -139,6 +140,18 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       assert result.resources == [%{id: agent.id, name: "Support Agent"}]
     end
 
+    test "returns a missing public resource as not found" do
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "agent", id: -1},
+                 %{}
+               )
+
+      assert result.mode == "get"
+      assert result.found == false
+      assert result.resource == nil
+    end
+
     test "gets a public MCP endpoint without exposing secret fields" do
       endpoint = mcp_fixture(%{})
 
@@ -166,6 +179,16 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
                QueryResources.run(%{mode: "query", resource_type: "person"}, %{})
     end
 
+    test "rejects private resource get without an actor" do
+      target = user_fixture(%{username: "private_user"})
+
+      assert {:error, :unauthorized} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "user", id: target.id, fields: ["id"]},
+                 %{}
+               )
+    end
+
     test "skip_permissions can list private AI providers without api_key" do
       credential = ai_credential_fixture(%{name: "OpenAI Prod", provider: "openai"})
 
@@ -177,6 +200,20 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
 
       assert Enum.any?(result.resources, &(&1.id == credential.id))
       refute Enum.any?(result.resources, &Map.has_key?(&1, :api_key))
+    end
+
+    test "skip_permissions authorizes private AI provider get without exposing api_key" do
+      credential = ai_credential_fixture(%{name: "OpenAI Get Prod", provider: "openai"})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "ai_provider", id: credential.id},
+                 %{skip_permissions: true}
+               )
+
+      assert result.found == true
+      assert result.resource.id == credential.id
+      refute Map.has_key?(result.resource, :api_key)
     end
 
     test "permission grant allows a person to get a private resource" do
@@ -436,6 +473,16 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
   end
 
   describe "validation" do
+    test "pre-validation preserves non-map params" do
+      assert {:ok, :raw_params} = QueryResources.on_before_validate_params(:raw_params)
+      assert {:ok, nil} = QueryResources.on_before_validate_params(nil)
+    end
+
+    test "query mode requires a resource type" do
+      assert {:error, :resource_type_required} =
+               QueryResources.run(%{mode: "query"}, %{})
+    end
+
     test "rejects unknown filters and sort fields" do
       assert {:error, {:unsupported_filter, ["password_hash"]}} =
                QueryResources.run(
@@ -476,6 +523,234 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
                [%{id: second.id, name: second.name}],
                [%{id: first.id, name: first.name}]
              ]
+    end
+
+    test "rejects non-list requested fields" do
+      assert {:error, :unsupported_field} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "agent", fields: "id"},
+                 %{}
+               )
+    end
+
+    test "search ignores non-binary query values" do
+      credential = openai_credential_fixture()
+      first = agent_fixture(credential, %{name: "Alpha Agent"})
+      second = agent_fixture(credential, %{name: "Beta Agent"})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "agent", query: 123, fields: ["id"]},
+                 %{}
+               )
+
+      returned_ids = Enum.map(result.resources, & &1.id)
+
+      assert result.total_count >= 2
+      assert first.id in returned_ids
+      assert second.id in returned_ids
+    end
+
+    test "search matches array tags" do
+      skill = skill_fixture(%{name: "coverage-search", tags: ["coverage-special"]})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "skill",
+                   query: "coverage-special",
+                   fields: ["id"]
+                 },
+                 %{}
+               )
+
+      assert result.total_count == 1
+      assert result.resources == [%{id: skill.id}]
+    end
+
+    test "filters array fields with overlap semantics" do
+      matching = skill_fixture(%{name: "coverage-filter-match", tags: ["coverage-tag"]})
+      _other = skill_fixture(%{name: "coverage-filter-other", tags: ["different-tag"]})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "skill",
+                   filters: %{"tags" => ["coverage-tag"]},
+                   fields: ["id"]
+                 },
+                 %{}
+               )
+
+      assert result.total_count == 1
+      assert result.resources == [%{id: matching.id}]
+    end
+
+    test "lists channel configs without preloading retrieval channels when not requested" do
+      config = channel_config_fixture(%{provider: "mattermost", name: "Mattermost Main"})
+      _channel = retrieval_channel_fixture(config, %{channel_name: "Town Square"})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "channel_config",
+                   query: "Mattermost",
+                   fields: ["id", "name"]
+                 },
+                 %{skip_permissions: true}
+               )
+
+      assert [resource] = result.resources
+      assert resource.id == config.id
+      assert resource.name == "Mattermost Main"
+      refute Map.has_key?(resource, :retrieval_channels)
+    end
+
+    test "gets channel configs without preloading retrieval channels when not requested" do
+      config = channel_config_fixture(%{provider: "mattermost", name: "Mattermost Detail"})
+      _channel = retrieval_channel_fixture(config, %{channel_name: "Town Square"})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "channel_config",
+                   id: config.id,
+                   fields: ["id", "name"]
+                 },
+                 %{skip_permissions: true}
+               )
+
+      refute Map.has_key?(result.resource, :retrieval_channels)
+      assert result.resource == %{id: config.id, name: "Mattermost Detail"}
+    end
+
+    test "serializes NaiveDateTime fields as ISO8601 strings" do
+      credential = openai_credential_fixture()
+      agent = agent_fixture(credential, %{name: "Timestamp Agent"})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "agent",
+                   id: agent.id,
+                   fields: ["id", "inserted_at", "updated_at"]
+                 },
+                 %{}
+               )
+
+      assert is_binary(result.resource.inserted_at)
+      assert is_binary(result.resource.updated_at)
+      assert result.resource.inserted_at =~ "T"
+      assert result.resource.updated_at =~ "T"
+    end
+
+    test "parses string pagination values" do
+      credential = openai_credential_fixture()
+      _first = agent_fixture(credential, %{name: "String Page A"})
+      _second = agent_fixture(credential, %{name: "String Page B"})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "agent",
+                   fields: ["id"],
+                   limit: "1",
+                   offset: "0"
+                 },
+                 %{}
+               )
+
+      assert result.limit == 1
+      assert result.offset == 0
+      assert length(result.resources) == 1
+    end
+
+    test "defaults invalid string pagination values" do
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "agent",
+                   fields: ["id"],
+                   limit: "bad",
+                   offset: "bad"
+                 },
+                 %{}
+               )
+
+      assert result.limit == 20
+      assert result.offset == 0
+    end
+
+    test "defaults nil pagination values" do
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "agent",
+                   fields: ["id"],
+                   limit: nil,
+                   offset: nil
+                 },
+                 %{}
+               )
+
+      assert result.limit == 20
+      assert result.offset == 0
+    end
+
+    test "actor team ids supplied directly skip the person lookup" do
+      actor = person_fixture(%{full_name: "Direct Team Actor"})
+      target = person_fixture(%{full_name: "Direct Team Target"})
+      {:ok, team} = People.create_team(%{name: "Coverage Team"})
+
+      {:ok, _permission} =
+        Permissions.grant(target, %{team_id: team.id, access_rights: ["read"]})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "person",
+                   query: "Direct Team Target",
+                   fields: ["id", "full_name"]
+                 },
+                 %{actor: %{person: %{id: actor.id, team_ids: [team.id]}}}
+               )
+
+      assert result.resources == [%{id: target.id, full_name: "Direct Team Target"}]
+    end
+
+    test "missing person data produces empty team ids" do
+      actor = person_fixture(%{full_name: "Missing Team Actor"})
+      target = person_fixture(%{full_name: "Missing Team Actor Target"})
+
+      Repo.update_all(
+        Ecto.Query.from(p in Zaq.Accounts.Person, where: p.id == ^actor.id),
+        set: [team_ids: nil]
+      )
+
+      {:ok, _permission} =
+        Permissions.grant(target, %{person_id: actor.id, access_rights: ["read"]})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "person",
+                   query: "Missing Team Actor Target",
+                   fields: ["id", "full_name"]
+                 },
+                 %{person_id: actor.id}
+               )
+
+      assert result.resources == [%{id: target.id, full_name: "Missing Team Actor Target"}]
     end
   end
 
@@ -613,5 +888,23 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       )
 
     Repo.insert!(struct(IncomingMessageRoutingRule, params))
+  end
+
+  defp skill_fixture(attrs) do
+    unique = System.unique_integer([:positive])
+
+    params =
+      Map.merge(
+        %{
+          name: "coverage-skill-#{unique}",
+          description: "Coverage skill #{unique}",
+          body: "# Coverage Skill\nUse for coverage.\n",
+          tags: ["coverage-default"]
+        },
+        attrs
+      )
+
+    {:ok, skill} = %Skill{} |> Skill.changeset(params) |> Repo.insert()
+    skill
   end
 end
