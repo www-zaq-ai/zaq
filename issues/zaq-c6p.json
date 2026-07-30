@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-30T14:37:12Z",
+  "description": "Add one self-describing resources.query action for allowlisted Ecto schemas with get/list/search/filter/pagination, public/private access policy, and secret-safe field serialization.",
+  "id": "zaq-c6p",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[resources-query-tool] Add dynamic Ecto resource query tool",
+  "type": "task",
+  "updated_at": "2026-07-30T14:37:12Z"
+}
