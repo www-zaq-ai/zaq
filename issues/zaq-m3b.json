@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-30T11:55:42Z",
+  "description": "Convert Zaq.Agent.Tools.People.EnsurePerson schema/output_schema from NimbleOptions to Zoi and add it to Zaq.Agent.Tools.Registry so configured agents and skills can provision it.",
+  "id": "zaq-m3b",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[ensure-person-zoi] Convert ensure_person schemas to Zoi and register tool",
+  "type": "task",
+  "updated_at": "2026-07-30T11:55:42Z"
+}
