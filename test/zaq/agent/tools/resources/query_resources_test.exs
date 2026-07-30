@@ -9,6 +9,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Tools.Resources.QueryResources
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.RetrievalChannel
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Permissions
   alias Zaq.Repo
@@ -27,7 +28,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       assert tool.name == "query_resources"
 
       assert tool.description =~
-               "agent, mcp, skill, user, person, ai_provider, incoming_message_routing_rule"
+               "agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule"
     end
 
     test "runtime validation preserves query params" do
@@ -58,7 +59,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       resource_types = Enum.map(result.descriptions, & &1.resource_type)
 
       assert resource_types ==
-               ~w(agent mcp skill user person ai_provider incoming_message_routing_rule)
+               ~w(agent mcp skill user person ai_provider channel_config incoming_message_routing_rule)
 
       assert result.resources == []
       assert result.resource == nil
@@ -99,6 +100,18 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       assert "person_id" in description.search_fields
       assert "channel_config_id" in description.search_fields
       assert "routing_mode" in description.filter_fields
+    end
+
+    test "describes channel config with nested retrieval channels" do
+      assert {:ok, result} =
+               QueryResources.run(%{mode: "describe", resource_type: "channel_config"}, %{})
+
+      assert [description] = result.descriptions
+      assert description.public == false
+      assert "retrieval_channels" in description.fields
+      assert "retrieval_channels" in description.search_fields
+      assert "token" not in description.fields
+      assert "settings" not in description.fields
     end
   end
 
@@ -362,6 +375,64 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
                }
              ]
     end
+
+    test "skip_permissions can list channel configs with nested retrieval channels" do
+      config = channel_config_fixture(%{provider: "mattermost", name: "Mattermost Main"})
+
+      channel =
+        retrieval_channel_fixture(config, %{
+          channel_id: "town-square-id",
+          channel_name: "Town Square",
+          team_id: "team-zaq",
+          team_name: "ZAQ",
+          agent_routing_mode: "agent"
+        })
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "channel_config",
+                   query: "Town Square"
+                 },
+                 %{skip_permissions: true}
+               )
+
+      assert [%{retrieval_channels: channels} = resource] = result.resources
+      assert resource.id == config.id
+      assert resource.provider == "mattermost"
+      refute Map.has_key?(resource, :token)
+      refute Map.has_key?(resource, :settings)
+
+      assert [serialized_channel] = channels
+      assert serialized_channel.id == channel.id
+      assert serialized_channel.channel_config_id == config.id
+      assert serialized_channel.channel_id == "town-square-id"
+      assert serialized_channel.channel_name == "Town Square"
+      assert serialized_channel.team_name == "ZAQ"
+      assert serialized_channel.agent_routing_mode == "agent"
+    end
+
+    test "permission grant allows reading a channel config without secrets" do
+      actor_person = person_fixture(%{full_name: "Channel Config Actor"})
+      config = channel_config_fixture(%{provider: "slack", name: "Slack Main"})
+      _channel = retrieval_channel_fixture(config, %{channel_name: "General"})
+
+      {:ok, _permission} =
+        Permissions.grant(config, %{person_id: actor_person.id, access_rights: ["read"]})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "channel_config", id: config.id},
+                 %{actor: %{person: %{id: actor_person.id, team_ids: []}}}
+               )
+
+      assert result.resource.id == config.id
+      assert result.resource.kind == "retrieval"
+      assert [%{channel_name: "General"}] = result.resource.retrieval_channels
+      refute Map.has_key?(result.resource, :token)
+      refute Map.has_key?(result.resource, :settings)
+    end
   end
 
   describe "validation" do
@@ -510,6 +581,26 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
 
     {:ok, config} = %ChannelConfig{} |> ChannelConfig.changeset(params) |> Repo.insert()
     config
+  end
+
+  defp retrieval_channel_fixture(config, attrs) do
+    unique = System.unique_integer([:positive])
+
+    params =
+      Map.merge(
+        %{
+          channel_config_id: config.id,
+          channel_id: "channel-#{unique}",
+          channel_name: "Channel #{unique}",
+          team_id: "team-#{unique}",
+          team_name: "Team #{unique}",
+          active: true
+        },
+        attrs
+      )
+
+    {:ok, channel} = %RetrievalChannel{} |> RetrievalChannel.changeset(params) |> Repo.insert()
+    channel
   end
 
   defp routing_rule_fixture(attrs) do

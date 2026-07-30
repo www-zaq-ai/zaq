@@ -60,7 +60,7 @@ defmodule Zaq.Agent.Tools.Registry do
       key: "resources.query",
       label: "Query resources",
       description:
-        "Query allowlisted ZAQ resources: agent, mcp, skill, user, person, ai_provider, incoming_message_routing_rule. Supports describe, get, search, filters, sorting, and pagination.",
+        "Query allowlisted ZAQ resources: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule. Supports describe, get, search, filters, sorting, and pagination.",
       module: Zaq.Agent.Tools.Resources.QueryResources
     },
     %{

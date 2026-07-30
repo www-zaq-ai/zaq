@@ -91,6 +91,17 @@ defmodule Zaq.Agent.Tools.Resources.Registry do
       max_limit: 100
     },
     %{
+      key: "channel_config",
+      module: Zaq.Channels.ChannelConfig,
+      public?: false,
+      fields: ~w(id name provider kind url enabled retrieval_channels inserted_at updated_at)a,
+      search_fields: ~w(name provider kind url retrieval_channels)a,
+      filter_fields: ~w(provider kind enabled)a,
+      sort_fields: ~w(id name provider kind enabled inserted_at updated_at)a,
+      default_sort: :name,
+      max_limit: 100
+    },
+    %{
       key: "incoming_message_routing_rule",
       module: Zaq.Engine.IncomingMessageRoutingRule,
       public?: false,

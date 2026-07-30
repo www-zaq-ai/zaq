@@ -34,6 +34,8 @@ defmodule Zaq.Channels.ChannelConfig do
     field :enabled, :boolean, default: true
     field :settings, :map, default: %{}
 
+    has_many :retrieval_channels, Zaq.Channels.RetrievalChannel
+
     timestamps(type: :utc_datetime)
   end
 

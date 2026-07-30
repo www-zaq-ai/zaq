@@ -11,6 +11,7 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
+  alias Zaq.Channels.RetrievalChannel
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.Permissions
   alias Zaq.Permissions.ResourcePermission
@@ -137,12 +138,21 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
   defp apply_search(query, _descriptor, value) when value in [nil, ""], do: query
 
+  defp apply_search(query, %{key: "channel_config"} = descriptor, value) when is_binary(value) do
+    pattern = "%#{escape_like(String.trim(value))}%"
+
+    descriptor.search_fields
+    |> Enum.map(&channel_config_search_condition(&1, pattern, value))
+    |> combine_conditions()
+    |> then(fn condition -> from(row in query, where: ^condition) end)
+  end
+
   defp apply_search(query, descriptor, value) when is_binary(value) do
     pattern = "%#{escape_like(String.trim(value))}%"
 
     descriptor.search_fields
     |> Enum.map(&search_condition(&1, pattern, value))
-    |> Enum.reduce(fn condition, acc -> dynamic(^acc or ^condition) end)
+    |> combine_conditions()
     |> then(fn condition -> from(row in query, where: ^condition) end)
   end
 
@@ -169,6 +179,27 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
   defp search_condition(field, pattern, _raw_value) do
     dynamic([row], ilike(field(row, ^field), ^pattern))
+  end
+
+  defp channel_config_search_condition(:retrieval_channels, pattern, _raw_value) do
+    dynamic(
+      [row],
+      fragment(
+        "EXISTS (SELECT 1 FROM retrieval_channels rc WHERE rc.channel_config_id = ? AND (rc.channel_id ILIKE ? OR rc.channel_name ILIKE ? OR rc.team_id ILIKE ? OR rc.team_name ILIKE ?))",
+        field(row, :id),
+        ^pattern,
+        ^pattern,
+        ^pattern,
+        ^pattern
+      )
+    )
+  end
+
+  defp channel_config_search_condition(field, pattern, raw_value),
+    do: search_condition(field, pattern, raw_value)
+
+  defp combine_conditions([condition | conditions]) do
+    Enum.reduce(conditions, condition, fn condition, acc -> dynamic(^acc or ^condition) end)
   end
 
   defp apply_filters(query, descriptor, filters) when is_map(filters) do
@@ -273,6 +304,12 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     |> serialize_channels()
   end
 
+  defp serialize_field(resource, %{key: "channel_config"}, :retrieval_channels) do
+    resource
+    |> Map.get(:retrieval_channels, [])
+    |> serialize_retrieval_channels()
+  end
+
   defp serialize_field(resource, _descriptor, field),
     do: normalize_value(Map.get(resource, field))
 
@@ -298,9 +335,37 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
   defp serialize_channels(_), do: []
 
+  defp serialize_retrieval_channels(%Ecto.Association.NotLoaded{}), do: []
+
+  defp serialize_retrieval_channels(channels) when is_list(channels) do
+    Enum.map(channels, fn channel ->
+      %{
+        id: channel.id,
+        channel_config_id: channel.channel_config_id,
+        configured_agent_id: channel.configured_agent_id,
+        channel_id: channel.channel_id,
+        channel_name: channel.channel_name,
+        team_id: channel.team_id,
+        team_name: channel.team_name,
+        active: channel.active,
+        agent_routing_mode: channel.agent_routing_mode,
+        inserted_at: normalize_value(channel.inserted_at),
+        updated_at: normalize_value(channel.updated_at)
+      }
+    end)
+  end
+
+  defp serialize_retrieval_channels(_), do: []
+
   defp preload_for_fields(resources, %{key: "person"}, fields) when is_list(resources) do
     if :channels in fields,
       do: Repo.preload(resources, channels: channels_query()),
+      else: resources
+  end
+
+  defp preload_for_fields(resources, %{key: "channel_config"}, fields) when is_list(resources) do
+    if :retrieval_channels in fields,
+      do: Repo.preload(resources, retrieval_channels: retrieval_channels_query()),
       else: resources
   end
 
@@ -308,10 +373,20 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     if :channels in fields, do: Repo.preload(resource, channels: channels_query()), else: resource
   end
 
+  defp preload_for_fields(resource, %{key: "channel_config"}, fields) do
+    if :retrieval_channels in fields,
+      do: Repo.preload(resource, retrieval_channels: retrieval_channels_query()),
+      else: resource
+  end
+
   defp preload_for_fields(resources_or_resource, _descriptor, _fields), do: resources_or_resource
 
   defp channels_query do
     from(channel in PersonChannel, order_by: channel.weight)
+  end
+
+  defp retrieval_channels_query do
+    from(channel in RetrievalChannel, order_by: [asc: channel.channel_name, asc: channel.id])
   end
 
   defp normalize_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
