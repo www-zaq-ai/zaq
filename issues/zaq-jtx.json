@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-30T15:57:18Z",
+  "description": "",
+  "id": "zaq-jtx",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[resources-query-channel-config] Add channel configs to resources.query",
+  "type": "task",
+  "updated_at": "2026-07-30T15:57:18Z"
+}
