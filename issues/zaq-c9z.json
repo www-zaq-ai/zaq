@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-30T15:15:49Z",
+  "description": "Add channels as a default safe field for person resources in resources.query, including preload and JSON-safe channel serialization.",
+  "id": "zaq-c9z",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[resources-query-person-channels] Include person channels in resources.query",
+  "type": "task",
+  "updated_at": "2026-07-30T15:15:49Z"
+}
