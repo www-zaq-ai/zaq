@@ -77,10 +77,15 @@ scratch — you reference an existing tool by its module name in a node.
 
 What makes a module a valid workflow action:
 
-- a non-empty **`schema`** — its accepted inputs (with types/required/defaults),
-- a non-empty **`output_schema`** — what it returns,
+- a non-empty **Zoi `schema`** — its accepted inputs (with types/required/defaults),
+- a non-empty **Zoi `output_schema`** — what it returns,
 - `on_success/2` and `on_failure/2` (provided for free by
   `use Zaq.Engine.Workflows.Action`).
+
+New Actions should define both schemas with `Zoi.object/1`; use `Zoi.refine/2`
+on the object that owns cross-field validation. See
+[`docs/services/workflows.md`](../services/workflows.md#adding-a-new-action-type)
+for the implementation checklist and example.
 
 The DAG build **refuses** a node whose module doesn't conform
 (`{:error, {:contract_violation, module, missing}}`), so a typo'd module or a

@@ -275,11 +275,47 @@ under `skip_permissions: true`.
 
 ## Adding a New Action Type
 
-1. `use Jido.Action, name: "...", schema: [...], output_schema: [...]` — declare a non-empty input schema and a non-empty `output_schema`.
-2. Add `use Zaq.Engine.Workflows.Action` (or `@behaviour Zaq.Engine.Workflows.Action` with manual `on_success/2` and `on_failure/2` implementations). `use` provides overridable defaults for both callbacks.
-3. Define `run(params, context)` returning `{:ok, result_map}` or `{:error, reason}`.
-4. Register the module in the workflow's `steps` JSONB with `"type": "action"` and the fully-qualified module name in `"module"`.
-5. `Step.Node.changeset` enforces the `Action` contract at **save time** (`create_workflow`/`update_workflow` → `Workflow.changeset`), so an invalid module is rejected before the workflow is persisted. `DagBuilder` then resolves the module at build time via `Action.resolve/1` (`Module.concat/1` + `Code.ensure_loaded/1`) — no other registration needed.
+1. Define non-empty Zoi input and output schemas with `Zoi.object/1`.
+2. Use `Zaq.Engine.Workflows.Action` directly and pass `schema: @schema` plus `output_schema: @output_schema`. Do not use new NimbleOptions keyword schemas for new Actions.
+3. Add `Zoi.refine/2` on the narrowest object that owns cross-field validation, such as an item object inside a list.
+4. Define `run(params, context)` returning `{:ok, result_map}` or `{:error, reason}`.
+5. Register the module in the workflow's `steps` JSONB with `"type": "action"` and the fully-qualified module name in `"module"`.
+6. `Step.Node.changeset` enforces the `Action` contract at **save time** (`create_workflow`/`update_workflow` → `Workflow.changeset`), so an invalid module is rejected before the workflow is persisted. `DagBuilder` then resolves the module at build time via `Action.resolve/1` (`Module.concat/1` + `Code.ensure_loaded/1`) — no other registration needed.
+
+Example:
+
+```elixir
+defmodule Zaq.Agent.Tools.ExampleAction do
+  @item_schema
+  Zoi.object(%{
+    mode: Zoi.enum(["agent", "none", "clear"]),
+    configured_agent_id: Zoi.integer() |> Zoi.optional()
+  })
+  |> Zoi.refine({__MODULE__, :validate_item, []})
+
+  @schema Zoi.object(%{items: Zoi.list(@item_schema)})
+  @output_schema Zoi.object(%{count: Zoi.integer()})
+
+  use Zaq.Engine.Workflows.Action,
+    name: "example_action",
+    description: "Example Zoi-backed action.",
+    schema: @schema,
+    output_schema: @output_schema
+
+  def validate_item(%{mode: "agent"} = item, _opts) do
+    if Map.has_key?(item, :configured_agent_id),
+      do: :ok,
+      else: {:error, "configured_agent_id is required for agent mode"}
+  end
+
+  def validate_item(_item, _opts), do: :ok
+
+  @impl Jido.Action
+  def run(%{items: items}, _context), do: {:ok, %{count: length(items)}}
+end
+```
+
+When an Action must also be directly callable through `Jido.Exec.run/3` with JSON/string-keyed params, add `on_before_validate_params/1` and delegate to `Jido.Action.Tool.convert_params_using_schema/2`. This keeps direct Exec calls aligned with the AI tool bridge's schema-aware string-key conversion.
 
 **Do not** add the module to any registry or hardcode it anywhere. The module string in JSONB is the only registration. A module that fails the `Action` contract (missing `on_success/2`, `on_failure/2`, `schema/0`, or `output_schema/0`) is rejected at save time. Translator modules that export `enrich/2` (e.g. `Batch`) are deliberately exempt — they are not `Action` modules and are lowered to another node type before execution.
 
