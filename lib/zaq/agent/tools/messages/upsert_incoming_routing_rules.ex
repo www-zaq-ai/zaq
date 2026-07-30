@@ -58,12 +58,39 @@ defmodule Zaq.Agent.Tools.Messages.UpsertIncomingRoutingRules do
               )
           })
 
+  @persisted_rule_output_schema Zoi.object(%{
+                                  id: Zoi.integer(description: "Persisted routing rule id."),
+                                  person_id:
+                                    Zoi.integer(description: "Person id for person-scoped rules.")
+                                    |> Zoi.nullable(),
+                                  channel_config_id:
+                                    Zoi.integer(description: "Receiving channel config id.")
+                                    |> Zoi.nullable(),
+                                  retrieval_channel_id:
+                                    Zoi.integer(description: "Retrieval channel id.")
+                                    |> Zoi.nullable(),
+                                  topic_id:
+                                    Zoi.string(description: "Topic id, such as an IMAP mailbox.")
+                                    |> Zoi.nullable(),
+                                  routing_mode:
+                                    Zoi.string(description: "Persisted routing mode."),
+                                  configured_agent_id:
+                                    Zoi.integer(
+                                      description: "Configured agent id for agent routing."
+                                    )
+                                    |> Zoi.nullable()
+                                })
+
   @rule_output_schema Zoi.object(%{
                         status:
                           Zoi.string(
                             description: "Write status, such as upserted, deleted, or noop."
                           ),
-                        rule: Zoi.any(description: "Persisted rule payload, or null when absent.")
+                        rule:
+                          @persisted_rule_output_schema
+                          |> Zoi.nullable(
+                            description: "Persisted rule payload, or null when absent."
+                          )
                       })
 
   @output_schema Zoi.object(%{

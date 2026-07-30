@@ -1,6 +1,7 @@
 defmodule Zaq.Agent.Tools.RegistryTest do
   use ExUnit.Case, async: false
 
+  alias Jido.Action.Tool
   alias Zaq.Agent.Tools.Registry
 
   test "tools returns expected whitelisted tool descriptors" do
@@ -57,20 +58,37 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     refute Registry.valid_tool_key?(nil)
   end
 
-  test "every registered tool has valid NimbleOptions param and output schemas" do
-    # The chat tool-exec path (Jido.Action.Exec) builds NimbleOptions from
-    # these at call time — an invalid type (e.g. bare :list) only explodes in
-    # production. Validate the whole catalog here.
+  test "every registered tool has valid param and output schemas" do
+    # The tool-exec paths build runtime schemas from these declarations. Load
+    # modules before checking exports so this test is deterministic regardless
+    # of test order.
     for %{key: key, module: module} <- Registry.tools() do
+      Code.ensure_loaded!(module)
+
       if function_exported?(module, :schema, 0) do
-        assert %NimbleOptions{} = NimbleOptions.new!(module.schema()), "invalid schema: #{key}"
+        assert_valid_tool_schema!(module.schema(), key, :schema)
       end
 
       if function_exported?(module, :output_schema, 0) do
-        assert %NimbleOptions{} = NimbleOptions.new!(module.output_schema()),
-               "invalid output_schema: #{key}"
+        assert_valid_tool_schema!(module.output_schema(), key, :output_schema)
       end
     end
+  end
+
+  defp assert_valid_tool_schema!(schema, key, kind) when is_list(schema) do
+    assert %NimbleOptions{} = NimbleOptions.new!(schema), "invalid #{kind}: #{key}"
+  end
+
+  defp assert_valid_tool_schema!(%{__struct__: module} = schema, key, kind) do
+    if module |> Module.split() |> List.first() == "Zoi" do
+      assert %{} = Tool.build_parameters_schema(schema), "invalid #{kind}: #{key}"
+    else
+      flunk("invalid #{kind}: #{key} returned #{inspect(module)}")
+    end
+  end
+
+  defp assert_valid_tool_schema!(schema, key, kind) do
+    flunk("invalid #{kind}: #{key} returned #{inspect(schema)}")
   end
 
   test "every registered tool module is loadable and runnable" do
