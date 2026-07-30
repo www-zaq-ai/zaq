@@ -235,7 +235,7 @@ defmodule Zaq.Agent.SkillsTest do
   end
 
   describe "provisioned_tool_keys/2" do
-    test "unions agent keys with skill keys, deduped, and appends load_skill" do
+    test "unions agent keys with skill keys, deduped, and appends the skill tools" do
       skill = %Skill{tool_keys: ["data_source.get_document", "answering.search_knowledge_base"]}
 
       agent = %ConfiguredAgent{enabled_tool_keys: ["answering.search_knowledge_base"]}
@@ -243,7 +243,8 @@ defmodule Zaq.Agent.SkillsTest do
       assert Skills.provisioned_tool_keys(agent, [skill]) == [
                "answering.search_knowledge_base",
                "data_source.get_document",
-               "skills.load_skill"
+               "skills.load_skill",
+               "skills.load_skill_resource"
              ]
     end
 
@@ -253,30 +254,50 @@ defmodule Zaq.Agent.SkillsTest do
 
       assert Skills.provisioned_tool_keys(agent, [skill]) == [
                "data_source.get_document",
-               "skills.load_skill"
+               "skills.load_skill",
+               "skills.load_skill_resource"
              ]
     end
 
-    # load_skill is provisioned only when there is at least one skill to load. A skill-less
-    # agent must not carry a tool it can never use.
-    test "does NOT append load_skill when the agent has no skills" do
+    # The skill tools are provisioned only when there is at least one skill to load. A
+    # skill-less agent must not carry tools it can never use.
+    test "does NOT append the skill tools when the agent has no skills" do
       agent = %ConfiguredAgent{enabled_tool_keys: ["files.missing"]}
       assert Skills.provisioned_tool_keys(agent, []) == ["files.missing"]
       refute "skills.load_skill" in Skills.provisioned_tool_keys(agent, [])
+      refute "skills.load_skill_resource" in Skills.provisioned_tool_keys(agent, [])
     end
 
-    test "appends load_skill even for a skill that provides no tools of its own" do
+    test "appends the skill tools even for a skill that provides none of its own" do
       agent = %ConfiguredAgent{enabled_tool_keys: nil}
       skill = %Skill{tool_keys: nil}
-      assert Skills.provisioned_tool_keys(agent, [skill]) == ["skills.load_skill"]
+
+      assert Skills.provisioned_tool_keys(agent, [skill]) == [
+               "skills.load_skill",
+               "skills.load_skill_resource"
+             ]
     end
 
-    test "load_skill is not duplicated if somehow already an enabled key" do
-      agent = %ConfiguredAgent{enabled_tool_keys: ["skills.load_skill"]}
+    # Both ride the same condition on purpose. Gating the resource tool on whether a skill
+    # currently *has* uploads would let it vanish mid-conversation while a manifest the
+    # model already read still points at it.
+    test "load_skill_resource is provisioned even for a skill with no uploads" do
+      agent = %ConfiguredAgent{enabled_tool_keys: []}
+      skill = %Skill{tool_keys: [], resource_root: nil}
+
+      assert "skills.load_skill_resource" in Skills.provisioned_tool_keys(agent, [skill])
+    end
+
+    test "the skill tools are not duplicated if somehow already enabled keys" do
+      agent = %ConfiguredAgent{
+        enabled_tool_keys: ["skills.load_skill", "skills.load_skill_resource"]
+      }
+
       skill = %Skill{tool_keys: []}
 
       keys = Skills.provisioned_tool_keys(agent, [skill])
       assert Enum.count(keys, &(&1 == "skills.load_skill")) == 1
+      assert Enum.count(keys, &(&1 == "skills.load_skill_resource")) == 1
     end
   end
 

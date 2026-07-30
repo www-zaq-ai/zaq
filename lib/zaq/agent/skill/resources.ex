@@ -82,6 +82,41 @@ defmodule Zaq.Agent.Skill.Resources do
   end
 
   @doc """
+  The skill's bundle locator — the handle the `:ingestion` role resolves to actual files.
+
+  Returns `:none` when the skill has never had an upload, which is the common case and not
+  an error: there is simply no bundle to ask for, and callers skip the round trip entirely.
+
+  The locator *is* `root/1` — reused rather than re-derived, so the sticky `resource_root`
+  keeps pointing at files uploaded under a previous name.
+
+  ## The locator is opaque downstream
+
+  Agent-side callers pass this string to ingestion and do nothing else with it: never
+  `Path.join/2` onto it, never parse it, never pair it with a volume. Which volume holds the
+  bundle is resolved by `Zaq.Ingestion.ResourceBundle` against its own mounts — the agent
+  node may not even have them mounted. That opacity is what lets storage layout change
+  without touching this domain.
+
+      iex> Zaq.Agent.Skill.Resources.bundle_locator(%Zaq.Agent.Skill{name: "pricing-faq"})
+      :none
+
+      iex> skill = %Zaq.Agent.Skill{name: "pricing-faq", resource_root: ".agents/skills/old-name"}
+      iex> Zaq.Agent.Skill.Resources.bundle_locator(skill)
+      {:ok, ".agents/skills/old-name"}
+  """
+  @spec bundle_locator(Skill.t()) :: {:ok, String.t()} | :none
+  def bundle_locator(%Skill{resource_root: stored} = skill) when is_binary(stored) do
+    # An *unset* root means nothing was ever uploaded — asking ingestion for a directory
+    # that has never existed is a wasted round trip. An *unsafe* root is different: it is
+    # ignored in favour of the derived one, which is exactly where `destination/2` would
+    # have written, so files may genuinely be there.
+    if String.trim(stored) == "", do: :none, else: {:ok, root(skill)}
+  end
+
+  def bundle_locator(%Skill{}), do: :none
+
+  @doc """
   Normalises a skill name into a path-safe slug.
 
   Jido already constrains `Skill.name` to `~r/^[a-z0-9]+(-[a-z0-9]+)*$/`, so for any

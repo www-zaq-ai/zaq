@@ -143,6 +143,167 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
     end
   end
 
+  describe "the resource manifest" do
+    defp entry(name, size \\ 128) do
+      %{name: name, resource_path: "references/#{name}", size: size, modified: DateTime.utc_now()}
+    end
+
+    # A stub router that records what it was asked for, so the request shape can be
+    # asserted rather than assumed.
+    defmodule RecordingRouter do
+      def dispatch(event) do
+        send(
+          self(),
+          {:dispatched, event.next_hop.destination, event.opts[:action], event.request}
+        )
+
+        %{event | response: Process.get(:bundle_response)}
+      end
+    end
+
+    defmodule UnreachableRouter do
+      def dispatch(_event), do: raise("ingestion node is down")
+    end
+
+    defmodule ExitingRouter do
+      def dispatch(_event), do: exit({:timeout, {GenServer, :call, []}})
+    end
+
+    defp router_ctx(agent, response) do
+      Process.put(:bundle_response, response)
+      Map.put(ctx(agent), :node_router, RecordingRouter)
+    end
+
+    defp bundled!(attrs \\ %{}) do
+      skill =
+        skill!(
+          Map.merge(%{name: "calculator", resource_root: ".agents/skills/calculator"}, attrs)
+        )
+
+      {skill, agent!(%{enabled_skill_ids: [skill.id]})}
+    end
+
+    test "lists the skill's bundled files alongside the instructions" do
+      {_skill, agent} = bundled!()
+
+      listing = %{references: [entry("pricing.md", 42)], assets: [], scripts: []}
+
+      assert {:ok, result} =
+               LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
+
+      assert result.instructions =~ "Calculator"
+
+      assert [%{name: "pricing.md", resource_path: "references/pricing.md", size: 42}] =
+               result.resources
+    end
+
+    test "the dispatched request is exactly %{bundle: locator}" do
+      # Asserted, so a future edit that slips a volume into the payload fails here.
+      {_skill, agent} = bundled!()
+      listing = %{references: [], assets: [], scripts: []}
+
+      LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
+
+      assert_receive {:dispatched, :ingestion, :list_skill_bundle, request}
+      assert request == %{bundle: ".agents/skills/calculator"}
+      assert Map.keys(request) == [:bundle]
+    end
+
+    test "orders references ahead of assets and scripts" do
+      {_skill, agent} = bundled!()
+
+      listing = %{
+        references: [entry("ref.md")],
+        assets: [%{name: "logo.png", resource_path: "assets/logo.png", size: 9}],
+        scripts: [%{name: "run.sh", resource_path: "scripts/run.sh", size: 3}]
+      }
+
+      assert {:ok, result} =
+               LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
+
+      assert Enum.map(result.resources, & &1.name) == ["ref.md", "logo.png", "run.sh"]
+    end
+
+    test "entries carry no absolute path and no timestamp" do
+      {_skill, agent} = bundled!()
+      listing = %{references: [entry("pricing.md")], assets: [], scripts: []}
+
+      assert {:ok, result} =
+               LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
+
+      assert [entry] = result.resources
+      assert Map.keys(entry) |> Enum.sort() == [:name, :resource_path, :size]
+      refute inspect(entry) =~ "absolute_path"
+    end
+
+    test "a skill with no bundle returns [] and dispatches nothing" do
+      skill = skill!(%{name: "calculator"})
+      agent = agent!(%{enabled_skill_ids: [skill.id]})
+
+      assert {:ok, result} =
+               LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, :unused}))
+
+      assert result.resources == []
+      refute_receive {:dispatched, _, _, _}
+    end
+
+    test "an ingestion error still returns the instructions" do
+      {_skill, agent} = bundled!()
+
+      assert {:ok, result} =
+               LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:error, :no_volumes}))
+
+      assert result.instructions =~ "Calculator"
+      assert result.resources == []
+    end
+
+    test "an unreachable ingestion node still returns the instructions" do
+      {_skill, agent} = bundled!()
+      context = Map.put(ctx(agent), :node_router, UnreachableRouter)
+
+      assert {:ok, result} = LoadSkill.run(%{name: "calculator"}, context)
+      assert result.instructions =~ "Calculator"
+      assert result.resources == []
+    end
+
+    test "a dispatch timeout still returns the instructions" do
+      # A GenServer call timeout exits rather than raising — losing the manifest to it must
+      # not lose the skill body too.
+      {_skill, agent} = bundled!()
+      context = Map.put(ctx(agent), :node_router, ExitingRouter)
+
+      assert {:ok, result} = LoadSkill.run(%{name: "calculator"}, context)
+      assert result.instructions =~ "Calculator"
+      assert result.resources == []
+    end
+
+    test "a listing over the cap is truncated and states the real total" do
+      {_skill, agent} = bundled!()
+      entries = for i <- 1..137, do: entry("file-#{i}.md")
+      listing = %{references: entries, assets: [], scripts: []}
+
+      context =
+        agent
+        |> router_ctx({:ok, listing})
+        |> Map.put(:limits_opts, [])
+
+      assert {:ok, result} = LoadSkill.run(%{name: "calculator"}, context)
+
+      assert length(result.resources) == 100
+      assert result.resources_note =~ "Showing 100 of 137"
+    end
+
+    test "a listing under the cap carries no note" do
+      {_skill, agent} = bundled!()
+      listing = %{references: [entry("a.md")], assets: [], scripts: []}
+
+      assert {:ok, result} =
+               LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
+
+      refute Map.has_key?(result, :resources_note)
+    end
+  end
+
   describe "telemetry" do
     test "emits bytes and tokens for the loaded body" do
       skill = skill!(%{name: "calculator", body: "one two three four five"})

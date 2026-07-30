@@ -27,6 +27,23 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
   The body size is capped at **write time** (`Zaq.Agent.Skills.Limits`), so nothing needs
   bounding here; this tool emits telemetry on the bytes it returns so the cap can be tuned
   on evidence.
+
+  ## The resource manifest — level 2 of three
+
+  When a skill has files uploaded against it, the result also carries a **listing** of them:
+  name, path and size, never content. The model sees *that* `references/pricing-2026.md`
+  exists and how big it is, and spends context on it only by calling
+  `Zaq.Agent.Tools.Skills.LoadSkillResource` (level 3). Returning contents here would defeat
+  progressive disclosure outright — a skill with five reference PDFs would blow the window
+  on a single call.
+
+  The listing is fetched from the `:ingestion` role, which owns the volumes. This tool sends
+  the skill's **opaque locator** and nothing else: it never names a volume, never joins a
+  path, and never receives an absolute one. See `Zaq.Ingestion.ResourceBundle`.
+
+  **A manifest failure is not a tool failure.** If ingestion is unreachable or slow, the
+  listing degrades to `[]` and the instructions are returned regardless — losing the
+  manifest costs the model one follow-up call, losing the body costs it the whole skill.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -35,6 +52,11 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
     Load the full instructions for one of your available skills, by name. The system prompt
     lists each skill's name and what it is for; call this to read a skill's actual
     instructions before following it. Pass the exact skill name from the list.
+
+    The result may also list reference files bundled with the skill, each with its
+    `resource_path` and size. Their contents are NOT included — read one only if the
+    instructions point you to it, by calling `load_skill_resource` with the exact
+    `resource_path` shown.
     """,
     schema: [
       name: [type: :string, required: true, doc: "The exact name of the skill to load."]
@@ -45,13 +67,21 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
       resources: [
         type: {:list, :any},
         required: false,
-        doc: "Resource files the skill bundles, loadable on demand (always [] in Part 1; Part 2)."
+        doc:
+          "Files the skill bundles: name, resource_path and size. Metadata only — " <>
+            "fetch one with load_skill_resource."
+      ],
+      resources_note: [
+        type: :string,
+        required: false,
+        doc: "Present only when the file listing was truncated; states the real total."
       ]
     ]
 
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Skills
+  alias Zaq.Agent.Skills.Bundle
   alias Zaq.Agent.TokenEstimator
 
   require Logger
@@ -62,16 +92,24 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
          {:ok, skill} <- fetch_granted_skill(agent, name) do
       emit_telemetry(agent, skill, context)
 
+      # Never fails: a manifest that cannot be fetched degrades to an empty list, because
+      # the instructions below are the payload worth protecting.
+      manifest = Bundle.manifest(skill, context)
+
       {:ok,
-       %{
-         name: skill.name,
-         instructions: skill.body,
-         # Resource loading is Part 2 (§ M8). The key is present now so the tool's output
-         # shape stays stable when resources land — adding them is non-breaking.
-         resources: []
-       }}
+       maybe_note(
+         %{
+           name: skill.name,
+           instructions: skill.body,
+           resources: manifest.resources
+         },
+         manifest.note
+       )}
     end
   end
+
+  defp maybe_note(result, nil), do: result
+  defp maybe_note(result, note), do: Map.put(result, :resources_note, note)
 
   defp fetch_agent(context) do
     case Map.get(context, :configured_agent_id) do

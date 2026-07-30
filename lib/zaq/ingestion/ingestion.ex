@@ -24,6 +24,7 @@ defmodule Zaq.Ingestion do
     JobLifecycle,
     RecordSource,
     RenameService,
+    ResourceBundle,
     Sidecar,
     SourcePath,
     VolumeRecords
@@ -347,6 +348,30 @@ defmodule Zaq.Ingestion do
   def volumes_configured?, do: FileExplorer.volumes_configured?()
 
   def list_entries(volume_name, path), do: FileExplorer.list(volume_name, path)
+
+  @doc """
+  Lists the resources bundled under `locator`, metadata only.
+
+  `locator` is a volume-relative bundle root. Callers do not name a volume — resolving one
+  is this role's job, and `Zaq.Ingestion.ResourceBundle` is the only place that does it.
+  """
+  def list_skill_bundle(locator), do: ResourceBundle.list(locator)
+
+  @doc """
+  Reads one bundled resource as UTF-8 text.
+
+  `resource_path` is relative to the bundle root and carries its type directory, e.g.
+  `references/pricing-2026.md`.
+  """
+  def read_skill_bundle_resource(locator, resource_path),
+    do: ResourceBundle.read_text(locator, resource_path)
+
+  @doc """
+  The volume holding a bundle — for BO display only.
+
+  Agent-side callers address bundles by locator and must not use this.
+  """
+  def resolve_skill_bundle_volume(locator), do: ResourceBundle.resolve_volume(locator)
 
   def create_directory(volume_name, path), do: FileExplorer.create_directory(volume_name, path)
 

@@ -61,6 +61,57 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
     end
   end
 
+  describe "bundle_locator/1" do
+    test "returns :none when nothing was ever uploaded" do
+      # Part 1 persists `resource_root` on first upload, so an unset root means there is no
+      # bundle to ask ingestion about — and no round trip worth making.
+      assert Resources.bundle_locator(skill(%{name: "pricing-faq"})) == :none
+    end
+
+    test "returns :none for a blank stored root" do
+      assert Resources.bundle_locator(skill(%{resource_root: ""})) == :none
+      assert Resources.bundle_locator(skill(%{resource_root: "   "})) == :none
+    end
+
+    test "returns the stored root once an upload has happened" do
+      s = skill(%{name: "pricing-faq", resource_root: ".agents/skills/pricing-faq"})
+      assert Resources.bundle_locator(s) == {:ok, ".agents/skills/pricing-faq"}
+    end
+
+    test "honours a sticky root over the name-derived default" do
+      # A renamed skill must keep reaching the files uploaded under its old name.
+      s = skill(%{name: "new-name", resource_root: ".agents/skills/old-name"})
+      assert Resources.bundle_locator(s) == {:ok, ".agents/skills/old-name"}
+    end
+
+    test "falls back to the derived root when the stored one is unsafe" do
+      # Matches `root/1`: an unsafe stored root is ignored, and the derived root is where
+      # `destination/2` would have written, so files may genuinely be there.
+      assert Resources.bundle_locator(skill(%{name: "s", resource_root: "/etc"})) ==
+               {:ok, ".agents/skills/s"}
+
+      assert Resources.bundle_locator(skill(%{name: "s", resource_root: "../escape"})) ==
+               {:ok, ".agents/skills/s"}
+    end
+
+    test "agrees with root/1 whenever it returns a locator" do
+      for stored <- [".agents/skills/a", "custom/root", "/etc", "../escape"] do
+        s = skill(%{name: "s", resource_root: stored})
+        assert Resources.bundle_locator(s) == {:ok, Resources.root(s)}
+      end
+    end
+
+    test "never returns an absolute or traversing locator" do
+      for stored <- ["/etc/passwd", "../../escape", ".agents/skills/ok"] do
+        assert {:ok, locator} =
+                 Resources.bundle_locator(skill(%{name: "s", resource_root: stored}))
+
+        refute String.starts_with?(locator, "/")
+        refute ".." in Path.split(locator)
+      end
+    end
+  end
+
   describe "references_dir/1" do
     test "uses the default root when resource_root is nil" do
       assert Resources.references_dir(skill(%{name: "pricing-faq"})) ==

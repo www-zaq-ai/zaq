@@ -25,6 +25,27 @@ defmodule Zaq.Agent.Skills.LimitsTest do
     assert limits.resource_max_bytes == 5 * 1024 * 1024
     assert limits.resource_max_files == 10
     assert limits.resource_read_max_bytes == 262_144
+    assert limits.resource_listing_max_files == 100
+  end
+
+  test "the listing cap is comfortably above the upload cap" do
+    limits = Limits.all()
+
+    # An operator can upload 10 files per skill, so the manifest cap only ever bites on a
+    # bundle that arrived by import (M4) — never on one built through the BO.
+    assert limits.resource_listing_max_files > limits.resource_max_files
+  end
+
+  test "read caps are overridable independently of the import caps" do
+    limits =
+      Limits.all(config: stub(%{resource_read_max_bytes: 1024, resource_listing_max_files: 5}))
+
+    assert limits.resource_read_max_bytes == 1024
+    assert limits.resource_listing_max_files == 5
+
+    # `bundle_max_*` guard SKILL.md import, not reads — moving a read cap must not move them.
+    assert limits.bundle_max_bytes == 50 * 1024 * 1024
+    assert limits.bundle_max_files == 500
   end
 
   test "the resource read cap is well under the upload cap" do

@@ -94,8 +94,15 @@ defmodule Zaq.Agent.Skills do
   """
   # Provisioned onto an agent whenever it has ≥1 active skill, and dropped (via RuntimeSync's
   # managed-tool diff) when its last skill is detached — an index-only prompt is useless
-  # without it, and a skill-less agent has no reason to carry it.
+  # without them, and a skill-less agent has no reason to carry them.
+  #
+  # Both keys ride the same condition. Splitting it — provisioning the resource tool only for
+  # agents whose skills currently have uploads — would mean the tool appears and disappears
+  # as files are added and removed, so an agent mid-conversation could lose a tool the
+  # manifest it already read still points at.
   @load_skill_key "skills.load_skill"
+  @load_skill_resource_key "skills.load_skill_resource"
+  @skill_tool_keys [@load_skill_key, @load_skill_resource_key]
 
   @spec provisioned_tool_keys(ConfiguredAgent.t(), [Skill.t()]) :: [String.t()]
   def provisioned_tool_keys(%ConfiguredAgent{} = agent, skills) when is_list(skills) do
@@ -105,7 +112,7 @@ defmodule Zaq.Agent.Skills do
       |> Enum.filter(&Registry.valid_tool_key?/1)
 
     base = (agent.enabled_tool_keys || []) ++ skill_keys
-    keys = if skills == [], do: base, else: base ++ [@load_skill_key]
+    keys = if skills == [], do: base, else: base ++ @skill_tool_keys
 
     Enum.uniq(keys)
   end

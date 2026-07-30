@@ -41,7 +41,18 @@ defmodule Zaq.Agent.Skills.Limits do
       Deliberately looser than the read cap, because a PDF or PNG reference is legitimately
       larger than anything the model will be handed as text.
     * `resource_read_max_bytes` — per-file **read** cap for the text a tool returns to the
-      model. Declared here; enforced in Part 2 (M8.6), where the read path exists.
+      model. Enforced by `Zaq.Agent.Tools.Skills.LoadSkillResource`, which **refuses**
+      oversize files naming their size rather than truncating them: half a reference
+      document reads as a whole one, and instructions cut mid-sentence are worse than
+      instructions withheld.
+    * `resource_listing_max_files` — how many entries a `load_skill` manifest may carry.
+      A listing is metadata, but a bundle with hundreds of files would still crowd out the
+      instructions it accompanies. Over the cap the listing is truncated **and says so**
+      ("showing 100 of 137"), so the model knows to ask rather than assuming it saw
+      everything.
+
+  These two are read caps and must not be conflated with `bundle_max_*`, which guard
+  SKILL.md *import* (M4). One number serving two policies drifts the moment either moves.
   """
 
   @defaults %{
@@ -51,10 +62,11 @@ defmodule Zaq.Agent.Skills.Limits do
     # Part 2 (import) — declared here, enforced in M4.
     bundle_max_bytes: 50 * 1024 * 1024,
     bundle_max_files: 500,
-    # Resources: upload cap enforced now (BO write path), read cap in Part 2 M8.6.
+    # Resources: upload caps enforced on the BO write path, read caps on the tool read path.
     resource_max_bytes: 5 * 1024 * 1024,
     resource_max_files: 10,
-    resource_read_max_bytes: 262_144
+    resource_read_max_bytes: 262_144,
+    resource_listing_max_files: 100
   }
 
   @spec all(keyword()) :: map()
