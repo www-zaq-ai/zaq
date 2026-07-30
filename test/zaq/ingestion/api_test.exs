@@ -21,6 +21,75 @@ defmodule Zaq.Ingestion.ApiTest do
     assert result.response == {:error, {:unsupported_action, :unknown}}
   end
 
+  describe "record materialization actions" do
+    alias Zaq.Contracts.Materialization
+    alias Zaq.Contracts.Record
+
+    defp record(strategy, params \\ %{}) do
+      %Record{
+        id: "r",
+        kind: :file,
+        materialization: Materialization.new(:ingestion, strategy, params: params)
+      }
+    end
+
+    defp materialize(request),
+      do: Api.handle_event(Event.new(request, :ingestion), :materialize_record, nil)
+
+    defp persist(request),
+      do: Api.handle_event(Event.new(request, :ingestion), :persist_record, nil)
+
+    test ":materialize_record runs the record's strategy" do
+      assert %{response: {:ok, %Record{content: "materialized"}}} =
+               materialize(%{record: record(:test_read_write)})
+    end
+
+    test ":persist_record runs the record's strategy" do
+      assert %{response: {:ok, %Record{}}} = persist(%{record: record(:test_read_write)})
+      assert_received {:persisted, %Record{}, _opts}
+    end
+
+    # The clauses are strategy-agnostic; the registry is what decides whether this role runs
+    # a given strategy, so an unknown one must not reach storage.
+    test "an unregistered strategy is refused" do
+      assert %{response: {:error, :unsupported_strategy}} =
+               materialize(%{record: record(:not_registered)})
+    end
+
+    test "a verb the strategy did not declare is refused" do
+      assert %{response: {:error, {:unsupported_verb, :persist}}} =
+               persist(%{record: record(:test_read_only)})
+    end
+
+    test "invalid params are refused before the strategy runs" do
+      assert %{response: {:error, :invalid_params}} =
+               materialize(%{record: record(:test_read_write, %{ok: false})})
+
+      refute_received {:materialized, _, _}
+    end
+
+    # A caller cannot name a bucket even by accident: only `:record` is matched, so anything
+    # else in the request is inert.
+    test "extra request keys such as :volume are inert" do
+      assert %{response: {:ok, %Record{content: "materialized"}}} =
+               materialize(%{record: record(:test_read_write), volume: "alpha"})
+    end
+
+    test "a record with no descriptor falls through to the default handler" do
+      assert %{response: {:error, {:unsupported_action, :materialize_record}}} =
+               materialize(%{record: %Record{id: "r", kind: :file}})
+    end
+
+    test "a bare map instead of a record falls through to the default handler" do
+      assert %{response: {:error, {:unsupported_action, :materialize_record}}} =
+               materialize(%{record: %{id: "r"}})
+    end
+
+    test "a request with no :record falls through to the default handler" do
+      assert %{response: {:error, {:unsupported_action, :persist_record}}} = persist(%{})
+    end
+  end
+
   describe "skill bundle actions" do
     setup do
       File.rm_rf!(@test_base)

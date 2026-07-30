@@ -180,7 +180,7 @@ defmodule Zaq.Ingestion.ResourceBundle do
   defp warn_ambiguous(locator, all, {volume, _root} = winner) do
     Logger.warning(
       "[ResourceBundle] #{inspect(locator)} resolves on more than one volume " <>
-        "(#{all |> Enum.map(&elem(&1, 0)) |> Enum.join(", ")}); using #{inspect(volume)}. " <>
+        "(#{Enum.map_join(all, ", ", &elem(&1, 0))}); using #{inspect(volume)}. " <>
         "A duplicated bundle directory should be removed."
     )
 

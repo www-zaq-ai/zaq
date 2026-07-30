@@ -4,6 +4,7 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
 
   import ExUnit.CaptureLog
 
+  alias Zaq.Ingestion.FileExplorer
   alias Zaq.Ingestion.ResourceBundle
 
   @test_base "test/tmp/resource_bundle"
@@ -305,7 +306,7 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
             assert volume in ["alpha", "beta"]
 
             assert {:ok, absolute} =
-                     Zaq.Ingestion.FileExplorer.resolve_path(
+                     FileExplorer.resolve_path(
                        volume,
                        Path.join(locator, resource_path)
                      )

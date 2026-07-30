@@ -64,12 +64,10 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
       content: [type: :string, required: true, doc: "The file's text."]
     ]
 
-  alias Zaq.Agent
-  alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Agent.Skills
   alias Zaq.Agent.Skills.Bundle
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.TokenEstimator
+  alias Zaq.Agent.Tools.Skills.Scope
 
   require Logger
 
@@ -88,29 +86,11 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
     end
   end
 
-  defp fetch_agent(context) do
-    case Map.get(context, :configured_agent_id) do
-      # A nil scope must never widen access — refuse rather than look up globally.
-      nil ->
-        {:error, "load_skill_resource is not available in this context."}
+  # Both scope checks live in `Scope`, shared with `LoadSkill`: a nil scope must never widen
+  # access, and not-found names neither the catalog nor the skill's files.
+  defp fetch_agent(context), do: Scope.fetch_agent(context, "load_skill_resource")
 
-      id ->
-        case Agent.get_agent(id) do
-          %ConfiguredAgent{} = agent -> {:ok, agent}
-          _ -> {:error, "load_skill_resource is not available in this context."}
-        end
-    end
-  end
-
-  # `enabled_for_agent/1` already filters to active, granted skills, so an unattached,
-  # inactive or hallucinated name all collapse to the same answer — which names only what
-  # was asked for, never the catalog and never the skill's files.
-  defp fetch_granted_skill(agent, skill_name) do
-    case Enum.find(Skills.enabled_for_agent(agent), &(&1.name == skill_name)) do
-      nil -> {:error, "Skill #{inspect(skill_name)} is not available to this agent."}
-      skill -> {:ok, skill}
-    end
-  end
+  defp fetch_granted_skill(agent, skill_name), do: Scope.fetch_granted_skill(agent, skill_name)
 
   defp refuse_scripts(resource_path) do
     case Path.split(resource_path) do

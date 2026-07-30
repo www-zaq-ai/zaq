@@ -78,11 +78,9 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
       ]
     ]
 
-  alias Zaq.Agent
-  alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Agent.Skills
   alias Zaq.Agent.Skills.Bundle
   alias Zaq.Agent.TokenEstimator
+  alias Zaq.Agent.Tools.Skills.Scope
 
   require Logger
 
@@ -111,31 +109,11 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
   defp maybe_note(result, nil), do: result
   defp maybe_note(result, note), do: Map.put(result, :resources_note, note)
 
-  defp fetch_agent(context) do
-    case Map.get(context, :configured_agent_id) do
-      nil ->
-        # No invoking agent means nothing to scope resolution to. Refuse rather than fall
-        # back to a global lookup — a nil scope must never widen access.
-        {:error, "load_skill is not available in this context."}
+  # Both scope checks live in `Scope`, shared with `LoadSkillResource`: a nil agent id refuses
+  # rather than widening to a global lookup, and not-found names only what was asked for.
+  defp fetch_agent(context), do: Scope.fetch_agent(context, "load_skill")
 
-      id ->
-        case Agent.get_agent(id) do
-          %ConfiguredAgent{} = agent -> {:ok, agent}
-          _ -> {:error, "load_skill is not available in this context."}
-        end
-    end
-  end
-
-  # The grant check: the skill must be attached to THIS agent and active. `enabled_for_agent/1`
-  # already filters to active, granted skills, so a hallucinated, unattached, or inactive
-  # name all collapse to the same clean not-found — and the error names only the requested
-  # skill, never the catalog.
-  defp fetch_granted_skill(agent, name) do
-    case Enum.find(Skills.enabled_for_agent(agent), &(&1.name == name)) do
-      nil -> {:error, "Skill #{inspect(name)} is not available to this agent."}
-      skill -> {:ok, skill}
-    end
-  end
+  defp fetch_granted_skill(agent, name), do: Scope.fetch_granted_skill(agent, name)
 
   defp emit_telemetry(agent, skill, context) do
     body = skill.body || ""

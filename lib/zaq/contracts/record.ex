@@ -1,6 +1,19 @@
 defmodule Zaq.Contracts.Record do
-  @moduledoc "Canonical domain-agnostic record payload."
+  @moduledoc """
+  Canonical domain-agnostic record payload.
 
+  A record is a **handle**: identity and metadata, small enough to move between nodes freely.
+  `:content` is filled only when someone materializes it — see `Zaq.Records.Materializer` and
+  the `:materialization` descriptor below.
+  """
+
+  # `:materialization` and `:raw` are deliberately absent from this list.
+  #
+  # Both carry storage internals — locators, bucket keys, adapter ids, provider payloads —
+  # and anything encoded here can end up in a tool result, where a model can read it and
+  # fabricate one back. Excluding them is what lets a descriptor cross a node boundary as an
+  # Erlang term while staying invisible to models. Adding either key here is a security
+  # regression; `Zaq.Contracts.MaterializationTest` asserts against it.
   @derive {
     Jason.Encoder,
     only: [
@@ -46,6 +59,7 @@ defmodule Zaq.Contracts.Record do
     :lifecycle_state,
     :deleted_at,
     :permissions,
+    :materialization,
     parent_ids: [],
     owners: [],
     attributes: %{},
@@ -73,6 +87,7 @@ defmodule Zaq.Contracts.Record do
           deleted_at: DateTime.t() | nil,
           permissions: nil | [t()],
           attributes: map(),
+          materialization: Zaq.Contracts.Materialization.t() | nil,
           raw: map()
         }
 end

@@ -5,8 +5,11 @@ defmodule Zaq.Ingestion.Api do
 
   @behaviour Zaq.InternalBoundaries
 
+  alias Zaq.Contracts.Materialization
+  alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.Records.Registry
   alias Zaq.InternalBoundaries
 
   @impl true
@@ -39,6 +42,28 @@ defmodule Zaq.Ingestion.Api do
       )
       when is_binary(locator) and is_binary(resource_path) do
     %{event | response: Ingestion.read_skill_bundle_resource(locator, resource_path)}
+  end
+
+  # Record materialization. These two clauses are strategy-agnostic and are the only ones this
+  # role will ever need for files: the record names its own strategy, and
+  # `Zaq.Ingestion.Records.Registry` decides whether this role runs it. Adding a new kind of
+  # storage means adding a strategy and a registry entry — never another action here.
+  #
+  # A record with no descriptor does not match, and falls through to the default handler.
+  def handle_event(
+        %Event{request: %{record: %Record{materialization: %Materialization{}} = record}} = event,
+        :materialize_record,
+        _context
+      ) do
+    %{event | response: Registry.run(record.materialization.strategy, :materialize, record)}
+  end
+
+  def handle_event(
+        %Event{request: %{record: %Record{materialization: %Materialization{}} = record}} = event,
+        :persist_record,
+        _context
+      ) do
+    %{event | response: Registry.run(record.materialization.strategy, :persist, record)}
   end
 
   def handle_event(%Event{} = event, action, _context),
