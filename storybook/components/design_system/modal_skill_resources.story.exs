@@ -2,7 +2,6 @@ defmodule Storybook.Components.DesignSystem.ModalSkillResources do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 
-  import ZaqWeb.Components.DesignSystem.ModalNoVolume
   import ZaqWeb.Components.DesignSystem.ModalSkillResources
 
   def description,

@@ -42,7 +42,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Helpers.SizeFormat
-  alias ZaqWeb.Helpers.UploadFlash
 
   # Narrower than IngestionLive's list on purpose: skill resources are reference material
   # the agent reads, so only the formats that make sense in that role are accepted.
@@ -66,6 +65,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
       |> assign(:mcp_picker_value, "")
       |> assign(:body_preview, false)
       |> assign(:resource_modal, nil)
+      |> assign(:upload_toast, nil)
       |> assign(:skill_resources, [])
       |> assign_volumes()
       # Size and count come from `Skills.Limits`, not from IngestionLive's rails: nothing
@@ -158,6 +158,10 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     {:noreply, assign(socket, :resource_modal, nil)}
   end
 
+  def handle_event("dismiss_upload_toast", _params, socket) do
+    {:noreply, assign(socket, :upload_toast, nil)}
+  end
+
   def handle_event("select_resource_volume", %{"volume" => volume}, socket) do
     if Map.has_key?(socket.assigns.volumes, volume) do
       {:noreply, socket |> assign(:resource_volume, volume) |> load_skill_resources()}
@@ -199,7 +203,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
         socket
         |> maybe_persist_resource_root(skill, uploaded)
         |> load_skill_resources()
-        |> put_resource_upload_flash(uploaded, failed)
+        |> put_resource_upload_toast(uploaded, failed)
         |> maybe_close_resource_modal(uploaded, failed)
 
       {:noreply, socket}
@@ -589,8 +593,32 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     end
   end
 
-  defp put_resource_upload_flash(socket, uploaded, failed) do
-    UploadFlash.put_result(socket, uploaded, failed, noun: "resource", past_tense: "added")
+  # An overlay toast, not a BOLayout flash: resources are added with the skill drawer open,
+  # and the inline banner renders behind it (`--zaq-z-overlay` outranks the page content).
+  # Same reason the ingestion jobs drawer reports through `#ingest-toast`.
+  defp put_resource_upload_toast(socket, [], []), do: socket
+
+  defp put_resource_upload_toast(socket, uploaded, []) do
+    put_toast(socket, :info, "#{length(uploaded)} resource(s) added.")
+  end
+
+  defp put_resource_upload_toast(socket, [], failed) do
+    put_toast(socket, :error, "Upload failed: #{upload_failure_reasons(failed)}")
+  end
+
+  defp put_resource_upload_toast(socket, uploaded, failed) do
+    put_toast(socket, :info, "#{length(uploaded)} resource(s) added. #{length(failed)} failed.")
+  end
+
+  defp put_toast(socket, kind, message) do
+    assign(socket, :upload_toast, %{kind: kind, message: message})
+  end
+
+  defp upload_failure_reasons(failed) do
+    failed
+    |> Enum.map(fn {:error, reason} -> inspect(reason) end)
+    |> Enum.uniq()
+    |> Enum.join(", ")
   end
 
   defp maybe_close_resource_modal(socket, uploaded, failed) do

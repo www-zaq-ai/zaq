@@ -337,6 +337,53 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert Skills.get_skill!(skill.id).resource_root == nil
     end
 
+    test "reports the result in the overlay toast, not the BOLayout flash", %{conn: conn} do
+      volume = tmp_volume("toast")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "toast-skill"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "seen.md", content: "x", type: "text/markdown"}
+        ])
+
+      assert render_upload(upload, "seen.md")
+      view |> form("#skill-resource-form") |> render_submit()
+
+      # The drawer is open, so an inline BOLayout banner would render behind it. The toast
+      # outranks the overlay — assert the message lands there and nowhere else.
+      assert has_element?(view, "#resource-upload-toast", "1 resource(s) added.")
+      refute has_element?(view, "#flash-info")
+    end
+
+    test "dismissing the toast clears it", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("toast_dismiss")})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "dismiss-skill"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "gone.md", content: "x", type: "text/markdown"}
+        ])
+
+      assert render_upload(upload, "gone.md")
+      view |> form("#skill-resource-form") |> render_submit()
+      assert has_element?(view, "#resource-upload-toast")
+
+      render_click(view, "dismiss_upload_toast", %{})
+
+      refute has_element?(view, "#resource-upload-toast")
+    end
+
     test "cancelling a queued entry removes it before submit", %{conn: conn} do
       configure_volumes(%{"documents" => tmp_volume("cancel")})
       with_skills_live_node_router(RealRouter)

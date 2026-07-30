@@ -4,7 +4,6 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
   import Phoenix.LiveViewTest
 
   alias Phoenix.LiveView.UploadConfig
-  alias ZaqWeb.Components.DesignSystem.ModalNoVolume
   alias ZaqWeb.Components.DesignSystem.ModalSkillResources
 
   defp uploads do
@@ -125,14 +124,14 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
 
   describe "modal_no_volume/1" do
     test "renders the exact operator-facing message" do
-      html = render_component(&ModalNoVolume.modal_no_volume/1, [])
+      html = render_component(&ModalSkillResources.modal_no_volume/1, [])
 
       assert html =~ "Please, connect a volume to be able upload a resource"
       assert html =~ "No volume connected"
     end
 
     test "offers only an acknowledge action — nothing to confirm" do
-      html = render_component(&ModalNoVolume.modal_no_volume/1, [])
+      html = render_component(&ModalSkillResources.modal_no_volume/1, [])
 
       assert html =~ "Close"
       assert html =~ ~s(phx-click="close_resource_modal")
@@ -141,7 +140,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
     end
 
     test "uses the warning badge, not the destructive one" do
-      html = render_component(&ModalNoVolume.modal_no_volume/1, [])
+      html = render_component(&ModalSkillResources.modal_no_volume/1, [])
 
       assert html =~ "zaq-modal-confirm-icon-badge--warning"
       assert html =~ "hero-exclamation-triangle"
@@ -149,7 +148,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
 
     test "accepts a custom cancel event and copy" do
       html =
-        render_component(&ModalNoVolume.modal_no_volume/1,
+        render_component(&ModalSkillResources.modal_no_volume/1,
           cancel_event: "dismiss",
           title: "Nope",
           message: "No volume here",

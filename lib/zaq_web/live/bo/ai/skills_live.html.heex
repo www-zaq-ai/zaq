@@ -461,9 +461,24 @@
     hint={resource_upload_hint()}
   />
 
-  <ZaqWeb.Components.DesignSystem.ModalNoVolume.modal_no_volume :if={
+  <ZaqWeb.Components.DesignSystem.ModalSkillResources.modal_no_volume :if={
     @resource_modal == :no_volume
   } />
+
+  <%!-- Upload results report here, not in the BOLayout flash: the drawer is open when a
+        resource is added, and an inline banner renders behind it. Same affordance the
+        ingestion jobs drawer uses (`#ingest-toast`). --%>
+  <.flash
+    :if={@upload_toast}
+    id="resource-upload-toast"
+    kind={@upload_toast.kind}
+    flash={%{}}
+    auto_dismiss
+    auto_dismiss_duration={5000}
+    on_clear="dismiss_upload_toast"
+  >
+    {@upload_toast.message}
+  </.flash>
 
   <ZaqWeb.Components.BOModal.modal_shell
     :if={@tools_picker_open}

@@ -8,12 +8,17 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResources do
   Adds two things ingestion does not need: a volume picker, rendered only when more than
   one volume is configured, and a preview of the destination path so the operator can see
   where the file will land in the ingestion browser before committing.
+
+  `modal_no_volume/1` lives here too: it is the same surface in its blocked state — what
+  the operator gets instead of the upload modal when no volume is connected — and has no
+  caller outside skill resources.
   """
 
   use Phoenix.Component
 
   import ZaqWeb.Components.BOModal
   import ZaqWeb.Components.DesignSystem.Dropzone, only: [upload_section: 1]
+  import ZaqWeb.CoreComponents, only: [icon: 1]
   import ZaqWeb.Select, only: [select: 1]
 
   attr :uploads, :any, required: true
@@ -76,6 +81,54 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResources do
         />
       </div>
     </.form_dialog>
+    """
+  end
+
+  @doc """
+  Dead-end notice shown when adding a resource needs a volume and none is connected.
+
+  Built on `BOModal.modal_shell/1` rather than `confirm_dialog/1`: there is nothing to
+  confirm and no destructive action to accept — the operator can only acknowledge and go
+  connect a volume. It reuses the centered confirm layout classes with the warning badge
+  modifier, so it reads as "blocked", not "about to delete something".
+  """
+  attr :id, :string, default: "no-volume-modal"
+  attr :cancel_event, :string, default: "close_resource_modal"
+  attr :title, :string, default: "No volume connected"
+  attr :message, :string, default: "Please, connect a volume to be able upload a resource"
+  attr :close_label, :string, default: "Close"
+
+  def modal_no_volume(assigns) do
+    ~H"""
+    <.modal_shell
+      id={@id}
+      cancel_event={@cancel_event}
+      max_width_class="zaq-modal--width-sm"
+      panel_class="zaq-modal--centered"
+      role="dialog"
+      aria-modal="true"
+      aria-label={@title}
+    >
+      <div class="zaq-modal-confirm-icon-badge zaq-modal-confirm-icon-badge--warning">
+        <.icon name="hero-exclamation-triangle" class="zaq-icon-md" />
+      </div>
+      <div class="zaq-layout-stack-tight zaq-modal-confirm-copy">
+        <h3 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">{@title}</h3>
+        <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
+          {@message}
+        </p>
+      </div>
+      <div class="zaq-modal-confirm-actions">
+        <button
+          type="button"
+          id={"#{@id}-close"}
+          phx-click={@cancel_event}
+          class="zaq-btn zaq-btn-secondary zaq-btn-text_label-default"
+        >
+          {@close_label}
+        </button>
+      </div>
+    </.modal_shell>
     """
   end
 
