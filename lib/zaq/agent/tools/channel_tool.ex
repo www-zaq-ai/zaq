@@ -1,6 +1,15 @@
-defmodule Zaq.Agent.Tools.DataSourceTool do
+defmodule Zaq.Agent.Tools.ChannelTool do
   @moduledoc """
-  Shared dispatch and response handling for datasource-backed agent tools.
+  Shared NodeRouter dispatch and response shaping for agent tools that call
+  Channels.
+
+  Not limited to datasource tools: any tool whose work happens on the channels
+  role — listing providers, writing a document — goes through `dispatch/5` so
+  the event shape, the router override, and the error wording stay identical
+  across the tool surface.
+
+  `context[:node_router]` overrides the router module, which is how tests reach
+  a local `Zaq.Channels.Api` without a second node.
   """
 
   alias Zaq.Agent.Tools.Error
@@ -31,7 +40,7 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   end
 
   def format_response(other, _error_prefix, _on_ok) do
-    {:error, "Unexpected data source response: #{inspect(other)}"}
+    {:error, "Unexpected channel response: #{inspect(other)}"}
   end
 
   @spec put_if_present(map(), String.t(), any()) :: map()

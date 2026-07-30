@@ -188,6 +188,21 @@ defstruct [
 
 `Zaq.Channels.Bridge` provides shared bridge behaviour callbacks and runtime helper defaults.
 
+### Provider listing
+
+`Zaq.Channels.Bridge.list_providers/2` owns the provider menu for every channel kind — `CommunicationBridge.list_providers/0` and `DataSourceBridge.list_providers/0` are delegations, not separate implementations.
+
+A provider is listed only when its bridge can carry the operation for that kind: `send_reply/2` for `:communication`, `create_file/2` for `:data_source`.
+
+Each entry is `%{provider:, label:, status:}` where `status` is:
+
+- `:active` — an enabled `ChannelConfig` exists; usable now.
+- `:inactive` — a config exists but is switched off. Still listed, so a caller can say "that channel is turned off" rather than "that channel does not exist".
+
+Providers that were never configured are not listed — this is a menu of channels that exist, not a catalogue of channels that could be set up. `ChannelConfig.list_providers_by_kind/1` backs the status field; `list_enabled_providers_by_kind/1` remains for callers that only want usable providers.
+
+The agent reaches this menu through the `general.list_providers` tool (`Zaq.Agent.Tools.General.ListProviders`), which dispatches the `:channel_list_providers` action.
+
 Provider watch calls are provider-facing only. Durable watch-channel runtime state is stored by `Zaq.Engine.DataSources`; Channels passes provider responses to Engine through `NodeRouter.dispatch/1` and does not own checkpoint persistence.
 
 ### Webhook ingress

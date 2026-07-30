@@ -263,6 +263,15 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
+  @doc """
+  Lists datasource providers available for document operations.
+
+  Delegates to `Zaq.Channels.Bridge.list_providers/2`, which owns the menu for
+  every channel kind — see that function for what makes a provider eligible.
+  """
+  @spec list_providers() :: {:ok, map()}
+  def list_providers, do: Bridge.list_providers(:data_source)
+
   @doc "Lists provider files through the configured DataSource bridge."
   @spec list_files(atom() | String.t(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   def list_files(provider, params \\ %{}) when is_map(params) do

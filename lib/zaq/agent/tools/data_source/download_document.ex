@@ -31,21 +31,21 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
 
   @impl Jido.Action
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
     request =
       %{"file_id" => document_id}
-      |> DataSourceTool.merge_optional(params, [
+      |> ChannelTool.merge_optional(params, [
         :document_mime_type,
         :export_mime_type,
         :config_id
       ])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_download_document,
       request,
       context,

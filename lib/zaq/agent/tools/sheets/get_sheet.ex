@@ -33,7 +33,7 @@ defmodule Zaq.Agent.Tools.Sheets.GetSheet do
       ]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
   alias Zaq.Contracts.Record
 
   @spec run(
@@ -49,10 +49,10 @@ defmodule Zaq.Agent.Tools.Sheets.GetSheet do
   def run(%{provider: provider, spreadsheet_id: spreadsheet_id} = params, context) do
     request =
       %{"spreadsheet_id" => spreadsheet_id}
-      |> DataSourceTool.merge_optional(params, [:range, :config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:range, :config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_sheet_get,
       request,
       context,

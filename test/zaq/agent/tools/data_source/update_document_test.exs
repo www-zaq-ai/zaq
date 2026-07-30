@@ -77,6 +77,6 @@ defmodule Zaq.Agent.Tools.DataSource.UpdateDocumentTest do
                node_router: UnexpectedNodeRouter
              })
 
-    assert message == "Unexpected data source response: :ok"
+    assert message == "Unexpected channel response: :ok"
   end
 end

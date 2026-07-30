@@ -37,7 +37,7 @@ defmodule Zaq.Agent.Tools.Sheets.AppendSheetValues do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
 
   @impl Jido.Action
 
@@ -48,10 +48,10 @@ defmodule Zaq.Agent.Tools.Sheets.AppendSheetValues do
         "range" => Map.fetch!(params, :range),
         "values" => Map.fetch!(params, :values)
       }
-      |> DataSourceTool.merge_optional(params, [:value_input_option, :config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:value_input_option, :config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_sheet_append_values,
       request,
       context,

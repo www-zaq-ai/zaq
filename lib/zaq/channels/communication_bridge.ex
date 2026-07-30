@@ -101,6 +101,15 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
+  @doc """
+  Lists communication providers a message can be sent through.
+
+  Delegates to `Zaq.Channels.Bridge.list_providers/2`, which owns the menu for
+  every channel kind — see that function for what makes a provider eligible.
+  """
+  @spec list_providers() :: {:ok, map()}
+  def list_providers, do: Bridge.list_providers(:communication)
+
   @doc "Sends typing indicator through the provider bridge."
   @spec send_typing(atom() | String.t(), String.t() | integer()) :: :ok | {:error, term()}
   def send_typing(provider, channel_id) do

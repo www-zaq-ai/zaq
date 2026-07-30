@@ -1,7 +1,7 @@
-defmodule Zaq.Agent.Tools.DataSourceToolTest do
+defmodule Zaq.Agent.Tools.ChannelToolTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
   alias Zaq.Event
 
   defmodule OkNodeRouter do
@@ -23,7 +23,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
     request = %{provider: "google_drive", params: %{"file_id" => "f1"}}
 
     assert {:ok, %{record: %{"id" => "f1"}}} =
-             DataSourceTool.dispatch(
+             ChannelTool.dispatch(
                :data_source_get_file,
                request,
                %{node_router: OkNodeRouter},
@@ -37,7 +37,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
     request = %{provider: "google_drive", params: %{"query" => "invoice"}}
 
     assert {:ok, %{record: %{"id" => "f1"}, count: 1}} =
-             DataSourceTool.dispatch(
+             ChannelTool.dispatch(
                :data_source_search_files,
                request,
                %{node_router: OkNodeRouter},
@@ -48,7 +48,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
 
   test "dispatch/5 formats error tuples" do
     assert {:error, "Data source document request failed: :timeout"} =
-             DataSourceTool.dispatch(
+             ChannelTool.dispatch(
                :data_source_get_file,
                %{provider: "google_drive", params: %{"file_id" => "f1"}},
                %{node_router: ErrorNodeRouter},
@@ -57,8 +57,8 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
   end
 
   test "dispatch/5 formats unexpected responses" do
-    assert {:error, "Unexpected data source response: :weird_response"} =
-             DataSourceTool.dispatch(
+    assert {:error, "Unexpected channel response: :weird_response"} =
+             ChannelTool.dispatch(
                :data_source_get_file,
                %{provider: "google_drive", params: %{"file_id" => "f1"}},
                %{node_router: UnexpectedNodeRouter},
@@ -69,14 +69,14 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
   test "put_if_present/3 only adds non-nil values" do
     assert %{"file_id" => "f1", "config_id" => "7"} =
              %{"file_id" => "f1"}
-             |> DataSourceTool.put_if_present("config_id", "7")
-             |> DataSourceTool.put_if_present("path", nil)
+             |> ChannelTool.put_if_present("config_id", "7")
+             |> ChannelTool.put_if_present("path", nil)
   end
 
   test "put_many_if_present/2 adds only present values" do
     assert %{"file_id" => "f1", "config_id" => "7", "range" => "Sheet1!A1"} =
              %{"file_id" => "f1"}
-             |> DataSourceTool.put_many_if_present([
+             |> ChannelTool.put_many_if_present([
                {"config_id", "7"},
                {"range", "Sheet1!A1"},
                {"path", nil}

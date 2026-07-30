@@ -75,9 +75,21 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.DataSource.DownloadDocument
     },
     %{
+      key: "data_source.list_providers",
+      label: "List channel providers",
+      description:
+        "Lists the providers available for a channel kind — \"data_source\" for " <>
+          "places a document can be written to, \"communication\" for places a " <>
+          "message can be sent through — so the user can be asked where " <>
+          "something should go before it is created or sent.",
+      module: Zaq.Agent.Tools.General.ListProviders
+    },
+    %{
       key: "data_source.create_document",
       label: "Create document",
-      description: "Create a document on a specific datasource provider",
+      description:
+        "Create a document on a specific datasource provider. Provider keys come " <>
+          "from data_source.list_providers.",
       module: Zaq.Agent.Tools.DataSource.CreateDocument
     },
     %{

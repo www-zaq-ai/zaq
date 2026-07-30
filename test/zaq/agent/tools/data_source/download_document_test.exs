@@ -101,7 +101,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     end
 
     test "returns formatted errors for unexpected responses" do
-      assert {:error, "Unexpected data source response: :weird_response"} =
+      assert {:error, "Unexpected channel response: :weird_response"} =
                DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
                  node_router: StubNodeRouterUnexpected
                })

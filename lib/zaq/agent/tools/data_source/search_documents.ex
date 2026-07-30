@@ -23,20 +23,20 @@ defmodule Zaq.Agent.Tools.DataSource.SearchDocuments do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
 
   @impl Jido.Action
 
   def run(%{provider: provider, query: query} = params, context) do
     request =
       %{"query" => query}
-      |> DataSourceTool.put_many_if_present([
+      |> ChannelTool.put_many_if_present([
         {"path", Map.get(params, :path)},
         {"config_id", Map.get(params, :config_id)}
       ])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_search_files,
       request,
       context,

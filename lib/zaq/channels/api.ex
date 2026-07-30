@@ -284,6 +284,15 @@ defmodule Zaq.Channels.Api do
     %{event | response: data_source_module.list_files(provider, params)}
   end
 
+  def handle_event(%Event{request: %{kind: kind}} = event, :channel_list_providers, _context)
+      when kind in [:data_source, :communication] do
+    %{event | response: list_providers_for_kind(event, kind)}
+  end
+
+  def handle_event(%Event{request: request} = event, :channel_list_providers, _context) do
+    %{event | response: {:error, {:unknown_channel_kind, Map.get(request, :kind)}}}
+  end
+
   def handle_event(
         %Event{request: %{provider: provider, params: params}} = event,
         :data_source_create_file,
@@ -657,6 +666,16 @@ defmodule Zaq.Channels.Api do
   defp supports_callback?(bridge, fun, arity)
        when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
     Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
+  end
+
+  defp list_providers_for_kind(%Event{opts: opts}, :data_source) do
+    data_source_module = Keyword.get(opts, :data_source_bridge_module, DataSourceBridge)
+    data_source_module.list_providers()
+  end
+
+  defp list_providers_for_kind(%Event{} = event, :communication) do
+    communication_module = communication_bridge_module(event)
+    communication_module.list_providers()
   end
 
   defp bridge_module(%Event{opts: opts}) when is_list(opts) do

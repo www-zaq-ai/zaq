@@ -41,17 +41,17 @@ defmodule Zaq.Agent.Tools.Sheets.AddSheetTab do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.ChannelTool
 
   @impl Jido.Action
 
   def run(%{provider: provider, spreadsheet_id: spreadsheet_id, title: title} = params, context) do
     request =
       %{"spreadsheet_id" => spreadsheet_id, "title" => title}
-      |> DataSourceTool.merge_optional(params, [:index, :auto_suffix_on_conflict, :config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:index, :auto_suffix_on_conflict, :config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_sheet_add_tab,
       request,
       context,
