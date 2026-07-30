@@ -101,7 +101,61 @@ defmodule Storybook.Ingestion.ModalUpload do
           folder_drop_skipped={[]}
         />
       </section>
+      <section>
+        <p
+          class="zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);"
+        >
+          Configured for skill resources — volume picker + destination, no folder drop
+        </p>
+        <.modal_upload
+          id="skill-resource-modal"
+          title="Add resource"
+          uploads={skill_uploads()}
+          volumes={%{"documents" => "/vol/documents", "archives" => "/vol/archives"}}
+          current_volume="documents"
+          volume_event="select_resource_volume"
+          destination=".agents/skills/pricing-faq/references"
+          upload_name={:skill_resources}
+          id_prefix="skill-resource"
+          submit_event="upload_skill_resource"
+          change_event="validate_skill_resource"
+          file_cancel_event="cancel_skill_resource"
+          label="Reference file"
+          submit_label="Add"
+          hint=".json .md .pdf .png — max 5.0 MB"
+          folder_drop?={false}
+        />
+      </section>
+      <section>
+        <p
+          class="zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary); margin-bottom: var(--zaq-scale-12);"
+        >
+          Blocked — no volume connected
+        </p>
+        <.modal_no_volume />
+      </section>
     </div>
     """
+  end
+
+  defp skill_uploads do
+    %{
+      skill_resources: %Phoenix.LiveView.UploadConfig{
+        ref: "phx-upload-ref",
+        entries: [],
+        errors: [],
+        name: :skill_resources,
+        accept: :any,
+        max_entries: 10,
+        max_file_size: 5_242_880,
+        chunk_size: 64_000,
+        chunk_timeout: 10_000,
+        external: false,
+        auto_upload?: false,
+        progress_event: nil
+      }
+    }
   end
 end

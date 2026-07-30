@@ -11,6 +11,11 @@ defmodule ZaqWeb.Components.DesignSystem.Dropzone do
 
   use Phoenix.Component
 
+  @default_hint ".md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg — max 20 MB"
+
+  @doc "The ingestion hint, exposed so wrappers can fall back to it without copying it."
+  def default_hint, do: @default_hint
+
   attr :uploads, :any, required: true
   attr :embedding_ready, :boolean, default: true
   attr :folder_drop_skipped, :list, default: []
@@ -27,7 +32,7 @@ defmodule ZaqWeb.Components.DesignSystem.Dropzone do
   attr :label, :string, default: "Upload"
   attr :submit_label, :string, default: "Upload", doc: "Verb on the submit button."
 
-  attr :hint, :string, default: ".md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg — max 20 MB"
+  attr :hint, :string, default: @default_hint
 
   attr :folder_drop?, :boolean,
     default: true,

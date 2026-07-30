@@ -1,10 +1,10 @@
-defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
+defmodule ZaqWeb.Components.DesignSystem.ModalUploadTest do
   use ZaqWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
 
   alias Phoenix.LiveView.UploadConfig
-  alias ZaqWeb.Components.DesignSystem.ModalSkillResources
+  alias ZaqWeb.Components.DesignSystem.ModalUpload
 
   defp uploads do
     %{
@@ -25,22 +25,40 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
     }
   end
 
+  # How SkillsLive configures the modal — every one of these is an opt-in; ingestion passes
+  # none of them.
   defp render_modal(overrides) do
     defaults = [
+      id: "skill-resource-modal",
+      title: "Add resource",
+      cancel_event: "close_resource_modal",
       uploads: uploads(),
       volumes: %{"documents" => "/vol/documents"},
       current_volume: "documents",
+      volume_event: "select_resource_volume",
       destination: ".agents/skills/pricing-faq/references",
-      hint: ".json .md .pdf .png — max 5.0 MB"
+      upload_name: :skill_resources,
+      id_prefix: "skill-resource",
+      submit_event: "upload_skill_resource",
+      change_event: "validate_skill_resource",
+      file_cancel_event: "cancel_skill_resource",
+      label: "Reference file",
+      submit_label: "Add",
+      hint: ".json .md .pdf .png — max 5.0 MB",
+      folder_drop?: false
     ]
 
     render_component(
-      &ModalSkillResources.modal_skill_resources/1,
+      &ModalUpload.modal_upload/1,
       Keyword.merge(defaults, overrides)
     )
   end
 
-  describe "modal_skill_resources/1" do
+  defp ingestion_uploads do
+    %{files: %{uploads().skill_resources | name: :files}}
+  end
+
+  describe "modal_upload/1 configured for skill resources" do
     test "renders the dropzone wired to the skill-scoped events and ids" do
       html = render_modal([])
 
@@ -122,16 +140,48 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
     end
   end
 
+  describe "modal_upload/1 defaults (ingestion)" do
+    defp render_ingestion_modal(overrides \\ []) do
+      render_component(
+        &ModalUpload.modal_upload/1,
+        Keyword.merge([uploads: ingestion_uploads()], overrides)
+      )
+    end
+
+    test "renders the ingestion dropzone when nothing is configured" do
+      html = render_ingestion_modal()
+
+      assert html =~ ~s(id="upload-form")
+      assert html =~ ~s(id="upload-drop-zone")
+      assert html =~ ~s(phx-submit="upload")
+      assert html =~ "Upload data"
+      assert html =~ "FolderDrop"
+    end
+
+    test "hides the volume picker and destination preview" do
+      html = render_ingestion_modal()
+
+      # Both are skill-resources chrome. An ingestion caller passes neither, and adding the
+      # options must not change what it renders.
+      refute html =~ ~s(phx-change="select_volume")
+      refute html =~ "Uploads to"
+    end
+
+    test "keeps the ingestion hint" do
+      assert render_ingestion_modal() =~ ".docx"
+    end
+  end
+
   describe "modal_no_volume/1" do
     test "renders the exact operator-facing message" do
-      html = render_component(&ModalSkillResources.modal_no_volume/1, [])
+      html = render_component(&ModalUpload.modal_no_volume/1, [])
 
       assert html =~ "Please, connect a volume to be able upload a resource"
       assert html =~ "No volume connected"
     end
 
     test "offers only an acknowledge action — nothing to confirm" do
-      html = render_component(&ModalSkillResources.modal_no_volume/1, [])
+      html = render_component(&ModalUpload.modal_no_volume/1, [])
 
       assert html =~ "Close"
       assert html =~ ~s(phx-click="close_resource_modal")
@@ -140,7 +190,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
     end
 
     test "uses the warning badge, not the destructive one" do
-      html = render_component(&ModalSkillResources.modal_no_volume/1, [])
+      html = render_component(&ModalUpload.modal_no_volume/1, [])
 
       assert html =~ "zaq-modal-confirm-icon-badge--warning"
       assert html =~ "hero-exclamation-triangle"
@@ -148,7 +198,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
 
     test "accepts a custom cancel event and copy" do
       html =
-        render_component(&ModalSkillResources.modal_no_volume/1,
+        render_component(&ModalUpload.modal_no_volume/1,
           cancel_event: "dismiss",
           title: "Nope",
           message: "No volume here",

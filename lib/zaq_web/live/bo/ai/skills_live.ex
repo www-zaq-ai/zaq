@@ -39,6 +39,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
+  alias ZaqWeb.Components.DesignSystem.ModalUpload
   alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Helpers.SizeFormat

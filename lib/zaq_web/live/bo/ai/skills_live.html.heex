@@ -452,18 +452,30 @@
     </:actions>
   </Drawer.form_drawer>
 
-  <ZaqWeb.Components.DesignSystem.ModalSkillResources.modal_skill_resources
+  <%!-- The ingestion upload modal, configured for skill references: volume picker and
+        destination preview on, folder-drop off (references are a flat directory). --%>
+  <ModalUpload.modal_upload
     :if={@resource_modal == :upload}
+    id="skill-resource-modal"
+    title="Add resource"
+    cancel_event="close_resource_modal"
     uploads={@uploads}
     volumes={@volumes}
     current_volume={@resource_volume}
+    volume_event="select_resource_volume"
     destination={resource_destination(assigns)}
+    upload_name={:skill_resources}
+    id_prefix="skill-resource"
+    submit_event="upload_skill_resource"
+    change_event="validate_skill_resource"
+    file_cancel_event="cancel_skill_resource"
+    label="Reference file"
+    submit_label="Add"
     hint={resource_upload_hint()}
+    folder_drop?={false}
   />
 
-  <ZaqWeb.Components.DesignSystem.ModalSkillResources.modal_no_volume :if={
-    @resource_modal == :no_volume
-  } />
+  <ModalUpload.modal_no_volume :if={@resource_modal == :no_volume} />
 
   <%!-- Upload results report here, not in the BOLayout flash: the drawer is open when a
         resource is added, and an inline banner renders behind it. Same affordance the
