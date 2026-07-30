@@ -10,8 +10,10 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Skill
   alias Zaq.Agent.Skills
+  alias Zaq.Agent.Skills.Limits
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
+  alias ZaqWeb.Helpers.SizeFormat
   alias ZaqWeb.Live.BO.AI.SkillsLive
 
   setup :verify_on_exit!
@@ -597,6 +599,71 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
         skill: %{name: name, description: "Does the thing.", body: "Do the thing."}
       )
       |> render_submit()
+    end
+
+    test "accepts only json, md, pdf and png", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("accept_gate")})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      fill_new_skill(view, "picky-skill")
+      view |> element("#add-resource-button") |> render_click()
+
+      for filename <- ~w(notes.json notes.md notes.pdf notes.png) do
+        upload =
+          file_input(view, "#skill-resource-form", :skill_resources, [
+            %{name: filename, content: "ok", type: "application/octet-stream"}
+          ])
+
+        assert render_upload(upload, filename)
+      end
+
+      # Formats ingestion accepts but a skill has no use for are refused client-side.
+      for filename <- ~w(sheet.xlsx notes.txt deck.pptx) do
+        upload =
+          file_input(view, "#skill-resource-form", :skill_resources, [
+            %{name: filename, content: "no", type: "application/octet-stream"}
+          ])
+
+        assert {:error, errors} = render_upload(upload, filename)
+        assert Enum.all?(errors, &match?([_ref, :not_accepted], &1))
+      end
+    end
+
+    test "refuses a file over the resource size cap", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("size_gate")})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      fill_new_skill(view, "heavy-skill")
+      view |> element("#add-resource-button") |> render_click()
+
+      # Nothing upstream caps a resource read — Jido's `load_resource/2` is an uncapped
+      # `File.read/1` — so the ceiling is ours and it has to bite at upload time.
+      cap = Limits.get(:resource_max_bytes)
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "huge.md", content: String.duplicate("x", cap + 1), type: "text/markdown"}
+        ])
+
+      assert {:error, errors} = render_upload(upload, "huge.md")
+      assert Enum.all?(errors, &match?([_ref, :too_large], &1))
+    end
+
+    test "advertises the enforced cap in the dropzone hint", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("hint")})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      fill_new_skill(view, "hinted-skill")
+      html = view |> element("#add-resource-button") |> render_click()
+
+      # The hint is derived from the same limit `allow_upload/3` uses, so it cannot promise
+      # a cap the server will not honour.
+      expected = SizeFormat.format_size(Limits.get(:resource_max_bytes))
+      assert html =~ ".json .md .pdf .png"
+      assert html =~ "max #{expected}"
     end
 
     test "hides the button until a name is typed", %{conn: conn} do

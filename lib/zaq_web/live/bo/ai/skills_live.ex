@@ -33,6 +33,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias Zaq.Agent.Skill
   alias Zaq.Agent.Skill.Resources
   alias Zaq.Agent.Skills
+  alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Event
   alias Zaq.Ingestion
@@ -40,13 +41,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
   alias ZaqWeb.Components.Drawer
+  alias ZaqWeb.Helpers.SizeFormat
   alias ZaqWeb.Helpers.UploadFlash
 
-  # Mirrors IngestionLive's upload rails so a file accepted here is a file ingestion
-  # would have accepted anyway.
-  @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
-  @max_entries 10
-  @max_file_size 20_000_000
+  # Narrower than IngestionLive's list on purpose: skill resources are reference material
+  # the agent reads, so only the formats that make sense in that role are accepted.
+  @allowed_extensions ~w(.json .md .pdf .png)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -68,10 +68,13 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
       |> assign(:resource_modal, nil)
       |> assign(:skill_resources, [])
       |> assign_volumes()
+      # Size and count come from `Skills.Limits`, not from IngestionLive's rails: nothing
+      # upstream caps a resource read (Jido's `load_resource/2` is an uncapped `File.read/1`),
+      # so a 20 MB reference would be uploadable and then unusable.
       |> allow_upload(:skill_resources,
         accept: @allowed_extensions,
-        max_entries: @max_entries,
-        max_file_size: @max_file_size
+        max_entries: Limits.get(:resource_max_files),
+        max_file_size: Limits.get(:resource_max_bytes)
       )
       |> refresh_skills()
 
@@ -526,6 +529,15 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   # Template-facing wrapper — the button's visibility gate.
   defp resources_addable?(assigns), do: can_add_resources?(assigns)
+
+  # Built from the same two values `allow_upload/3` is configured with, so the dropzone
+  # cannot advertise a cap the server does not enforce.
+  defp resource_upload_hint do
+    extensions = Enum.join(@allowed_extensions, " ")
+    max = SizeFormat.format_size(Limits.get(:resource_max_bytes))
+
+    "#{extensions} — max #{max}"
+  end
 
   # Removes a deleted skill's whole resource directory — `.agents/skills/{slug}`, not just
   # its `references/` child.

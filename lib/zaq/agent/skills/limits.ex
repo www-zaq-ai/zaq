@@ -29,6 +29,19 @@ defmodule Zaq.Agent.Skills.Limits do
       changing our number would not change Jido's.
     * `bundle_max_bytes` / `bundle_max_files` guard **SKILL.md import** (Part 2 M4). They
       live here so the ceilings are all in one place, but nothing enforces them in Part 1.
+
+  ## Resources: the ceiling has to be ours
+
+  `Jido.AI.Skill.Resources` imposes **no** size limit — `load_resource/2` is an uncapped
+  `File.read/1`, and `list_resources/1` reports whatever it finds. Jido's only length caps
+  are on SKILL.md metadata (see above). So nothing upstream stops a 20 MB reference file
+  from being loaded straight into a tool result and blowing the context window:
+
+    * `resource_max_bytes` — per-file **upload** cap, enforced at write time in the BO.
+      Deliberately looser than the read cap, because a PDF or PNG reference is legitimately
+      larger than anything the model will be handed as text.
+    * `resource_read_max_bytes` — per-file **read** cap for the text a tool returns to the
+      model. Declared here; enforced in Part 2 (M8.6), where the read path exists.
   """
 
   @defaults %{
@@ -37,7 +50,11 @@ defmodule Zaq.Agent.Skills.Limits do
     skill_body_max_bytes: 131_072,
     # Part 2 (import) — declared here, enforced in M4.
     bundle_max_bytes: 50 * 1024 * 1024,
-    bundle_max_files: 500
+    bundle_max_files: 500,
+    # Resources: upload cap enforced now (BO write path), read cap in Part 2 M8.6.
+    resource_max_bytes: 5 * 1024 * 1024,
+    resource_max_files: 10,
+    resource_read_max_bytes: 262_144
   }
 
   @spec all(keyword()) :: map()

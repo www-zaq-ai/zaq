@@ -31,7 +31,8 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
       uploads: uploads(),
       volumes: %{"documents" => "/vol/documents"},
       current_volume: "documents",
-      destination: ".agents/skills/pricing-faq/references"
+      destination: ".agents/skills/pricing-faq/references",
+      hint: ".json .md .pdf .png — max 5.0 MB"
     ]
 
     render_component(
@@ -49,6 +50,13 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResourcesTest do
       assert html =~ ~s(phx-submit="upload_skill_resource")
       assert html =~ ~s(phx-change="validate_skill_resource")
       assert html =~ "Add resource"
+    end
+
+    test "shows the caller's accepted formats and size cap" do
+      html = render_modal(hint: ".json .md — max 1.0 MB")
+
+      assert html =~ ".json .md — max 1.0 MB"
+      refute html =~ ".docx"
     end
 
     test "does not attach the FolderDrop hook" do

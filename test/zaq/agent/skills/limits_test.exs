@@ -22,6 +22,25 @@ defmodule Zaq.Agent.Skills.LimitsTest do
     assert limits.skill_body_max_bytes == 131_072
     assert limits.bundle_max_bytes == 50 * 1024 * 1024
     assert limits.bundle_max_files == 500
+    assert limits.resource_max_bytes == 5 * 1024 * 1024
+    assert limits.resource_max_files == 10
+    assert limits.resource_read_max_bytes == 262_144
+  end
+
+  test "the resource read cap is well under the upload cap" do
+    limits = Limits.all()
+
+    # Uploads may be binaries no model will be handed as text (a PDF reference); the read
+    # cap is what protects the context window. Collapsing the two would either block real
+    # PDFs or let a multi-megabyte file reach a tool result.
+    assert limits.resource_read_max_bytes < limits.resource_max_bytes
+  end
+
+  test "resource limits are overridable like the rest" do
+    limits = Limits.all(config: stub(%{resource_max_bytes: 1024}))
+
+    assert limits.resource_max_bytes == 1024
+    assert limits.resource_read_max_bytes == 262_144
   end
 
   test "a partial override wins over the default, leaving the rest intact" do

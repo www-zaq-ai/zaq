@@ -28,6 +28,10 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResources do
     required: true,
     doc: "Volume-relative path files will be written to."
 
+  attr :hint, :string,
+    required: true,
+    doc: "Accepted extensions and size cap — the caller owns both numbers."
+
   attr :id, :string, default: "skill-resource-modal"
   attr :cancel_event, :string, default: "close_resource_modal"
   attr :volume_event, :string, default: "select_resource_volume"
@@ -66,6 +70,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalSkillResources do
           change_event="validate_skill_resource"
           cancel_event="cancel_skill_resource"
           label="Reference file"
+          hint={@hint}
           submit_label="Add"
           folder_drop?={false}
         />

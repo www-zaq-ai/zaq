@@ -62,6 +62,7 @@ defmodule Storybook.Components.DesignSystem.ModalSkillResources do
           volumes={%{"documents" => "/vol/documents"}}
           current_volume="documents"
           destination=".agents/skills/pricing-faq/references"
+          hint=".json .md .pdf .png — max 5.0 MB"
         />
       </section>
       <section>
@@ -76,6 +77,7 @@ defmodule Storybook.Components.DesignSystem.ModalSkillResources do
           volumes={%{"documents" => "/vol/documents", "archives" => "/vol/archives"}}
           current_volume="archives"
           destination=".agents/skills/pricing-faq/references"
+          hint=".json .md .pdf .png — max 5.0 MB"
         />
       </section>
       <section>
@@ -90,6 +92,7 @@ defmodule Storybook.Components.DesignSystem.ModalSkillResources do
           volumes={%{"documents" => "/vol/documents"}}
           current_volume="documents"
           destination=".agents/skills/pricing-faq/references"
+          hint=".json .md .pdf .png — max 5.0 MB"
         />
       </section>
       <section>
