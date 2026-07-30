@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-30T15:27:41Z",
+  "description": "",
+  "id": "zaq-mik",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[resources-query-routing-rules] Add incoming message routing rules to resources.query",
+  "type": "task",
+  "updated_at": "2026-07-30T15:27:41Z"
+}
