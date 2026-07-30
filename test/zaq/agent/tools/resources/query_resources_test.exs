@@ -114,6 +114,11 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       assert "token" not in description.fields
       assert "settings" not in description.fields
     end
+
+    test "describe mode rejects unknown resource types" do
+      assert {:error, {:unknown_resource_type, "bogus"}} =
+               QueryResources.run(%{mode: "describe", resource_type: "bogus"}, %{})
+    end
   end
 
   describe "public resources" do
@@ -238,6 +243,17 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
 
       assert result.resource == %{id: target.id, username: "private_user"}
       refute Map.has_key?(result.resource, :password_hash)
+    end
+
+    test "private resource get with actor but without grant is unauthorized" do
+      actor_person = person_fixture(%{full_name: "Unauthorized Actor"})
+      target = user_fixture(%{username: "unauthorized_private_user"})
+
+      assert {:error, :unauthorized} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "user", id: target.id, fields: ["id"]},
+                 %{actor: %{person: %{id: actor_person.id, team_ids: []}}}
+               )
     end
 
     test "permission grant filters private list results" do

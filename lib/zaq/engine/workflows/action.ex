@@ -276,6 +276,11 @@ defmodule Zaq.Engine.Workflows.Action do
 
   defp zoi_batch_type(%Zoi.Types.Array{}), do: :list
   defp zoi_batch_type(%Zoi.Types.Map{}), do: :map
+
+  defp zoi_batch_type(%Zoi.Types.Union{schemas: schemas}) do
+    if Enum.any?(schemas, &(zoi_batch_type(&1) == :list)), do: :list, else: :any
+  end
+
   defp zoi_batch_type(_schema), do: :any
 
   defp classify_batch_fields(required_fields, module) do

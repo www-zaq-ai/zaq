@@ -13,7 +13,6 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Identity.ActorNormalizer
-  alias Zaq.Permissions
   alias Zaq.Permissions.ResourcePermission
   alias Zaq.Repo
 
@@ -38,24 +37,40 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   defp get_resource(descriptor, params, context) do
     id = Map.get(params, :id)
 
-    case Repo.get(descriptor.module, id) do
+    case get_authorized_resource(descriptor, id, context) do
+      {:error, reason} ->
+        {:error, reason}
+
       nil ->
-        {:ok, base_response(descriptor, params, %{resource: nil, found: false})}
+        if resource_exists?(descriptor, id) do
+          {:error, :unauthorized}
+        else
+          {:ok, base_response(descriptor, params, %{resource: nil, found: false})}
+        end
 
       resource ->
-        with :ok <- authorize_resource(descriptor, resource, context) do
-          fields = requested_fields(descriptor, params)
-          resource = preload_for_fields(resource, descriptor, fields)
-          resource_map = serialize(resource, descriptor, fields)
+        fields = requested_fields(descriptor, params)
+        resource = preload_for_fields(resource, descriptor, fields)
+        resource_map = serialize(resource, descriptor, fields)
 
-          {:ok,
-           base_response(descriptor, params, %{
-             resource: resource_map,
-             found: true,
-             count: 1,
-             total_count: 1
-           })}
-        end
+        {:ok,
+         base_response(descriptor, params, %{
+           resource: resource_map,
+           found: true,
+           count: 1,
+           total_count: 1
+         })}
+    end
+  end
+
+  defp get_authorized_resource(%{public?: true, module: module}, id, _context),
+    do: Repo.get(module, id)
+
+  defp get_authorized_resource(%{module: _module} = descriptor, id, context) do
+    with {:ok, query} <- base_query(descriptor, context) do
+      query
+      |> where([row], row.id == ^id)
+      |> Repo.one()
     end
   end
 
@@ -106,34 +121,31 @@ defmodule Zaq.Agent.Tools.Resources.Query do
         %{id: person_id, team_ids: team_ids} ->
           resource_type = resource_type(descriptor.module)
 
-          query =
-            from row in module,
-              join: perm in ResourcePermission,
-              on:
+          permissions =
+            from perm in ResourcePermission,
+              where:
                 perm.resource_type == ^resource_type and
-                  perm.resource_id == fragment("?::text", field(row, :id)) and
                   fragment("? = ANY(?)", "read", perm.access_rights) and
-                  (perm.person_id == ^person_id or perm.team_id in ^team_ids),
+                  (perm.person_id == ^person_id or perm.team_id in ^team_ids)
+
+          authorized_resources =
+            from perm in subquery(permissions),
+              join: row in ^module,
+              on: field(row, :id) == fragment("?::bigint", perm.resource_id),
+              select: row,
               distinct: true
+
+          query = from(row in subquery(authorized_resources))
 
           {:ok, query}
       end
     end
   end
 
-  defp authorize_resource(%{public?: true}, _resource, _context), do: :ok
+  defp resource_exists?(%{public?: true}, _id), do: false
 
-  defp authorize_resource(_descriptor, resource, context) do
-    cond do
-      skip_permissions?(context) ->
-        :ok
-
-      person = actor_person_struct(context) ->
-        if Permissions.can?(person, :read, resource), do: :ok, else: {:error, :unauthorized}
-
-      true ->
-        {:error, :unauthorized}
-    end
+  defp resource_exists?(%{module: module}, id) do
+    Repo.exists?(from row in module, where: row.id == ^id)
   end
 
   defp apply_search(query, _descriptor, value) when value in [nil, ""], do: query
@@ -441,13 +453,6 @@ defmodule Zaq.Agent.Tools.Resources.Query do
            ActorNormalizer.normalize_id(Map.get(context, :person_id)) do
       nil -> nil
       person_id -> %{id: person_id, team_ids: actor_team_ids(actor, person_id)}
-    end
-  end
-
-  defp actor_person_struct(context) do
-    case actor_person(context) do
-      nil -> nil
-      %{id: person_id} -> People.get_person(person_id)
     end
   end
 

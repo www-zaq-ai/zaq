@@ -131,6 +131,18 @@ defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiString do
   def run(_, _), do: {:ok, %{out: true}}
 end
 
+defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiUnionList do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_required_zoi_union_list",
+    schema: Zoi.object(%{items: Zoi.union([Zoi.list(Zoi.map()), Zoi.string()])}),
+    output_schema: Zoi.object(%{out: Zoi.any()})
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
 defmodule Zaq.Engine.Workflows.ActionTest do
   use ExUnit.Case, async: true
 
@@ -146,6 +158,7 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     RequiredString,
     RequiredZoiList,
     RequiredZoiString,
+    RequiredZoiUnionList,
     TwoLists,
     TwoMaps
   }
@@ -177,6 +190,10 @@ defmodule Zaq.Engine.Workflows.ActionTest do
 
     test "one required Zoi non-list field → {:ok, {field, :item}}" do
       assert {:ok, {:name, :item}} = Action.batch_field(RequiredZoiString)
+    end
+
+    test "one required Zoi union with list branch → {:ok, {field, :list}}" do
+      assert {:ok, {:items, :list}} = Action.batch_field(RequiredZoiUnionList)
     end
 
     test "zero required fields → {:error, {:no_batch_field, module}}" do

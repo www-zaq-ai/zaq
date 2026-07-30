@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
   Queries allowlisted Ecto resources for agents and workflows.
 
   Resource names are intentionally limited to: `agent`, `mcp`, `skill`, `user`,
-  `person`, `ai_provider`, `channel_config`, and `incoming_message_routing_rule`. Use `mode: "describe"` to discover each resource's
+  `person`, `ai_provider`, `channel_config`, and `incoming_message_routing_rule`. Data source connector configs are `channel_config` resources with `kind: "data_source"`. Use `mode: "describe"` to discover each resource's
   output fields, search fields, filter fields, sort fields, and public/private
   access policy. Use `mode: "query"` to get one resource by id or list/search
   resources with filters and pagination.
@@ -21,7 +21,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
             resource_type:
               Zoi.enum(@resource_names,
                 description:
-                  "Resource type. Allowed: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule. Optional only for mode=describe."
+                  "Resource type. Allowed: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule. Use channel_config with filter kind=data_source for data source connector configs. Optional only for mode=describe."
               )
               |> Zoi.optional(),
             id:
@@ -90,7 +90,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
   use Zaq.Engine.Workflows.Action,
     name: "query_resources",
     description:
-      "Query allowlisted ZAQ Ecto resources: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule. Use mode=describe to discover fields/search_fields/filter_fields/sort_fields. Use mode=query with optional id for get mode, or query/filters/sort/limit/offset for list/search mode. Public reads: agent, mcp, skill. Private reads require permissions or skip_permissions.",
+      "Query allowlisted ZAQ Ecto resources: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule. Data source connector configs are channel_config rows with kind=data_source. Use mode=describe to discover fields/search_fields/filter_fields/sort_fields. Use mode=query with optional id for get mode, or query/filters/sort/limit/offset for list/search mode. Public reads: agent, mcp, skill. Private reads require permissions or skip_permissions.",
     schema: @schema,
     output_schema: @output_schema
 
