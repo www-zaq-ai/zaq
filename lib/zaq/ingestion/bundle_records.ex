@@ -3,36 +3,31 @@ defmodule Zaq.Ingestion.BundleRecords do
   Turns Open Agent Skills bundle entries into canonical `Zaq.Contracts.Record` handles.
 
   The bundle-scoped sibling of `Zaq.Ingestion.VolumeRecords`, and deliberately **not** built
-  on it: `VolumeRecords` stamps `"volume"` into a record's attributes, which is exactly what
-  a bundle record must never carry. A skill addresses its files by locator and has no
-  business learning that volumes exist.
+  on it: `VolumeRecords` stamps `"volume"` into a record's attributes, which is exactly what a
+  bundle record must never carry. A skill addresses its files by locator and has no business
+  learning that volumes exist.
 
-  ## What survives minting, and what does not
+  ## What survives minting
 
-  Jido's listing entries carry `:absolute_path`. That discloses the ingestion node's
-  filesystem layout to whatever called across the boundary and, through a tool result, to a
-  model. It is dropped here along with any trace of the resolved volume. What remains is what
-  a consumer legitimately needs to choose a file: `name`, `path` (the bundle-relative
-  `resource_path`), `size`, `modified_at` and an inferred `mime_type`.
+  `name`, `path` (bundle-relative), `size`, `modified_at` and an inferred `mime_type` — what a
+  consumer needs to choose a file. Jido's `:absolute_path` is dropped, along with any trace of
+  the resolved volume: it discloses the node's filesystem layout across the boundary and,
+  through a tool result, to a model.
 
-  ## The id is opaque, on purpose
-
-  `:id` **is** in `Record`'s `Jason.Encoder` derive list. An id built by interpolating the
-  locator — the obvious `"zaq_skill_bundle:{locator}:{resource_path}"` — would render the
-  locator into every encoded record and quietly undo the exclusion of the descriptor, which
-  is the property the whole design rests on. So the id is a hash: stable for a given
-  locator and path, distinct across bundles, and carrying no path material.
+  The `:id` is a **hash**, not an interpolation. It *is* in `Record`'s `Jason.Encoder` derive
+  list, so the obvious `"zaq_skill_bundle:{locator}:{resource_path}"` would render the locator
+  into every encoded record and quietly undo the descriptor's exclusion — the property the
+  whole design rests on.
 
   ## Where the bytes are
 
-  In the descriptor, which is not serialized — and it carries **only the locator**. The file's
-  own address is `record.path`, which is serialized because a model needs it to choose a file;
-  writing it into `params` as well would state the same fact twice and invite the two to
-  drift. What the descriptor holds is the one thing that must never be shown: the bundle root
-  a read is confined to.
+  In the descriptor, which is not serialized, and it carries **only the locator** — the one
+  thing that must never be shown, being the bundle root a read is confined to. Which file is
+  `record.path`; duplicating it into `params` would state the same fact twice and let the two
+  drift.
 
   Acceptance is left open (`as: :auto`, no `max_bytes`) because a *listing* cannot know what
-  its consumer can accept — each caller narrows at materialize time. Baking `as: :text` here
+  its consumer accepts — each caller narrows at materialize time, and baking `as: :text` here
   would make the same record useless to a byte consumer such as a BO preview.
   """
 

@@ -1,14 +1,15 @@
-defmodule Zaq.Agent.Tools.Skills.Scope do
+defmodule Zaq.Agent.Tools.Helper.Scope do
   @moduledoc """
-  Resolves the invoking agent and its granted skills for the skills tools.
+  Resolves the invoking agent, and the skills granted to it, for tools that need either.
 
-  Both `Zaq.Agent.Tools.Skills.LoadSkill` and `Zaq.Agent.Tools.Skills.LoadSkillReference` must
-  answer the same two questions before doing anything: *which agent is asking*, and *is this
-  skill actually granted to it*. Those answers are the security boundary for the whole skills
-  surface, so they live in one place — two copies of a permission check is one copy that gets
-  fixed and one that does not.
+  `fetch_agent/2` answers *which agent is asking* — a question any tool reading
+  `:configured_agent_id` has, which is why this sits under `Tools.Helper` rather than beside
+  one tool family. `fetch_granted_skill/2` answers *is this skill actually granted to it*, and
+  is used by `Zaq.Agent.Tools.Skills.LoadSkill` and `LoadSkillReference`. Together they are
+  the security boundary for the whole skills surface, so they live in one place — two copies
+  of a permission check is one copy that gets fixed and one that does not.
 
-  It sits in the tool layer, not in `Zaq.Agent.Skills`, because the refusals it returns are
+  They sit in the tool layer, not in `Zaq.Agent.Skills`, because the refusals they return are
   **prose written for a model**. Message wording is a tool concern; a domain module handing
   back sentences for an LLM to read would be the wrong seam.
 

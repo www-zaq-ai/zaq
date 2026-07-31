@@ -2,83 +2,58 @@ defmodule Zaq.Ingestion.ResourceBundle do
   @moduledoc """
   Reads Open Agent Skills resource bundles from ingestion volumes.
 
-  This module is the **sole owner of locator → volume resolution**. It is the one place in
-  the codebase that answers "which volume holds these files?", and the only place a volume
-  name appears on the read path.
-
-  ## What a bundle is
-
-  A *bundle* is a directory laid out per the Open Agent Skills convention — `references/`,
-  `assets/` and `scripts/` beneath a root. This module knows nothing beyond that: not what a
-  skill is, not that ZAQ stores bundles under `.agents/skills/{slug}`. That convention lives
-  in `Zaq.Agent.Skill.Resources` and stays there.
+  The **sole owner of locator → volume resolution**: the one place that answers "which volume
+  holds these files?", and the only place a volume name appears on the read path. A *bundle*
+  is just a directory with `references/`, `assets/` and `scripts/` beneath a root — that ZAQ
+  puts them under `.agents/skills/{slug}` is `Zaq.Agent.Skill.Resources`' business, not this
+  module's.
 
   ## The locator
 
-  A `locator` is a **volume-relative** path to a bundle root, e.g.
-  `.agents/skills/pricing-faq`. Callers hold it opaquely and hand it back unmodified; they
-  never learn which volume it resolved against. Resolution walks the configured volumes in
-  sorted order and takes the first that holds an existing directory — a local `File.dir?/1`
-  per volume, on the node that owns the mounts, so it costs microseconds and no cross-node
-  hops. When more than one volume matches, the sorted-first wins and the ambiguity is logged:
-  deterministic beats arbitrary (`Map.keys/1` ordering is not guaranteed), and a duplicated
-  bundle directory is something an operator needs told about.
+  A **volume-relative** path to a bundle root, e.g. `.agents/skills/pricing-faq`. Callers hold
+  it opaquely and never learn which volume it resolved against. Resolution walks the
+  configured volumes in **sorted** order and takes the first holding an existing directory —
+  sorted because `Map.keys/1` ordering is not guaranteed and a winner must not be arbitrary.
+  A locator matching more than one volume is logged: a duplicated bundle directory is
+  something an operator needs told about.
 
-  ## Two containment checks, on purpose
+  ## Containment
 
-  `FileExplorer.resolve_path/2` guards the path against the **volume** root;
-  `Jido.AI.Skill.Resources` guards it again against the **bundle** root, and additionally
-  resolves symlinks. Different roots, so this is defence in depth rather than redundancy. On
-  top of both, a bundle root reached through a symlink is refused outright — uploads never
-  create one, so a symlinked root is not a configuration worth supporting.
+  Three guards, on different roots, so this is defence in depth rather than redundancy:
+  `FileExplorer.resolve_path/2` against the **volume** root, `Jido.AI.Skill.Resources` against
+  the **bundle** root (resolving symlinks), and a bundle root *reached* through a symlink
+  refused outright — uploads never create one, so it is not a configuration worth supporting.
 
-  ## Nothing about the filesystem leaves this module
-
-  Jido's entries carry `:absolute_path`. That discloses the ingestion node's layout to
-  whatever called across the boundary and, through a tool result, to a model. It is dropped
-  when entries are minted into records by `Zaq.Ingestion.BundleRecords`, as is the resolved
-  volume name.
-
-  ## Listings are a record page
-
-  `list/1` returns a `Zaq.Contracts.RecordPage` — the same contract the channel bridges and
-  `Zaq.Ingestion.RecordSource` already return, rather than a shape invented for skills. Each
-  record is identity and metadata plus a descriptor saying where the bytes live, so a caller
-  hands one back to `Zaq.Records.Materializer` for content and never carries a locator
-  alongside the file it belongs to.
-
-  The three resource types are not separate keys. `record.path` already carries its type
-  directory, so a per-type map would state the same fact twice and force every consumer to
-  flatten it; the types survive as list order instead.
+  Nothing about the filesystem leaves here. Jido's entries carry `:absolute_path`, which
+  discloses the node's layout across the boundary and, through a tool result, to a model; it
+  is dropped along with the resolved volume name when `Zaq.Ingestion.BundleRecords` mints
+  records.
 
   ## Two levels of entry point, one module
 
-  `materialize/1` is the record-shaped read: it takes a record minted by `list/1` and fills
-  `content`. It reads the **bundle** off the descriptor and the **file** off `record.path` —
-  the descriptor carries only the locator, because that is the one field that must never be
-  serialized to a model, while the path is metadata a model is shown anyway. `read_text/2`,
-  `read_bytes/2` and `stat/2` are the path-shaped reads underneath it, kept public because
-  the BO and `Zaq.Agent.Skill.Resources` legitimately address files by path rather than by
-  handle.
+  `list/1` returns a `Zaq.Contracts.RecordPage` — the contract the channel bridges and
+  `Zaq.Ingestion.RecordSource` already return, not a shape invented for skills. The three
+  resource types are list order, not separate keys: `record.path` already carries its type
+  directory.
 
-  These live together because minting a record and filling one are the same knowledge read in
-  two directions — `list/1` writes the locator into a descriptor alongside a path, and
-  `materialize/1` reads the pair back. Splitting them put the two halves of one mapping in two
-  files and bought nothing: the module that returns records is not made cleaner by being
-  unable to fill them.
+  `materialize/1` fills one of those records, reading the **bundle** off its descriptor and
+  the **file** off `record.path` — the locator is the one field that must never reach a model,
+  while the path is metadata a model is shown anyway. It refuses before touching disk: a
+  descriptor carrying a `volume` key, one missing a `locator`, a record missing a path. A
+  `volume` is **refused, not ignored** — dropping it silently teaches the caller the key
+  works. `record.path` being load-bearing weakens nothing: it runs through
+  `validate_resource_path/1` exactly as a caller-supplied path does.
 
-  `record.path` being load-bearing does not weaken anything: it runs through
-  `validate_resource_path/1` exactly as any caller-supplied path does, so a tampered path is
-  refused rather than trusted. `materialize/1` refuses before touching disk: a descriptor
-  carrying a `volume` key, and one missing a `locator` — or a record missing a path. A
-  `volume` is **refused, not ignored** — a caller that sent one has misunderstood the
-  contract, and dropping it silently teaches them the key works.
+  `read_text/2`, `read_bytes/2` and `stat/2` are the path-shaped reads underneath, public
+  because the BO and `Zaq.Agent.Skill.Resources` legitimately address files by path rather
+  than by handle. They live with the minting side because minting a record and filling one are
+  the same mapping read in two directions.
 
   ## Read-only, by omission
 
   There is no write function here, so no `Zaq.Ingestion.Api` clause can reach one, so nothing
-  an agent sends can write to a volume. When a write verb is needed it arrives as its own
-  function behind its own action — coarser than a declared capability list, and more visible.
+  an agent sends can write to a volume. A write verb, when needed, arrives as its own function
+  behind its own action — coarser than a declared capability list, and more visible.
   """
 
   require Logger

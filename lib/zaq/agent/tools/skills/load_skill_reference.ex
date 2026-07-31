@@ -67,7 +67,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillReference do
   alias Zaq.Agent.Skills.Bundle
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.TokenEstimator
-  alias Zaq.Agent.Tools.Skills.Scope
+  alias Zaq.Agent.Tools.Helper.Scope
 
   require Logger
 
