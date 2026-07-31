@@ -15,6 +15,12 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Skills.LoadSkill
   alias Zaq.Agent.Tools.Skills.LoadSkillResource
+  alias Zaq.Contracts.Materialization
+  alias Zaq.Contracts.Record
+  alias Zaq.Event
+  alias Zaq.NodeRouter
+  alias Zaq.Records.Content
+  alias Zaq.Records.Materializer
 
   @test_base "test/tmp/bundle_e2e"
   @locator ".agents/skills/pricing-faq"
@@ -233,5 +239,130 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
 
       refute message =~ "CONFIDENTIAL"
     end
+  end
+
+  describe "records cross the boundary and materialize back, unstubbed" do
+    test "listing yields records that carry a descriptor, not content", %{library: library} do
+      write!(library, "references/pricing-2026.md", "# Pricing 2026\nEnterprise: contact sales.")
+
+      assert [%Record{} = record] = list_records()
+
+      # A handle: identity and metadata, no bytes.
+      assert record.name == "pricing-2026.md"
+      assert record.path == "references/pricing-2026.md"
+      assert record.mime_type == "text/markdown"
+      assert record.size == byte_size("# Pricing 2026\nEnterprise: contact sales.")
+      assert record.content == nil
+
+      # And it knows where its bytes live, without anyone else being told.
+      assert %Materialization{role: :ingestion, strategy: :skill_bundle} = record.materialization
+      assert record.materialization.params.locator == @locator
+    end
+
+    test "a record materializes to its real file's content", %{library: library} do
+      write!(library, "references/pricing-2026.md", "# Pricing 2026\nEnterprise: contact sales.")
+
+      [record] = list_records()
+
+      # The caller names no role, no action, no path — only the record it was handed.
+      assert {:ok, materialized} = Materializer.materialize(record)
+
+      assert materialized.content == "# Pricing 2026\nEnterprise: contact sales."
+      assert materialized.attributes["encoding"] == "utf8"
+    end
+
+    test "a binary asset materializes as base64 and decodes to the exact bytes on disk", %{
+      library: library
+    } do
+      png = <<0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE, 0x00, 0x01>>
+      write!(library, "assets/logo.png", png)
+
+      assert [record] = list_records(:assets)
+      assert record.mime_type == "image/png"
+
+      assert {:ok, materialized} = Materializer.materialize(record)
+      assert materialized.attributes["encoding"] == "base64"
+      assert {:ok, ^png} = Content.decode(materialized)
+
+      # Raw bytes on both sides of the hop, so a cap means the same number either side.
+      assert materialized.size == byte_size(png)
+      assert byte_size(materialized.content) > byte_size(png)
+    end
+
+    test "a text-only caller refuses the same binary rather than receiving base64", %{
+      library: library
+    } do
+      write!(library, "assets/logo.png", <<0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFE>>)
+
+      [record] = list_records(:assets)
+
+      assert {:error, :invalid_utf8} = Materializer.materialize(record, as: :text)
+    end
+
+    test "an oversize file is refused before its bytes cross", %{library: library} do
+      write!(library, "references/pricing-2026.md", String.duplicate("x", 5_000))
+
+      [record] = list_records()
+
+      assert {:error, {:too_large, 5_000}} = Materializer.materialize(record, max_bytes: 100)
+    end
+
+    # Use case B end to end: the agent supplies bytes and an intent, ingestion picks the
+    # destination, and the handle it returns reads back to exactly what went in.
+    test "a generated image persists and materializes back byte-identical" do
+      png = <<0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A>> <> :crypto.strong_rand_bytes(64)
+
+      {:ok, generated} =
+        %Record{
+          id: "generated",
+          kind: :file,
+          name: "revenue-chart.png",
+          mime_type: "image/png",
+          materialization:
+            Materialization.new(:ingestion, :skill_bundle,
+              params: %{locator: @locator, purpose: :asset}
+            )
+        }
+        |> Content.put(png, :auto)
+
+      assert {:ok, handle} = Materializer.persist(generated)
+
+      # A handle comes back, not the bytes — and it names where they landed, which the
+      # caller never chose.
+      assert handle.content == nil
+      assert handle.path == "assets/revenue-chart.png"
+      assert handle.size == byte_size(png)
+
+      assert {:ok, read_back} = Materializer.materialize(handle)
+      assert {:ok, ^png} = Content.decode(read_back)
+
+      # And the file is now a normal member of the bundle, listed like any other.
+      assert "assets/revenue-chart.png" in Enum.map(list_records(:assets), & &1.path)
+    end
+
+    test "nothing a record carries discloses the filesystem to a model", %{library: library} do
+      write!(library, "references/pricing-2026.md", "rates")
+
+      [record] = list_records()
+      encoded = Jason.encode!(record)
+
+      # The descriptor holds the locator, and the descriptor is not serialized. This is the
+      # property the whole design rests on, asserted across the real boundary rather than
+      # against a hand-built struct.
+      refute encoded =~ @locator
+      refute encoded =~ "materialization"
+      refute encoded =~ "library"
+      refute encoded =~ Path.expand(@test_base)
+      refute record.id =~ @locator
+    end
+  end
+
+  # The real listing action over the real router — the same call the agent's `Bundle` makes.
+  defp list_records(type \\ :references) do
+    %{bundle: @locator}
+    |> Event.new(:ingestion, opts: [action: :list_skill_bundle])
+    |> NodeRouter.dispatch()
+    |> Map.fetch!(:response)
+    |> then(fn {:ok, listing} -> Map.fetch!(listing, type) end)
   end
 end

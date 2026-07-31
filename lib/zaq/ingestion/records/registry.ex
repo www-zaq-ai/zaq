@@ -38,7 +38,7 @@ defmodule Zaq.Ingestion.Records.Registry do
   alias Zaq.Contracts.Record
   alias Zaq.Records.Strategy
 
-  @defaults %{}
+  @defaults %{skill_bundle: Zaq.Ingestion.Records.SkillBundleStrategy}
 
   @strategies Map.merge(
                 @defaults,

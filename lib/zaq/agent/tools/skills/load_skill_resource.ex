@@ -105,7 +105,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
   end
 
   defp read(skill, resource_path, context) do
-    case Bundle.read_text(skill, resource_path, context) do
+    case Bundle.materialize(skill, resource_path, context) do
       {:ok, content} ->
         {:ok, content}
 
@@ -126,6 +126,13 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
         {:error,
          "#{inspect(resource_path)} is not a valid resource path. Use one exactly as listed " <>
            "by load_skill."}
+
+      {:error, {:too_large, size}} ->
+        max = Limits.get(:resource_read_max_bytes, Map.get(context, :limits_opts, []))
+
+        {:error,
+         "#{inspect(resource_path)} is #{size} bytes, over the #{max}-byte limit for a single " <>
+           "file, so it was not returned. Ask someone to split it into smaller files."}
 
       {:error, reason} ->
         Logger.warning(

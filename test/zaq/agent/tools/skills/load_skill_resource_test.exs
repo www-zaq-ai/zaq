@@ -5,6 +5,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
 
   alias Zaq.Agent
   alias Zaq.Agent.Skills
+  alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.Tools.Skills.LoadSkillResource
 
   @locator ".agents/skills/calculator"
@@ -44,10 +45,44 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
     agent
   end
 
+  # Two hops now, not one: the tool asks ingestion what the bundle holds, then hands the
+  # record it found back to be materialized. The stub serves both, so a test can still say
+  # "this file contains X" in one line.
   defmodule RecordingRouter do
+    alias Zaq.Ingestion.BundleRecords
+
     def dispatch(event) do
       send(self(), {:dispatched, event.next_hop.destination, event.opts[:action], event.request})
-      %{event | response: Process.get(:bundle_response)}
+      %{event | response: respond(event.opts[:action], event.request)}
+    end
+
+    defp respond(:list_skill_bundle, %{bundle: locator}) do
+      case Process.get(:listing_response) do
+        nil -> {:ok, BundleRecords.from_listing(entries(), locator)}
+        override -> override
+      end
+    end
+
+    defp respond(:materialize_record, %{record: record}) do
+      case Process.get(:bundle_response) do
+        {:ok, text} -> {:ok, %{record | content: text, size: byte_size(text)}}
+        other -> other
+      end
+    end
+
+    defp entries do
+      Process.get(:bundle_paths, [])
+      |> Enum.group_by(&(&1 |> Path.split() |> hd() |> String.to_atom()))
+      |> Map.new(fn {type, paths} -> {type, Enum.map(paths, &entry/1)} end)
+    end
+
+    defp entry(path) do
+      %{
+        name: Path.basename(path),
+        relative_path: path,
+        size: Process.get(:bundle_size, 12),
+        modified: ~U[2026-07-30 12:00:00Z]
+      }
     end
   end
 
@@ -55,8 +90,19 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
     def execute(_event, _measurements, _metadata), do: raise("telemetry offline")
   end
 
-  defp ctx(agent, response) do
+  # `paths` is what the bundle is said to contain. It matters: the tool will only materialize
+  # a file that appears in the listing, so a test that forgets to declare its path gets the
+  # same not-found a model would.
+  defp ctx(agent, response, opts \\ []) do
     Process.put(:bundle_response, response)
+    Process.put(:listing_response, Keyword.get(opts, :listing))
+    Process.put(:bundle_size, Keyword.get(opts, :size, 12))
+
+    Process.put(
+      :bundle_paths,
+      Keyword.get(opts, :paths, ["references/pricing.md", "assets/notes.txt"])
+    )
+
     %{configured_agent_id: agent.id, node_router: RecordingRouter}
   end
 
@@ -80,7 +126,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       assert result.content == "# Pricing 2026"
     end
 
-    test "dispatches exactly %{bundle: locator, resource: resource_path}" do
+    test "dispatches exactly %{record: record}, with the descriptor ingestion minted" do
       {_skill, agent} = granted!()
 
       LoadSkillResource.run(
@@ -88,9 +134,42 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
         ctx(agent, {:ok, "body"})
       )
 
-      assert_receive {:dispatched, :ingestion, :read_skill_bundle_resource, request}
-      assert request == %{bundle: @locator, resource: "references/pricing.md"}
-      assert Map.keys(request) |> Enum.sort() == [:bundle, :resource]
+      assert_receive {:dispatched, :ingestion, :materialize_record, request}
+      assert Map.keys(request) == [:record]
+
+      descriptor = request.record.materialization
+      assert descriptor.role == :ingestion
+      assert descriptor.strategy == :skill_bundle
+      assert descriptor.params == %{locator: @locator, resource_path: "references/pricing.md"}
+    end
+
+    # `as: :text` is what keeps base64 out of the context window; the cap is pushed down so
+    # ingestion refuses before it reads rather than after it ships.
+    test "narrows the descriptor to text and the read cap" do
+      {_skill, agent} = granted!()
+
+      LoadSkillResource.run(
+        %{skill_name: "calculator", resource_path: "references/pricing.md"},
+        ctx(agent, {:ok, "body"})
+      )
+
+      assert_receive {:dispatched, :ingestion, :materialize_record, %{record: record}}
+      assert record.materialization.as == :text
+
+      assert record.materialization.max_bytes ==
+               Limits.get(:resource_read_max_bytes)
+    end
+
+    test "no volume is named anywhere in the dispatched record" do
+      {_skill, agent} = granted!()
+
+      LoadSkillResource.run(
+        %{skill_name: "calculator", resource_path: "references/pricing.md"},
+        ctx(agent, {:ok, "body"})
+      )
+
+      assert_receive {:dispatched, :ingestion, :materialize_record, %{record: record}}
+      refute inspect(record) =~ "volume"
     end
 
     test "passes the resource_path through byte-for-byte" do
@@ -101,10 +180,26 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
 
       LoadSkillResource.run(
         %{skill_name: "calculator", resource_path: path},
-        ctx(agent, {:ok, "body"})
+        ctx(agent, {:ok, "body"}, paths: [path])
       )
 
-      assert_receive {:dispatched, _, _, %{resource: ^path}}
+      assert_receive {:dispatched, :ingestion, :materialize_record, %{record: record}}
+      assert record.path == path
+      assert record.materialization.params.resource_path == path
+    end
+
+    # The capability property: only a file the live listing actually contains can be read.
+    test "a path absent from the listing is not found, and nothing is materialized" do
+      {_skill, agent} = granted!()
+
+      assert {:error, message} =
+               LoadSkillResource.run(
+                 %{skill_name: "calculator", resource_path: "references/not-listed.md"},
+                 ctx(agent, {:ok, "SHOULD NOT BE REACHED"})
+               )
+
+      assert message =~ "not a file bundled with"
+      refute_receive {:dispatched, _, :materialize_record, _}
     end
 
     test "reads an asset that happens to be text" do
@@ -170,7 +265,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       assert {:error, _} =
                LoadSkillResource.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
-                 ctx(agent, {:ok, "leak"})
+                 ctx(agent, {:ok, "leak"}, paths: ["references/a.md"])
                )
     end
 
@@ -224,7 +319,10 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       refute_receive {:dispatched, _, _, _}
     end
 
-    test "traversal is refused by the ingestion side and surfaced usably" do
+    # A traversal string cannot appear in a bundle listing, so it collapses into the same
+    # not-found as any other unlisted path. That is stronger than a distinct message: the
+    # model learns nothing about which paths are shaped correctly.
+    test "traversal is refused, and nothing is materialized" do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
@@ -233,10 +331,11 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
                  ctx(agent, {:error, :path_traversal})
                )
 
-      assert message =~ "not a valid resource path"
+      assert message =~ "not a file bundled with"
+      refute_receive {:dispatched, _, :materialize_record, _}
     end
 
-    test "an absolute path is refused" do
+    test "an absolute path is refused, and nothing is materialized" do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
@@ -245,10 +344,13 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
                  ctx(agent, {:error, :path_traversal})
                )
 
-      assert message =~ "not a valid resource path"
+      assert message =~ "not a file bundled with"
+      refute_receive {:dispatched, _, :materialize_record, _}
     end
 
-    test "a bare filename is refused" do
+    # A bare filename is not silently resolved against `references/`: the listing carries
+    # full paths, so only a full path matches.
+    test "a bare filename is refused even when that file exists under references/" do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
@@ -257,7 +359,8 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
                  ctx(agent, {:error, :invalid_resource_path})
                )
 
-      assert message =~ "not a valid resource path"
+      assert message =~ "not a file bundled with"
+      refute_receive {:dispatched, _, :materialize_record, _}
     end
   end
 
@@ -268,7 +371,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       assert {:error, message} =
                LoadSkillResource.run(
                  %{skill_name: "calculator", resource_path: "assets/logo.png"},
-                 ctx(agent, {:error, :invalid_utf8})
+                 ctx(agent, {:error, :invalid_utf8}, paths: ["assets/logo.png"])
                )
 
       assert message =~ "binary file"
@@ -281,7 +384,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       assert {:error, message} =
                LoadSkillResource.run(
                  %{skill_name: "calculator", resource_path: "references/absent.md"},
-                 ctx(agent, {:error, :not_found})
+                 ctx(agent, {:error, :not_found}, paths: ["references/absent.md"])
                )
 
       assert message =~ "load_skill"
@@ -294,7 +397,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       assert {:error, message} =
                LoadSkillResource.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
-                 ctx(agent, {:ok, "unused"})
+                 ctx(agent, {:ok, "unused"}, paths: ["references/a.md"])
                )
 
       assert message =~ "no bundled files"
@@ -307,7 +410,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       assert {:error, message} =
                LoadSkillResource.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
-                 ctx(agent, {:error, :no_volumes})
+                 ctx(agent, {:error, :no_volumes}, paths: ["references/a.md"])
                )
 
       assert message =~ "could not be read right now"
@@ -322,7 +425,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       assert {:error, message} =
                LoadSkillResource.run(
                  %{skill_name: "calculator", resource_path: "references/huge.md"},
-                 ctx(agent, {:ok, body})
+                 ctx(agent, {:ok, body}, paths: ["references/huge.md"])
                )
 
       assert message =~ "300000 bytes"
@@ -337,7 +440,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       assert {:ok, result} =
                LoadSkillResource.run(
                  %{skill_name: "calculator", resource_path: "references/exact.md"},
-                 ctx(agent, {:ok, body})
+                 ctx(agent, {:ok, body}, paths: ["references/exact.md"])
                )
 
       assert byte_size(result.content) == 262_144
@@ -348,7 +451,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
 
       context =
         agent
-        |> ctx({:ok, "0123456789"})
+        |> ctx({:ok, "0123456789"}, paths: ["references/small.md"])
         |> Map.put(:limits_opts, config: __MODULE__.TinyLimits)
 
       assert {:error, message} =
@@ -392,7 +495,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
 
       context =
         agent
-        |> ctx({:ok, "body"})
+        |> ctx({:ok, "body"}, paths: ["references/a.md"])
         |> Map.put(:telemetry_module, RaisingTelemetry)
 
       assert {:ok, result} =

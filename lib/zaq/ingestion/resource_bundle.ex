@@ -35,14 +35,23 @@ defmodule Zaq.Ingestion.ResourceBundle do
   ## Nothing about the filesystem leaves this module
 
   Jido's entries carry `:absolute_path`. That discloses the ingestion node's layout to
-  whatever called across the boundary and, through a tool result, to a model. It is stripped
-  from every entry, as is the resolved volume name. Callers receive `:name`,
-  `:resource_path`, `:size` and `:modified` — nothing else.
+  whatever called across the boundary and, through a tool result, to a model. It is dropped
+  when entries are minted into records by `Zaq.Ingestion.BundleRecords`, as is the resolved
+  volume name.
+
+  ## Listings are records
+
+  `list/1` returns `Zaq.Contracts.Record` handles rather than ad-hoc maps: identity and
+  metadata, plus a descriptor saying where the bytes live. A caller holds one and hands it
+  back to `Zaq.Records.Materializer` when it wants content, so a locator never has to be
+  carried around separately from the file it belongs to.
   """
 
   require Logger
 
   alias Jido.AI.Skill.Resources, as: JidoResources
+  alias Zaq.Contracts.Record
+  alias Zaq.Ingestion.BundleRecords
   alias Zaq.Ingestion.FileExplorer
 
   @types [:references, :assets, :scripts]
@@ -50,13 +59,7 @@ defmodule Zaq.Ingestion.ResourceBundle do
   @empty_listing %{references: [], assets: [], scripts: []}
 
   @type locator :: String.t()
-  @type entry :: %{
-          name: String.t(),
-          resource_path: String.t(),
-          size: non_neg_integer(),
-          modified: DateTime.t()
-        }
-  @type listing :: %{references: [entry()], assets: [entry()], scripts: [entry()]}
+  @type listing :: %{references: [Record.t()], assets: [Record.t()], scripts: [Record.t()]}
 
   @doc """
   Lists a bundle's resources, metadata only.
@@ -70,9 +73,14 @@ defmodule Zaq.Ingestion.ResourceBundle do
   @spec list(locator()) :: {:ok, listing()} | {:error, atom()}
   def list(locator) when is_binary(locator) do
     case locate(locator) do
-      {:ok, {_volume, root}} -> {:ok, root |> JidoResources.list_resources() |> to_listing()}
-      :not_found -> {:ok, @empty_listing}
-      {:error, reason} -> {:error, reason}
+      {:ok, {_volume, root}} ->
+        {:ok, root |> JidoResources.list_resources() |> BundleRecords.from_listing(locator)}
+
+      :not_found ->
+        {:ok, @empty_listing}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -91,6 +99,63 @@ defmodule Zaq.Ingestion.ResourceBundle do
     with :ok <- validate_resource_path(resource_path),
          {:ok, {_volume, root}} <- locate_for_read(locator) do
       JidoResources.load_resource_text(root, resource_path)
+    end
+  end
+
+  @doc """
+  Stats one resource without reading it.
+
+  The cheap half of a size check. Reading a multi-megabyte file in order to discover it is
+  too large — and, once base64 is in play, inflating it by a third on the way — is waste a
+  stat avoids entirely.
+  """
+  @spec stat(locator(), String.t()) ::
+          {:ok, %{size: non_neg_integer(), modified: DateTime.t()}} | {:error, atom()}
+  def stat(locator, resource_path) when is_binary(locator) and is_binary(resource_path) do
+    with :ok <- validate_resource_path(resource_path),
+         {:ok, {_volume, root}} <- locate_for_read(locator),
+         {:ok, info} <- JidoResources.resource_info(root, resource_path) do
+      {:ok, %{size: info.size, modified: info.modified}}
+    end
+  end
+
+  @doc """
+  Reads one resource as raw bytes.
+
+  The counterpart to `read_text/2` for callers that can take binary content. Both go through
+  Jido's `resolve_path/2`, so the containment and symlink guards are identical; the only
+  difference is that this one does not require valid UTF-8.
+  """
+  @spec read_bytes(locator(), String.t()) :: {:ok, binary()} | {:error, atom()}
+  def read_bytes(locator, resource_path) when is_binary(locator) and is_binary(resource_path) do
+    with :ok <- validate_resource_path(resource_path),
+         {:ok, {_volume, root}} <- locate_for_read(locator) do
+      JidoResources.load_resource(root, resource_path)
+    end
+  end
+
+  @doc """
+  Writes bytes into a bundle and returns where they landed.
+
+  **The destination volume is resolved here, never supplied.** A caller that could name its
+  own volume could write outside the bundle it was granted, so the rule is: an existing
+  bundle keeps its volume, and a bundle that does not exist yet is created on the
+  sorted-first configured volume. Deterministic beats arbitrary — `Map.keys/1` ordering is
+  not guaranteed, and an operator needs to be able to predict where a first upload lands.
+
+  The returned `resource_path` may differ from the one requested: `upload_unique/3` dedupes
+  a name collision rather than overwriting, and the caller needs the name that actually
+  exists on disk to hand back as a handle.
+  """
+  @spec write(locator(), String.t(), binary()) :: {:ok, String.t()} | {:error, atom()}
+  def write(locator, resource_path, bytes)
+      when is_binary(locator) and is_binary(resource_path) and is_binary(bytes) do
+    with :ok <- validate_locator(locator),
+         :ok <- validate_resource_path(resource_path),
+         {:ok, volume} <- write_volume(locator),
+         {:ok, absolute} <-
+           FileExplorer.upload_unique(volume, Path.join(locator, resource_path), bytes) do
+      {:ok, written_resource_path(volume, locator, absolute, resource_path)}
     end
   end
 
@@ -131,6 +196,33 @@ defmodule Zaq.Ingestion.ResourceBundle do
 
   defp ensure_volumes do
     if FileExplorer.volumes_configured?(), do: :ok, else: {:error, :no_volumes}
+  end
+
+  # An existing bundle keeps its volume; a first write lands on the sorted-first one.
+  defp write_volume(locator) do
+    case locate(locator) do
+      {:ok, {volume, _root}} -> {:ok, volume}
+      :not_found -> default_volume()
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp default_volume do
+    case FileExplorer.list_volumes() |> Map.keys() |> Enum.sort() do
+      [volume | _] -> {:ok, volume}
+      [] -> {:error, :no_volumes}
+    end
+  end
+
+  # `upload_unique/3` may have deduped the name, so the path on disk is authoritative — the
+  # handle we return has to point at the file that actually exists.
+  defp written_resource_path(volume, locator, absolute, requested) do
+    with {:ok, bundle_root} <- FileExplorer.resolve_path(volume, locator),
+         relative when relative != absolute <- Path.relative_to(absolute, bundle_root) do
+      relative
+    else
+      _ -> requested
+    end
   end
 
   # Sorted so the winner never depends on `Map.keys/1` ordering.
@@ -206,23 +298,13 @@ defmodule Zaq.Ingestion.ResourceBundle do
     segments = Path.split(resource_path)
 
     cond do
+      # `Path.split("")` is `[]`, so this has to come before anything reaching for a head.
+      segments == [] -> {:error, :invalid_resource_path}
       Path.type(resource_path) == :absolute -> {:error, :path_traversal}
       ".." in segments -> {:error, :path_traversal}
       match?([_type], segments) -> {:error, :invalid_resource_path}
       hd(segments) not in @type_dirs -> {:error, :invalid_resource_path}
       true -> :ok
     end
-  end
-
-  # --- Shaping ---
-
-  defp to_listing(jido_listing) do
-    Map.new(@types, fn type ->
-      {type, jido_listing |> Map.get(type, []) |> Enum.map(&to_entry/1)}
-    end)
-  end
-
-  defp to_entry(%{name: name, relative_path: relative_path, size: size, modified: modified}) do
-    %{name: name, resource_path: relative_path, size: size, modified: modified}
   end
 end

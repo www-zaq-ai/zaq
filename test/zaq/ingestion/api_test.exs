@@ -117,7 +117,7 @@ defmodule Zaq.Ingestion.ApiTest do
       result = Api.handle_event(event, :list_skill_bundle, nil)
 
       assert {:ok, listing} = result.response
-      assert [%{name: "pricing.md", resource_path: "references/pricing.md"}] = listing.references
+      assert [%{name: "pricing.md", path: "references/pricing.md"}] = listing.references
     end
 
     test ":list_skill_bundle discloses no filesystem layout" do
@@ -132,18 +132,13 @@ defmodule Zaq.Ingestion.ApiTest do
       refute serialized =~ Path.expand(@test_base)
     end
 
-    test ":read_skill_bundle_resource returns the file's text" do
+    # Retired in favour of `:materialize_record`. Reading a file is a materialization like
+    # any other, and the old action took a raw locator straight from its caller.
+    test ":read_skill_bundle_resource is gone" do
       event = Event.new(%{bundle: @locator, resource: "references/pricing.md"}, :ingestion)
       result = Api.handle_event(event, :read_skill_bundle_resource, nil)
 
-      assert result.response == {:ok, "# Pricing\n"}
-    end
-
-    test ":read_skill_bundle_resource surfaces the façade's error unchanged" do
-      event = Event.new(%{bundle: @locator, resource: "references/absent.md"}, :ingestion)
-      result = Api.handle_event(event, :read_skill_bundle_resource, nil)
-
-      assert result.response == {:error, :not_found}
+      assert result.response == {:error, {:unsupported_action, :read_skill_bundle_resource}}
     end
 
     test "a request missing :bundle falls through rather than crashing" do

@@ -6,6 +6,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
   alias Zaq.Agent
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Skills.LoadSkill
+  alias Zaq.Ingestion.BundleRecords
 
   defp skill!(attrs) do
     {:ok, skill} =
@@ -144,8 +145,18 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
   end
 
   describe "the resource manifest" do
-    defp entry(name, size \\ 128) do
-      %{name: name, resource_path: "references/#{name}", size: size, modified: DateTime.utc_now()}
+    # The listing crossing the boundary is records now, so build them the way ingestion does
+    # rather than hand-rolling a map that would drift from the real shape.
+    defp entry(name, size \\ 128, type \\ "references") do
+      BundleRecords.from_entry(
+        %{
+          name: name,
+          relative_path: "#{type}/#{name}",
+          size: size,
+          modified: ~U[2026-07-30 12:00:00Z]
+        },
+        ".agents/skills/calculator"
+      )
     end
 
     # A stub router that records what it was asked for, so the request shape can be
@@ -214,8 +225,8 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
 
       listing = %{
         references: [entry("ref.md")],
-        assets: [%{name: "logo.png", resource_path: "assets/logo.png", size: 9}],
-        scripts: [%{name: "run.sh", resource_path: "scripts/run.sh", size: 3}]
+        assets: [entry("logo.png", 9, "assets")],
+        scripts: [entry("run.sh", 3, "scripts")]
       }
 
       assert {:ok, result} =

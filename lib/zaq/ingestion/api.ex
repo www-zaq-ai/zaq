@@ -9,7 +9,6 @@ defmodule Zaq.Ingestion.Api do
   alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.Records.Registry
   alias Zaq.InternalBoundaries
 
   @impl true
@@ -29,19 +28,10 @@ defmodule Zaq.Ingestion.Api do
 
   # Skill resource bundles. Callers address a bundle by its opaque locator and never name a
   # volume — resolving one is this role's job. Any extra key in the request (`:volume`, say)
-  # is ignored by construction, since only `:bundle` and `:resource` are matched.
+  # is ignored by construction, since only `:bundle` is matched.
   def handle_event(%Event{request: %{bundle: locator}} = event, :list_skill_bundle, _context)
       when is_binary(locator) do
     %{event | response: Ingestion.list_skill_bundle(locator)}
-  end
-
-  def handle_event(
-        %Event{request: %{bundle: locator, resource: resource_path}} = event,
-        :read_skill_bundle_resource,
-        _context
-      )
-      when is_binary(locator) and is_binary(resource_path) do
-    %{event | response: Ingestion.read_skill_bundle_resource(locator, resource_path)}
   end
 
   # Record materialization. These two clauses are strategy-agnostic and are the only ones this
@@ -55,7 +45,7 @@ defmodule Zaq.Ingestion.Api do
         :materialize_record,
         _context
       ) do
-    %{event | response: Registry.run(record.materialization.strategy, :materialize, record)}
+    %{event | response: Ingestion.run_record(record, :materialize)}
   end
 
   def handle_event(
@@ -63,7 +53,7 @@ defmodule Zaq.Ingestion.Api do
         :persist_record,
         _context
       ) do
-    %{event | response: Registry.run(record.materialization.strategy, :persist, record)}
+    %{event | response: Ingestion.run_record(record, :persist)}
   end
 
   def handle_event(%Event{} = event, action, _context),

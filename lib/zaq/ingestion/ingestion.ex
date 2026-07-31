@@ -22,6 +22,7 @@ defmodule Zaq.Ingestion do
     IngestJob,
     IngestWorker,
     JobLifecycle,
+    Records,
     RecordSource,
     RenameService,
     ResourceBundle,
@@ -358,13 +359,13 @@ defmodule Zaq.Ingestion do
   def list_skill_bundle(locator), do: ResourceBundle.list(locator)
 
   @doc """
-  Reads one bundled resource as UTF-8 text.
+  Materializes or persists a record this role owns, via its strategy registry.
 
-  `resource_path` is relative to the bundle root and carries its type directory, e.g.
-  `references/pricing-2026.md`.
+  Reached through the `:materialize_record` and `:persist_record` actions. The record names
+  its own strategy; `Zaq.Ingestion.Records.Registry` decides whether this role runs it.
   """
-  def read_skill_bundle_resource(locator, resource_path),
-    do: ResourceBundle.read_text(locator, resource_path)
+  def run_record(record, verb) when verb in [:materialize, :persist],
+    do: Records.Registry.run(record.materialization.strategy, verb, record)
 
   @doc """
   The volume holding a bundle — for BO display only.

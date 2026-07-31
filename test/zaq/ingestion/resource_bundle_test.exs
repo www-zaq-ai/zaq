@@ -49,9 +49,10 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
       assert [entry] = listing.references
 
       assert entry.name == "pricing-2026.md"
-      assert entry.resource_path == "references/pricing-2026.md"
+      assert entry.path == "references/pricing-2026.md"
       assert entry.size == byte_size("# Pricing\n")
-      assert %DateTime{} = entry.modified
+      assert %DateTime{} = entry.modified_at
+      assert entry.materialization.strategy == :skill_bundle
     end
 
     test "groups entries by type", %{alpha: alpha} do
@@ -61,9 +62,9 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
 
       assert {:ok, listing} = ResourceBundle.list(@locator)
 
-      assert [%{resource_path: "references/guide.md"}] = listing.references
-      assert [%{resource_path: "assets/logo.png"}] = listing.assets
-      assert [%{resource_path: "scripts/setup.sh"}] = listing.scripts
+      assert [%{path: "references/guide.md"}] = listing.references
+      assert [%{path: "assets/logo.png"}] = listing.assets
+      assert [%{path: "scripts/setup.sh"}] = listing.scripts
     end
 
     test "finds a bundle on the second volume without the caller naming it", %{beta: beta} do
@@ -91,11 +92,12 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
       assert [entry] = listing.references
 
       refute Map.has_key?(entry, :absolute_path)
-      assert Map.keys(entry) |> Enum.sort() == [:modified, :name, :resource_path, :size]
 
-      # No value in the entry may disclose the mount or the volume key.
+      # No value on the record may disclose the mount or the volume key — including inside
+      # the descriptor, which is why this inspects the whole struct rather than a key list.
       serialized = inspect(entry)
       refute serialized =~ "alpha"
+      refute serialized =~ "absolute_path"
       refute serialized =~ Path.expand(alpha)
     end
 
