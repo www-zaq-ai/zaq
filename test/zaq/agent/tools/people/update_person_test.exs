@@ -45,11 +45,6 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
   end
 
   describe "Jido schemas" do
-    test "non-map params pass through pre-validation" do
-      assert {:ok, "raw"} = UpdatePerson.on_before_validate_params("raw")
-      assert {:ok, [:not, :a, :map]} = UpdatePerson.on_before_validate_params([:not, :a, :map])
-    end
-
     test "direct channel validation handles default arg and non-object channels" do
       assert :ok =
                UpdatePerson.validate_channel(%{

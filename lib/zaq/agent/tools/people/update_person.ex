@@ -121,8 +121,6 @@ defmodule Zaq.Agent.Tools.People.UpdatePerson do
     {:ok, Tool.convert_params_using_schema(params, schema())}
   end
 
-  def on_before_validate_params(params), do: {:ok, params}
-
   @doc false
   def validate_channel(channel, _opts \\ [])
 
@@ -135,6 +133,9 @@ defmodule Zaq.Agent.Tools.People.UpdatePerson do
 
   def validate_channel(_channel, _opts), do: {:error, "channel must be an object"}
 
+  @spec run(map(), map()) ::
+          {:ok, %{person: map(), merged: boolean(), merge_precedence: String.t() | nil}}
+          | {:error, String.t()}
   @impl Jido.Action
   def run(params, context) when is_map(params) do
     person_id = MapUtils.fetch(params, :person_id)

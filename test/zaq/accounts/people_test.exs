@@ -2,6 +2,8 @@ defmodule Zaq.Accounts.PeopleTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.PersonChannel
+  alias Zaq.Repo
 
   # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -268,6 +270,30 @@ defmodule Zaq.Accounts.PeopleTest do
 
       assert updated.id == loser.id
       assert People.get_person(survivor.id) == nil
+    end
+
+    test "updates fields, adds channels, and merges in one transaction" do
+      person = create_person(%{full_name: "Original", email: "original@example.com"})
+      other = create_person(%{full_name: "Other", email: "other@example.com"})
+
+      assert {:ok, updated} =
+               People.update_person_resource(
+                 person.id,
+                 %{full_name: "Updated"},
+                 [%{"platform" => "telegram", "channel_identifier" => "@updated"}],
+                 %{"merge_with_person_id" => other.id, "merge_precedence" => "person"}
+               )
+
+      assert updated.id == person.id
+      assert updated.full_name == "Updated"
+      assert People.get_person(other.id) == nil
+
+      persisted = People.get_person_with_channels!(updated.id)
+
+      assert Enum.any?(
+               persisted.channels,
+               &(&1.platform == "telegram" and &1.channel_identifier == "@updated")
+             )
     end
 
     test "rejects an invalid merge precedence" do
@@ -779,6 +805,28 @@ defmodule Zaq.Accounts.PeopleTest do
 
       assert Enum.map(duplicate_channels, & &1.id) == [survivor_channel.id]
       refute Enum.any?(updated.channels, &(&1.id == loser_channel.id))
+    end
+
+    test "deletes loser duplicate channel rows when survivor already has same identifier" do
+      survivor =
+        create_person(%{full_name: "Delete Channel Surv", email: "delete-surv@example.com"})
+
+      loser =
+        create_person(%{full_name: "Delete Channel Loser", email: "delete-loser@example.com"})
+
+      survivor_channel =
+        add_channel(survivor.id, %{"platform" => "telegram", "channel_identifier" => "@same"})
+
+      loser_channel =
+        add_channel(loser.id, %{"platform" => "telegram", "channel_identifier" => "@same"})
+
+      survivor = People.get_person_with_channels!(survivor.id)
+      loser = People.get_person_with_channels!(loser.id)
+
+      assert {:ok, _updated} = People.merge_persons(survivor, loser)
+
+      assert Repo.get(PersonChannel, survivor_channel.id)
+      assert Repo.get(PersonChannel, loser_channel.id) == nil
     end
   end
 
