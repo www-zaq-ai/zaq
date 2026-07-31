@@ -45,6 +45,16 @@ defmodule Zaq.Accounts.PeopleTest do
       assert names == ["Alice", "Mike", "Zara"]
     end
 
+    test "limits the ordered results" do
+      create_person(%{full_name: "Zara", email: "zara@example.com"})
+      create_person(%{full_name: "Alice", email: "alice@example.com"})
+      create_person(%{full_name: "Mike", email: "mike@example.com"})
+
+      people = People.list_people(limit: 2)
+
+      assert Enum.map(people, & &1.full_name) == ["Alice", "Mike"]
+    end
+
     test "preloads channels with each person" do
       person = create_person(%{email: nil})
       add_channel(person.id)
@@ -165,6 +175,130 @@ defmodule Zaq.Accounts.PeopleTest do
     end
   end
 
+  describe "update_person_resource/4" do
+    test "returns not found for a missing person" do
+      assert {:error, :not_found} = People.update_person_resource(-1, %{}, [], %{})
+    end
+
+    test "treats nil attrs as a no-op" do
+      person = create_person()
+
+      assert {:ok, updated} = People.update_person_resource(person.id, nil, [], nil)
+      assert updated.id == person.id
+    end
+
+    test "rolls back invalid person attrs" do
+      person = create_person()
+
+      assert {:error, :invalid_person_attrs} =
+               People.update_person_resource(person.id, :bad_attrs, [], %{})
+    end
+
+    test "treats nil channels as a no-op" do
+      person = create_person()
+
+      assert {:ok, updated} = People.update_person_resource(person.id, %{}, nil, %{})
+      assert updated.id == person.id
+    end
+
+    test "treats empty channels as a no-op" do
+      person = create_person()
+
+      assert {:ok, updated} = People.update_person_resource(person.id, %{}, [], %{})
+      assert updated.id == person.id
+    end
+
+    test "rejects an invalid channels container" do
+      person = create_person()
+
+      assert {:error, :invalid_channels} =
+               People.update_person_resource(person.id, %{}, :bad_channels, %{})
+    end
+
+    test "halts on an invalid channel item" do
+      person = create_person()
+
+      assert {:error, :invalid_channel} =
+               People.update_person_resource(person.id, %{}, [:bad_channel], %{})
+    end
+
+    test "rejects a channel not owned by the person" do
+      target = create_person(%{full_name: "Target", email: "target@example.com"})
+      other = create_person(%{full_name: "Other", email: "other@example.com"})
+
+      other_channel =
+        add_channel(other.id, %{"platform" => "slack", "channel_identifier" => "@other"})
+
+      assert {:error, :channel_not_found} =
+               People.update_person_resource(
+                 target.id,
+                 %{},
+                 [%{"id" => other_channel.id, "platform" => "slack"}],
+                 %{}
+               )
+    end
+
+    test "merges with person precedence" do
+      survivor = create_person(%{full_name: "Survivor", email: "survivor@example.com"})
+      loser = create_person(%{full_name: "Loser", email: "loser@example.com"})
+
+      assert {:ok, updated} =
+               People.update_person_resource(
+                 survivor.id,
+                 %{},
+                 [],
+                 %{"merge_with_person_id" => loser.id, "merge_precedence" => "person"}
+               )
+
+      assert updated.id == survivor.id
+      assert People.get_person(loser.id) == nil
+    end
+
+    test "merges with other precedence" do
+      survivor = create_person(%{full_name: "Survivor", email: "survivor@example.com"})
+      loser = create_person(%{full_name: "Loser", email: "loser@example.com"})
+
+      assert {:ok, updated} =
+               People.update_person_resource(
+                 survivor.id,
+                 %{},
+                 [],
+                 %{"merge_with_person_id" => loser.id, "merge_precedence" => "other"}
+               )
+
+      assert updated.id == loser.id
+      assert People.get_person(survivor.id) == nil
+    end
+
+    test "rejects an invalid merge precedence" do
+      person = create_person()
+
+      assert {:error, :invalid_merge_precedence} =
+               People.update_person_resource(
+                 person.id,
+                 %{},
+                 [],
+                 %{"merge_with_person_id" => person.id, "merge_precedence" => "invalid"}
+               )
+    end
+
+    test "rejects invalid merge options" do
+      person = create_person()
+
+      assert {:error, :invalid_merge} =
+               People.update_person_resource(person.id, %{}, [], :bad_merge)
+    end
+  end
+
+  describe "bulk_delete_people/1" do
+    test "reports a missing person" do
+      missing_id = -1
+
+      assert {:ok, %{deleted_count: 0, failed_ids: [^missing_id]}} =
+               People.bulk_delete_people([missing_id])
+    end
+  end
+
   # ── Channels ─────────────────────────────────────────────────────────────
 
   describe "add_channel/1" do
@@ -216,6 +350,16 @@ defmodule Zaq.Accounts.PeopleTest do
                People.add_channel(channel_attrs(person.id, %{"platform" => "fax"}))
 
       assert errors_on(changeset).platform != []
+    end
+
+    test "fails when person_id is missing" do
+      assert {:error, changeset} =
+               People.add_channel(%{
+                 "platform" => "slack",
+                 "channel_identifier" => "@missing-person"
+               })
+
+      assert errors_on(changeset).person_id != []
     end
   end
 
@@ -524,6 +668,16 @@ defmodule Zaq.Accounts.PeopleTest do
 
       assert updated.id == person.id
       assert updated.email == "backfilled@example.com"
+    end
+
+    test "canonicalizes email imap platform" do
+      assert {:ok, person} =
+               People.find_or_create_from_channel("email:imap", %{
+                 "channel_id" => "imap@example.com",
+                 "email" => "imap@example.com"
+               })
+
+      assert [%{platform: "email"}] = People.list_person_channels(person.id)
     end
   end
 

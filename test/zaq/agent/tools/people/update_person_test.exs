@@ -12,6 +12,14 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
     def dispatch(event), do: Api.handle_event(event, :people_command, nil)
   end
 
+  defmodule ErrorRouter do
+    def dispatch(event), do: %{event | response: {:error, "people unavailable"}}
+  end
+
+  defmodule UnexpectedRouter do
+    def dispatch(event), do: %{event | response: {:unexpected, :shape}}
+  end
+
   @ctx %{node_router: RoutedNodeRouter}
 
   setup do
@@ -37,6 +45,21 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
   end
 
   describe "Jido schemas" do
+    test "non-map params pass through pre-validation" do
+      assert {:ok, "raw"} = UpdatePerson.on_before_validate_params("raw")
+      assert {:ok, [:not, :a, :map]} = UpdatePerson.on_before_validate_params([:not, :a, :map])
+    end
+
+    test "direct channel validation handles default arg and non-object channels" do
+      assert :ok =
+               UpdatePerson.validate_channel(%{
+                 platform: "telegram",
+                 channel_identifier: "@valid"
+               })
+
+      assert {:error, "channel must be an object"} = UpdatePerson.validate_channel("not-a-map")
+    end
+
     test "params and output schemas are valid Zoi schemas" do
       assert Schema.schema_type(UpdatePerson.schema()) == :zoi
       assert Schema.schema_type(UpdatePerson.output_schema()) == :zoi
@@ -95,6 +118,12 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
                  UpdatePerson
                )
 
+      assert {:error, _reason} =
+               Runtime.validate_params(
+                 %{person_id: 1, channels: [%{channel_identifier: "@missing-platform"}]},
+                 UpdatePerson
+               )
+
       assert {:ok, params} =
                Runtime.validate_params(
                  %{person_id: 1, channels: [%{id: 10, display_name: "Existing"}]},
@@ -114,6 +143,20 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
                  UpdatePerson
                )
     end
+  end
+
+  test "returns an explicit error for non-map run params" do
+    assert {:error, "params must be a map"} = UpdatePerson.run("bad", @ctx)
+  end
+
+  test "formats binary router errors unchanged" do
+    assert {:error, "people unavailable"} =
+             UpdatePerson.run(%{person_id: 123}, %{node_router: ErrorRouter})
+  end
+
+  test "inspects unexpected router responses" do
+    assert {:error, "{:unexpected, :shape}"} =
+             UpdatePerson.run(%{person_id: 123}, %{node_router: UnexpectedRouter})
   end
 
   test "updates person fields and adds a channel through Engine routing" do
