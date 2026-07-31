@@ -3,6 +3,7 @@ defmodule Zaq.Ingestion.BundleRecordsTest do
 
   alias Zaq.Contracts.Materialization
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Ingestion.BundleRecords
 
   @locator ".agents/skills/pricing-faq"
@@ -39,32 +40,53 @@ defmodule Zaq.Ingestion.BundleRecordsTest do
   defp all_strings(_value), do: []
 
   describe "from_listing/2" do
-    test "mints a record per entry, keeping the three types apart" do
-      listing =
+    # The three types collapse into one ordered list: each record's `path` already carries its
+    # type directory, so a per-type map would state the same fact twice.
+    test "mints a record per entry into one page, references first" do
+      page =
+        BundleRecords.from_listing(
+          listing(%{
+            assets: [entry("logo.png", "assets")],
+            scripts: [entry("run.sh", "scripts")],
+            references: [entry("guide.md")]
+          }),
+          @locator
+        )
+
+      assert %RecordPage{resource_type: :skill_bundle_file} = page
+
+      assert [
+               %Record{name: "guide.md", path: "references/guide.md"},
+               %Record{name: "logo.png", path: "assets/logo.png"},
+               %Record{name: "run.sh", path: "scripts/run.sh"}
+             ] = page.records
+    end
+
+    test "counts the page it minted" do
+      page =
         BundleRecords.from_listing(
           listing(%{references: [entry("guide.md")], assets: [entry("logo.png", "assets")]}),
           @locator
         )
 
-      assert [%Record{name: "guide.md"}] = listing.references
-      assert [%Record{name: "logo.png"}] = listing.assets
-      assert listing.scripts == []
+      assert page.stats == %{scanned: 2, returned: 2}
+      assert page.pagination.page_size == 2
+      refute page.pagination.truncated?
     end
 
     test "carries the metadata a model needs to choose a file" do
-      %{references: [record]} =
+      %RecordPage{records: [record]} =
         BundleRecords.from_listing(listing(%{references: [entry("guide.md")]}), @locator)
 
       assert record.kind == :file
       assert record.path == "references/guide.md"
       assert record.size == 128
       assert record.modified_at == @modified
-      assert record.attributes["resource_path"] == "references/guide.md"
       assert record.attributes["provider"] == "zaq_skill_bundle"
     end
 
     test "infers mime_type from the extension" do
-      %{references: [md], assets: [png]} =
+      %RecordPage{records: [md, png]} =
         BundleRecords.from_listing(
           listing(%{references: [entry("guide.md")], assets: [entry("logo.png", "assets")]}),
           @locator
@@ -74,37 +96,42 @@ defmodule Zaq.Ingestion.BundleRecordsTest do
       assert png.mime_type == "image/png"
     end
 
-    test "an empty listing mints nothing" do
-      assert BundleRecords.from_listing(listing(), @locator) == %{
-               references: [],
-               assets: [],
-               scripts: []
-             }
+    test "an empty listing mints an empty page, not an error" do
+      assert BundleRecords.from_listing(listing(), @locator) == BundleRecords.empty_page()
+    end
+
+    test "the empty page still carries the resource type and zeroed counts" do
+      page = BundleRecords.empty_page()
+
+      assert page.resource_type == :skill_bundle_file
+      assert page.records == []
+      assert page.stats == %{scanned: 0, returned: 0}
     end
   end
 
   describe "the descriptor" do
-    test "routes to ingestion's skill_bundle strategy" do
-      %{references: [record]} =
+    test "routes to ingestion — the record names its own owner" do
+      %RecordPage{records: [record]} =
         BundleRecords.from_listing(listing(%{references: [entry("guide.md")]}), @locator)
 
-      assert %Materialization{role: :ingestion, strategy: :skill_bundle} = record.materialization
+      assert %Materialization{role: :ingestion} = record.materialization
     end
 
-    test "carries the locator it was minted from, and the resource path" do
-      %{references: [record]} =
+    # The locator and nothing else. The file's own address is `record.path`, which is
+    # serialized; duplicating it into params would state the same fact twice and let the two
+    # drift, and the reader takes its path off the record either way.
+    test "carries the locator it was minted from, and only that" do
+      %RecordPage{records: [record]} =
         BundleRecords.from_listing(listing(%{references: [entry("guide.md")]}), @locator)
 
-      assert record.materialization.params == %{
-               locator: @locator,
-               resource_path: "references/guide.md"
-             }
+      assert record.materialization.params == %{locator: @locator}
+      assert record.path == "references/guide.md"
     end
 
     # A listing cannot know what its consumer accepts — each caller narrows at materialize
     # time. Baking `as: :text` here would make the same record useless to a byte consumer.
     test "leaves acceptance open" do
-      %{references: [record]} =
+      %RecordPage{records: [record]} =
         BundleRecords.from_listing(listing(%{references: [entry("guide.md")]}), @locator)
 
       assert record.materialization.as == :auto
@@ -114,7 +141,7 @@ defmodule Zaq.Ingestion.BundleRecordsTest do
 
   describe "leak guards" do
     setup do
-      %{references: [record]} =
+      %RecordPage{records: [record]} =
         BundleRecords.from_listing(listing(%{references: [entry("guide.md")]}), @locator)
 
       %{record: record, strings: all_strings(record)}

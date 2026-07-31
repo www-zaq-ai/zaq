@@ -39,27 +39,63 @@ defmodule Zaq.Ingestion.ResourceBundle do
   when entries are minted into records by `Zaq.Ingestion.BundleRecords`, as is the resolved
   volume name.
 
-  ## Listings are records
+  ## Listings are a record page
 
-  `list/1` returns `Zaq.Contracts.Record` handles rather than ad-hoc maps: identity and
-  metadata, plus a descriptor saying where the bytes live. A caller holds one and hands it
-  back to `Zaq.Records.Materializer` when it wants content, so a locator never has to be
-  carried around separately from the file it belongs to.
+  `list/1` returns a `Zaq.Contracts.RecordPage` — the same contract the channel bridges and
+  `Zaq.Ingestion.RecordSource` already return, rather than a shape invented for skills. Each
+  record is identity and metadata plus a descriptor saying where the bytes live, so a caller
+  hands one back to `Zaq.Records.Materializer` for content and never carries a locator
+  alongside the file it belongs to.
+
+  The three resource types are not separate keys. `record.path` already carries its type
+  directory, so a per-type map would state the same fact twice and force every consumer to
+  flatten it; the types survive as list order instead.
+
+  ## Two levels of entry point, one module
+
+  `materialize/1` is the record-shaped read: it takes a record minted by `list/1` and fills
+  `content`. It reads the **bundle** off the descriptor and the **file** off `record.path` —
+  the descriptor carries only the locator, because that is the one field that must never be
+  serialized to a model, while the path is metadata a model is shown anyway. `read_text/2`,
+  `read_bytes/2` and `stat/2` are the path-shaped reads underneath it, kept public because
+  the BO and `Zaq.Agent.Skill.Resources` legitimately address files by path rather than by
+  handle.
+
+  These live together because minting a record and filling one are the same knowledge read in
+  two directions — `list/1` writes the locator into a descriptor alongside a path, and
+  `materialize/1` reads the pair back. Splitting them put the two halves of one mapping in two
+  files and bought nothing: the module that returns records is not made cleaner by being
+  unable to fill them.
+
+  `record.path` being load-bearing does not weaken anything: it runs through
+  `validate_resource_path/1` exactly as any caller-supplied path does, so a tampered path is
+  refused rather than trusted. `materialize/1` refuses before touching disk: a descriptor
+  carrying a `volume` key, and one missing a `locator` — or a record missing a path. A
+  `volume` is **refused, not ignored** — a caller that sent one has misunderstood the
+  contract, and dropping it silently teaches them the key works.
+
+  ## Read-only, by omission
+
+  There is no write function here, so no `Zaq.Ingestion.Api` clause can reach one, so nothing
+  an agent sends can write to a volume. When a write verb is needed it arrives as its own
+  function behind its own action — coarser than a declared capability list, and more visible.
   """
 
   require Logger
 
   alias Jido.AI.Skill.Resources, as: JidoResources
+  alias Zaq.Contracts.Materialization
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Ingestion.BundleRecords
   alias Zaq.Ingestion.FileExplorer
+  alias Zaq.Records.Content
 
   @types [:references, :assets, :scripts]
   @type_dirs Enum.map(@types, &Atom.to_string/1)
-  @empty_listing %{references: [], assets: [], scripts: []}
 
   @type locator :: String.t()
-  @type listing :: %{references: [Record.t()], assets: [Record.t()], scripts: [Record.t()]}
+  @type listing :: RecordPage.t()
 
   @doc """
   Lists a bundle's resources, metadata only.
@@ -77,12 +113,46 @@ defmodule Zaq.Ingestion.ResourceBundle do
         {:ok, root |> JidoResources.list_resources() |> BundleRecords.from_listing(locator)}
 
       :not_found ->
-        {:ok, @empty_listing}
+        {:ok, BundleRecords.empty_page()}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  @doc """
+  Fills a bundle record's `content` from the file it names.
+
+  The inverse of what `list/1` minted: the bundle comes back off the descriptor and the file
+  off `record.path`, never off anything a caller said alongside the record. The path is
+  validated here exactly as a path-shaped caller's would be, so a record whose `path` was
+  tampered with reaches no more than a listed one could. Refuses a descriptor carrying a
+  `volume` key, one missing a `locator`, and a record with no path — in each case without
+  reading anything.
+  """
+  @spec materialize(Record.t()) :: {:ok, Record.t()} | {:error, term()}
+  def materialize(%Record{materialization: %Materialization{params: params}})
+      when is_map_key(params, :volume) or is_map_key(params, "volume"),
+      do: {:error, :volume_not_addressable}
+
+  def materialize(
+        %Record{
+          path: resource_path,
+          materialization: %Materialization{
+            params: %{locator: locator},
+            as: as,
+            max_bytes: max
+          }
+        } = record
+      )
+      when is_binary(locator) and is_binary(resource_path) do
+    with :ok <- within_read_cap(locator, resource_path, max),
+         {:ok, bytes} <- read(locator, resource_path, as) do
+      Content.put(record, bytes, as)
+    end
+  end
+
+  def materialize(%Record{}), do: {:error, :invalid_params}
 
   @doc """
   Reads one resource as UTF-8 text.
@@ -135,31 +205,6 @@ defmodule Zaq.Ingestion.ResourceBundle do
   end
 
   @doc """
-  Writes bytes into a bundle and returns where they landed.
-
-  **The destination volume is resolved here, never supplied.** A caller that could name its
-  own volume could write outside the bundle it was granted, so the rule is: an existing
-  bundle keeps its volume, and a bundle that does not exist yet is created on the
-  sorted-first configured volume. Deterministic beats arbitrary — `Map.keys/1` ordering is
-  not guaranteed, and an operator needs to be able to predict where a first upload lands.
-
-  The returned `resource_path` may differ from the one requested: `upload_unique/3` dedupes
-  a name collision rather than overwriting, and the caller needs the name that actually
-  exists on disk to hand back as a handle.
-  """
-  @spec write(locator(), String.t(), binary()) :: {:ok, String.t()} | {:error, atom()}
-  def write(locator, resource_path, bytes)
-      when is_binary(locator) and is_binary(resource_path) and is_binary(bytes) do
-    with :ok <- validate_locator(locator),
-         :ok <- validate_resource_path(resource_path),
-         {:ok, volume} <- write_volume(locator),
-         {:ok, absolute} <-
-           FileExplorer.upload_unique(volume, Path.join(locator, resource_path), bytes) do
-      {:ok, written_resource_path(volume, locator, absolute, resource_path)}
-    end
-  end
-
-  @doc """
   The volume holding a bundle.
 
   Exported for the BO, which legitimately displays where a skill's files live. Agent-side
@@ -171,6 +216,23 @@ defmodule Zaq.Ingestion.ResourceBundle do
     case locate(locator) do
       {:ok, {volume, _root}} -> {:ok, volume}
       other -> other
+    end
+  end
+
+  # --- Descriptor-shaped reading ---
+
+  # `:text` goes through `read_text/2` so Jido's own UTF-8 check produces the refusal, rather
+  # than us reading bytes and second-guessing it.
+  defp read(locator, resource_path, :text), do: read_text(locator, resource_path)
+  defp read(locator, resource_path, _as), do: read_bytes(locator, resource_path)
+
+  defp within_read_cap(_locator, _resource_path, nil), do: :ok
+
+  defp within_read_cap(locator, resource_path, max) do
+    case stat(locator, resource_path) do
+      {:ok, %{size: size}} when size > max -> {:error, {:too_large, size}}
+      {:ok, _info} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -196,33 +258,6 @@ defmodule Zaq.Ingestion.ResourceBundle do
 
   defp ensure_volumes do
     if FileExplorer.volumes_configured?(), do: :ok, else: {:error, :no_volumes}
-  end
-
-  # An existing bundle keeps its volume; a first write lands on the sorted-first one.
-  defp write_volume(locator) do
-    case locate(locator) do
-      {:ok, {volume, _root}} -> {:ok, volume}
-      :not_found -> default_volume()
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp default_volume do
-    case FileExplorer.list_volumes() |> Map.keys() |> Enum.sort() do
-      [volume | _] -> {:ok, volume}
-      [] -> {:error, :no_volumes}
-    end
-  end
-
-  # `upload_unique/3` may have deduped the name, so the path on disk is authoritative — the
-  # handle we return has to point at the file that actually exists.
-  defp written_resource_path(volume, locator, absolute, requested) do
-    with {:ok, bundle_root} <- FileExplorer.resolve_path(volume, locator),
-         relative when relative != absolute <- Path.relative_to(absolute, bundle_root) do
-      relative
-    else
-      _ -> requested
-    end
   end
 
   # Sorted so the winner never depends on `Map.keys/1` ordering.

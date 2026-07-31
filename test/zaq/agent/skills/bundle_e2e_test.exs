@@ -17,6 +17,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
   alias Zaq.Agent.Tools.Skills.LoadSkillReference
   alias Zaq.Contracts.Materialization
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Records.Content
@@ -255,8 +256,8 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
       assert record.content == nil
 
       # And it knows where its bytes live, without anyone else being told.
-      assert %Materialization{role: :ingestion, strategy: :skill_bundle} = record.materialization
-      assert record.materialization.params.locator == @locator
+      assert %Materialization{role: :ingestion} = record.materialization
+      assert record.materialization.params == %{locator: @locator}
     end
 
     test "a record materializes to its real file's content", %{library: library} do
@@ -307,39 +308,6 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
       assert {:error, {:too_large, 5_000}} = Materializer.materialize(record, max_bytes: 100)
     end
 
-    # Use case B end to end: the agent supplies bytes and an intent, ingestion picks the
-    # destination, and the handle it returns reads back to exactly what went in.
-    test "a generated image persists and materializes back byte-identical" do
-      png = <<0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A>> <> :crypto.strong_rand_bytes(64)
-
-      {:ok, generated} =
-        %Record{
-          id: "generated",
-          kind: :file,
-          name: "revenue-chart.png",
-          mime_type: "image/png",
-          materialization:
-            Materialization.new(:ingestion, :skill_bundle,
-              params: %{locator: @locator, purpose: :asset}
-            )
-        }
-        |> Content.put(png, :auto)
-
-      assert {:ok, handle} = Materializer.persist(generated)
-
-      # A handle comes back, not the bytes — and it names where they landed, which the
-      # caller never chose.
-      assert handle.content == nil
-      assert handle.path == "assets/revenue-chart.png"
-      assert handle.size == byte_size(png)
-
-      assert {:ok, read_back} = Materializer.materialize(handle)
-      assert {:ok, ^png} = Content.decode(read_back)
-
-      # And the file is now a normal member of the bundle, listed like any other.
-      assert "assets/revenue-chart.png" in Enum.map(list_records(:assets), & &1.path)
-    end
-
     test "nothing a record carries discloses the filesystem to a model", %{library: library} do
       write!(library, "references/pricing-2026.md", "rates")
 
@@ -358,11 +326,15 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
   end
 
   # The real listing action over the real router — the same call the agent's `Bundle` makes.
+  # The page is one flat list, so the type filter is a prefix match on each record's path;
+  # that the prefix is the only place type lives is the point of the shape.
   defp list_records(type \\ :references) do
     %{bundle: @locator}
     |> Event.new(:ingestion, opts: [action: :list_skill_bundle])
     |> NodeRouter.dispatch()
     |> Map.fetch!(:response)
-    |> then(fn {:ok, listing} -> Map.fetch!(listing, type) end)
+    |> then(fn {:ok, %RecordPage{records: records}} ->
+      Enum.filter(records, &String.starts_with?(&1.path, "#{type}/"))
+    end)
   end
 end

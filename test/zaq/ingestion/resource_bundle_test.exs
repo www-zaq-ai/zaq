@@ -4,11 +4,18 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
 
   import ExUnit.CaptureLog
 
+  alias Zaq.Contracts.Materialization
+  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
+  alias Zaq.Ingestion.BundleRecords
   alias Zaq.Ingestion.FileExplorer
   alias Zaq.Ingestion.ResourceBundle
+  alias Zaq.Records.Content
 
   @test_base "test/tmp/resource_bundle"
   @locator ".agents/skills/pricing-faq"
+  @text "# Pricing\n\nStandard tier is €40/month.\n"
+  @png <<0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE>>
 
   setup do
     File.rm_rf!(@test_base)
@@ -41,42 +48,81 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
     path
   end
 
+  # The two fixtures the materialize describes share: one UTF-8, one binary.
+  defp write_pair(alpha) do
+    write_resource(alpha, "references", "pricing.md", @text)
+    write_resource(alpha, "references", "logo.png", @png)
+  end
+
+  # The bundle comes off the descriptor, the file off `record.path` — the same split `list/1`
+  # mints, so a fixture that got it wrong would not resemble anything materialize/1 ever sees.
+  defp source(resource_path, opts \\ []) do
+    %Record{
+      id: "r",
+      kind: :file,
+      name: Path.basename(resource_path),
+      path: resource_path,
+      materialization:
+        Materialization.new(:ingestion,
+          params: %{locator: @locator},
+          as: Keyword.get(opts, :as, :auto),
+          max_bytes: Keyword.get(opts, :max_bytes)
+        )
+    }
+  end
+
+  # Param validation is not a separate callback — it is the function heads. These assert the
+  # same refusals at the only place a caller can now reach them.
+  defp descriptor(params, opts \\ []) do
+    %Record{
+      id: "r",
+      kind: :file,
+      name: "a.md",
+      path: Keyword.get(opts, :path, "references/a.md"),
+      materialization: Materialization.new(:ingestion, params: params)
+    }
+  end
+
   describe "list/1" do
     test "returns references entries for a bundle on a volume", %{alpha: alpha} do
       write_resource(alpha, "references", "pricing-2026.md", "# Pricing\n")
 
       assert {:ok, listing} = ResourceBundle.list(@locator)
-      assert [entry] = listing.references
+      assert [entry] = listing.records
 
       assert entry.name == "pricing-2026.md"
       assert entry.path == "references/pricing-2026.md"
       assert entry.size == byte_size("# Pricing\n")
       assert %DateTime{} = entry.modified_at
-      assert entry.materialization.strategy == :skill_bundle
+      assert entry.materialization.role == :ingestion
     end
 
-    test "groups entries by type", %{alpha: alpha} do
-      write_resource(alpha, "references", "guide.md", "guide")
-      write_resource(alpha, "assets", "logo.png", <<137, 80, 78, 71>>)
+    # Type is carried by each record's `path`, not by a separate key, and list order is
+    # references → assets → scripts so a truncated page loses the least useful entries first.
+    test "orders entries by type, with the type carried in the path", %{alpha: alpha} do
       write_resource(alpha, "scripts", "setup.sh", "#!/bin/sh\n")
+      write_resource(alpha, "assets", "logo.png", <<137, 80, 78, 71>>)
+      write_resource(alpha, "references", "guide.md", "guide")
 
       assert {:ok, listing} = ResourceBundle.list(@locator)
 
-      assert [%{path: "references/guide.md"}] = listing.references
-      assert [%{path: "assets/logo.png"}] = listing.assets
-      assert [%{path: "scripts/setup.sh"}] = listing.scripts
+      assert Enum.map(listing.records, & &1.path) == [
+               "references/guide.md",
+               "assets/logo.png",
+               "scripts/setup.sh"
+             ]
     end
 
     test "finds a bundle on the second volume without the caller naming it", %{beta: beta} do
       write_resource(beta, "references", "on-beta.md", "beta")
 
       assert {:ok, listing} = ResourceBundle.list(@locator)
-      assert [%{name: "on-beta.md"}] = listing.references
+      assert [%{name: "on-beta.md"}] = listing.records
     end
 
-    test "missing locator returns an empty listing, not an error" do
+    test "missing locator returns an empty page, not an error" do
       assert {:ok, listing} = ResourceBundle.list(".agents/skills/never-uploaded")
-      assert listing == %{references: [], assets: [], scripts: []}
+      assert listing == BundleRecords.empty_page()
     end
 
     test "no volumes configured returns {:error, :no_volumes}" do
@@ -89,7 +135,7 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
       write_resource(alpha, "references", "pricing.md", "secret layout")
 
       assert {:ok, listing} = ResourceBundle.list(@locator)
-      assert [entry] = listing.references
+      assert [entry] = listing.records
 
       refute Map.has_key?(entry, :absolute_path)
 
@@ -101,11 +147,17 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
       refute serialized =~ Path.expand(alpha)
     end
 
-    test "the listing itself names no volume", %{alpha: alpha} do
+    test "the page itself names no volume", %{alpha: alpha} do
       write_resource(alpha, "references", "pricing.md", "body")
 
-      assert {:ok, listing} = ResourceBundle.list(@locator)
-      assert Map.keys(listing) |> Enum.sort() == [:assets, :references, :scripts]
+      assert {:ok, %RecordPage{} = listing} = ResourceBundle.list(@locator)
+      assert listing.resource_type == :skill_bundle_file
+
+      # The page wrapper carries counts and a resource type — nothing about where the bytes
+      # physically are. `filters` and `metadata` stay empty rather than becoming a back door.
+      assert listing.filters == %{}
+      assert listing.metadata == %{}
+      refute inspect(listing.pagination) =~ "alpha"
     end
   end
 
@@ -117,7 +169,7 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
       log =
         capture_log(fn ->
           assert {:ok, listing} = ResourceBundle.list(@locator)
-          assert [%{name: "from-alpha.md"}] = listing.references
+          assert [%{name: "from-alpha.md"}] = listing.records
         end)
 
       assert log =~ "resolves on more than one volume"
@@ -125,7 +177,8 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
 
       # Deterministic across repeated calls — never dependent on Map.keys/1 ordering.
       for _ <- 1..5 do
-        assert {:ok, %{references: [%{name: "from-alpha.md"}]}} = ResourceBundle.list(@locator)
+        assert {:ok, %RecordPage{records: [%{name: "from-alpha.md"}]}} =
+                 ResourceBundle.list(@locator)
       end
     end
   end
@@ -207,7 +260,7 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
       File.mkdir_p!(Path.dirname(link))
       :ok = File.ln_s(Path.expand(outside), link)
 
-      assert {:ok, %{references: []}} = ResourceBundle.list(@locator)
+      assert {:ok, %RecordPage{records: []}} = ResourceBundle.list(@locator)
 
       assert {:error, reason} = ResourceBundle.read_text(@locator, "references/stolen.md")
       assert reason in [:not_found, :path_traversal]
@@ -224,7 +277,7 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
       :ok = File.ln_s(Path.expand(secret), link)
 
       assert {:ok, listing} = ResourceBundle.list(@locator)
-      assert Enum.map(listing.references, & &1.name) == ["ok.md"]
+      assert Enum.map(listing.records, & &1.name) == ["ok.md"]
 
       assert {:error, reason} = ResourceBundle.read_text(@locator, "references/escape.md")
       assert reason in [:not_found, :path_traversal]
@@ -276,6 +329,171 @@ defmodule Zaq.Ingestion.ResourceBundleTest do
 
     test "refuses an unsafe locator" do
       assert {:error, :path_traversal} = ResourceBundle.resolve_volume("../../etc")
+    end
+  end
+
+  describe "materialize/1 — descriptor refusals" do
+    # Refused, not ignored: a caller that sent a volume has misunderstood the contract, and
+    # dropping it silently teaches them the key works.
+    test "a volume key is refused outright, on both key types" do
+      atom_key = descriptor(%{locator: @locator, volume: "alpha"})
+      string_key = descriptor(%{"volume" => "alpha", locator: @locator})
+
+      assert {:error, :volume_not_addressable} = ResourceBundle.materialize(atom_key)
+      assert {:error, :volume_not_addressable} = ResourceBundle.materialize(string_key)
+    end
+
+    test "a missing locator is refused" do
+      assert {:error, :invalid_params} = ResourceBundle.materialize(descriptor(%{}))
+    end
+
+    test "a record with a locator but no path is refused" do
+      assert {:error, :invalid_params} =
+               ResourceBundle.materialize(descriptor(%{locator: @locator}, path: nil))
+    end
+
+    # What the registry, and then the tag, used to refuse. A descriptor belonging to other
+    # storage must not be run here just because it arrived at this role — its params are
+    # shaped for its own reader and carry no locator, so this head never matches.
+    test "a descriptor belonging to other storage is refused rather than run" do
+      foreign = descriptor(%{id: "mattermost-attachment-1"})
+
+      assert {:error, :invalid_params} = ResourceBundle.materialize(foreign)
+    end
+
+    test "a record with no descriptor at all is refused without reading" do
+      assert {:error, :invalid_params} =
+               ResourceBundle.materialize(%Record{id: "r", kind: :file, name: "a.md"})
+    end
+  end
+
+  describe "materialize/1 — the acceptance matrix" do
+    setup %{alpha: alpha}, do: write_pair(alpha) && :ok
+
+    test "as: :auto returns UTF-8 as text" do
+      assert {:ok, record} = ResourceBundle.materialize(source("references/pricing.md"))
+
+      assert record.content == @text
+      assert record.attributes["encoding"] == "utf8"
+    end
+
+    test "as: :auto returns a binary as base64 that round-trips exactly" do
+      assert {:ok, record} = ResourceBundle.materialize(source("references/logo.png"))
+
+      assert record.attributes["encoding"] == "base64"
+      assert {:ok, @png} = Content.decode(record)
+    end
+
+    test "as: :text refuses a binary rather than encoding it" do
+      assert {:error, :invalid_utf8} =
+               ResourceBundle.materialize(source("references/logo.png", as: :text))
+    end
+
+    test "as: :binary encodes even text" do
+      assert {:ok, record} =
+               ResourceBundle.materialize(source("references/pricing.md", as: :binary))
+
+      assert record.attributes["encoding"] == "base64"
+      assert {:ok, @text} = Content.decode(record)
+    end
+
+    test "size is the raw byte count, not the encoded length" do
+      assert {:ok, record} = ResourceBundle.materialize(source("references/logo.png"))
+
+      assert record.size == byte_size(@png)
+      assert byte_size(record.content) > byte_size(@png)
+    end
+  end
+
+  describe "materialize/1 — the size cap" do
+    setup %{alpha: alpha}, do: write_pair(alpha) && :ok
+
+    test "refuses over max_bytes and does not read the file" do
+      assert {:error, {:too_large, size}} =
+               ResourceBundle.materialize(source("references/pricing.md", max_bytes: 4))
+
+      assert size == byte_size(@text)
+    end
+
+    test "allows a file at exactly the cap" do
+      assert {:ok, _record} =
+               ResourceBundle.materialize(
+                 source("references/pricing.md", max_bytes: byte_size(@text))
+               )
+    end
+
+    test "no cap means no check" do
+      assert {:ok, _record} = ResourceBundle.materialize(source("references/pricing.md"))
+    end
+  end
+
+  describe "materialize/1 — refusals and leak guards" do
+    setup %{alpha: alpha}, do: write_pair(alpha) && :ok
+
+    test "a missing file is not found" do
+      assert {:error, :not_found} = ResourceBundle.materialize(source("references/absent.md"))
+    end
+
+    test "traversal and absolute paths are refused" do
+      assert {:error, _} = ResourceBundle.materialize(source("../../../etc/passwd"))
+      assert {:error, _} = ResourceBundle.materialize(source("/etc/passwd"))
+    end
+
+    test "a bare filename with no type prefix is refused rather than guessed at" do
+      assert {:error, :invalid_resource_path} = ResourceBundle.materialize(source("pricing.md"))
+    end
+
+    test "no absolute path or volume name appears on a materialized record" do
+      {:ok, record} = ResourceBundle.materialize(source("references/pricing.md"))
+      serialized = inspect(record)
+
+      refute serialized =~ Path.expand(@test_base)
+      refute serialized =~ "alpha"
+      refute serialized =~ "absolute_path"
+    end
+  end
+
+  # `record.path` stops being display metadata and becomes an input to materialization. That
+  # coupling is load-bearing, so it is pinned rather than left implied by the fixtures.
+  describe "materialize/1 — the path comes off the record" do
+    setup %{alpha: alpha}, do: write_pair(alpha) && :ok
+
+    test "reads the file the record names, not one the descriptor names" do
+      # A descriptor carrying a stale `resource_path` must not be consulted: the record's own
+      # path is the address, and the extra key is inert rather than an override.
+      record = %Record{
+        source("references/pricing.md")
+        | materialization:
+            Materialization.new(:ingestion,
+              params: %{locator: @locator, resource_path: "references/logo.png"}
+            )
+      }
+
+      assert {:ok, materialized} = ResourceBundle.materialize(record)
+      assert materialized.content == @text
+    end
+
+    test "a tampered path is refused exactly as a caller-supplied one is" do
+      for tampered <- [
+            "../../../etc/passwd",
+            "/etc/passwd",
+            "references/../../other-skill/references/salaries.md",
+            "pricing.md"
+          ] do
+        assert {:error, reason} = ResourceBundle.materialize(source(tampered))
+        assert reason in [:path_traversal, :invalid_resource_path]
+      end
+    end
+
+    # The isolation boundary: the locator is what confines a read to one bundle, and no path
+    # on the record can reach past it into a sibling skill's files.
+    test "a path cannot reach another skill's bundle inside the same volume", %{alpha: alpha} do
+      write_resource(alpha, "references", "salaries.md", "CONFIDENTIAL", ".agents/skills/hr")
+
+      assert {:error, reason} =
+               ResourceBundle.materialize(source("references/../../hr/references/salaries.md"))
+
+      assert reason in [:path_traversal, :invalid_resource_path]
     end
   end
 

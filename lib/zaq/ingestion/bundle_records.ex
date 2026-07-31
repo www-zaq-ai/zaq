@@ -25,32 +25,56 @@ defmodule Zaq.Ingestion.BundleRecords do
 
   ## Where the bytes are
 
-  In the descriptor, which is not serialized. `role: :ingestion`, `strategy: :skill_bundle`,
-  and `params` holding the locator and resource path. Acceptance is left open (`as: :auto`,
-  no `max_bytes`) because a *listing* cannot know what its consumer can accept — each caller
-  narrows at materialize time. Baking `as: :text` here would make the same record useless to
-  a byte consumer such as a BO preview.
+  In the descriptor, which is not serialized — and it carries **only the locator**. The file's
+  own address is `record.path`, which is serialized because a model needs it to choose a file;
+  writing it into `params` as well would state the same fact twice and invite the two to
+  drift. What the descriptor holds is the one thing that must never be shown: the bundle root
+  a read is confined to.
+
+  Acceptance is left open (`as: :auto`, no `max_bytes`) because a *listing* cannot know what
+  its consumer can accept — each caller narrows at materialize time. Baking `as: :text` here
+  would make the same record useless to a byte consumer such as a BO preview.
   """
 
   alias Zaq.Contracts.Materialization
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
 
   @provider "zaq_skill_bundle"
+  @resource_type :skill_bundle_file
   @types [:references, :assets, :scripts]
 
   @type locator :: String.t()
 
-  @doc "Converts a Jido-shaped listing into records, keeping the three resource types apart."
-  @spec from_listing(map(), locator()) :: %{
-          references: [Record.t()],
-          assets: [Record.t()],
-          scripts: [Record.t()]
-        }
+  @doc """
+  Converts a Jido-shaped listing into a page of records.
+
+  The three resource types are **not** kept apart. Each record's `path` already carries its
+  type directory (`references/guide.md`), so a per-type map would encode the same fact twice
+  and every consumer would have to flatten it back. Type ordering survives as list order:
+  references first, then assets, then scripts, so a truncated page drops the least useful
+  entries first.
+  """
+  @spec from_listing(map(), locator()) :: RecordPage.t()
   def from_listing(listing, locator) when is_map(listing) and is_binary(locator) do
-    Map.new(@types, fn type ->
-      {type, listing |> Map.get(type, []) |> Enum.map(&from_entry(&1, locator))}
+    @types
+    |> Enum.flat_map(fn type ->
+      listing |> Map.get(type, []) |> Enum.map(&from_entry(&1, locator))
     end)
+    |> then(&RecordPage.new(@resource_type, &1))
   end
+
+  @doc """
+  An empty page — a bundle with nothing in it, or a locator no volume holds.
+
+  Not an error: a skill with no files uploaded is an ordinary state.
+  """
+  @spec empty_page() :: RecordPage.t()
+  def empty_page, do: RecordPage.empty(@resource_type)
+
+  @doc "The `resource_type` every bundle page carries."
+  @spec resource_type() :: atom()
+  def resource_type, do: @resource_type
 
   @doc """
   Converts one listing entry into a record handle.
@@ -71,22 +95,9 @@ defmodule Zaq.Ingestion.BundleRecords do
       size: Map.get(entry, :size),
       modified_at: Map.get(entry, :modified),
       mime_type: MIME.from_path(name),
-      attributes: %{"provider" => @provider, "resource_path" => resource_path},
-      materialization: descriptor(locator, resource_path)
+      attributes: %{"provider" => @provider},
+      materialization: descriptor(locator)
     }
-  end
-
-  @doc """
-  The descriptor pointing at one file in a bundle.
-
-  Exposed so the persist path can hand back a handle for a file it just wrote without
-  re-listing the bundle to find it.
-  """
-  @spec descriptor(locator(), String.t()) :: Materialization.t()
-  def descriptor(locator, resource_path) when is_binary(locator) and is_binary(resource_path) do
-    Materialization.new(:ingestion, :skill_bundle,
-      params: %{locator: locator, resource_path: resource_path}
-    )
   end
 
   @doc """
@@ -101,4 +112,8 @@ defmodule Zaq.Ingestion.BundleRecords do
 
     @provider <> ":" <> Base.url_encode64(digest, padding: false)
   end
+
+  # The bundle root a read is confined to, and nothing else. Which file inside it is
+  # `record.path`, which the reader takes off the record it was handed.
+  defp descriptor(locator), do: Materialization.new(:ingestion, params: %{locator: locator})
 end

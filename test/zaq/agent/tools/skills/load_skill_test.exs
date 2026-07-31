@@ -6,6 +6,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
   alias Zaq.Agent
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Skills.LoadSkill
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Ingestion.BundleRecords
 
   defp skill!(attrs) do
@@ -159,6 +160,10 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
       )
     end
 
+    # The listing crossing the boundary is a `RecordPage` — the same contract ingestion mints,
+    # so the truncation the tool reports comes from real pagination metadata, not a stub.
+    defp page(records), do: RecordPage.new(:skill_bundle_file, records)
+
     # A stub router that records what it was asked for, so the request shape can be
     # asserted rather than assumed.
     defmodule RecordingRouter do
@@ -197,7 +202,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
     test "lists the skill's bundled files alongside the instructions" do
       {_skill, agent} = bundled!()
 
-      listing = %{references: [entry("pricing.md", 42)], assets: [], scripts: []}
+      listing = page([entry("pricing.md", 42)])
 
       assert {:ok, result} =
                LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
@@ -211,7 +216,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
     test "the dispatched request is exactly %{bundle: locator}" do
       # Asserted, so a future edit that slips a volume into the payload fails here.
       {_skill, agent} = bundled!()
-      listing = %{references: [], assets: [], scripts: []}
+      listing = page([])
 
       LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
 
@@ -220,14 +225,17 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
       assert Map.keys(request) == [:bundle]
     end
 
-    test "orders references ahead of assets and scripts" do
+    # Ordering is ingestion's, carried by the page's list order — this tool must preserve it
+    # rather than re-sort, so a truncated listing keeps dropping scripts before references.
+    test "preserves the page's order: references, then assets, then scripts" do
       {_skill, agent} = bundled!()
 
-      listing = %{
-        references: [entry("ref.md")],
-        assets: [entry("logo.png", 9, "assets")],
-        scripts: [entry("run.sh", 3, "scripts")]
-      }
+      listing =
+        page([
+          entry("ref.md"),
+          entry("logo.png", 9, "assets"),
+          entry("run.sh", 3, "scripts")
+        ])
 
       assert {:ok, result} =
                LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
@@ -237,7 +245,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
 
     test "entries carry no absolute path and no timestamp" do
       {_skill, agent} = bundled!()
-      listing = %{references: [entry("pricing.md")], assets: [], scripts: []}
+      listing = page([entry("pricing.md")])
 
       assert {:ok, result} =
                LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))
@@ -291,7 +299,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
     test "a listing over the cap is truncated and states the real total" do
       {_skill, agent} = bundled!()
       entries = for i <- 1..137, do: entry("file-#{i}.md")
-      listing = %{references: entries, assets: [], scripts: []}
+      listing = page(entries)
 
       context =
         agent
@@ -306,7 +314,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
 
     test "a listing under the cap carries no note" do
       {_skill, agent} = bundled!()
-      listing = %{references: [entry("a.md")], assets: [], scripts: []}
+      listing = page([entry("a.md")])
 
       assert {:ok, result} =
                LoadSkill.run(%{name: "calculator"}, router_ctx(agent, {:ok, listing}))

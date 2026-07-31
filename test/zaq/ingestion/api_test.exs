@@ -24,7 +24,6 @@ defmodule Zaq.Ingestion.ApiTest do
   describe "record materialization actions" do
     alias Zaq.Contracts.Materialization
     alias Zaq.Contracts.Record
-    alias Zaq.Records.Content
 
     setup :bundle_volume
 
@@ -33,59 +32,31 @@ defmodule Zaq.Ingestion.ApiTest do
         id: "r",
         kind: :file,
         name: Keyword.get(opts, :name, "pricing.md"),
-        materialization:
-          Materialization.new(:ingestion, Keyword.get(opts, :strategy, :skill_bundle),
-            params: params
-          )
+        path: Keyword.get(opts, :path, "references/pricing.md"),
+        materialization: Materialization.new(:ingestion, params: params)
       }
     end
 
-    defp readable, do: record(%{locator: @locator, resource_path: "references/pricing.md"})
-
-    defp writable(bytes) do
-      {:ok, record} =
-        %{locator: @locator, purpose: :asset}
-        |> record(name: "chart.bin")
-        |> Content.put(bytes, :auto)
-
-      record
-    end
+    defp readable, do: record(%{locator: @locator})
 
     defp materialize(request),
       do: Api.handle_event(Event.new(request, :ingestion), :materialize_record, nil)
-
-    defp persist(request),
-      do: Api.handle_event(Event.new(request, :ingestion), :persist_record, nil)
 
     test ":materialize_record fills the record from the bundle" do
       assert %{response: {:ok, %Record{content: "# Pricing\n"}}} =
                materialize(%{record: readable()})
     end
 
-    test ":persist_record writes and returns a handle with the content dropped" do
-      assert %{response: {:ok, %Record{content: nil} = handle}} =
-               persist(%{record: writable("bytes")})
-
-      assert handle.path == "assets/chart.bin"
-    end
-
-    # Replaces the old "unregistered strategy" case. There is no registry to consult now, so
-    # the refusal comes from `BundleContent` having no clause for a foreign descriptor — the
-    # same outcome reached one layer lower.
-    test "a strategy this role does not implement is refused" do
-      foreign =
-        record(%{locator: @locator, resource_path: "references/pricing.md"},
-          strategy: :mattermost_attachment
-        )
-
-      assert %{response: {:error, :invalid_params}} = materialize(%{record: foreign})
-    end
-
-    # Replaces the old "verb the strategy did not declare" case. Capabilities are gone: write
-    # access is now the `:persist_record` clause existing at all, and a read-shaped descriptor
-    # carries no `purpose`, so there is nowhere for a write to land.
-    test "a read-shaped descriptor cannot be persisted" do
-      assert %{response: {:error, :invalid_params}} = persist(%{record: readable()})
+    # Read-only by omission: there is no write action on this role, so a caller holding a
+    # perfectly valid bundle record still cannot reach one. This is the guard that keeps the
+    # property true — if a write verb is ever added, this test is what makes that deliberate.
+    test "this role carries no write action at all" do
+      assert %{response: {:error, {:unsupported_action, :persist_record}}} =
+               Api.handle_event(
+                 Event.new(%{record: readable()}, :ingestion),
+                 :persist_record,
+                 nil
+               )
     end
 
     test "invalid params are refused before anything is read" do
@@ -102,7 +73,7 @@ defmodule Zaq.Ingestion.ApiTest do
     # ...but a volume smuggled into `params` is refused rather than ignored, because there it
     # is a claim about where the bytes live.
     test "a :volume inside params is refused, not ignored" do
-      smuggled = record(%{locator: @locator, resource_path: "references/pricing.md", volume: "x"})
+      smuggled = record(%{locator: @locator, volume: "x"})
 
       assert %{response: {:error, :volume_not_addressable}} = materialize(%{record: smuggled})
     end
@@ -118,7 +89,7 @@ defmodule Zaq.Ingestion.ApiTest do
     end
 
     test "a request with no :record falls through to the default handler" do
-      assert %{response: {:error, {:unsupported_action, :persist_record}}} = persist(%{})
+      assert %{response: {:error, {:unsupported_action, :materialize_record}}} = materialize(%{})
     end
   end
 
@@ -154,7 +125,7 @@ defmodule Zaq.Ingestion.ApiTest do
       result = Api.handle_event(event, :list_skill_bundle, nil)
 
       assert {:ok, listing} = result.response
-      assert [%{name: "pricing.md", path: "references/pricing.md"}] = listing.references
+      assert [%{name: "pricing.md", path: "references/pricing.md"}] = listing.records
     end
 
     test ":list_skill_bundle discloses no filesystem layout" do
@@ -219,8 +190,8 @@ defmodule Zaq.Ingestion.ApiTest do
       result = Api.handle_event(event, :list_skill_bundle, nil)
 
       assert {:ok, listing} = result.response
-      assert [%{name: "pricing.md"}] = listing.references
-      refute Enum.any?(listing.references, &(&1.name == "decoy.md"))
+      assert [%{name: "pricing.md"}] = listing.records
+      refute Enum.any?(listing.records, &(&1.name == "decoy.md"))
 
       # `decoy` is not even a configured volume — naming it changes nothing.
       assert Application.get_env(:zaq, Zaq.Ingestion)[:volumes] == %{"alpha" => alpha}

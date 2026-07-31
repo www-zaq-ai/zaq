@@ -34,10 +34,11 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.list_skill_bundle(locator)}
   end
 
-  # Record materialization. The two verbs are separate clauses on purpose: writing is reachable
-  # only through `:persist_record`, so a role that must not write simply does not carry that
-  # clause. `Zaq.Ingestion.BundleContent` refuses any descriptor that is not a skill bundle, so
-  # there is no generic "read a path" action here for a caller to reach for.
+  # Record materialization. Read-only, and enforced by omission rather than by a capability
+  # flag: there is no write action on this role, so no caller can reach one. A write verb, when
+  # one is needed, arrives as its own clause — which is also how a role that must not write
+  # keeps not writing. `Zaq.Ingestion.ResourceBundle` refuses any descriptor that is not a skill
+  # bundle, so there is no generic "read a path" action here for a caller to reach for either.
   #
   # A record with no descriptor does not match, and falls through to the default handler.
   def handle_event(
@@ -46,14 +47,6 @@ defmodule Zaq.Ingestion.Api do
         _context
       ) do
     %{event | response: Ingestion.materialize_record(record)}
-  end
-
-  def handle_event(
-        %Event{request: %{record: %Record{materialization: %Materialization{}} = record}} = event,
-        :persist_record,
-        _context
-      ) do
-    %{event | response: Ingestion.persist_record(record)}
   end
 
   def handle_event(%Event{} = event, action, _context),

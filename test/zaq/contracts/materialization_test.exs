@@ -10,11 +10,7 @@ defmodule Zaq.Contracts.MaterializationTest do
   @locator ".agents/skills/pricing-faq"
 
   defp descriptor(opts \\ []) do
-    Materialization.new(
-      :ingestion,
-      :skill_bundle,
-      Keyword.merge([params: %{locator: @locator, resource_path: "references/guide.md"}], opts)
-    )
+    Materialization.new(:ingestion, Keyword.merge([params: %{locator: @locator}], opts))
   end
 
   # The id is opaque on purpose. An id built by interpolating the locator would put it back
@@ -30,10 +26,10 @@ defmodule Zaq.Contracts.MaterializationTest do
     }
   end
 
-  describe "new/3" do
+  describe "new/2" do
     test "defaults as: :auto, params: %{} and max_bytes: nil" do
-      assert %Materialization{role: :ingestion, strategy: :skill_bundle} =
-               materialization = Materialization.new(:ingestion, :skill_bundle)
+      assert %Materialization{role: :ingestion} =
+               materialization = Materialization.new(:ingestion)
 
       assert materialization.as == :auto
       assert materialization.params == %{}
@@ -42,20 +38,19 @@ defmodule Zaq.Contracts.MaterializationTest do
 
     test "accepts every supported acceptance mode" do
       for mode <- [:auto, :text, :binary] do
-        assert %Materialization{as: ^mode} =
-                 Materialization.new(:ingestion, :skill_bundle, as: mode)
+        assert %Materialization{as: ^mode} = Materialization.new(:ingestion, as: mode)
       end
     end
 
     test "refuses an unsupported acceptance mode" do
       assert_raise ArgumentError, ~r/as/, fn ->
-        Materialization.new(:ingestion, :skill_bundle, as: :yaml)
+        Materialization.new(:ingestion, as: :yaml)
       end
     end
 
     test "refuses a non-positive max_bytes" do
       assert_raise ArgumentError, ~r/max_bytes/, fn ->
-        Materialization.new(:ingestion, :skill_bundle, max_bytes: 0)
+        Materialization.new(:ingestion, max_bytes: 0)
       end
     end
   end
@@ -68,19 +63,17 @@ defmodule Zaq.Contracts.MaterializationTest do
       assert narrowed.max_bytes == 1_024
     end
 
-    test "cannot change role, strategy or params" do
+    test "cannot change role or params" do
       original = descriptor()
 
       narrowed =
         Materialization.narrow(original,
           as: :text,
           role: :channels,
-          strategy: :attachment,
           params: %{locator: "/etc"}
         )
 
       assert narrowed.role == original.role
-      assert narrowed.strategy == original.strategy
       assert narrowed.params == original.params
     end
 
@@ -91,7 +84,7 @@ defmodule Zaq.Contracts.MaterializationTest do
       assert narrowed.max_bytes == 10
     end
 
-    test "validates like new/3" do
+    test "validates like new/2" do
       assert_raise ArgumentError, ~r/as/, fn ->
         Materialization.narrow(descriptor(), as: :yaml)
       end
@@ -104,7 +97,7 @@ defmodule Zaq.Contracts.MaterializationTest do
     end
 
     test "holds a descriptor" do
-      assert %Record{materialization: %Materialization{strategy: :skill_bundle}} = record()
+      assert %Record{materialization: %Materialization{role: :ingestion}} = record()
     end
   end
 

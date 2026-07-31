@@ -81,6 +81,8 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
   alias Zaq.Agent.Skills.Bundle
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Agent.Tools.Skills.Scope
+  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
 
   require Logger
 
@@ -90,24 +92,41 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
          {:ok, skill} <- fetch_granted_skill(agent, name) do
       emit_telemetry(agent, skill, context)
 
-      # Never fails: a manifest that cannot be fetched degrades to an empty list, because
-      # the instructions below are the payload worth protecting.
-      manifest = Bundle.manifest(skill, context)
+      # Never fails: a page that cannot be fetched degrades to an empty one, because the
+      # instructions below are the payload worth protecting.
+      page = Bundle.manifest(skill, context)
 
       {:ok,
        maybe_note(
          %{
            name: skill.name,
            instructions: skill.body,
-           resources: manifest.resources
+           resources: Enum.map(page.records, &to_entry/1)
          },
-         manifest.note
+         page
        )}
     end
   end
 
-  defp maybe_note(result, nil), do: result
-  defp maybe_note(result, note), do: Map.put(result, :resources_note, note)
+  # A `Record` is the transport contract, not the model-facing one: it encodes ~20 mostly-nil
+  # keys, and three of them are what the model needs to decide whether to spend a call on a
+  # file. `modified_at` goes too — a timestamp is context it cannot act on.
+  defp to_entry(%Record{name: name, path: resource_path, size: size}) do
+    %{name: name, resource_path: resource_path, size: size}
+  end
+
+  # The page says *that* it was truncated and by how much; saying so in words a model will act
+  # on is this layer's job, not the transport's.
+  defp maybe_note(result, %RecordPage{pagination: %{truncated?: true}, stats: stats}) do
+    Map.put(
+      result,
+      :resources_note,
+      "Showing #{stats.returned} of #{stats.scanned} bundled files. Ask for a specific path " <>
+        "if what you need is not listed."
+    )
+  end
+
+  defp maybe_note(result, %RecordPage{}), do: result
 
   # Both scope checks live in `Scope`, shared with `LoadSkillReference`: a nil agent id refuses
   # rather than widening to a global lookup, and not-found names only what was asked for.

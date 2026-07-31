@@ -4,26 +4,33 @@ defmodule Zaq.Contracts.Materialization do
 
   A `Zaq.Contracts.Record` is a **handle**: it carries a file's identity and metadata and
   moves freely between nodes because it is small. This struct is the part that says where the
-  bytes themselves are, so that `Zaq.Records.Materializer` can fetch or write them on demand.
+  bytes themselves are, so that `Zaq.Records.Materializer` can fetch them on demand.
 
   ## Direction-agnostic, on purpose
 
   "Where do these bytes live" is the same question before a read and after a write, so one
-  struct serves both verbs. A caller building a record to `persist/2` sets a descriptor
-  describing the *destination*; the owning role fills in where it actually landed and returns
-  the same shape, which is then a perfectly ordinary source descriptor. The output of a write
-  is the input of a read.
+  struct is built to serve both verbs even though only the read verb exists today. A caller
+  building a record to write would set a descriptor describing the *destination*; the owning
+  role would fill in where it actually landed and return the same shape, which is then a
+  perfectly ordinary source descriptor. The output of a write is the input of a read.
+
+  Nothing here needs to change when that verb lands, which is the point of writing it this way
+  now: the alternative — a read-shaped struct plus a write-shaped one — is two things to keep
+  in sync and a conversion between them at exactly the boundary that must not drift.
 
   ## The fields
 
     * `role` — which node owns these bytes (`:ingestion`, `:channels`, `:agent`). The record
-      routes itself: callers never name a role.
-    * `strategy` — which materializer on that role. Resolved against that role's registry;
-      an atom absent from it is refused before any I/O. Atoms are scoped per role, so
-      `:ingestion`/`:cache` and `:channels`/`:cache` are different strategies.
-    * `params` — everything the strategy needs, and **opaque to everyone else**. The strategy
-      that owns it is the only code that may read a key out of it. That encapsulation is what
-      lets storage layout change without touching a single caller.
+      routes itself: callers never name a role, and `Zaq.NodeRouter` routes on this alone —
+      a descriptor saying `role: :channels` cannot arrive at ingestion at all.
+    * `params` — everything the reader needs, and **opaque to everyone else**. The role that
+      owns the bytes is the only code that may read a key out of it. That encapsulation is
+      what lets storage layout change without touching a single caller.
+
+      It is also the whole of the refusal: a reader matches the params it understands in its
+      function head, and a descriptor whose params are shaped for other storage falls through
+      to an error before any I/O. There is no separate discriminator field — one was tried,
+      as a registry key and then as a tag, and in neither form did anything branch on it.
     * `as` — what the caller can *accept*: `:text` refuses non-UTF-8, `:binary` always
       base64-encodes, `:auto` detects. Note this is acceptance, not conversion — nobody can
       ask for a PNG "as text".
@@ -41,20 +48,19 @@ defmodule Zaq.Contracts.Materialization do
   ## Narrowing
 
   A caller may tighten `as` and `max_bytes` for its own consumption — see `narrow/2` — but
-  never `role`, `strategy` or `params`. Those come from whoever minted the record, which is
-  the role that owns the bytes.
+  never `role` or `params`. Those come from whoever minted the record, which is the role that
+  owns the bytes.
   """
 
   @acceptance_modes [:auto, :text, :binary]
 
-  @enforce_keys [:role, :strategy]
-  defstruct [:role, :strategy, :max_bytes, params: %{}, as: :auto]
+  @enforce_keys [:role]
+  defstruct [:role, :max_bytes, params: %{}, as: :auto]
 
   @type acceptance :: :auto | :text | :binary
 
   @type t :: %__MODULE__{
           role: atom(),
-          strategy: atom(),
           params: map(),
           as: acceptance(),
           max_bytes: pos_integer() | nil
@@ -66,14 +72,13 @@ defmodule Zaq.Contracts.Materialization do
   Raises `ArgumentError` on an unsupported `as` or a non-positive `max_bytes` — both are
   programmer errors in the minting code, not runtime conditions a caller could recover from.
 
-      iex> Zaq.Contracts.Materialization.new(:ingestion, :skill_bundle).as
+      iex> Zaq.Contracts.Materialization.new(:ingestion).as
       :auto
   """
-  @spec new(atom(), atom(), keyword()) :: t()
-  def new(role, strategy, opts \\ []) when is_atom(role) and is_atom(strategy) do
+  @spec new(atom(), keyword()) :: t()
+  def new(role, opts \\ []) when is_atom(role) do
     %__MODULE__{
       role: role,
-      strategy: strategy,
       params: Keyword.get(opts, :params, %{}),
       as: opts |> Keyword.get(:as, :auto) |> validate_as!(),
       max_bytes: opts |> Keyword.get(:max_bytes) |> validate_max_bytes!()
@@ -83,13 +88,13 @@ defmodule Zaq.Contracts.Materialization do
   @doc """
   Tightens what the caller accepts, leaving the location alone.
 
-  Only `:as` and `:max_bytes` are read from `opts`; `:role`, `:strategy` and `:params` are
-  ignored if passed. This is the type-level expression of the rule that a caller may say what
-  it can handle but never where to look — a caller that could rewrite `params` could read or
-  write anywhere its role can reach.
+  Only `:as` and `:max_bytes` are read from `opts`; `:role` and `:params` are ignored if
+  passed. This is the type-level expression of the rule that a caller may say what it can
+  handle but never where to look — a caller that could rewrite `params` could read or write
+  anywhere its role can reach.
 
       iex> alias Zaq.Contracts.Materialization
-      iex> d = Materialization.new(:ingestion, :skill_bundle, params: %{locator: "x"})
+      iex> d = Materialization.new(:ingestion, params: %{locator: "x"})
       iex> Materialization.narrow(d, as: :text, role: :channels) |> Map.take([:as, :role])
       %{as: :text, role: :ingestion}
   """

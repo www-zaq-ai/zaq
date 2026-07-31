@@ -35,7 +35,7 @@ defmodule Zaq.Records.MaterializerTest do
       Keyword.get(
         opts,
         :materialization,
-        Materialization.new(:ingestion, :skill_bundle, params: %{locator: ".agents/skills/faq"})
+        Materialization.new(:ingestion, params: %{locator: ".agents/skills/faq"})
       )
 
     %Record{id: "r", kind: :file, name: "guide.md", materialization: materialization}
@@ -55,7 +55,7 @@ defmodule Zaq.Records.MaterializerTest do
     # attachment and a skill resource travel the same code path.
     test "dispatches to a different role when the record says so" do
       channel_record =
-        record(materialization: Materialization.new(:channels, :attachment, params: %{id: "a"}))
+        record(materialization: Materialization.new(:channels, params: %{id: "a"}))
 
       {:ok, _} = Materializer.materialize(channel_record, router_opts())
 
@@ -78,23 +78,6 @@ defmodule Zaq.Records.MaterializerTest do
     end
   end
 
-  describe "persist/2 routing" do
-    test "dispatches the persist action to the record's role" do
-      {:ok, record} = record() |> Content.put("hello", :auto)
-      {:ok, _} = Materializer.persist(record, router_opts())
-
-      assert dispatched().opts[:action] == :persist_record
-      assert dispatched().next_hop.destination == :ingestion
-    end
-
-    test "refuses a record with no descriptor without dispatching" do
-      assert {:error, :not_materializable} =
-               %Record{id: "r", kind: :file} |> Materializer.persist(router_opts())
-
-      refute dispatched()
-    end
-  end
-
   describe "opts may narrow acceptance only" do
     test "applies :as and :max_bytes to the dispatched descriptor" do
       {:ok, _} = record() |> Materializer.materialize(router_opts(as: :text, max_bytes: 1_024))
@@ -103,19 +86,16 @@ defmodule Zaq.Records.MaterializerTest do
       assert dispatched().request.record.materialization.max_bytes == 1_024
     end
 
-    # A caller that could rewrite role, strategy or params could read or write anywhere its
-    # role can reach. Those three come from whoever minted the record.
-    test "ignores attempts to override role, strategy or params" do
+    # A caller that could rewrite role or params could read or write anywhere its role can
+    # reach. Both come from whoever minted the record.
+    test "ignores attempts to override role or params" do
       {:ok, _} =
         record()
-        |> Materializer.materialize(
-          router_opts(role: :channels, strategy: :attachment, params: %{locator: "/etc"})
-        )
+        |> Materializer.materialize(router_opts(role: :channels, params: %{locator: "/etc"}))
 
       descriptor = dispatched().request.record.materialization
 
       assert descriptor.role == :ingestion
-      assert descriptor.strategy == :skill_bundle
       assert descriptor.params == %{locator: ".agents/skills/faq"}
       assert dispatched().next_hop.destination == :ingestion
     end
@@ -152,25 +132,19 @@ defmodule Zaq.Records.MaterializerTest do
       assert {:error, {:too_large, 100}} = record() |> Materializer.materialize(opts)
     end
 
-    test "refuses an oversize payload before persist dispatches it", %{opts: opts} do
-      {:ok, oversize} = record() |> Content.put(:binary.copy("a", 100), :auto)
-
-      assert {:error, {:too_large, 100}} = Materializer.persist(oversize, opts)
-      refute dispatched()
-    end
-
     test "measures raw bytes, not the base64 length", %{opts: opts} do
       # 60 raw bytes encodes to 80 base64 characters — over the 64-byte ceiling if you
       # measure the wrong thing.
-      {:ok, record} = record() |> Content.put(:crypto.strong_rand_bytes(60), :binary)
+      {:ok, encoded} = record() |> Content.put(:crypto.strong_rand_bytes(60), :binary)
+      respond({:ok, encoded})
 
-      assert byte_size(record.content) > 64
-      assert {:ok, _} = Materializer.persist(record, opts)
+      assert byte_size(encoded.content) > 64
+      assert {:ok, _} = record() |> Materializer.materialize(opts)
     end
   end
 
   describe "failure handling" do
-    test "passes a strategy error through untouched" do
+    test "passes a reader error through untouched" do
       respond({:error, :not_found})
 
       assert {:error, :not_found} = record() |> Materializer.materialize(router_opts())

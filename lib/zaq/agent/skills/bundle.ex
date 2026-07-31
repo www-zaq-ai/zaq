@@ -44,27 +44,31 @@ defmodule Zaq.Agent.Skills.Bundle do
   alias Zaq.Agent.Skill.Resources
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Records.Materializer
 
-  # References first: they are what a skill's instructions actually point at. Assets and
-  # scripts follow so a truncated listing drops the least useful entries first.
-  @type_order [:references, :assets, :scripts]
-
-  @type entry :: %{name: String.t(), resource_path: String.t(), size: non_neg_integer()}
-  @type manifest :: %{resources: [entry()], note: String.t() | nil}
+  # Contract vocabulary, not a storage detail — the same atom ingestion stamps on the pages it
+  # mints. Named here rather than read from `Zaq.Ingestion.BundleRecords`, because a compile-
+  # time call into another role is precisely what this module exists to avoid.
+  @resource_type :skill_bundle_file
 
   @doc """
-  The metadata listing for a skill's bundle, capped per `resource_listing_max_files`.
+  The page of records for a skill's bundle, capped per `resource_listing_max_files`.
 
-  A skill with no bundle returns an empty manifest without dispatching anything — the
-  common case, and not worth a round trip.
+  A skill with no bundle returns an empty page without dispatching anything — the common
+  case, and not worth a round trip.
+
+  Ordering is ingestion's: references, then assets, then scripts, so a page truncated by the
+  cap drops the least useful entries first. When it is truncated, `pagination.truncated?` is
+  set and `stats.scanned` holds the real total — the caller decides how to say so, because
+  wording aimed at a model is a tool concern, not a transport one.
   """
-  @spec manifest(Skill.t(), map()) :: manifest()
+  @spec manifest(Skill.t(), map()) :: RecordPage.t()
   def manifest(%Skill{} = skill, context \\ %{}) do
     case Resources.bundle_locator(skill) do
-      :none -> %{resources: [], note: nil}
+      :none -> RecordPage.empty(@resource_type)
       {:ok, locator} -> locator |> fetch_listing(context) |> cap(context)
     end
   end
@@ -88,11 +92,9 @@ defmodule Zaq.Agent.Skills.Bundle do
   # --- Dispatch ---
 
   defp fetch_listing(locator, context) do
-    request = %{bundle: locator}
-
-    case dispatch(request, :list_skill_bundle, context) do
-      {:ok, %{} = listing} ->
-        flatten(listing)
+    case dispatch(%{bundle: locator}, :list_skill_bundle, context) do
+      {:ok, %RecordPage{} = page} ->
+        page
 
       other ->
         Logger.warning(
@@ -100,7 +102,7 @@ defmodule Zaq.Agent.Skills.Bundle do
             "returning instructions without a manifest: #{inspect(other)}"
         )
 
-        []
+        RecordPage.empty(@resource_type)
     end
   end
 
@@ -115,17 +117,14 @@ defmodule Zaq.Agent.Skills.Bundle do
   # authorisation check, and a stale one would authorise a file that has since been removed.
   defp find_record(locator, resource_path, context) do
     case dispatch(%{bundle: locator}, :list_skill_bundle, context) do
-      {:ok, %{} = listing} -> match_record(listing, resource_path)
+      {:ok, %RecordPage{records: records}} -> match_record(records, resource_path)
       {:error, reason} -> {:error, reason}
       _other -> {:error, :unavailable}
     end
   end
 
-  defp match_record(listing, resource_path) do
-    listing
-    |> records(@type_order)
-    |> Enum.find(&(&1.path == resource_path))
-    |> case do
+  defp match_record(records, resource_path) do
+    case Enum.find(records, &(&1.path == resource_path)) do
       %Record{} = record -> {:ok, record}
       nil -> {:error, :not_found}
     end
@@ -166,39 +165,8 @@ defmodule Zaq.Agent.Skills.Bundle do
 
   # --- Shaping ---
 
-  defp flatten(listing) do
-    Enum.flat_map(@type_order, fn type ->
-      listing
-      |> Map.get(type, [])
-      |> Enum.map(&to_entry/1)
-    end)
-  end
-
-  defp records(listing, types) do
-    Enum.flat_map(types, fn type -> Map.get(listing, type, []) end)
-  end
-
-  # Records are the transport contract, not the model-facing one. A `Record` encodes ~20
-  # mostly-nil keys; three fields are what the model needs to decide whether to spend a call
-  # on a file. `modified_at` is dropped too — a timestamp is context it cannot act on.
-  defp to_entry(%Record{name: name, path: resource_path, size: size}) do
-    %{name: name, resource_path: resource_path, size: size}
-  end
-
-  defp cap(entries, context) do
-    max = Limits.get(:resource_listing_max_files, limits_opts(context))
-    total = length(entries)
-
-    if total > max do
-      %{
-        resources: Enum.take(entries, max),
-        note:
-          "Showing #{max} of #{total} bundled files. Ask for a specific path if what you " <>
-            "need is not listed."
-      }
-    else
-      %{resources: entries, note: nil}
-    end
+  defp cap(%RecordPage{} = page, context) do
+    RecordPage.truncate(page, Limits.get(:resource_listing_max_files, limits_opts(context)))
   end
 
   defp limits_opts(context), do: Map.get(context, :limits_opts, [])

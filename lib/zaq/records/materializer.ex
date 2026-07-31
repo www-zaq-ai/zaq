@@ -1,43 +1,43 @@
 defmodule Zaq.Records.Materializer do
   @moduledoc """
-  Moves a record's bytes, in either direction, to or from whichever node owns them.
+  Moves a record's bytes from whichever node owns them to the caller.
 
   This is the entry point every caller uses and the only one they need. A caller holds a
-  record and says `materialize(record)` or `persist(record)`; it never names a node, an action
-  atom, a volume or a path. **The record routes itself** — `materialization.role` says which
-  node owns the bytes, and that is read from the record, never from a default or an option.
+  record and says `materialize(record)`; it never names a node, an action atom, a volume or a
+  path. **The record routes itself** — `materialization.role` says which node owns the bytes,
+  and that is read from the record, never from a default or an option.
 
   That property is what makes this a backbone rather than a skills helper: a skill resource on
   an ingestion volume and an image hosted by a chat adapter travel identical calling code, and
   a caller written today keeps working when the bytes move somewhere new.
 
-  ## Two verbs
+  ## One verb, for now
 
-    * `materialize/2` — **pull**. Fills `content` from wherever the descriptor points.
-    * `persist/2` — **push**. Writes `content` to where the descriptor points and returns the
-      handle the owning role minted, with `content` dropped. That handle is an ordinary source
-      descriptor: the output of a write is the input of a read.
+  `materialize/2` — **pull**. Fills `content` from wherever the descriptor points.
+
+  The descriptor is deliberately direction-agnostic (see `Zaq.Contracts.Materialization`), so
+  a `persist/2` push verb fits without reshaping anything here. It is not in this module yet
+  because nothing writes: the skills surface reads its bundle and never adds to it.
 
   ## What a caller may and may not say
 
   `opts` may narrow `:as` and `:max_bytes` — statements about what *this* caller can accept.
-  It may not touch `:role`, `:strategy` or `:params`; those come from whoever minted the
+  It may not touch `:role`, `:kind` or `:params`; those come from whoever minted the
   record, which is the role that owns the bytes. A caller able to rewrite `params` could read
   or write anywhere its role can reach, which is the whole class of bug the descriptor exists
   to prevent, so the narrowing is enforced here rather than documented and hoped for.
 
   ## The transport ceiling
 
-  The `:transport_max_bytes` ceiling in `Zaq.Records.Limits` applies in both directions
-  regardless of what a caller asked for. On the way out it is checked **before** dispatch, against the raw bytes.
-  On the way in it is pushed down into the dispatched descriptor, so the strategy on the far
+  The `:transport_max_bytes` ceiling in `Zaq.Records.Limits` applies regardless of what a
+  caller asked for. It is pushed down into the dispatched descriptor, so the reader on the far
   side refuses before it reads — far better than shipping a payload across a node boundary in
-  order to reject it — with a check on the response as a backstop for strategies that ignore
+  order to reject it — with a check on the response as a backstop for a reader that ignores
   the cap.
 
   ## Failures
 
-  A downed node, a call timeout and a strategy error all read the same to a caller:
+  A downed node, a call timeout and a reader error all read the same to a caller:
   `{:error, reason}`. Nothing here raises, because every caller is a tool call or a LiveView
   that has to degrade rather than crash.
   """
@@ -71,28 +71,6 @@ defmodule Zaq.Records.Materializer do
 
   def materialize(%Record{}, _opts), do: {:error, :not_materializable}
 
-  @doc """
-  Writes the record's content to where its descriptor points.
-
-  Returns the handle the owning role minted — the same record with the destination resolved
-  and `content` dropped. Oversize payloads are refused **before** dispatch: there is no point
-  copying bytes across a node boundary to have them rejected there.
-  """
-  @spec persist(Record.t(), opts()) :: {:ok, Record.t()} | {:error, term()}
-  def persist(record, opts \\ [])
-
-  def persist(%Record{materialization: %Materialization{}} = record, opts) do
-    ceiling = ceiling(opts)
-
-    with :ok <- verify_outgoing_size(record, ceiling) do
-      record
-      |> narrow(opts, ceiling)
-      |> dispatch(:persist_record, opts)
-    end
-  end
-
-  def persist(%Record{}, _opts), do: {:error, :not_materializable}
-
   # --- Dispatch ---
 
   # A raise or an exit (a downed node, a call timeout) must read the same as a returned
@@ -118,7 +96,7 @@ defmodule Zaq.Records.Materializer do
   # --- Acceptance ---
 
   # Only `:as` and `:max_bytes` are ever taken from opts. `Materialization.narrow/2` enforces
-  # that at the data level, so no amount of extra keys here can reach role, strategy or params.
+  # that at the data level, so no amount of extra keys here can reach role, kind or params.
   defp narrow(%Record{materialization: materialization} = record, opts, ceiling) do
     narrowed =
       Materialization.narrow(materialization,
@@ -136,18 +114,8 @@ defmodule Zaq.Records.Materializer do
 
   defp ceiling(opts), do: Limits.get(:transport_max_bytes, Keyword.get(opts, :limits_opts, []))
 
-  defp verify_outgoing_size(%Record{content: nil}, _ceiling), do: :ok
-
-  defp verify_outgoing_size(%Record{} = record, ceiling) do
-    case Content.raw_size(record) do
-      {:ok, size} when size > ceiling -> {:error, {:too_large, size}}
-      {:ok, _size} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   # A backstop, not the primary guard: `narrow/3` already pushed the ceiling down so the
-  # strategy refuses before reading. This catches one that did not honour it.
+  # reader refuses before reading. This catches one that did not honour it.
   defp verify_incoming_size({:ok, %Record{content: nil} = record}, _ceiling), do: {:ok, record}
 
   defp verify_incoming_size({:ok, %Record{} = record}, ceiling) do

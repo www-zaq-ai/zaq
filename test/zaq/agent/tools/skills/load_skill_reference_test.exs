@@ -139,8 +139,8 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillReferenceTest do
 
       descriptor = request.record.materialization
       assert descriptor.role == :ingestion
-      assert descriptor.strategy == :skill_bundle
-      assert descriptor.params == %{locator: @locator, resource_path: "references/pricing.md"}
+      assert descriptor.params == %{locator: @locator}
+      assert request.record.path == "references/pricing.md"
     end
 
     # `as: :text` is what keeps base64 out of the context window; the cap is pushed down so
@@ -185,7 +185,6 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillReferenceTest do
 
       assert_receive {:dispatched, :ingestion, :materialize_record, %{record: record}}
       assert record.path == path
-      assert record.materialization.params.resource_path == path
     end
 
     # The capability property: only a file the live listing actually contains can be read.
