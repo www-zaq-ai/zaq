@@ -345,8 +345,6 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     end)
   end
 
-  defp serialize_channels(_), do: []
-
   defp serialize_retrieval_channels(%Ecto.Association.NotLoaded{}), do: []
 
   defp serialize_retrieval_channels(channels) when is_list(channels) do
@@ -366,8 +364,6 @@ defmodule Zaq.Agent.Tools.Resources.Query do
       }
     end)
   end
-
-  defp serialize_retrieval_channels(_), do: []
 
   defp preload_for_fields(resources, %{key: "person"}, fields) when is_list(resources) do
     if :channels in fields,

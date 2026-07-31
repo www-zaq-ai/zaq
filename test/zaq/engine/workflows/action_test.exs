@@ -119,6 +119,35 @@ defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiList do
   def run(_, _), do: {:ok, %{out: true}}
 end
 
+defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiMap do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_required_zoi_map",
+    schema: Zoi.object(%{contact: Zoi.map()}),
+    output_schema: Zoi.object(%{out: Zoi.any()})
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.UnsupportedSchemaShape do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_unsupported_schema_shape",
+    schema: [input: [type: :any, required: true]],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  defoverridable schema: 0
+
+  def schema, do: :unsupported_schema
+
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
 defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiString do
   @moduledoc false
   use Jido.Action,
@@ -157,10 +186,12 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     RequiredParamList,
     RequiredString,
     RequiredZoiList,
+    RequiredZoiMap,
     RequiredZoiString,
     RequiredZoiUnionList,
     TwoLists,
-    TwoMaps
+    TwoMaps,
+    UnsupportedSchemaShape
   }
 
   describe "batch_field/1" do
@@ -188,8 +219,17 @@ defmodule Zaq.Engine.Workflows.ActionTest do
       assert {:ok, {:items, :list}} = Action.batch_field(RequiredZoiList)
     end
 
+    test "one required Zoi map field → {:ok, {field, :item}}" do
+      assert {:ok, {:contact, :item}} = Action.batch_field(RequiredZoiMap)
+    end
+
     test "one required Zoi non-list field → {:ok, {field, :item}}" do
       assert {:ok, {:name, :item}} = Action.batch_field(RequiredZoiString)
+    end
+
+    test "unsupported schema shape → {:error, {:no_batch_field, module}}" do
+      assert {:error, {:no_batch_field, UnsupportedSchemaShape}} =
+               Action.batch_field(UnsupportedSchemaShape)
     end
 
     test "one required Zoi union with list branch → {:ok, {field, :list}}" do
@@ -369,6 +409,28 @@ defmodule Zaq.Engine.Workflows.ActionTest do
       # default lifecycle hooks are injected
       assert {:ok, %{}} = CompileOkAction.on_success(%{}, %{})
       assert :ok = CompileOkAction.on_failure(:boom, %{})
+    end
+
+    test "module attributes defer schema contract checks to runtime validation" do
+      code = """
+      defmodule Zaq.Engine.Workflows.ActionTest.DeferredLiteralContractAction do
+        @schema [input: [type: :any, required: true]]
+        @output_schema [result: [type: :map, required: true]]
+
+        use Zaq.Engine.Workflows.Action,
+          name: "deferred_literal_contract_action",
+          schema: @schema,
+          output_schema: @output_schema
+
+        @impl Jido.Action
+        def run(params, _ctx), do: {:ok, %{result: params}}
+      end
+      """
+
+      [{module, _beam}] = Code.compile_string(code)
+
+      assert Code.ensure_loaded?(module)
+      assert :ok = Action.validate(module)
     end
 
     test "missing output_schema fails to compile with a descriptive error" do

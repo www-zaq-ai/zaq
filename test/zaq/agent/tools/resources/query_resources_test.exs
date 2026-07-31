@@ -8,6 +8,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
   alias Zaq.Agent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Skill
+  alias Zaq.Agent.Tools.Resources.Query
   alias Zaq.Agent.Tools.Resources.QueryResources
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
@@ -175,6 +176,23 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
                  %{mode: "query", resource_type: "skill", fields: ["id", "body"]},
                  %{}
                )
+    end
+
+    test "non-map filters are ignored by apply_filters" do
+      credential = openai_credential_fixture()
+      first = agent_fixture(credential, %{name: "Nil Filter Agent A"})
+      second = agent_fixture(credential, %{name: "Nil Filter Agent B"})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "agent", fields: ["id"], filters: nil},
+                 %{}
+               )
+
+      returned_ids = Enum.map(result.resources, & &1.id)
+
+      assert first.id in returned_ids
+      assert second.id in returned_ids
     end
   end
 
@@ -466,6 +484,28 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       assert serialized_channel.agent_routing_mode == "agent"
     end
 
+    test "serializes NaiveDateTime timestamps for user records" do
+      user = user_fixture(%{username: "naive_timestamp_user"})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{
+                   mode: "query",
+                   resource_type: "user",
+                   id: user.id,
+                   fields: ["id", "inserted_at", "updated_at"]
+                 },
+                 %{skip_permissions: true}
+               )
+
+      assert result.found == true
+      assert is_binary(result.resource.inserted_at)
+      assert is_binary(result.resource.updated_at)
+      assert result.resource.inserted_at =~ "T"
+      assert result.resource.updated_at =~ "T"
+      assert {:ok, _} = NaiveDateTime.from_iso8601(result.resource.inserted_at)
+    end
+
     test "permission grant allows reading a channel config without secrets" do
       actor_person = person_fixture(%{full_name: "Channel Config Actor"})
       config = channel_config_fixture(%{provider: "slack", name: "Slack Main"})
@@ -511,6 +551,27 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
                  %{mode: "query", resource_type: "user", sort_by: "password_hash"},
                  %{skip_permissions: true}
                )
+    end
+
+    test "raises when default sort field is unsupported" do
+      credential = openai_credential_fixture()
+      _agent = agent_fixture(credential, %{name: "Unsupported Default Sort Agent"})
+
+      descriptor = %{
+        key: "agent",
+        module: Zaq.Agent.ConfiguredAgent,
+        public?: true,
+        fields: [:id],
+        search_fields: [:name],
+        filter_fields: [],
+        sort_fields: [:id],
+        default_sort: :missing_sort,
+        max_limit: 10
+      }
+
+      assert_raise ArgumentError, "unsupported field", fn ->
+        Query.run(descriptor, %{mode: "query", resource_type: "agent", fields: ["id"]}, %{})
+      end
     end
 
     test "paginates list results" do
