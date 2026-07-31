@@ -1,4 +1,4 @@
-defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
+defmodule Zaq.Agent.Tools.Skills.LoadSkillReferenceTest do
   use Zaq.DataCase, async: true
 
   import Zaq.SystemConfigFixtures
@@ -6,7 +6,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
   alias Zaq.Agent
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Skills.Limits
-  alias Zaq.Agent.Tools.Skills.LoadSkillResource
+  alias Zaq.Agent.Tools.Skills.LoadSkillReference
 
   @locator ".agents/skills/calculator"
 
@@ -116,7 +116,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:ok, result} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/pricing.md"},
                  ctx(agent, {:ok, "# Pricing 2026"})
                )
@@ -129,7 +129,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
     test "dispatches exactly %{record: record}, with the descriptor ingestion minted" do
       {_skill, agent} = granted!()
 
-      LoadSkillResource.run(
+      LoadSkillReference.run(
         %{skill_name: "calculator", resource_path: "references/pricing.md"},
         ctx(agent, {:ok, "body"})
       )
@@ -148,7 +148,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
     test "narrows the descriptor to text and the read cap" do
       {_skill, agent} = granted!()
 
-      LoadSkillResource.run(
+      LoadSkillReference.run(
         %{skill_name: "calculator", resource_path: "references/pricing.md"},
         ctx(agent, {:ok, "body"})
       )
@@ -163,7 +163,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
     test "no volume is named anywhere in the dispatched record" do
       {_skill, agent} = granted!()
 
-      LoadSkillResource.run(
+      LoadSkillReference.run(
         %{skill_name: "calculator", resource_path: "references/pricing.md"},
         ctx(agent, {:ok, "body"})
       )
@@ -178,7 +178,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
       path = "references/sub dir/Q3 Report (final).md"
 
-      LoadSkillResource.run(
+      LoadSkillReference.run(
         %{skill_name: "calculator", resource_path: path},
         ctx(agent, {:ok, "body"}, paths: [path])
       )
@@ -193,7 +193,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/not-listed.md"},
                  ctx(agent, {:ok, "SHOULD NOT BE REACHED"})
                )
@@ -206,7 +206,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:ok, result} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "assets/notes.txt"},
                  ctx(agent, {:ok, "plain"})
                )
@@ -221,7 +221,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       agent = agent!(%{enabled_skill_ids: []})
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/pricing.md"},
                  ctx(agent, {:ok, "SHOULD NOT BE REACHED"})
                )
@@ -236,7 +236,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       agent = agent!(%{enabled_skill_ids: [granted.id]})
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "nope", resource_path: "references/salaries.md"},
                  ctx(agent, {:ok, "x"})
                )
@@ -252,7 +252,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       agent_b = agent!(%{enabled_skill_ids: []})
 
       assert {:error, _} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "for-agent-a", resource_path: "references/a.md"},
                  ctx(agent_b, {:ok, "leak"})
                )
@@ -263,7 +263,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       agent = agent!(%{enabled_skill_ids: [skill.id]})
 
       assert {:error, _} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
                  ctx(agent, {:ok, "leak"}, paths: ["references/a.md"])
                )
@@ -273,7 +273,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       _skill = skill!(%{name: "calculator"})
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
                  %{node_router: RecordingRouter}
                )
@@ -286,7 +286,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       _skill = skill!(%{name: "calculator"})
 
       assert {:error, _} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
                  %{configured_agent_id: 999_999, node_router: RecordingRouter}
                )
@@ -298,7 +298,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "scripts/deploy.sh"},
                  ctx(agent, {:ok, "rm -rf /"})
                )
@@ -311,7 +311,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, _} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "scripts/nested/deploy.sh"},
                  ctx(agent, {:ok, "payload"})
                )
@@ -326,7 +326,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "../../../etc/passwd"},
                  ctx(agent, {:error, :path_traversal})
                )
@@ -339,7 +339,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "/etc/passwd"},
                  ctx(agent, {:error, :path_traversal})
                )
@@ -354,7 +354,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "pricing.md"},
                  ctx(agent, {:error, :invalid_resource_path})
                )
@@ -369,7 +369,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "assets/logo.png"},
                  ctx(agent, {:error, :invalid_utf8}, paths: ["assets/logo.png"])
                )
@@ -382,7 +382,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/absent.md"},
                  ctx(agent, {:error, :not_found}, paths: ["references/absent.md"])
                )
@@ -395,7 +395,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       agent = agent!(%{enabled_skill_ids: [skill.id]})
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
                  ctx(agent, {:ok, "unused"}, paths: ["references/a.md"])
                )
@@ -408,7 +408,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       {_skill, agent} = granted!()
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
                  ctx(agent, {:error, :no_volumes}, paths: ["references/a.md"])
                )
@@ -423,7 +423,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       body = String.duplicate("x", 300_000)
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/huge.md"},
                  ctx(agent, {:ok, body}, paths: ["references/huge.md"])
                )
@@ -438,7 +438,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       body = String.duplicate("x", 262_144)
 
       assert {:ok, result} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/exact.md"},
                  ctx(agent, {:ok, body}, paths: ["references/exact.md"])
                )
@@ -455,7 +455,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
         |> Map.put(:limits_opts, config: __MODULE__.TinyLimits)
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/small.md"},
                  context
                )
@@ -476,7 +476,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       ref =
         :telemetry_test.attach_event_handlers(self(), [[:zaq, :agent, :skill, :resource_load]])
 
-      LoadSkillResource.run(
+      LoadSkillReference.run(
         %{skill_name: "calculator", resource_path: "references/pricing.md"},
         ctx(agent, {:ok, "one two three four five"})
       )
@@ -499,7 +499,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
         |> Map.put(:telemetry_module, RaisingTelemetry)
 
       assert {:ok, result} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "calculator", resource_path: "references/a.md"},
                  context
                )
@@ -513,15 +513,15 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       skill = skill!(%{name: "calculator"})
       agent = agent!(%{enabled_skill_ids: []})
 
-      assert "skills.load_skill_resource" not in Skills.provisioned_tool_keys(agent, [])
+      assert "skills.load_skill_reference" not in Skills.provisioned_tool_keys(agent, [])
 
       keys = Skills.provisioned_tool_keys(agent, [skill])
-      assert "skills.load_skill_resource" in keys
+      assert "skills.load_skill_reference" in keys
       assert "skills.load_skill" in keys
     end
 
     test "is a valid registry key" do
-      assert Zaq.Agent.Tools.Registry.valid_tool_key?("skills.load_skill_resource")
+      assert Zaq.Agent.Tools.Registry.valid_tool_key?("skills.load_skill_reference")
     end
 
     test "rides the same condition as load_skill" do
@@ -531,7 +531,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResourceTest do
       agent = agent!(%{enabled_skill_ids: []})
 
       keys = Skills.provisioned_tool_keys(agent, [skill])
-      assert "skills.load_skill_resource" in keys
+      assert "skills.load_skill_reference" in keys
     end
   end
 end

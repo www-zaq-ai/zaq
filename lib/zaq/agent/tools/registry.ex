@@ -340,10 +340,10 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Skills.LoadSkill
     },
     %{
-      key: "skills.load_skill_resource",
+      key: "skills.load_skill_reference",
       label: "Load skill resource",
       description: "Read one file bundled with one of the agent's skills",
-      module: Zaq.Agent.Tools.Skills.LoadSkillResource
+      module: Zaq.Agent.Tools.Skills.LoadSkillReference
     }
   ]
 

@@ -34,10 +34,10 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.list_skill_bundle(locator)}
   end
 
-  # Record materialization. These two clauses are strategy-agnostic and are the only ones this
-  # role will ever need for files: the record names its own strategy, and
-  # `Zaq.Ingestion.Records.Registry` decides whether this role runs it. Adding a new kind of
-  # storage means adding a strategy and a registry entry — never another action here.
+  # Record materialization. The two verbs are separate clauses on purpose: writing is reachable
+  # only through `:persist_record`, so a role that must not write simply does not carry that
+  # clause. `Zaq.Ingestion.BundleContent` refuses any descriptor that is not a skill bundle, so
+  # there is no generic "read a path" action here for a caller to reach for.
   #
   # A record with no descriptor does not match, and falls through to the default handler.
   def handle_event(
@@ -45,7 +45,7 @@ defmodule Zaq.Ingestion.Api do
         :materialize_record,
         _context
       ) do
-    %{event | response: Ingestion.run_record(record, :materialize)}
+    %{event | response: Ingestion.materialize_record(record)}
   end
 
   def handle_event(
@@ -53,7 +53,7 @@ defmodule Zaq.Ingestion.Api do
         :persist_record,
         _context
       ) do
-    %{event | response: Ingestion.run_record(record, :persist)}
+    %{event | response: Ingestion.persist_record(record)}
   end
 
   def handle_event(%Event{} = event, action, _context),

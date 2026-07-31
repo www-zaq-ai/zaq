@@ -24,13 +24,31 @@ defmodule Zaq.Ingestion.ApiTest do
   describe "record materialization actions" do
     alias Zaq.Contracts.Materialization
     alias Zaq.Contracts.Record
+    alias Zaq.Records.Content
 
-    defp record(strategy, params \\ %{}) do
+    setup :bundle_volume
+
+    defp record(params, opts \\ []) do
       %Record{
         id: "r",
         kind: :file,
-        materialization: Materialization.new(:ingestion, strategy, params: params)
+        name: Keyword.get(opts, :name, "pricing.md"),
+        materialization:
+          Materialization.new(:ingestion, Keyword.get(opts, :strategy, :skill_bundle),
+            params: params
+          )
       }
+    end
+
+    defp readable, do: record(%{locator: @locator, resource_path: "references/pricing.md"})
+
+    defp writable(bytes) do
+      {:ok, record} =
+        %{locator: @locator, purpose: :asset}
+        |> record(name: "chart.bin")
+        |> Content.put(bytes, :auto)
+
+      record
     end
 
     defp materialize(request),
@@ -39,40 +57,54 @@ defmodule Zaq.Ingestion.ApiTest do
     defp persist(request),
       do: Api.handle_event(Event.new(request, :ingestion), :persist_record, nil)
 
-    test ":materialize_record runs the record's strategy" do
-      assert %{response: {:ok, %Record{content: "materialized"}}} =
-               materialize(%{record: record(:test_read_write)})
+    test ":materialize_record fills the record from the bundle" do
+      assert %{response: {:ok, %Record{content: "# Pricing\n"}}} =
+               materialize(%{record: readable()})
     end
 
-    test ":persist_record runs the record's strategy" do
-      assert %{response: {:ok, %Record{}}} = persist(%{record: record(:test_read_write)})
-      assert_received {:persisted, %Record{}, _opts}
+    test ":persist_record writes and returns a handle with the content dropped" do
+      assert %{response: {:ok, %Record{content: nil} = handle}} =
+               persist(%{record: writable("bytes")})
+
+      assert handle.path == "assets/chart.bin"
     end
 
-    # The clauses are strategy-agnostic; the registry is what decides whether this role runs
-    # a given strategy, so an unknown one must not reach storage.
-    test "an unregistered strategy is refused" do
-      assert %{response: {:error, :unsupported_strategy}} =
-               materialize(%{record: record(:not_registered)})
+    # Replaces the old "unregistered strategy" case. There is no registry to consult now, so
+    # the refusal comes from `BundleContent` having no clause for a foreign descriptor — the
+    # same outcome reached one layer lower.
+    test "a strategy this role does not implement is refused" do
+      foreign =
+        record(%{locator: @locator, resource_path: "references/pricing.md"},
+          strategy: :mattermost_attachment
+        )
+
+      assert %{response: {:error, :invalid_params}} = materialize(%{record: foreign})
     end
 
-    test "a verb the strategy did not declare is refused" do
-      assert %{response: {:error, {:unsupported_verb, :persist}}} =
-               persist(%{record: record(:test_read_only)})
+    # Replaces the old "verb the strategy did not declare" case. Capabilities are gone: write
+    # access is now the `:persist_record` clause existing at all, and a read-shaped descriptor
+    # carries no `purpose`, so there is nowhere for a write to land.
+    test "a read-shaped descriptor cannot be persisted" do
+      assert %{response: {:error, :invalid_params}} = persist(%{record: readable()})
     end
 
-    test "invalid params are refused before the strategy runs" do
-      assert %{response: {:error, :invalid_params}} =
-               materialize(%{record: record(:test_read_write, %{ok: false})})
-
-      refute_received {:materialized, _, _}
+    test "invalid params are refused before anything is read" do
+      assert %{response: {:error, :invalid_params}} = materialize(%{record: record(%{})})
     end
 
     # A caller cannot name a bucket even by accident: only `:record` is matched, so anything
     # else in the request is inert.
     test "extra request keys such as :volume are inert" do
-      assert %{response: {:ok, %Record{content: "materialized"}}} =
-               materialize(%{record: record(:test_read_write), volume: "alpha"})
+      assert %{response: {:ok, %Record{content: "# Pricing\n"}}} =
+               materialize(%{record: readable(), volume: "alpha"})
+    end
+
+    # ...but a volume smuggled into `params` is refused rather than ignored, because there it
+    # is a claim about where the bytes live.
+    test "a :volume inside params is refused, not ignored" do
+      smuggled = record(%{locator: @locator, resource_path: "references/pricing.md", volume: "x"})
+
+      assert %{response: {:error, :volume_not_addressable}} = materialize(%{record: smuggled})
     end
 
     test "a record with no descriptor falls through to the default handler" do
@@ -90,27 +122,32 @@ defmodule Zaq.Ingestion.ApiTest do
     end
   end
 
-  describe "skill bundle actions" do
-    setup do
+  # One real bundle on one real volume, shared by both describes. Since the strategy registry
+  # went away there is no test double to inject, so the record actions are exercised against
+  # the same storage the skill tools use — which is the more honest test anyway.
+  defp bundle_volume(_context) do
+    File.rm_rf!(@test_base)
+    alpha = Path.join(@test_base, "alpha")
+    File.mkdir_p!(Path.join([alpha, @locator, "references"]))
+    File.write!(Path.join([alpha, @locator, "references", "pricing.md"]), "# Pricing\n")
+
+    original = Application.get_env(:zaq, Zaq.Ingestion)
+
+    Application.put_env(:zaq, Zaq.Ingestion,
+      base_path: @test_base,
+      volumes: %{"alpha" => alpha}
+    )
+
+    on_exit(fn ->
+      Application.put_env(:zaq, Zaq.Ingestion, original || [])
       File.rm_rf!(@test_base)
-      alpha = Path.join(@test_base, "alpha")
-      File.mkdir_p!(Path.join([alpha, @locator, "references"]))
-      File.write!(Path.join([alpha, @locator, "references", "pricing.md"]), "# Pricing\n")
+    end)
 
-      original = Application.get_env(:zaq, Zaq.Ingestion)
+    %{alpha: alpha}
+  end
 
-      Application.put_env(:zaq, Zaq.Ingestion,
-        base_path: @test_base,
-        volumes: %{"alpha" => alpha}
-      )
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
-        File.rm_rf!(@test_base)
-      end)
-
-      %{alpha: alpha}
-    end
+  describe "skill bundle actions" do
+    setup :bundle_volume
 
     test ":list_skill_bundle returns the façade's listing on the response" do
       event = Event.new(%{bundle: @locator}, :ingestion)

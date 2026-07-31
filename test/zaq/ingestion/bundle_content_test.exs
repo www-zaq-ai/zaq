@@ -1,13 +1,13 @@
-defmodule Zaq.Ingestion.Records.SkillBundleStrategyTest do
+defmodule Zaq.Ingestion.BundleContentTest do
   use ExUnit.Case, async: false
 
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Contracts.Materialization
   alias Zaq.Contracts.Record
-  alias Zaq.Ingestion.Records.SkillBundleStrategy, as: Strategy
+  alias Zaq.Ingestion.BundleContent
   alias Zaq.Records.Content
 
-  @base "test/tmp/skill_bundle_strategy"
+  @base "test/tmp/bundle_content"
   @locator ".agents/skills/pricing-faq"
   @text "# Pricing\n\nStandard tier is €40/month.\n"
   @png <<0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE>>
@@ -61,49 +61,74 @@ defmodule Zaq.Ingestion.Records.SkillBundleStrategyTest do
     record
   end
 
-  describe "capabilities and params" do
-    test "declares both verbs" do
-      assert Strategy.capabilities() == [:materialize, :persist]
-    end
+  # Param validation is no longer a separate callback — it is the function heads. These assert
+  # the same refusals at the only place a caller can now reach them.
+  defp descriptor(params, opts \\ []) do
+    %Record{
+      id: "r",
+      kind: :file,
+      name: "a.md",
+      materialization:
+        Materialization.new(:ingestion, Keyword.get(opts, :strategy, :skill_bundle),
+          params: params
+        )
+    }
+  end
 
-    test "accepts a read descriptor and a write descriptor" do
-      assert :ok =
-               Strategy.validate_params(%{locator: @locator, resource_path: "references/a.md"})
-
-      assert :ok = Strategy.validate_params(%{locator: @locator, purpose: :asset})
-    end
-
+  describe "descriptor refusals" do
     # Refused, not ignored: a caller that sent a volume has misunderstood the contract, and
     # dropping it silently teaches them the key works.
-    test "refuses a volume key outright" do
-      assert {:error, :volume_not_addressable} =
-               Strategy.validate_params(%{locator: @locator, resource_path: "a", volume: "alpha"})
+    test "a volume key is refused outright, on both verbs and both key types" do
+      atom_key =
+        descriptor(%{locator: @locator, resource_path: "references/a.md", volume: "alpha"})
 
-      assert {:error, :volume_not_addressable} =
-               Strategy.validate_params(%{"volume" => "alpha", locator: @locator})
+      string_key = descriptor(%{"volume" => "alpha", locator: @locator})
+
+      assert {:error, :volume_not_addressable} = BundleContent.materialize(atom_key)
+      assert {:error, :volume_not_addressable} = BundleContent.materialize(string_key)
+      assert {:error, :volume_not_addressable} = BundleContent.persist(atom_key)
+      assert {:error, :volume_not_addressable} = BundleContent.persist(string_key)
     end
 
-    test "refuses an unknown purpose and a missing locator" do
+    test "an unknown purpose and a missing locator are refused" do
       assert {:error, :invalid_params} =
-               Strategy.validate_params(%{locator: @locator, purpose: :script})
+               BundleContent.persist(descriptor(%{locator: @locator, purpose: :script}))
 
       assert {:error, :invalid_params} =
-               Strategy.validate_params(%{resource_path: "references/a.md"})
+               BundleContent.materialize(descriptor(%{resource_path: "references/a.md"}))
 
-      assert {:error, :invalid_params} = Strategy.validate_params(%{})
+      assert {:error, :invalid_params} = BundleContent.materialize(descriptor(%{}))
+      assert {:error, :invalid_params} = BundleContent.persist(descriptor(%{}))
+    end
+
+    # What the registry used to refuse. A descriptor naming another kind of storage must not be
+    # run here just because it arrived at this role.
+    test "a foreign strategy atom is refused rather than run" do
+      foreign =
+        descriptor(%{locator: @locator, resource_path: "references/pricing.md"},
+          strategy: :mattermost_attachment
+        )
+
+      assert {:error, :invalid_params} = BundleContent.materialize(foreign)
+      assert {:error, :invalid_params} = BundleContent.persist(foreign)
+    end
+
+    test "a record with no descriptor at all is refused without reading" do
+      assert {:error, :invalid_params} =
+               BundleContent.materialize(%Record{id: "r", kind: :file, name: "a.md"})
     end
   end
 
   describe "materialize — the acceptance matrix" do
     test "as: :auto returns UTF-8 as text" do
-      assert {:ok, record} = Strategy.materialize(source("references/pricing.md"), [])
+      assert {:ok, record} = BundleContent.materialize(source("references/pricing.md"))
 
       assert record.content == @text
       assert record.attributes["encoding"] == "utf8"
     end
 
     test "as: :auto returns a binary as base64 that round-trips exactly" do
-      assert {:ok, record} = Strategy.materialize(source("references/logo.png"), [])
+      assert {:ok, record} = BundleContent.materialize(source("references/logo.png"))
 
       assert record.attributes["encoding"] == "base64"
       assert {:ok, @png} = Content.decode(record)
@@ -111,19 +136,19 @@ defmodule Zaq.Ingestion.Records.SkillBundleStrategyTest do
 
     test "as: :text refuses a binary rather than encoding it" do
       assert {:error, :invalid_utf8} =
-               Strategy.materialize(source("references/logo.png", as: :text), [])
+               BundleContent.materialize(source("references/logo.png", as: :text))
     end
 
     test "as: :binary encodes even text" do
       assert {:ok, record} =
-               Strategy.materialize(source("references/pricing.md", as: :binary), [])
+               BundleContent.materialize(source("references/pricing.md", as: :binary))
 
       assert record.attributes["encoding"] == "base64"
       assert {:ok, @text} = Content.decode(record)
     end
 
     test "size is the raw byte count, not the encoded length" do
-      assert {:ok, record} = Strategy.materialize(source("references/logo.png"), [])
+      assert {:ok, record} = BundleContent.materialize(source("references/logo.png"))
 
       assert record.size == byte_size(@png)
       assert byte_size(record.content) > byte_size(@png)
@@ -133,42 +158,41 @@ defmodule Zaq.Ingestion.Records.SkillBundleStrategyTest do
   describe "materialize — the size cap" do
     test "refuses over max_bytes and does not read the file" do
       assert {:error, {:too_large, size}} =
-               Strategy.materialize(source("references/pricing.md", max_bytes: 4), [])
+               BundleContent.materialize(source("references/pricing.md", max_bytes: 4))
 
       assert size == byte_size(@text)
     end
 
     test "allows a file at exactly the cap" do
       assert {:ok, _record} =
-               Strategy.materialize(
-                 source("references/pricing.md", max_bytes: byte_size(@text)),
-                 []
+               BundleContent.materialize(
+                 source("references/pricing.md", max_bytes: byte_size(@text))
                )
     end
 
     test "no cap means no check" do
-      assert {:ok, _record} = Strategy.materialize(source("references/pricing.md"), [])
+      assert {:ok, _record} = BundleContent.materialize(source("references/pricing.md"))
     end
   end
 
   describe "materialize — refusals" do
     test "a missing file is not found" do
-      assert {:error, :not_found} = Strategy.materialize(source("references/absent.md"), [])
+      assert {:error, :not_found} = BundleContent.materialize(source("references/absent.md"))
     end
 
     test "traversal and absolute paths are refused" do
-      assert {:error, _} = Strategy.materialize(source("../../../etc/passwd"), [])
-      assert {:error, _} = Strategy.materialize(source("/etc/passwd"), [])
+      assert {:error, _} = BundleContent.materialize(source("../../../etc/passwd"))
+      assert {:error, _} = BundleContent.materialize(source("/etc/passwd"))
     end
 
     test "a bare filename with no type prefix is refused rather than guessed at" do
-      assert {:error, :invalid_resource_path} = Strategy.materialize(source("pricing.md"), [])
+      assert {:error, :invalid_resource_path} = BundleContent.materialize(source("pricing.md"))
     end
   end
 
   describe "persist" do
     test "writes the bytes and returns a handle, not the content" do
-      assert {:ok, handle} = Strategy.persist(destination("chart.png", @png), [])
+      assert {:ok, handle} = BundleContent.persist(destination("chart.png", @png))
 
       assert handle.content == nil
       assert handle.path == "assets/chart.png"
@@ -179,32 +203,32 @@ defmodule Zaq.Ingestion.Records.SkillBundleStrategyTest do
     # The round-trip is the real test of the contract: the output of a write is the input of
     # a read.
     test "the returned handle materializes back to the exact bytes" do
-      {:ok, handle} = Strategy.persist(destination("chart.png", @png), [])
+      {:ok, handle} = BundleContent.persist(destination("chart.png", @png))
 
-      assert {:ok, materialized} = Strategy.materialize(handle, [])
+      assert {:ok, materialized} = BundleContent.materialize(handle)
       assert {:ok, @png} = Content.decode(materialized)
     end
 
     test "text round-trips too" do
-      {:ok, handle} = Strategy.persist(destination("notes.md", @text, purpose: :reference), [])
+      {:ok, handle} = BundleContent.persist(destination("notes.md", @text, purpose: :reference))
 
       assert handle.path == "references/notes.md"
-      assert {:ok, materialized} = Strategy.materialize(handle, [])
+      assert {:ok, materialized} = BundleContent.materialize(handle)
       assert materialized.content == @text
     end
 
     test "a name collision is deduped, not overwritten, and the handle names the real file" do
-      {:ok, first} = Strategy.persist(destination("chart.png", @png), [])
-      {:ok, second} = Strategy.persist(destination("chart.png", "different"), [])
+      {:ok, first} = BundleContent.persist(destination("chart.png", @png))
+      {:ok, second} = BundleContent.persist(destination("chart.png", "different"))
 
       refute first.path == second.path
-      assert {:ok, original} = Strategy.materialize(first, [])
+      assert {:ok, original} = BundleContent.materialize(first)
       assert {:ok, @png} = Content.decode(original)
     end
 
     # The name arrives on a caller-supplied record, so it must not be able to steer the write.
     test "a name carrying directory separators cannot escape its purpose directory" do
-      {:ok, handle} = Strategy.persist(destination("../../../etc/passwd", "pwned"), [])
+      {:ok, handle} = BundleContent.persist(destination("../../../etc/passwd", "pwned"))
 
       assert handle.path == "assets/passwd"
       refute File.exists?("/etc/passwd.tmp")
@@ -221,20 +245,20 @@ defmodule Zaq.Ingestion.Records.SkillBundleStrategyTest do
           )
       }
 
-      assert {:error, :no_content} = Strategy.persist(record, [])
+      assert {:error, :no_content} = BundleContent.persist(record)
     end
 
     test "refuses bytes over the upload cap" do
       oversize = :binary.copy("a", Limits.get(:resource_max_bytes) + 1)
 
       assert {:error, {:too_large, _size}} =
-               Strategy.persist(destination("big.bin", oversize), [])
+               BundleContent.persist(destination("big.bin", oversize))
     end
   end
 
   describe "leak guards" do
     test "no absolute path or volume name appears on a materialized record" do
-      {:ok, record} = Strategy.materialize(source("references/pricing.md"), [])
+      {:ok, record} = BundleContent.materialize(source("references/pricing.md"))
       serialized = inspect(record)
 
       refute serialized =~ Path.expand(@base)
@@ -243,7 +267,7 @@ defmodule Zaq.Ingestion.Records.SkillBundleStrategyTest do
     end
 
     test "no absolute path or volume name appears on a persisted handle" do
-      {:ok, handle} = Strategy.persist(destination("chart.png", @png), [])
+      {:ok, handle} = BundleContent.persist(destination("chart.png", @png))
       serialized = inspect(handle)
 
       refute serialized =~ Path.expand(@base)
@@ -270,7 +294,7 @@ defmodule Zaq.Ingestion.Records.SkillBundleStrategyTest do
             )
         }
 
-        case Strategy.materialize(record, []) do
+        case BundleContent.materialize(record) do
           {:ok, _} ->
             flunk("materialized an out-of-bundle path: #{inspect({locator, path})}")
 

@@ -11,6 +11,7 @@ defmodule Zaq.Ingestion do
   """
 
   alias Zaq.Ingestion.{
+    BundleContent,
     ConnectorRegistry,
     ContentSource,
     DeleteService,
@@ -22,7 +23,6 @@ defmodule Zaq.Ingestion do
     IngestJob,
     IngestWorker,
     JobLifecycle,
-    Records,
     RecordSource,
     RenameService,
     ResourceBundle,
@@ -359,13 +359,21 @@ defmodule Zaq.Ingestion do
   def list_skill_bundle(locator), do: ResourceBundle.list(locator)
 
   @doc """
-  Materializes or persists a record this role owns, via its strategy registry.
+  Fills a record's content from the bytes this role owns.
 
-  Reached through the `:materialize_record` and `:persist_record` actions. The record names
-  its own strategy; `Zaq.Ingestion.Records.Registry` decides whether this role runs it.
+  Reached through the `:materialize_record` action. Skill bundles are the only bytes this role
+  serves through a record handle today, so the call goes straight to
+  `Zaq.Ingestion.BundleContent`, which refuses any other descriptor.
   """
-  def run_record(record, verb) when verb in [:materialize, :persist],
-    do: Records.Registry.run(record.materialization.strategy, verb, record)
+  def materialize_record(%Record{} = record), do: BundleContent.materialize(record)
+
+  @doc """
+  Writes a record's content to where its descriptor points and returns the minted handle.
+
+  Reached through the `:persist_record` action. Writing is reachable only from that clause —
+  that is what keeps this role read-only for anything that should not be written.
+  """
+  def persist_record(%Record{} = record), do: BundleContent.persist(record)
 
   @doc """
   The volume holding a bundle — for BO display only.

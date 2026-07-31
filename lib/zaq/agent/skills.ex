@@ -101,8 +101,8 @@ defmodule Zaq.Agent.Skills do
   # as files are added and removed, so an agent mid-conversation could lose a tool the
   # manifest it already read still points at.
   @load_skill_key "skills.load_skill"
-  @load_skill_resource_key "skills.load_skill_resource"
-  @skill_tool_keys [@load_skill_key, @load_skill_resource_key]
+  @load_skill_reference_key "skills.load_skill_reference"
+  @skill_tool_keys [@load_skill_key, @load_skill_reference_key]
 
   @spec provisioned_tool_keys(ConfiguredAgent.t(), [Skill.t()]) :: [String.t()]
   def provisioned_tool_keys(%ConfiguredAgent{} = agent, skills) when is_list(skills) do

@@ -51,7 +51,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "web.browsing",
              "advanced.lua_eval",
              "skills.load_skill",
-             "skills.load_skill_resource"
+             "skills.load_skill_reference"
            ]
   end
 
@@ -192,7 +192,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "web.browsing",
              "advanced.lua_eval",
              "skills.load_skill",
-             "skills.load_skill_resource"
+             "skills.load_skill_reference"
            ]
   end
 

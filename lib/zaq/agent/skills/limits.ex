@@ -41,7 +41,7 @@ defmodule Zaq.Agent.Skills.Limits do
       Deliberately looser than the read cap, because a PDF or PNG reference is legitimately
       larger than anything the model will be handed as text.
     * `resource_read_max_bytes` — per-file **read** cap for the text a tool returns to the
-      model. Enforced by `Zaq.Agent.Tools.Skills.LoadSkillResource`, which **refuses**
+      model. Enforced by `Zaq.Agent.Tools.Skills.LoadSkillReference`, which **refuses**
       oversize files naming their size rather than truncating them: half a reference
       document reads as a whole one, and instructions cut mid-sentence are worse than
       instructions withheld.

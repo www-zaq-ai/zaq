@@ -41,14 +41,6 @@ config :zaq, Zaq.Embedding.Client,
 
 config :zaq, :litellm_base_url, "http://litellm.test"
 
-# Record strategies are resolved at compile time by design — there is no runtime registration
-# to stub. These merge alongside the real ones so registry plumbing can be tested without a
-# storage backend. See `Zaq.Support.Records.TestStrategies`.
-config :zaq, :ingestion_record_strategies, %{
-  test_read_write: Zaq.Support.Records.TestStrategies.ReadWrite,
-  test_read_only: Zaq.Support.Records.TestStrategies.ReadOnly
-}
-
 # --MOX--
 config :zaq,
   chunk_title_module: Zaq.Agent.ChunkTitleMock,

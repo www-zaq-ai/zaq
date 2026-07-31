@@ -1,4 +1,4 @@
-defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
+defmodule Zaq.Agent.Tools.Skills.LoadSkillReference do
   @moduledoc """
   ReAct tool: returns the text of one file bundled with a skill.
 
@@ -43,7 +43,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
   """
 
   use Zaq.Engine.Workflows.Action,
-    name: "load_skill_resource",
+    name: "load_skill_reference",
     description: """
     Read one file bundled with one of your skills. Call `load_skill` first — its result
     lists the available files with their exact `resource_path`. Pass that path verbatim,
@@ -88,7 +88,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
 
   # Both scope checks live in `Scope`, shared with `LoadSkill`: a nil scope must never widen
   # access, and not-found names neither the catalog nor the skill's files.
-  defp fetch_agent(context), do: Scope.fetch_agent(context, "load_skill_resource")
+  defp fetch_agent(context), do: Scope.fetch_agent(context, "load_skill_reference")
 
   defp fetch_granted_skill(agent, skill_name), do: Scope.fetch_granted_skill(agent, skill_name)
 
@@ -136,7 +136,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
 
       {:error, reason} ->
         Logger.warning(
-          "[LoadSkillResource] read failed for #{inspect(resource_path)}: #{inspect(reason)}"
+          "[LoadSkillReference] read failed for #{inspect(resource_path)}: #{inspect(reason)}"
         )
 
         {:error, "#{inspect(resource_path)} could not be read right now. Try again shortly."}
@@ -174,7 +174,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillResource do
   rescue
     # Telemetry must never take down a tool call.
     e ->
-      Logger.warning("[LoadSkillResource] telemetry emit failed: #{Exception.message(e)}")
+      Logger.warning("[LoadSkillReference] telemetry emit failed: #{Exception.message(e)}")
       :ok
   end
 end

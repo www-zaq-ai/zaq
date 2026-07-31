@@ -310,7 +310,7 @@ volume counts grow.
   arrives with the deferred fork bump, Part 2 M0), and even that one resolves globally and leaks
   the catalog. Part 2 M2 adopts upstream's once it gains caller scoping (upstream U3).
 
-**Skill resources** (`load_skill_resource`, reading bundled `scripts/`/`references/`/`assets/`
+**Skill resources** (`load_skill_reference`, reading bundled `scripts/`/`references/`/`assets/`
 from the ingestion volume) are **Part 2 (M8)** — deferred until a skill ships bundled files. The
 `resource_root` column and its write-time validation exist from Part 1 but are unused until then.
 

@@ -2,7 +2,7 @@ defmodule Zaq.Agent.Tools.Skills.Scope do
   @moduledoc """
   Resolves the invoking agent and its granted skills for the skills tools.
 
-  Both `Zaq.Agent.Tools.Skills.LoadSkill` and `Zaq.Agent.Tools.Skills.LoadSkillResource` must
+  Both `Zaq.Agent.Tools.Skills.LoadSkill` and `Zaq.Agent.Tools.Skills.LoadSkillReference` must
   answer the same two questions before doing anything: *which agent is asking*, and *is this
   skill actually granted to it*. Those answers are the security boundary for the whole skills
   surface, so they live in one place — two copies of a permission check is one copy that gets

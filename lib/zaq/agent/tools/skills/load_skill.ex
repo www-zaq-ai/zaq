@@ -33,7 +33,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
   When a skill has files uploaded against it, the result also carries a **listing** of them:
   name, path and size, never content. The model sees *that* `references/pricing-2026.md`
   exists and how big it is, and spends context on it only by calling
-  `Zaq.Agent.Tools.Skills.LoadSkillResource` (level 3). Returning contents here would defeat
+  `Zaq.Agent.Tools.Skills.LoadSkillReference` (level 3). Returning contents here would defeat
   progressive disclosure outright — a skill with five reference PDFs would blow the window
   on a single call.
 
@@ -55,7 +55,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
 
     The result may also list reference files bundled with the skill, each with its
     `resource_path` and size. Their contents are NOT included — read one only if the
-    instructions point you to it, by calling `load_skill_resource` with the exact
+    instructions point you to it, by calling `load_skill_reference` with the exact
     `resource_path` shown.
     """,
     schema: [
@@ -69,7 +69,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
         required: false,
         doc:
           "Files the skill bundles: name, resource_path and size. Metadata only — " <>
-            "fetch one with load_skill_resource."
+            "fetch one with load_skill_reference."
       ],
       resources_note: [
         type: :string,
@@ -109,7 +109,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
   defp maybe_note(result, nil), do: result
   defp maybe_note(result, note), do: Map.put(result, :resources_note, note)
 
-  # Both scope checks live in `Scope`, shared with `LoadSkillResource`: a nil agent id refuses
+  # Both scope checks live in `Scope`, shared with `LoadSkillReference`: a nil agent id refuses
   # rather than widening to a global lookup, and not-found names only what was asked for.
   defp fetch_agent(context), do: Scope.fetch_agent(context, "load_skill")
 

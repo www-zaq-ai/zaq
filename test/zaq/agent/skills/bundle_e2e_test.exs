@@ -14,7 +14,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
   alias Zaq.Agent
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Skills.LoadSkill
-  alias Zaq.Agent.Tools.Skills.LoadSkillResource
+  alias Zaq.Agent.Tools.Skills.LoadSkillReference
   alias Zaq.Contracts.Materialization
   alias Zaq.Contracts.Record
   alias Zaq.Event
@@ -108,7 +108,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
 
       # Level 3 — the model echoes a path from the manifest and gets that file.
       assert {:ok, read} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "pricing-faq", resource_path: entry.resource_path},
                  context
                )
@@ -127,7 +127,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
       assert [%{resource_path: "references/old-prices.md"}] = loaded.resources
 
       assert {:ok, read} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "pricing-faq", resource_path: "references/old-prices.md"},
                  context
                )
@@ -146,7 +146,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
       assert [%{resource_path: "references/pricing-2026.md"}] = loaded.resources
 
       assert {:ok, read} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "renamed-faq", resource_path: "references/pricing-2026.md"},
                  context
                )
@@ -163,7 +163,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
       assert [%{resource_path: "assets/logo.png", size: 6}] = loaded.resources
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "pricing-faq", resource_path: "assets/logo.png"},
                  context
                )
@@ -180,7 +180,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
       assert [%{resource_path: "scripts/deploy.sh"}] = loaded.resources
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "pricing-faq", resource_path: "scripts/deploy.sh"},
                  context
                )
@@ -194,7 +194,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
 
       for path <- ["../../../etc/passwd", "/etc/passwd", "references/../../../etc/passwd"] do
         assert {:error, message} =
-                 LoadSkillResource.run(
+                 LoadSkillReference.run(
                    %{skill_name: "pricing-faq", resource_path: path},
                    context
                  )
@@ -232,7 +232,7 @@ defmodule Zaq.Agent.Skills.BundleE2ETest do
         })
 
       assert {:error, message} =
-               LoadSkillResource.run(
+               LoadSkillReference.run(
                  %{skill_name: "pricing-faq", resource_path: "references/pricing-2026.md"},
                  %{configured_agent_id: outsider.id}
                )
