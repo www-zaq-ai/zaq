@@ -182,7 +182,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       TAG: ${{ needs.release.outputs.tag_name }}
-      RELEASE_SUMMARY_MODEL: ${{ vars.RELEASE_SUMMARY_MODEL || 'openrouter/openai/gpt-oss-120b:free' }}
+      RELEASE_SUMMARY_MODEL: ${{ vars.RELEASE_SUMMARY_MODEL || 'openrouter/nvidia/nemotron-3-ultra-550b-a55b:free' }}
       OPENROUTER_API_KEY: ${{ secrets.RELEASE_SUMMARY_API_KEY || secrets.OPENROUTER_API_KEY }}
     steps:
       - name: Checkout release commit
