@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-07-31T08:47:39Z",
+  "description": "Add an agent/workflow action for updating person fields and channels, with optional merge using existing survivor/loser merge semantics.",
+  "id": "zaq-l02",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Add person update action",
+  "type": "task",
+  "updated_at": "2026-07-31T08:47:39Z"
+}
