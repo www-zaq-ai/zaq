@@ -180,6 +180,8 @@ defmodule Zaq.Accounts.People do
       survivor = Repo.get!(Person, survivor_id)
       loser = Repo.get!(Person, loser_id)
 
+      delete_duplicate_loser_channels(survivor.id, loser.id)
+
       from(c in PersonChannel, where: c.person_id == ^loser.id)
       |> Repo.update_all(set: [person_id: survivor.id])
 
@@ -227,6 +229,31 @@ defmodule Zaq.Accounts.People do
       end
 
       survivor
+    end)
+  end
+
+  @doc """
+  Updates a person, upserts channels, and optionally merges with another person.
+
+  Merge precedence is expressed by `merge_precedence`: `"person"` keeps the
+  updated person as the survivor, while `"other"` keeps `merge_with_person_id`.
+  The survivor's existing person fields and duplicate channels take precedence.
+  """
+  @spec update_person_resource(Person.t() | integer(), map(), [map()], map()) ::
+          {:ok, Person.t()} | {:error, term()}
+  def update_person_resource(person_or_id, attrs \\ %{}, channels \\ [], merge_opts \\ %{}) do
+    person_id = if is_struct(person_or_id), do: person_or_id.id, else: person_or_id
+
+    Repo.transaction(fn ->
+      with %Person{} = person <- Repo.get(Person, person_id),
+           {:ok, updated} <- maybe_update_person_fields(person, attrs),
+           {:ok, _channels} <- upsert_person_channels(updated.id, channels),
+           {:ok, final_person} <- maybe_merge_updated_person(updated.id, merge_opts) do
+        final_person
+      else
+        nil -> Repo.rollback(:not_found)
+        {:error, reason} -> Repo.rollback(reason)
+      end
     end)
   end
 
@@ -481,6 +508,93 @@ defmodule Zaq.Accounts.People do
         dm_channel_id: Map.get(attrs, "dm_channel_id") || Map.get(attrs, :dm_channel_id)
       })
     end
+  end
+
+  defp maybe_update_person_fields(%Person{} = person, nil), do: {:ok, person}
+  defp maybe_update_person_fields(%Person{} = person, attrs) when attrs == %{}, do: {:ok, person}
+
+  defp maybe_update_person_fields(%Person{} = person, attrs) when is_map(attrs),
+    do: update_person(person, attrs)
+
+  defp maybe_update_person_fields(_person, _attrs), do: {:error, :invalid_person_attrs}
+
+  defp upsert_person_channels(_person_id, nil), do: {:ok, []}
+  defp upsert_person_channels(_person_id, []), do: {:ok, []}
+
+  defp upsert_person_channels(person_id, channels) when is_list(channels) do
+    Enum.reduce_while(channels, {:ok, []}, fn channel_attrs, {:ok, acc} ->
+      case upsert_person_channel(person_id, channel_attrs) do
+        {:ok, channel} -> {:cont, {:ok, [channel | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp upsert_person_channels(_person_id, _channels), do: {:error, :invalid_channels}
+
+  defp upsert_person_channel(person_id, attrs) when is_map(attrs) do
+    attrs = stringify_keys(attrs)
+
+    case Map.get(attrs, "id") do
+      nil ->
+        attrs
+        |> Map.put("person_id", person_id)
+        |> add_channel()
+
+      id ->
+        case Repo.get_by(PersonChannel, id: id, person_id: person_id) do
+          nil ->
+            {:error, :channel_not_found}
+
+          channel ->
+            attrs
+            |> Map.drop(["id", "person_id"])
+            |> then(&update_channel(channel, &1))
+        end
+    end
+  end
+
+  defp upsert_person_channel(_person_id, _attrs), do: {:error, :invalid_channel}
+
+  defp maybe_merge_updated_person(person_id, nil) do
+    {:ok, get_person_with_channels!(person_id)}
+  end
+
+  defp maybe_merge_updated_person(person_id, merge_opts) when merge_opts == %{} do
+    {:ok, get_person_with_channels!(person_id)}
+  end
+
+  defp maybe_merge_updated_person(person_id, merge_opts) when is_map(merge_opts) do
+    merge_with_person_id =
+      Map.get(merge_opts, :merge_with_person_id) || Map.get(merge_opts, "merge_with_person_id")
+
+    if is_nil(merge_with_person_id) do
+      {:ok, get_person_with_channels!(person_id)}
+    else
+      case Map.get(merge_opts, :merge_precedence) || Map.get(merge_opts, "merge_precedence") ||
+             "person" do
+        "person" -> merge_persons(person_id, merge_with_person_id)
+        "other" -> merge_persons(merge_with_person_id, person_id)
+        _ -> {:error, :invalid_merge_precedence}
+      end
+    end
+  end
+
+  defp maybe_merge_updated_person(_person_id, _merge_opts), do: {:error, :invalid_merge}
+
+  defp delete_duplicate_loser_channels(survivor_id, loser_id) do
+    duplicate_ids_query =
+      from loser_channel in PersonChannel,
+        join: survivor_channel in PersonChannel,
+        on:
+          survivor_channel.person_id == ^survivor_id and
+            survivor_channel.platform == loser_channel.platform and
+            survivor_channel.channel_identifier == loser_channel.channel_identifier,
+        where: loser_channel.person_id == ^loser_id,
+        select: loser_channel.id
+
+    from(c in PersonChannel, where: c.id in subquery(duplicate_ids_query))
+    |> Repo.delete_all()
   end
 
   defp canonical_platform("email:imap"), do: "email"

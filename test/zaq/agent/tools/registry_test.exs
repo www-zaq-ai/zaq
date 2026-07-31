@@ -14,6 +14,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "conversation.persist_message_history",
              "message.upsert_incoming_routing_rules",
              "people.ensure_person",
+             "people.update_person",
              "resources.query",
              "data_source.get_document",
              "data_source.list_documents",
@@ -132,6 +133,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              Registry.resolve_modules(["people.ensure_person"])
   end
 
+  test "people.update_person resolves to the update person tool" do
+    assert Registry.valid_tool_key?("people.update_person")
+
+    assert {:ok, [Zaq.Agent.Tools.People.UpdatePerson]} =
+             Registry.resolve_modules(["people.update_person"])
+  end
+
   test "resources.query resolves to the resource query tool" do
     assert Registry.valid_tool_key?("resources.query")
 
@@ -154,6 +162,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "conversation.persist_message_history",
              "message.upsert_incoming_routing_rules",
              "people.ensure_person",
+             "people.update_person",
              "resources.query",
              "data_source.get_document",
              "data_source.list_documents",

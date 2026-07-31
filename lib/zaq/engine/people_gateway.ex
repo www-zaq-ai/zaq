@@ -32,6 +32,14 @@ defmodule Zaq.Engine.PeopleGateway do
     end
   end
 
+  def dispatch(:update_resource, %{id: id} = params) do
+    attrs = Map.get(params, :attrs) || Map.get(params, "attrs") || %{}
+    channels = Map.get(params, :channels) || Map.get(params, "channels") || []
+    merge = Map.get(params, :merge) || Map.get(params, "merge") || %{}
+
+    People.update_person_resource(normalize_id(id), attrs, channels, merge)
+  end
+
   def dispatch(:delete, %{id: id}) do
     case People.get_person(normalize_id(id)) do
       nil -> {:error, :not_found}

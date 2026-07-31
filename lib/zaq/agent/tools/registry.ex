@@ -57,6 +57,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.People.EnsurePerson
     },
     %{
+      key: "people.update_person",
+      label: "Update person",
+      description:
+        "Update person fields and channels, with optional merge using explicit survivor precedence",
+      module: Zaq.Agent.Tools.People.UpdatePerson
+    },
+    %{
       key: "resources.query",
       label: "Query resources",
       description:

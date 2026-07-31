@@ -601,6 +601,31 @@ defmodule Zaq.Accounts.PeopleTest do
       assert {:ok, updated} = People.merge_persons(survivor, loser)
       assert updated.email == "hazemail@example.com"
     end
+
+    test "keeps survivor channel when both people have the same platform identifier" do
+      survivor = create_person(%{full_name: "Channel Surv", email: "channel-surv@example.com"})
+      loser = create_person(%{full_name: "Channel Loser", email: "channel-loser@example.com"})
+
+      survivor_channel =
+        add_channel(survivor.id, %{"platform" => "telegram", "channel_identifier" => "@same"})
+
+      loser_channel =
+        add_channel(loser.id, %{"platform" => "telegram", "channel_identifier" => "@same"})
+
+      survivor = People.get_person_with_channels!(survivor.id)
+      loser = People.get_person_with_channels!(loser.id)
+
+      assert {:ok, updated} = People.merge_persons(survivor, loser)
+
+      duplicate_channels =
+        Enum.filter(
+          updated.channels,
+          &(&1.platform == "telegram" and &1.channel_identifier == "@same")
+        )
+
+      assert Enum.map(duplicate_channels, & &1.id) == [survivor_channel.id]
+      refute Enum.any?(updated.channels, &(&1.id == loser_channel.id))
+    end
   end
 
   # ── Teams ─────────────────────────────────────────────────────────────────

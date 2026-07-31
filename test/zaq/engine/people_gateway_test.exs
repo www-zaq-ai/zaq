@@ -98,6 +98,26 @@ defmodule Zaq.Engine.PeopleGatewayTest do
     assert updated.channel_identifier == "@after-#{ts}"
   end
 
+  test "dispatch(:update_resource) updates fields and adds channels" do
+    ts = System.unique_integer([:positive])
+
+    {:ok, person} =
+      People.create_person(%{
+        "full_name" => "Composite #{ts}",
+        "email" => "comp#{ts}@example.com"
+      })
+
+    assert {:ok, updated} =
+             PeopleGateway.dispatch(:update_resource, %{
+               id: person.id,
+               attrs: %{full_name: "Composite Updated #{ts}"},
+               channels: [%{platform: "telegram", channel_identifier: "@comp-#{ts}"}]
+             })
+
+    assert updated.full_name == "Composite Updated #{ts}"
+    assert Enum.any?(updated.channels, &(&1.channel_identifier == "@comp-#{ts}"))
+  end
+
   # ── normalize_id edge cases ───────────────────────────────────────────────
 
   test "dispatch(:get) accepts a binary string person ID" do
