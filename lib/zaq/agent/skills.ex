@@ -27,6 +27,7 @@ defmodule Zaq.Agent.Skills do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Skill
+  alias Zaq.Agent.Skill.Resources
   alias Zaq.Agent.Skills.Validation
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Repo
@@ -298,6 +299,30 @@ defmodule Zaq.Agent.Skills do
     |> Skill.changeset(attrs)
     |> validate_mcp_endpoint_ids()
     |> Repo.update()
+  end
+
+  @doc """
+  Records a file reference on a skill.
+
+  The file must already exist as a document — the caller writes it through the datasource
+  and passes back the id it was given. Adding an id that is already referenced is a no-op.
+  """
+  @spec add_reference(Skill.t(), String.t() | integer(), String.t(), keyword()) ::
+          {:ok, Skill.t()} | {:error, Ecto.Changeset.t()}
+  def add_reference(%Skill{} = skill, file_id, provider, _opts \\ []) do
+    update_skill(skill, %{"resources" => Resources.add_reference(skill, file_id, provider)})
+  end
+
+  @doc """
+  Drops a file reference from a skill.
+
+  Removing the reference does not delete the document — the caller deletes it through the
+  datasource, because only the datasource knows what "delete" means for that provider.
+  """
+  @spec remove_reference(Skill.t(), String.t() | integer(), keyword()) ::
+          {:ok, Skill.t()} | {:error, Ecto.Changeset.t()}
+  def remove_reference(%Skill{} = skill, file_id, _opts \\ []) do
+    update_skill(skill, %{"resources" => Resources.remove_reference(skill, file_id)})
   end
 
   @spec delete_skill(Skill.t()) :: {:ok, Skill.t()} | {:error, Ecto.Changeset.t()}

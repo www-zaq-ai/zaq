@@ -1,30 +1,31 @@
 defmodule Zaq.Agent.Skill.Resources do
   @moduledoc """
-  Derives the ingestion-volume paths that hold a skill's reference files.
+  Reads and edits a skill's `resources` map, and derives where its files are written.
 
-  A skill's resources live under `.agents/skills/{slug}/references/` on an ingestion
-  volume, so they show up in the BO ingestion browser like any other ingested file and
-  need no separate storage mechanism.
+  Two jobs, both pure:
 
-  ## This module is pure
+    * **References** — `references/1`, `add_reference/3`, `remove_reference/2` return plain
+      data. Persisting is `Zaq.Agent.Skills`' job.
+    * **Destinations** — `destination/2` derives the volume-relative path an uploaded file
+      should be written to, under `.agents/skills/{slug}/references/`, so the files show up
+      in the BO ingestion browser like any other ingested file.
 
-  It derives *path strings* and nothing else. It never touches the filesystem, never
-  resolves against a volume root, and never decides whether a path exists. Resolution and
-  the authoritative containment check belong to the `:ingestion` role — the only node
-  guaranteed to have the volume mounted (see `Zaq.Ingestion.FileExplorer.resolve_path/2`,
-  which re-checks containment against the real volume root). Keeping this separate is
-  what lets the BO node compute a destination for a volume it cannot itself see.
+  It never touches the filesystem, never resolves against a volume root, and never decides
+  whether a path exists. Resolution and the authoritative containment check belong to the
+  `:ingestion` role — the only node guaranteed to have the volume mounted. Keeping this
+  separate is what lets the BO node compute a destination for a volume it cannot itself see.
 
-  The sanitising here is therefore a *shape* guard, not a security boundary: it
-  guarantees the string handed to ingestion is a safe relative path, so a malicious
-  client filename cannot express an escape in the first place. Ingestion still rejects
-  traversal independently.
+  The sanitising here is a *shape* guard, not a security boundary: it guarantees the string
+  handed to ingestion is a safe relative path, so a malicious client filename cannot express
+  an escape in the first place. Ingestion still rejects traversal independently.
 
-  ## `resource_root` is sticky
+  ## Why there is no stored root any more
 
-  Once `Skill.resource_root` is set it wins over the name-derived default, so renaming a
-  skill does not orphan files already uploaded under the old name. A stored root that is
-  not a safe relative path is ignored in favour of the derived one.
+  References used to be paths, so a skill carried a sticky `resource_root` — renaming it
+  would otherwise have orphaned every file already uploaded under the old name. References
+  are now document ids, which do not move when a name does, so the root is derived fresh
+  every time and nothing can be stranded. A rename changes only where *subsequent* uploads
+  land.
   """
 
   alias Zaq.Agent.Skill
@@ -35,33 +36,66 @@ defmodule Zaq.Agent.Skill.Resources do
   @fallback_filename "file"
 
   @doc """
-  The name-derived resource root for a skill, ignoring any stored `resource_root`.
+  The file references a skill declares, as stored.
 
-      iex> Zaq.Agent.Skill.Resources.default_root(%Zaq.Agent.Skill{name: "pricing-faq"})
-      ".agents/skills/pricing-faq"
+      iex> Zaq.Agent.Skill.Resources.references(%Zaq.Agent.Skill{})
+      []
   """
-  @spec default_root(Skill.t()) :: String.t()
-  def default_root(%Skill{name: name}), do: Path.join(@root_prefix, slug(name))
+  @spec references(Skill.t()) :: [map()]
+  def references(%Skill{resources: %{"references" => references}}) when is_list(references),
+    do: references
+
+  def references(%Skill{}), do: []
 
   @doc """
-  The skill's effective resource root — everything belonging to this skill lives under it.
+  Returns the skill's `resources` map with one reference added.
 
-  Uses the stored `resource_root` when it is present and safe, else `default_root/1`. This
-  is the directory to remove when a skill is deleted; `references_dir/1` is only one child
-  of it.
+  Adding a `file_id` that is already referenced is a no-op, so a retried upload cannot
+  double-list a file.
   """
-  @spec root(Skill.t()) :: String.t()
-  def root(%Skill{resource_root: stored} = skill) do
-    case sanitize_root(stored) do
-      nil -> default_root(skill)
-      root -> root
+  @spec add_reference(Skill.t(), String.t() | integer(), String.t()) :: map()
+  def add_reference(%Skill{} = skill, file_id, provider) do
+    file_id = to_string(file_id)
+    existing = references(skill)
+
+    if Enum.any?(existing, &(Map.get(&1, "file_id") == file_id)) do
+      put_references(skill, existing)
+    else
+      put_references(skill, existing ++ [%{"file_id" => file_id, "provider" => provider}])
     end
   end
 
   @doc """
+  Returns the skill's `resources` map with one reference removed.
+
+  Removing an absent `file_id` is a no-op.
+  """
+  @spec remove_reference(Skill.t(), String.t() | integer()) :: map()
+  def remove_reference(%Skill{} = skill, file_id) do
+    file_id = to_string(file_id)
+
+    put_references(skill, Enum.reject(references(skill), &(Map.get(&1, "file_id") == file_id)))
+  end
+
+  defp put_references(%Skill{resources: resources}, references) when is_map(resources),
+    do: Map.put(resources, "references", references)
+
+  defp put_references(%Skill{}, references), do: %{"references" => references}
+
+  @doc """
+  The resource root for a skill — everything belonging to it lives under this path.
+
+      iex> Zaq.Agent.Skill.Resources.root(%Zaq.Agent.Skill{name: "pricing-faq"})
+      ".agents/skills/pricing-faq"
+  """
+  @spec root(Skill.t()) :: String.t()
+  def root(%Skill{name: name}), do: Path.join(@root_prefix, slug(name))
+
+  @doc """
   The directory holding a skill's reference files.
 
-  Uses the stored `resource_root` when it is present and safe, else `default_root/1`.
+      iex> Zaq.Agent.Skill.Resources.references_dir(%Zaq.Agent.Skill{name: "pricing-faq"})
+      ".agents/skills/pricing-faq/references"
   """
   @spec references_dir(Skill.t()) :: String.t()
   def references_dir(%Skill{} = skill), do: Path.join(root(skill), @references_dir)
@@ -103,22 +137,6 @@ defmodule Zaq.Agent.Skill.Resources do
   end
 
   def slug(_), do: @fallback_slug
-
-  # A stored root is honoured only if it is a safe relative path. The `Skill` changeset
-  # already rejects absolute paths and `..`, so this is belt-and-braces for records
-  # written before that validation, or by a future import path.
-  defp sanitize_root(root) when is_binary(root) do
-    trimmed = String.trim(root)
-
-    cond do
-      trimmed == "" -> nil
-      String.starts_with?(trimmed, "/") -> nil
-      ".." in Path.split(trimmed) -> nil
-      true -> Path.join(Path.split(trimmed))
-    end
-  end
-
-  defp sanitize_root(_), do: nil
 
   # `Path.basename/1` collapses any directory component, so "a/b/c.md", "../../c.md" and
   # "/etc/c.md" all reduce to "c.md". What it cannot collapse — ".", ".." and "/" — is

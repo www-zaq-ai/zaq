@@ -12,10 +12,20 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   A skill's reference files are uploaded here but stored by **ingestion**, under
   `.agents/skills/{slug}/references/` on a volume — so they appear in the ingestion
-  browser like any other file and need no separate storage. Every filesystem hop goes
-  through `NodeRouter` to the `:ingestion` role: the BO node is not guaranteed to have
-  the volume mounted. Path derivation is `Zaq.Agent.Skill.Resources`' job, not this
-  module's.
+  browser like any other file and need no separate storage. Path derivation is
+  `Zaq.Agent.Skill.Resources`' job, not this module's.
+
+  Files are reached through the **`disk` datasource provider**
+  (`Zaq.Channels.DiskBridge`), not by calling `Zaq.Ingestion` directly: one dispatch
+  writes the file, registers its document row and tags it, where two separate calls could
+  leave a file on disk that no row points at. The skill row then stores only the returned
+  document id, so nothing here needs to know where a file physically lives.
+
+  Uploaded files are tagged `"public"` at write time. Reads are permission-checked
+  generically by `Zaq.Ingestion.RecordMaterializer` with no bypass, so the tag is what
+  makes a reference readable by an agent acting without a person. This is a deliberate
+  trade: skill reference files are visible to everyone, in ingestion browse and ordinary
+  retrieval, not only through `load_skill`.
 
   Uploading requires an explicitly configured volume (`Ingestion.volumes_configured?/0`),
   not merely a non-empty `list_volumes/0` — that call synthesizes a `"default"` entry and
@@ -35,6 +45,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.Tools.Registry
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
@@ -47,6 +58,15 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   # Narrower than IngestionLive's list on purpose: skill resources are reference material
   # the agent reads, so only the formats that make sense in that role are accepted.
   @allowed_extensions ~w(.json .md .pdf .png)
+
+  # Skill files live on an ingestion volume, reached as a datasource.
+  @resource_provider "disk"
+
+  # Applied by ingestion at write time. An agent loading a skill has no person to check
+  # against, and `RecordMaterializer` grants nothing implicitly, so without this tag every
+  # reference would be unreadable. Marking the *folder* public instead would not work:
+  # folder settings are not applied to documents created later.
+  @resource_tags ["public"]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -202,7 +222,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
       socket =
         socket
-        |> maybe_persist_resource_root(skill, uploaded)
+        |> persist_references(skill, uploaded)
         |> load_skill_resources()
         |> put_resource_upload_toast(uploaded, failed)
         |> maybe_close_resource_modal(uploaded, failed)
@@ -214,6 +234,30 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   end
 
   def handle_event("upload_skill_resource", _params, socket), do: {:noreply, socket}
+
+  # Deletes the document, then drops the reference. That order leaves a recoverable state if
+  # the second step fails — a reference to a file that is gone renders as a missing entry —
+  # whereas the reverse would orphan a file nothing points at.
+  def handle_event(
+        "remove_skill_resource",
+        %{"file_id" => file_id},
+        %{assigns: %{selected_skill: %Skill{} = skill}} = socket
+      ) do
+    reference = Enum.find(Resources.references(skill), &(Map.get(&1, "file_id") == file_id))
+
+    case reference && delete_reference_file(reference) do
+      nil ->
+        {:noreply, socket}
+
+      :ok ->
+        {:noreply, drop_reference(socket, skill, file_id)}
+
+      {:error, reason} ->
+        {:noreply, put_toast(socket, :error, "Could not remove resource: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("remove_skill_resource", _params, socket), do: {:noreply, socket}
 
   def handle_event("open_tools_picker", _params, socket) do
     {:noreply, assign(socket, :tools_picker_open, true)}
@@ -325,7 +369,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
         # reports whether the staged files made it to the volume.
         socket =
           socket
-          |> maybe_persist_resource_root(skill, uploaded)
+          |> persist_references(skill, uploaded)
           |> put_create_flash(uploaded, failed)
           |> reset_form_state()
           |> refresh_skills()
@@ -474,30 +518,47 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     )
   end
 
+  # One dispatch writes the file, registers its document row and tags it public. The
+  # returned document id — not the path — is what gets stored on the skill.
   defp upload_resource(skill, volume, tmp_path, entry) do
     destination = Resources.destination(skill, entry.client_name)
 
     # Both failure shapes are already `{:error, reason}`, so they fall through as-is.
     with {:ok, binary} <- File.read(tmp_path),
-         {:ok, written} <- ingestion_invoke(:upload_file, [volume, destination, binary]) do
-      # Same as IngestionLive: track immediately so the file browser sees the file
-      # without waiting for a filesystem watcher.
-      ingestion_invoke(:track_upload, [volume, written])
-      {:ok, written}
+         {:ok, %{record: record}} <- create_resource_file(volume, destination, binary) do
+      {:ok, %{file_id: record.id, name: record.name}}
     end
   end
 
-  # Written once, on the first successful upload, and never recomputed — a later rename
-  # must not strand files already sitting under the original root.
-  defp maybe_persist_resource_root(socket, %Skill{resource_root: nil} = skill, [_ | _]) do
-    attrs = %{"resource_root" => Resources.default_root(skill)}
+  defp create_resource_file(volume, destination, binary) do
+    params = %{
+      "volume" => volume,
+      "path" => destination,
+      "content" => binary,
+      "tags" => @resource_tags
+    }
+
+    data_source_dispatch(:data_source_create_file, params)
+  end
+
+  # Records what was written. The write already succeeded, so a failure here loses the
+  # reference but not the file — it stays visible in the ingestion browser.
+  defp persist_references(socket, _skill, []), do: socket
+
+  defp persist_references(socket, %Skill{} = skill, uploaded) do
+    updated =
+      Enum.reduce(uploaded, skill, fn {:ok, %{file_id: file_id}}, acc ->
+        %{acc | resources: Resources.add_reference(acc, file_id, @resource_provider)}
+      end)
+
+    attrs = %{"resources" => updated.resources}
     event = Event.new(%{id: skill.id, attrs: attrs}, :agent, opts: [action: :agent_skill_updated])
 
     case node_router().dispatch(event).response do
-      {:ok, %{skill: updated}} ->
+      {:ok, %{skill: saved}} ->
         socket
-        |> assign(:selected_skill, updated)
-        |> assign_changeset(Skills.change_skill(updated))
+        |> assign(:selected_skill, saved)
+        |> assign_changeset(Skills.change_skill(saved))
         |> refresh_skills()
 
       _ ->
@@ -505,26 +566,37 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     end
   end
 
-  defp maybe_persist_resource_root(socket, _skill, _uploaded), do: socket
-
-  defp load_skill_resources(
-         %{assigns: %{selected_skill: %Skill{} = skill, resource_volume: volume}} = socket
-       )
-       when is_binary(volume) do
-    entries =
-      case ingestion_invoke(:list_entries, [volume, references_dir(skill)]) do
-        {:ok, entries} when is_list(entries) -> Enum.filter(entries, &(&1.type == :file))
-        # A skill with no uploads yet has no directory — that is the empty state, not an error.
-        _ -> []
-      end
-
-    assign(socket, :skill_resources, entries)
+  # The skill row is the index; the datasource supplies the metadata. Listing the volume
+  # directory instead would show files this skill does not reference, and would miss any it
+  # references from elsewhere.
+  defp load_skill_resources(%{assigns: %{selected_skill: %Skill{} = skill}} = socket) do
+    assign(socket, :skill_resources, reference_records(skill))
   end
 
-  # No skill selected, or no volume to read from (nothing configured, or the ingestion node
-  # did not answer). `FileExplorer.list/2` requires a binary volume, so guard rather than
-  # let a degraded ingestion role crash the page.
   defp load_skill_resources(socket), do: assign(socket, :skill_resources, [])
+
+  # One dispatch per provider rather than per file.
+  defp reference_records(%Skill{} = skill) do
+    skill
+    |> Resources.references()
+    |> Enum.group_by(&Map.get(&1, "provider"), &Map.get(&1, "file_id"))
+    |> Enum.flat_map(fn {provider, file_ids} -> list_reference_records(provider, file_ids) end)
+  end
+
+  # A degraded ingestion role renders an empty resource list rather than crashing the page.
+  defp list_reference_records(provider, file_ids) do
+    case data_source_dispatch(:data_source_list_files, %{"file_ids" => file_ids}, provider) do
+      {:ok, %RecordPage{records: records}} -> records
+      _ -> []
+    end
+  end
+
+  defp data_source_dispatch(action, params, provider \\ @resource_provider) do
+    %{provider: provider, params: params}
+    |> Event.new(:channels, opts: [action: action])
+    |> node_router().dispatch()
+    |> Map.fetch!(:response)
+  end
 
   defp references_dir(%Skill{} = skill), do: Resources.references_dir(skill)
 
@@ -544,39 +616,43 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     "#{extensions} — max #{max}"
   end
 
-  # Removes a deleted skill's whole resource directory — `.agents/skills/{slug}`, not just
-  # its `references/` child.
-  #
-  # The volume is swept rather than looked up: the upload modal lets the operator choose a
-  # volume, but only the volume-relative `resource_root` is persisted, so which volume
-  # holds the files is not recoverable from the skill. Sweeping is safe because the root is
-  # namespaced per skill, and volumes without the directory are skipped.
+  # Deletes exactly the documents this skill referenced, by id. The old path-sweeping
+  # approach had to guess which volume held the files, because only a volume-relative root
+  # was stored; an id needs no such guess and cannot catch a neighbouring skill's files.
   #
   # Runs *after* the record is deleted. If it fails, the skill is still gone and the files
   # remain visible in the ingestion browser — recoverable. The reverse order could strip a
   # live skill's resources when the record deletion then failed.
   defp delete_skill_resources(_socket, nil), do: []
 
-  defp delete_skill_resources(socket, %Skill{} = skill) do
-    root = Resources.root(skill)
-
-    socket.assigns.volumes
-    |> Map.keys()
-    |> Enum.map(&delete_resource_dir(&1, root))
-    |> Enum.reject(&(&1 == :absent))
+  defp delete_skill_resources(_socket, %Skill{} = skill) do
+    skill
+    |> Resources.references()
+    |> Enum.map(&delete_reference_file/1)
+    |> Enum.reject(&(&1 == :ok))
   end
 
-  # A skill that never had a resource uploaded has no directory. `delete_path/3` surfaces
-  # `{:error, :not_a_directory}` for a missing path, so check before asking.
-  defp delete_resource_dir(volume, root) do
-    case ingestion_invoke(:file_info, [volume, root]) do
-      {:ok, %{type: :directory}} ->
-        # `delete_path/4` also clears the tracked `Document` rows under the folder, which
-        # `track_upload/2` created at upload time.
-        ingestion_invoke(:delete_path, [volume, root, "directory"])
+  defp delete_reference_file(%{"file_id" => file_id, "provider" => provider}) do
+    data_source_dispatch(:data_source_delete_file, %{"file_id" => file_id}, provider)
+  end
 
-      _ ->
-        :absent
+  defp delete_reference_file(_reference), do: :ok
+
+  defp drop_reference(socket, %Skill{} = skill, file_id) do
+    attrs = %{"resources" => Resources.remove_reference(skill, file_id)}
+    event = Event.new(%{id: skill.id, attrs: attrs}, :agent, opts: [action: :agent_skill_updated])
+
+    case node_router().dispatch(event).response do
+      {:ok, %{skill: saved}} ->
+        socket
+        |> assign(:selected_skill, saved)
+        |> assign_changeset(Skills.change_skill(saved))
+        |> load_skill_resources()
+        |> refresh_skills()
+        |> put_toast(:info, "Resource removed.")
+
+      {:error, reason} ->
+        put_toast(socket, :error, "Could not remove resource: #{inspect(reason)}")
     end
   end
 

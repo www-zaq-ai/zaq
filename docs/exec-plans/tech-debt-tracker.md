@@ -110,6 +110,26 @@ Sourced from service docs `What's Left` sections. Updated continuously.
 
 ---
 
+## Ingestion
+
+### Should Do
+- [ ] **`FolderSetting` tags are not applied to newly created documents.**
+      `Ingestion.set_folder_public/2` back-fills the `"public"` tag onto documents that
+      already exist and writes a `folder_settings` row, but nothing consults that row when a
+      document is created — `track_upload/2` and `RecordMaterializer.persist/2` both insert
+      untagged. `DirectorySnapshot` is the only other reader, and only for display.
+
+      Effect: marking a folder public today does **not** make tomorrow's uploads into it
+      public. They silently stay private.
+
+      Found while implementing skill reference materialization
+      (`docs/exec-plans/active/skill-reference-materialization.md`). That plan works around
+      it by tagging each file at write time rather than relying on folder inheritance —
+      deliberately, to keep a skill-scoped change from altering permission behaviour for
+      every ingestion folder. The general fix belongs here.
+
+---
+
 ## CI / Linting
 
 ### Should Do

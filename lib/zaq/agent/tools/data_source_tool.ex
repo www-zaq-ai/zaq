@@ -57,5 +57,23 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   def wrap_request(params, provider) when is_map(params) and is_binary(provider),
     do: %{provider: provider, params: params}
 
+  @doc """
+  Builds the event that fetches a document's content from a datasource.
+
+  Carried on an unmaterialized `Zaq.Contracts.Record` so whoever ends up needing the bytes
+  can fetch them without knowing which provider holds the file, let alone where. The agent
+  node composes this from a provider key and a document id only — it never sees a path.
+
+  The `{role, action}` pair must be whitelisted by `Zaq.Contracts.Record.Materializer`, or
+  materializing the record is refused.
+  """
+  @spec materializing_event(String.t(), map(), keyword()) :: Event.t()
+  def materializing_event(provider, params, opts \\ [])
+      when is_binary(provider) and is_map(params) do
+    params
+    |> wrap_request(provider)
+    |> Event.new(:channels, Keyword.merge([opts: [action: :data_source_download_document]], opts))
+  end
+
   defp default_on_ok(payload), do: {:ok, payload}
 end

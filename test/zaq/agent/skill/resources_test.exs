@@ -28,59 +28,113 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
     end
   end
 
-  describe "default_root/1" do
-    test "derives the root from the skill name" do
-      assert Resources.default_root(skill(%{name: "pricing-faq"})) == ".agents/skills/pricing-faq"
+  describe "references/1" do
+    test "is empty for a skill with no resources" do
+      assert Resources.references(skill(%{})) == []
+      assert Resources.references(skill(%{resources: nil})) == []
+      assert Resources.references(skill(%{resources: %{}})) == []
     end
 
-    test "ignores any stored resource_root" do
-      s = skill(%{name: "pricing-faq", resource_root: ".agents/skills/old-name"})
-      assert Resources.default_root(s) == ".agents/skills/pricing-faq"
+    test "returns the stored references" do
+      refs = [%{"file_id" => "1", "provider" => "disk"}]
+
+      assert Resources.references(skill(%{resources: %{"references" => refs}})) == refs
+    end
+  end
+
+  describe "add_reference/3" do
+    test "appends to an empty skill" do
+      assert Resources.add_reference(skill(%{}), "42", "disk") ==
+               %{"references" => [%{"file_id" => "42", "provider" => "disk"}]}
+    end
+
+    test "stringifies an integer file_id" do
+      assert %{"references" => [%{"file_id" => "42"}]} =
+               Resources.add_reference(skill(%{}), 42, "disk")
+    end
+
+    test "preserves existing references and their order" do
+      first = %{"file_id" => "1", "provider" => "disk"}
+      s = skill(%{resources: %{"references" => [first]}})
+
+      assert %{"references" => [^first, %{"file_id" => "2"}]} =
+               Resources.add_reference(s, "2", "disk")
+    end
+
+    # A retried upload must not list the same file twice.
+    test "is a no-op for a file_id already referenced" do
+      refs = [%{"file_id" => "1", "provider" => "disk"}]
+      s = skill(%{resources: %{"references" => refs}})
+
+      assert Resources.add_reference(s, "1", "disk") == %{"references" => refs}
+    end
+
+    test "leaves other namespaces in the resources map untouched" do
+      s = skill(%{resources: %{"references" => [], "assets" => ["kept"]}})
+
+      assert %{"assets" => ["kept"]} = Resources.add_reference(s, "1", "disk")
+    end
+
+    # A row written before `resources` had a default, or one loaded with the field unset.
+    test "builds a resources map when the skill has none" do
+      assert Resources.add_reference(skill(%{resources: nil}), "1", "disk") ==
+               %{"references" => [%{"file_id" => "1", "provider" => "disk"}]}
+    end
+  end
+
+  describe "remove_reference/2" do
+    test "removes a referenced file" do
+      refs = [
+        %{"file_id" => "1", "provider" => "disk"},
+        %{"file_id" => "2", "provider" => "disk"}
+      ]
+
+      s = skill(%{resources: %{"references" => refs}})
+
+      assert Resources.remove_reference(s, "1") ==
+               %{"references" => [%{"file_id" => "2", "provider" => "disk"}]}
+    end
+
+    test "accepts an integer file_id" do
+      refs = [%{"file_id" => "1", "provider" => "disk"}]
+      s = skill(%{resources: %{"references" => refs}})
+
+      assert Resources.remove_reference(s, 1) == %{"references" => []}
+    end
+
+    test "is a no-op for an absent file_id" do
+      refs = [%{"file_id" => "1", "provider" => "disk"}]
+      s = skill(%{resources: %{"references" => refs}})
+
+      assert Resources.remove_reference(s, "9") == %{"references" => refs}
+    end
+
+    test "is a no-op when the skill has no resources map" do
+      assert Resources.remove_reference(skill(%{resources: nil}), "1") == %{"references" => []}
     end
   end
 
   describe "root/1" do
-    test "derives from the name when no resource_root is stored" do
+    test "derives from the skill name" do
       assert Resources.root(skill(%{name: "pricing-faq"})) == ".agents/skills/pricing-faq"
     end
 
-    test "prefers a stored resource_root" do
-      s = skill(%{name: "new-name", resource_root: ".agents/skills/old-name"})
-      assert Resources.root(s) == ".agents/skills/old-name"
-    end
-
-    test "ignores an unsafe stored root" do
-      assert Resources.root(skill(%{name: "s", resource_root: "/etc"})) == ".agents/skills/s"
-      assert Resources.root(skill(%{name: "s", resource_root: "../escape"})) == ".agents/skills/s"
+    # References are document ids now, so a rename cannot strand anything — it only changes
+    # where subsequent uploads land. There is no stored root to be sticky about.
+    test "follows a rename" do
+      assert Resources.root(skill(%{name: "new-name"})) == ".agents/skills/new-name"
     end
 
     test "is the parent of references_dir/1" do
-      # Deleting a skill removes `root/1`; `references_dir/1` is only one child of it.
       s = skill(%{name: "pricing-faq"})
       assert Resources.references_dir(s) == Path.join(Resources.root(s), "references")
     end
   end
 
   describe "references_dir/1" do
-    test "uses the default root when resource_root is nil" do
+    test "is the references child of the derived root" do
       assert Resources.references_dir(skill(%{name: "pricing-faq"})) ==
                ".agents/skills/pricing-faq/references"
-    end
-
-    test "uses the default root when resource_root is empty" do
-      assert Resources.references_dir(skill(%{name: "pricing-faq", resource_root: ""})) ==
-               ".agents/skills/pricing-faq/references"
-    end
-
-    test "reuses a stored resource_root verbatim, even after a rename" do
-      # The skill was renamed but its files still live under the original root.
-      s = skill(%{name: "new-name", resource_root: ".agents/skills/old-name"})
-      assert Resources.references_dir(s) == ".agents/skills/old-name/references"
-    end
-
-    test "normalises a trailing slash on the stored root" do
-      s = skill(%{name: "x", resource_root: ".agents/skills/old-name/"})
-      assert Resources.references_dir(s) == ".agents/skills/old-name/references"
     end
   end
 
@@ -138,16 +192,24 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
       end
     end
 
-    property "a stored resource_root still cannot escape" do
+    property "add then remove round-trips to the original references" do
       check all(
-              root <- string(:printable, max_length: 40),
-              filename <- string(:printable, max_length: 40),
-              max_runs: 300
+              file_ids <- uniq_list_of(string(:alphanumeric, min_length: 1), max_length: 5),
+              new_id <- string(:alphanumeric, min_length: 1),
+              max_runs: 200
             ) do
-        dest = Resources.destination(skill(%{name: "s", resource_root: root}), filename)
+        refs = Enum.map(file_ids, &%{"file_id" => &1, "provider" => "disk"})
+        s = skill(%{resources: %{"references" => refs}})
 
-        refute ".." in Path.split(dest)
-        refute String.starts_with?(dest, "/")
+        added = Resources.add_reference(s, new_id, "disk")
+        round_tripped = Resources.remove_reference(%{s | resources: added}, new_id)
+
+        # Removing the id just added restores exactly what was there — unless it was
+        # already present, in which case add was a no-op and remove drops it.
+        expected =
+          if new_id in file_ids, do: Enum.reject(refs, &(&1["file_id"] == new_id)), else: refs
+
+        assert round_tripped == %{"references" => expected}
       end
     end
   end

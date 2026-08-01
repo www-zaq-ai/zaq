@@ -12,7 +12,15 @@ defmodule Zaq.Agent.Skill do
   `allowed-tools` encoding) is **owned by `Jido.AI.Skill.Loader`**, reached through
   `Zaq.Agent.Skills.Validation` — ZAQ does not reimplement it. This module keeps only the
   validations Jido cannot do: that `provided_tool_keys` exist in `Tools.Registry`, and
-  that `resource_root` is a safe relative path.
+  that `resources` has the expected shape.
+
+  ## `resources`
+
+  A namespace map — `%{"references" => [%{"file_id" => …, "provider" => …}]}` — naming the
+  files a skill bundles. Files are addressed by **document id**, not by path, so the skill
+  row never has to know where a file lives and renaming one in ingestion cannot orphan it.
+  Metadata (name, mime type) is deliberately absent: the datasource owns it, and a copy
+  here would go stale. `Zaq.Agent.Tools.Skills.LoadSkill` resolves names at load time.
 
   ## Two kinds of "tools" — do not conflate them
 
@@ -49,7 +57,7 @@ defmodule Zaq.Agent.Skill do
     field :provided_tool_keys, {:array, :string}, default: []
     field :allowed_tools, {:array, :string}, default: []
     field :enabled_mcp_endpoint_ids, {:array, :integer}, default: []
-    field :resource_root, :string
+    field :resources, :map, default: %{"references" => []}
     field :diagnostics, :map
     field :tags, {:array, :string}, default: []
     field :active, :boolean, default: true
@@ -62,9 +70,12 @@ defmodule Zaq.Agent.Skill do
   # only thing the model sees about a skill in the prompt index, and it is what the model
   # decides to call `load_skill` on. A skill without one cannot be converted to a
   # `%Jido.AI.Skill.Spec{}` at all.
+  # Reserved namespaces inside `resources`. Only "references" carries data today.
+  @resource_kinds ~w(references)
+
   @required_fields ~w(name description body)a
   @optional_fields ~w(tool_keys provided_tool_keys allowed_tools
-                      enabled_mcp_endpoint_ids resource_root tags active)a
+                      enabled_mcp_endpoint_ids resources tags active)a
 
   def changeset(skill, attrs) do
     skill
@@ -75,7 +86,7 @@ defmodule Zaq.Agent.Skill do
     |> normalize_allowed_tools()
     |> normalize_mcp_endpoint_ids()
     |> normalize_tags()
-    |> validate_resource_root()
+    |> validate_resources()
     |> validate_against_spec()
     |> validate_body_size()
     |> unique_constraint(:name)
@@ -132,35 +143,53 @@ defmodule Zaq.Agent.Skill do
     put_change(changeset, :diagnostics, updated)
   end
 
-  # `resource_root` is a path RELATIVE to an ingestion volume. This is a syntactic guard
-  # only — it rejects the shapes that could escape a volume, and nothing more.
+  # `resources` is a namespace map. Only `"references"` is populated today; `"skills"` and
+  # `"assets"` are reserved so they can be added without another migration. Unknown keys are
+  # rejected rather than ignored, so a typo surfaces at write time instead of silently
+  # producing a skill whose files are invisible.
   #
-  # It deliberately does NOT resolve the path against the filesystem. Resolution belongs
-  # to the `:ingestion` role, which is the only node guaranteed to have the volume
-  # mounted (a changeset must not make a cross-service call, and the BO node may not see
-  # the volume at all). `Skill.Resources` re-checks containment at read time, on the
-  # ingestion node, which is the authoritative check.
-  defp validate_resource_root(changeset) do
-    case get_field(changeset, :resource_root) do
-      nil ->
-        changeset
-
-      "" ->
-        put_change(changeset, :resource_root, nil)
-
-      root when is_binary(root) ->
-        cond do
-          String.starts_with?(root, "/") ->
-            add_error(changeset, :resource_root, "must be relative to an ingestion volume")
-
-          ".." in Path.split(root) ->
-            add_error(changeset, :resource_root, "must not contain \"..\"")
-
-          true ->
-            changeset
-        end
+  # A reference is `%{"file_id" => binary, "provider" => binary}` and nothing else. There is
+  # deliberately no denormalized name or mime type here: the datasource owns that metadata,
+  # and a copy in this row would go stale the moment a file is renamed in ingestion.
+  defp validate_resources(changeset) do
+    case get_field(changeset, :resources) do
+      nil -> put_change(changeset, :resources, %{"references" => []})
+      resources when is_map(resources) -> validate_resource_map(changeset, resources)
+      _ -> add_error(changeset, :resources, "must be a map")
     end
   end
+
+  defp validate_resource_map(changeset, resources) do
+    case Map.keys(resources) -- @resource_kinds do
+      [] -> validate_references(changeset, Map.get(resources, "references", []))
+      unknown -> add_error(changeset, :resources, "has unknown keys: #{Enum.join(unknown, ", ")}")
+    end
+  end
+
+  defp validate_references(changeset, references) when is_list(references) do
+    if Enum.all?(references, &valid_reference?/1) do
+      put_change(changeset, :resources, %{"references" => dedupe_references(references)})
+    else
+      add_error(
+        changeset,
+        :resources,
+        ~s(references must each be %{"file_id" => string, "provider" => string})
+      )
+    end
+  end
+
+  defp validate_references(changeset, _references),
+    do: add_error(changeset, :resources, "references must be a list")
+
+  defp valid_reference?(%{"file_id" => file_id, "provider" => provider} = reference)
+       when is_binary(file_id) and is_binary(provider) do
+    file_id != "" and provider != "" and Map.keys(reference) -- ["file_id", "provider"] == []
+  end
+
+  defp valid_reference?(_reference), do: false
+
+  # The same file referenced twice would be listed twice to the model and downloaded twice.
+  defp dedupe_references(references), do: Enum.uniq_by(references, &Map.get(&1, "file_id"))
 
   # Field-shape validation (name format, length caps, allowed-tools encoding) is owned by
   # `Jido.AI.Skill.Loader` via `Validation.validate/1` — ZAQ does not reimplement it. See

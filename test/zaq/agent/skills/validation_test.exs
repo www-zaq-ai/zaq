@@ -183,20 +183,22 @@ defmodule Zaq.Agent.Skills.ValidationTest do
     end
   end
 
-  describe "resource_root" do
-    test "accepts a relative path inside a volume" do
-      changeset = Skill.changeset(%Skill{}, Map.put(@valid, :resource_root, "skills/calculator"))
-      assert changeset.valid?
+  # `resource_root` is gone: files are referenced by document id, so there is no stored path
+  # for a traversal to escape through. The shape of `resources` is what needs guarding now,
+  # and `Zaq.Agent.SkillTest` covers each rejection branch.
+  describe "resources" do
+    test "accepts a well-formed reference list" do
+      resources = %{"references" => [%{"file_id" => "1", "provider" => "disk"}]}
+
+      assert Skill.changeset(%Skill{}, Map.put(@valid, :resources, resources)).valid?
     end
 
-    test "rejects an absolute path" do
-      changeset = Skill.changeset(%Skill{}, Map.put(@valid, :resource_root, "/etc/passwd"))
-      assert "must be relative to an ingestion volume" in errors_on(changeset).resource_root
-    end
+    test "rejects a reference that is not exactly file_id and provider" do
+      resources = %{"references" => [%{"file_id" => "1", "provider" => "disk", "path" => "/etc"}]}
+      changeset = Skill.changeset(%Skill{}, Map.put(@valid, :resources, resources))
 
-    test "rejects traversal out of the volume" do
-      changeset = Skill.changeset(%Skill{}, Map.put(@valid, :resource_root, "skills/../../etc"))
-      assert ~s(must not contain "..") in errors_on(changeset).resource_root
+      refute changeset.valid?
+      assert Map.has_key?(errors_on(changeset), :resources)
     end
   end
 

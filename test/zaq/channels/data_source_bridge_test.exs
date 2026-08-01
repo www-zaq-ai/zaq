@@ -1018,4 +1018,70 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert {:error, {:channel_not_configured, :google_drive}} =
              DataSourceBridge.list_files(:google_drive, %{"config_id" => non_existent_id})
   end
+
+  # A provider backed by something ZAQ already owns has no credentials and no per-install
+  # connection instance, so it declares a static `:config` in `config.exs` rather than
+  # carrying a `channel_configs` row. These tests pin the resolution *rule*, not the `disk`
+  # provider that motivated it.
+  describe "static config fallback" do
+    setup do
+      Application.put_env(:zaq, :channels, %{
+        # Declares a static config AND can hold a database row, so it exercises precedence.
+        google_drive: %{
+          bridge: StubDataSourceBridge,
+          adapter: __MODULE__.StubAdapter,
+          config: %{id: :static, provider: "google_drive", kind: "data_source"}
+        },
+        # No static config — the unchanged path.
+        sharepoint: %{bridge: StubDataSourceBridge, adapter: __MODULE__.StubAdapter},
+        # `ChannelConfig` does not accept "disk" as a provider at all, so this one can only
+        # ever resolve statically.
+        disk: %{
+          bridge: StubDataSourceBridge,
+          config: %{id: :static_disk, provider: "disk", kind: "data_source"}
+        }
+      })
+
+      :ok
+    end
+
+    test "resolves to the static config when no database row exists" do
+      assert {:ok, %{records: []}} = DataSourceBridge.list_files(:google_drive, %{})
+
+      assert_received {:list_files, :static, %{}}
+    end
+
+    test "resolves a provider that cannot have a row at all" do
+      assert {:ok, %{records: []}} = DataSourceBridge.list_files(:disk, %{})
+
+      assert_received {:list_files, :static_disk, %{}}
+    end
+
+    # An operator-created instance must never be shadowed by a default.
+    test "a database row wins over the static config" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{records: []}} = DataSourceBridge.list_files(:google_drive, %{})
+
+      assert_received {:list_files, ^config_id, %{}}
+    end
+
+    test "an explicit config_id still takes the scoped path" do
+      config = insert_data_source_config(:google_drive)
+      config_id = config.id
+
+      assert {:ok, %{records: []}} =
+               DataSourceBridge.list_files(:google_drive, %{"config_id" => config_id})
+
+      assert_received {:list_files, ^config_id, _}
+    end
+
+    # The regression guard: credentialed providers must not silently become
+    # configuration-free just because a fallback now exists.
+    test "a provider with no static config and no row still fails" do
+      assert {:error, {:channel_not_configured, :sharepoint}} =
+               DataSourceBridge.list_files(:sharepoint, %{})
+    end
+  end
 end

@@ -411,22 +411,129 @@ defmodule Zaq.Agent.SkillTest do
     end
   end
 
+  describe "resources validation" do
+    defp with_resources(resources), do: Map.put(@valid_attrs, :resources, resources)
+
+    defp changeset_for(resources) do
+      Skill.changeset(%Skill{}, with_resources(resources))
+    end
+
+    test "accepts a well-formed references list" do
+      changeset = changeset_for(%{"references" => [%{"file_id" => "1", "provider" => "disk"}]})
+
+      assert changeset.valid?
+    end
+
+    test "accepts an empty references list" do
+      assert changeset_for(%{"references" => []}).valid?
+    end
+
+    test "nil resets to the empty default rather than erroring" do
+      changeset = changeset_for(nil)
+
+      assert changeset.valid?
+      assert Ecto.Changeset.get_field(changeset, :resources) == %{"references" => []}
+    end
+
+    # A typo'd namespace would otherwise produce a skill whose files are silently invisible.
+    test "rejects unknown top-level keys" do
+      changeset = changeset_for(%{"referances" => []})
+
+      refute changeset.valid?
+      assert Enum.any?(errors_on(changeset).resources, &(&1 =~ "unknown keys"))
+    end
+
+    test "rejects a non-map" do
+      changeset = changeset_for("references")
+
+      refute changeset.valid?
+    end
+
+    test "rejects a non-list references value" do
+      changeset = changeset_for(%{"references" => %{"file_id" => "1"}})
+
+      refute changeset.valid?
+      assert Enum.any?(errors_on(changeset).resources, &(&1 =~ "must be a list"))
+    end
+
+    test "rejects an entry missing file_id" do
+      refute changeset_for(%{"references" => [%{"provider" => "disk"}]}).valid?
+    end
+
+    test "rejects an entry missing provider" do
+      refute changeset_for(%{"references" => [%{"file_id" => "1"}]}).valid?
+    end
+
+    test "rejects an entry with an empty file_id or provider" do
+      refute changeset_for(%{"references" => [%{"file_id" => "", "provider" => "disk"}]}).valid?
+      refute changeset_for(%{"references" => [%{"file_id" => "1", "provider" => ""}]}).valid?
+    end
+
+    # Denormalized metadata is exactly what this shape is meant to keep out — the datasource
+    # owns names, and a copy here would go stale on rename.
+    test "rejects an entry carrying extra keys" do
+      entry = %{"file_id" => "1", "provider" => "disk", "name" => "pricing.pdf"}
+
+      refute changeset_for(%{"references" => [entry]}).valid?
+    end
+
+    test "rejects a non-map entry" do
+      refute changeset_for(%{"references" => ["1"]}).valid?
+    end
+
+    test "collapses duplicate file_ids" do
+      entry = %{"file_id" => "1", "provider" => "disk"}
+      changeset = changeset_for(%{"references" => [entry, entry]})
+
+      assert changeset.valid?
+      assert Ecto.Changeset.get_field(changeset, :resources) == %{"references" => [entry]}
+    end
+
+    property "rejects anything that is not the exact reference shape" do
+      check all(
+              entry <-
+                one_of([
+                  constant(%{}),
+                  constant(%{"file_id" => "1"}),
+                  constant(%{"provider" => "disk"}),
+                  map_of(string(:alphanumeric, min_length: 1), string(:alphanumeric),
+                    min_length: 3,
+                    max_length: 5
+                  ),
+                  string(:printable),
+                  integer(),
+                  list_of(string(:alphanumeric), max_length: 2)
+                ])
+            ) do
+        # Guard against the generator accidentally producing the one valid shape.
+        valid_shape? =
+          is_map(entry) and not is_struct(entry) and
+            Map.keys(entry) |> Enum.sort() == ["file_id", "provider"]
+
+        unless valid_shape? do
+          refute changeset_for(%{"references" => [entry]}).valid?
+        end
+      end
+    end
+  end
+
   describe "new Spec-backing fields" do
     test "a record with no new fields set persists with inert defaults" do
       assert {:ok, skill} = %Skill{} |> Skill.changeset(@valid_attrs) |> Repo.insert()
 
       assert skill.allowed_tools == []
-      assert skill.resource_root == nil
+      assert skill.resources == %{"references" => []}
       # diagnostics is written by validation, string-keyed to match the stored/reloaded
       # shape, and a clean skill has none to report.
       assert %{"warning_count" => 0, "errors" => []} = skill.diagnostics
     end
 
-    test "resource_root round-trips" do
-      attrs = Map.put(@valid_attrs, :resource_root, "skills/calculator")
+    test "resources round-trips" do
+      references = [%{"file_id" => "42", "provider" => "disk"}]
+      attrs = Map.put(@valid_attrs, :resources, %{"references" => references})
 
       assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
-      assert skill.resource_root == "skills/calculator"
+      assert skill.resources == %{"references" => references}
     end
 
     test "diagnostics is not user-settable — validation owns it" do
