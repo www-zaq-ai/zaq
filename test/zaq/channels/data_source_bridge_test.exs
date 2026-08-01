@@ -51,7 +51,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     end
 
     def list_files(config, params) do
-      send(self(), {:list_files, config.id, params})
+      send(self(), {:list_files, Map.get(config, :id), params})
       {:ok, %{records: []}}
     end
 
@@ -1019,46 +1019,40 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              DataSourceBridge.list_files(:google_drive, %{"config_id" => non_existent_id})
   end
 
-  # A provider backed by something ZAQ already owns has no credentials and no per-install
-  # connection instance, so it declares a static `:config` in `config.exs` rather than
-  # carrying a `channel_configs` row. These tests pin the resolution *rule*, not the `disk`
-  # provider that motivated it.
-  describe "static config fallback" do
+  # Config resolution makes no per-provider decision: a row when one exists, otherwise the
+  # bare provider. Whether that is enough is the bridge's call — a bridge that never reads
+  # its config works either way, and one that needs credentials refuses on its own (see
+  # `Zaq.Channels.JidoConnectBridgeTest`). These tests pin the dispatcher's half of that.
+  describe "config resolution without a row" do
     setup do
       Application.put_env(:zaq, :channels, %{
-        # Declares a static config AND can hold a database row, so it exercises precedence.
-        google_drive: %{
-          bridge: StubDataSourceBridge,
-          adapter: __MODULE__.StubAdapter,
-          config: %{id: :static, provider: "google_drive", kind: "data_source"}
-        },
-        # No static config — the unchanged path.
+        # Can hold a database row, so it exercises precedence.
+        google_drive: %{bridge: StubDataSourceBridge, adapter: __MODULE__.StubAdapter},
         sharepoint: %{bridge: StubDataSourceBridge, adapter: __MODULE__.StubAdapter},
-        # `ChannelConfig` does not accept "disk" as a provider at all, so this one can only
-        # ever resolve statically.
-        disk: %{
-          bridge: StubDataSourceBridge,
-          config: %{id: :static_disk, provider: "disk", kind: "data_source"}
-        }
+        # `ChannelConfig` does not accept "disk" as a provider at all, so it can never have
+        # a row — this is the only path it ever takes.
+        disk: %{bridge: StubDataSourceBridge}
       })
 
       :ok
     end
 
-    test "resolves to the static config when no database row exists" do
+    # No `id` is what distinguishes a bare config from a row, and it is what a credentialed
+    # bridge keys its grant on.
+    test "hands the bridge a bare config when no row exists" do
       assert {:ok, %{records: []}} = DataSourceBridge.list_files(:google_drive, %{})
 
-      assert_received {:list_files, :static, %{}}
+      assert_received {:list_files, nil, %{}}
     end
 
-    test "resolves a provider that cannot have a row at all" do
+    test "does the same for a provider that can never have a row" do
       assert {:ok, %{records: []}} = DataSourceBridge.list_files(:disk, %{})
 
-      assert_received {:list_files, :static_disk, %{}}
+      assert_received {:list_files, nil, %{}}
     end
 
-    # An operator-created instance must never be shadowed by a default.
-    test "a database row wins over the static config" do
+    # An operator-created instance must never be shadowed by the bare fallback.
+    test "a database row wins over the bare config" do
       config = insert_data_source_config(:google_drive)
       config_id = config.id
 
@@ -1075,13 +1069,6 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                DataSourceBridge.list_files(:google_drive, %{"config_id" => config_id})
 
       assert_received {:list_files, ^config_id, _}
-    end
-
-    # The regression guard: credentialed providers must not silently become
-    # configuration-free just because a fallback now exists.
-    test "a provider with no static config and no row still fails" do
-      assert {:error, {:channel_not_configured, :sharepoint}} =
-               DataSourceBridge.list_files(:sharepoint, %{})
     end
   end
 end

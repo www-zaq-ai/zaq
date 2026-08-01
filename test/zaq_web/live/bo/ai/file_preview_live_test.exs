@@ -93,11 +93,16 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       assert has_element?(view, "a[download='archive.bin'][href='/bo/files/archive.bin']")
     end
 
-    test "renders binary fallback for docx when Python is unavailable", %{
+    # These previously passed only where Python was absent — the conversion failed outright
+    # and the fallback was reached for the wrong reason. Where Python *is* installed, an
+    # unparseable input is copied through to the output and still reported as `:ok`, so the
+    # preview rendered raw bytes as markdown. The requirement is about the file not being a
+    # real document, not about the toolchain being missing.
+    test "renders binary fallback for a file that is not a real docx", %{
       conn: conn,
       tmp_dir: tmp_dir
     } do
-      # DOCX magic bytes — Python script won't run in test env → :binary fallback
+      # DOCX magic bytes with nothing behind them: a zip header, not a document.
       unique = "doc-#{System.unique_integer([:positive])}"
       docx_path = Path.join(tmp_dir, "#{unique}.docx")
       File.write!(docx_path, <<80, 75, 3, 4, 0, 0>>)
@@ -113,7 +118,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       assert leftovers == []
     end
 
-    test "renders binary fallback for xlsx when Python is unavailable", %{
+    test "renders binary fallback for a file that is not a real xlsx", %{
       conn: conn,
       tmp_dir: tmp_dir
     } do
@@ -130,6 +135,18 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
         Path.wildcard(Path.join(System.tmp_dir!(), "#{unique}-*.md"))
 
       assert leftovers == []
+    end
+
+    # The bytes above are exactly what the failing conversion handed back, so this pins the
+    # actual defect: raw input must never reach the markdown renderer.
+    test "never renders binary content as markdown", %{conn: conn, tmp_dir: tmp_dir} do
+      unique = "raw-#{System.unique_integer([:positive])}"
+      File.write!(Path.join(tmp_dir, "#{unique}.docx"), <<80, 75, 3, 4, 0, 0>>)
+
+      {:ok, _view, html} = live(conn, "/bo/preview/#{unique}.docx")
+
+      refute html =~ "markdown"
+      refute has_element?(_view, ".zaq-markdown-body")
     end
 
     test "renders binary fallback for xls when Python is unavailable", %{

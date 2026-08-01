@@ -112,13 +112,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
 
     _ = File.rm(md_path)
 
-    case result do
-      {:ok, content} ->
-        {:markdown, content, render_html(content, ".md")}
-
-      _ ->
-        {:binary, nil, nil}
-    end
+    converted_or_binary(result)
   end
 
   defp load_content(full_path, ext) when ext in @xlsx_extensions do
@@ -132,16 +126,32 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
 
     _ = File.rm(md_path)
 
-    case result do
-      {:ok, content} ->
-        {:markdown, content, render_html(content, ".md")}
-
-      _ ->
-        {:binary, nil, nil}
-    end
+    converted_or_binary(result)
   end
 
   defp load_content(_full_path, _ext), do: {:binary, nil, nil}
+
+  # A conversion step that cannot parse its input copies the bytes through to the output and
+  # still reports `:ok`, so a success tuple is not evidence that anything was converted.
+  # Markdown is text by definition, so the output is checked rather than trusted: without
+  # this a corrupt or mislabelled .docx renders its raw bytes through the markdown renderer.
+  defp converted_or_binary({:ok, content}) do
+    if text?(content) do
+      {:markdown, content, render_html(content, ".md")}
+    else
+      {:binary, nil, nil}
+    end
+  end
+
+  defp converted_or_binary(_result), do: {:binary, nil, nil}
+
+  # Valid UTF-8 is necessary but not sufficient: a ZIP header (`PK\x03\x04\x00\x00`) is
+  # entirely sub-128 bytes and passes `String.valid?/1`. C0 control characters are what
+  # actually separate a document from its container — tab, newline and carriage return
+  # excepted, since those are legitimate in markdown.
+  defp text?(content) do
+    String.valid?(content) and not Regex.match?(~r/[\x00-\x08\x0B\x0C\x0E-\x1F]/, content)
+  end
 
   defp render_html(content, ".md") do
     Markdown.render(content)

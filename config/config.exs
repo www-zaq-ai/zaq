@@ -40,13 +40,7 @@ config :zaq, :channels, %{
     message_format: :html
   },
   web: %{bridge: Zaq.Channels.WebBridge},
-  # Ingestion volumes, addressed as a datasource. No credentials and no per-install
-  # connection instance, so it carries a static `:config` here instead of a
-  # `channel_configs` row — see `Zaq.Channels.DiskBridge`.
-  disk: %{
-    bridge: Zaq.Channels.DiskBridge,
-    config: %{provider: "disk", kind: "data_source"}
-  }
+  disk: %{bridge: Zaq.Channels.DiskBridge}
 }
 
 config :zaq,

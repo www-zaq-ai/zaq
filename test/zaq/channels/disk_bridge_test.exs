@@ -37,6 +37,11 @@ defmodule Zaq.Channels.DiskBridgeTest do
     def dispatch(%Event{} = event), do: %{event | response: {:error, :forbidden}}
   end
 
+  # Raises if dispatched — a request rejected on shape must never reach ingestion.
+  defmodule ForbiddenRouter do
+    def dispatch(%Event{}), do: raise("dispatch must not be called")
+  end
+
   defmodule EmptyPageRouter do
     def dispatch(%Event{} = event) do
       %{event | response: {:ok, %RecordPage{resource_type: :file, records: []}}}
@@ -145,6 +150,27 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       assert {:error, :forbidden} = DiskBridge.create_file(@config, params)
     end
+
+    # `create_document` is a generic datasource tool: it sends a provider path and no volume
+    # at all. Reaching this bridge with those params used to raise a `FunctionClauseError`
+    # from `FileExplorer.upload_unique/3` rather than returning something reportable.
+    test "refuses a call with no volume instead of crashing" do
+      params = %{"path" => "notes/a.md", "content" => "x", "node_router" => ForbiddenRouter}
+
+      assert {:error, :volume_required} = DiskBridge.create_file(@config, params)
+    end
+
+    test "refuses a call with no path" do
+      params = %{"volume" => "vol", "content" => "x", "node_router" => ForbiddenRouter}
+
+      assert {:error, :path_required} = DiskBridge.create_file(@config, params)
+    end
+
+    test "refuses an empty volume" do
+      params = %{"volume" => "", "path" => "a.md", "node_router" => ForbiddenRouter}
+
+      assert {:error, :volume_required} = DiskBridge.create_file(@config, params)
+    end
   end
 
   describe "delete_file/2" do
@@ -170,12 +196,14 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert {:ok, DiskBridge} = Bridge.resolve_bridge("disk")
     end
 
-    test "disk declares a static config so no channel_configs row is needed" do
-      assert %{provider: "disk", kind: "data_source"} = Bridge.static_channel_config("disk")
-    end
+    # Nothing about the config is written out anywhere: `config.exs` names only the bridge.
+    # A config with no row behind it — no `:id`, no settings — is all this bridge ever gets,
+    # and it works, because it never reads the config at all.
+    test "works with the bare config a provider with no row is handed" do
+      params = %{"file_id" => "42", "node_router" => EchoRouter}
 
-    test "providers with real credentials declare no static config" do
-      assert Bridge.static_channel_config("google_drive") == nil
+      assert {:ok, %{record: %Record{content: "bytes"}}} =
+               DiskBridge.download_document(%{provider: "disk"}, params)
     end
   end
 end

@@ -5639,6 +5639,37 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Unconfigured providers
+  #
+  # `Zaq.Channels.DataSourceBridge` hands over a bare `%{provider: …}` when no
+  # `channel_configs` row exists, because whether a row is needed is knowable only here —
+  # a bridge that never reads its config works without one. Every provider on this bridge
+  # authenticates, and the row's `id` is the key its grant is stored under, so a config
+  # with no `id` is not a connection at all.
+  # ---------------------------------------------------------------------------
+
+  describe "config with no channel_configs row" do
+    test "list_files reports the provider as not configured" do
+      assert {:error, {:channel_not_configured, "google_drive"}} =
+               JidoConnectBridge.list_files(%{provider: "google_drive"}, %{})
+    end
+
+    test "download_document reports the provider as not configured" do
+      assert {:error, {:channel_not_configured, "google_drive"}} =
+               JidoConnectBridge.download_document(%{provider: "google_drive"}, %{
+                 "file_id" => "42"
+               })
+    end
+
+    # The regression this guards: `runtime_ctx/1` matches on `:id`, so before it had a
+    # fallback clause a bare config raised `FunctionClauseError` instead of returning an
+    # error tuple the caller could handle.
+    test "returns an error tuple rather than raising" do
+      assert {:error, _} = JidoConnectBridge.list_files(%{provider: "sharepoint"}, %{})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Test 20 parts: principal_keys edge branches (lines 1176, 1181)
   # ---------------------------------------------------------------------------
 

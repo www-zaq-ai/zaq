@@ -87,7 +87,8 @@ defmodule Zaq.Ingestion.RecordMaterializer do
   @spec persist(map(), keyword()) :: {:ok, Record.t()} | {:error, term()}
   def persist(params, opts \\ [])
 
-  def persist(%{volume: volume, path: path} = params, opts) do
+  def persist(%{volume: volume, path: path} = params, opts)
+      when is_binary(volume) and is_binary(path) do
     content = Map.get(params, :content, "")
     tags = Map.get(params, :tags, [])
 
@@ -98,6 +99,11 @@ defmodule Zaq.Ingestion.RecordMaterializer do
       {:ok, build_record(doc, nil, opts)}
     end
   end
+
+  # Params arrive here from a dispatched event, so a caller that omits a volume or path —
+  # or sends the wrong shape entirely — must get an error, not a `FunctionClauseError`
+  # raised from deep inside `FileExplorer`.
+  def persist(_params, _opts), do: {:error, :invalid_persist_request}
 
   @doc """
   Removes the document row and the file behind it.

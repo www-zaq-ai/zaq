@@ -17,11 +17,16 @@ defmodule Zaq.Channels.DiskBridge do
 
   ## Configuration
 
-  `disk` has no credentials and no per-install connection instance, so it has no
-  `channel_configs` row — it declares a static `:config` on its `config.exs` `:channels`
-  entry instead. A phantom database row would appear in the BO datasource list, where an
-  operator could disable or delete it and silently break every skill that reads a
-  reference file.
+  There is nothing to configure, and nothing anywhere declares that. This bridge never
+  reads the config it is passed — the volume lives in ingestion's own configuration and the
+  document id carries everything else — so `disk` needs no `channel_configs` row and works
+  out of the box. A row would be a phantom in the BO datasource list, where an operator
+  could disable or delete it and silently break every skill that reads a reference file.
+
+  Bridges that *do* authenticate reject a config with no row themselves, on the grounds that
+  they cannot find their grant without one — see `Zaq.Channels.JidoConnectBridge`. That is
+  why `Zaq.Channels.DataSourceBridge` can hand every bridge whatever config exists without
+  knowing which of them care.
 
   Each callback dispatches to the `:ingestion` role, where
   `Zaq.Ingestion.RecordMaterializer` does the work and enforces `DocumentAccess`.
@@ -71,9 +76,9 @@ defmodule Zaq.Channels.DiskBridge do
   """
   @impl true
   def create_file(config, params) when is_map(config) and is_map(params) do
-    case dispatch(:persist_record, persist_request(params), params) do
-      {:ok, record} -> {:ok, %{record: record}}
-      {:error, reason} -> {:error, reason}
+    with {:ok, request} <- persist_request(params),
+         {:ok, record} <- dispatch(:persist_record, request, params) do
+      {:ok, %{record: record}}
     end
   end
 
@@ -101,13 +106,31 @@ defmodule Zaq.Channels.DiskBridge do
     }
   end
 
+  # `volume` and `path` say *where* on a mounted volume to write, which no generic
+  # datasource tool supplies — `create_document`, for instance, sends a provider path and no
+  # volume at all. Refuse explicitly rather than passing a nil volume down, where it used to
+  # surface as a `FunctionClauseError` from `FileExplorer` instead of an error the caller
+  # can report.
   defp persist_request(params) do
-    %{
-      volume: fetch(params, "volume"),
-      path: fetch(params, "path"),
-      content: fetch(params, "content"),
-      tags: fetch(params, "tags") || []
-    }
+    volume = fetch(params, "volume")
+    path = fetch(params, "path")
+
+    cond do
+      not (is_binary(volume) and volume != "") ->
+        {:error, :volume_required}
+
+      not (is_binary(path) and path != "") ->
+        {:error, :path_required}
+
+      true ->
+        {:ok,
+         %{
+           volume: volume,
+           path: path,
+           content: fetch(params, "content") || "",
+           tags: fetch(params, "tags") || []
+         }}
+    end
   end
 
   # -- dispatch --

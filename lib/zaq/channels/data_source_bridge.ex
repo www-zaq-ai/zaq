@@ -493,25 +493,20 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  # `channel_configs` rows are per-install *connection instances*: a URL, an encrypted
-  # token, a chosen account. Providers that need none of that — a built-in backed by
-  # something ZAQ already owns, such as `disk` over ingestion volumes — declare a static
-  # `:config` map on their `config.exs` `:channels` entry instead.
+  # A `channel_configs` row is a per-install *connection instance* — a URL, an encrypted
+  # token, a chosen account — and its `id` is what a credentialed bridge joins on to find
+  # its grant. Whether that matters is the bridge's business, not this dispatcher's: a
+  # bridge fronting something ZAQ already owns (`Zaq.Channels.DiskBridge`, over ingestion
+  # volumes) never reads the config at all and works out of the box, while one that needs
+  # credentials answers `{:error, {:channel_not_configured, provider}}` itself when the
+  # `id` it needs is absent.
   #
-  # An operator-created row always wins, so a default can never shadow real configuration.
-  # A provider with neither a row nor a static config still fails exactly as before, which
-  # is what keeps credentialed providers from silently becoming configuration-free.
+  # So there is no decision here. An operator-created row wins when one exists; otherwise
+  # the bridge is handed the provider it was dispatched for and decides for itself.
   defp fetch_default_data_source_config(provider) do
     case Bridge.fetch_channel_config(provider) do
       {:ok, config} -> {:ok, config}
-      {:error, reason} -> static_data_source_config(provider, reason)
-    end
-  end
-
-  defp static_data_source_config(provider, reason) do
-    case Bridge.static_channel_config(provider) do
-      nil -> {:error, reason}
-      config -> {:ok, config}
+      {:error, _reason} -> {:ok, %{provider: to_string(provider)}}
     end
   end
 

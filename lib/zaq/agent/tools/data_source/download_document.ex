@@ -83,6 +83,16 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
   @impl Jido.Action
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
+    document_id
+    |> unmaterialized_record(provider, params)
+    |> Materializer.materialize(node_router: node_router(context))
+    |> to_tool_result()
+  end
+
+  # Everything the tool actually knows: an id, and the event that can fetch the bytes for it.
+  # `content: nil` is what makes `materialize/2` dispatch that event rather than pass the
+  # record straight through.
+  defp unmaterialized_record(document_id, provider, params) do
     request =
       %{"file_id" => document_id}
       |> DataSourceTool.merge_optional(params, [
@@ -91,21 +101,18 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
         :config_id
       ])
 
-    record = %Record{
+    %Record{
       id: document_id,
       kind: :file,
       content: nil,
       materializing_event: DataSourceTool.materializing_event(provider, request)
     }
-
-    case Materializer.materialize(record, node_router: node_router(context)) do
-      {:ok, %Record{} = materialized} ->
-        {:ok, %{record: Record.to_map(materialized)}}
-
-      {:error, reason} ->
-        {:error, "Data source document download failed: #{Error.format(reason)}"}
-    end
   end
+
+  defp to_tool_result({:ok, %Record{} = record}), do: {:ok, %{record: Record.to_map(record)}}
+
+  defp to_tool_result({:error, reason}),
+    do: {:error, "Data source document download failed: #{Error.format(reason)}"}
 
   defp node_router(context), do: Map.get(context, :node_router, NodeRouter)
 end

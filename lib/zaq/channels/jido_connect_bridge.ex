@@ -1379,6 +1379,18 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
+  # Every provider on this bridge authenticates, and the `channel_configs` row's `id` is the
+  # key its grant is stored under — `resolve_runtime_ctx/4` passes it as `resource_id`. A
+  # config with no `id` is therefore not a connection at all: nothing was ever persisted, so
+  # there is no grant to find and nothing to authenticate with.
+  #
+  # `Zaq.Channels.DataSourceBridge` deliberately does not pre-judge this. It hands over
+  # whatever config exists, because whether one is needed is knowable only here — a bridge
+  # that never reads its config works without a row. Saying so at this layer is what keeps
+  # that dispatcher free of per-provider knowledge, and turns what would otherwise be a
+  # `FunctionClauseError` into the same error a missing row has always produced.
+  defp runtime_ctx(%{provider: provider}), do: {:error, {:channel_not_configured, provider}}
+
   defp resolve_runtime_ctx(provider, id, credential_id_filter, missing_credential_id?) do
     with %{credential_id: credential_id} = grant <-
            engine_get_active_grant(%{

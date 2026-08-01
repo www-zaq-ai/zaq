@@ -274,23 +274,6 @@ defmodule Zaq.Channels.Bridge do
     end
   end
 
-  @doc """
-  Returns the static config declared for a provider in `config.exs`, or `nil`.
-
-  Providers backed by something ZAQ already owns (for example `disk`, over ingestion
-  volumes) have no credentials and no per-install connection instance, so they carry a
-  `:config` map on their `:channels` entry rather than a `channel_configs` row. Callers
-  fall back to this only when no row exists, so an operator-created instance always wins —
-  see the config resolution in `Zaq.Channels.DataSourceBridge`.
-  """
-  @spec static_channel_config(atom() | String.t(), keyword()) :: map() | nil
-  def static_channel_config(provider, opts \\ []) do
-    case provider_to_bridge_key(provider) do
-      nil -> nil
-      key -> Zaq.Config.get(:zaq, :channels, %{}, opts) |> get_in([key, :config])
-    end
-  end
-
   @doc "Maps provider string keys to configured bridge keys."
   @spec provider_to_bridge_key(String.t()) :: atom() | nil
   def provider_to_bridge_key(@smtp_provider), do: :email

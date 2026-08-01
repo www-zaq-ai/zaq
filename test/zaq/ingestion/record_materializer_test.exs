@@ -273,6 +273,23 @@ defmodule Zaq.Ingestion.RecordMaterializerTest do
       assert doc.tags == ["public"]
     end
 
+    # Params reach here from a dispatched event, so a malformed request must return an error
+    # rather than raise out of FileExplorer.
+    test "rejects a request with no volume" do
+      assert {:error, :invalid_persist_request} =
+               RecordMaterializer.persist(%{path: "a.md", content: "x"})
+    end
+
+    test "rejects a request with a nil volume" do
+      assert {:error, :invalid_persist_request} =
+               RecordMaterializer.persist(%{volume: nil, path: "a.md", content: "x"})
+    end
+
+    test "rejects a request with no path" do
+      assert {:error, :invalid_persist_request} =
+               RecordMaterializer.persist(%{volume: @volume, content: "x"})
+    end
+
     test "rejects a path that escapes the volume" do
       assert {:error, _} =
                RecordMaterializer.persist(%{

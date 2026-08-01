@@ -128,6 +128,21 @@ Sourced from service docs `What's Left` sections. Updated continuously.
       deliberately, to keep a skill-scoped change from altering permission behaviour for
       every ingestion folder. The general fix belongs here.
 
+### Should Do
+- [ ] **Python conversion steps report `:ok` on input they cannot parse.**
+      `Zaq.Ingestion.Python.Steps.DocxToMd.run/2` (and `XlsxToMd`) given a file that is not
+      a real document copy the input bytes through to the output path and return
+      `{:ok, "  ✔  …"}`. Callers cannot distinguish "converted" from "gave up and copied".
+
+      `ZaqWeb.Live.BO.AI.FilePreviewData` now guards against the visible symptom by checking
+      the output is text before treating it as markdown, but that is a heuristic at the call
+      site: a plain-text file named `.docx` still passes through and renders. The step
+      itself should fail when it cannot parse its input, and the guard should then be
+      redundant.
+
+      Found when two `FilePreviewLiveTest` cases failed on a machine *with* Python — they
+      had only ever passed where it was absent.
+
 ---
 
 ## CI / Linting
