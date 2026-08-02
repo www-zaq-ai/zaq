@@ -12,7 +12,7 @@ defmodule Zaq.Contracts.Record do
   the record would otherwise control which event fires, on which node, with which params.
   Excluding it means the field cannot survive a round trip through an LLM tool result or
   persisted workflow state, so a record rebuilt from JSON can never carry an attacker-chosen
-  event. `Materializer` re-checks against a whitelist regardless.
+  event — it comes back with `materializing_event: nil` and is simply not materializable.
   """
 
   # The record's public projection: what may leave the struct, whether as JSON or as a plain

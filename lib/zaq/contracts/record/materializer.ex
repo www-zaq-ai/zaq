@@ -12,18 +12,14 @@ defmodule Zaq.Contracts.Record.Materializer do
   compile against the router, and would put cross-node routing inside a contract. The
   struct stays data; the behaviour lives here.
 
-  ## Two guards on the carried event
+  ## The carried event cannot be attacker-chosen
 
-  `materializing_event` is a dispatchable event travelling inside a data payload, which is a
-  confused-deputy risk: whoever holds the record would otherwise choose what fires, where,
-  and with what params.
-
-    1. The field is excluded from `Record`'s `Jason.Encoder` `only:` list, so it cannot
-       survive a round trip through an LLM tool result or persisted workflow state.
-    2. `@allowed_events` here is checked **before** dispatch, so even an in-process record
-       built by unexpected code cannot reach an arbitrary role and action.
-
-  A record whose event is not whitelisted is refused without dispatching.
+  `materializing_event` is a dispatchable event travelling inside a data payload. The field
+  is excluded from `Record`'s `Jason.Encoder` `only:` list and from `to_map/1`, so it cannot
+  survive a round trip through an LLM tool result or persisted workflow state — a record
+  rebuilt from JSON always carries `materializing_event: nil` and is simply not
+  materializable. Only in-process Elixir code can set one, and such code could call
+  `Zaq.NodeRouter` directly anyway.
 
   ## Only `nil` means unmaterialized
 
@@ -31,61 +27,98 @@ defmodule Zaq.Contracts.Record.Materializer do
   "still empty" would re-dispatch on every call and never converge, so the check is
   strictly `nil`. The event is cleared once spent, making `materialize/2` idempotent:
   materializing an already-materialized record is a no-op that dispatches nothing.
+
+  ## A dispatch may answer with another unmaterialized record
+
+  Where the bytes live is the *provider's* business, and the answer differs by provider:
+
+    * an external provider (Google Drive via `Zaq.Channels.JidoConnectBridge`) holds the
+      file itself, so its `download_document` answers with content in hand — one hop, done;
+    * an internal provider fronts a role that is not the one being asked. `disk` is
+      addressed through Channels but the file lives on an ingestion volume, so the honest
+      answer is the record's metadata plus the event that fetches its bytes from Ingestion.
+
+  The second case is not a failure — it is a *redirect*. A response carrying `content: nil`
+  **and** a fresh `materializing_event` is followed: the returned event is dispatched in
+  turn, until a hop produces content. A response with neither content nor a next event is
+  still an error, since nothing about it can converge.
+
+  `:max_hops` bounds the chain so a provider that keeps handing back an event — echoing the
+  one it was given, or two providers pointing at each other — fails with
+  `{:error, :materialize_hop_limit}` instead of looping.
   """
 
   alias Zaq.Contracts.Record
   alias Zaq.Event
-  alias Zaq.EventHop
   alias Zaq.NodeRouter
 
-  # The complete set of destinations a record may pull its content from. Extend
-  # deliberately: every entry here is a role+action any holder of a record can cause to run.
-  @allowed_events [
-    {:channels, :data_source_download_document},
-    {:ingestion, :materialize_record}
-  ]
+  # Two is what the `disk` provider needs (Channels, then Ingestion). The headroom lets a
+  # provider add one indirection of its own without a code change here; anything beyond that
+  # is a loop, not a topology.
+  @default_max_hops 4
 
   @doc """
   Returns the record with its content populated.
 
   A record that already has content is returned untouched and nothing is dispatched. A
-  record with `content: nil` dispatches its `materializing_event` — provided that event is
-  whitelisted — and returns the record with the fetched content and the event cleared.
+  record with `content: nil` dispatches its `materializing_event`; if that answers with
+  another unmaterialized record the chain is followed, and the record is returned with the
+  fetched content and the event cleared.
 
   ## Options
 
     * `:node_router` — module used to dispatch, defaults to `Zaq.NodeRouter`.
+    * `:max_hops` — how many dispatches a single call may chain, defaults to
+      `#{@default_max_hops}`.
   """
   @spec materialize(Record.t(), keyword()) :: {:ok, Record.t()} | {:error, term()}
   def materialize(record, opts \\ [])
 
-  def materialize(%Record{content: nil, materializing_event: %Event{} = event} = record, opts) do
-    case event_key(event) do
-      key when key in @allowed_events ->
-        opts
-        |> Keyword.get(:node_router, NodeRouter)
-        |> dispatch(event)
-        |> apply_content(record)
-
-      key ->
-        {:error, {:event_not_allowed, key}}
-    end
+  def materialize(%Record{content: nil, materializing_event: %Event{}} = record, opts) do
+    hop(record, opts, Keyword.get(opts, :max_hops, @default_max_hops))
   end
 
   def materialize(%Record{content: nil}, _opts), do: {:error, :not_materializable}
 
   def materialize(%Record{} = record, _opts), do: {:ok, record}
 
+  # Each hop asks the record's current event for content. A hop that answers with a record
+  # still lacking content but carrying a new event is a redirect, and is followed against
+  # the remaining budget.
+  defp hop(%Record{}, _opts, hops) when hops <= 0, do: {:error, :materialize_hop_limit}
+
+  defp hop(%Record{materializing_event: event} = record, opts, hops) do
+    opts
+    |> Keyword.get(:node_router, NodeRouter)
+    |> dispatch(event)
+    |> apply_content(record)
+    |> follow(opts, hops - 1)
+  end
+
+  defp follow({:ok, %Record{content: nil, materializing_event: %Event{}} = record}, opts, hops),
+    do: hop(record, opts, hops)
+
+  defp follow(result, _opts, _hops), do: result
+
   defp dispatch(node_router, event) do
     event |> node_router.dispatch() |> Map.fetch!(:response)
   end
 
+  @merged_fields ~w(id name mime_type path url size description)a
+
   # A fetched record is richer than the stub that asked for it — it carries the name, size
-  # and mime type the source actually holds — so it wins outright, keeping only the
-  # original's id if the response left one out.
+  # and mime type the source actually holds — so it wins field by field.
   defp apply_content({:ok, %Record{content: content} = fetched}, record)
        when not is_nil(content) do
-    {:ok, %{fetched | id: fetched.id || record.id, materializing_event: nil}}
+    {:ok, %{carry_over(fetched, record) | materializing_event: nil}}
+  end
+
+  # A redirect: the provider answered with metadata and a fresh event rather than bytes,
+  # because the role holding the file is not the one that was asked. The fetched record
+  # wins for the same reason as above, and its event — not the spent one — drives the next
+  # hop. Distinct from the clause below: content is absent, but convergence is still possible.
+  defp apply_content({:ok, %Record{materializing_event: %Event{}} = fetched}, record) do
+    {:ok, carry_over(fetched, record)}
   end
 
   # Datasource bridges answer `download_document` with `%{record: …}` — see
@@ -96,6 +129,11 @@ defmodule Zaq.Contracts.Record.Materializer do
   # A provider that answers with a plain map rather than a `%Record{}`. Recognised fields
   # are lifted onto the record so the normalization the tool promises still happens, instead
   # of the caller receiving a record carrying only content.
+  #
+  # A success with neither content nor a next event is a dead end, so it is reported as an
+  # error: returning `{:ok, record}` would claim success while leaving the record
+  # unmaterialized, looping any caller that retries until content is present. Note a plain
+  # map can never be a redirect — `materializing_event` lives only on the struct.
   defp apply_content({:ok, payload}, record) when is_map(payload) do
     case payload_content(payload) do
       nil -> {:error, {:unexpected_materialize_response, {:ok, payload}}}
@@ -103,14 +141,22 @@ defmodule Zaq.Contracts.Record.Materializer do
     end
   end
 
-  # A success carrying no content is treated as a failure: it would otherwise report
-  # success while leaving the record unmaterialized, which loops any caller that retries
-  # until content is present.
   defp apply_content({:error, reason}, _record), do: {:error, reason}
 
   defp apply_content(other, _record), do: {:error, {:unexpected_materialize_response, other}}
 
-  @merged_fields ~w(id name mime_type path url size description)a
+  # The hop that returns the bytes is not always the hop that knows the file's name. A
+  # redirecting provider answers with metadata and points elsewhere for content, and the
+  # role it points at may hold nothing but bytes. Filling only the blanks keeps what the
+  # chain already established without ever overwriting a value the newer hop did supply.
+  defp carry_over(%Record{} = fetched, %Record{} = previous) do
+    Enum.reduce(@merged_fields, fetched, fn field, acc ->
+      case Map.fetch!(acc, field) do
+        nil -> Map.put(acc, field, Map.fetch!(previous, field))
+        _present -> acc
+      end
+    end)
+  end
 
   defp merge_payload(%Record{} = record, payload) do
     Enum.reduce(@merged_fields, record, fn field, acc ->
@@ -129,9 +175,4 @@ defmodule Zaq.Contracts.Record.Materializer do
 
   defp materialized(%Record{} = record, content),
     do: %{record | content: content, materializing_event: nil}
-
-  defp event_key(%Event{next_hop: %EventHop{destination: role}, opts: opts}),
-    do: {role, Keyword.get(opts, :action)}
-
-  defp event_key(%Event{opts: opts}), do: {nil, Keyword.get(opts, :action)}
 end

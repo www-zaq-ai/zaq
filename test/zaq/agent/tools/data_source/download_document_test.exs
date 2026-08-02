@@ -208,4 +208,68 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
       assert message =~ "weird_response"
     end
   end
+
+  # The tool is provider-shaped, not topology-shaped: it composes one stub record and hands
+  # it to `Materializer`. Whether the provider answers with bytes in one hop or points at
+  # the role that holds them is settled below the tool, so a provider switching from eager
+  # to deferred must need no change here. These two assert exactly that.
+  describe "providers that answer in more than one hop" do
+    defmodule DeferringRouter do
+      def dispatch(%Event{opts: opts} = event) do
+        send(self(), {:dispatch, opts[:action]})
+
+        case opts[:action] do
+          # Channels fronts the `disk` provider, but the file is on an ingestion volume —
+          # so it answers with what it knows and the event that fetches the rest.
+          :data_source_download_document ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     record: %Zaq.Contracts.Record{
+                       id: "f1",
+                       kind: :file,
+                       name: "guide.md",
+                       content: nil,
+                       materializing_event:
+                         Event.new(%{file_id: "f1"}, :ingestion,
+                           opts: [action: :materialize_record]
+                         )
+                     }
+                   }}
+            }
+
+          :materialize_record ->
+            %{
+              event
+              | response: {:ok, %Zaq.Contracts.Record{id: "f1", kind: :file, content: "on disk"}}
+            }
+        end
+      end
+    end
+
+    test "follows the redirect and returns the content to the model" do
+      assert {:ok, %{record: record}} =
+               DownloadDocument.run(%{provider: "disk", document_id: "f1"}, %{
+                 node_router: DeferringRouter
+               })
+
+      assert record.content == "on disk"
+      assert_received {:dispatch, :data_source_download_document}
+      assert_received {:dispatch, :materialize_record}
+    end
+
+    # The hop that holds the bytes is not the hop that knows the filename. Losing it here
+    # would hand the model content it cannot name.
+    test "keeps metadata supplied by the redirecting hop" do
+      assert {:ok, %{record: record}} =
+               DownloadDocument.run(%{provider: "disk", document_id: "f1"}, %{
+                 node_router: DeferringRouter
+               })
+
+      assert record.name == "guide.md"
+      refute Map.has_key?(record, :materializing_event)
+    end
+  end
 end

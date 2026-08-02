@@ -29,27 +29,47 @@ defmodule Zaq.Channels.DiskBridge do
   knowing which of them care.
 
   Each callback dispatches to the `:ingestion` role, where
-  `Zaq.Ingestion.RecordMaterializer` does the work and enforces `DocumentAccess`.
+  `Zaq.Ingestion.RecordMaterializer` does the work and enforces `DocumentAccess`. The one
+  exception is `download_document/2`, which dispatches nothing and hands back the event that
+  does — see its `@doc`.
   """
 
   @behaviour Zaq.Channels.DataSourceBridge
 
+  alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.NodeRouter
 
   @doc """
-  Returns the document's bytes as a record.
+  Returns an **unmaterialized** record carrying the event that fetches the bytes.
+
+  Every other datasource bridge fronts a system that holds the file, so it answers with
+  content in hand. This one does not: `disk` is addressed through Channels, but the bytes
+  live on an ingestion volume. Reading them here would drag the payload ingestion → channels
+  → caller, when the caller can ask ingestion directly.
+
+  So the answer is the address plus the means: `content: nil` and a `materializing_event`
+  aimed at `{:ingestion, :materialize_record}`. `Zaq.Contracts.Record.Materializer` follows
+  it, and the metadata — name, mime type, size — comes back from that hop, which reads the
+  document row anyway. Dispatch count is unchanged; the bytes just cross one boundary
+  instead of two.
 
   Wrapped as `%{record: record}` to match the shape every other datasource bridge returns
   for this callback.
   """
   @impl true
   def download_document(config, params) when is_map(config) and is_map(params) do
-    case dispatch(:materialize_record, materialize_request(params), params) do
-      {:ok, record} -> {:ok, %{record: record}}
-      {:error, reason} -> {:error, reason}
-    end
+    {:ok,
+     %{
+       record: %Record{
+         id: to_string(fetch(params, "file_id")),
+         kind: :file,
+         content: nil,
+         materializing_event:
+           Event.new(materialize_request(params), :ingestion, opts: [action: :materialize_record])
+       }
+     }}
   end
 
   @doc "Lists the given documents as **unmaterialized** records — metadata only."

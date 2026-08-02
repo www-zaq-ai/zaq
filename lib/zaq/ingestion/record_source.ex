@@ -9,6 +9,7 @@ defmodule Zaq.Ingestion.RecordSource do
   """
 
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Materializer
   alias Zaq.Event
 
   alias Zaq.Ingestion.{
@@ -132,7 +133,8 @@ defmodule Zaq.Ingestion.RecordSource do
   defp list_entries(volume, path), do: FileExplorer.list(volume, path)
 
   defp materialize_external(%Record{} = record) do
-    with {:ok, %{record: %Record{} = downloaded}} <- download_external(record),
+    with {:ok, %{record: %Record{} = answered}} <- download_external(record),
+         {:ok, %Record{} = downloaded} <- Materializer.materialize(answered),
          {:ok, stored} <- store_download(record, downloaded) do
       sidecar_source = ExternalSource.sidecar_source(record)
       source = ExternalSource.source(record)
@@ -155,6 +157,10 @@ defmodule Zaq.Ingestion.RecordSource do
     end
   end
 
+  # A provider may answer with the bytes, or with a record that only knows where to get
+  # them — see `Zaq.Channels.DiskBridge`. `materialize_external/1` routes the answer through
+  # `Materializer` either way rather than assuming which kind of provider it just asked;
+  # a provider that already sent content is passed straight through, undispatched.
   defp download_external(%Record{} = record) do
     params = %{
       "config_id" => ExternalSource.config_id(record),

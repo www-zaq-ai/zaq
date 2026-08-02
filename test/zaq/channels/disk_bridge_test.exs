@@ -50,33 +50,52 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
   @config %{provider: "disk", kind: "data_source"}
 
+  # Unlike every other callback here, this one dispatches nothing: the bytes live on an
+  # ingestion volume, so reading them here would route the payload ingestion → channels →
+  # caller. It answers with the address and the event that fetches it, and the caller's
+  # `Materializer` takes the second hop straight to ingestion.
   describe "download_document/2" do
-    test "dispatches materialize_record and wraps the record" do
-      params = %{"file_id" => "42", "person_id" => nil, "node_router" => EchoRouter}
+    test "answers with an unmaterialized record and dispatches nothing" do
+      params = %{"file_id" => "42", "person_id" => nil, "node_router" => ForbiddenRouter}
 
-      assert {:ok, %{record: %Record{content: "bytes"}}} =
+      assert {:ok, %{record: %Record{id: "42", kind: :file, content: nil} = record}} =
                DiskBridge.download_document(@config, params)
 
-      assert_received {:dispatched, :materialize_record, %{file_id: "42", person_id: nil}}
+      assert %Event{} = record.materializing_event
     end
 
-    test "carries person_id and team_ids through to ingestion" do
+    test "aims the carried event at ingestion's materialize_record" do
+      params = %{"file_id" => "42", "node_router" => ForbiddenRouter}
+
+      assert {:ok, %{record: %Record{materializing_event: event}}} =
+               DiskBridge.download_document(@config, params)
+
+      assert event.next_hop.destination == :ingestion
+      assert event.opts[:action] == :materialize_record
+    end
+
+    # The permission context has to survive onto the deferred event, or the second hop
+    # arrives at `DocumentAccess` as an anonymous read and the file is refused.
+    test "carries file_id, person_id and team_ids onto the deferred event" do
       params = %{
         "file_id" => "42",
         "person_id" => "p1",
         "team_ids" => ["t1"],
-        "node_router" => EchoRouter
+        "node_router" => ForbiddenRouter
       }
 
-      assert {:ok, _} = DiskBridge.download_document(@config, params)
+      assert {:ok, %{record: %Record{materializing_event: event}}} =
+               DiskBridge.download_document(@config, params)
 
-      assert_received {:dispatched, :materialize_record, %{person_id: "p1", team_ids: ["t1"]}}
+      assert event.request == %{file_id: "42", person_id: "p1", team_ids: ["t1"]}
     end
 
-    test "propagates an ingestion error" do
+    # Errors now surface on the hop that reads the file, not on this call — the bridge no
+    # longer touches ingestion, so there is nothing here that can fail.
+    test "does not reach ingestion, so an ingestion error cannot surface here" do
       params = %{"file_id" => "42", "node_router" => ErrorRouter}
 
-      assert {:error, :forbidden} = DiskBridge.download_document(@config, params)
+      assert {:ok, %{record: %Record{}}} = DiskBridge.download_document(@config, params)
     end
   end
 
@@ -184,10 +203,12 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
   describe "params" do
     test "accepts atom keys as well as string keys" do
-      params = %{file_id: "42", node_router: EchoRouter}
+      params = %{file_id: "42", node_router: ForbiddenRouter}
 
-      assert {:ok, %{record: %Record{content: "bytes"}}} =
+      assert {:ok, %{record: %Record{id: "42", materializing_event: event}}} =
                DiskBridge.download_document(@config, params)
+
+      assert event.request.file_id == "42"
     end
   end
 
@@ -202,8 +223,10 @@ defmodule Zaq.Channels.DiskBridgeTest do
     test "works with the bare config a provider with no row is handed" do
       params = %{"file_id" => "42", "node_router" => EchoRouter}
 
-      assert {:ok, %{record: %Record{content: "bytes"}}} =
+      assert {:ok, %{record: %Record{id: "42"}}} =
                DiskBridge.download_document(%{provider: "disk"}, params)
+
+      assert {:ok, %RecordPage{}} = DiskBridge.list_files(%{provider: "disk"}, params)
     end
   end
 end

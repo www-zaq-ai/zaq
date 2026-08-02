@@ -370,12 +370,52 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert materialized.cleanup_paths == [materialized.path]
   end
 
-  test "materialize/1 returns unsupported downloaded record errors" do
+  # A download answering with no content and no way to fetch any is a dead end, and now
+  # fails as one: the record goes through `Materializer`, which names the actual problem
+  # rather than letting it reach `store_download/2` and surface as an unsupported shape.
+  test "materialize/1 rejects a download that carries neither content nor a way to get it" do
     expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
       %{event | response: {:ok, %{record: %Record{id: "bad", kind: :file, content: nil}}}}
     end)
 
+    assert RecordSource.materialize(external_record()) == {:error, :not_materializable}
+  end
+
+  # Still the job of `store_download/2`: content arrived, but in a shape it cannot write.
+  test "materialize/1 returns unsupported downloaded record errors" do
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{
+        event
+        | response: {:ok, %{record: %Record{id: "bad", kind: :file, content: %{"a" => 1}}}}
+      }
+    end)
+
     assert RecordSource.materialize(external_record()) == {:error, :unsupported_downloaded_record}
+  end
+
+  # The `disk` provider answers `download_document` with metadata and the event that fetches
+  # the bytes, so ingesting from it takes two hops. This is the path that would silently
+  # stop working if the deferred answer were treated as a failed download.
+  test "materialize/1 follows a provider that defers its content" do
+    deferred = %Record{
+      id: "42",
+      kind: :file,
+      content: nil,
+      materializing_event:
+        Zaq.Event.new(%{file_id: "42"}, :ingestion, opts: [action: :materialize_record])
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: deferred}}}
+    end)
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{opts: opts} = event ->
+      assert opts[:action] == :materialize_record
+      %{event | response: {:ok, %Record{id: "42", kind: :file, content: "deferred bytes"}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(external_record())
+    assert File.read!(materialized.path) == "deferred bytes"
   end
 
   test "materialize/1 propagates invalid base64 decode errors" do
