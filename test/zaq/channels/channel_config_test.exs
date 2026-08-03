@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.ChannelConfigTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{AgentRouting, ChannelConfig, RetrievalChannel}
+  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig, DiskBridge, RetrievalChannel}
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
@@ -204,6 +204,65 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
     assert changeset.valid?
     assert {:ok, _config} = Repo.insert(changeset)
+  end
+
+  # ── disk data source ────────────────────────────────────────────────────────
+
+  describe "disk provider" do
+    test "is an accepted provider" do
+      changeset =
+        ChannelConfig.changeset(%ChannelConfig{}, %{
+          name: "Disk",
+          provider: "disk",
+          kind: "data_source",
+          enabled: true
+        })
+
+      assert changeset.valid?
+      refute Elixir.Map.has_key?(errors_on(changeset), :provider)
+    end
+
+    test "gets url and token placeholders rather than being required to supply them" do
+      # The disk data source fronts volumes ZAQ already owns — there is nothing for an
+      # operator to enter, but the row still has to exist for the bridge to be resolved.
+      # The migration already seeded one, so this starts from a clean slate.
+      Repo.get_by!(ChannelConfig, provider: "disk") |> Repo.delete!()
+
+      assert {:ok, config} =
+               %ChannelConfig{}
+               |> ChannelConfig.changeset(%{
+                 name: "Disk",
+                 provider: "disk",
+                 kind: "data_source",
+                 enabled: true
+               })
+               |> Repo.insert()
+
+      assert config.url == ""
+      assert config.token == ""
+    end
+
+    test "keeps a url and token the caller did supply" do
+      assert {:ok, config} =
+               ChannelConfig
+               |> Repo.get_by!(provider: "disk")
+               |> ChannelConfig.changeset(%{url: "https://example.test", token: "supplied"})
+               |> Repo.update()
+
+      assert config.url == "https://example.test"
+      assert Repo.get!(ChannelConfig, config.id).token == "supplied"
+    end
+
+    test "the migration's row is what Bridge.fetch_channel_config/1 finds" do
+      assert {:ok, config} = Bridge.fetch_channel_config("disk")
+      assert config.provider == "disk"
+      assert config.kind == "data_source"
+      assert config.enabled
+    end
+
+    test "resolves to the disk bridge" do
+      assert {:ok, DiskBridge} = Bridge.resolve_bridge("disk")
+    end
   end
 
   test "email:imap requires selected_mailboxes in settings" do
