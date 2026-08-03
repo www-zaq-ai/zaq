@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.DataSourceBridgeTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{ChannelConfig, DataSourceBridge}
+  alias Zaq.Channels.{Bridge, ChannelConfig, DataSourceBridge, DiskBridge}
   alias Zaq.Repo
 
   defmodule StubDataSourceBridge do
@@ -1017,5 +1017,87 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert {:error, {:channel_not_configured, :google_drive}} =
              DataSourceBridge.list_files(:google_drive, %{"config_id" => non_existent_id})
+  end
+
+  # ── partial implementation ──────────────────────────────────────────────────
+
+  describe "@optional_callbacks" do
+    test "every declared callback is optional" do
+      # The dispatcher already answers {:error, :unsupported} for anything a bridge does not
+      # export, so partial implementation is the design. The behaviour has to say so, or a
+      # narrow bridge cannot get compile-time checking on the callbacks it does implement.
+      callbacks = DataSourceBridge.behaviour_info(:callbacks)
+      optional = DataSourceBridge.behaviour_info(:optional_callbacks)
+
+      assert callbacks -- optional == []
+    end
+  end
+
+  describe "a bridge implementing only a subset" do
+    setup do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        disk: %{bridge: DiskBridge}
+      })
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      :ok
+    end
+
+    test ":disk resolves to the disk bridge through the registry" do
+      assert {:ok, DiskBridge} = Bridge.resolve_bridge(:disk)
+      assert {:ok, DiskBridge} = Bridge.resolve_bridge("disk")
+    end
+
+    test "exports the file callbacks it implements" do
+      for {callback, arity} <- [
+            list_files: 2,
+            create_file: 2,
+            get_file: 2,
+            update_file: 2,
+            delete_file: 2,
+            search_files: 2,
+            download_document: 2,
+            list_permissions: 2,
+            channel_stats: 2
+          ] do
+        assert function_exported?(DiskBridge, callback, arity),
+               "expected DiskBridge to export #{callback}/#{arity}"
+      end
+    end
+
+    test "answers :unsupported for the callbacks it omits" do
+      assert {:error, :unsupported} = DataSourceBridge.auth_handshake(:disk, %{})
+      assert {:error, :unsupported} = DataSourceBridge.list_resources(:disk, %{})
+      assert {:error, :unsupported} = DataSourceBridge.oauth_authorize_url(:disk, %{})
+      assert {:error, :unsupported} = DataSourceBridge.oauth_default_scopes(:disk)
+      assert {:error, :unsupported} = DataSourceBridge.watch_changes(:disk, %{})
+      assert {:error, :unsupported} = DataSourceBridge.handle_webhook(:disk, %{})
+      assert {:error, :unsupported} = DataSourceBridge.sheet_get(:disk, %{})
+      assert {:error, :unsupported} = DataSourceBridge.sheet_create(:disk, %{})
+      assert {:error, :unsupported} = DataSourceBridge.sheet_delete_tab(:disk, %{})
+    end
+
+    test "export_options falls back to an empty answer rather than :unsupported" do
+      # `export_options/2` has its own fallback in the dispatcher: a bridge that exports
+      # nothing answers with empty lists, not an error.
+      assert {:ok, %{native_types: [], export_formats_by_native_type: %{}}} =
+               DataSourceBridge.export_options(:disk, %{})
+    end
+
+    test "a provider with no channel_configs row errors rather than getting a synthetic one" do
+      Repo.get_by!(ChannelConfig, provider: "disk") |> Repo.delete!()
+
+      assert {:error, {:channel_not_configured, :disk}} =
+               DataSourceBridge.list_files(:disk, %{})
+    end
   end
 end
