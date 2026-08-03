@@ -42,6 +42,32 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
     end
   end
 
+  describe "by_provider/1" do
+    test "is empty for a skill with no references" do
+      assert Resources.by_provider(skill(%{})) == []
+    end
+
+    test "collapses references sharing a provider into one entry" do
+      refs = [
+        %{"file_id" => "1", "provider" => "disk"},
+        %{"file_id" => "2", "provider" => "gdrive"},
+        %{"file_id" => "3", "provider" => "disk"}
+      ]
+
+      grouped = Enum.sort(Resources.by_provider(skill(%{resources: %{"references" => refs}})))
+
+      assert grouped == [{"disk", ["1", "3"]}, {"gdrive", ["2"]}]
+    end
+
+    test "preserves reference order within a provider" do
+      refs =
+        Enum.map(["9", "3", "7"], &%{"file_id" => &1, "provider" => "disk"})
+
+      assert Resources.by_provider(skill(%{resources: %{"references" => refs}})) ==
+               [{"disk", ["9", "3", "7"]}]
+    end
+  end
+
   describe "add_reference/3" do
     test "appends to an empty skill" do
       assert Resources.add_reference(skill(%{}), "42", "disk") ==

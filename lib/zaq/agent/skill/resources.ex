@@ -4,9 +4,11 @@ defmodule Zaq.Agent.Skill.Resources do
 
   Two groups of functions, all pure:
 
-    * **References** — `references/1`, `add_reference/3`, `remove_reference/2` return plain
-      data; persisting it is `Zaq.Agent.Skills`' job. A reference is a document id plus a
-      provider, not a path, so renaming a skill cannot orphan a file already uploaded.
+    * **References** — `references/1`, `by_provider/1`, `add_reference/3`,
+      `remove_reference/2` return plain data; persisting it is `Zaq.Agent.Skills`' job.
+      A reference is a document id plus a provider, not a path, so renaming a skill cannot
+      orphan a file already uploaded. Resolving references to actual files is
+      `Zaq.Agent.Skill.ReferenceFiles`' job, because that requires a dispatch.
     * **Destinations** — `root/1`, `references_dir/1` and `destination/2` derive the
       volume-relative path an uploaded file is written to, under
       `.agents/skills/{slug}/references/`, where it appears in the BO ingestion browser like
@@ -40,6 +42,23 @@ defmodule Zaq.Agent.Skill.Resources do
     do: references
 
   def references(%Skill{}), do: []
+
+  @doc """
+  The skill's references grouped as `[{provider, [file_id]}]`.
+
+  Every datasource call that resolves references takes a provider and a list of ids, so
+  grouping is what turns N references into one dispatch per provider.
+
+      iex> Zaq.Agent.Skill.Resources.by_provider(%Zaq.Agent.Skill{})
+      []
+  """
+  @spec by_provider(Skill.t()) :: [{String.t(), [String.t()]}]
+  def by_provider(%Skill{} = skill) do
+    skill
+    |> references()
+    |> Enum.group_by(&Map.get(&1, "provider"), &Map.get(&1, "file_id"))
+    |> Enum.to_list()
+  end
 
   @doc """
   Returns the skill's `resources` map with one reference added.

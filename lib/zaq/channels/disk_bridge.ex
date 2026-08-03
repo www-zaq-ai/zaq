@@ -26,6 +26,7 @@ defmodule Zaq.Channels.DiskBridge do
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.NodeRouter
+  alias Zaq.Utils
 
   @doc """
   Returns `%{record: record}` where the record is **unmaterialized**.
@@ -89,19 +90,20 @@ defmodule Zaq.Channels.DiskBridge do
   # -- requests --
 
   defp materialize_request(params) do
-    %{
-      file_id: fetch(params, "file_id"),
-      person_id: fetch(params, "person_id"),
-      team_ids: fetch(params, "team_ids") || []
-    }
+    with_caller(params, %{file_id: fetch(params, "file_id")})
   end
 
   defp describe_request(params) do
-    %{
-      file_ids: fetch(params, "file_ids") || [],
+    with_caller(params, %{file_ids: fetch(params, "file_ids") || []})
+  end
+
+  # Every read request carries who is asking. Ingestion checks it on each one, so leaving it
+  # off a request would silently downgrade that call to an unprivileged one rather than fail.
+  defp with_caller(params, request) do
+    Map.merge(request, %{
       person_id: fetch(params, "person_id"),
       team_ids: fetch(params, "team_ids") || []
-    }
+    })
   end
 
   # `volume` and `path` say *where* on a mounted volume to write, which no generic
@@ -144,9 +146,5 @@ defmodule Zaq.Channels.DiskBridge do
 
   # Params arrive from agent tools with string keys and from internal callers with atom
   # keys; accept either rather than forcing every caller to normalise first.
-  defp fetch(params, key) do
-    Map.get(params, key) || Map.get(params, String.to_existing_atom(key))
-  rescue
-    ArgumentError -> Map.get(params, key)
-  end
+  defp fetch(params, key), do: Utils.Map.present_value(params, key)
 end

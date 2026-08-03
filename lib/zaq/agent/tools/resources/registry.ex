@@ -48,7 +48,7 @@ defmodule Zaq.Agent.Tools.Resources.Registry do
       module: Zaq.Agent.Skill,
       public?: true,
       fields:
-        ~w(id name description provided_tool_keys allowed_tools enabled_mcp_endpoint_ids resource_root tags active inserted_at updated_at)a,
+        ~w(id name description provided_tool_keys allowed_tools enabled_mcp_endpoint_ids resources tags active inserted_at updated_at)a,
       search_fields: ~w(name description tags)a,
       filter_fields: ~w(active provided_tool_keys allowed_tools enabled_mcp_endpoint_ids tags)a,
       sort_fields: ~w(id name active inserted_at updated_at)a,

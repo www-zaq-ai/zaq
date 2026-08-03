@@ -76,11 +76,9 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
   alias Jido.Action.Tool
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Agent.Skill.Resources
+  alias Zaq.Agent.Skill.ReferenceFiles
   alias Zaq.Agent.Skills
   alias Zaq.Agent.TokenEstimator
-  alias Zaq.Contracts.RecordPage
-  alias Zaq.Event
   alias Zaq.NodeRouter
 
   require Logger
@@ -106,45 +104,30 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
     end
   end
 
-  # The skill row stores `{file_id, provider}` and nothing else — the datasource owns names,
-  # so a copy on the skill would go stale the moment a file is renamed. That means one
-  # dispatch per provider to turn ids into something the model can choose between.
-  #
-  # Three fields are surfaced, and the split matters. `id` and `provider` together are the
-  # *address* `download_document` takes; omitting either leaves the model unable to
+  # Only three fields are surfaced, and the split matters. `id` and `provider` together are
+  # the *address* `download_document` takes; omitting either leaves the model unable to
   # construct the call, and it will invent a plausible-looking provider rather than fail.
   # `name` is what it chooses between. Everything else — mime type, size — is description
   # the filename already implies, and `resources` is returned on *every* skill load, so it
   # is context spent on every call. The record still carries those fields if a caller needs
   # them.
+  #
+  # `ReferenceFiles` degrades an unreachable provider to no records, so a skill whose
+  # instructions do not need a file still loads when ingestion is down. The warning is how
+  # an operator finds out.
   defp load_resources(skill, context) do
     skill
-    |> Resources.references()
-    |> Enum.group_by(&Map.get(&1, "provider"), &Map.get(&1, "file_id"))
-    |> Enum.flat_map(fn {provider, file_ids} -> describe(provider, file_ids, context) end)
+    |> ReferenceFiles.list(
+      node_router: Map.get(context, :node_router, NodeRouter),
+      on_error: &warn_unresolved/2
+    )
+    |> Enum.map(fn {provider, record} ->
+      %{id: record.id, name: record.name, provider: provider}
+    end)
   end
 
-  # A skill whose instructions do not need a file must keep working when the ingestion role
-  # is unreachable, so a failure here degrades to "no resources" rather than failing the
-  # load. The warning is how an operator finds out.
-  defp describe(provider, file_ids, context) do
-    node_router = Map.get(context, :node_router, NodeRouter)
-
-    response =
-      %{provider: provider, params: %{"file_ids" => file_ids}}
-      |> Event.new(:channels, opts: [action: :data_source_list_files])
-      |> node_router.dispatch()
-      |> Map.get(:response)
-
-    case response do
-      {:ok, %RecordPage{records: records}} ->
-        Enum.map(records, &%{id: &1.id, name: &1.name, provider: provider})
-
-      other ->
-        Logger.warning("[LoadSkill] could not list #{provider} resources: #{inspect(other)}")
-
-        []
-    end
+  defp warn_unresolved(provider, response) do
+    Logger.warning("[LoadSkill] could not list #{provider} resources: #{inspect(response)}")
   end
 
   defp fetch_agent(context) do

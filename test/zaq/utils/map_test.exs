@@ -58,6 +58,31 @@ defmodule Zaq.Utils.MapTest do
     end
   end
 
+  describe "present_value/2" do
+    test "reads either string or existing atom keys" do
+      assert Map.present_value(%{"subject" => "string"}, "subject") == "string"
+      assert Map.present_value(%{subject: "atom"}, "subject") == "atom"
+      assert Map.present_value(%{"subject" => "string"}, :subject) == "string"
+      assert Map.present_value(%{subject: "atom"}, :subject) == "atom"
+    end
+
+    test "a key holding nil does not shadow the other spelling" do
+      assert Map.present_value(%{"subject" => nil, :subject => "atom"}, "subject") == "atom"
+      assert Map.present_value(%{:subject => nil, "subject" => "string"}, :subject) == "string"
+    end
+
+    test "returns nil when neither spelling carries a value" do
+      assert Map.present_value(%{"subject" => nil}, "subject") == nil
+      assert Map.present_value(%{}, "not_existing_present_key") == nil
+    end
+
+    test "returns nil for invalid maps or unsupported key types" do
+      assert Map.present_value(nil, "subject") == nil
+      assert Map.present_value("not-a-map", :subject) == nil
+      assert Map.present_value(%{subject: "hello"}, 123) == nil
+    end
+  end
+
   describe "stringify_keys/1" do
     test "converts atom keys to strings and leaves values untouched" do
       assert Map.stringify_keys(%{:originator => "zaqos", "scope" => "openid"}) == %{

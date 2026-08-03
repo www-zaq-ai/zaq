@@ -38,11 +38,11 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias Ecto.Changeset
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Skill
+  alias Zaq.Agent.Skill.ReferenceFiles
   alias Zaq.Agent.Skill.Resources
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.Tools.Registry
-  alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.NodeRouter
@@ -484,7 +484,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp resource_target(%{form: form}), do: %Skill{name: form[:name].value}
 
   # Writes entries staged while the skill did not exist. Returns the `{uploaded, failed}`
-  # split so the caller can both flash and decide whether to persist `resource_root`.
+  # split so the caller can both flash and record the references for what landed.
   defp flush_staged_resources(socket, %Skill{} = skill) do
     volume = socket.assigns.resource_volume
     entries = socket.assigns.uploads.skill_resources.entries
@@ -543,50 +543,54 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp persist_references(socket, _skill, []), do: socket
 
   defp persist_references(socket, %Skill{} = skill, uploaded) do
-    updated =
+    %Skill{resources: resources} =
       Enum.reduce(uploaded, skill, fn {:ok, %{file_id: file_id}}, acc ->
         %{acc | resources: Resources.add_reference(acc, file_id, @resource_provider)}
       end)
 
-    attrs = %{"resources" => updated.resources}
-    event = Event.new(%{id: skill.id, attrs: attrs}, :agent, opts: [action: :agent_skill_updated])
+    case save_resources(socket, skill, resources) do
+      {:ok, socket} -> socket
+      {:error, _reason, socket} -> socket
+    end
+  end
+
+  # The one write path for a skill's `resources`. It goes through `agent_skill_updated`
+  # rather than `Zaq.Agent.Skills` directly, because that action is also what re-syncs the
+  # live agent servers holding the skill.
+  #
+  # Returns the socket with the saved skill assigned, leaving the caller to decide what to
+  # say about it: an upload reports through the upload toast, a removal through its own.
+  defp save_resources(socket, %Skill{} = skill, resources) do
+    event =
+      Event.new(%{id: skill.id, attrs: %{"resources" => resources}}, :agent,
+        opts: [action: :agent_skill_updated]
+      )
 
     case node_router().dispatch(event).response do
       {:ok, %{skill: saved}} ->
-        socket
-        |> assign(:selected_skill, saved)
-        |> assign_changeset(Skills.change_skill(saved))
-        |> refresh_skills()
+        {:ok,
+         socket
+         |> assign(:selected_skill, saved)
+         |> assign_changeset(Skills.change_skill(saved))
+         |> refresh_skills()}
 
-      _ ->
-        socket
+      {:error, reason} ->
+        {:error, reason, socket}
+
+      other ->
+        {:error, other, socket}
     end
   end
 
   # The skill row is the index; the datasource supplies the metadata. Listing the volume
   # directory instead would show files this skill does not reference, and would miss any it
-  # references from elsewhere.
+  # references from elsewhere. `ReferenceFiles` degrades an unreachable provider to no
+  # records, so the page renders rather than crashing.
   defp load_skill_resources(%{assigns: %{selected_skill: %Skill{} = skill}} = socket) do
-    assign(socket, :skill_resources, reference_records(skill))
+    assign(socket, :skill_resources, ReferenceFiles.records(skill, node_router: node_router()))
   end
 
   defp load_skill_resources(socket), do: assign(socket, :skill_resources, [])
-
-  # One dispatch per provider rather than per file.
-  defp reference_records(%Skill{} = skill) do
-    skill
-    |> Resources.references()
-    |> Enum.group_by(&Map.get(&1, "provider"), &Map.get(&1, "file_id"))
-    |> Enum.flat_map(fn {provider, file_ids} -> list_reference_records(provider, file_ids) end)
-  end
-
-  # A degraded ingestion role renders an empty resource list rather than crashing the page.
-  defp list_reference_records(provider, file_ids) do
-    case data_source_dispatch(:data_source_list_files, %{"file_ids" => file_ids}, provider) do
-      {:ok, %RecordPage{records: records}} -> records
-      _ -> []
-    end
-  end
 
   defp data_source_dispatch(action, params, provider \\ @resource_provider) do
     %{provider: provider, params: params}
@@ -595,11 +599,9 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     |> Map.fetch!(:response)
   end
 
-  defp references_dir(%Skill{} = skill), do: Resources.references_dir(skill)
-
   # Shown in the upload modal so the operator can see where the file will land in the
   # ingestion browser before committing to it. Template-facing.
-  defp resource_destination(assigns), do: references_dir(resource_target(assigns))
+  defp resource_destination(assigns), do: Resources.references_dir(resource_target(assigns))
 
   # Template-facing wrapper — the button's visibility gate.
   defp resources_addable?(assigns), do: can_add_resources?(assigns)
@@ -636,19 +638,13 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp delete_reference_file(_reference), do: :ok
 
   defp drop_reference(socket, %Skill{} = skill, file_id) do
-    attrs = %{"resources" => Resources.remove_reference(skill, file_id)}
-    event = Event.new(%{id: skill.id, attrs: attrs}, :agent, opts: [action: :agent_skill_updated])
-
-    case node_router().dispatch(event).response do
-      {:ok, %{skill: saved}} ->
+    case save_resources(socket, skill, Resources.remove_reference(skill, file_id)) do
+      {:ok, socket} ->
         socket
-        |> assign(:selected_skill, saved)
-        |> assign_changeset(Skills.change_skill(saved))
         |> load_skill_resources()
-        |> refresh_skills()
         |> put_toast(:info, "Resource removed.")
 
-      {:error, reason} ->
+      {:error, reason, socket} ->
         put_toast(socket, :error, "Could not remove resource: #{inspect(reason)}")
     end
   end

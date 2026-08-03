@@ -33,6 +33,7 @@ defmodule Zaq.Contracts.Record.Materializer do
   alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.NodeRouter
+  alias Zaq.Utils
 
   # Two is what the `disk` provider needs (Channels, then Ingestion). The headroom lets a
   # provider add one indirection of its own without a code change here; anything beyond that
@@ -169,6 +170,9 @@ defmodule Zaq.Contracts.Record.Materializer do
     end)
   end
 
+  # Deliberately not `carry_over/2` with a different reader: the precedence is the opposite
+  # way round. There the *fetched* record wins and the previous one only fills its blanks;
+  # here the payload is the fetched side, so a field it supplies overwrites the stub's.
   defp merge_payload(%Record{} = record, payload) do
     Enum.reduce(@merged_fields, record, fn field, acc ->
       case payload_field(payload, field) do
@@ -180,9 +184,7 @@ defmodule Zaq.Contracts.Record.Materializer do
 
   defp payload_content(payload), do: payload_field(payload, :content)
 
-  defp payload_field(payload, field) do
-    Map.get(payload, field) || Map.get(payload, Atom.to_string(field))
-  end
+  defp payload_field(payload, field), do: Utils.Map.present_value(payload, field)
 
   defp materialized(%Record{} = record, content),
     do: %{record | content: content, materializing_event: nil}

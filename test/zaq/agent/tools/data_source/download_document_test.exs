@@ -164,8 +164,8 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
       assert {:ok, _} = DownloadDocument.validate_output(output)
     end
 
-    # The projection goes through `Record.public_fields/0`, so the two fields that must
-    # never reach a model cannot arrive by this route either.
+    # The projection goes through `Record.to_map/1`, so the two fields that must never
+    # reach a model cannot arrive by this route either.
     test "the returned record carries neither raw nor materializing_event" do
       assert {:ok, %{record: record}} =
                DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{

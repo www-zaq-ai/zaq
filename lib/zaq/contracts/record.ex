@@ -97,13 +97,7 @@ defmodule Zaq.Contracts.Record do
         }
 
   @doc """
-  The fields that may leave a record — the same list the `Jason.Encoder` derives from.
-  """
-  @spec public_fields() :: [atom()]
-  def public_fields, do: @public_fields
-
-  @doc """
-  The record as a plain map carrying only `public_fields/0`.
+  The record as a plain map carrying only the fields the `Jason.Encoder` derives from.
 
   For boundaries that need a map rather than a struct, such as an agent tool's output.
   Takes only the public fields rather than using `Map.from_struct/1`, so `raw` and
