@@ -271,4 +271,148 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
                DownloadDocument.run(%{document_id: "f1"}, %{})
     end
   end
+
+  # ── unmaterialized bridges (disk) ───────────────────────────────────────────
+
+  describe "run/2 against a bridge answering unmaterialized" do
+    # Stands in for the disk data source: the channels hop answers with metadata only, and
+    # the bytes come back through a second hop straight to ingestion.
+    defmodule DiskNodeRouter do
+      @moduledoc false
+
+      @files %{
+        "guide.md" => {"text/markdown", "# guide", %{}},
+        "deck.pdf" => {"application/pdf", "JVBERi0=", %{"encoding" => "base64"}}
+      }
+
+      def dispatch(%Event{request: %{provider: "disk", params: params}, opts: opts} = event) do
+        file_id = params["file_id"]
+        send(self(), {:first_hop, event.next_hop.destination, opts[:action], params})
+        {mime_type, _content, _attributes} = Map.fetch!(@files, file_id)
+
+        %{
+          event
+          | response:
+              {:ok,
+               %{
+                 record: %Record{
+                   id: file_id,
+                   kind: :file,
+                   name: file_id,
+                   mime_type: mime_type,
+                   content: nil,
+                   attributes: %{"provider" => "disk"},
+                   materializing_event:
+                     Event.new(%{file_id: file_id}, :ingestion,
+                       opts: [action: :materialize_record]
+                     )
+                 }
+               }}
+        }
+      end
+
+      def dispatch(%Event{request: %{file_id: file_id}, opts: opts} = event) do
+        send(self(), {:second_hop, event.next_hop.destination, opts[:action], file_id})
+        {mime_type, content, attributes} = Map.fetch!(@files, file_id)
+
+        %{
+          event
+          | response:
+              {:ok,
+               %{
+                 record: %Record{
+                   id: file_id,
+                   kind: :file,
+                   name: file_id,
+                   mime_type: mime_type,
+                   content: content,
+                   attributes: Map.merge(%{"provider" => "disk"}, attributes)
+                 }
+               }}
+        }
+      end
+    end
+
+    defmodule DiskFirstHopErrorRouter do
+      @moduledoc false
+
+      def dispatch(%Event{request: %{provider: "disk"}} = event) do
+        send(self(), :first_hop)
+        %{event | response: {:error, :not_found}}
+      end
+
+      def dispatch(%Event{} = event) do
+        send(self(), :second_hop)
+        %{event | response: {:ok, %{}}}
+      end
+    end
+
+    test "takes the second hop and returns text content for a text file" do
+      assert {:ok, %{record: %Record{} = record}} =
+               DownloadDocument.run(%{provider: "disk", document_id: "guide.md"}, %{
+                 node_router: DiskNodeRouter
+               })
+
+      assert record.content == "# guide"
+      refute Map.has_key?(record.attributes, "encoding")
+
+      assert_received {:first_hop, :channels, :data_source_download_document,
+                       %{"file_id" => "guide.md"}}
+
+      assert_received {:second_hop, :ingestion, :materialize_record, "guide.md"}
+    end
+
+    test "returns base64 content for a binary file, flagged in attributes" do
+      assert {:ok, %{record: %Record{} = record}} =
+               DownloadDocument.run(%{provider: "disk", document_id: "deck.pdf"}, %{
+                 node_router: DiskNodeRouter
+               })
+
+      assert record.attributes["encoding"] == "base64"
+      assert Base.decode64!(record.content) == "%PDF-"
+    end
+
+    test "a provider answering with content directly takes exactly one hop" do
+      assert {:ok, %{record: %{"id" => "f1", "content" => "abc"}}} =
+               DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
+                 node_router: StubNodeRouter
+               })
+
+      assert_received {:dispatch, :data_source_download_document, %{"file_id" => "f1"}}
+      refute_received {:dispatch, _action, _params}
+    end
+
+    test "an error on the first hop is prefixed and no second hop is attempted" do
+      assert {:error, "Data source document download failed: :not_found"} =
+               DownloadDocument.run(%{provider: "disk", document_id: "guide.md"}, %{
+                 node_router: DiskFirstHopErrorRouter
+               })
+
+      assert_received :first_hop
+      refute_received :second_hop
+    end
+
+    test "still merges the optional mime type and config keys into the first request" do
+      assert {:ok, _} =
+               DownloadDocument.run(
+                 %{
+                   provider: "disk",
+                   document_id: "guide.md",
+                   document_mime_type: "text/markdown",
+                   export_mime_type: "text/plain",
+                   config_id: "12"
+                 },
+                 %{node_router: DiskNodeRouter}
+               )
+
+      assert_received {:first_hop, :channels, :data_source_download_document, params}
+
+      assert params == %{
+               "file_id" => "guide.md",
+               "document_mime_type" => "text/markdown",
+               "export_mime_type" => "text/plain",
+               "config_id" => "12"
+             }
+    end
+  end
 end
