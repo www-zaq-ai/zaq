@@ -4,6 +4,7 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   """
 
   alias Zaq.Agent.Tools.Error
+  alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.NodeRouter
 
@@ -33,6 +34,39 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   def format_response(other, _error_prefix, _on_ok) do
     {:error, "Unexpected data source response: #{inspect(other)}"}
   end
+
+  @doc """
+  Fills in a record's content when the bridge answered with an unmaterialized one.
+
+  A bridge whose bytes already sit inside ZAQ returns `content: nil` and a
+  `materializing_event` instead of carrying the payload back through the channels node — the
+  disk data source does this, since its files live on an ingestion volume. Dispatching that
+  event is the second hop that actually reads them.
+
+  A payload that already has content, or a record with no event to dispatch, passes through
+  untouched — so a caller can run this over any provider's answer.
+
+  Read `attributes["encoding"]` on the result: `"base64"` means the content is encoded bytes,
+  and its absence means it is already text.
+  """
+  @spec materialize(map(), map(), String.t()) :: {:ok, map()} | {:error, String.t()}
+  def materialize(
+        %{record: %Record{content: nil, materializing_event: %Event{} = event}} = payload,
+        context,
+        error_prefix
+      ) do
+    node_router = Map.get(context, :node_router, NodeRouter)
+
+    event
+    |> node_router.dispatch()
+    |> Map.fetch!(:response)
+    |> format_response(error_prefix, fn
+      %{record: %Record{} = record} -> {:ok, %{payload | record: record}}
+      other -> {:error, "#{error_prefix}: unexpected materialize response #{inspect(other)}"}
+    end)
+  end
+
+  def materialize(payload, _context, _error_prefix), do: {:ok, payload}
 
   @spec put_if_present(map(), String.t(), any()) :: map()
   def put_if_present(map, _key, nil), do: map

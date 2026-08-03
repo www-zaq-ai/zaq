@@ -23,7 +23,7 @@ defmodule Zaq.Channels.ChannelConfig do
   @smtp_provider "email:smtp"
   @imap_provider "email:imap"
   @valid_kinds ~w(data_source retrieval)
-  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp email:imap telegram discord)
+  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp email:imap telegram discord disk)
 
   schema "channel_configs" do
     field :name, :string
