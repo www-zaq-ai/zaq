@@ -2,27 +2,26 @@ defmodule Zaq.Ingestion.RecordMaterializer do
   @moduledoc """
   Turns document ids into `Zaq.Contracts.Record`s, and back.
 
-  This is the ingestion side of unmaterialized records. A caller that holds only a
-  `file_id` — an agent loading a skill reference, say — reaches here to learn what the
-  document *is* (`describe/2`) or to pull its bytes (`materialize/2`). Writing a new
-  document (`persist/2`) and removing one (`delete/2`) live here too, so the whole
-  file_id ↔ record mapping has a single home.
+  The ingestion side of unmaterialized records, and the single home for the file_id ↔ record
+  mapping. A caller holding only a `file_id` uses it to describe a document
+  (`describe/2`), read its bytes (`materialize/2`), write a new one (`persist/2`) or remove
+  one (`delete/2`).
 
-  Callers never see a path. Resolving `source` to a volume-relative location is this
-  module's job precisely because the ingestion role is the only one guaranteed to have the
-  volume mounted.
+  Callers never see a path: resolving a document's `source` to a volume-relative location
+  happens here because the ingestion role is the only one guaranteed to have the volume
+  mounted.
 
-  ## Permissions are not optional here
+  ## Permissions
 
-  Every read goes through `Zaq.Ingestion.DocumentAccess`. There is **no** `skip_permissions`
-  option on any function in this module, and a `skip_permissions` key arriving in `params`
-  is ignored — params reach here from a dispatched event, so honouring one would let any
-  event author grant themselves access.
+  Every read goes through `Zaq.Ingestion.DocumentAccess`. No function here accepts a
+  `skip_permissions` option, and a `skip_permissions` key present in `params` is ignored —
+  params arrive from a dispatched event, so honouring one would let any event author grant
+  itself access.
 
-  A `nil` `person_id` is not a grant. It resolves exactly like any other unprivileged
-  caller: the document must carry the `"public"` tag or a matching permission row. This is
-  what makes the mechanism generic — skill reference files are readable because the BO tags
-  them public at write time, not because this module knows what a skill is.
+  A `nil` `person_id` is not a grant; it resolves like any other unprivileged caller, so the
+  document must carry the `"public"` tag or a matching permission row. Skill reference files
+  are readable by an agent because the BO tags them public at write time, not because this
+  module knows anything about skills.
   """
 
   import Ecto.Query

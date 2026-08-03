@@ -2,21 +2,21 @@ defmodule Zaq.Agent.Skills do
   @moduledoc """
   Context for BO-managed agent skills.
 
-  CRUD and search for `Zaq.Agent.Skill` records, plus the two things composed from
-  an agent's attached skills:
+  CRUD and search for `Zaq.Agent.Skill` records, plus two things composed from an agent's
+  attached skills:
 
     * **Provisioning** — `provisioned_tool_keys/2` (agent tools ∪ skill tools) and
-      `provisioned_mcp_endpoint_ids/2` (agent endpoints ∪ skill endpoints). These are
-      **ZAQ** concepts: what must be installed on the live agent server when a skill is
-      attached. The union is correct, and `Zaq.Agent.RuntimeSync` consumes it.
-    * **The prompt** — `system_prompt/3`, which is progressive by default:
-      `to_spec/1` converts each record to a `%Jido.AI.Skill.Spec{}` and the prompt carries
-      a **name + description index only**. Bodies are pulled on demand by the `load_skill`
-      tool. `effective_system_prompt/2` is the old eager renderer, kept as the
-      `:skills_progressive_disclosure` flag's off-path until rollout is confirmed.
+      `provisioned_mcp_endpoint_ids/2` (agent endpoints ∪ skill endpoints): what
+      `Zaq.Agent.RuntimeSync` must install on the live agent server when a skill is
+      attached.
+    * **The prompt** — `system_prompt/3`. By default this is progressive: `to_spec/1`
+      converts each record to a `%Jido.AI.Skill.Spec{}` and the prompt carries a name +
+      description index only, with bodies pulled on demand by the `load_skill` tool. With
+      the `:skills_progressive_disclosure` flag off it falls back to
+      `effective_system_prompt/2`, the eager renderer that inlines every body.
 
-  Runtime propagation of skill changes to live agent servers is handled by
-  `Zaq.Agent.RuntimeSync`, not here.
+  Propagating skill changes to live agent servers is `Zaq.Agent.RuntimeSync`'s job, not
+  this module's.
   """
 
   import Ecto.Query
@@ -138,13 +138,13 @@ defmodule Zaq.Agent.Skills do
   @doc """
   Converts a skill record into a standard `%Jido.AI.Skill.Spec{}`.
 
-  Goes through `Validation` — i.e. through a real SKILL.md round trip — so the Spec is
-  exactly what the file format would produce. A record that cannot produce a valid Spec
-  returns `{:error, _}`; callers **skip** it rather than crashing agent boot.
+  Runs through `Validation`, i.e. a real SKILL.md round trip, so the Spec matches what the
+  file format would produce. Returns `{:error, _}` for a record that cannot produce a valid
+  Spec — callers skip it rather than crashing agent boot.
 
-  `tags` are attached after parsing on purpose: they are a Jido extension, not an Open
-  Agent Skills frontmatter field, so emitting them into SKILL.md would make the document
-  non-conformant.
+  `tags` are attached after parsing rather than emitted into the SKILL.md: they are a Jido
+  extension, not an Open Agent Skills frontmatter field, and writing them would make the
+  document non-conformant.
   """
   @spec to_spec(Skill.t()) :: {:ok, Spec.t()} | {:error, term()}
   def to_spec(%Skill{} = skill) do
@@ -164,9 +164,9 @@ defmodule Zaq.Agent.Skills do
   @doc """
   Converts skill records to Specs, dropping any that cannot produce a valid one.
 
-  An invalid record must never take an agent down with it — but it must not vanish
-  quietly either, so each drop is logged. A skill that disappears from the index with no
-  trace is the hardest possible failure to diagnose from the outside.
+  An invalid record is skipped rather than raised, so it cannot take an agent down. Each
+  drop is logged, since a skill that vanishes from the index with no trace is otherwise
+  undiagnosable from the outside.
   """
   @spec to_specs([Skill.t()]) :: [Spec.t()]
   def to_specs(skills) when is_list(skills) do
@@ -203,11 +203,11 @@ defmodule Zaq.Agent.Skills do
   end
 
   @doc """
-  Composes `job` + a name/description **index** of the agent's skills — never bodies.
+  Composes `job` plus a name/description index of the agent's skills — never bodies.
 
-  Uses `Jido.AI.Skill.Prompt.render/2` with `include_body: false`, so the token cost is
-  O(skill count) rather than O(total body bytes). `allowed_tools` is rendered for free by
-  the same call: visible to the model, but not enforced in Part 1.
+  Renders through `Jido.AI.Skill.Prompt.render/2` with `include_body: false`, so prompt
+  size grows with the number of skills rather than with total body bytes. The same call
+  renders `allowed_tools`, which the model can see but which is not enforced.
   """
   @spec index_system_prompt(ConfiguredAgent.t(), [Skill.t()]) :: String.t()
   def index_system_prompt(%ConfiguredAgent{} = agent, skills) when is_list(skills) do

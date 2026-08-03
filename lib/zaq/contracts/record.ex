@@ -2,17 +2,15 @@ defmodule Zaq.Contracts.Record do
   @moduledoc """
   Canonical domain-agnostic record payload.
 
-  A record may travel between nodes **unmaterialized**: full metadata, `content: nil`. The
-  bytes are fetched only when a service actually needs them, by dispatching
-  `materializing_event` — see `Zaq.Contracts.Record.Materializer`, which owns that decision.
-  This module stays a pure struct; it never dispatches.
+  A pure struct — it never dispatches. A record may travel between nodes
+  **unmaterialized**: full metadata with `content: nil` and a `materializing_event` that
+  fetches the bytes. Dispatching that event is `Zaq.Contracts.Record.Materializer`'s job.
 
-  `materializing_event` is deliberately absent from the `Jason.Encoder` `only:` list. A
-  dispatchable event carried inside a data payload is a confused-deputy risk: whoever holds
-  the record would otherwise control which event fires, on which node, with which params.
-  Excluding it means the field cannot survive a round trip through an LLM tool result or
-  persisted workflow state, so a record rebuilt from JSON can never carry an attacker-chosen
-  event — it comes back with `materializing_event: nil` and is simply not materializable.
+  `materializing_event` is excluded from both the `Jason.Encoder` `only:` list and
+  `to_map/1`, because a dispatchable event inside a serialized payload would let whoever
+  holds the record choose which event fires, on which node, with which params. As a result a
+  record rebuilt from JSON — out of an LLM tool result or persisted workflow state — always
+  comes back with `materializing_event: nil` and cannot be materialized.
   """
 
   # The record's public projection: what may leave the struct, whether as JSON or as a plain
@@ -105,12 +103,11 @@ defmodule Zaq.Contracts.Record do
   def public_fields, do: @public_fields
 
   @doc """
-  The record as a plain map carrying only its public fields.
+  The record as a plain map carrying only `public_fields/0`.
 
-  For boundaries that need a map rather than a struct — an agent tool's output, say, where
-  the value is validated against a schema and then serialized for a model. Going through
-  `public_fields/0` rather than `Map.from_struct/1` is what keeps `raw` and
-  `materializing_event` from leaking by that route.
+  For boundaries that need a map rather than a struct, such as an agent tool's output.
+  Takes only the public fields rather than using `Map.from_struct/1`, so `raw` and
+  `materializing_event` are dropped.
   """
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = record), do: Map.take(record, @public_fields)

@@ -2,50 +2,32 @@ defmodule Zaq.Contracts.Record.Materializer do
   @moduledoc """
   Fetches the content of an unmaterialized `Zaq.Contracts.Record`.
 
-  Records cross node boundaries carrying full metadata and `content: nil`; the bytes are
-  pulled only when a service actually needs to consume them. `materialize/2` is that pull.
+  A record crosses node boundaries with full metadata and `content: nil`, carrying a
+  `materializing_event` that fetches its bytes. This module dispatches that event:
 
-  ## Why this is not a function on `Zaq.Contracts.Record`
+    * `materialize/2` — takes a record and returns it with `content` populated.
+    * `materialize_response/3` — takes the payload a datasource provider answered with and
+      returns a materialized record.
 
-  `Record` is the canonical *payload* struct — pure data, held by every role. Giving it a
-  function that calls `Zaq.NodeRouter` would make every node that merely holds a record
-  compile against the router, and would put cross-node routing inside a contract. The
-  struct stays data; the behaviour lives here.
+  Neither function creates a `materializing_event`; only the datasource bridge that went
+  looking for the file sets one (`Zaq.Channels.DiskBridge` does, because the bytes live on
+  an ingestion volume rather than in Channels).
 
-  ## The carried event cannot be attacker-chosen
+  ## Rules
 
-  `materializing_event` is a dispatchable event travelling inside a data payload. The field
-  is excluded from `Record`'s `Jason.Encoder` `only:` list and from `to_map/1`, so it cannot
-  survive a round trip through an LLM tool result or persisted workflow state — a record
-  rebuilt from JSON always carries `materializing_event: nil` and is simply not
-  materializable. Only in-process Elixir code can set one, and such code could call
-  `Zaq.NodeRouter` directly anyway.
-
-  ## Only `nil` means unmaterialized
-
-  An empty file materializes to `""`, which is a legitimate result. Treating `""` as
-  "still empty" would re-dispatch on every call and never converge, so the check is
-  strictly `nil`. The event is cleared once spent, making `materialize/2` idempotent:
-  materializing an already-materialized record is a no-op that dispatches nothing.
-
-  ## A dispatch may answer with another unmaterialized record
-
-  Where the bytes live is the *provider's* business, and the answer differs by provider:
-
-    * an external provider (Google Drive via `Zaq.Channels.JidoConnectBridge`) holds the
-      file itself, so its `download_document` answers with content in hand — one hop, done;
-    * an internal provider fronts a role that is not the one being asked. `disk` is
-      addressed through Channels but the file lives on an ingestion volume, so the honest
-      answer is the record's metadata plus the event that fetches its bytes from Ingestion.
-
-  The second case is not a failure — it is a *redirect*. A response carrying `content: nil`
-  **and** a fresh `materializing_event` is followed: the returned event is dispatched in
-  turn, until a hop produces content. A response with neither content nor a next event is
-  still an error, since nothing about it can converge.
-
-  `:max_hops` bounds the chain so a provider that keeps handing back an event — echoing the
-  one it was given, or two providers pointing at each other — fails with
-  `{:error, :materialize_hop_limit}` instead of looping.
+    * Only `content: nil` means unmaterialized. An empty file materializes to `""`, which
+      is a valid result and is not re-fetched.
+    * The event is cleared once dispatched, so materializing an already-materialized record
+      is a no-op that dispatches nothing.
+    * A dispatch may answer with another unmaterialized record — `content: nil` plus a
+      fresh `materializing_event`. That is a redirect, not a failure: the new event is
+      dispatched in turn until a hop returns content. `disk` uses this (Channels, then
+      Ingestion); providers that hold the file themselves answer in one hop.
+    * A response with neither content nor a next event is `{:error, :not_materializable}`.
+    * `:max_hops` bounds the chain; exceeding it is `{:error, :materialize_hop_limit}`.
+    * `materializing_event` is excluded from `Zaq.Contracts.Record`'s `Jason.Encoder` and
+      from `Zaq.Contracts.Record.to_map/1`, so a record rebuilt from JSON always has
+      `materializing_event: nil` and cannot be materialized.
   """
 
   alias Zaq.Contracts.Record
@@ -81,6 +63,35 @@ defmodule Zaq.Contracts.Record.Materializer do
   def materialize(%Record{content: nil}, _opts), do: {:error, :not_materializable}
 
   def materialize(%Record{} = record, _opts), do: {:ok, record}
+
+  @doc """
+  Normalizes a datasource provider's successful answer into a materialized record.
+
+  For callers that dispatched a provider command themselves (an agent tool calling
+  `download_document`, say) and hold the returned payload rather than a record. The payload
+  may carry content already or only metadata plus a `materializing_event`; this accepts
+  either and returns a record with content, so the caller does not branch on the provider.
+
+  `payload` is the value from a `{:ok, payload}` response — error responses are the
+  caller's to handle and never reach here.
+
+  `stub` supplies the fields the caller already knows, typically the id it asked for.
+  Fields the provider leaves blank fall back to `stub`; fields it fills win.
+
+  ## Options
+
+  Same as `materialize/2`. `:max_hops` counts the caller's own dispatch, so the default
+  leaves #{@default_max_hops - 1} follow-ups.
+  """
+  @spec materialize_response(term(), Record.t(), keyword()) ::
+          {:ok, Record.t()} | {:error, term()}
+  def materialize_response(payload, stub, opts \\ [])
+
+  def materialize_response(payload, %Record{} = stub, opts) do
+    {:ok, payload}
+    |> apply_content(stub)
+    |> follow(opts, Keyword.get(opts, :max_hops, @default_max_hops) - 1)
+  end
 
   # Each hop asks the record's current event for content. A hop that answers with a record
   # still lacking content but carrying a new event is a redirect, and is followed against

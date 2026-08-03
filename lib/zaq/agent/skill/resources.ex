@@ -2,30 +2,24 @@ defmodule Zaq.Agent.Skill.Resources do
   @moduledoc """
   Reads and edits a skill's `resources` map, and derives where its files are written.
 
-  Two jobs, both pure:
+  Two groups of functions, all pure:
 
     * **References** — `references/1`, `add_reference/3`, `remove_reference/2` return plain
-      data. Persisting is `Zaq.Agent.Skills`' job.
-    * **Destinations** — `destination/2` derives the volume-relative path an uploaded file
-      should be written to, under `.agents/skills/{slug}/references/`, so the files show up
-      in the BO ingestion browser like any other ingested file.
+      data; persisting it is `Zaq.Agent.Skills`' job. A reference is a document id plus a
+      provider, not a path, so renaming a skill cannot orphan a file already uploaded.
+    * **Destinations** — `root/1`, `references_dir/1` and `destination/2` derive the
+      volume-relative path an uploaded file is written to, under
+      `.agents/skills/{slug}/references/`, where it appears in the BO ingestion browser like
+      any other ingested file. The path is derived on each call, so a rename affects only
+      subsequent uploads.
 
-  It never touches the filesystem, never resolves against a volume root, and never decides
-  whether a path exists. Resolution and the authoritative containment check belong to the
-  `:ingestion` role — the only node guaranteed to have the volume mounted. Keeping this
-  separate is what lets the BO node compute a destination for a volume it cannot itself see.
+  This module never touches the filesystem, resolves nothing against a volume root, and
+  does not check whether a path exists — that belongs to the `:ingestion` role, the only
+  node guaranteed to have the volume mounted, which lets the BO node compute a destination
+  for a volume it cannot see.
 
-  The sanitising here is a *shape* guard, not a security boundary: it guarantees the string
-  handed to ingestion is a safe relative path, so a malicious client filename cannot express
-  an escape in the first place. Ingestion still rejects traversal independently.
-
-  ## Why there is no stored root any more
-
-  References used to be paths, so a skill carried a sticky `resource_root` — renaming it
-  would otherwise have orphaned every file already uploaded under the old name. References
-  are now document ids, which do not move when a name does, so the root is derived fresh
-  every time and nothing can be stranded. A rename changes only where *subsequent* uploads
-  land.
+  Filename sanitising here guarantees the string handed to ingestion is a well-formed
+  relative path. It is not the security boundary: ingestion rejects traversal independently.
   """
 
   alias Zaq.Agent.Skill

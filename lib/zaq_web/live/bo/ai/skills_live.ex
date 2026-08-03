@@ -10,26 +10,23 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   ## Skill resources
 
-  A skill's reference files are uploaded here but stored by **ingestion**, under
-  `.agents/skills/{slug}/references/` on a volume — so they appear in the ingestion
-  browser like any other file and need no separate storage. Path derivation is
-  `Zaq.Agent.Skill.Resources`' job, not this module's.
+  Reference files are uploaded here but stored by ingestion, under
+  `.agents/skills/{slug}/references/` on a volume, where they appear in the ingestion
+  browser like any other file. `Zaq.Agent.Skill.Resources` derives the path.
 
-  Files are reached through the **`disk` datasource provider**
-  (`Zaq.Channels.DiskBridge`), not by calling `Zaq.Ingestion` directly: one dispatch
-  writes the file, registers its document row and tags it, where two separate calls could
-  leave a file on disk that no row points at. The skill row then stores only the returned
-  document id, so nothing here needs to know where a file physically lives.
+  Uploads go through the `disk` datasource provider (`Zaq.Channels.DiskBridge`) rather than
+  calling `Zaq.Ingestion` directly, so a single dispatch writes the file, registers its
+  document row and applies its tags — two separate calls could leave a file on disk with no
+  row pointing at it. The skill row stores only the returned document id.
 
-  Uploaded files are tagged `"public"` at write time. Reads are permission-checked
-  generically by `Zaq.Ingestion.RecordMaterializer` with no bypass, so the tag is what
-  makes a reference readable by an agent acting without a person. This is a deliberate
-  trade: skill reference files are visible to everyone, in ingestion browse and ordinary
-  retrieval, not only through `load_skill`.
+  Files are tagged `"public"` at write time. `Zaq.Ingestion.RecordMaterializer`
+  permission-checks every read with no bypass, so that tag is what makes a reference
+  readable by an agent acting without a person. It also makes the file visible in ingestion
+  browse and ordinary retrieval, not only through `load_skill`.
 
-  Uploading requires an explicitly configured volume (`Ingestion.volumes_configured?/0`),
-  not merely a non-empty `list_volumes/0` — that call synthesizes a `"default"` entry and
-  can never be empty.
+  Uploading requires an explicitly configured volume (`Ingestion.volumes_configured?/0`)
+  rather than a non-empty `list_volumes/0`, which synthesizes a `"default"` entry and can
+  never be empty.
   """
 
   use ZaqWeb, :live_view

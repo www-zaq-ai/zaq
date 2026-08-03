@@ -2,36 +2,22 @@ defmodule Zaq.Channels.DiskBridge do
   @moduledoc """
   DataSource bridge for the `disk` provider — ingestion volumes, addressed as a datasource.
 
-  Every other datasource bridge fronts an external system. This one fronts ZAQ's own
-  ingestion role, so that files living on an ingestion volume can be reached through the
-  same provider-generic commands as a Google Drive or SharePoint document. A caller asking
-  for `provider: "disk", document_id: "42"` uses exactly the API it would use for any other
-  provider, and never learns that a filesystem is involved.
+  Exposes files on a ZAQ ingestion volume through the same provider-generic commands as an
+  external datasource, so a caller passing `provider: "disk", document_id: "42"` uses the
+  API it would use for Google Drive and never sees a filesystem path.
 
-  ## Why it needs no new plumbing
-
-  `Zaq.Channels.DataSourceBridge` already declares `create_file/2`, `get_file/2`,
-  `list_files/2`, `download_document/2` and `delete_file/2`, and `Zaq.Channels.Api`
-  already routes all five. This module only implements them; it adds no callbacks and no
-  actions.
+  Implements the `create_file/2`, `get_file/2`, `list_files/2`, `download_document/2` and
+  `delete_file/2` callbacks of `Zaq.Channels.DataSourceBridge`; it declares no callbacks or
+  actions of its own. Each one dispatches to the `:ingestion` role, where
+  `Zaq.Ingestion.RecordMaterializer` performs the work and enforces `DocumentAccess`. The
+  exception is `download_document/2`, which dispatches nothing and returns the event that
+  does.
 
   ## Configuration
 
-  There is nothing to configure, and nothing anywhere declares that. This bridge never
-  reads the config it is passed — the volume lives in ingestion's own configuration and the
-  document id carries everything else — so `disk` needs no `channel_configs` row and works
-  out of the box. A row would be a phantom in the BO datasource list, where an operator
-  could disable or delete it and silently break every skill that reads a reference file.
-
-  Bridges that *do* authenticate reject a config with no row themselves, on the grounds that
-  they cannot find their grant without one — see `Zaq.Channels.JidoConnectBridge`. That is
-  why `Zaq.Channels.DataSourceBridge` can hand every bridge whatever config exists without
-  knowing which of them care.
-
-  Each callback dispatches to the `:ingestion` role, where
-  `Zaq.Ingestion.RecordMaterializer` does the work and enforces `DocumentAccess`. The one
-  exception is `download_document/2`, which dispatches nothing and hands back the event that
-  does — see its `@doc`.
+  None. This bridge ignores the config it is passed — the volume comes from ingestion's own
+  configuration and the document id carries the rest — so `disk` works with no
+  `channel_configs` row and does not appear as a configurable datasource in the BO.
   """
 
   @behaviour Zaq.Channels.DataSourceBridge
@@ -42,21 +28,13 @@ defmodule Zaq.Channels.DiskBridge do
   alias Zaq.NodeRouter
 
   @doc """
-  Returns an **unmaterialized** record carrying the event that fetches the bytes.
+  Returns `%{record: record}` where the record is **unmaterialized**.
 
-  Every other datasource bridge fronts a system that holds the file, so it answers with
-  content in hand. This one does not: `disk` is addressed through Channels, but the bytes
-  live on an ingestion volume. Reading them here would drag the payload ingestion → channels
-  → caller, when the caller can ask ingestion directly.
-
-  So the answer is the address plus the means: `content: nil` and a `materializing_event`
-  aimed at `{:ingestion, :materialize_record}`. `Zaq.Contracts.Record.Materializer` follows
-  it, and the metadata — name, mime type, size — comes back from that hop, which reads the
-  document row anyway. Dispatch count is unchanged; the bytes just cross one boundary
-  instead of two.
-
-  Wrapped as `%{record: record}` to match the shape every other datasource bridge returns
-  for this callback.
+  Unlike bridges that front a system holding the file, this one reads nothing: the bytes
+  live on an ingestion volume, so returning them here would route the payload through
+  Channels for no reason. The record carries `content: nil` and a `materializing_event`
+  aimed at `{:ingestion, :materialize_record}`; `Zaq.Contracts.Record.Materializer`
+  dispatches it, and the metadata (name, mime type, size) arrives from that hop.
   """
   @impl true
   def download_document(config, params) when is_map(config) and is_map(params) do

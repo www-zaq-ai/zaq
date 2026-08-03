@@ -2,40 +2,35 @@ defmodule Zaq.Agent.Skill do
   @moduledoc """
   Schema for BO-managed agent skills.
 
-  A skill bundles a markdown instruction `body` with a set of tool keys from
-  `Zaq.Agent.Tools.Registry`, a set of MCP endpoint ids (`enabled_mcp_endpoint_ids`),
-  and searchable `tags`. Skills are attached to configured agents and take effect at
-  runtime through the same hot-patch path as `enabled_tool_keys` /
+  A skill bundles a markdown instruction `body` with tool keys, MCP endpoint ids, file
+  references and searchable `tags`. Skills are attached to configured agents and take
+  effect at runtime through the same hot-patch path as `enabled_tool_keys` /
   `enabled_mcp_endpoint_ids` (tool + MCP sync + per-ask system prompt injection).
 
-  Field-shape validation against the Open Agent Skills spec (name format, length caps,
-  `allowed-tools` encoding) is **owned by `Jido.AI.Skill.Loader`**, reached through
-  `Zaq.Agent.Skills.Validation` — ZAQ does not reimplement it. This module keeps only the
-  validations Jido cannot do: that `provided_tool_keys` exist in `Tools.Registry`, and
-  that `resources` has the expected shape.
+  ## Fields
 
-  ## `resources`
+    * `provided_tool_keys` — `Zaq.Agent.Tools.Registry` keys that ZAQ installs on the live
+      agent server when this skill is attached. Unioned across an agent's skills by
+      `Zaq.Agent.Skills`, applied by `Zaq.Agent.RuntimeSync`. This is a ZAQ concept.
+    * `allowed_tools` — tool *names* the skill is permitted to use, from the Open Agent
+      Skills standard. Maps to `Jido.AI.Skill.Spec.allowed_tools` and is rendered into the
+      prompt, but is **not enforced** — enforcement needs per-skill request scoping, which
+      Jido does not express yet.
+    * `enabled_mcp_endpoint_ids` — MCP endpoints installed alongside the tools.
+    * `resources` — namespace map of the files the skill bundles, shaped
+      `%{"references" => [%{"file_id" => …, "provider" => …}]}`. Files are addressed by
+      document id rather than path, so a rename in ingestion cannot orphan one. No name or
+      mime type is stored; `Zaq.Agent.Tools.Skills.LoadSkill` resolves those from the
+      datasource at load time.
+    * `tool_keys` — the pre-split column, dual-written with `provided_tool_keys` until every
+      node runs the new code, then dropped. See `changeset/2`.
 
-  A namespace map — `%{"references" => [%{"file_id" => …, "provider" => …}]}` — naming the
-  files a skill bundles. Files are addressed by **document id**, not by path, so the skill
-  row never has to know where a file lives and renaming one in ingestion cannot orphan it.
-  Metadata (name, mime type) is deliberately absent: the datasource owns it, and a copy
-  here would go stale. `Zaq.Agent.Tools.Skills.LoadSkill` resolves names at load time.
+  ## Validation
 
-  ## Two kinds of "tools" — do not conflate them
-
-    * `provided_tool_keys` — **ZAQ**. `Zaq.Agent.Tools.Registry` keys that ZAQ
-      *provisions* onto the live agent server when this skill is attached. Unioned
-      across an agent's skills by `Zaq.Agent.Skills`, installed by
-      `Zaq.Agent.RuntimeSync`.
-    * `allowed_tools` — **Open Agent Skills standard**. Tool *names* this skill is
-      permitted to use. It maps straight to `Jido.AI.Skill.Spec.allowed_tools` and is
-      stored and rendered into the prompt, but **not enforced** (enforcement needs
-      per-skill request scoping, which Jido does not yet express).
-
-  `tool_keys` is the pre-split column. It is dual-written with `provided_tool_keys`
-  for the rollout window and dropped once every node runs the new code — see
-  `changeset/2`.
+  Open Agent Skills field-shape validation (name format, length caps, `allowed-tools`
+  encoding) is performed by `Jido.AI.Skill.Loader` via `Zaq.Agent.Skills.Validation`, not
+  reimplemented here. This module validates only what Jido cannot: that `provided_tool_keys`
+  exist in `Zaq.Agent.Tools.Registry`, and that `resources` has the expected shape.
   """
 
   use Ecto.Schema

@@ -2,10 +2,13 @@ defmodule Zaq.Ingestion.RecordSource do
   @moduledoc """
   Resolves canonical records into content sources usable by ingestion.
 
-  Phase 1 supports local volume records by resolving their `attributes` into
-  volume-relative paths. Future external data-source phases should extend this
-  boundary to fetch/export record content through NodeRouter-routed data-source
-  events, without adding provider-specific ingestion logic.
+  Handles local volume records: reads a record's `attributes` to derive its volume,
+  volume-relative path and ingestion kind, resolves that to a filesystem path, and
+  serializes records to and from the map stored on an ingest job.
+
+  External data-source records are not supported yet. Support belongs here, fetching
+  content through NodeRouter-routed data-source events — provider-specific logic must not
+  be added to ingestion itself.
   """
 
   alias Zaq.Contracts.Record

@@ -198,13 +198,16 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
                })
     end
 
+    # A response that is not even a result tuple never reaches this tool's own handling —
+    # `DataSourceTool.dispatch/5` rejects it first, with the same message every datasource
+    # tool gives for the same malformed answer. The payload is what identifies it.
     test "returns formatted errors for unexpected responses" do
       assert {:error, message} =
                DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
                  node_router: StubNodeRouterUnexpected
                })
 
-      assert message =~ "Data source document download failed"
+      assert message =~ "Unexpected data source response"
       assert message =~ "weird_response"
     end
   end

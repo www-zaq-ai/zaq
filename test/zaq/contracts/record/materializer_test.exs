@@ -298,6 +298,83 @@ defmodule Zaq.Contracts.Record.MaterializerTest do
     end
   end
 
+  # The entry point for a caller that dispatched the provider command itself and holds the
+  # payload. It reads an event off the answer; it never mints one — that distinction is what
+  # keeps a tool from choosing a dispatch and calling it data.
+  describe "materialize_response/3" do
+    defp stub, do: %Record{id: "42", kind: :file}
+
+    test "returns a provider's already-materialized record without dispatching" do
+      payload = %{record: %Record{id: "42", kind: :file, content: "bytes", name: "a.md"}}
+
+      assert {:ok, %Record{content: "bytes", name: "a.md"}} =
+               Materializer.materialize_response(payload, stub(), node_router: ForbiddenRouter)
+    end
+
+    test "normalizes a plain provider map onto the stub" do
+      payload = %{record: %{"content" => "plain", "name" => "b.md"}}
+
+      assert {:ok, %Record{id: "42", content: "plain", name: "b.md"}} =
+               Materializer.materialize_response(payload, stub(), node_router: ForbiddenRouter)
+    end
+
+    test "follows an event the provider attached to its answer" do
+      payload = %{
+        record: %Record{
+          id: "42",
+          kind: :file,
+          name: "guide.md",
+          content: nil,
+          materializing_event:
+            Event.new(%{file_id: "42"}, :ingestion, opts: [action: :materialize_record])
+        }
+      }
+
+      assert {:ok, %Record{content: "bytes", name: "guide.md"}} =
+               Materializer.materialize_response(payload, stub(), node_router: ContentRouter)
+
+      assert_received {:dispatched, :materialize_record}
+    end
+
+    # The stub is the caller's own knowledge, not a source of truth to be preferred: it fills
+    # only what the provider left blank.
+    test "falls back to the stub for fields the provider omitted" do
+      payload = %{record: %{"content" => "plain"}}
+
+      assert {:ok, %Record{id: "42", name: "known.md"}} =
+               Materializer.materialize_response(payload, %{stub() | name: "known.md"},
+                 node_router: ForbiddenRouter
+               )
+    end
+
+    test "reports a payload carrying neither content nor an event as an error" do
+      assert {:error, {:unexpected_materialize_response, _}} =
+               Materializer.materialize_response(%{status: "done"}, stub(),
+                 node_router: ForbiddenRouter
+               )
+    end
+
+    # The caller already spent one dispatch getting this payload, so the budget it passes
+    # covers that hop too — `max_hops: 1` leaves no follow-up.
+    test "counts the caller's own dispatch against the hop budget" do
+      payload = %{
+        record: %Record{
+          id: "42",
+          kind: :file,
+          content: nil,
+          materializing_event:
+            Event.new(%{file_id: "42"}, :ingestion, opts: [action: :materialize_record])
+        }
+      }
+
+      assert {:error, :materialize_hop_limit} =
+               Materializer.materialize_response(payload, stub(),
+                 node_router: ForbiddenRouter,
+                 max_hops: 1
+               )
+    end
+  end
+
   describe "guards" do
     test "errors when content is nil and there is no event to dispatch" do
       rec = record(content: nil, materializing_event: nil)

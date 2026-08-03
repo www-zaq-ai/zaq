@@ -2,13 +2,11 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
   @moduledoc """
   ReAct tool: downloads a document by id from a datasource provider.
 
-  Builds an **unmaterialized** `Zaq.Contracts.Record` — the id and the event that can fetch
-  its content — and hands it to `Zaq.Contracts.Record.Materializer`. The dispatch itself
-  lives there, so the same "fetch the bytes only if they are missing" rule applies whether a
-  record arrives here or is passed between services already materialized.
-
-  The tool knows a provider key and a document id. It does not know, and cannot learn, where
-  the file physically lives.
+  Takes a provider key and a document id, dispatches `download_document` to Channels, and
+  passes the answer to `Zaq.Contracts.Record.Materializer`, which returns a record carrying
+  content. The number of round trips depends on the provider — an external one answers with
+  bytes, `disk` answers with metadata plus the event that fetches them from Ingestion — and
+  the materializer resolves either shape, so this tool never branches on it.
   """
 
   @schema Zoi.object(%{
@@ -80,19 +78,11 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
 
   def on_before_validate_params(params), do: {:ok, params}
 
+  @error_prefix "Data source document download failed"
+
   @impl Jido.Action
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
-    document_id
-    |> unmaterialized_record(provider, params)
-    |> Materializer.materialize(node_router: node_router(context))
-    |> to_tool_result()
-  end
-
-  # Everything the tool actually knows: an id, and the event that can fetch the bytes for it.
-  # `content: nil` is what makes `materialize/2` dispatch that event rather than pass the
-  # record straight through.
-  defp unmaterialized_record(document_id, provider, params) do
     request =
       %{"file_id" => document_id}
       |> DataSourceTool.merge_optional(params, [
@@ -100,19 +90,35 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
         :export_mime_type,
         :config_id
       ])
+      |> DataSourceTool.wrap_request(provider)
 
-    %Record{
-      id: document_id,
-      kind: :file,
-      content: nil,
-      materializing_event: DataSourceTool.materializing_event(provider, request)
-    }
+    DataSourceTool.dispatch(
+      :data_source_download_document,
+      request,
+      context,
+      @error_prefix,
+      &finish(&1, document_id, context)
+    )
+  end
+
+  # What comes back depends on the provider, and the tool does not care which: an external
+  # one answers with bytes, `disk` answers with metadata and the event that fetches them
+  # from Ingestion. `materialize_response/3` settles either into a record with content.
+  #
+  # The stub carries the only thing the tool knows independently — the id it asked for — so
+  # a provider that omits it from its answer still yields an identifiable record.
+  defp finish(payload, document_id, context) do
+    payload
+    |> Materializer.materialize_response(%Record{id: document_id, kind: :file},
+      node_router: node_router(context)
+    )
+    |> to_tool_result()
   end
 
   defp to_tool_result({:ok, %Record{} = record}), do: {:ok, %{record: Record.to_map(record)}}
 
   defp to_tool_result({:error, reason}),
-    do: {:error, "Data source document download failed: #{Error.format(reason)}"}
+    do: {:error, "#{@error_prefix}: #{Error.format(reason)}"}
 
   defp node_router(context), do: Map.get(context, :node_router, NodeRouter)
 end

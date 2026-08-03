@@ -2,46 +2,32 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
   @moduledoc """
   ReAct tool: loads the full instructions for one skill, by name.
 
-  This is the second half of progressive disclosure. The system prompt carries only a
-  name + description **index** of the agent's skills (`Zaq.Agent.Skills.index_system_prompt/2`);
-  when the model decides it needs one, it calls this tool and the full body arrives **as a
-  tool result** in the conversation.
+  The system prompt carries only a name + description index of the agent's skills
+  (`Zaq.Agent.Skills.index_system_prompt/2`). This tool returns the full body of one of
+  them as a tool result, plus a list of the skill's reference files.
 
-  ## Scoping — the security boundary
+  ## Scoping
 
-  Resolution is scoped to the **invoking agent's own attached, active skills**
-  (`enabled_skill_ids`), read from `:configured_agent_id` in the tool context. It is never a
-  global lookup. An agent cannot load a skill it was not granted, and the not-found path
-  **never lists the available skills** — unlike upstream `Jido.AI.Actions.Skill.LoadSkill`,
-  which leaks the whole catalog on a miss (agentjido/jido_ai#323, gap G3).
+  Lookup is restricted to the invoking agent's own attached, active skills
+  (`enabled_skill_ids`, resolved from `:configured_agent_id` in the tool context) — never a
+  global lookup. A name outside that set returns not-found without listing what is
+  available, so the tool cannot be used to enumerate the skill catalog.
 
-  ## Stateless by design
+  ## Result
 
-  Nothing is recorded. The loaded body lives in the conversation's message context for the
-  life of the agent server — the transcript *is* the record of what was loaded, so a
-  separate activation set could only ever disagree with it (which is exactly upstream gap
-  G2). A repeat call simply returns the body again; that is idempotent, not a bug. After a
-  cold restart the prior tool result replays from history, so the instructions are already
-  back in context.
+    * `body` — the skill's instructions. Size is capped at write time by
+      `Zaq.Agent.Skills.Limits`, so nothing is truncated here. Bytes returned are emitted as
+      telemetry.
+    * `resources` — the skill's reference files as `%{id, name, provider}`. Names are
+      resolved from the datasource on each call rather than stored on the skill row, so a
+      rename cannot go stale. `provider` is included because `download_document` requires it
+      alongside the id. File *contents* are not returned; the model fetches them with
+      `download_document` if it needs them. If the lookup fails, the skill still loads with
+      `resources: []`.
 
-  The body size is capped at **write time** (`Zaq.Agent.Skills.Limits`), so nothing needs
-  bounding here; this tool emits telemetry on the bytes it returns so the cap can be tuned
-  on evidence.
-
-  ## Resources
-
-  Progressive disclosure now spans two levels. The body arrives here; the skill's reference
-  *files* do not. They are listed as `%{id, name, provider}` — enough for the model to pick
-  one and call `download_document` — and their bytes are fetched only if it does.
-
-  `provider` travels with each entry because it is half the address, not description:
-  `download_document` requires it, and a model given only an id will guess a provider that
-  does not exist rather than fail.
-
-  The skill row stores only `{file_id, provider}`, so names come from the datasource at
-  load time rather than from a denormalized copy that a rename would invalidate. If that
-  lookup fails the skill still loads with `resources: []`: a skill whose instructions need
-  no file must not become unusable because the ingestion role is down.
+  Nothing is recorded: the loaded body lives in the conversation's message context, and a
+  repeat call simply returns it again. After a restart the prior tool result replays from
+  history.
   """
 
   @schema Zoi.object(%{
