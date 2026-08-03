@@ -48,6 +48,23 @@ defmodule Zaq.Utils.Map do
 
   def metadata_value(_metadata, _key), do: nil
 
+  @doc """
+  Like `metadata_value/2`, but a key holding `nil` does not shadow the other spelling.
+
+  For payloads assembled by more than one writer, where the same field may be present as a
+  string key with no value and as an atom key with one.
+  """
+  @spec present_value(map(), atom() | String.t()) :: term() | nil
+  def present_value(map, key) when is_map(map) and is_binary(key) do
+    read_present(map, [key, existing_atom_key(key)])
+  end
+
+  def present_value(map, key) when is_map(map) and is_atom(key) do
+    read_present(map, [key, Atom.to_string(key)])
+  end
+
+  def present_value(_map, _key), do: nil
+
   @spec stringify_keys(map()) :: map()
   def stringify_keys(map) when is_map(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
