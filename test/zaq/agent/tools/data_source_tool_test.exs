@@ -30,7 +30,45 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
                "Data source document request failed"
              )
 
-    assert_received {:dispatch, :data_source_get_file, ^request}
+    assert_received {:dispatch, :data_source_get_file,
+                     %{
+                       provider: "google_drive",
+                       params: %{"file_id" => "f1", "person_id" => nil, "team_ids" => []}
+                     }}
+  end
+
+  # A provider fronting ZAQ's own data (`Zaq.Channels.DiskBridge`) permission-checks every
+  # call and has nothing else to read the caller from. Without this stamp a request from an
+  # identified person arrives anonymous, and a document they are permitted to read comes
+  # back `:not_found`.
+  test "dispatch/5 stamps the caller from context onto the params" do
+    request = %{provider: "disk", params: %{"file_id" => "42"}}
+
+    DataSourceTool.dispatch(
+      :data_source_download_document,
+      request,
+      %{node_router: OkNodeRouter, person_id: "p1", team_ids: ["t1"]},
+      "Data source document request failed"
+    )
+
+    assert_received {:dispatch, :data_source_download_document,
+                     %{params: %{"person_id" => "p1", "team_ids" => ["t1"]}}}
+  end
+
+  # A `nil` person is not a grant and must not be turned into one — it travels as `nil` and
+  # resolves downstream as an unprivileged caller.
+  test "dispatch/5 sends a nil caller when the context has no person" do
+    request = %{provider: "disk", params: %{"file_id" => "42"}}
+
+    DataSourceTool.dispatch(
+      :data_source_download_document,
+      request,
+      %{node_router: OkNodeRouter},
+      "Data source document request failed"
+    )
+
+    assert_received {:dispatch, :data_source_download_document,
+                     %{params: %{"person_id" => nil, "team_ids" => []}}}
   end
 
   test "dispatch/5 applies custom on_ok formatter" do

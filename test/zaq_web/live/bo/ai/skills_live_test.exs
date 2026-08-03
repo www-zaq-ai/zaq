@@ -109,12 +109,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       end
     end
 
-    # Re-inject this router so `DiskBridge`'s dispatch to ingestion comes back here rather
-    # than reaching the real `NodeRouter`.
-    defp channels(%{request: %{provider: provider, params: params}} = event, action) do
-      request = %{provider: provider, params: Map.put(params, "node_router", __MODULE__)}
-
-      Zaq.Channels.Api.handle_event(%{event | request: request}, action, nil)
+    # `DiskBridge` reads its router off `config`, not off `params`, so this router cannot
+    # re-inject itself for the second hop — and should not. The real `NodeRouter` routes
+    # `:ingestion` locally under test, so the bridge → ingestion hop runs for real and the
+    # chain stays end-to-end rather than stubbed at its most interesting seam.
+    defp channels(event, action) do
+      Zaq.Channels.Api.handle_event(event, action, nil)
     end
 
     defp ingestion(event, action), do: Zaq.Ingestion.Api.handle_event(event, action, nil)
@@ -552,7 +552,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
              )
     end
 
-    test "still reports the upload when recording the reference fails", %{conn: conn} do
+    test "reports the orphan when recording the reference fails", %{conn: conn} do
       volume = tmp_volume("sync_fail")
       configure_volumes(%{"documents" => volume})
       with_skills_live_node_router(SkillUpdateFailureRouter)
@@ -570,14 +570,16 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert render_upload(upload, "written.md")
       html = view |> form("#skill-resource-form") |> render_submit()
 
-      # The file is on disk, so the operator must be told it succeeded even though the
-      # bookkeeping write did not land.
+      # The file is on disk but nothing references it, and `delete_skill_resources/2` walks
+      # the references — so nothing will ever clean it up. The operator has to be told, or
+      # the only signal is a resource table that stays empty after a success message.
       assert File.exists?(
                Path.join(volume, ".agents/skills/sync-fail-skill/references/written.md")
              )
 
-      assert html =~ "1 resource(s) added."
       assert Skills.get_skill!(skill.id).resources == %{"references" => []}
+      assert html =~ "could not attach them to the skill"
+      refute html =~ "1 resource(s) added."
     end
   end
 
@@ -615,6 +617,40 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert Skills.get_skill!(skill.id).resources == %{"references" => []}
       assert Document.get(String.to_integer(file_id)) == nil
       refute File.exists?(file)
+    end
+
+    # The click removes the bytes from the volume, not just the row. That is irreversible
+    # and single-click, so it confirms like the skill delete alongside it does.
+    test "the remove control confirms before firing", %{conn: conn} do
+      volume = tmp_volume("remove_confirm")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "confirmable"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      upload_one!(view, "careful.md")
+
+      assert view
+             |> element("[phx-click='remove_skill_resource'][data-confirm]")
+             |> has_element?()
+    end
+
+    # The provider is the other half of the address, so the click has to carry it: an id
+    # alone names a file only within one provider.
+    test "the remove control carries the provider", %{conn: conn} do
+      volume = tmp_volume("remove_provider")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "addressed"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      upload_one!(view, "addressed.md")
+
+      assert view
+             |> element("[phx-click='remove_skill_resource'][phx-value-provider='disk']")
+             |> has_element?()
     end
 
     test "keeps the reference when the delete fails", %{conn: conn} do

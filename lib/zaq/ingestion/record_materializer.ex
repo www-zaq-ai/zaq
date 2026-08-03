@@ -13,10 +13,16 @@ defmodule Zaq.Ingestion.RecordMaterializer do
 
   ## Permissions
 
-  Every read goes through `Zaq.Ingestion.DocumentAccess`. No function here accepts a
-  `skip_permissions` option, and a `skip_permissions` key present in `params` is ignored —
-  params arrive from a dispatched event, so honouring one would let any event author grant
-  itself access.
+  Every function that names an existing document — `materialize/2`, `describe/2` and
+  `delete/2` — goes through `Zaq.Ingestion.DocumentAccess`. Deleting is gated on the same
+  check as reading: a caller may only remove what it may see. `persist/2` is the exception,
+  because it creates a document rather than naming one; the volume and path it writes to
+  are the caller's authorisation, and `Zaq.Ingestion.FileExplorer.resolve_path/2` is what
+  keeps that inside a mounted volume.
+
+  No function here accepts a `skip_permissions` option, and a `skip_permissions` key
+  present in `params` is ignored — params arrive from a dispatched event, so honouring one
+  would let any event author grant itself access.
 
   A `nil` `person_id` is not a grant; it resolves like any other unprivileged caller, so the
   document must carry the `"public"` tag or a matching permission row. Skill reference files
@@ -55,8 +61,13 @@ defmodule Zaq.Ingestion.RecordMaterializer do
   @doc """
   Returns a page of **unmaterialized** records — metadata only, `content: nil`.
 
+  Records come back in the order the caller asked for them, not the order Postgres chose:
+  a caller rendering them as a list must not see the rows reshuffle between calls.
+
   Ids the caller cannot access, and ids with no document, are omitted rather than failing
-  the page: a single stale reference must not make a whole skill unloadable.
+  the page: a single stale reference must not make a whole skill unloadable. They are named
+  in `stats.missing` so a caller can report the gap rather than silently rendering a shorter
+  list than it asked for.
   """
   @spec describe(map(), keyword()) :: {:ok, RecordPage.t()} | {:error, term()}
   def describe(params, opts \\ [])
@@ -64,15 +75,20 @@ defmodule Zaq.Ingestion.RecordMaterializer do
   def describe(%{file_ids: []}, _opts), do: {:ok, empty_page()}
 
   def describe(%{file_ids: file_ids} = params, opts) do
-    ids = file_ids |> Enum.map(&parse_id/1) |> Enum.reject(&is_nil/1)
+    requested = file_ids |> Enum.map(&to_string/1) |> Enum.uniq()
+    ids = requested |> Enum.map(&parse_id/1) |> Enum.reject(&is_nil/1)
 
-    records =
-      ids
-      |> permitted_documents(params)
-      |> Enum.map(&build_record(&1, nil, opts))
+    found = ids |> permitted_documents(params) |> Map.new(&{&1.id, &1})
+
+    records = for id <- ids, doc = Map.get(found, id), do: build_record(doc, nil, opts)
+    missing = Enum.reject(requested, &Map.has_key?(found, parse_id(&1)))
 
     {:ok,
-     %{empty_page() | records: records, stats: %{scanned: length(ids), returned: length(records)}}}
+     %{
+       empty_page()
+       | records: records,
+         stats: %{scanned: length(requested), returned: length(records), missing: missing}
+     }}
   end
 
   @doc """
@@ -107,26 +123,42 @@ defmodule Zaq.Ingestion.RecordMaterializer do
   @doc """
   Removes the document row and the file behind it.
 
-  Idempotent: deleting an id that is already gone succeeds.
+  Permission-checked like a read, and for the same reason: a caller that may not see a
+  document must not be able to delete it. Fails with `:forbidden` when it may not.
+
+  Idempotent: deleting an id that is already gone succeeds. A row that could not be deleted
+  returns `{:error, changeset}` rather than `:ok` — a caller that drops its reference on
+  `:ok` would otherwise strand a row nothing points at.
   """
   @spec delete(map(), keyword()) :: :ok | {:error, term()}
   def delete(params, opts \\ [])
 
-  def delete(%{file_id: file_id}, opts) do
-    case fetch_document(file_id) do
+  def delete(%{file_id: _file_id} = params, opts) do
+    case fetch_permitted(params) do
       {:ok, doc} ->
+        # The file first: a row whose bytes are already gone is recoverable, a file no row
+        # points at is not.
         case resolve_full_path(doc.source, opts) do
           {:ok, full_path} -> File.rm(full_path)
           _ -> :ok
         end
 
-        Document.delete(doc)
-        :ok
+        case Document.delete(doc) do
+          {:ok, _doc} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
 
       {:error, :not_found} ->
         :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  # Params arrive from a dispatched event, so a request with no `file_id` at all must get an
+  # error rather than a `FunctionClauseError`.
+  def delete(_params, _opts), do: {:error, :invalid_delete_request}
 
   # -- permissions --
 
@@ -244,6 +276,10 @@ defmodule Zaq.Ingestion.RecordMaterializer do
   defp size_of(_), do: nil
 
   defp empty_page do
-    %RecordPage{resource_type: :file, records: [], stats: %{scanned: 0, returned: 0}}
+    %RecordPage{
+      resource_type: :file,
+      records: [],
+      stats: %{scanned: 0, returned: 0, missing: []}
+    }
   end
 end

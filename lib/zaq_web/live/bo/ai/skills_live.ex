@@ -52,6 +52,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Helpers.SizeFormat
 
+  require Logger
+
   # Narrower than IngestionLive's list on purpose: skill resources are reference material
   # the agent reads, so only the formats that make sense in that role are accepted.
   @allowed_extensions ~w(.json .md .pdf .png)
@@ -212,16 +214,19 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
       results =
         consume_uploaded_entries(socket, :skill_resources, fn %{path: tmp_path}, entry ->
-          {:ok, upload_resource(skill, volume, tmp_path, entry)}
+          {:ok, upload_resource(skill, volume, tmp_path, entry, caller(socket))}
         end)
 
       {uploaded, failed} = Enum.split_with(results, &match?({:ok, _}, &1))
 
+      # The upload toast first, so `persist_references/3` can replace it when the write
+      # landed but the bookkeeping did not — that outcome needs saying, and reporting only
+      # the upload would leave an orphaned file behind a success message.
       socket =
         socket
+        |> put_resource_upload_toast(uploaded, failed)
         |> persist_references(skill, uploaded)
         |> load_skill_resources()
-        |> put_resource_upload_toast(uploaded, failed)
         |> maybe_close_resource_modal(uploaded, failed)
 
       {:noreply, socket}
@@ -237,17 +242,17 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   # whereas the reverse would orphan a file nothing points at.
   def handle_event(
         "remove_skill_resource",
-        %{"file_id" => file_id},
+        %{"file_id" => file_id, "provider" => provider},
         %{assigns: %{selected_skill: %Skill{} = skill}} = socket
       ) do
-    reference = Enum.find(Resources.references(skill), &(Map.get(&1, "file_id") == file_id))
+    reference = Resources.find_reference(skill, file_id, provider)
 
-    case reference && delete_reference_file(reference) do
+    case reference && delete_reference_file(reference, caller(socket)) do
       nil ->
         {:noreply, socket}
 
       :ok ->
-        {:noreply, drop_reference(socket, skill, file_id)}
+        {:noreply, drop_reference(socket, skill, file_id, provider)}
 
       {:error, reason} ->
         {:noreply, put_toast(socket, :error, "Could not remove resource: #{inspect(reason)}")}
@@ -492,7 +497,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     if is_binary(volume) and entries != [] and Enum.all?(entries, &(&1.progress == 100)) do
       socket
       |> consume_uploaded_entries(:skill_resources, fn %{path: tmp_path}, entry ->
-        {:ok, upload_resource(skill, volume, tmp_path, entry)}
+        {:ok, upload_resource(skill, volume, tmp_path, entry, caller(socket))}
       end)
       |> Enum.split_with(&match?({:ok, _}, &1))
     else
@@ -517,17 +522,17 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   # One dispatch writes the file, registers its document row and tags it public. The
   # returned document id — not the path — is what gets stored on the skill.
-  defp upload_resource(skill, volume, tmp_path, entry) do
+  defp upload_resource(skill, volume, tmp_path, entry, caller) do
     destination = Resources.destination(skill, entry.client_name)
 
     # Both failure shapes are already `{:error, reason}`, so they fall through as-is.
     with {:ok, binary} <- File.read(tmp_path),
-         {:ok, %{record: record}} <- create_resource_file(volume, destination, binary) do
+         {:ok, %{record: record}} <- create_resource_file(volume, destination, binary, caller) do
       {:ok, %{file_id: record.id, name: record.name}}
     end
   end
 
-  defp create_resource_file(volume, destination, binary) do
+  defp create_resource_file(volume, destination, binary, caller) do
     params = %{
       "volume" => volume,
       "path" => destination,
@@ -535,11 +540,16 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
       "tags" => @resource_tags
     }
 
-    data_source_dispatch(:data_source_create_file, params)
+    data_source_dispatch(:data_source_create_file, Map.merge(caller, params))
   end
 
-  # Records what was written. The write already succeeded, so a failure here loses the
-  # reference but not the file — it stays visible in the ingestion browser.
+  # Records what was written.
+  #
+  # The write already succeeded, so a failure here loses the reference but not the file: it
+  # stays on the volume, tagged public, with nothing pointing at it — and `delete_skill_resources/2`
+  # will never reach it, because cleanup walks the references. The operator is told, because
+  # the only other signal is a resource table that stays empty after a success toast, which
+  # reads as a rendering bug rather than an orphaned file.
   defp persist_references(socket, _skill, []), do: socket
 
   defp persist_references(socket, %Skill{} = skill, uploaded) do
@@ -549,8 +559,16 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
       end)
 
     case save_resources(socket, skill, resources) do
-      {:ok, socket} -> socket
-      {:error, _reason, socket} -> socket
+      {:ok, socket} ->
+        socket
+
+      {:error, reason, socket} ->
+        put_toast(
+          socket,
+          :error,
+          "Uploaded #{length(uploaded)} file(s), but could not attach them to the skill: " <>
+            "#{inspect(reason)}. They remain in the ingestion browser."
+        )
     end
   end
 
@@ -587,10 +605,22 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   # references from elsewhere. `ReferenceFiles` degrades an unreachable provider to no
   # records, so the page renders rather than crashing.
   defp load_skill_resources(%{assigns: %{selected_skill: %Skill{} = skill}} = socket) do
-    assign(socket, :skill_resources, ReferenceFiles.records(skill, node_router: node_router()))
+    # `{provider, record}` pairs, not bare records: the provider is the other half of the
+    # address a removal needs, and it is authoritative where a record's `attributes` may not
+    # be. An id that no longer resolves is logged rather than silently shortening the table.
+    resources =
+      skill
+      |> ReferenceFiles.list(node_router: node_router(), on_error: &warn_unresolved/2)
+      |> Enum.map(fn {provider, record} -> %{provider: provider, record: record} end)
+
+    assign(socket, :skill_resources, resources)
   end
 
   defp load_skill_resources(socket), do: assign(socket, :skill_resources, [])
+
+  defp warn_unresolved(provider, reason) do
+    Logger.warning("[SkillsLive] unresolved #{provider} resources: #{inspect(reason)}")
+  end
 
   defp data_source_dispatch(action, params, provider \\ @resource_provider) do
     %{provider: provider, params: params}
@@ -624,21 +654,37 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   # live skill's resources when the record deletion then failed.
   defp delete_skill_resources(_socket, nil), do: []
 
-  defp delete_skill_resources(_socket, %Skill{} = skill) do
+  defp delete_skill_resources(socket, %Skill{} = skill) do
+    caller = caller(socket)
+
     skill
     |> Resources.references()
-    |> Enum.map(&delete_reference_file/1)
+    |> Enum.map(&delete_reference_file(&1, caller))
     |> Enum.reject(&(&1 == :ok))
   end
 
-  defp delete_reference_file(%{"file_id" => file_id, "provider" => provider}) do
-    data_source_dispatch(:data_source_delete_file, %{"file_id" => file_id}, provider)
+  # Carries the operator's identity: ingestion gates deleting on the same permission check
+  # as reading, so an anonymous request would only be able to remove public documents.
+  defp delete_reference_file(%{"file_id" => file_id, "provider" => provider}, caller) do
+    data_source_dispatch(
+      :data_source_delete_file,
+      Map.put(caller, "file_id", file_id),
+      provider
+    )
   end
 
-  defp delete_reference_file(_reference), do: :ok
+  defp delete_reference_file(_reference, _caller), do: :ok
 
-  defp drop_reference(socket, %Skill{} = skill, file_id) do
-    case save_resources(socket, skill, Resources.remove_reference(skill, file_id)) do
+  # Who is asking, in the shape `Zaq.Channels.DiskBridge` reads it from. `nil` is not a
+  # grant downstream — it resolves as an unprivileged caller.
+  defp caller(%{assigns: %{current_user: user}}) when is_map(user) do
+    %{"person_id" => Map.get(user, :id), "team_ids" => Map.get(user, :team_ids) || []}
+  end
+
+  defp caller(_socket), do: %{"person_id" => nil, "team_ids" => []}
+
+  defp drop_reference(socket, %Skill{} = skill, file_id, provider) do
+    case save_resources(socket, skill, Resources.remove_reference(skill, file_id, provider)) do
       {:ok, socket} ->
         socket
         |> load_skill_resources()

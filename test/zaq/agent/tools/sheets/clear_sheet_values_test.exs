@@ -28,9 +28,14 @@ defmodule Zaq.Agent.Tools.Sheets.ClearSheetValuesTest do
 
     assert_received {:dispatch, :data_source_sheet_clear_values, dispatched_params}
 
+    # `person_id` and `team_ids` are stamped onto every datasource request by
+    # `Zaq.Agent.Tools.DataSourceTool`; a context with no identified person sends `nil`,
+    # which is not a grant downstream.
     assert dispatched_params == %{
              "spreadsheet_id" => "s1",
-             "range" => "Sheet1!A1:C10"
+             "range" => "Sheet1!A1:C10",
+             "person_id" => nil,
+             "team_ids" => []
            }
 
     refute Map.has_key?(dispatched_params, "config_id")
@@ -53,7 +58,9 @@ defmodule Zaq.Agent.Tools.Sheets.ClearSheetValuesTest do
     assert dispatched_params == %{
              "spreadsheet_id" => "s1",
              "range" => "Sheet1!A1:C10",
-             "config_id" => "cfg-123"
+             "config_id" => "cfg-123",
+             "person_id" => nil,
+             "team_ids" => []
            }
   end
 

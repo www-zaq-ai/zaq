@@ -108,7 +108,7 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
     end
   end
 
-  describe "remove_reference/2" do
+  describe "remove_reference/3" do
     test "removes a referenced file" do
       refs = [
         %{"file_id" => "1", "provider" => "disk"},
@@ -117,7 +117,7 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
 
       s = skill(%{resources: %{"references" => refs}})
 
-      assert Resources.remove_reference(s, "1") ==
+      assert Resources.remove_reference(s, "1", "disk") ==
                %{"references" => [%{"file_id" => "2", "provider" => "disk"}]}
     end
 
@@ -125,18 +125,63 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
       refs = [%{"file_id" => "1", "provider" => "disk"}]
       s = skill(%{resources: %{"references" => refs}})
 
-      assert Resources.remove_reference(s, 1) == %{"references" => []}
+      assert Resources.remove_reference(s, 1, "disk") == %{"references" => []}
     end
 
     test "is a no-op for an absent file_id" do
       refs = [%{"file_id" => "1", "provider" => "disk"}]
       s = skill(%{resources: %{"references" => refs}})
 
-      assert Resources.remove_reference(s, "9") == %{"references" => refs}
+      assert Resources.remove_reference(s, "9", "disk") == %{"references" => refs}
     end
 
     test "is a no-op when the skill has no resources map" do
-      assert Resources.remove_reference(skill(%{resources: nil}), "1") == %{"references" => []}
+      assert Resources.remove_reference(skill(%{resources: nil}), "1", "disk") == %{
+               "references" => []
+             }
+    end
+
+    # Document ids are unique within a provider, not across them. Removing by id alone
+    # would take a second provider's file with it.
+    test "leaves the same id on another provider alone" do
+      refs = [
+        %{"file_id" => "42", "provider" => "disk"},
+        %{"file_id" => "42", "provider" => "gdrive"}
+      ]
+
+      s = skill(%{resources: %{"references" => refs}})
+
+      assert Resources.remove_reference(s, "42", "disk") ==
+               %{"references" => [%{"file_id" => "42", "provider" => "gdrive"}]}
+    end
+  end
+
+  describe "add_reference/3 across providers" do
+    test "the same id on a different provider is a distinct reference" do
+      s = skill(%{resources: %{"references" => [%{"file_id" => "42", "provider" => "disk"}]}})
+
+      assert Resources.add_reference(s, "42", "gdrive") == %{
+               "references" => [
+                 %{"file_id" => "42", "provider" => "disk"},
+                 %{"file_id" => "42", "provider" => "gdrive"}
+               ]
+             }
+    end
+  end
+
+  describe "find_reference/3" do
+    test "matches on both halves of the address" do
+      refs = [
+        %{"file_id" => "42", "provider" => "disk"},
+        %{"file_id" => "42", "provider" => "gdrive"}
+      ]
+
+      s = skill(%{resources: %{"references" => refs}})
+
+      assert Resources.find_reference(s, "42", "gdrive") ==
+               %{"file_id" => "42", "provider" => "gdrive"}
+
+      assert Resources.find_reference(s, "42", "sharepoint") == nil
     end
   end
 
@@ -228,7 +273,7 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
         s = skill(%{resources: %{"references" => refs}})
 
         added = Resources.add_reference(s, new_id, "disk")
-        round_tripped = Resources.remove_reference(%{s | resources: added}, new_id)
+        round_tripped = Resources.remove_reference(%{s | resources: added}, new_id, "disk")
 
         # Removing the id just added restores exactly what was there — unless it was
         # already present, in which case add was a no-op and remove drops it.

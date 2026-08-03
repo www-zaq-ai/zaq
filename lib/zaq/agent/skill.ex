@@ -138,10 +138,11 @@ defmodule Zaq.Agent.Skill do
     put_change(changeset, :diagnostics, updated)
   end
 
-  # `resources` is a namespace map. Only `"references"` is populated today; `"skills"` and
-  # `"assets"` are reserved so they can be added without another migration. Unknown keys are
-  # rejected rather than ignored, so a typo surfaces at write time instead of silently
-  # producing a skill whose files are invisible.
+  # `resources` is a namespace map, so a future kind of bundled file — `"skills"`,
+  # `"assets"` — is a new entry in `@resource_kinds` rather than a new column and another
+  # migration. Only `"references"` is accepted today: a key not in that list is rejected
+  # rather than ignored, so a typo surfaces at write time instead of silently producing a
+  # skill whose files are invisible.
   #
   # A reference is `%{"file_id" => binary, "provider" => binary}` and nothing else. There is
   # deliberately no denormalized name or mime type here: the datasource owns that metadata,
@@ -184,7 +185,11 @@ defmodule Zaq.Agent.Skill do
   defp valid_reference?(_reference), do: false
 
   # The same file referenced twice would be listed twice to the model and downloaded twice.
-  defp dedupe_references(references), do: Enum.uniq_by(references, &Map.get(&1, "file_id"))
+  # Keyed on the `{file_id, provider}` pair, because that pair is the address: document ids
+  # are unique within a provider, not across them.
+  defp dedupe_references(references) do
+    Enum.uniq_by(references, &{Map.get(&1, "file_id"), Map.get(&1, "provider")})
+  end
 
   # Field-shape validation (name format, length caps, allowed-tools encoding) is owned by
   # `Jido.AI.Skill.Loader` via `Validation.validate/1` — ZAQ does not reimplement it. See

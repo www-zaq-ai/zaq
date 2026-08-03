@@ -80,7 +80,22 @@ defmodule Zaq.Channels.DataSourceBridge do
   # optional makes the behaviour say what the dispatcher already does, and lets a narrow
   # bridge (`Zaq.Channels.DiskBridge`) still get compile-time checking on the callbacks it
   # does implement.
-  @optional_callbacks auth_handshake: 2,
+  @doc """
+  Whether this bridge works with no `channel_configs` row.
+
+  Defaults to `false` — a datasource is a per-install connection instance, and without the
+  row there is no URL, no token and no `id` for a credentialed bridge to find its grant
+  under. A bridge fronting something ZAQ already owns overrides this
+  (`Zaq.Channels.DiskBridge`, over ingestion volumes), and is then handed a config carrying
+  only `provider`.
+
+  The declaration lives on the bridge rather than as a provider list here, so the dispatcher
+  keeps no per-provider knowledge and adding such a bridge needs no change to this module.
+  """
+  @callback config_optional?() :: boolean()
+
+  @optional_callbacks config_optional?: 0,
+                      auth_handshake: 2,
                       list_resources: 2,
                       download_resource: 3,
                       setup_listener: 2,
@@ -495,18 +510,27 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   # A `channel_configs` row is a per-install *connection instance* — a URL, an encrypted
   # token, a chosen account — and its `id` is what a credentialed bridge joins on to find
-  # its grant. Whether that matters is the bridge's business, not this dispatcher's: a
-  # bridge fronting something ZAQ already owns (`Zaq.Channels.DiskBridge`, over ingestion
-  # volumes) never reads the config at all and works out of the box, while one that needs
-  # credentials answers `{:error, {:channel_not_configured, provider}}` itself when the
-  # `id` it needs is absent.
+  # its grant. A missing row therefore stays an error, as it always has, for every provider
+  # that needs one.
   #
-  # So there is no decision here. An operator-created row wins when one exists; otherwise
-  # the bridge is handed the provider it was dispatched for and decides for itself.
+  # The exception is narrow and the bridge declares it: `config_optional?/0` (see the
+  # callback docs) is true only for a bridge fronting something ZAQ already owns, which
+  # reads no config at all. That bridge is handed the provider it was dispatched for.
+  # Deciding this per bridge rather than per call site is what keeps the exception from
+  # widening into "no provider needs configuring".
   defp fetch_default_data_source_config(provider) do
     case Bridge.fetch_channel_config(provider) do
       {:ok, config} -> {:ok, config}
-      {:error, _reason} -> {:ok, %{provider: to_string(provider)}}
+      {:error, reason} -> default_config_for_unconfigured(provider, reason)
+    end
+  end
+
+  defp default_config_for_unconfigured(provider, reason) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         true <- supports_callback?(bridge, :config_optional?, 0) && bridge.config_optional?() do
+      {:ok, %{provider: to_string(provider)}}
+    else
+      _ -> {:error, reason}
     end
   end
 

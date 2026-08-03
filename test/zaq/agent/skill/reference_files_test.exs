@@ -108,16 +108,44 @@ defmodule Zaq.Agent.Skill.ReferenceFilesTest do
     end
   end
 
-  describe "records/2" do
-    test "drops the provider" do
-      skill = skill([reference("7", "disk")])
+  # A reference whose document was deleted outside the BO comes back as a shorter page, not
+  # an error. Nothing distinguishes that from a skill that never had the file, so the gap is
+  # reported rather than left to be inferred from a list length.
+  describe "missing references" do
+    defmodule PartialRouter do
+      def dispatch(%Event{} = event) do
+        page = %RecordPage{
+          resource_type: :file,
+          records: [%Record{id: "1", kind: :file, name: "1.md"}],
+          stats: %{scanned: 2, returned: 1, missing: ["2"]}
+        }
 
-      assert [%Record{id: "7", name: "disk-7.md"}] =
-               ReferenceFiles.records(skill, node_router: ListRouter)
+        %{event | response: {:ok, page}}
+      end
     end
 
-    test "returns an empty list for a skill with no references" do
-      assert ReferenceFiles.records(skill([]), node_router: ListRouter) == []
+    test "reports ids the provider omitted to :on_error" do
+      skill = skill([reference("1", "disk"), reference("2", "disk")])
+      parent = self()
+
+      assert [{"disk", %Record{id: "1"}}] =
+               ReferenceFiles.list(skill,
+                 node_router: PartialRouter,
+                 on_error: fn provider, reason -> send(parent, {:gap, provider, reason}) end
+               )
+
+      assert_received {:gap, "disk", {:missing_references, ["2"]}}
+    end
+
+    test "says nothing when every id resolved" do
+      parent = self()
+
+      ReferenceFiles.list(skill([reference("7", "disk")]),
+        node_router: ListRouter,
+        on_error: fn provider, reason -> send(parent, {:gap, provider, reason}) end
+      )
+
+      refute_received {:gap, _provider, _reason}
     end
   end
 end

@@ -126,8 +126,8 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
     end)
   end
 
-  defp warn_unresolved(provider, response) do
-    Logger.warning("[LoadSkill] could not list #{provider} resources: #{inspect(response)}")
+  defp warn_unresolved(provider, reason) do
+    Logger.warning("[LoadSkill] unresolved #{provider} resources: #{inspect(reason)}")
   end
 
   defp fetch_agent(context) do

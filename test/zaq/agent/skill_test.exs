@@ -481,12 +481,25 @@ defmodule Zaq.Agent.SkillTest do
       refute changeset_for(%{"references" => ["1"]}).valid?
     end
 
-    test "collapses duplicate file_ids" do
+    test "collapses duplicate references" do
       entry = %{"file_id" => "1", "provider" => "disk"}
       changeset = changeset_for(%{"references" => [entry, entry]})
 
       assert changeset.valid?
       assert Ecto.Changeset.get_field(changeset, :resources) == %{"references" => [entry]}
+    end
+
+    # Dedupe is keyed on the `{file_id, provider}` pair, because that pair is the address a
+    # download takes. Ids are unique within a provider, not across them.
+    test "keeps the same file_id on two different providers" do
+      disk = %{"file_id" => "42", "provider" => "disk"}
+      gdrive = %{"file_id" => "42", "provider" => "gdrive"}
+      changeset = changeset_for(%{"references" => [disk, gdrive]})
+
+      assert changeset.valid?
+
+      assert Ecto.Changeset.get_field(changeset, :resources) ==
+               %{"references" => [disk, gdrive]}
     end
 
     property "rejects anything that is not the exact reference shape" do

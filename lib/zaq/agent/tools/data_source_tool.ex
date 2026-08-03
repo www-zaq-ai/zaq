@@ -14,7 +14,7 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
 
   def dispatch(action, request, context, error_prefix, on_ok) do
     node_router = Map.get(context, :node_router, NodeRouter)
-    event = Event.new(request, :channels, opts: [action: action])
+    event = request |> with_caller(context) |> Event.new(:channels, opts: [action: action])
 
     event
     |> node_router.dispatch()
@@ -56,6 +56,28 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   @spec wrap_request(map(), String.t()) :: map()
   def wrap_request(params, provider) when is_map(params) and is_binary(provider),
     do: %{provider: provider, params: params}
+
+  # Stamps who is asking onto every datasource request, next to the `config_id` the tools
+  # already put there.
+  #
+  # A provider fronting an external system authenticates as the install and ignores these;
+  # one fronting ZAQ's own data (`Zaq.Channels.DiskBridge`, over ingestion volumes) checks
+  # them on every call. Without the stamp that check has nothing to read, and a request from
+  # an identified person silently resolves as an anonymous one — so a document they are
+  # permitted to read comes back `:not_found`.
+  #
+  # A `nil` `person_id` is not a grant and is not treated as one downstream: it resolves as
+  # an unprivileged caller, which is the correct reading of "no identified person".
+  defp with_caller(%{params: params} = request, context) when is_map(params) do
+    params =
+      params
+      |> Map.put("person_id", Map.get(context, :person_id))
+      |> Map.put("team_ids", Map.get(context, :team_ids, []))
+
+    %{request | params: params}
+  end
+
+  defp with_caller(request, _context), do: request
 
   defp default_on_ok(payload), do: {:ok, payload}
 end

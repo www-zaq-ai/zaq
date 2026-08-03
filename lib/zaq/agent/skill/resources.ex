@@ -61,17 +61,28 @@ defmodule Zaq.Agent.Skill.Resources do
   end
 
   @doc """
+  The skill's reference for `{file_id, provider}`, or `nil`.
+
+  Both halves are matched because both halves are the address — document ids are scoped to
+  their provider, so an id alone names a file only by coincidence.
+  """
+  @spec find_reference(Skill.t(), String.t() | integer(), String.t()) :: map() | nil
+  def find_reference(%Skill{} = skill, file_id, provider) do
+    Enum.find(references(skill), &same_reference?(&1, file_id, provider))
+  end
+
+  @doc """
   Returns the skill's `resources` map with one reference added.
 
-  Adding a `file_id` that is already referenced is a no-op, so a retried upload cannot
-  double-list a file.
+  Adding a `{file_id, provider}` that is already referenced is a no-op, so a retried upload
+  cannot double-list a file.
   """
   @spec add_reference(Skill.t(), String.t() | integer(), String.t()) :: map()
   def add_reference(%Skill{} = skill, file_id, provider) do
     file_id = to_string(file_id)
     existing = references(skill)
 
-    if Enum.any?(existing, &(Map.get(&1, "file_id") == file_id)) do
+    if Enum.any?(existing, &same_reference?(&1, file_id, provider)) do
       put_references(skill, existing)
     else
       put_references(skill, existing ++ [%{"file_id" => file_id, "provider" => provider}])
@@ -81,13 +92,19 @@ defmodule Zaq.Agent.Skill.Resources do
   @doc """
   Returns the skill's `resources` map with one reference removed.
 
-  Removing an absent `file_id` is a no-op.
+  Removing an absent `{file_id, provider}` is a no-op.
   """
-  @spec remove_reference(Skill.t(), String.t() | integer()) :: map()
-  def remove_reference(%Skill{} = skill, file_id) do
-    file_id = to_string(file_id)
+  @spec remove_reference(Skill.t(), String.t() | integer(), String.t()) :: map()
+  def remove_reference(%Skill{} = skill, file_id, provider) do
+    put_references(skill, Enum.reject(references(skill), &same_reference?(&1, file_id, provider)))
+  end
 
-    put_references(skill, Enum.reject(references(skill), &(Map.get(&1, "file_id") == file_id)))
+  # A reference is a `{file_id, provider}` pair, and identity follows the pair. Matching on
+  # the id alone would make `"42"` on one provider and `"42"` on another the same file —
+  # they are not, and ids are only unique within a provider.
+  defp same_reference?(reference, file_id, provider) do
+    Map.get(reference, "file_id") == to_string(file_id) and
+      Map.get(reference, "provider") == provider
   end
 
   defp put_references(%Skill{resources: resources}, references) when is_map(resources),

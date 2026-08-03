@@ -352,25 +352,27 @@
             </DSTable.table_row>
             <DSTable.table_row :for={resource <- @skill_resources}>
               <DSTable.table_cell>
-                <DSTable.table_text label={resource.name} />
+                <DSTable.table_text label={resource.record.name} />
               </DSTable.table_cell>
               <DSTable.table_cell>
                 <DSTable.table_text
-                  label={ZaqWeb.Helpers.SizeFormat.format_size(resource.size)}
+                  label={ZaqWeb.Helpers.SizeFormat.format_size(resource.record.size)}
                   tone={:secondary}
                 />
               </DSTable.table_cell>
               <DSTable.table_cell>
-                <DSTable.table_datetime value={resource.modified_at} />
+                <DSTable.table_datetime value={resource.record.modified_at} />
               </DSTable.table_cell>
               <DSTable.table_cell>
                 <DSButton.button
                   variant={:ghost}
                   icon_only
                   type="button"
-                  aria-label={"Remove #{resource.name}"}
+                  aria-label={"Remove #{resource.record.name}"}
                   phx-click="remove_skill_resource"
-                  phx-value-file_id={resource.id}
+                  phx-value-file_id={resource.record.id}
+                  phx-value-provider={resource.provider}
+                  data-confirm={"Remove #{resource.record.name}? The file is deleted from the volume."}
                   data-role="remove-skill-resource"
                 >
                   <.icon name="hero-trash" class="zaq-icon-sm" />

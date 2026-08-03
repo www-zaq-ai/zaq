@@ -195,6 +195,43 @@ defmodule Zaq.Ingestion.RecordMaterializerTest do
       assert record.id == to_string(a.id)
     end
 
+    # A shorter page with no explanation is the hardest version of this to diagnose —
+    # nothing distinguishes it from a skill that never referenced the file.
+    test "names the omitted ids in stats", %{root: root} do
+      write_file(root, "refs/a.md", "aaa")
+      write_file(root, "refs/priv.md", "y")
+      a = document_for("refs/a.md", ["public"])
+      priv = document_for("refs/priv.md", [])
+
+      assert {:ok, %RecordPage{stats: stats}} =
+               RecordMaterializer.describe(%{
+                 file_ids: [a.id, priv.id, 999_999_999],
+                 person_id: nil
+               })
+
+      assert stats.scanned == 3
+      assert stats.returned == 1
+      assert Enum.sort(stats.missing) == Enum.sort([to_string(priv.id), "999999999"])
+    end
+
+    # `Repo.all/1` returns rows in whatever order Postgres chose. The BO renders this page
+    # as a table, which must not reshuffle between renders.
+    test "returns records in the order the caller asked for", %{root: root} do
+      write_file(root, "refs/a.md", "aaa")
+      write_file(root, "refs/b.md", "bbb")
+      write_file(root, "refs/c.md", "ccc")
+      a = document_for("refs/a.md", ["public"])
+      b = document_for("refs/b.md", ["public"])
+      c = document_for("refs/c.md", ["public"])
+
+      requested = [c.id, a.id, b.id]
+
+      assert {:ok, %RecordPage{records: records}} =
+               RecordMaterializer.describe(%{file_ids: requested, person_id: nil})
+
+      assert Enum.map(records, & &1.id) == Enum.map(requested, &to_string/1)
+    end
+
     test "omits documents the caller may not access", %{root: root} do
       write_file(root, "refs/pub.md", "x")
       write_file(root, "refs/priv.md", "y")
@@ -318,9 +355,28 @@ defmodule Zaq.Ingestion.RecordMaterializerTest do
     # leaving it behind would make the document permanently unreadable but still listed.
     test "removes the row even when the path cannot be resolved" do
       {:ok, doc} = Document.insert_new(%{source: "vanished-volume/refs/x.md"})
+      {:ok, doc} = doc |> Ecto.Changeset.change(tags: ["public"]) |> Zaq.Repo.update()
 
       assert :ok = RecordMaterializer.delete(%{file_id: doc.id})
       assert Document.get(doc.id) == nil
+    end
+
+    # Deleting is gated on the same check as reading: a caller that may not see a document
+    # must not be able to destroy it. The file has to survive the refusal too — an
+    # unauthorised delete that still removed the bytes would be the whole damage.
+    test "refuses a caller that may not read the document", %{root: root} do
+      write_file(root, "refs/private.md", "secret")
+      {:ok, doc} = Document.insert_new(%{source: "#{@volume}/refs/private.md"})
+
+      assert {:error, :forbidden} = RecordMaterializer.delete(%{file_id: doc.id})
+      assert Document.get(doc.id)
+      assert File.exists?(Path.join(root, "refs/private.md"))
+    end
+
+    # Params arrive from a dispatched event, so a request with no `file_id` must come back
+    # as an error rather than a `FunctionClauseError`.
+    test "refuses a request with no file_id" do
+      assert {:error, :invalid_delete_request} = RecordMaterializer.delete(%{})
     end
   end
 

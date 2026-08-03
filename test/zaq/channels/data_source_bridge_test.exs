@@ -4,6 +4,17 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   alias Zaq.Channels.{ChannelConfig, DataSourceBridge}
   alias Zaq.Repo
 
+  # A bridge fronting something ZAQ already owns: it reads no config, so it works with no
+  # `channel_configs` row and says so.
+  defmodule ConfiglessDataSourceBridge do
+    def config_optional?, do: true
+
+    def list_files(config, params) do
+      send(self(), {:list_files, Map.get(config, :id), params})
+      {:ok, %{records: []}}
+    end
+  end
+
   defmodule StubDataSourceBridge do
     def auth_handshake(config, params) do
       send(self(), {:auth_handshake, config.provider, params})
@@ -1019,10 +1030,10 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              DataSourceBridge.list_files(:google_drive, %{"config_id" => non_existent_id})
   end
 
-  # Config resolution makes no per-provider decision: a row when one exists, otherwise the
-  # bare provider. Whether that is enough is the bridge's call — a bridge that never reads
-  # its config works either way, and one that needs credentials refuses on its own (see
-  # `Zaq.Channels.JidoConnectBridgeTest`). These tests pin the dispatcher's half of that.
+  # Config resolution makes no per-provider decision, but it does not hand out bare configs
+  # freely either: a missing row stays an error unless the bridge declares
+  # `config_optional?/0`. That keeps the exception to bridges fronting something ZAQ already
+  # owns, instead of silently relaxing the rule for every provider.
   describe "config resolution without a row" do
     setup do
       Application.put_env(:zaq, :channels, %{
@@ -1031,21 +1042,24 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
         sharepoint: %{bridge: StubDataSourceBridge, adapter: __MODULE__.StubAdapter},
         # `ChannelConfig` does not accept "disk" as a provider at all, so it can never have
         # a row — this is the only path it ever takes.
-        disk: %{bridge: StubDataSourceBridge}
+        disk: %{bridge: ConfiglessDataSourceBridge}
       })
 
       :ok
     end
 
-    # No `id` is what distinguishes a bare config from a row, and it is what a credentialed
-    # bridge keys its grant on.
-    test "hands the bridge a bare config when no row exists" do
-      assert {:ok, %{records: []}} = DataSourceBridge.list_files(:google_drive, %{})
+    # The default. A datasource is a per-install connection instance; without the row there
+    # is no URL, no token, and no `id` for a credentialed bridge to find its grant under.
+    test "refuses a provider whose bridge does not declare config_optional?" do
+      assert {:error, {:channel_not_configured, :google_drive}} =
+               DataSourceBridge.list_files(:google_drive, %{})
 
-      assert_received {:list_files, nil, %{}}
+      refute_received {:list_files, _id, _params}
     end
 
-    test "does the same for a provider that can never have a row" do
+    # No `id` is what distinguishes a bare config from a row, and it is what a credentialed
+    # bridge keys its grant on.
+    test "hands a bare config to a bridge that declares config_optional?" do
       assert {:ok, %{records: []}} = DataSourceBridge.list_files(:disk, %{})
 
       assert_received {:list_files, nil, %{}}

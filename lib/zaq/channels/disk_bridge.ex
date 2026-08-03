@@ -15,9 +15,11 @@ defmodule Zaq.Channels.DiskBridge do
 
   ## Configuration
 
-  None. This bridge ignores the config it is passed — the volume comes from ingestion's own
-  configuration and the document id carries the rest — so `disk` works with no
-  `channel_configs` row and does not appear as a configurable datasource in the BO.
+  None. The volume comes from ingestion's own configuration and the document id carries the
+  rest, so `disk` works with no `channel_configs` row and does not appear as a configurable
+  datasource in the BO. `config_optional?/0` is how it says so:
+  `Zaq.Channels.DataSourceBridge` refuses a provider with no row unless its bridge declares
+  this, which keeps the exception to `disk` instead of relaxing the rule for every provider.
   """
 
   @behaviour Zaq.Channels.DataSourceBridge
@@ -27,6 +29,12 @@ defmodule Zaq.Channels.DiskBridge do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Utils
+
+  @doc """
+  Declares that this bridge needs no `channel_configs` row. See the moduledoc.
+  """
+  @impl true
+  def config_optional?, do: true
 
   @doc """
   Returns `%{record: record}` where the record is **unmaterialized**.
@@ -54,16 +62,27 @@ defmodule Zaq.Channels.DiskBridge do
   @doc "Lists the given documents as **unmaterialized** records — metadata only."
   @impl true
   def list_files(config, params) when is_map(config) and is_map(params) do
-    dispatch(:describe_records, describe_request(params), params)
+    dispatch(:describe_records, describe_request(params), config)
   end
 
   @doc "Returns one document as an unmaterialized record."
   @impl true
   def get_file(config, params) when is_map(config) and is_map(params) do
-    case list_files(config, Map.put(params, "file_ids", [fetch(params, "file_id")])) do
-      {:ok, %RecordPage{records: [record | _]}} -> {:ok, %{record: record}}
-      {:ok, %RecordPage{records: []}} -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
+    file_id = to_string(fetch(params, "file_id"))
+
+    case list_files(config, Map.put(params, "file_ids", [file_id])) do
+      # The id is re-checked rather than assumed. `describe_records` filters on exactly the
+      # ids it was given, so this holds today — but it holds across a role boundary, and an
+      # unchecked head would turn a future contract drift into the wrong file rather than
+      # a `:not_found`.
+      {:ok, %RecordPage{records: [%Record{id: ^file_id} = record | _]}} ->
+        {:ok, %{record: record}}
+
+      {:ok, %RecordPage{}} ->
+        {:error, :not_found}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -76,15 +95,21 @@ defmodule Zaq.Channels.DiskBridge do
   @impl true
   def create_file(config, params) when is_map(config) and is_map(params) do
     with {:ok, request} <- persist_request(params),
-         {:ok, record} <- dispatch(:persist_record, request, params) do
+         {:ok, record} <- dispatch(:persist_record, request, config) do
       {:ok, %{record: record}}
     end
   end
 
-  @doc "Removes the document row and the file behind it."
+  @doc """
+  Removes the document row and the file behind it.
+
+  Carries the caller like the read requests do: ingestion gates deleting on the same
+  permission check as reading, so a request without one deletes only what an unprivileged
+  caller could already see.
+  """
   @impl true
   def delete_file(config, params) when is_map(config) and is_map(params) do
-    dispatch(:delete_record, %{file_id: fetch(params, "file_id")}, params)
+    dispatch(:delete_record, delete_request(params), config)
   end
 
   # -- requests --
@@ -97,8 +122,14 @@ defmodule Zaq.Channels.DiskBridge do
     with_caller(params, %{file_ids: fetch(params, "file_ids") || []})
   end
 
-  # Every read request carries who is asking. Ingestion checks it on each one, so leaving it
-  # off a request would silently downgrade that call to an unprivileged one rather than fail.
+  defp delete_request(params) do
+    with_caller(params, %{file_id: fetch(params, "file_id")})
+  end
+
+  # Every request that names an existing document carries who is asking. Ingestion checks it
+  # on each one, so leaving it off would silently downgrade that call to an unprivileged one
+  # rather than fail. `persist_request/1` is the exception — it creates a document rather
+  # than naming one, and the volume it writes to is the authorisation.
   defp with_caller(params, request) do
     Map.merge(request, %{
       person_id: fetch(params, "person_id"),
@@ -135,8 +166,12 @@ defmodule Zaq.Channels.DiskBridge do
 
   # -- dispatch --
 
-  defp dispatch(action, request, params) do
-    node_router = fetch(params, "node_router") || NodeRouter
+  # The router is read off `config`, never off `params`. `params` is caller-supplied data
+  # that reaches here verbatim from agent tools, and choosing the dispatch target from it
+  # would make what runs a function of what the caller sent. `config` comes from the
+  # dispatcher.
+  defp dispatch(action, request, config) do
+    node_router = fetch(config, "node_router") || NodeRouter
 
     request
     |> Event.new(:ingestion, opts: [action: action])
