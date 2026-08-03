@@ -73,6 +73,46 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback sheet_clear_values(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback sheet_delete_tab(map(), map()) :: {:ok, map()} | {:error, term()}
 
+  # Every callback above is optional. This module already dispatches through
+  # `supports_callback?/3` and answers `{:error, :unsupported}` for anything a bridge does
+  # not export, so partial implementation is the design, not an accident — a provider that
+  # has no spreadsheets should not have to stub twelve sheet functions. Declaring them
+  # optional makes the behaviour say what the dispatcher already does, and lets a narrow
+  # bridge (`Zaq.Channels.DiskBridge`) still get compile-time checking on the callbacks it
+  # does implement.
+  @optional_callbacks auth_handshake: 2,
+                      list_resources: 2,
+                      download_resource: 3,
+                      setup_listener: 2,
+                      teardown_listener: 2,
+                      watch_changes: 2,
+                      unwatch_changes: 2,
+                      watch_item: 2,
+                      unwatch_item: 2,
+                      handle_webhook: 2,
+                      oauth_authorize_url: 2,
+                      oauth_exchange_code: 2,
+                      oauth_refresh_token: 2,
+                      oauth_default_scopes: 1,
+                      list_files: 2,
+                      create_file: 2,
+                      get_file: 2,
+                      update_file: 2,
+                      delete_file: 2,
+                      search_files: 2,
+                      download_document: 2,
+                      list_permissions: 2,
+                      channel_stats: 2,
+                      export_options: 2,
+                      sheet_inspect: 2,
+                      sheet_get: 2,
+                      sheet_create: 2,
+                      sheet_add_tab: 2,
+                      sheet_update_values: 2,
+                      sheet_append_values: 2,
+                      sheet_clear_values: 2,
+                      sheet_delete_tab: 2
+
   @required_capabilities [
     :list_items,
     :count_items,
