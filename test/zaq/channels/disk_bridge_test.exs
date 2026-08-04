@@ -1,12 +1,13 @@
 defmodule Zaq.Channels.DiskBridgeTest do
   # Unit-level: the router is stubbed through `config["node_router"]`, so these assert what
-  # the bridge asks ingestion for and what it does with the answer — never ingestion itself.
+  # the bridge asks ingestion for and what it maps the answer into — never ingestion itself.
   use ExUnit.Case, async: true
 
   alias Zaq.Channels.DiskBridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
+  alias Zaq.Ingestion.FileExplorer.Entry
 
   defmodule StubRouter do
     @moduledoc false
@@ -29,16 +30,115 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
   defp stub_response(response), do: Process.put(:stub_response, response)
 
-  defp record(id, attrs \\ %{}) do
-    struct!(%Record{id: id, kind: :file, name: "guide.md"}, attrs)
+  defp entry(id, attrs \\ %{}) do
+    struct!(
+      %Entry{
+        id: id,
+        name: "guide.md",
+        type: :file,
+        size: 12,
+        modified_at: ~U[2026-01-01 00:00:00Z],
+        volume: "archives",
+        relative_path: "guide.md",
+        source: "guide.md"
+      },
+      attrs
+    )
   end
 
-  defp page(records) do
-    %RecordPage{
-      resource_type: :item,
-      records: records,
-      stats: %{scanned: length(records), returned: length(records)}
-    }
+  defp entry_page(entries), do: %{entries: entries, scanned: length(entries)}
+
+  defp grant(id, attrs \\ %{}) do
+    Map.merge(
+      %{id: id, type: "person", target_id: "7", name: "Ada", access_rights: ["read"]},
+      attrs
+    )
+  end
+
+  # ── mapping: entries to records ─────────────────────────────────────────────
+
+  describe "entry mapping" do
+    test "maps a file entry onto a record, carrying provider attributes" do
+      stub_response({:ok, entry_page([entry("42")])})
+
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+
+      assert %Record{id: "42", kind: :file, name: "guide.md", path: "guide.md"} = record
+      assert record.mime_type == "text/markdown"
+      assert record.size == 12
+      assert record.modified_at == ~U[2026-01-01 00:00:00Z]
+
+      assert record.attributes == %{
+               "provider" => "disk",
+               "volume" => "archives",
+               "relative_path" => "guide.md",
+               "source" => "guide.md"
+             }
+    end
+
+    test "translates the entry's :directory into the record's :folder, with no mime type" do
+      # The two vocabularies meet here: ingestion says :directory, the record contract says
+      # :folder.
+      stub_response({:ok, entry_page([entry("d1", %{type: :directory, name: "manuals"})])})
+
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+      assert record.kind == :folder
+      assert record.mime_type == nil
+    end
+
+    test "keeps the entry on the record's raw field" do
+      volume_entry = entry("42")
+      stub_response({:ok, entry_page([volume_entry])})
+
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+      assert record.raw == %{local_entry: volume_entry}
+    end
+
+    test "reports the scanned count ingestion gave alongside what was returned" do
+      # `scanned` differs from `returned` when ingestion dropped rows whose file is gone.
+      stub_response({:ok, %{entries: [entry("42")], scanned: 5}})
+
+      assert {:ok, %RecordPage{stats: stats, resource_type: :item}} =
+               DiskBridge.list_files(config(), %{})
+
+      assert stats == %{scanned: 5, returned: 1}
+    end
+
+    test "answers with an empty page for an empty listing" do
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{records: [], stats: %{scanned: 0, returned: 0}}} =
+               DiskBridge.list_files(config(), %{})
+    end
+  end
+
+  describe "materializing events" do
+    test "attaches an event addressed to ingestion, naming the record id" do
+      stub_response({:ok, entry_page([entry("42")])})
+
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+
+      assert %Event{request: %{file_id: "42"}, opts: opts, next_hop: next_hop} =
+               record.materializing_event
+
+      assert opts[:action] == :materialize_record
+      assert next_hop.destination == :ingestion
+      assert record.content == nil
+    end
+
+    test "attaches one to a file with no document row, using its volume-path id" do
+      stub_response({:ok, entry_page([entry("disk:archives:loose.md")])})
+
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+      assert %Event{request: %{file_id: "disk:archives:loose.md"}} = record.materializing_event
+    end
+
+    test "leaves folders with no materializing event" do
+      stub_response({:ok, entry_page([entry("d1", %{type: :directory})])})
+
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+      assert record.materializing_event == nil
+    end
   end
 
   # ── request shapes, one per callback ────────────────────────────────────────
@@ -46,71 +146,55 @@ defmodule Zaq.Channels.DiskBridgeTest do
   describe "list_files/2" do
     test "dispatches :list_records to ingestion, passing filters through untouched" do
       params = %{"filters" => %{"parent" => "archives/manuals"}, "page_size" => 50}
-      stub_response({:ok, page([])})
+      stub_response({:ok, entry_page([])})
 
       assert {:ok, %RecordPage{}} = DiskBridge.list_files(config(), params)
       assert_received {:dispatch, :ingestion, :list_records, %{params: ^params}}
     end
+
+    test "passes an ingestion error back unchanged" do
+      stub_response({:error, :unknown_volume})
+
+      assert {:error, :unknown_volume} = DiskBridge.list_files(config(), %{})
+    end
   end
 
   describe "get_file/2" do
-    test "dispatches :describe_records with the single id" do
-      stub_response({:ok, page([record("42")])})
+    test "dispatches :describe_record with the single id" do
+      stub_response({:ok, entry("42")})
 
       assert {:ok, %{record: %Record{id: "42"}}} =
                DiskBridge.get_file(config(), %{"file_id" => "42"})
 
-      assert_received {:dispatch, :ingestion, :describe_records, %{file_ids: ["42"]}}
+      assert_received {:dispatch, :ingestion, :describe_record, %{file_id: "42"}}
     end
 
     test "stringifies an integer file_id" do
-      stub_response({:ok, page([record("42")])})
+      stub_response({:ok, entry("42")})
 
       assert {:ok, %{record: %Record{id: "42"}}} = DiskBridge.get_file(config(), %{file_id: 42})
-      assert_received {:dispatch, :ingestion, :describe_records, %{file_ids: ["42"]}}
-    end
-
-    test "refuses a record whose id is not the one that was asked for" do
-      # The id is re-checked across the role boundary: contract drift must surface as
-      # :not_found, never as the wrong file.
-      stub_response({:ok, page([record("99")])})
-
-      assert {:error, :not_found} = DiskBridge.get_file(config(), %{"file_id" => "42"})
-    end
-
-    test "answers :not_found for an empty page" do
-      stub_response({:ok, page([])})
-
-      assert {:error, :not_found} = DiskBridge.get_file(config(), %{"file_id" => "42"})
-    end
-
-    test "takes the matching record when it heads a multi-record page" do
-      stub_response({:ok, page([record("42"), record("43")])})
-
-      assert {:ok, %{record: %Record{id: "42"}}} =
-               DiskBridge.get_file(config(), %{"file_id" => "42"})
+      assert_received {:dispatch, :ingestion, :describe_record, %{file_id: "42"}}
     end
 
     test "passes an ingestion error back unchanged" do
-      stub_response({:error, :whatever})
+      stub_response({:error, :not_found})
 
-      assert {:error, :whatever} = DiskBridge.get_file(config(), %{"file_id" => "42"})
+      assert {:error, :not_found} = DiskBridge.get_file(config(), %{"file_id" => "42"})
     end
 
-    test "returns the record unmaterialized, event intact" do
-      event = Event.new(%{file_id: "42"}, :ingestion, opts: [action: :materialize_record])
-      stub_response({:ok, page([record("42", %{content: nil, materializing_event: event})])})
+    test "returns the record unmaterialized" do
+      stub_response({:ok, entry("42")})
 
-      assert {:ok, %{record: %Record{content: nil, materializing_event: ^event}}} =
+      assert {:ok, %{record: %Record{content: nil, materializing_event: %Event{}}}} =
                DiskBridge.get_file(config(), %{"file_id" => "42"})
     end
   end
 
   describe "create_file/2" do
     test "dispatches :persist_record carrying name, path, content, and encoding" do
-      stub_response({:ok, %{status: "created"}})
+      stub_response({:ok, %{status: "created", entry: entry("42")}})
 
-      assert {:ok, %{status: "created"}} =
+      assert {:ok, %{status: "created", record: %Record{id: "42"}}} =
                DiskBridge.create_file(config(), %{
                  "name" => "notes.md",
                  "path" => "archives",
@@ -129,7 +213,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "defaults absent content to an empty string and leaves encoding nil" do
-      stub_response({:ok, %{status: "created"}})
+      stub_response({:ok, %{status: "created", entry: entry("42")}})
 
       DiskBridge.create_file(config(), %{"name" => "notes.md", "path" => "archives"})
 
@@ -148,15 +232,16 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
   describe "update_file/2" do
     test "dispatches :update_record with every key the caller sent" do
-      stub_response({:ok, %{status: "updated"}})
+      stub_response({:ok, %{status: "updated", entry: entry("42")}})
 
-      DiskBridge.update_file(config(), %{
-        "file_id" => "42",
-        "name" => "renamed.md",
-        "path" => "archives/manuals",
-        "content" => "new",
-        "encoding" => "base64"
-      })
+      assert {:ok, %{status: "updated", record: %Record{id: "42"}}} =
+               DiskBridge.update_file(config(), %{
+                 "file_id" => "42",
+                 "name" => "renamed.md",
+                 "path" => "archives/manuals",
+                 "content" => "new",
+                 "encoding" => "base64"
+               })
 
       assert_received {:dispatch, :ingestion, :update_record, request}
 
@@ -172,7 +257,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
     test "omits keys the caller did not send" do
       # An absent `content` must not reach ingestion as an empty one — that would truncate
       # the file on every rename.
-      stub_response({:ok, %{status: "updated"}})
+      stub_response({:ok, %{status: "updated", entry: entry("42")}})
 
       DiskBridge.update_file(config(), %{"file_id" => "42", "name" => "renamed.md"})
 
@@ -184,7 +269,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "treats a key holding nil as absent" do
-      stub_response({:ok, %{status: "updated"}})
+      stub_response({:ok, %{status: "updated", entry: entry("42")}})
 
       DiskBridge.update_file(config(), %{"file_id" => "42", "content" => nil})
 
@@ -193,7 +278,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "carries atom-keyed params through under string keys" do
-      stub_response({:ok, %{status: "updated"}})
+      stub_response({:ok, %{status: "updated", entry: entry("42")}})
 
       DiskBridge.update_file(config(), %{file_id: "42", content: "new"})
 
@@ -203,11 +288,12 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   describe "delete_file/2" do
-    test "dispatches :delete_record with the id" do
+    test "dispatches :delete_record and answers with the status alone" do
+      # No record comes back: the file is gone by the time ingestion returns, so there is
+      # nothing left to describe. Same answer JidoConnectBridge.delete_file/2 gives.
       stub_response({:ok, %{status: "deleted"}})
 
-      assert {:ok, %{status: "deleted"}} =
-               DiskBridge.delete_file(config(), %{"file_id" => "42"})
+      assert {:ok, %{status: "deleted"}} = DiskBridge.delete_file(config(), %{"file_id" => "42"})
 
       assert_received {:dispatch, :ingestion, :delete_record, %{file_id: "42"}}
     end
@@ -222,39 +308,100 @@ defmodule Zaq.Channels.DiskBridgeTest do
   describe "search_files/2" do
     test "dispatches :search_records with the params untouched" do
       params = %{"query" => "invoice", "page_size" => 10}
-      stub_response({:ok, page([])})
+      stub_response({:ok, entry_page([entry("42")])})
 
-      assert {:ok, %RecordPage{}} = DiskBridge.search_files(config(), params)
+      assert {:ok, %RecordPage{records: [%Record{id: "42"}]}} =
+               DiskBridge.search_files(config(), params)
+
       assert_received {:dispatch, :ingestion, :search_records, %{params: ^params}}
+    end
+
+    test "passes an ingestion error back unchanged" do
+      stub_response({:error, :query_required})
+
+      assert {:error, :query_required} = DiskBridge.search_files(config(), %{})
     end
   end
 
   describe "download_document/2" do
     test "answers exactly as get_file/2 does — one read, not two" do
-      stub_response({:ok, page([record("42", %{content: nil})])})
+      stub_response({:ok, entry("42")})
 
       assert {:ok, %{record: %Record{id: "42", content: nil}}} =
                DiskBridge.download_document(config(), %{"file_id" => "42"})
 
-      assert_received {:dispatch, :ingestion, :describe_records, %{file_ids: ["42"]}}
+      assert_received {:dispatch, :ingestion, :describe_record, %{file_id: "42"}}
       refute_received {:dispatch, :ingestion, _action, _request}
     end
 
-    test "answers :not_found on an id mismatch, like get_file/2" do
-      stub_response({:ok, page([record("99")])})
+    test "passes an ingestion error back, like get_file/2" do
+      stub_response({:error, :not_found})
 
       assert {:error, :not_found} = DiskBridge.download_document(config(), %{"file_id" => "42"})
     end
   end
 
   describe "list_permissions/2" do
-    test "dispatches :list_record_permissions with the id" do
-      stub_response({:ok, %RecordPage{resource_type: :permission, records: []}})
+    test "dispatches :list_record_permissions and maps each grant onto a record" do
+      stub_response({:ok, %{permissions: [grant("7")], public?: false}})
 
-      assert {:ok, %RecordPage{resource_type: :permission}} =
+      assert {:ok, %RecordPage{resource_type: :permission, records: [record]}} =
                DiskBridge.list_permissions(config(), %{"file_id" => "42"})
 
+      assert %Record{id: "7", kind: :permission, name: "Ada", lifecycle_state: :active} = record
+
+      assert record.attributes == %{
+               "type" => "person",
+               "target_id" => "7",
+               "access_rights" => ["read"]
+             }
+
       assert_received {:dispatch, :ingestion, :list_record_permissions, %{file_id: "42"}}
+    end
+
+    test "synthesizes the public grant, since it has no permission row to name" do
+      stub_response({:ok, %{permissions: [], public?: true}})
+
+      assert {:ok, %RecordPage{records: [record]}} =
+               DiskBridge.list_permissions(config(), %{"file_id" => "42"})
+
+      assert record.id == "public:42"
+      assert record.name == "Public"
+      assert record.attributes["type"] == "public"
+      assert record.attributes["target_id"] == nil
+      assert record.attributes["access_rights"] == ["read"]
+    end
+
+    test "lists the public grant ahead of explicit ones" do
+      stub_response({:ok, %{permissions: [grant("7")], public?: true}})
+
+      assert {:ok, %RecordPage{records: records, stats: stats}} =
+               DiskBridge.list_permissions(config(), %{"file_id" => "42"})
+
+      assert Enum.map(records, & &1.id) == ["public:42", "7"]
+      assert stats == %{scanned: 2, returned: 2}
+    end
+
+    test "answers with an empty page when nobody has access" do
+      stub_response({:ok, %{permissions: [], public?: false}})
+
+      assert {:ok, %RecordPage{resource_type: :permission, records: []}} =
+               DiskBridge.list_permissions(config(), %{"file_id" => "42"})
+    end
+
+    test "defaults missing access rights to an empty list" do
+      stub_response({:ok, %{permissions: [grant("7", %{access_rights: nil})], public?: false}})
+
+      assert {:ok, %RecordPage{records: [record]}} =
+               DiskBridge.list_permissions(config(), %{"file_id" => "42"})
+
+      assert record.attributes["access_rights"] == []
+    end
+
+    test "passes an ingestion error back unchanged" do
+      stub_response({:error, :not_found})
+
+      assert {:error, :not_found} = DiskBridge.list_permissions(config(), %{"file_id" => "42"})
     end
   end
 
@@ -283,7 +430,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "a string key holding nil does not shadow the atom spelling" do
-      stub_response({:ok, %{status: "created"}})
+      stub_response({:ok, %{status: "created", entry: entry("42")}})
 
       DiskBridge.create_file(config(), %{"name" => nil, :name => "notes.md", "path" => "archives"})
 
@@ -296,7 +443,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
     test "reads the router off config, never off params" do
       # `params` reaches this bridge verbatim from agent tools. Taking the dispatch target
       # from it would let the caller choose which code runs.
-      stub_response({:ok, page([])})
+      stub_response({:ok, entry_page([])})
 
       assert {:ok, %RecordPage{}} =
                DiskBridge.list_files(config(), %{"node_router" => ExplodingRouter})
@@ -305,10 +452,9 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "accepts an atom-keyed router on config" do
-      stub_response({:ok, page([])})
+      stub_response({:ok, entry_page([])})
 
-      assert {:ok, %RecordPage{}} =
-               DiskBridge.list_files(%{node_router: StubRouter}, %{})
+      assert {:ok, %RecordPage{}} = DiskBridge.list_files(%{node_router: StubRouter}, %{})
 
       assert_received {:dispatch, :ingestion, :list_records, _request}
     end

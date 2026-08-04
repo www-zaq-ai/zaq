@@ -8,6 +8,23 @@ defmodule Zaq.Ingestion do
   decides which watched records should be re-ingested, which removed records
   should delete existing documents and sidecars, and how folder watch inheritance
   is reflected in the BO UI.
+
+  ## Records are not produced here
+
+  The data-source read path answers with ingestion's own shapes —
+  `Zaq.Ingestion.FileExplorer.Entry` values and flat permission grants. Mapping those onto
+  `Zaq.Contracts.Record` belongs to `Zaq.Channels.DiskBridge`, the same way every other
+  provider's bridge maps that provider's payloads. Ingestion still *consumes* records, since
+  `ingest_records/2` takes them from any bridge.
+
+  `materialize_record/1` is the one exception. It is the far end of the `materializing_event`
+  every file record carries, and a caller holding that event dispatches straight to this node
+  — deliberately not through channels, so a listing never drags file bytes across the
+  channels node. The record therefore has to be built on this side.
+
+  `directory_snapshot/3` also still returns records, for BO's local browse branch. That is
+  temporary: BO moves to `Zaq.Channels.DiskBridge` in a follow-up, and
+  `Zaq.Ingestion.VolumeRecords` goes with it.
   """
 
   alias Zaq.Ingestion.{
@@ -26,11 +43,12 @@ defmodule Zaq.Ingestion do
     RenameService,
     Sidecar,
     SourcePath,
+    VolumeEntries,
     VolumeRecords
   }
 
   alias Zaq.Contracts.Record
-  alias Zaq.Contracts.RecordPage
+  alias Zaq.Ingestion.FileExplorer.Entry
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
   alias Zaq.Repo
@@ -42,6 +60,14 @@ defmodule Zaq.Ingestion do
 
   @pubsub Zaq.PubSub
   @topic "ingestion:jobs"
+
+  @typedoc """
+  A page of volume entries.
+
+  `scanned` is what the underlying listing held before entries whose file is gone were
+  dropped, so a caller can tell a short page from a complete one.
+  """
+  @type entry_page :: %{entries: [Entry.t()], scanned: non_neg_integer()}
 
   # --- Ingestion triggers ---
 
@@ -364,27 +390,21 @@ defmodule Zaq.Ingestion do
   def file_info(volume_name, path), do: FileExplorer.file_info(volume_name, path)
 
   @doc """
-  Returns canonical records for the given document ids.
+  Returns the volume entry for a document id.
 
-  Ids with no document row, or whose file is gone from its volume, are dropped rather than
-  failing the page — one missing document does not hide the rest. Callers that need to know
-  an id was missing compare the returned ids against the ones they asked for.
+  Answers `{:error, :not_found}` for an id with no document row, and the filesystem error
+  when the row exists but its file is gone from the volume.
   """
-  @spec describe_records([String.t() | integer()]) :: {:ok, RecordPage.t()}
-  def describe_records(file_ids) when is_list(file_ids) do
-    records =
-      Enum.flat_map(file_ids, fn file_id ->
-        case describe_record(file_id) do
-          {:ok, record} -> [record]
-          {:error, _reason} -> []
-        end
-      end)
-
-    {:ok, record_page(records, length(file_ids))}
+  @spec describe_record(String.t() | integer()) :: {:ok, Entry.t()} | {:error, term()}
+  def describe_record(file_id) do
+    case Document.get(file_id) do
+      %Document{} = document -> describe_document(document)
+      nil -> {:error, :not_found}
+    end
   end
 
   @doc """
-  Returns a page of canonical records.
+  Returns a page of volume entries.
 
   With no `filters["parent"]`, answers every file the deployment holds across all mounted
   volumes. With one, answers that directory's entries — folders alongside files, so a caller
@@ -392,35 +412,30 @@ defmodule Zaq.Ingestion do
   is a volume-prefixed source, the same form `Document.source` carries.
 
   Ingested files answer with their `documents.id`, so an id read off this page is the one
-  `describe_records/1` accepts.
+  `describe_record/1` accepts.
   """
-  @spec list_records(map()) :: {:ok, RecordPage.t()} | {:error, term()}
+  @spec list_records(map()) :: {:ok, entry_page()} | {:error, term()}
   def list_records(params \\ %{}) when is_map(params) do
     case parent_source(params) do
-      nil -> list_all_records()
-      parent -> list_directory_records(split_parent(parent))
+      nil -> list_all_entries()
+      parent -> list_directory_entries(split_parent(parent))
     end
   end
 
   # Document rows already span every volume, so listing them needs no walk across the mounts.
-  defp list_all_records do
+  defp list_all_entries do
     documents = Document.list()
-    {:ok, record_page(records_for(documents), length(documents))}
+    {:ok, entry_page(entries_for(documents), length(documents))}
   end
 
-  defp list_directory_records({volume_name, path}) do
+  defp list_directory_entries({volume_name, path}) do
     with {:ok, entries} <- list_entries(volume_name, path) do
-      {:ok,
-       entries |> VolumeRecords.from_entries(volume_name, path) |> record_page(length(entries))}
+      {:ok, entries |> VolumeEntries.resolve() |> entry_page(length(entries))}
     end
   end
 
-  defp record_page(records, scanned) do
-    %RecordPage{
-      resource_type: :item,
-      records: records,
-      stats: %{scanned: scanned, returned: length(records)}
-    }
+  defp entry_page(entries, scanned) do
+    %{entries: entries, scanned: scanned}
   end
 
   @doc """
@@ -429,7 +444,7 @@ defmodule Zaq.Ingestion do
   `path` is the destination directory and must name a volume — a bare relative path has no
   volume to write to and is refused rather than silently landing on the default one. The
   file is deduplicated the way a BO upload is, so a name already taken yields
-  `notes (1).md`; the returned record carries the name that was actually written.
+  `notes (1).md`; the returned entry carries the name that was actually written.
 
   Creating is not ingesting: the document row exists immediately, but chunking and
   embedding still happen through the normal ingest flow.
@@ -442,8 +457,8 @@ defmodule Zaq.Ingestion do
          dest = dir |> Path.join(name) |> SourcePath.normalize_relative(),
          {:ok, absolute_path} <- upload_file(volume_name, dest, content),
          {:ok, %Document{} = document} <- track_upload(volume_name, absolute_path),
-         {:ok, record} <- describe_document(document) do
-      {:ok, %{status: "created", record: record}}
+         {:ok, entry} <- describe_document(document) do
+      {:ok, %{status: "created", entry: entry}}
     end
   end
 
@@ -469,8 +484,13 @@ defmodule Zaq.Ingestion do
     end
   end
 
+  # The one place ingestion still produces a `Zaq.Contracts.Record`. Everything else answers
+  # with volume entries and leaves the record shape to `Zaq.Channels.DiskBridge`, but this is
+  # the far end of `materializing_event`: a caller on any node dispatches straight here,
+  # deliberately not through the channels node, so the record has to be built on this side.
   defp materialize_document(%Document{} = document, request) do
-    with {:ok, record} <- describe_document(document),
+    with {:ok, entry} <- describe_document(document),
+         record = VolumeRecords.to_record(entry),
          {:ok, absolute_path} <- RecordSource.resolve_path(record),
          {:ok, binary} <- File.read(absolute_path) do
       {:ok, %{record: put_content(record, binary, request)}}
@@ -508,26 +528,26 @@ defmodule Zaq.Ingestion do
   defp textual_mime?(_mime), do: false
 
   @doc """
-  Returns records for documents whose source or title matches `query`.
+  Returns volume entries for documents whose source or title matches `query`.
 
   Matching is a case-insensitive substring over the stored source and title — there is no
   index behind it, so the page is capped. Chunk and sidecar rows are excluded; they are not
   files a caller can act on.
   """
-  @spec search_records(map()) :: {:ok, RecordPage.t()} | {:error, term()}
+  @spec search_records(map()) :: {:ok, entry_page()} | {:error, term()}
   def search_records(params) when is_map(params) do
     with {:ok, query} <- required(params, "query", :query_required) do
       documents = search_documents(query)
-      {:ok, record_page(records_for(documents), length(documents))}
+      {:ok, entry_page(entries_for(documents), length(documents))}
     end
   end
 
   # A document whose file is gone from its volume is dropped rather than failing the page —
   # one missing file does not hide the rest.
-  defp records_for(documents) do
+  defp entries_for(documents) do
     Enum.flat_map(documents, fn document ->
       case describe_document(document) do
-        {:ok, record} -> [record]
+        {:ok, entry} -> [entry]
         {:error, _reason} -> []
       end
     end)
@@ -590,28 +610,26 @@ defmodule Zaq.Ingestion do
   end
 
   @doc """
-  Returns who can read a document, one record per grant.
+  Returns who can read a document, one flat map per grant.
 
-  A grant names a person, a team, or everyone. Person and team grants are rows in
-  `resource_permissions`; public access is the `"public"` tag on the document itself, and is
-  reported here as a grant too — a caller asking who can read a file should not have to know
-  ZAQ stores the two differently. `attributes["type"]` says which kind it is, and
-  `attributes["access_rights"]` what was granted.
+  A grant names a person or a team; `public?` reports the `"public"` tag on the document
+  itself, which grants read access to everyone and has no `resource_permissions` row to
+  name. Both are grants — the caller shaping them into a page is `Zaq.Channels.DiskBridge`,
+  which does not have to know ZAQ stores the two differently.
+
+  Grants are flattened rather than returned as `Zaq.Permissions.DocumentPermission` structs
+  so the bridge never reaches into an Ecto schema or depends on which associations were
+  preloaded.
   """
   @spec list_record_permissions(String.t() | integer()) ::
-          {:ok, RecordPage.t()} | {:error, term()}
+          {:ok, %{permissions: [map()], public?: boolean()}} | {:error, term()}
   def list_record_permissions(file_id) do
     case Document.get(file_id) do
       %Document{} = document ->
-        records =
-          public_records(document) ++
-            Enum.map(list_document_permissions(document.id), &permission_record/1)
-
         {:ok,
-         %RecordPage{
-           resource_type: :permission,
-           records: records,
-           stats: %{scanned: length(records), returned: length(records)}
+         %{
+           permissions: Enum.map(list_document_permissions(document.id), &permission_grant/1),
+           public?: "public" in (document.tags || [])
          }}
 
       nil ->
@@ -619,37 +637,15 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  # Public access has no permission row to name, so the id is derived from the document —
-  # stable across calls, and visibly not a `resource_permissions` id.
-  defp public_records(%Document{} = document) do
-    if "public" in (document.tags || []) do
-      [
-        %Record{
-          id: "public:#{document.id}",
-          kind: :permission,
-          name: "Public",
-          lifecycle_state: :active,
-          attributes: %{"type" => "public", "target_id" => nil, "access_rights" => ["read"]}
-        }
-      ]
-    else
-      []
-    end
-  end
-
-  defp permission_record(%Permission{} = permission) do
+  defp permission_grant(%Permission{} = permission) do
     {type, target_id, name} = permission_target(permission)
 
-    %Record{
+    %{
       id: to_string(permission.id),
-      kind: :permission,
+      type: type,
+      target_id: target_id,
       name: name,
-      lifecycle_state: :active,
-      attributes: %{
-        "type" => type,
-        "target_id" => target_id,
-        "access_rights" => permission.access_rights || []
-      }
+      access_rights: permission.access_rights || []
     }
   end
 
@@ -688,8 +684,8 @@ defmodule Zaq.Ingestion do
          {:ok, target} <- move_target(volume_name, path, request),
          :ok <- move(volume_name, path, target),
          %Document{} = updated <- Document.get(document.id),
-         {:ok, record} <- describe_document(updated) do
-      {:ok, %{status: "updated", record: record}}
+         {:ok, entry} <- describe_document(updated) do
+      {:ok, %{status: "updated", entry: entry}}
     end
   end
 
@@ -737,7 +733,8 @@ defmodule Zaq.Ingestion do
   Removes a document row and the file behind it.
 
   Delegates to the same `delete_path/4` a BO delete runs, so chunks and linked sidecars go
-  with it. The record is captured before the delete so the caller learns what was removed.
+  with it. Answers with the status alone: the file is gone by the time this returns, so
+  there is nothing left on the volume to describe.
   """
   @spec delete_record(String.t() | integer()) :: {:ok, map()} | {:error, term()}
   def delete_record(file_id) do
@@ -748,16 +745,10 @@ defmodule Zaq.Ingestion do
   end
 
   defp delete_document(%Document{} = document) do
-    record =
-      case describe_document(document) do
-        {:ok, record} -> record
-        {:error, _reason} -> nil
-      end
-
     {volume_name, path} = SourcePath.split_source(document.source, nil)
 
     case delete_path(volume_name, path, "file") do
-      :ok -> {:ok, %{status: "deleted", record: record}}
+      :ok -> {:ok, %{status: "deleted"}}
       error -> error
     end
   end
@@ -817,20 +808,13 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  defp describe_record(file_id) do
-    case Document.get(file_id) do
-      %Document{} = document -> describe_document(document)
-      nil -> {:error, :not_found}
-    end
-  end
-
   defp describe_document(%Document{} = document) do
     {volume_name, path} = SourcePath.split_source(document.source, nil)
 
-    with {:ok, %Record{} = record} <- VolumeRecords.from_path(volume_name, path) do
-      # The document id is the identity the caller holds, so the record answers with it
-      # rather than the volume-entry id `from_path/2` derives for browsing.
-      {:ok, %{record | id: to_string(document.id)}}
+    with {:ok, %Entry{} = entry} <- VolumeEntries.from_path(volume_name, path) do
+      # The document id is the identity the caller holds, so the entry answers with it
+      # rather than the volume-path id `from_path/2` derives for browsing.
+      {:ok, %{entry | id: to_string(document.id), document_id: document.id}}
     end
   end
 
@@ -839,7 +823,7 @@ defmodule Zaq.Ingestion do
       sorted =
         entries
         |> Enum.sort_by(fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
-        |> VolumeRecords.from_entries(volume_name, current_dir)
+        |> VolumeRecords.from_entries()
 
       {:ok, DirectorySnapshot.build(sorted, volume_name, current_dir, current_user)}
     end

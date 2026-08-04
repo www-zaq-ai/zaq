@@ -80,7 +80,7 @@ defmodule Zaq.Ingestion.RecordSource do
 
       with path when is_binary(path) <- relative_path(record),
            {:ok, entries} <- list_entries(volume, path) do
-        {:ok, VolumeRecords.from_entries(entries, volume, path)}
+        {:ok, VolumeRecords.from_entries(entries)}
       end
     end
   end

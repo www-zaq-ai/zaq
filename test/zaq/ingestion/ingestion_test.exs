@@ -824,22 +824,30 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "local volume records" do
-    test "converts local volume entries into canonical records" do
-      entry = %{name: "file.md", type: :file, size: 12, modified_at: DateTime.utc_now()}
+    defp volume_entry do
+      %Zaq.Ingestion.FileExplorer.Entry{
+        name: "file.md",
+        type: :file,
+        size: 12,
+        modified_at: DateTime.utc_now(),
+        volume: "default",
+        relative_path: "docs/file.md"
+      }
+    end
 
-      record = VolumeRecords.from_entry(entry, "default", "docs")
+    test "converts local volume entries into canonical records" do
+      assert [record] = VolumeRecords.from_entries([volume_entry()])
 
       assert record.kind == :file
       assert record.name == "file.md"
       assert record.path == "docs/file.md"
-      assert record.attributes["provider"] == "zaq_local"
+      assert record.attributes["provider"] == "disk"
       assert record.attributes["volume"] == "default"
       assert record.attributes["relative_path"] == "docs/file.md"
     end
 
     test "storage maps round-trip back into records" do
-      entry = %{name: "file.md", type: :file, size: 12, modified_at: DateTime.utc_now()}
-      record = VolumeRecords.from_entry(entry, "default", "docs")
+      assert [record] = VolumeRecords.from_entries([volume_entry()])
 
       assert {:ok, decoded} =
                record |> RecordSource.to_storage_map() |> RecordSource.from_storage_map()
@@ -865,7 +873,7 @@ defmodule Zaq.IngestionTest do
       {:ok, entries} = FileExplorer.list(".")
 
       record =
-        entries |> VolumeRecords.from_entries("default", ".") |> Enum.find(&(&1.path == path))
+        entries |> VolumeRecords.from_entries() |> Enum.find(&(&1.path == path))
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
@@ -873,7 +881,8 @@ defmodule Zaq.IngestionTest do
 
       assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "inline"})
       assert job.file_path == path
-      assert job.volume_name == "default"
+      # Listed through the volume-less explorer path, so there is no volume to name.
+      assert job.volume_name == nil
       assert job.source_record["id"] == record.id
       assert job.source_record["attributes"]["relative_path"] == path
     end
@@ -888,7 +897,7 @@ defmodule Zaq.IngestionTest do
       {:ok, entries} = FileExplorer.list(".")
 
       record =
-        entries |> VolumeRecords.from_entries("default", ".") |> Enum.find(&(&1.path == folder))
+        entries |> VolumeRecords.from_entries() |> Enum.find(&(&1.path == folder))
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
@@ -908,7 +917,7 @@ defmodule Zaq.IngestionTest do
       {:ok, entries} = FileExplorer.list(".")
 
       record =
-        entries |> VolumeRecords.from_entries("default", ".") |> Enum.find(&(&1.path == path))
+        entries |> VolumeRecords.from_entries() |> Enum.find(&(&1.path == path))
 
       bad_record = %Record{id: "bad", kind: :unsupported, name: "bad"}
 
