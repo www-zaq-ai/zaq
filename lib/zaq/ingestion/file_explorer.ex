@@ -10,6 +10,8 @@ defmodule Zaq.Ingestion.FileExplorer do
 
   require Logger
 
+  alias Zaq.Ingestion.FileExplorer.Entry
+
   @doc """
   Returns the configured base path for ingestion files.
   """
@@ -115,12 +117,12 @@ defmodule Zaq.Ingestion.FileExplorer do
 
   @doc """
   Lists files and folders in the given directory relative to base path.
-  Returns `{:ok, [%{name, type, size, modified_at}]}`.
+  Returns `{:ok, [%Zaq.Ingestion.FileExplorer.Entry{}]}`.
   """
   def list(relative_path \\ ".") do
     with {:ok, full_path} <- resolve_path(relative_path),
          true <- File.dir?(full_path) do
-      {:ok, list_entries(full_path)}
+      {:ok, list_entries(full_path, nil, relative_path)}
     else
       false -> {:error, :not_a_directory}
       error -> error
@@ -133,7 +135,7 @@ defmodule Zaq.Ingestion.FileExplorer do
   def list(volume_name, relative_path) when is_binary(volume_name) do
     with {:ok, full_path} <- resolve_path(volume_name, relative_path),
          true <- File.dir?(full_path) do
-      {:ok, list_entries(full_path)}
+      {:ok, list_entries(full_path, volume_name, relative_path)}
     else
       false -> {:error, :not_a_directory}
       error -> error
@@ -146,7 +148,7 @@ defmodule Zaq.Ingestion.FileExplorer do
   def file_info(relative_path) do
     with {:ok, full_path} <- resolve_path(relative_path),
          {:ok, stat} <- File.stat(full_path, time: :posix) do
-      {:ok, build_entry(full_path, stat)}
+      {:ok, build_entry(Path.basename(full_path), stat, nil, relative_path)}
     end
   end
 
@@ -156,7 +158,7 @@ defmodule Zaq.Ingestion.FileExplorer do
   def file_info(volume_name, relative_path) when is_binary(volume_name) do
     with {:ok, full_path} <- resolve_path(volume_name, relative_path),
          {:ok, stat} <- File.stat(full_path, time: :posix) do
-      {:ok, build_entry(full_path, stat)}
+      {:ok, build_entry(Path.basename(full_path), stat, volume_name, relative_path)}
     end
   end
 
@@ -343,7 +345,7 @@ defmodule Zaq.Ingestion.FileExplorer do
     end
   end
 
-  defp list_entries(full_path) do
+  defp list_entries(full_path, volume_name, relative_path) do
     full_path
     |> File.ls!()
     |> Enum.sort()
@@ -352,12 +354,7 @@ defmodule Zaq.Ingestion.FileExplorer do
         entry_path = Path.join(full_path, name)
         stat = File.stat!(entry_path, time: :posix)
 
-        %{
-          name: name,
-          type: if(stat.type == :directory, do: :directory, else: :file),
-          size: stat.size,
-          modified_at: stat.mtime |> DateTime.from_unix!()
-        }
+        build_entry(name, stat, volume_name, child_path(relative_path, name))
       end,
       max_concurrency: file_stats_concurrency(),
       ordered: true,
@@ -399,12 +396,19 @@ defmodule Zaq.Ingestion.FileExplorer do
   defp normalize_concurrency(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_concurrency(_value, default), do: default
 
-  defp build_entry(full_path, stat) do
-    %{
-      name: Path.basename(full_path),
+  defp build_entry(name, stat, volume_name, relative_path) do
+    %Entry{
+      name: name,
       type: if(stat.type == :directory, do: :directory, else: :file),
       size: stat.size,
-      modified_at: stat.mtime |> DateTime.from_unix!()
+      modified_at: stat.mtime |> DateTime.from_unix!(),
+      volume: volume_name,
+      relative_path: relative_path
     }
   end
+
+  # Matches how the rest of ingestion joins a listing directory to an entry name — a "."
+  # directory contributes nothing, so entries under the root are named bare.
+  defp child_path(dir, name) when dir in [".", "", nil], do: name
+  defp child_path(dir, name), do: Path.join(dir, name)
 end

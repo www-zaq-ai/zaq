@@ -3,7 +3,6 @@ defmodule Zaq.Ingestion.ApiTest do
   # Application.put_env.
   use Zaq.DataCase, async: false
 
-  alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.Ingestion.Api
   alias Zaq.Ingestion.Document
@@ -68,20 +67,19 @@ defmodule Zaq.Ingestion.ApiTest do
   end
 
   describe "record actions" do
-    test "describe_records delegates and puts the page on the response", %{root: root} do
+    test "describe_record delegates and puts the entry on the response", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
-      assert {:ok, %RecordPage{records: [record]}} =
-               handle(%{file_ids: [to_string(document.id)]}, :describe_records)
+      assert {:ok, entry} = handle(%{file_id: to_string(document.id)}, :describe_record)
 
-      assert record.id == to_string(document.id)
+      assert entry.id == to_string(document.id)
     end
 
     test "list_records delegates", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
-      assert {:ok, %RecordPage{records: records}} = handle(%{params: %{}}, :list_records)
-      assert to_string(document.id) in Enum.map(records, & &1.id)
+      assert {:ok, %{entries: entries}} = handle(%{params: %{}}, :list_records)
+      assert to_string(document.id) in Enum.map(entries, & &1.id)
     end
 
     test "materialize_record delegates and passes the whole request through", %{root: root} do
@@ -97,13 +95,13 @@ defmodule Zaq.Ingestion.ApiTest do
     end
 
     test "persist_record delegates", %{root: root} do
-      assert {:ok, %{status: "created", record: record}} =
+      assert {:ok, %{status: "created", entry: entry}} =
                handle(
                  %{"name" => "notes.md", "path" => @volume, "content" => "# notes"},
                  :persist_record
                )
 
-      assert record.name == "notes.md"
+      assert entry.name == "notes.md"
       assert File.read!(Path.join(root, "notes.md")) == "# notes"
     end
 
@@ -128,17 +126,17 @@ defmodule Zaq.Ingestion.ApiTest do
     test "list_record_permissions delegates", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
-      assert {:ok, %RecordPage{resource_type: :permission}} =
+      assert {:ok, %{permissions: [], public?: false}} =
                handle(%{file_id: to_string(document.id)}, :list_record_permissions)
     end
 
     test "search_records delegates", %{root: root} do
       document = seed_file(root, "quarterly.md", "# report")
 
-      assert {:ok, %RecordPage{records: [record]}} =
+      assert {:ok, %{entries: [entry]}} =
                handle(%{params: %{"query" => "quarterly"}}, :search_records)
 
-      assert record.id == to_string(document.id)
+      assert entry.id == to_string(document.id)
     end
 
     test "volume_stats delegates", %{root: root} do
@@ -149,9 +147,9 @@ defmodule Zaq.Ingestion.ApiTest do
   end
 
   describe "clause guards" do
-    test "describe_records with a non-list falls through to the catch-all" do
-      assert handle(%{file_ids: "not-a-list"}, :describe_records) ==
-               {:error, {:unsupported_action, :describe_records}}
+    test "describe_record with a non-binary file_id falls through to the catch-all" do
+      assert handle(%{file_id: 123}, :describe_record) ==
+               {:error, {:unsupported_action, :describe_record}}
     end
 
     test "materialize_record with a non-binary file_id falls through to the catch-all" do
@@ -194,7 +192,7 @@ defmodule Zaq.Ingestion.ApiTest do
       # Clause order is load-bearing and silent when wrong: a catch-all placed above these
       # would swallow them all, and this assertion is what notices.
       actions = [
-        {%{file_ids: []}, :describe_records},
+        {%{file_id: "1"}, :describe_record},
         {%{params: %{}}, :list_records},
         {%{file_id: "99999999"}, :materialize_record},
         {%{}, :persist_record},

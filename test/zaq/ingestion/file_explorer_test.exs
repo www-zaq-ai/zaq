@@ -2,6 +2,7 @@ defmodule Zaq.Ingestion.FileExplorerTest do
   use ExUnit.Case, async: false
 
   alias Zaq.Ingestion.FileExplorer
+  alias Zaq.Ingestion.FileExplorer.Entry
 
   @test_base "test/tmp/file_explorer"
 
@@ -19,6 +20,73 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     end)
 
     :ok
+  end
+
+  describe "entries" do
+    test "list/1 answers with entry structs carrying the path each entry was listed under" do
+      File.mkdir_p!(Path.join(@test_base, "docs/nested"))
+      File.write!(Path.join(@test_base, "docs/file.txt"), "hello")
+
+      assert {:ok, [file, nested]} = FileExplorer.list("docs")
+
+      assert %Entry{name: "nested", type: :directory, relative_path: "docs/nested"} = nested
+      assert %Entry{name: "file.txt", type: :file, relative_path: "docs/file.txt"} = file
+      assert file.size == 5
+      assert %DateTime{} = file.modified_at
+    end
+
+    # A "." listing directory contributes nothing to the path, matching how the rest of
+    # ingestion joins a directory to an entry name.
+    test "list/1 names entries under the root bare rather than prefixed with \".\"" do
+      File.write!(Path.join(@test_base, "root.txt"), "x")
+
+      assert {:ok, entries} = FileExplorer.list(".")
+      assert Enum.any?(entries, &(&1.relative_path == "root.txt"))
+    end
+
+    # Without a volume there is nothing to name, so single-volume deployments answer nil
+    # rather than inventing a default.
+    test "list/1 leaves volume unset" do
+      File.write!(Path.join(@test_base, "root.txt"), "x")
+
+      assert {:ok, [entry]} = FileExplorer.list(".")
+      assert entry.volume == nil
+    end
+
+    test "file_info/1 answers with an entry struct for the path it was given" do
+      File.write!(Path.join(@test_base, "doc.md"), "# Title")
+
+      assert {:ok, %Entry{} = entry} = FileExplorer.file_info("doc.md")
+      assert entry.name == "doc.md"
+      assert entry.type == :file
+      assert entry.relative_path == "doc.md"
+      assert entry.volume == nil
+    end
+  end
+
+  describe "entries in a named volume" do
+    setup do
+      vol = Path.join(@test_base, "vol_docs")
+      File.mkdir_p!(Path.join(vol, "sub"))
+      File.write!(Path.join(vol, "sub/note.md"), "note")
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      :ok
+    end
+
+    test "list/2 stamps the volume and the path relative to it" do
+      assert {:ok, [entry]} = FileExplorer.list("docs", "sub")
+
+      assert %Entry{name: "note.md", volume: "docs", relative_path: "sub/note.md"} = entry
+    end
+
+    test "file_info/2 stamps the volume and the path it was given" do
+      assert {:ok, %Entry{} = entry} = FileExplorer.file_info("docs", "sub/note.md")
+
+      assert entry.volume == "docs"
+      assert entry.relative_path == "sub/note.md"
+    end
   end
 
   describe "resolve_path/1" do
