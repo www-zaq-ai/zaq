@@ -20,6 +20,7 @@ defmodule Zaq.Channels.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.InboundAttachments
   alias Zaq.Channels.MessageFormatter
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
@@ -187,6 +188,28 @@ defmodule Zaq.Channels.Api do
       ) do
     runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
     %{event | response: runtime_module.sync_provider_runtime(provider)}
+  end
+
+  # Far end of the `materializing_event` an inbound attachment record carries. The bytes sit
+  # behind the provider API, so only this node can fetch them.
+  def handle_event(%Event{request: request} = event, :materialize_inbound_attachment, _context)
+      when is_map(request) do
+    with {:ok, bridge} <- resolve_bridge(bridge_module(event), Map.get(request, :provider)),
+         true <-
+           supports_callback?(bridge, :materialize_inbound_attachment, 1) ||
+             {:error, :unsupported} do
+      %{event | response: bridge.materialize_inbound_attachment(request)}
+    else
+      {:error, reason} -> %{event | response: {:error, reason}}
+    end
+  end
+
+  # Fetch and volume write both run here so the bytes reach ingestion without travelling
+  # back through the engine that asked for the write.
+  def handle_event(%Event{request: request} = event, :persist_inbound_attachment, _context)
+      when is_map(request) do
+    attachments_module = Keyword.get(event.opts, :attachments_module, InboundAttachments)
+    %{event | response: attachments_module.persist(request)}
   end
 
   def handle_event(

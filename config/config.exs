@@ -24,6 +24,9 @@ config :zaq, :channels, %{
   telegram: %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Telegram.Adapter,
+    # Downloading inbound media is a provider extension, not an adapter callback — naming
+    # the module here keeps `JidoChatBridge` free of per-provider knowledge.
+    media: Jido.Chat.Telegram.Extensions,
     ingress_mode: :webhook
   },
   google_drive: %{

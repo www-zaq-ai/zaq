@@ -39,8 +39,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
   alias Zaq.Channels.JidoChatBridge.ReactionMapper
   alias Zaq.Channels.JidoChatBridge.State
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
+  alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Types.EncryptedString
 
@@ -621,7 +623,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   def remove_reaction(_provider, _channel_id, _message_id, _emoji, _connection_details),
     do: {:error, :missing_connection_details}
 
-  @doc "Converts a `Jido.Chat.Incoming` struct to the internal `Incoming` message format."
+  @doc """
+  Converts a `Jido.Chat.Incoming` struct to the internal `Incoming` message format.
+
+  Media travels as **unmaterialized** attachment records — metadata plus a
+  `materializing_event` that fetches the bytes — so a photo does not carry its payload
+  through hops that only needed to know it exists.
+  """
   @impl true
   def to_internal(%Chat.Incoming{} = incoming, provider) do
     Incoming.new(%{
@@ -634,8 +642,113 @@ defmodule Zaq.Channels.JidoChatBridge do
       provider: provider,
       channel_config_id: provider,
       is_dm: (incoming.channel_meta && Map.get(incoming.channel_meta, :is_dm)) == true,
+      attachments: attachment_records(incoming, provider),
       metadata: incoming.metadata || %{}
     })
+  end
+
+  # A media entry's `url` is an opaque provider reference (Telegram builds
+  # "telegram://file/<file_id>"). This bridge never parses it — it travels on the record and
+  # goes back to the provider's own extension module in `materialize_inbound_attachment/1`.
+  defp attachment_records(%Chat.Incoming{media: media}, provider) when is_list(media) do
+    media
+    |> Enum.with_index()
+    |> Enum.map(fn {entry, index} -> attachment_record(entry, provider, index) end)
+  end
+
+  defp attachment_records(%Chat.Incoming{}, _provider), do: []
+
+  defp attachment_record(%Chat.Media{} = media, provider, index) do
+    file_ref = media.url
+    name = media.filename || generated_attachment_name(media, index)
+
+    %Record{
+      id: file_ref || "#{provider}:attachment:#{index}",
+      kind: :file,
+      content: nil,
+      name: name,
+      mime_type: media.media_type,
+      size: media.size_bytes,
+      attributes: %{
+        "provider" => to_string(provider),
+        "media_kind" => to_string(media.kind || :file),
+        "file_ref" => file_ref
+      },
+      materializing_event: attachment_materializing_event(file_ref, provider),
+      raw: %{media: media}
+    }
+  end
+
+  # Nothing to fetch without a provider reference — the record still travels so the agent
+  # knows something was attached, it simply cannot be materialized.
+  defp attachment_materializing_event(nil, _provider), do: nil
+
+  defp attachment_materializing_event(file_ref, provider) when is_binary(file_ref) do
+    Event.new(%{file_ref: file_ref, provider: to_string(provider)}, :channels,
+      opts: [action: :materialize_inbound_attachment]
+    )
+  end
+
+  # Telegram sends photos with no filename at all, so one is derived from the media kind and
+  # its mime type rather than writing a nameless file to a volume later on.
+  defp generated_attachment_name(%Chat.Media{} = media, index) do
+    kind = to_string(media.kind || :file)
+
+    case media.media_type && MIME.extensions(media.media_type) do
+      [ext | _] -> "#{kind}-#{index}.#{ext}"
+      _ -> "#{kind}-#{index}"
+    end
+  end
+
+  @doc """
+  Fetches the bytes behind an inbound attachment reference.
+
+  This is the far end of the `materializing_event` `to_internal/2` puts on every media
+  record: the bytes live behind the provider's API, which only this node can reach.
+
+  Content comes back base64-encoded with `attributes["encoding"]` saying so — the same
+  convention `Zaq.Ingestion.materialize_record/1` uses, since an image is never text.
+
+  Which module can download is provider configuration (`:channels` → `provider` → `:media`),
+  not knowledge held here. A provider with no media module answers `{:error, :unsupported}`.
+  """
+  @spec materialize_inbound_attachment(map()) :: {:ok, map()} | {:error, term()}
+  @impl true
+  def materialize_inbound_attachment(%{file_ref: file_ref, provider: provider})
+      when is_binary(file_ref) do
+    with {:ok, media_module} <- resolve_media_module(provider),
+         {:ok, binary} <- download_attachment(media_module, file_ref, provider) do
+      {:ok,
+       %{
+         record: %Record{
+           id: file_ref,
+           kind: :file,
+           content: Base.encode64(binary),
+           size: byte_size(binary),
+           attributes: %{"encoding" => "base64", "provider" => to_string(provider)}
+         }
+       }}
+    end
+  end
+
+  def materialize_inbound_attachment(_request), do: {:error, :file_ref_required}
+
+  defp resolve_media_module(provider) do
+    provider_key = if is_atom(provider), do: provider, else: provider_to_atom(provider)
+
+    case provider_key && get_in(Application.get_env(:zaq, :channels, %{}), [provider_key, :media]) do
+      nil -> {:error, :unsupported}
+      media_module -> {:ok, media_module}
+    end
+  end
+
+  defp download_attachment(media_module, file_ref, provider) do
+    if function_exported?(media_module, :download_file, 2) do
+      details = Bridge.fetch_connection_details(provider)
+      media_module.download_file(file_ref, token: Map.get(details, :token))
+    else
+      {:error, :unsupported}
+    end
   end
 
   @doc """

@@ -8,6 +8,7 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   """
 
   alias Zaq.Channels.EventNames
+  alias Zaq.Engine.IncomingAttachments
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -20,6 +21,7 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   @spec route(Event.t()) :: Event.t()
   def route(%Event{request: %Incoming{} = incoming} = event) do
     {incoming, person_resolved?} = resolve_person(incoming, event.opts)
+    incoming = store_attachments(incoming, event.opts)
     resolution = IncomingMessageRouting.resolve(incoming, event.opts)
 
     event
@@ -39,6 +41,14 @@ defmodule Zaq.Engine.IncomingMessageRouter do
       {:ok, person} -> {%{incoming | person: resolver.person_payload(person)}, true}
       {:error, _reason} -> {incoming, false}
     end
+  end
+
+  # Runs after person resolution because the storage path is built from the resolved
+  # identity, and before routing so both the agent and workflow-only paths see the same
+  # message.
+  defp store_attachments(%Incoming{} = incoming, opts) do
+    attachments_module = Keyword.get(opts, :attachments_module, IncomingAttachments)
+    attachments_module.store(incoming, node_router: Keyword.get(opts, :node_router, NodeRouter))
   end
 
   defp apply_resolution(%Event{} = event, %{mode: :agent} = resolution, person_resolved?) do

@@ -7,6 +7,7 @@ defmodule Zaq.Ingestion.Api do
 
   alias Zaq.Event
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.FileExplorer
   alias Zaq.InternalBoundaries
 
   @impl true
@@ -84,6 +85,10 @@ defmodule Zaq.Ingestion.Api do
   def handle_event(%Event{request: request} = event, :volume_stats, _context)
       when is_map(request) do
     %{event | response: Ingestion.volume_stats()}
+  end
+
+  def handle_event(%Event{} = event, :list_volumes, _context) do
+    %{event | response: {:ok, FileExplorer.list_volumes()}}
   end
 
   def handle_event(%Event{} = event, action, _context),

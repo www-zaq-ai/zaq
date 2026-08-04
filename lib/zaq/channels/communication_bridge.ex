@@ -65,7 +65,12 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback list_ingress_subscriptions(map(), map()) :: {:ok, [map()]} | {:error, term()}
   @callback delete_ingress_subscription(map(), map()) :: {:ok, map()} | {:error, term()}
 
-  @optional_callbacks send_typing: 3,
+  # Only a provider that can hand back the bytes behind an inbound media reference
+  # implements this; the rest carry no media at all, so it stays optional.
+  @callback materialize_inbound_attachment(map()) :: {:ok, map()} | {:error, term()}
+
+  @optional_callbacks materialize_inbound_attachment: 1,
+                      send_typing: 3,
                       upsert_message: 3,
                       add_reaction: 5,
                       remove_reaction: 5,

@@ -11,12 +11,21 @@ defmodule Zaq.Engine.Messages.Incoming do
   maps manually.
 
   For cross-node routing, this struct is wrapped by `%Zaq.Event{request: %Incoming{...}}`.
+
+  `attachments` carries the media sent alongside the text as a `Zaq.Contracts.RecordPage`.
+  Records on an inbound message arrive **unmaterialized** — `content: nil` plus a
+  `materializing_event` — so a photo does not drag its bytes through every hop that only
+  needed to know a photo exists.
   """
 
+  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Identity.ActorNormalizer
 
   @enforce_keys [:content, :channel_id, :provider]
+
+  @empty_attachments %RecordPage{resource_type: :attachment, records: []}
 
   defstruct [
     :content,
@@ -30,7 +39,8 @@ defmodule Zaq.Engine.Messages.Incoming do
     routing_context: %RoutingContext{},
     is_dm: false,
     metadata: %{},
-    content_filter: []
+    content_filter: [],
+    attachments: @empty_attachments
   ]
 
   @type t :: %__MODULE__{
@@ -45,7 +55,8 @@ defmodule Zaq.Engine.Messages.Incoming do
           routing_context: RoutingContext.t(),
           is_dm: boolean(),
           metadata: map(),
-          content_filter: [String.t()]
+          content_filter: [String.t()],
+          attachments: RecordPage.t()
         }
 
   @doc "Builds the canonical incoming payload and injects telemetry dimensions into metadata."
@@ -66,15 +77,44 @@ defmodule Zaq.Engine.Messages.Incoming do
       routing_context: routing_context,
       is_dm: fetch_optional(attrs, :is_dm) == true,
       content_filter: normalize_content_filter(fetch_optional(attrs, :content_filter)),
+      attachments: normalize_attachments(fetch_optional(attrs, :attachments)),
       metadata: metadata
     }
 
     put_telemetry_dimensions(incoming, attrs)
   end
 
+  @doc "Returns the attachment records carried by the message, or `[]` when there are none."
+  @spec attachment_records(t()) :: [Record.t()]
+  def attachment_records(%__MODULE__{attachments: %RecordPage{records: records}}), do: records
+  def attachment_records(%__MODULE__{}), do: []
+
+  @doc "Replaces the message's attachment records, keeping the page wrapper intact."
+  @spec put_attachment_records(t(), [Record.t()]) :: t()
+  def put_attachment_records(%__MODULE__{attachments: page} = incoming, records)
+      when is_list(records) do
+    %{incoming | attachments: %{page | records: records}}
+  end
+
   @doc "Returns the ZAQ Person ID carried by the incoming message, if resolved."
   @spec person_id(t()) :: integer() | nil
   def person_id(%__MODULE__{person: person}), do: ActorNormalizer.person_id(%{person: person})
+
+  @doc """
+  Returns the resolved person's full name, or `nil` when identity was not resolved.
+
+  The payload `Zaq.People.IdentityResolver.person_payload/1` builds carries `full_name`;
+  accepting either key shape keeps callers working with a person map rebuilt from JSON.
+  """
+  @spec person_name(t()) :: String.t() | nil
+  def person_name(%__MODULE__{person: person}) when is_map(person) do
+    case Map.get(person, :full_name) || Map.get(person, "full_name") do
+      name when is_binary(name) -> if String.trim(name) == "", do: nil, else: name
+      _ -> nil
+    end
+  end
+
+  def person_name(%__MODULE__{}), do: nil
 
   @doc "Returns resolved team IDs from the incoming message person payload."
   @spec team_ids(t()) :: [integer()]
@@ -172,6 +212,15 @@ defmodule Zaq.Engine.Messages.Incoming do
   end
 
   defp normalize_content_filter(_), do: []
+
+  # Callers hand attachments over either already paged or as a bare record list, since a
+  # channel adapter builds records long before anything cares about pagination.
+  defp normalize_attachments(%RecordPage{} = page), do: page
+
+  defp normalize_attachments(records) when is_list(records),
+    do: %RecordPage{@empty_attachments | records: Enum.filter(records, &match?(%Record{}, &1))}
+
+  defp normalize_attachments(_), do: @empty_attachments
 
   defp fetch_required!(attrs, key) do
     if Map.has_key?(attrs, key) || Map.has_key?(attrs, Atom.to_string(key)) do
