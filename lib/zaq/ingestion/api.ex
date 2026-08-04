@@ -26,9 +26,9 @@ defmodule Zaq.Ingestion.Api do
 
   # -- records --
 
-  def handle_event(%Event{request: %{file_ids: file_ids}} = event, :describe_records, _context)
-      when is_list(file_ids) do
-    %{event | response: Ingestion.describe_records(file_ids)}
+  def handle_event(%Event{request: %{file_id: file_id}} = event, :describe_record, _context)
+      when is_binary(file_id) do
+    %{event | response: Ingestion.describe_record(file_id)}
   end
 
   def handle_event(%Event{request: %{params: params}} = event, :list_records, _context)
