@@ -11,6 +11,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
   @volume "archives"
   @other_volume "vault"
+  @embedding_dimension 768
 
   setup do
     unique = System.unique_integer([:positive])
@@ -63,6 +64,14 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       Document.create(%{source: Path.join(volume, relative_path), content: "orphaned"})
 
     document
+  end
+
+  # `chunks` is not left behind by migrations: `20260326000000_reset_ingestion` drops it, and
+  # `Chunk.create_table/1` provisions it at runtime once an embedding dimension is known. A
+  # freshly migrated database has no such table, so a test asserting on chunks has to create
+  # it rather than assume one. The DDL rolls back with the sandbox transaction.
+  defp create_chunks_table do
+    Chunk.create_table(@embedding_dimension)
   end
 
   defp create_person do
@@ -322,6 +331,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     end
 
     test "creating does not ingest — no chunks are produced" do
+      create_chunks_table()
+
       assert {:ok, %{entry: entry}} =
                Ingestion.persist_record(%{
                  "name" => "notes.md",
@@ -510,6 +521,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
   describe "delete_record/1" do
     test "removes the row, the file, and the chunks", %{root: root} do
+      create_chunks_table()
+
       document = seed_file(root, @volume, "guide.md", "# guide")
 
       %Chunk{}
