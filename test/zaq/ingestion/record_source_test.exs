@@ -1,5 +1,7 @@
 defmodule Zaq.Ingestion.RecordSourceTest do
-  use ExUnit.Case, async: false
+  # Listing local-volume children resolves document identity, so these tests need a
+  # sandboxed Repo checkout, not a bare ExUnit case.
+  use Zaq.DataCase, async: false
 
   import Mox
 
