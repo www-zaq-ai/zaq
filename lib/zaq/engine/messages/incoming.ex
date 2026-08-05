@@ -96,6 +96,48 @@ defmodule Zaq.Engine.Messages.Incoming do
     %{incoming | attachments: %{page | records: records}}
   end
 
+  @doc """
+  Describes the message's attachments for the model, or `nil` when there are none.
+
+  This is application-injected context rather than anything the sender wrote, so it is
+  persisted as a `system` message and merged into the prompt separately — never folded into
+  `content`, which stays exactly what the person typed.
+
+  Naming the arguments is not enough on its own: a model shown only `provider: "disk"`
+  refused to call the tool, reasoning that a file someone sent is not a data source. So each
+  line spells out the call to make.
+  """
+  @spec attachment_notice(t()) :: String.t() | nil
+  def attachment_notice(%__MODULE__{} = incoming) do
+    case attachment_records(incoming) do
+      [] -> nil
+      records -> records |> Enum.map_join("\n", &describe_attachment/1) |> presence()
+    end
+  end
+
+  defp describe_attachment(%Record{attributes: %{"storage" => "failed"}} = record) do
+    "[attachment: #{attachment_label(record)} — could not be stored, so it cannot be " <>
+      "opened. Tell the user the file could not be received.]"
+  end
+
+  defp describe_attachment(%Record{} = record) do
+    "[attachment: #{attachment_label(record)} — stored as a document. " <>
+      "To read it, call the download_document tool with " <>
+      "provider=\"disk\" and document_id=\"#{record.id}\".]"
+  end
+
+  defp attachment_label(%Record{name: name, mime_type: mime_type}) do
+    case {name, mime_type} do
+      {name, nil} when is_binary(name) -> name
+      {name, mime} when is_binary(name) -> "#{name} (#{mime})"
+      {_, mime} when is_binary(mime) -> "unnamed (#{mime})"
+      _ -> "unnamed"
+    end
+  end
+
+  defp presence(""), do: nil
+  defp presence(text), do: text
+
   @doc "Returns the ZAQ Person ID carried by the incoming message, if resolved."
   @spec person_id(t()) :: integer() | nil
   def person_id(%__MODULE__{person: person}), do: ActorNormalizer.person_id(%{person: person})

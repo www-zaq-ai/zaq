@@ -88,38 +88,51 @@ defmodule Zaq.Engine.IncomingAttachmentsTest do
       assert [%Record{id: "42"}] = Incoming.attachment_records(msg)
     end
 
-    test "announces the attachment with the arguments download_document needs" do
+    test "leaves the sender's own words untouched" do
+      # The announcement is system context, derived from the records — putting it in
+      # `content` would make it look like the person typed it.
       msg = store(incoming())
 
-      assert msg.content ==
-               "what does this say?\n\n" <>
-                 "[attachment: photo.jpg (image/jpeg), provider: \"disk\", document_id: \"42\"]"
+      assert msg.content == "what does this say?"
+      refute msg.content =~ "download_document"
     end
 
-    test "a caption-less message becomes just the attachment line" do
-      msg = store(incoming(%{content: ""}))
+    test "the notice names the tool and both arguments" do
+      # A model shown only `provider: "disk"` refused, reasoning that a file someone sent is
+      # not a data source. The line has to spell out the call.
+      notice = incoming() |> store() |> Incoming.attachment_notice()
 
-      assert msg.content ==
-               "[attachment: photo.jpg (image/jpeg), provider: \"disk\", document_id: \"42\"]"
+      assert notice =~ "photo.jpg (image/jpeg)"
+      assert notice =~ "call the download_document tool"
+      assert notice =~ ~s(provider="disk")
+      assert notice =~ ~s(document_id="42")
+    end
+
+    test "a message with no attachments has no notice at all" do
+      assert incoming(%{attachments: []}) |> store() |> Incoming.attachment_notice() == nil
     end
 
     test "every attachment gets its own line" do
       stub({:ok, %{record: stored()}})
-      msg = store(incoming(%{attachments: [attachment(), attachment()]}))
 
-      assert msg.content |> String.split("\n") |> Enum.count(&String.starts_with?(&1, "[att")) ==
-               2
+      notice =
+        incoming(%{attachments: [attachment(), attachment()]})
+        |> store()
+        |> Incoming.attachment_notice()
+
+      assert notice |> String.split("\n") |> Enum.count(&String.starts_with?(&1, "[att")) == 2
     end
 
-    test "a storage failure keeps the caption and says the file cannot be opened" do
+    test "a storage failure is marked on the record and said plainly in the notice" do
       stub({:error, :volume_full})
 
-      msg = capture_log(fn -> send(self(), {:result, store(incoming())}) end)
-      assert msg =~ "Failed to store attachment"
+      log = capture_log(fn -> send(self(), {:result, store(incoming())}) end)
+      assert log =~ "Failed to store attachment"
 
       assert_received {:result, result}
-      assert result.content =~ "what does this say?"
-      assert result.content =~ "could not be stored"
+      assert [%Record{attributes: %{"storage" => "failed"}}] = Incoming.attachment_records(result)
+      assert Incoming.attachment_notice(result) =~ "could not be stored"
+      assert result.content == "what does this say?"
     end
 
     test "a failed attachment keeps its original record rather than dropping it" do
@@ -138,28 +151,28 @@ defmodule Zaq.Engine.IncomingAttachmentsTest do
       capture_log(fn -> send(self(), {:result, store(incoming())}) end)
 
       assert_received {:result, msg}
-      assert msg.content =~ "could not be stored"
+      assert Incoming.attachment_notice(msg) =~ "could not be stored"
     end
 
     test "a record with no mime type is still announced" do
       stub({:ok, %{record: %Record{id: "42", kind: :file, name: "notes"}}})
-      msg = store(incoming())
+      notice = incoming() |> store() |> Incoming.attachment_notice()
 
-      assert msg.content =~ "[attachment: notes, provider: \"disk\", document_id: \"42\"]"
+      assert notice =~ "[attachment: notes —"
+      assert notice =~ ~s(document_id="42")
     end
 
     test "a record with neither name nor mime type is announced as unnamed" do
       stub({:ok, %{record: %Record{id: "42", kind: :file}}})
-      msg = store(incoming())
 
-      assert msg.content =~ "[attachment: unnamed,"
+      assert incoming() |> store() |> Incoming.attachment_notice() =~ "[attachment: unnamed —"
     end
 
     test "a record with only a mime type is announced by that" do
       stub({:ok, %{record: %Record{id: "42", kind: :file, mime_type: "audio/ogg"}}})
-      msg = store(incoming())
 
-      assert msg.content =~ "[attachment: unnamed (audio/ogg),"
+      assert incoming() |> store() |> Incoming.attachment_notice() =~
+               "[attachment: unnamed (audio/ogg) —"
     end
   end
 

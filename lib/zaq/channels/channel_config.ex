@@ -390,6 +390,35 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Enum.reject(&(&1 == ""))
   end
 
+  @doc "Returns the attachments settings map for a channel config."
+  def attachment_settings(%__MODULE__{settings: settings}) when is_map(settings),
+    do: nested_settings(settings, "attachments")
+
+  def attachment_settings(%{settings: settings}) when is_map(settings),
+    do: nested_settings(settings, "attachments")
+
+  def attachment_settings(_), do: %{}
+
+  @doc """
+  Returns the ingestion volume inbound attachments on this channel are written to.
+
+  `nil` means the channel has not been given one, which is not an error: the caller falls
+  back to a mounted volume rather than dropping the file.
+  """
+  def attachment_volume(config) do
+    case config |> attachment_settings() |> Map.get("volume") do
+      volume when is_binary(volume) -> if String.trim(volume) == "", do: nil, else: volume
+      _ -> nil
+    end
+  end
+
+  defp nested_settings(settings, key) do
+    case Map.get(settings, key, %{}) do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
   @doc "Returns provider-level default configured agent id from the routing-rule table."
   def get_provider_default_agent_id(config) do
     config

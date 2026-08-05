@@ -130,6 +130,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:selected_team_name, nil)
      |> assign(:confirm_remove_channel, nil)
      |> assign(:connect_credentials, connect_credentials_for(kind, provider))
+     |> assign(:attachment_volumes, attachment_volumes_for(kind))
+     |> assign(:attachment_volume_value, attachment_volume_value(List.first(configs)))
      |> assign(:grants_by_config, grants_by_config(kind, configs))
      |> schedule_ingress_status_refresh(configs)}
   end
@@ -364,6 +366,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> assign(:configs, configs)
          |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
          |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
+         |> assign(:attachment_volume_value, attachment_volume_value(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
          |> schedule_ingress_status_refresh(configs)
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
@@ -488,6 +491,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     else
       _ ->
         {:noreply, put_flash(socket, :error, "Failed to update provider default agent.")}
+    end
+  end
+
+  def handle_event("set_attachment_volume", %{"config_id" => config_id} = params, socket) do
+    volume = Map.get(params, "volume", "")
+
+    with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
+         %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
+         {:ok, volume} <- validate_volume(volume, socket.assigns.attachment_volumes),
+         {:ok, updated} <- put_attachment_volume(config, volume) do
+      {:noreply,
+       socket
+       |> assign(:configs, list_configs(socket.assigns.provider))
+       |> assign(:attachment_volume_value, ChannelConfig.attachment_volume(updated) || "")
+       |> put_flash(:info, "Attachment volume updated.")}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Failed to update attachment volume.")}
     end
   end
 
@@ -1325,6 +1345,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   def credential_auth_kind_from_changeset(_), do: "oauth2"
 
+  defp attachment_volume_value(%ChannelConfig{} = config),
+    do: ChannelConfig.attachment_volume(config) || ""
+
+  defp attachment_volume_value(_config), do: ""
+
   defp connect_credentials_for(:data_source, provider) do
     expected_provider = credential_provider_for(provider)
 
@@ -1333,6 +1358,51 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp connect_credentials_for(_, _), do: []
+
+  # Only a communication channel receives attachments, so a data source never asks ingestion
+  # which volumes are mounted. Sorted so the list reads the same on every render.
+  defp attachment_volumes_for(:data_source), do: []
+
+  defp attachment_volumes_for(_kind) do
+    event = Event.new(%{}, :ingestion, opts: [action: :list_volumes])
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, volumes} when is_map(volumes) -> volumes |> Map.keys() |> Enum.sort()
+      _ -> []
+    end
+  end
+
+  # The volume list comes from ingestion, so an operator can only pick one that is mounted.
+  # Clearing the select is allowed — it means "fall back to whatever volume sorts first".
+  defp validate_volume("", _volumes), do: {:ok, nil}
+
+  defp validate_volume(volume, volumes) when is_binary(volume) do
+    if volume in volumes, do: {:ok, volume}, else: :error
+  end
+
+  defp validate_volume(_volume, _volumes), do: :error
+
+  # Only the attachments subtree is rewritten, so a channel's jido_chat or imap settings
+  # survive a volume change.
+  defp put_attachment_volume(%ChannelConfig{} = config, volume) do
+    settings = config.settings || %{}
+
+    attachments =
+      settings
+      |> Map.get("attachments", %{})
+      |> case do
+        map when is_map(map) -> map
+        _ -> %{}
+      end
+      |> put_or_drop_volume(volume)
+
+    config
+    |> Ecto.Changeset.change(settings: Map.put(settings, "attachments", attachments))
+    |> Repo.update()
+  end
+
+  defp put_or_drop_volume(attachments, nil), do: Map.delete(attachments, "volume")
+  defp put_or_drop_volume(attachments, volume), do: Map.put(attachments, "volume", volume)
 
   defp grants_by_config(:data_source, configs) do
     config_ids = Enum.map(configs, &to_string(&1.id))

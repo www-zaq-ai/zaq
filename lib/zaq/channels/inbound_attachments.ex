@@ -29,6 +29,8 @@ defmodule Zaq.Channels.InboundAttachments do
   alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.NodeRouter
+  alias Zaq.Utils.Map, as: MapUtils
+  alias Zaq.Utils.MimeSniffer
 
   @doc """
   Fetches an attachment's bytes and stores them on a volume.
@@ -39,9 +41,9 @@ defmodule Zaq.Channels.InboundAttachments do
   """
   @spec persist(map()) :: {:ok, map()} | {:error, term()}
   def persist(%{record: %Record{} = record} = request) do
-    with {:ok, content, encoding} <- materialize(record, request),
+    with {:ok, materialized} <- materialize(record, request),
          {:ok, volume} <- destination_volume(request) do
-      write(record, content, encoding, volume, request)
+      write(record, materialized, volume, request)
     end
   end
 
@@ -49,17 +51,17 @@ defmodule Zaq.Channels.InboundAttachments do
 
   # The record names its own way of being materialized; running that event rather than
   # calling a provider directly is what keeps this module free of provider knowledge.
-  defp materialize(%Record{content: content, attributes: attributes}, _request)
-       when is_binary(content),
-       do: {:ok, content, Map.get(attributes || %{}, "encoding")}
+  # The materialized record's own mime type wins: the far end read it off the bytes, while
+  # the inbound record only carries what the provider bothered to declare.
+  defp materialize(%Record{content: content} = record, _request) when is_binary(content),
+    do: {:ok, materialized(content, record.attributes, record.mime_type)}
 
-  defp materialize(%Record{materializing_event: %Event{} = event}, request) do
+  defp materialize(%Record{materializing_event: %Event{} = event} = record, request) do
     node_router = Map.get(request, :node_router, NodeRouter)
 
     case event |> node_router.dispatch() |> Map.fetch!(:response) do
-      {:ok, %{record: %Record{content: content, attributes: attributes}}}
-      when is_binary(content) ->
-        {:ok, content, Map.get(attributes || %{}, "encoding")}
+      {:ok, %{record: %Record{content: content} = fetched}} when is_binary(content) ->
+        {:ok, materialized(content, fetched.attributes, fetched.mime_type || record.mime_type)}
 
       {:error, reason} ->
         {:error, reason}
@@ -71,9 +73,19 @@ defmodule Zaq.Channels.InboundAttachments do
 
   defp materialize(%Record{}, _request), do: {:error, :not_materializable}
 
-  defp write(%Record{} = record, content, encoding, volume, request) do
+  defp materialized(content, attributes, mime_type) do
+    %{
+      content: content,
+      encoding: MapUtils.present_value(attributes, "encoding"),
+      mime_type: mime_type
+    }
+  end
+
+  defp write(%Record{} = record, materialized, volume, request) do
+    %{content: content, encoding: encoding, mime_type: mime_type} = materialized
+
     params = %{
-      "name" => file_name(record),
+      "name" => MimeSniffer.ensure_extension(file_name(record), mime_type),
       "path" =>
         Path.join([volume, "attachments", owner_segment(request), channel_segment(request)]),
       "content" => content,
@@ -148,15 +160,16 @@ defmodule Zaq.Channels.InboundAttachments do
     end
   end
 
+  # `ChannelConfig` owns the shape of its settings map; this only asks it which volume.
   defp configured_volume(request) do
-    with provider when not is_nil(provider) <- Map.get(request, :provider),
-         %ChannelConfig{settings: settings} <-
-           ChannelConfig.get_by_provider(to_string(provider)) do
-      get_in(settings || %{}, ["attachments", "volume"])
-    else
-      _ -> nil
+    case Map.get(request, :provider) do
+      nil -> nil
+      provider -> provider |> to_string() |> ChannelConfig.get_by_provider() |> volume_of()
     end
   end
+
+  defp volume_of(nil), do: nil
+  defp volume_of(config), do: ChannelConfig.attachment_volume(config)
 
   defp first_volume(request) do
     node_router = Map.get(request, :node_router, NodeRouter)

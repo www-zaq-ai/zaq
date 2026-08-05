@@ -218,7 +218,8 @@ defmodule Zaq.Engine.Conversations do
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
          {:ok, conv} <-
            maybe_assign_person(conv, Incoming.person_id(msg) || Map.get(result, :person_id)),
-         {:ok, _} <- add_message(conv, %{role: "user", content: msg.content}),
+         {:ok, _} <- maybe_add_user_message(conv, msg),
+         {:ok, _} <- maybe_add_attachment_notice(conv, msg),
          {:ok, assistant_msg} <-
            add_message(conv, %{
              role: "assistant",
@@ -234,6 +235,25 @@ defmodule Zaq.Engine.Conversations do
              trace: assistant_trace(result)
            }) do
       {:ok, %{conversation_id: conv.id, assistant_message_id: assistant_msg.id}}
+    end
+  end
+
+  # Someone who sends a photo with no caption wrote nothing, and an empty user row would
+  # fail `validate_required` anyway. The attachment's own `system` row carries the turn.
+  defp maybe_add_user_message(conv, %Zaq.Engine.Messages.Incoming{content: content}) do
+    if is_binary(content) and String.trim(content) != "" do
+      add_message(conv, %{role: "user", content: content})
+    else
+      {:ok, :no_user_text}
+    end
+  end
+
+  # An attachment announcement is context the application injected, not words the sender
+  # typed, so it is its own `system` row rather than being folded into theirs.
+  defp maybe_add_attachment_notice(conv, %Zaq.Engine.Messages.Incoming{} = msg) do
+    case Incoming.attachment_notice(msg) do
+      nil -> {:ok, :no_attachments}
+      notice -> add_message(conv, %{role: "system", content: notice})
     end
   end
 

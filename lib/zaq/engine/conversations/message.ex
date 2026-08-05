@@ -28,7 +28,15 @@ defmodule Zaq.Engine.Conversations.Message do
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
 
-  @valid_roles ~w[user assistant]
+  # The four roles a chat transcript can hold. `system` is context the application injected
+  # rather than anything a participant said — an attachment announcement, for instance —
+  # and is what newer OpenAI naming calls `developer`. `tool` is the result of a tool call,
+  # never an instruction to make one.
+  @valid_roles ~w[user assistant system tool]
+
+  @doc "Roles a persisted message may carry."
+  @spec valid_roles() :: [String.t()]
+  def valid_roles, do: @valid_roles
 
   @doc "Changeset for inserting a new message."
   def changeset(message, attrs) do

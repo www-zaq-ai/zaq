@@ -209,7 +209,15 @@ defmodule Zaq.Channels.InboundAttachmentsTest do
     test "derives a file name from the record id when the media had no filename" do
       InboundAttachments.persist(request(%{record: record(%{name: nil})}))
 
-      assert_received {:dispatch, :ingestion, :persist_record, %{"name" => "abc"}}
+      # The extension comes from the type, so a nameless provider file is still stored as
+      # something `MIME.from_path/1` can read back later.
+      assert_received {:dispatch, :ingestion, :persist_record, %{"name" => "abc.jpg"}}
+    end
+
+    test "leaves a name that already carries the right extension alone" do
+      InboundAttachments.persist(request(%{record: record(%{name: "photo.jpg"})}))
+
+      assert_received {:dispatch, :ingestion, :persist_record, %{"name" => "photo.jpg"}}
     end
 
     test "keeps a nested name from escaping its directory" do
@@ -217,7 +225,7 @@ defmodule Zaq.Channels.InboundAttachmentsTest do
 
       assert_received {:dispatch, :ingestion, :persist_record, %{"name" => name}}
       refute name =~ "/"
-      assert name == "passwd"
+      assert name == "passwd.jpg"
     end
 
     test "skips the fetch when the record already carries its content" do

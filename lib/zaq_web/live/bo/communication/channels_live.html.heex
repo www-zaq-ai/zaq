@@ -249,6 +249,28 @@
         </select>
       </form>
     </div>
+
+    <div
+      :if={@attachment_volumes != []}
+      class="bg-white rounded-xl border border-black/10 p-4 mb-4"
+    >
+      <label class="font-mono text-[0.68rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+        Attachment Volume
+      </label>
+      <form phx-change="set_attachment_volume">
+        <input type="hidden" name="config_id" value={List.first(@configs).id} />
+        <ZaqWeb.Select.select
+          id="attachment-volume-select"
+          name="volume"
+          value={@attachment_volume_value}
+          options={Enum.map(@attachment_volumes, &{&1, &1})}
+          prompt="Use the first mounted volume"
+        />
+      </form>
+      <p class="font-mono text-[0.7rem] text-black/40 mt-2">
+        Where images and files people send on this channel are stored.
+      </p>
+    </div>
     
 <!-- Currently Selected Channels -->
     <div :if={@retrieval_channels != []} class="space-y-2 mb-5">

@@ -1280,6 +1280,60 @@ defmodule Zaq.Agent.ApiTest do
       refute_received {:executor_called, _, _}
     end
 
+    test "a caption-less photo is not mistaken for invalid input" do
+      # Regression: the guard runs on what the sender wrote. A photo sent with no caption
+      # has `content: nil`, and the real PromptGuard rejects any non-binary — which turned
+      # every wordless attachment into "I can't help with that request".
+      incoming = %Incoming{
+        content: nil,
+        channel_id: "c1",
+        provider: :telegram,
+        attachments: %Zaq.Contracts.RecordPage{
+          resource_type: :attachment,
+          records: [%Zaq.Contracts.Record{id: "34", kind: :file, name: "photo.png"}]
+        }
+      }
+
+      event =
+        Event.new(incoming, :agent,
+          opts: [
+            action: :run_pipeline,
+            pipeline_module: StubPipeline,
+            pipeline_opts: [],
+            identity_plug: PassthroughIdentityPlug,
+            prompt_guard: Zaq.Agent.PromptGuard,
+            status_module: NoopStatus,
+            node_router: SpyNodeRouter
+          ]
+        )
+
+      Api.handle_event(event, :run_pipeline, nil)
+
+      assert_received {:pipeline_called, _, _}
+    end
+
+    test "a message with neither text nor attachment is still rejected" do
+      incoming = %Incoming{content: nil, channel_id: "c1", provider: :telegram}
+
+      event =
+        Event.new(incoming, :agent,
+          opts: [
+            action: :run_pipeline,
+            pipeline_module: StubPipeline,
+            pipeline_opts: [],
+            identity_plug: PassthroughIdentityPlug,
+            prompt_guard: Zaq.Agent.PromptGuard,
+            status_module: NoopStatus,
+            node_router: SpyNodeRouter
+          ]
+        )
+
+      result = Api.handle_event(event, :run_pipeline, nil)
+
+      assert %Outgoing{} = result.response
+      refute_received {:pipeline_called, _, _}
+    end
+
     test "broadcasts :validating before routing when guard passes" do
       incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
 

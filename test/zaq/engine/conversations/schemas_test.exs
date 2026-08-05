@@ -108,11 +108,24 @@ defmodule Zaq.Engine.Conversations.SchemasTest do
       assert %{content: _} = errors_on(cs)
     end
 
+    test "accepts every role a transcript can hold" do
+      for role <- ~w[user assistant system tool] do
+        cs =
+          Message.changeset(%Message{}, %{
+            conversation_id: @valid_uuid,
+            role: role,
+            content: "x"
+          })
+
+        assert cs.valid?, "expected #{role} to be a valid role"
+      end
+    end
+
     test "rejects invalid role" do
       cs =
         Message.changeset(%Message{}, %{
           conversation_id: @valid_uuid,
-          role: "system",
+          role: "narrator",
           content: "x"
         })
 

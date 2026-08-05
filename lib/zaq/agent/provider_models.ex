@@ -104,6 +104,21 @@ defmodule Zaq.Agent.ProviderModels do
     |> Enum.find(fn model -> model.id == model_id or Map.get(model, :model) == model_id end)
   end
 
+  @doc """
+  Input modalities a model accepts, as reported by LLMDB — `[:text, :image, ...]`.
+
+  Answers `[]` when the model is unknown or declares nothing, which callers must read as
+  "unknown", not as "text only": a model missing from the catalog is a gap in the catalog,
+  not evidence that it cannot see.
+  """
+  @spec input_modalities(String.t() | atom() | nil, String.t() | nil) :: [atom()]
+  def input_modalities(provider_id, model_id) do
+    case model(provider_id, model_id) do
+      %{modalities: %{input: input}} when is_list(input) -> input
+      _ -> []
+    end
+  end
+
   defp normalize_credential_provider(credential, provider_id) when is_binary(provider_id) do
     %{credential | provider: provider_id}
   end

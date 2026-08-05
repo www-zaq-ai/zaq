@@ -45,6 +45,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.MimeSniffer
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
@@ -709,6 +710,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   Content comes back base64-encoded with `attributes["encoding"]` saying so — the same
   convention `Zaq.Ingestion.materialize_record/1` uses, since an image is never text.
 
+  The type is read from the bytes rather than trusted from the provider: Telegram sends
+  photos with neither a filename nor a declared type, so sniffing here is the only point
+  where the answer exists at all.
+
   Which module can download is provider configuration (`:channels` → `provider` → `:media`),
   not knowledge held here. A provider with no media module answers `{:error, :unsupported}`.
   """
@@ -725,6 +730,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            kind: :file,
            content: Base.encode64(binary),
            size: byte_size(binary),
+           mime_type: MimeSniffer.detect(binary),
            attributes: %{"encoding" => "base64", "provider" => to_string(provider)}
          }
        }}

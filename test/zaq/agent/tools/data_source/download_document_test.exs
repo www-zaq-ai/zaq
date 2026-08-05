@@ -184,6 +184,120 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
       end
     end
 
+    # Stands in for an inbound attachment: the disk record is an image, so what the tool
+    # does with it depends entirely on what the running model can read.
+    defmodule ImageNodeRouter do
+      @moduledoc false
+
+      def dispatch(%Event{request: %{provider: "disk", params: params}} = event) do
+        send(self(), {:first_hop, params["file_id"]})
+
+        %{
+          event
+          | response:
+              {:ok,
+               %{
+                 record: %Record{
+                   id: "42",
+                   kind: :file,
+                   name: "photo.png",
+                   mime_type: "image/png",
+                   content: nil,
+                   materializing_event:
+                     Event.new(%{file_id: "42"}, :ingestion, opts: [action: :materialize_record])
+                 }
+               }}
+        }
+      end
+
+      def dispatch(%Event{request: %{file_id: "42"}} = event) do
+        send(self(), :second_hop)
+
+        %{
+          event
+          | response:
+              {:ok,
+               %{
+                 record: %Record{
+                   id: "42",
+                   kind: :file,
+                   name: "photo.png",
+                   mime_type: "image/png",
+                   content: Base.encode64("PNGBYTES"),
+                   attributes: %{"encoding" => "base64"}
+                 }
+               }}
+        }
+      end
+    end
+
+    test "an image reaches a vision model as a real content part, not as base64 text" do
+      assert {:ok, payload} =
+               DownloadDocument.run(%{provider: "disk", document_id: "42"}, %{
+                 node_router: ImageNodeRouter,
+                 input_modalities: [:text, :image]
+               })
+
+      assert [%ReqLLM.Message.ContentPart{type: :image} = part] = payload.__content_parts__
+      assert part.data == "PNGBYTES"
+      assert part.media_type == "image/png"
+    end
+
+    test "a text-only model gets an explanation instead of the bytes" do
+      assert {:ok, %{refused: message}} =
+               DownloadDocument.run(%{provider: "disk", document_id: "42"}, %{
+                 node_router: ImageNodeRouter,
+                 input_modalities: [:text]
+               })
+
+      assert message =~ "cannot read image"
+      refute Map.has_key?(%{refused: message}, :__content_parts__)
+    end
+
+    test "a declared image type is refused before any dispatch happens" do
+      assert {:ok, %{refused: _message}} =
+               DownloadDocument.run(
+                 %{provider: "disk", document_id: "42", document_mime_type: "image/png"},
+                 %{node_router: ImageNodeRouter, input_modalities: [:text]}
+               )
+
+      refute_received {:first_hop, _}
+      refute_received :second_hop
+    end
+
+    test "a declared image type still downloads when the model can see it" do
+      assert {:ok, payload} =
+               DownloadDocument.run(
+                 %{provider: "disk", document_id: "42", document_mime_type: "image/png"},
+                 %{node_router: ImageNodeRouter, input_modalities: [:text, :image]}
+               )
+
+      assert [%ReqLLM.Message.ContentPart{type: :image}] = payload.__content_parts__
+      assert_received {:first_hop, "42"}
+    end
+
+    test "an unknown modality list attempts the download rather than assuming blindness" do
+      assert {:ok, payload} =
+               DownloadDocument.run(%{provider: "disk", document_id: "42"}, %{
+                 node_router: ImageNodeRouter,
+                 input_modalities: []
+               })
+
+      assert %Record{} = payload.record
+      assert_received {:first_hop, "42"}
+    end
+
+    test "a text document is unaffected by the modality check" do
+      assert {:ok, payload} =
+               DownloadDocument.run(%{provider: "disk", document_id: "guide.md"}, %{
+                 node_router: DiskNodeRouter,
+                 input_modalities: [:text]
+               })
+
+      assert payload.record.content == "# guide"
+      refute Map.has_key?(payload, :__content_parts__)
+    end
+
     test "takes the second hop and returns text content for a text file" do
       assert {:ok, %{record: %Record{} = record}} =
                DownloadDocument.run(%{provider: "disk", document_id: "guide.md"}, %{

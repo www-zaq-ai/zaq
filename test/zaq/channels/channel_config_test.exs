@@ -182,6 +182,40 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
   # ── disk data source ────────────────────────────────────────────────────────
 
+  describe "attachment_volume/1" do
+    test "returns the volume an operator picked for the channel" do
+      config = %ChannelConfig{settings: %{"attachments" => %{"volume" => "media"}}}
+
+      assert ChannelConfig.attachment_volume(config) == "media"
+    end
+
+    test "reads the same setting off a plain runtime config map" do
+      config = %{settings: %{"attachments" => %{"volume" => "media"}}}
+
+      assert ChannelConfig.attachment_volume(config) == "media"
+    end
+
+    test "answers nil when the channel has not been given a volume" do
+      for settings <- [%{}, %{"attachments" => %{}}, %{"imap" => %{"volume" => "no"}}] do
+        assert ChannelConfig.attachment_volume(%ChannelConfig{settings: settings}) == nil
+      end
+    end
+
+    test "treats a blank volume as unset rather than as a volume named empty" do
+      config = %ChannelConfig{settings: %{"attachments" => %{"volume" => "   "}}}
+
+      assert ChannelConfig.attachment_volume(config) == nil
+    end
+
+    test "survives malformed settings instead of raising" do
+      for settings <- [%{"attachments" => "nope"}, %{"attachments" => %{"volume" => 42}}, %{}] do
+        assert ChannelConfig.attachment_volume(%ChannelConfig{settings: settings}) == nil
+      end
+
+      assert ChannelConfig.attachment_volume(nil) == nil
+    end
+  end
+
   describe "disk provider" do
     test "is an accepted provider" do
       changeset =

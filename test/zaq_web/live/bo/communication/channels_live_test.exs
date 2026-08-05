@@ -175,6 +175,114 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     refute has_element?(view, "#config-form")
   end
 
+  describe "attachment volume picker" do
+    setup do
+      previous = Application.get_env(:zaq, Zaq.Ingestion, [])
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.put(previous, :volumes, %{"media" => "tmp/media", "archives" => "tmp/archives"})
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, previous) end)
+      :ok
+    end
+
+    # The DS select writes into a hidden input its JS hook owns, and `form/3` refuses to set
+    # hidden values, so these send the change the browser would send.
+    defp pick_volume(view, config, volume) do
+      view
+      |> element("form[phx-change=set_attachment_volume]")
+      |> render_change(%{"config_id" => to_string(config.id), "volume" => volume})
+    end
+
+    test "offers every mounted volume alongside the provider default agent", %{conn: conn} do
+      insert_channel_config(%{})
+
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+      assert html =~ "Attachment Volume"
+      assert html =~ "media"
+      assert html =~ "archives"
+    end
+
+    test "is not offered for a data source, which receives nothing inbound" do
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, service_available: false, live_action: :data_source}
+      }
+
+      assert {:ok, socket} = ChannelsLive.mount(%{"provider" => "google_drive"}, %{}, socket)
+      assert socket.assigns.attachment_volumes == []
+    end
+
+    test "stores the chosen volume on the channel", %{conn: conn} do
+      config = insert_channel_config(%{})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      pick_volume(view, config, "media")
+
+      assert ChannelConfig |> Repo.get!(config.id) |> ChannelConfig.attachment_volume() == "media"
+    end
+
+    test "refuses a volume that is not mounted", %{conn: conn} do
+      config = insert_channel_config(%{})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      html = pick_volume(view, config, "not-mounted")
+
+      assert html =~ "Failed to update attachment volume"
+      assert ChannelConfig |> Repo.get!(config.id) |> ChannelConfig.attachment_volume() == nil
+    end
+
+    test "clearing the choice falls back to the first mounted volume", %{conn: conn} do
+      config = insert_channel_config(%{settings: %{"attachments" => %{"volume" => "media"}}})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      pick_volume(view, config, "")
+
+      assert ChannelConfig |> Repo.get!(config.id) |> ChannelConfig.attachment_volume() == nil
+    end
+
+    test "survives a save of the config modal, which never renders it", %{conn: conn} do
+      # The picker writes `settings["attachments"]`, but the config form only renders
+      # `settings["jido_chat"]`. `settings` is cast whole, so without a merge that save
+      # would drop the volume an operator had just chosen.
+      config = insert_channel_config(%{})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      pick_volume(view, config, "media")
+
+      view |> element("#edit-config-#{config.id}") |> render_click()
+
+      view
+      |> element("#config-form")
+      |> render_submit(%{
+        "form" => %{
+          "name" => config.name,
+          "url" => config.url,
+          "kind" => "retrieval",
+          "settings" => %{"jido_chat" => %{"bot_name" => "zaq_bot"}}
+        }
+      })
+
+      reloaded = Repo.get!(ChannelConfig, config.id)
+      assert ChannelConfig.attachment_volume(reloaded) == "media"
+      assert reloaded.settings["jido_chat"]["bot_name"] == "zaq_bot"
+    end
+
+    test "keeps settings the picker does not own", %{conn: conn} do
+      config = insert_channel_config(%{settings: %{"jido_chat" => %{"bot_name" => "zaq_bot"}}})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      pick_volume(view, config, "media")
+
+      reloaded = Repo.get!(ChannelConfig, config.id)
+      assert ChannelConfig.attachment_volume(reloaded) == "media"
+      assert reloaded.settings["jido_chat"]["bot_name"] == "zaq_bot"
+    end
+  end
+
   test "mount builds data source and fallback navigation labels" do
     socket = %Phoenix.LiveView.Socket{
       assigns: %{__changed__: %{}, service_available: false, live_action: :data_source}

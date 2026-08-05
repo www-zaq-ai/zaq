@@ -91,7 +91,7 @@ defmodule Zaq.Agent.Api do
 
         prompt_guard_mod = Keyword.get(event.opts, :prompt_guard, PromptGuard)
 
-        case prompt_guard_mod.validate(incoming.content) do
+        case prompt_guard_mod.validate(guard_input(incoming)) do
           {:error, _reason} ->
             maybe_dispatch_return_hop(event, incoming, guard_error_outgoing(incoming))
 
@@ -479,6 +479,19 @@ defmodule Zaq.Agent.Api do
 
   defp maybe_put_persisted(metadata, _key, nil), do: metadata
   defp maybe_put_persisted(metadata, key, value), do: Map.put(metadata, key, value)
+
+  # The guard inspects what the sender wrote. A photo sent with no caption has nothing to
+  # inspect, which is not the same as invalid input — the request is the attachment. A
+  # message with neither text nor attachment still has nothing to answer, so it stays
+  # rejected.
+  defp guard_input(%Incoming{content: content}) when is_binary(content), do: content
+
+  defp guard_input(%Incoming{} = incoming) do
+    case Incoming.attachment_records(incoming) do
+      [] -> incoming.content
+      [_ | _] -> ""
+    end
+  end
 
   defp guard_error_outgoing(%Incoming{} = incoming) do
     Outgoing.from_pipeline_result(incoming, %{

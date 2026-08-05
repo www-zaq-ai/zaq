@@ -38,7 +38,7 @@ defmodule Zaq.Agent.ServerManager do
   require Logger
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.{ConfiguredAgent, Factory, ProviderSpec, RuntimeSync}
+  alias Zaq.Agent.{ConfiguredAgent, Factory, ProviderModels, ProviderSpec, RuntimeSync}
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
   @jido_instance Zaq.Agent.Jido
@@ -251,7 +251,13 @@ defmodule Zaq.Agent.ServerManager do
       spawn_server(server_id, configured_agent, %{
         model: model_spec,
         runtime_config: runtime_config,
-        tool_context: %{configured_agent_id: configured_agent.id},
+        tool_context: %{
+          configured_agent_id: configured_agent.id,
+          # A projection, not the spec: a tool needs to know whether this model can read an
+          # image, and must never see a provider atom or base URL (those stay in
+          # `ProviderSpec`). Resolved per server because the model is fixed per agent.
+          input_modalities: ProviderModels.input_modalities(model_spec.provider, model_spec.id)
+        },
         context: Factory.build_initial_context(configured_agent, server_id, context)
       })
     end

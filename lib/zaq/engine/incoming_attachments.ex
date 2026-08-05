@@ -9,11 +9,16 @@ defmodule Zaq.Engine.IncomingAttachments do
 
   The stored record is still unmaterialized — now backed by a `documents.id`. The agent
   fetches it only if it decides to, through the same `download_document` tool it already
-  uses for any other document, which is why each attachment is also announced as a line of
-  text: without a handle in the prompt the model has no way to ask for the file.
+  uses for any other document.
 
-  Storage failures never cost the message. The caption still reaches the agent; only the
-  attachment line says the file is unavailable.
+  Nothing here touches `content`: what the sender typed stays exactly that, and the text
+  describing the attachments is derived from the records by
+  `Zaq.Engine.Messages.Incoming.attachment_notice/1` — application context, carried as a
+  `system` message rather than put in the person's mouth.
+
+  Storage failures never cost the message. A record that could not be stored is marked
+  `attributes["storage"] = "failed"` and still travels, so the agent is told the file exists
+  but cannot be opened.
   """
 
   require Logger
@@ -24,9 +29,10 @@ defmodule Zaq.Engine.IncomingAttachments do
   alias Zaq.NodeRouter
 
   @doc """
-  Persists every attachment on the message and appends a handle line per attachment.
+  Persists every attachment on the message, swapping each record for the stored one.
 
-  Returns the message unchanged when it carries no attachments.
+  `content` is left untouched — the text describing the attachments is derived from the
+  records later. Returns the message unchanged when it carries no attachments.
   """
   @spec store(Incoming.t(), keyword()) :: Incoming.t()
   def store(%Incoming{} = incoming, opts \\ []) do
@@ -37,11 +43,9 @@ defmodule Zaq.Engine.IncomingAttachments do
   end
 
   defp store_records(%Incoming{} = incoming, records, opts) do
-    results = Enum.map(records, &persist(&1, incoming, opts))
+    stored = Enum.map(records, &persist(&1, incoming, opts))
 
-    incoming
-    |> Incoming.put_attachment_records(Enum.map(results, &elem(&1, 1)))
-    |> put_content(Enum.map(results, &describe/1))
+    Incoming.put_attachment_records(incoming, stored)
   end
 
   defp persist(%Record{} = record, %Incoming{} = incoming, opts) do
@@ -62,7 +66,7 @@ defmodule Zaq.Engine.IncomingAttachments do
          |> node_router.dispatch()
          |> Map.fetch!(:response) do
       {:ok, %{record: %Record{} = stored}} ->
-        {:ok, stored}
+        stored
 
       other ->
         Logger.warning(
@@ -71,36 +75,14 @@ defmodule Zaq.Engine.IncomingAttachments do
             "reason=#{inspect(other)}"
         )
 
-        {:error, record}
+        mark_failed(record)
     end
   end
 
-  # The model can only act on what the text tells it, so a stored attachment carries the two
-  # arguments `download_document` needs and a failed one says plainly that it cannot be read.
-  defp describe({:ok, %Record{} = record}) do
-    "[attachment: #{label(record)}, provider: \"disk\", document_id: \"#{record.id}\"]"
+  # The failure travels on the record rather than in a message built here, so whoever
+  # describes the attachments later can say it cannot be opened without needing to know how
+  # the storage attempt went.
+  defp mark_failed(%Record{} = record) do
+    %{record | attributes: Map.put(record.attributes || %{}, "storage", "failed")}
   end
-
-  defp describe({:error, %Record{} = record}) do
-    "[attachment: #{label(record)} — could not be stored and cannot be opened]"
-  end
-
-  defp label(%Record{name: name, mime_type: mime_type}) do
-    case {name, mime_type} do
-      {name, nil} when is_binary(name) -> name
-      {name, mime} when is_binary(name) -> "#{name} (#{mime})"
-      {_, mime} when is_binary(mime) -> "unnamed (#{mime})"
-      _ -> "unnamed"
-    end
-  end
-
-  defp put_content(%Incoming{content: content} = incoming, lines) do
-    caption = if is_binary(content), do: String.trim(content), else: ""
-    announced = Enum.join(lines, "\n")
-
-    %{incoming | content: join_caption(caption, announced)}
-  end
-
-  defp join_caption("", announced), do: announced
-  defp join_caption(caption, announced), do: caption <> "\n\n" <> announced
 end

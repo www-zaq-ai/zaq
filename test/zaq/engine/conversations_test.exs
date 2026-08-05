@@ -1037,9 +1037,18 @@ defmodule Zaq.Engine.ConversationsTest do
       {:ok, conv} = Conversations.create_conversation(conv_attrs())
 
       assert {:error, changeset} =
-               Conversations.add_message(conv, %{role: "system", content: "x"})
+               Conversations.add_message(conv, %{role: "narrator", content: "x"})
 
       assert %{role: _} = errors_on(changeset)
+    end
+
+    test "stores a system message, which is neither participant speaking" do
+      {:ok, conv} = Conversations.create_conversation(conv_attrs())
+
+      assert {:ok, message} =
+               Conversations.add_message(conv, %{role: "system", content: "[attachment: x]"})
+
+      assert message.role == "system"
     end
   end
 
