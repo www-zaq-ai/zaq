@@ -400,16 +400,89 @@ defmodule Zaq.Channels.ChannelConfig do
   def attachment_settings(_), do: %{}
 
   @doc """
-  Returns the ingestion volume inbound attachments on this channel are written to.
+  Returns how a channel keeps the files it receives, as the BO form renders it.
 
-  `nil` means the channel has not been given one, which is not an error: the caller falls
-  back to a mounted volume rather than dropping the file.
+  Always the same three fields, so neither the form nor a reader has to reason about which
+  keys happen to be present. `persist` off is a complete answer on its own — the data source
+  and path are kept so that switching persistence back on does not lose what was chosen.
   """
-  def attachment_volume(config) do
-    case config |> attachment_settings() |> Map.get("volume") do
-      volume when is_binary(volume) -> if String.trim(volume) == "", do: nil, else: volume
+  @spec attachment_persistence(%__MODULE__{} | map() | nil) :: %{
+          persist: boolean(),
+          provider: String.t() | nil,
+          path: String.t() | nil
+        }
+  def attachment_persistence(config) do
+    settings = attachment_settings(config)
+
+    %{
+      persist: Map.get(settings, "persist") == true,
+      provider: settings_presence(settings, "provider"),
+      path: settings_presence(settings, "path")
+    }
+  end
+
+  @doc """
+  Where files received on `provider` are kept, or `nil` when the channel keeps nothing.
+
+  Answers a destination that can be written to as-is — which data source, and which directory
+  inside it — so callers never read the settings map themselves. That keeps the shape of the
+  setting private to this module.
+
+  An incomplete choice is the same as off: persistence switched on without a data source or
+  without a path has nowhere to write, and answering `nil` fails it here rather than at the
+  volume.
+  """
+  @spec attachment_destination(String.t()) :: %{provider: String.t(), path: String.t()} | nil
+  def attachment_destination(provider) when is_binary(provider) do
+    case provider |> get_by_provider() |> attachment_persistence() do
+      %{persist: true, provider: source, path: path}
+      when is_binary(source) and is_binary(path) ->
+        %{provider: source, path: path}
+
+      _incomplete_or_off ->
+        nil
+    end
+  end
+
+  def attachment_destination(_provider), do: nil
+
+  @doc """
+  Rewrites only the attachments subtree, leaving every other setting alone.
+
+  A channel's `jido_chat` or `imap` settings are not the form's to touch, and this form
+  renders none of them.
+  """
+  @spec put_attachment_persistence(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+  def put_attachment_persistence(%__MODULE__{} = config, %{} = persistence) do
+    attachments =
+      %{}
+      |> Map.put("persist", persistence[:persist] == true)
+      |> put_present("provider", persistence[:provider])
+      |> put_present("path", persistence[:path])
+
+    settings = Map.put(config.settings || %{}, "attachments", attachments)
+
+    change(config, settings: settings)
+  end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, _key, ""), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp settings_presence(settings, key) do
+    case Map.get(settings, key) do
+      value when is_binary(value) -> if String.trim(value) == "", do: nil, else: value
       _ -> nil
     end
+  end
+
+  @doc "Returns every enabled data source config, name-ordered."
+  @spec list_enabled_data_sources() :: [%__MODULE__{}]
+  def list_enabled_data_sources do
+    __MODULE__
+    |> where([c], c.kind == "data_source" and c.enabled == true)
+    |> order_by(asc: :name)
+    |> Zaq.Repo.all()
   end
 
   defp nested_settings(settings, key) do

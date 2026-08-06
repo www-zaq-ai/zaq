@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.ApiAttachmentsTest do
-  # Covers the dispatch seam itself: that the two attachment actions resolve a real bridge
-  # and reach it. The unit tests around them call the bridge directly, so nothing else
-  # exercises the module resolution these clauses do.
+  # Covers the dispatch seam itself: that the attachment action resolves a real bridge and
+  # reaches it. The unit tests around it call the bridge directly, so nothing else
+  # exercises the module resolution this clause does.
   use ExUnit.Case, async: true
 
   alias Zaq.Channels.Api
@@ -29,15 +29,6 @@ defmodule Zaq.Channels.ApiAttachmentsTest do
   defmodule BridgeWithoutCallback do
     @moduledoc false
     def send_reply(_outgoing, _details), do: :ok
-  end
-
-  defmodule StubAttachments do
-    @moduledoc false
-
-    def persist(request) do
-      send(self(), {:persist, request})
-      {:ok, %{record: %Record{id: "42", kind: :file}}}
-    end
   end
 
   defp event(request, action, opts) do
@@ -93,29 +84,17 @@ defmodule Zaq.Channels.ApiAttachmentsTest do
     test "the default bridge module actually exports bridge_for/1" do
       # Regression: this clause defaulted to a module without `bridge_for/1`, which raised
       # at runtime and returned a 500 on the Telegram webhook.
+      #
+      # Uses a provider whose adapter has no `fetch_media/2`: resolution is what is under
+      # test, and stopping at `{:error, :unsupported}` keeps it out of the connection-details
+      # read, which needs a sandbox this async case does not own.
       event =
-        event(%{file_ref: "x://y", provider: "telegram"}, :materialize_inbound_attachment, [])
+        event(%{file_ref: "x://y", provider: "mattermost"}, :materialize_inbound_attachment, [])
 
       assert %Event{response: response} =
                Api.handle_event(event, :materialize_inbound_attachment, %{})
 
       refute match?({:error, {:no_bridge, _}}, response)
-    end
-  end
-
-  describe ":persist_inbound_attachment" do
-    test "delegates to the attachments module" do
-      event =
-        event(
-          %{record: %Record{id: "r", kind: :file}, provider: "telegram"},
-          :persist_inbound_attachment,
-          attachments_module: StubAttachments
-        )
-
-      assert %Event{response: {:ok, %{record: %Record{id: "42"}}}} =
-               Api.handle_event(event, :persist_inbound_attachment, %{})
-
-      assert_received {:persist, %{provider: "telegram"}}
     end
   end
 end

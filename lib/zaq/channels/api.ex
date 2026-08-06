@@ -20,7 +20,6 @@ defmodule Zaq.Channels.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
-  alias Zaq.Channels.InboundAttachments
   alias Zaq.Channels.MessageFormatter
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
@@ -204,12 +203,17 @@ defmodule Zaq.Channels.Api do
     end
   end
 
-  # Fetch and volume write both run here so the bytes reach ingestion without travelling
-  # back through the engine that asked for the write.
-  def handle_event(%Event{request: request} = event, :persist_inbound_attachment, _context)
-      when is_map(request) do
-    attachments_module = Keyword.get(event.opts, :attachments_module, InboundAttachments)
-    %{event | response: attachments_module.persist(request)}
+  # What a channel does with the files it receives. The config lives on this node; whoever
+  # holds an attachment's bytes and has to decide whether to keep them does not. The answer
+  # is a destination rather than the settings themselves, so reshaping the setting never
+  # reaches the caller.
+  def handle_event(
+        %Event{request: %{provider: provider}} = event,
+        :attachment_destination,
+        _context
+      )
+      when is_binary(provider) do
+    %{event | response: {:ok, %{destination: ChannelConfig.attachment_destination(provider)}}}
   end
 
   def handle_event(

@@ -51,6 +51,12 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Messages.UpsertIncomingRoutingRules
     },
     %{
+      key: "message.download_attachment",
+      label: "Download attachment",
+      description: "Read a file the sender attached to the message being answered",
+      module: Zaq.Agent.Tools.Messages.DownloadAttachment
+    },
+    %{
       key: "people.ensure_person",
       label: "Ensure person",
       description: "Find or create a Person from a communication channel identifier",

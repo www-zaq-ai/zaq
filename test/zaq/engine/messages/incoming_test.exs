@@ -1,8 +1,11 @@
 defmodule Zaq.Engine.Messages.IncomingTest do
   use ExUnit.Case, async: true
 
+  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Incoming.RoutingContext
+  alias Zaq.Event
 
   test "builds with required fields only" do
     msg = %Incoming{content: "hello", channel_id: "ch1", provider: :mattermost}
@@ -279,6 +282,90 @@ defmodule Zaq.Engine.Messages.IncomingTest do
       assert_raise ArgumentError, "missing required key :channel_id for Incoming.new/1", fn ->
         Incoming.new(attrs)
       end
+    end
+  end
+
+  describe "attachments" do
+    defp with_records(records) do
+      %Incoming{
+        content: "hi",
+        channel_id: "ch1",
+        provider: :telegram,
+        attachments: %RecordPage{resource_type: :attachment, records: records}
+      }
+    end
+
+    defp fetchable(attrs) do
+      struct!(
+        %Record{
+          id: "telegram://file/abc",
+          kind: :file,
+          materializing_event: Event.new(%{}, :channels, opts: [action: :x])
+        },
+        attrs
+      )
+    end
+
+    test "a message with no attachments has no notice and no records" do
+      msg = %Incoming{content: "hi", channel_id: "ch1", provider: :telegram}
+
+      assert Incoming.attachment_records(msg) == []
+      assert Incoming.attachment_notice(msg) == nil
+      assert Incoming.attachment_record(msg, "anything") == nil
+    end
+
+    test "an empty attachment page has no notice" do
+      assert Incoming.attachment_notice(with_records([])) == nil
+    end
+
+    test "the notice spells out the call to make, one line per attachment" do
+      msg =
+        with_records([
+          fetchable(%{id: "a", name: "one.png", mime_type: "image/png"}),
+          fetchable(%{id: "b", name: "two.pdf", mime_type: "application/pdf"})
+        ])
+
+      assert [line_a, line_b] = String.split(Incoming.attachment_notice(msg), "\n")
+      assert line_a =~ "one.png (image/png)"
+      assert line_a =~ ~s|download_attachment tool with attachment_id="a"|
+      assert line_b =~ ~s|attachment_id="b"|
+    end
+
+    test "the label falls back through the fields the provider bothered to send" do
+      labels = fn record ->
+        [record] |> with_records() |> Incoming.attachment_notice()
+      end
+
+      assert labels.(fetchable(%{name: "x.png", mime_type: nil})) =~ "attachment: x.png."
+      assert labels.(fetchable(%{name: nil, mime_type: "image/png"})) =~ "unnamed (image/png)"
+      assert labels.(fetchable(%{name: nil, mime_type: nil})) =~ "attachment: unnamed."
+    end
+
+    test "an attachment with no materializing event is described as unfetchable" do
+      msg = with_records([fetchable(%{name: "x.png", materializing_event: nil})])
+
+      notice = Incoming.attachment_notice(msg)
+      assert notice =~ "no way to fetch"
+      refute notice =~ "download_document"
+    end
+
+    test "records are found by the id the notice hands the model" do
+      msg = with_records([fetchable(%{id: "a"}), fetchable(%{id: "b"})])
+
+      assert %Record{id: "b"} = Incoming.attachment_record(msg, "b")
+      assert Incoming.attachment_record(msg, "c") == nil
+    end
+
+    test "a non-string id matches nothing" do
+      assert Incoming.attachment_record(with_records([fetchable(%{id: "a"})]), :a) == nil
+    end
+
+    test "put_attachment_records/2 keeps the page wrapper" do
+      msg = with_records([fetchable(%{id: "a"})])
+      updated = Incoming.put_attachment_records(msg, [fetchable(%{id: "z"})])
+
+      assert updated.attachments.resource_type == :attachment
+      assert [%Record{id: "z"}] = Incoming.attachment_records(updated)
     end
   end
 end

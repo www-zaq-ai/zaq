@@ -97,15 +97,27 @@ defmodule Zaq.Engine.Messages.Incoming do
   end
 
   @doc """
+  Finds an attachment by the id `attachment_notice/1` hands the model, or `nil`.
+
+  The id is whatever the channel minted for the file, so it is compared as a string — the
+  model echoes back the text it was shown.
+  """
+  @spec attachment_record(t(), String.t()) :: Record.t() | nil
+  def attachment_record(%__MODULE__{} = incoming, id) when is_binary(id) do
+    incoming |> attachment_records() |> Enum.find(&(to_string(&1.id) == id))
+  end
+
+  def attachment_record(%__MODULE__{}, _id), do: nil
+
+  @doc """
   Describes the message's attachments for the model, or `nil` when there are none.
 
   This is application-injected context rather than anything the sender wrote, so it is
   persisted as a `system` message and merged into the prompt separately — never folded into
   `content`, which stays exactly what the person typed.
 
-  Naming the arguments is not enough on its own: a model shown only `provider: "disk"`
-  refused to call the tool, reasoning that a file someone sent is not a data source. So each
-  line spells out the call to make.
+  Naming the file is not enough on its own: a model told only that an attachment exists left
+  it alone. So each line spells out the call to make.
   """
   @spec attachment_notice(t()) :: String.t() | nil
   def attachment_notice(%__MODULE__{} = incoming) do
@@ -115,15 +127,16 @@ defmodule Zaq.Engine.Messages.Incoming do
     end
   end
 
-  defp describe_attachment(%Record{attributes: %{"storage" => "failed"}} = record) do
-    "[attachment: #{attachment_label(record)} — could not be stored, so it cannot be " <>
-      "opened. Tell the user the file could not be received.]"
+  # No materializing event means the channel handed over no way to reach the bytes, so the
+  # model is told the file exists and cannot be opened rather than being sent after it.
+  defp describe_attachment(%Record{materializing_event: nil} = record) do
+    "[attachment: #{attachment_label(record)} — the sender's channel gave no way to fetch " <>
+      "it, so it cannot be opened. Tell the user the file could not be received.]"
   end
 
   defp describe_attachment(%Record{} = record) do
-    "[attachment: #{attachment_label(record)} — stored as a document. " <>
-      "To read it, call the download_document tool with " <>
-      "provider=\"disk\" and document_id=\"#{record.id}\".]"
+    "[attachment: #{attachment_label(record)}. To read it, call the download_attachment " <>
+      "tool with attachment_id=\"#{record.id}\".]"
   end
 
   defp attachment_label(%Record{name: name, mime_type: mime_type}) do

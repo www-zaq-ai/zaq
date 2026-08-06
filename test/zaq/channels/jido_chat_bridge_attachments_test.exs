@@ -10,24 +10,24 @@ defmodule Zaq.Channels.JidoChatBridgeAttachmentsTest do
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
 
-  defmodule StubMedia do
+  defmodule StubAdapter do
     @moduledoc false
 
-    def download_file(file_ref, opts) do
+    def fetch_media(file_ref, opts) do
       send(self(), {:download, file_ref, opts})
       Process.get(:download_response, {:ok, "bytes"})
     end
   end
 
-  defmodule NoDownloadMedia do
+  defmodule NoMediaAdapter do
     @moduledoc false
     def capabilities, do: %{}
   end
 
-  defp put_media_module(module) do
+  defp put_adapter(module) do
     channels = Application.get_env(:zaq, :channels, %{})
     telegram = Map.get(channels, :telegram, %{})
-    updated = Map.put(channels, :telegram, Map.put(telegram, :media, module))
+    updated = Map.put(channels, :telegram, Map.put(telegram, :adapter, module))
     Application.put_env(:zaq, :channels, updated)
     on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
   end
@@ -130,8 +130,8 @@ defmodule Zaq.Channels.JidoChatBridgeAttachmentsTest do
   end
 
   describe "materialize_inbound_attachment/1" do
-    test "downloads through the provider's media module and answers base64" do
-      put_media_module(StubMedia)
+    test "downloads through the provider's adapter and answers base64" do
+      put_adapter(StubAdapter)
       Process.put(:download_response, {:ok, "hi"})
 
       assert {:ok, %{record: %Record{} = record}} =
@@ -147,7 +147,7 @@ defmodule Zaq.Channels.JidoChatBridgeAttachmentsTest do
     end
 
     test "passes the channel token to the provider" do
-      put_media_module(StubMedia)
+      put_adapter(StubAdapter)
 
       JidoChatBridge.materialize_inbound_attachment(%{
         file_ref: "telegram://file/abc",
@@ -159,7 +159,7 @@ defmodule Zaq.Channels.JidoChatBridgeAttachmentsTest do
     end
 
     test "surfaces the provider's download failure" do
-      put_media_module(StubMedia)
+      put_adapter(StubAdapter)
       Process.put(:download_response, {:error, :file_gone})
 
       assert {:error, :file_gone} =
@@ -169,8 +169,8 @@ defmodule Zaq.Channels.JidoChatBridgeAttachmentsTest do
                })
     end
 
-    test "a provider whose media module cannot download is unsupported" do
-      put_media_module(NoDownloadMedia)
+    test "a provider whose adapter does not export fetch_media/2 is unsupported" do
+      put_adapter(NoMediaAdapter)
 
       assert {:error, :unsupported} =
                JidoChatBridge.materialize_inbound_attachment(%{
@@ -179,7 +179,7 @@ defmodule Zaq.Channels.JidoChatBridgeAttachmentsTest do
                })
     end
 
-    test "a provider with no media module at all is unsupported" do
+    test "a provider whose adapter has no inbound media at all is unsupported" do
       assert {:error, :unsupported} =
                JidoChatBridge.materialize_inbound_attachment(%{
                  file_ref: "x://y",
@@ -193,6 +193,14 @@ defmodule Zaq.Channels.JidoChatBridgeAttachmentsTest do
                  file_ref: "x://y",
                  provider: "nope"
                })
+    end
+
+    test "the configured Telegram adapter really exports the callback the bridge looks for" do
+      # Guards the seam the stubs above cannot: if the jido_chat_telegram pin loses
+      # `fetch_media/2`, inbound images go dark with `{:error, :unsupported}` and no crash.
+      assert {:ok, adapter} = JidoChatBridge.adapter_for(:telegram)
+      assert Code.ensure_loaded?(adapter)
+      assert function_exported?(adapter, :fetch_media, 2)
     end
 
     test "a request with no file reference is rejected" do

@@ -55,6 +55,25 @@ defmodule Zaq.Agent.Tools.MediaModality do
   end
 
   @doc """
+  Turns a materialized payload into what the model should receive.
+
+  A record the model can read comes back with `__content_parts__` where those help; one it
+  cannot is replaced by an explanation to relay instead. A payload that is not a canonical
+  record passes through — a provider answering with its own map shape has no `mime_type` to
+  judge.
+  """
+  @spec deliver(map(), [atom()]) :: map()
+  def deliver(%{record: %Record{} = record} = payload, modalities) do
+    if readable?(record.mime_type, modalities) do
+      put_content_parts(payload, modalities)
+    else
+      %{refused: refusal(record.name, record.mime_type)}
+    end
+  end
+
+  def deliver(payload, _modalities), do: payload
+
+  @doc """
   Adds `__content_parts__` to a tool payload when the record holds media the model can see.
 
   Text documents pass through untouched — they are already readable in the JSON payload,

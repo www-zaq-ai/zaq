@@ -714,15 +714,16 @@ defmodule Zaq.Channels.JidoChatBridge do
   photos with neither a filename nor a declared type, so sniffing here is the only point
   where the answer exists at all.
 
-  Which module can download is provider configuration (`:channels` → `provider` → `:media`),
-  not knowledge held here. A provider with no media module answers `{:error, :unsupported}`.
+  Fetching runs through the provider's own adapter, which advertises the ability by
+  exporting the optional `fetch_media/2` callback. A provider whose adapter does not answers
+  `{:error, :unsupported}`, as does a provider with no adapter at all.
   """
   @spec materialize_inbound_attachment(map()) :: {:ok, map()} | {:error, term()}
   @impl true
   def materialize_inbound_attachment(%{file_ref: file_ref, provider: provider})
       when is_binary(file_ref) do
-    with {:ok, media_module} <- resolve_media_module(provider),
-         {:ok, binary} <- download_attachment(media_module, file_ref, provider) do
+    with {:ok, adapter} <- resolve_media_adapter(provider),
+         {:ok, binary} <- fetch_media(adapter, file_ref, provider) do
       {:ok,
        %{
          record: %Record{
@@ -739,22 +740,22 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   def materialize_inbound_attachment(_request), do: {:error, :file_ref_required}
 
-  defp resolve_media_module(provider) do
-    provider_key = if is_atom(provider), do: provider, else: provider_to_atom(provider)
-
-    case provider_key && get_in(Application.get_env(:zaq, :channels, %{}), [provider_key, :media]) do
-      nil -> {:error, :unsupported}
-      media_module -> {:ok, media_module}
+  defp resolve_media_adapter(provider) do
+    with {:ok, adapter} <- adapter_for(provider),
+         true <- adapter_supports?(adapter, :fetch_media, 2) do
+      {:ok, adapter}
+    else
+      _ -> {:error, :unsupported}
     end
   end
 
-  defp download_attachment(media_module, file_ref, provider) do
-    if function_exported?(media_module, :download_file, 2) do
-      details = Bridge.fetch_connection_details(provider)
-      media_module.download_file(file_ref, token: Map.get(details, :token))
-    else
-      {:error, :unsupported}
-    end
+  defp fetch_media(adapter, file_ref, provider) do
+    details = Bridge.fetch_connection_details(provider)
+    adapter.fetch_media(file_ref, token: Map.get(details, :token))
+  end
+
+  defp adapter_supports?(adapter, fun, arity) do
+    Code.ensure_loaded?(adapter) and function_exported?(adapter, fun, arity)
   end
 
   @doc """
