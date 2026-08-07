@@ -1,6 +1,6 @@
-defmodule Zaq.Agent.Tools.DataSourceTool do
+defmodule Zaq.Agent.Tools.Helpers.ChannelTool do
   @moduledoc """
-  Shared dispatch and response handling for datasource-backed agent tools.
+  Shared dispatch and response handling for agent tools backed by the channels node.
   """
 
   alias Zaq.Agent.Tools.Error
@@ -32,7 +32,7 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   end
 
   def format_response(other, _error_prefix, _on_ok) do
-    {:error, "Unexpected data source response: #{inspect(other)}"}
+    {:error, "Unexpected channel response: #{inspect(other)}"}
   end
 
   @doc """

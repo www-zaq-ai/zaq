@@ -1,7 +1,7 @@
-defmodule Zaq.Agent.Tools.DataSourceToolTest do
+defmodule Zaq.Agent.Tools.Helpers.ChannelToolTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.Helpers.ChannelTool
   alias Zaq.Contracts.Record
   alias Zaq.Event
 
@@ -24,7 +24,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
     request = %{provider: "google_drive", params: %{"file_id" => "f1"}}
 
     assert {:ok, %{record: %{"id" => "f1"}}} =
-             DataSourceTool.dispatch(
+             ChannelTool.dispatch(
                :data_source_get_file,
                request,
                %{node_router: OkNodeRouter},
@@ -38,7 +38,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
     request = %{provider: "google_drive", params: %{"query" => "invoice"}}
 
     assert {:ok, %{record: %{"id" => "f1"}, count: 1}} =
-             DataSourceTool.dispatch(
+             ChannelTool.dispatch(
                :data_source_search_files,
                request,
                %{node_router: OkNodeRouter},
@@ -49,7 +49,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
 
   test "dispatch/5 formats error tuples" do
     assert {:error, "Data source document request failed: :timeout"} =
-             DataSourceTool.dispatch(
+             ChannelTool.dispatch(
                :data_source_get_file,
                %{provider: "google_drive", params: %{"file_id" => "f1"}},
                %{node_router: ErrorNodeRouter},
@@ -59,7 +59,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
 
   test "dispatch/5 formats unexpected responses" do
     assert {:error, "Unexpected data source response: :weird_response"} =
-             DataSourceTool.dispatch(
+             ChannelTool.dispatch(
                :data_source_get_file,
                %{provider: "google_drive", params: %{"file_id" => "f1"}},
                %{node_router: UnexpectedNodeRouter},
@@ -70,14 +70,14 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
   test "put_if_present/3 only adds non-nil values" do
     assert %{"file_id" => "f1", "config_id" => "7"} =
              %{"file_id" => "f1"}
-             |> DataSourceTool.put_if_present("config_id", "7")
-             |> DataSourceTool.put_if_present("path", nil)
+             |> ChannelTool.put_if_present("config_id", "7")
+             |> ChannelTool.put_if_present("path", nil)
   end
 
   test "put_many_if_present/2 adds only present values" do
     assert %{"file_id" => "f1", "config_id" => "7", "range" => "Sheet1!A1"} =
              %{"file_id" => "f1"}
-             |> DataSourceTool.put_many_if_present([
+             |> ChannelTool.put_many_if_present([
                {"config_id", "7"},
                {"range", "Sheet1!A1"},
                {"path", nil}
@@ -87,7 +87,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
   test "merge_optional/3 only merges keys the params carry" do
     params = %{document_mime_type: "application/pdf", export_mime_type: nil}
 
-    assert DataSourceTool.merge_optional(%{"file_id" => "f1"}, params, [
+    assert ChannelTool.merge_optional(%{"file_id" => "f1"}, params, [
              :document_mime_type,
              :export_mime_type,
              :config_id
@@ -95,7 +95,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
   end
 
   test "wrap_request/2 nests the params under the provider" do
-    assert DataSourceTool.wrap_request(%{"file_id" => "f1"}, "disk") ==
+    assert ChannelTool.wrap_request(%{"file_id" => "f1"}, "disk") ==
              %{provider: "disk", params: %{"file_id" => "f1"}}
   end
 
@@ -150,7 +150,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
       payload = %{record: unmaterialized(), extra: :kept}
 
       assert {:ok, %{record: %Record{content: "# materialized"} = record, extra: :kept}} =
-               DataSourceTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
+               ChannelTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
 
       assert record.attributes["encoding"] == "base64"
       assert_received {:materialize, :ingestion, :materialize_record, %{file_id: "42"}}
@@ -160,7 +160,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
       payload = %{record: %{unmaterialized() | content: "already here"}}
 
       assert {:ok, ^payload} =
-               DataSourceTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
+               ChannelTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
 
       refute_received {:materialize, _destination, _action, _request}
     end
@@ -169,7 +169,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
       payload = %{record: %{unmaterialized() | materializing_event: nil}}
 
       assert {:ok, ^payload} =
-               DataSourceTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
+               ChannelTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
 
       refute_received {:materialize, _destination, _action, _request}
     end
@@ -178,7 +178,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
       payload = %{status: "ok", bytes: 12}
 
       assert {:ok, ^payload} =
-               DataSourceTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
+               ChannelTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
 
       refute_received {:materialize, _destination, _action, _request}
     end
@@ -187,14 +187,14 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
       payload = %{record: %{"id" => "42", "content" => nil}}
 
       assert {:ok, ^payload} =
-               DataSourceTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
+               ChannelTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
     end
 
     test "formats a second-hop error with the same prefix as the first" do
       payload = %{record: unmaterialized()}
 
       assert {:error, "Download failed: :enoent"} =
-               DataSourceTool.materialize(
+               ChannelTool.materialize(
                  payload,
                  %{node_router: MaterializeErrorRouter},
                  "Download failed"
@@ -205,7 +205,7 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
       payload = %{record: unmaterialized()}
 
       assert {:error, message} =
-               DataSourceTool.materialize(
+               ChannelTool.materialize(
                  payload,
                  %{node_router: MaterializeShapeRouter},
                  "Download failed"

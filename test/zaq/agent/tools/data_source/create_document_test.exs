@@ -39,6 +39,7 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
                  provider: "google_drive",
                  name: "Doc",
                  content: "hello",
+                 encoding: "base64",
                  path: "/docs",
                  parent_id: "p1",
                  mime_type: "text/plain",
@@ -51,11 +52,23 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
                      %{
                        "name" => "Doc",
                        "content" => "hello",
+                       "encoding" => "base64",
                        "path" => "/docs",
                        "parent_id" => "p1",
                        "mime_type" => "text/plain",
                        "config_id" => "12"
                      }}
+  end
+
+  test "omits encoding entirely when absent" do
+    assert {:ok, _} =
+             CreateDocument.run(
+               %{provider: "google_drive", name: "Doc", content: "hello"},
+               %{node_router: StubNodeRouter}
+             )
+
+    assert_received {:dispatch, :data_source_create_file, params}
+    assert params == %{"name" => "Doc", "content" => "hello"}
   end
 
   test "formats datasource error reason" do

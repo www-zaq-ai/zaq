@@ -29,17 +29,17 @@ defmodule Zaq.Agent.Tools.Sheets.CreateSheet do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.Helpers.ChannelTool
 
   @impl Jido.Action
 
   def run(%{provider: provider, title: title} = params, context) do
     request =
       %{"title" => title}
-      |> DataSourceTool.merge_optional(params, [:config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_sheet_create,
       request,
       context,
