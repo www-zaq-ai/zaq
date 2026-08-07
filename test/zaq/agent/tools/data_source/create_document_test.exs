@@ -82,6 +82,6 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
     assert {:error, message} =
              CreateDocument.run(%{provider: "google_drive"}, %{node_router: UnexpectedNodeRouter})
 
-    assert message == "Unexpected data source response: :ok"
+    assert message == "Unexpected channel response: :ok"
   end
 end

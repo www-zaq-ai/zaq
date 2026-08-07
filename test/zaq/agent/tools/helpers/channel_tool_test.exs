@@ -58,7 +58,7 @@ defmodule Zaq.Agent.Tools.Helpers.ChannelToolTest do
   end
 
   test "dispatch/5 formats unexpected responses" do
-    assert {:error, "Unexpected data source response: :weird_response"} =
+    assert {:error, "Unexpected channel response: :weird_response"} =
              ChannelTool.dispatch(
                :data_source_get_file,
                %{provider: "google_drive", params: %{"file_id" => "f1"}},
