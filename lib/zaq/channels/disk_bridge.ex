@@ -53,8 +53,9 @@ defmodule Zaq.Channels.DiskBridge do
   Writes a file onto a volume and registers its document row.
 
   `path` is the destination directory and carries the volume; `name` is the file. Binary
-  content travels base64-encoded under `encoding`. Ingestion owns which volumes are mounted,
-  so it validates the destination rather than this bridge.
+  content travels base64-encoded under `encoding`, and `tags` are written onto the document
+  row. Ingestion owns which volumes are mounted, so it validates the destination rather than
+  this bridge.
   """
   @impl true
   def create_file(config, params) when is_map(config) and is_map(params) do
@@ -235,7 +236,8 @@ defmodule Zaq.Channels.DiskBridge do
       "name" => fetch(params, "name"),
       "path" => fetch(params, "path"),
       "content" => fetch(params, "content") || "",
-      "encoding" => fetch(params, "encoding")
+      "encoding" => fetch(params, "encoding"),
+      "tags" => fetch(params, "tags") || []
     }
   end
 

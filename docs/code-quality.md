@@ -41,6 +41,17 @@
 
 ---
 
+## Comments & Diff Size
+
+- A comment above a function is **1–2 lines, maximum**, and states what the function does. Nothing else.
+- No reasoning, no justification, no alternatives considered, no history. If a decision needs an argument to survive review, it belongs in the PR description or `docs/services/`, not above the function.
+- Banned shapes in comments and `@moduledoc`: `## Why …` sections, "this is deliberate", "rather than X because Y", "for the rollout window", "Part 1 / Part 2", upstream issue or gap references, and changelog prose ("X used to be …").
+- State a constraint only when a caller must know it, and state it as a fact: "Returns `{:error, :not_found}` for an unmounted volume" — not a paragraph on why it is not raised.
+- Delete a comment that restates the code. `# Fetches the skill` above `fetch_skill/1` is noise.
+- Keep the diff small. Prefer editing an existing function over adding a parallel one, and delete the code a change replaces in the same PR. Reviewers comment on volume before they comment on logic.
+
+---
+
 ## Technical Debt Controls
 
 - Any temporary shortcut must be marked with an inline comment — Credo blocks bare `TODO` tags, so use this format instead:

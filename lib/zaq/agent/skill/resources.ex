@@ -1,70 +1,112 @@
 defmodule Zaq.Agent.Skill.Resources do
   @moduledoc """
-  Derives the ingestion-volume paths that hold a skill's reference files.
+  Owns a skill's `resources` map and the volume paths its files are uploaded to.
 
-  A skill's resources live under `.agents/skills/{slug}/references/` on an ingestion
-  volume, so they show up in the BO ingestion browser like any other ingested file and
-  need no separate storage mechanism.
+  `Skill.resources` buckets the documents a skill bundles:
 
-  ## This module is pure
+      %{"references" => [%{"file_id" => "42", "file_name" => "prices.md", "provider" => "disk"}]}
 
-  It derives *path strings* and nothing else. It never touches the filesystem, never
-  resolves against a volume root, and never decides whether a path exists. Resolution and
-  the authoritative containment check belong to the `:ingestion` role — the only node
-  guaranteed to have the volume mounted (see `Zaq.Ingestion.FileExplorer.resolve_path/2`,
-  which re-checks containment against the real volume root). Keeping this separate is
-  what lets the BO node compute a destination for a volume it cannot itself see.
+  `file_id` is a `documents.id`, so reads and deletes go through the data-source bridge for
+  `provider` rather than through a path. Files are uploaded under
+  `.agents/skills/{slug}/references/` so they appear in the ingestion browser like any other
+  ingested file.
 
-  The sanitising here is therefore a *shape* guard, not a security boundary: it
-  guarantees the string handed to ingestion is a safe relative path, so a malicious
-  client filename cannot express an escape in the first place. Ingestion still rejects
-  traversal independently.
-
-  ## `resource_root` is sticky
-
-  Once `Skill.resource_root` is set it wins over the name-derived default, so renaming a
-  skill does not orphan files already uploaded under the old name. A stored root that is
-  not a safe relative path is ignored in favour of the derived one.
+  Path derivation here never touches the filesystem. Ingestion resolves the path against the
+  volume and rejects traversal independently; the sanitising here is a shape guard so a
+  malicious client filename cannot express an escape in the first place.
   """
 
   alias Zaq.Agent.Skill
+  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.RecordPage
 
   @root_prefix ".agents/skills"
-  @references_dir "references"
+  @references "references"
   @fallback_slug "skill"
   @fallback_filename "file"
 
-  @doc """
-  The name-derived resource root for a skill, ignoring any stored `resource_root`.
+  @buckets ~w(references scripts assets)
+  @entry_keys ~w(file_id file_name provider)
 
-      iex> Zaq.Agent.Skill.Resources.default_root(%Zaq.Agent.Skill{name: "pricing-faq"})
-      ".agents/skills/pricing-faq"
-  """
-  @spec default_root(Skill.t()) :: String.t()
-  def default_root(%Skill{name: name}), do: Path.join(@root_prefix, slug(name))
+  @doc "The bucket names `Skill.resources` may hold."
+  @spec buckets() :: [String.t()]
+  def buckets, do: @buckets
 
-  @doc """
-  The skill's effective resource root — everything belonging to this skill lives under it.
+  @doc "The keys every resource entry must carry."
+  @spec entry_keys() :: [String.t()]
+  def entry_keys, do: @entry_keys
 
-  Uses the stored `resource_root` when it is present and safe, else `default_root/1`. This
-  is the directory to remove when a skill is deleted; `references_dir/1` is only one child
-  of it.
-  """
-  @spec root(Skill.t()) :: String.t()
-  def root(%Skill{resource_root: stored} = skill) do
-    case sanitize_root(stored) do
-      nil -> default_root(skill)
-      root -> root
+  @doc "The skill's reference entries, or `[]` when it has none."
+  @spec references(Skill.t()) :: [map()]
+  def references(%Skill{resources: resources}) when is_map(resources) do
+    case Map.get(resources, @references) do
+      entries when is_list(entries) -> entries
+      _ -> []
     end
   end
 
-  @doc """
-  The directory holding a skill's reference files.
+  def references(%Skill{}), do: []
 
-  Uses the stored `resource_root` when it is present and safe, else `default_root/1`.
+  @doc "Appends entries to the skill's references bucket. Appending none changes nothing."
+  @spec add_references(Skill.t(), [map()]) :: map()
+  def add_references(%Skill{resources: resources}, []), do: resources || %{}
+
+  def add_references(%Skill{} = skill, entries) when is_list(entries) do
+    put_references(skill, references(skill) ++ entries)
+  end
+
+  @doc "Drops the reference entry naming `file_id`."
+  @spec remove_reference(Skill.t(), String.t()) :: map()
+  def remove_reference(%Skill{} = skill, file_id) do
+    put_references(skill, Enum.reject(references(skill), &(&1["file_id"] == file_id)))
+  end
+
+  @doc "Builds a reference entry from a record written by a data-source bridge."
+  @spec entry(String.t(), String.t(), String.t()) :: map()
+  def entry(file_id, file_name, provider) do
+    %{"file_id" => to_string(file_id), "file_name" => file_name, "provider" => provider}
+  end
+
+  @doc """
+  The skill's references as unmaterialized records, for `load_skill` to hand the model.
+
+  Records carry metadata only. A caller that wants the bytes calls the `download_document`
+  tool with the record's `id` and `attributes["provider"]`.
+  """
+  @spec record_page(Skill.t()) :: RecordPage.t()
+  def record_page(%Skill{} = skill) do
+    records = skill |> references() |> Enum.map(&to_record/1)
+
+    %RecordPage{
+      resource_type: :item,
+      records: records,
+      stats: %{scanned: length(records), returned: length(records)}
+    }
+  end
+
+  defp to_record(%{"file_id" => id, "file_name" => name, "provider" => provider}) do
+    %Record{
+      id: id,
+      kind: :file,
+      name: name,
+      mime_type: MIME.from_path(name),
+      attributes: %{"provider" => provider}
+    }
+  end
+
+  defp put_references(%Skill{resources: resources}, entries) do
+    Map.put(resources || %{}, @references, entries)
+  end
+
+  @doc """
+  The directory a skill's reference files are uploaded to, relative to an ingestion volume.
+
+      iex> Zaq.Agent.Skill.Resources.references_dir(%Zaq.Agent.Skill{name: "pricing-faq"})
+      ".agents/skills/pricing-faq/references"
   """
   @spec references_dir(Skill.t()) :: String.t()
-  def references_dir(%Skill{} = skill), do: Path.join(root(skill), @references_dir)
+  def references_dir(%Skill{name: name}),
+    do: Path.join([@root_prefix, slug(name), @references])
 
   @doc """
   The destination path for an uploaded file, relative to an ingestion volume.
@@ -81,13 +123,7 @@ defmodule Zaq.Agent.Skill.Resources do
     Path.join(references_dir(skill), safe_filename(filename))
   end
 
-  @doc """
-  Normalises a skill name into a path-safe slug.
-
-  Jido already constrains `Skill.name` to `~r/^[a-z0-9]+(-[a-z0-9]+)*$/`, so for any
-  persisted skill this is the identity. It stays as a defensive normaliser: this module
-  builds filesystem paths and must not depend on a validation living in another layer.
-  """
+  @doc "Normalises a skill name into a path-safe slug."
   @spec slug(String.t() | nil) :: String.t()
   def slug(name) when is_binary(name) do
     name
@@ -104,25 +140,7 @@ defmodule Zaq.Agent.Skill.Resources do
 
   def slug(_), do: @fallback_slug
 
-  # A stored root is honoured only if it is a safe relative path. The `Skill` changeset
-  # already rejects absolute paths and `..`, so this is belt-and-braces for records
-  # written before that validation, or by a future import path.
-  defp sanitize_root(root) when is_binary(root) do
-    trimmed = String.trim(root)
-
-    cond do
-      trimmed == "" -> nil
-      String.starts_with?(trimmed, "/") -> nil
-      ".." in Path.split(trimmed) -> nil
-      true -> Path.join(Path.split(trimmed))
-    end
-  end
-
-  defp sanitize_root(_), do: nil
-
-  # `Path.basename/1` collapses any directory component, so "a/b/c.md", "../../c.md" and
-  # "/etc/c.md" all reduce to "c.md". What it cannot collapse — ".", ".." and "/" — is
-  # replaced outright rather than passed through as a directory-shaped name.
+  # `Path.basename/1` collapses directory components; what it cannot collapse is replaced.
   defp safe_filename(filename) when is_binary(filename) do
     case Path.basename(filename) do
       basename when basename in ["", ".", "..", "/"] -> @fallback_filename

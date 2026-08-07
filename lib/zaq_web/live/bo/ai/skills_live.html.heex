@@ -319,8 +319,8 @@
           <:head>
             <DSTable.table_head_row>
               <DSTable.table_cell element={:th}>File</DSTable.table_cell>
-              <DSTable.table_cell element={:th}>Size</DSTable.table_cell>
-              <DSTable.table_cell element={:th}>Modified</DSTable.table_cell>
+              <DSTable.table_cell element={:th}>Status</DSTable.table_cell>
+              <DSTable.table_cell element={:th}></DSTable.table_cell>
             </DSTable.table_head_row>
           </:head>
           <:body>
@@ -330,34 +330,48 @@
             >
               No resources yet.
             </DSTable.table_empty>
-            <%!-- Staged: uploaded to the server but not yet written to a volume, because
-                  the skill has no destination until it is saved. --%>
+            <%!-- Staged: held in the upload buffer until the skill is saved. --%>
             <DSTable.table_row :for={entry <- @uploads.skill_resources.entries}>
               <DSTable.table_cell>
                 <DSTable.table_text label={entry.client_name} />
               </DSTable.table_cell>
               <DSTable.table_cell>
-                <DSTable.table_text
-                  label={ZaqWeb.Helpers.SizeFormat.format_size(entry.client_size)}
-                  tone={:secondary}
-                />
+                <span class="zaq-pill zaq-text-caption zaq-pill--elevated">
+                  Pending save
+                </span>
               </DSTable.table_cell>
               <DSTable.table_cell>
-                <span class="zaq-pill zaq-text-caption zaq-pill--elevated">Pending</span>
+                <DSButton.button
+                  variant={:ghost}
+                  type="button"
+                  icon_only
+                  aria-label={"Remove #{entry.client_name}"}
+                  phx-click="cancel_skill_resource"
+                  phx-value-ref={entry.ref}
+                >
+                  <.icon name="hero-x-mark" class="zaq-icon-sm" />
+                </DSButton.button>
               </DSTable.table_cell>
             </DSTable.table_row>
             <DSTable.table_row :for={resource <- @skill_resources}>
               <DSTable.table_cell>
-                <DSTable.table_text label={resource.name} />
+                <DSTable.table_text label={resource["file_name"]} />
               </DSTable.table_cell>
               <DSTable.table_cell>
-                <DSTable.table_text
-                  label={ZaqWeb.Helpers.SizeFormat.format_size(resource.size)}
-                  tone={:secondary}
-                />
+                <DSTable.table_text label={resource["provider"]} tone={:secondary} />
               </DSTable.table_cell>
               <DSTable.table_cell>
-                <DSTable.table_datetime value={resource.modified_at} />
+                <DSButton.button
+                  variant={:ghost}
+                  type="button"
+                  icon_only
+                  aria-label={"Remove #{resource["file_name"]}"}
+                  phx-click="remove_skill_resource"
+                  phx-value-file_id={resource["file_id"]}
+                  data-confirm="Remove this file? It is deleted from the volume."
+                >
+                  <.icon name="hero-trash" class="zaq-icon-sm" />
+                </DSButton.button>
               </DSTable.table_cell>
             </DSTable.table_row>
           </:body>
@@ -368,7 +382,7 @@
         >
           {if @mode == :new,
             do: "Name the skill to add resources — they upload when you save.",
-            else: "Reference files, stored on an ingestion volume."}
+            else: "Reference files, uploaded when you save."}
         </p>
       </div>
 

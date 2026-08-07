@@ -10,16 +10,13 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   ## Skill resources
 
-  A skill's reference files are uploaded here but stored by **ingestion**, under
-  `.agents/skills/{slug}/references/` on a volume — so they appear in the ingestion
-  browser like any other file and need no separate storage. Every filesystem hop goes
-  through `NodeRouter` to the `:ingestion` role: the BO node is not guaranteed to have
-  the volume mounted. Path derivation is `Zaq.Agent.Skill.Resources`' job, not this
-  module's.
+  Reference files are uploaded through the `"disk"` data-source bridge on the `:channels`
+  role, which writes them under `.agents/skills/{slug}/references/` on an ingestion volume
+  and registers a document row tagged `"public"`. The document id is recorded in
+  `Skill.resources`, so listing and deleting resolve by id rather than by path.
 
-  Uploading requires an explicitly configured volume (`Ingestion.volumes_configured?/0`),
-  not merely a non-empty `list_volumes/0` — that call synthesizes a `"default"` entry and
-  can never be empty.
+  Uploads stage in the LiveView's buffer and are written by `save_skill/2`, whether the
+  skill is being created or edited.
   """
 
   use ZaqWeb, :live_view
@@ -36,7 +33,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Event
-  alias Zaq.Ingestion
   alias Zaq.NodeRouter
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Components.DesignSystem.ModalUpload
@@ -47,6 +43,11 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   # Narrower than IngestionLive's list on purpose: skill resources are reference material
   # the agent reads, so only the formats that make sense in that role are accepted.
   @allowed_extensions ~w(.json .md .pdf .png)
+
+  @provider "disk"
+
+  # Public so an agent granted the skill can read the file back through `download_document`.
+  @resource_tags ["public"]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -164,8 +165,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   end
 
   def handle_event("select_resource_volume", %{"volume" => volume}, socket) do
-    if Map.has_key?(socket.assigns.volumes, volume) do
-      {:noreply, socket |> assign(:resource_volume, volume) |> load_skill_resources()}
+    if volume in socket.assigns.volumes do
+      {:noreply, assign(socket, :resource_volume, volume)}
     else
       {:noreply, socket}
     end
@@ -177,43 +178,22 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     {:noreply, cancel_upload(socket, :skill_resources, ref)}
   end
 
-  # On a skill that does not exist yet there is nowhere to write: leave the entries in the
-  # LiveView's upload buffer and close the modal. They are written by `save_skill/2` once
-  # the record — and therefore the destination path — exists. Phoenix garbage-collects
-  # unconsumed entries if this LiveView dies, so abandoning the form leaves nothing behind.
-  def handle_event("upload_skill_resource", _params, %{assigns: %{mode: :new}} = socket) do
+  # Stages only — `save_skill/2` writes the entries.
+  def handle_event("upload_skill_resource", _params, socket) do
     {:noreply, assign(socket, :resource_modal, nil)}
   end
 
-  def handle_event(
-        "upload_skill_resource",
-        _params,
-        %{assigns: %{mode: :edit, selected_skill: %Skill{} = skill}} = socket
-      ) do
-    if Enum.all?(socket.assigns.uploads.skill_resources.entries, &(&1.progress == 100)) do
-      volume = socket.assigns.resource_volume
+  def handle_event("remove_skill_resource", %{"file_id" => file_id}, socket) do
+    %Skill{} = skill = socket.assigns.selected_skill
 
-      results =
-        consume_uploaded_entries(socket, :skill_resources, fn %{path: tmp_path}, entry ->
-          {:ok, upload_resource(skill, volume, tmp_path, entry)}
-        end)
+    case delete_resource(skill, file_id) do
+      :ok ->
+        {:noreply, persist_resources(socket, skill, Resources.remove_reference(skill, file_id))}
 
-      {uploaded, failed} = Enum.split_with(results, &match?({:ok, _}, &1))
-
-      socket =
-        socket
-        |> maybe_persist_resource_root(skill, uploaded)
-        |> load_skill_resources()
-        |> put_resource_upload_toast(uploaded, failed)
-        |> maybe_close_resource_modal(uploaded, failed)
-
-      {:noreply, socket}
-    else
-      {:noreply, socket}
+      {:error, reason} ->
+        {:noreply, put_toast(socket, :error, "Could not remove the file: #{inspect(reason)}")}
     end
   end
-
-  def handle_event("upload_skill_resource", _params, socket), do: {:noreply, socket}
 
   def handle_event("open_tools_picker", _params, socket) do
     {:noreply, assign(socket, :tools_picker_open, true)}
@@ -283,17 +263,15 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   def handle_event("delete_skill", %{"id" => id}, socket) do
     skill_id = String.to_integer(id)
-    # Read the skill before deleting it: its resource root is derived from fields that are
-    # gone once the record is.
+    # Read before deleting: the entries naming its documents are gone with the record.
     skill = Skills.get_skill(skill_id)
-
     event = Event.new(%{id: skill_id}, :agent, opts: [action: :agent_skill_deleted])
 
     case node_router().dispatch(event).response do
       {:ok, _payload} ->
         socket =
           socket
-          |> put_delete_flash(delete_skill_resources(socket, skill))
+          |> put_delete_flash(delete_skill_resources(skill))
           |> reset_form()
           |> refresh_skills()
 
@@ -305,15 +283,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   end
 
   defp save_skill(%{assigns: %{mode: :new}} = socket, attrs) do
-    # Creation dispatches straight to `Skills.create_skill/1` via `:invoke` rather
-    # than through `RuntimeSync` (as update/delete do): a brand-new skill has no
-    # agent references yet, so there is nothing to fan out to live agent servers.
-    # Runtime propagation only becomes relevant once the skill is attached to an
-    # agent, which happens through the agent form's own sync path.
-    event =
-      Event.new(%{module: Skills, function: :create_skill, args: [attrs]}, :agent,
-        opts: [action: :invoke]
-      )
+    event = Event.new(%{attrs: attrs}, :agent, opts: [action: :agent_skill_created])
 
     case node_router().dispatch(event).response do
       {:ok, %Skill{} = skill} ->
@@ -321,11 +291,9 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
         # written here, against the name as *saved* — not the one typed at staging time.
         {uploaded, failed} = flush_staged_resources(socket, skill)
 
-        # The drawer closes on create, so the flash — not the resources table — is what
-        # reports whether the staged files made it to the volume.
         socket =
           socket
-          |> maybe_persist_resource_root(skill, uploaded)
+          |> persist_resources(skill, Resources.add_references(skill, uploaded))
           |> put_create_flash(uploaded, failed)
           |> reset_form_state()
           |> refresh_skills()
@@ -341,14 +309,15 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   end
 
   defp save_skill(%{assigns: %{mode: :edit, selected_skill: %Skill{} = skill}} = socket, attrs) do
-    event =
-      Event.new(%{id: skill.id, attrs: attrs}, :agent, opts: [action: :agent_skill_updated])
+    {uploaded, failed} = flush_staged_resources(socket, skill)
+    attrs = Map.put(attrs, "resources", Resources.add_references(skill, uploaded))
+    event = Event.new(%{id: skill.id, attrs: attrs}, :agent, opts: [action: :agent_skill_updated])
 
     case node_router().dispatch(event).response do
       {:ok, %{skill: updated}} ->
         socket =
           socket
-          |> put_flash(:info, "Skill saved")
+          |> put_save_flash(uploaded, failed)
           |> assign(:selected_skill, updated)
           |> assign(:form_tool_keys, updated.tool_keys || [])
           |> assign(:form_mcp_endpoint_ids, updated.enabled_mcp_endpoint_ids || [])
@@ -409,22 +378,21 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   # ── Skill resources ─────────────────────────────────────────────
 
   defp assign_volumes(socket) do
-    volumes =
-      case ingestion_invoke(:list_volumes, []) do
-        volumes when is_map(volumes) -> volumes
-        _ -> %{}
-      end
+    stats = channel_stats()
+    volumes = Map.get(stats, :root_folders, [])
 
     socket
     |> assign(:volumes, volumes)
-    |> assign(:volumes_connected?, ingestion_invoke(:volumes_configured?, []) == true)
-    |> assign(:resource_volume, default_volume(volumes))
+    |> assign(:volumes_connected?, Map.get(stats, :volumes_configured?, false) == true)
+    |> assign(:resource_volume, List.first(volumes))
   end
 
-  # `Map.keys/1` ordering is not guaranteed, so sort rather than take whichever key the
-  # map happens to yield first — otherwise the preselected volume could differ per node.
-  defp default_volume(volumes) do
-    volumes |> Map.keys() |> Enum.sort() |> List.first()
+  # A degraded ingestion role yields no volumes, which the modal renders as "connect a volume".
+  defp channel_stats do
+    case data_source_dispatch(:data_source_channel_stats, %{}) do
+      {:ok, stats} when is_map(stats) -> stats
+      _ -> %{}
+    end
   end
 
   # Resources need a destination, and the destination needs a name. A saved skill always
@@ -442,8 +410,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp resource_target(%{mode: :edit, selected_skill: %Skill{} = skill}), do: skill
   defp resource_target(%{form: form}), do: %Skill{name: form[:name].value}
 
-  # Writes entries staged while the skill did not exist. Returns the `{uploaded, failed}`
-  # split so the caller can both flash and decide whether to persist `resource_root`.
+  # Writes the staged entries against the skill as saved. Returns `{uploaded, failed}` —
+  # `uploaded` are resource entries ready to append to the skill's references bucket.
   defp flush_staged_resources(socket, %Skill{} = skill) do
     volume = socket.assigns.resource_volume
     entries = socket.assigns.uploads.skill_resources.entries
@@ -454,50 +422,68 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
         {:ok, upload_resource(skill, volume, tmp_path, entry)}
       end)
       |> Enum.split_with(&match?({:ok, _}, &1))
+      |> then(fn {uploaded, failed} -> {Enum.map(uploaded, &elem(&1, 1)), failed} end)
     else
       {[], []}
     end
   end
 
-  defp put_create_flash(socket, [], []), do: put_flash(socket, :info, "Skill created")
-
-  defp put_create_flash(socket, uploaded, []) do
-    put_flash(socket, :info, "Skill created with #{length(uploaded)} resource(s).")
-  end
-
-  defp put_create_flash(socket, uploaded, failed) do
-    put_flash(
-      socket,
-      :error,
-      "Skill created with #{length(uploaded)} resource(s). " <>
-        "#{length(failed)} could not be uploaded."
-    )
-  end
-
-  defp upload_resource(skill, volume, tmp_path, entry) do
-    destination = Resources.destination(skill, entry.client_name)
-
-    # Both failure shapes are already `{:error, reason}`, so they fall through as-is.
+  # Uploads one file and returns the entry naming the document it created.
+  defp upload_resource(%Skill{} = skill, volume, tmp_path, entry) do
     with {:ok, binary} <- File.read(tmp_path),
-         {:ok, written} <- ingestion_invoke(:upload_file, [volume, destination, binary]) do
-      # Same as IngestionLive: track immediately so the file browser sees the file
-      # without waiting for a filesystem watcher.
-      ingestion_invoke(:track_upload, [volume, written])
-      {:ok, written}
+         {:ok, %{record: record}} <- create_file(skill, volume, binary, entry.client_name) do
+      {:ok, Resources.entry(record.id, record.name, @provider)}
     end
   end
 
-  # Written once, on the first successful upload, and never recomputed — a later rename
-  # must not strand files already sitting under the original root.
-  defp maybe_persist_resource_root(socket, %Skill{resource_root: nil} = skill, [_ | _]) do
-    attrs = %{"resource_root" => Resources.default_root(skill)}
-    event = Event.new(%{id: skill.id, attrs: attrs}, :agent, opts: [action: :agent_skill_updated])
+  defp create_file(%Skill{} = skill, volume, binary, filename) do
+    params = %{
+      "path" => Path.join(volume, Resources.references_dir(skill)),
+      "name" => Path.basename(Resources.destination(skill, filename)),
+      "content" => Base.encode64(binary),
+      "encoding" => "base64",
+      "tags" => @resource_tags
+    }
+
+    data_source_dispatch(:data_source_create_file, params)
+  end
+
+  defp delete_resource(%Skill{} = skill, file_id) do
+    case Enum.find(Resources.references(skill), &(&1["file_id"] == file_id)) do
+      nil -> {:error, :not_found}
+      entry -> file_id |> delete_file(entry["provider"]) |> normalize_delete()
+    end
+  end
+
+  defp delete_file(file_id, provider) do
+    data_source_dispatch(:data_source_delete_file, %{"file_id" => file_id}, provider)
+  end
+
+  defp normalize_delete({:ok, _payload}), do: :ok
+  defp normalize_delete(other), do: other
+
+  # Removes every document the skill recorded. Runs after the record is deleted.
+  defp delete_skill_resources(nil), do: []
+
+  defp delete_skill_resources(%Skill{} = skill) do
+    skill
+    |> Resources.references()
+    |> Enum.map(&(&1["file_id"] |> delete_file(&1["provider"]) |> normalize_delete()))
+    |> Enum.reject(&(&1 == :ok))
+  end
+
+  # Writes the resources map back onto the skill and refreshes what the drawer renders from.
+  defp persist_resources(socket, %Skill{} = skill, resources) do
+    event =
+      Event.new(%{id: skill.id, attrs: %{"resources" => resources}}, :agent,
+        opts: [action: :agent_skill_updated]
+      )
 
     case node_router().dispatch(event).response do
       {:ok, %{skill: updated}} ->
         socket
         |> assign(:selected_skill, updated)
-        |> assign_changeset(Skills.change_skill(updated))
+        |> assign(:skill_resources, Resources.references(updated))
         |> refresh_skills()
 
       _ ->
@@ -505,25 +491,10 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     end
   end
 
-  defp maybe_persist_resource_root(socket, _skill, _uploaded), do: socket
-
-  defp load_skill_resources(
-         %{assigns: %{selected_skill: %Skill{} = skill, resource_volume: volume}} = socket
-       )
-       when is_binary(volume) do
-    entries =
-      case ingestion_invoke(:list_entries, [volume, references_dir(skill)]) do
-        {:ok, entries} when is_list(entries) -> Enum.filter(entries, &(&1.type == :file))
-        # A skill with no uploads yet has no directory — that is the empty state, not an error.
-        _ -> []
-      end
-
-    assign(socket, :skill_resources, entries)
+  defp load_skill_resources(%{assigns: %{selected_skill: %Skill{} = skill}} = socket) do
+    assign(socket, :skill_resources, Resources.references(skill))
   end
 
-  # No skill selected, or no volume to read from (nothing configured, or the ingestion node
-  # did not answer). `FileExplorer.list/2` requires a binary volume, so guard rather than
-  # let a degraded ingestion role crash the page.
   defp load_skill_resources(socket), do: assign(socket, :skill_resources, [])
 
   defp references_dir(%Skill{} = skill), do: Resources.references_dir(skill)
@@ -544,99 +515,57 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     "#{extensions} — max #{max}"
   end
 
-  # Removes a deleted skill's whole resource directory — `.agents/skills/{slug}`, not just
-  # its `references/` child.
-  #
-  # The volume is swept rather than looked up: the upload modal lets the operator choose a
-  # volume, but only the volume-relative `resource_root` is persisted, so which volume
-  # holds the files is not recoverable from the skill. Sweeping is safe because the root is
-  # namespaced per skill, and volumes without the directory are skipped.
-  #
-  # Runs *after* the record is deleted. If it fails, the skill is still gone and the files
-  # remain visible in the ingestion browser — recoverable. The reverse order could strip a
-  # live skill's resources when the record deletion then failed.
-  defp delete_skill_resources(_socket, nil), do: []
+  defp put_create_flash(socket, [], []), do: put_flash(socket, :info, "Skill created")
 
-  defp delete_skill_resources(socket, %Skill{} = skill) do
-    root = Resources.root(skill)
-
-    socket.assigns.volumes
-    |> Map.keys()
-    |> Enum.map(&delete_resource_dir(&1, root))
-    |> Enum.reject(&(&1 == :absent))
+  defp put_create_flash(socket, uploaded, []) do
+    put_flash(socket, :info, "Skill created with #{length(uploaded)} resource(s).")
   end
 
-  # A skill that never had a resource uploaded has no directory. `delete_path/3` surfaces
-  # `{:error, :not_a_directory}` for a missing path, so check before asking.
-  defp delete_resource_dir(volume, root) do
-    case ingestion_invoke(:file_info, [volume, root]) do
-      {:ok, %{type: :directory}} ->
-        # `delete_path/4` also clears the tracked `Document` rows under the folder, which
-        # `track_upload/2` created at upload time.
-        ingestion_invoke(:delete_path, [volume, root, "directory"])
-
-      _ ->
-        :absent
-    end
+  defp put_create_flash(socket, uploaded, failed) do
+    put_flash(
+      socket,
+      :error,
+      "Skill created with #{length(uploaded)} resource(s). " <>
+        "#{length(failed)} could not be uploaded."
+    )
   end
 
-  defp put_delete_flash(socket, results) do
-    case Enum.reject(results, &(&1 == :ok)) do
-      [] ->
-        put_flash(socket, :info, "Skill deleted")
+  # An overlay toast, not a BOLayout flash — the drawer stays open on save.
+  defp put_save_flash(socket, [], []), do: put_toast(socket, :info, "Skill saved")
 
-      errors ->
-        put_flash(
-          socket,
-          :error,
-          "Skill deleted, but its resources could not be removed: #{inspect(errors)}"
-        )
-    end
+  defp put_save_flash(socket, uploaded, []) do
+    put_toast(socket, :info, "Skill saved with #{length(uploaded)} resource(s) added.")
   end
 
-  # An overlay toast, not a BOLayout flash: resources are added with the skill drawer open,
-  # and the inline banner renders behind it (`--zaq-z-overlay` outranks the page content).
-  # Same reason the ingestion jobs drawer reports through `#ingest-toast`.
-  defp put_resource_upload_toast(socket, [], []), do: socket
-
-  defp put_resource_upload_toast(socket, uploaded, []) do
-    put_toast(socket, :info, "#{length(uploaded)} resource(s) added.")
+  defp put_save_flash(socket, uploaded, failed) do
+    put_toast(
+      socket,
+      :error,
+      "Skill saved with #{length(uploaded)} resource(s) added. " <>
+        "#{length(failed)} could not be uploaded."
+    )
   end
 
-  defp put_resource_upload_toast(socket, [], failed) do
-    put_toast(socket, :error, "Upload failed: #{upload_failure_reasons(failed)}")
-  end
+  defp put_delete_flash(socket, []), do: put_flash(socket, :info, "Skill deleted")
 
-  defp put_resource_upload_toast(socket, uploaded, failed) do
-    put_toast(socket, :info, "#{length(uploaded)} resource(s) added. #{length(failed)} failed.")
+  defp put_delete_flash(socket, errors) do
+    put_flash(
+      socket,
+      :error,
+      "Skill deleted, but its resources could not be removed: #{inspect(errors)}"
+    )
   end
 
   defp put_toast(socket, kind, message) do
     assign(socket, :upload_toast, %{kind: kind, message: message})
   end
 
-  defp upload_failure_reasons(failed) do
-    failed
-    |> Enum.map(fn {:error, reason} -> inspect(reason) end)
-    |> Enum.uniq()
-    |> Enum.join(", ")
-  end
-
-  defp maybe_close_resource_modal(socket, uploaded, failed) do
-    if uploaded != [] and failed == [] do
-      assign(socket, :resource_modal, nil)
-    else
-      socket
-    end
-  end
-
-  defp ingestion_invoke(fun, args) do
-    event =
-      Event.new(%{module: Ingestion, function: fun, args: args}, :ingestion,
-        opts: [action: :invoke]
-      )
-
-    node_router().dispatch(event).response
+  # Every filesystem hop goes through the disk bridge on the channels node.
+  defp data_source_dispatch(action, params, provider \\ @provider) do
+    %{provider: provider, params: params}
+    |> Event.new(:channels, opts: [action: action])
+    |> node_router().dispatch()
+    |> Map.fetch!(:response)
   end
 
   defp form_base_skill(%{assigns: %{mode: :edit, selected_skill: %Skill{} = skill}}), do: skill

@@ -6,6 +6,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
   alias Zaq.Agent
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Skills.LoadSkill
+  alias Zaq.Contracts.RecordPage
 
   defp skill!(attrs) do
     {:ok, skill} =
@@ -56,7 +57,33 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkillTest do
 
       assert result.name == "calculator"
       assert result.instructions == "SECRET_INSTRUCTIONS"
-      assert result.resources == []
+      assert %RecordPage{records: []} = result.resources
+    end
+
+    test "lists the skill's references as unmaterialized records" do
+      skill =
+        skill!(%{
+          name: "pricing",
+          resources: %{
+            "references" => [
+              %{"file_id" => "42", "file_name" => "prices.md", "provider" => "disk"}
+            ]
+          }
+        })
+
+      agent = agent!(%{enabled_skill_ids: [skill.id]})
+
+      assert {:ok, result} = LoadSkill.run(%{name: "pricing"}, ctx(agent))
+
+      assert %RecordPage{resource_type: :item, records: [record]} = result.resources
+      assert record.id == "42"
+      assert record.name == "prices.md"
+      assert record.kind == :file
+      assert record.mime_type == "text/markdown"
+      assert record.attributes["provider"] == "disk"
+      # Metadata only — the model fetches bytes through `download_document`.
+      assert record.content == nil
+      assert record.materializing_event == nil
     end
 
     test "is idempotent — a repeat call returns the body again, not an error" do
