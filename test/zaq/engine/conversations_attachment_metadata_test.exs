@@ -6,6 +6,7 @@ defmodule Zaq.Engine.ConversationsAttachmentMetadataTest do
 
   @moduletag capture_log: true
 
+  alias Zaq.Agent.HistoryLoader
   alias Zaq.Channels.CommunicationBridge
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Engine.Conversations
@@ -94,9 +95,37 @@ defmodule Zaq.Engine.ConversationsAttachmentMetadataTest do
     assert user_message(id).metadata == %{}
   end
 
-  test "a caption-less attachment writes no user row, so it carries no chip" do
+  test "a caption-less attachment is still a message — the files stand in for the words" do
     assert {:ok, %{conversation_id: id}} = persist(incoming("", [record()]))
 
+    message = user_message(id)
+
+    assert message.content == ""
+    assert %{"attachments" => [%{"name" => "photo.png"}]} = message.metadata
+  end
+
+  test "a message with neither text nor files is still skipped" do
+    assert {:ok, %{conversation_id: id}} = persist(incoming("", []))
+
     assert user_message(id) == nil
+  end
+
+  defp history_roles(conversation_id) do
+    conversation_id
+    |> HistoryLoader.load_for_conversation(max_tokens: 10_000)
+    |> Map.fetch!(:entries)
+    |> Enum.map(& &1.role)
+  end
+
+  test "a caption-less attachment is left out of the history an agent replays" do
+    assert {:ok, %{conversation_id: id}} = persist(incoming("", [record()]))
+
+    refute :user in history_roles(id)
+  end
+
+  test "a captioned attachment still reaches history" do
+    assert {:ok, %{conversation_id: id}} = persist(incoming("what is this", [record()]))
+
+    assert :user in history_roles(id)
   end
 end

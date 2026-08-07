@@ -62,6 +62,9 @@ defmodule Zaq.Agent.HistoryLoader do
       where: m.conversation_id == ^conversation_id,
       order_by: [desc: m.inserted_at],
       limit: @max_db_fetch,
+      # A message carrying only attachments has no text to replay. The files are not part of
+      # history either, so an empty turn would say nothing and some providers refuse it.
+      where: fragment("btrim(?) <> ''", m.content),
       select: %{role: m.role, content: m.content, inserted_at: m.inserted_at}
     )
     |> Repo.all()
@@ -105,6 +108,9 @@ defmodule Zaq.Agent.HistoryLoader do
       where: m.conversation_id in subquery(conv_ids),
       order_by: [desc: m.inserted_at],
       limit: @max_db_fetch,
+      # A message carrying only attachments has no text to replay. The files are not part of
+      # history either, so an empty turn would say nothing and some providers refuse it.
+      where: fragment("btrim(?) <> ''", m.content),
       select: %{role: m.role, content: m.content, inserted_at: m.inserted_at}
     )
     |> Repo.all()

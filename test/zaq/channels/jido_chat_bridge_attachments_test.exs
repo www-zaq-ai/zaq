@@ -70,9 +70,14 @@ defmodule Zaq.Channels.JidoChatBridgeAttachmentsTest do
       assert record.attributes["file_ref"] == "telegram://file/abc"
 
       assert %Event{} = event = record.materializing_event
-      assert event.opts[:action] == :materialize_inbound_attachment
+      assert event.opts[:action] == :data_source_download_document
       assert event.next_hop.destination == :channels
-      assert event.request == %{file_ref: "telegram://file/abc", provider: "telegram"}
+      # Addressed as a document: the same shape `DownloadDocument` builds, so either route
+      # reaches the same bytes.
+      assert event.request == %{
+               provider: "telegram",
+               params: %{"file_id" => "telegram://file/abc"}
+             }
     end
 
     test "a caption-less photo keeps its attachment and leaves content untouched" do

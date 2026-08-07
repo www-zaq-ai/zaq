@@ -51,6 +51,22 @@ defmodule Zaq.Agent.InboundAttachmentE2ETest do
     channels = Application.get_env(:zaq, :channels, %{})
     on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
     Process.put(:media_response, {:ok, @png})
+
+    # An attachment is now addressed as a document, so the fetch resolves the channel's config
+    # the way any data source read does. A Telegram channel that receives messages at all has
+    # this row in production.
+    {:ok, _config} =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Telegram",
+        provider: "telegram",
+        kind: "retrieval",
+        url: "https://api.telegram.org",
+        token: "secret",
+        enabled: true
+      })
+      |> Repo.insert()
+
     :ok
   end
 
@@ -103,7 +119,7 @@ defmodule Zaq.Agent.InboundAttachmentE2ETest do
       assert part.data == @png
       assert part.media_type == "image/png"
 
-      assert_received {:dispatch, :channels, :materialize_inbound_attachment}
+      assert_received {:dispatch, :channels, :data_source_download_document}
       assert_received {:fetch_media, "telegram://file/abc"}
     end
 

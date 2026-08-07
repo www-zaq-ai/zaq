@@ -49,7 +49,28 @@ defmodule Zaq.Engine.Conversations.Message do
       :metadata,
       :trace
     ])
-    |> validate_required([:conversation_id, :role, :content])
+    |> validate_required([:conversation_id, :role])
     |> validate_inclusion(:role, @valid_roles)
+    |> validate_content_or_attachments()
+  end
+
+  # Someone who sends a photo with no caption still sent something — the message is what they
+  # attached. So text is required only when nothing came with it. The column is `null: false`,
+  # so a message carrying only files stores an empty string rather than nil.
+  defp validate_content_or_attachments(changeset) do
+    content = get_field(changeset, :content)
+
+    cond do
+      is_binary(content) and String.trim(content) != "" -> changeset
+      attachments?(changeset) -> put_change(changeset, :content, content || "")
+      true -> add_error(changeset, :content, "can't be blank")
+    end
+  end
+
+  defp attachments?(changeset) do
+    case get_field(changeset, :metadata) do
+      %{"attachments" => [_first | _rest]} -> true
+      _none -> false
+    end
   end
 end

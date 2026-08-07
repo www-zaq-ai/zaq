@@ -238,15 +238,15 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  # Someone who sends a photo with no caption wrote nothing, and an empty user row would
-  # fail `validate_required` anyway.
+  # A photo sent with no caption is still a message — it just has no text. It is written so the
+  # transcript can show what arrived; `Message.changeset/2` accepts it because the attachments
+  # stand in for the words. Only a message with neither is skipped.
   defp maybe_add_user_message(conv, %Zaq.Engine.Messages.Incoming{content: content} = msg) do
-    if is_binary(content) and String.trim(content) != "" do
-      add_message(conv, %{
-        role: "user",
-        content: content,
-        metadata: incoming_attachment_metadata(msg)
-      })
+    metadata = incoming_attachment_metadata(msg)
+    text = if is_binary(content), do: content, else: ""
+
+    if String.trim(text) != "" or metadata != %{} do
+      add_message(conv, %{role: "user", content: text, metadata: metadata})
     else
       {:ok, :no_user_text}
     end
@@ -860,11 +860,15 @@ defmodule Zaq.Engine.Conversations do
 
   # Fires async so it never blocks the message-storage path.
   # Only triggers on the very first user message (conversation.title is nil).
+  # A message carrying only attachments has no words to title a conversation from, so the
+  # naming waits for one that does.
   defp maybe_generate_title(%Conversation{id: id} = _conversation, content) do
-    if Application.get_env(:zaq, :title_generation_enabled, true) do
+    if Application.get_env(:zaq, :title_generation_enabled, true) and titleable?(content) do
       Task.start(fn -> generate_and_apply_title(id, content) end)
     end
   end
+
+  defp titleable?(content), do: is_binary(content) and String.trim(content) != ""
 
   defp generate_and_apply_title(id, content) do
     case TitleGenerator.generate(content) do

@@ -684,9 +684,12 @@ defmodule Zaq.Channels.JidoChatBridge do
   # knows something was attached, it simply cannot be materialized.
   defp attachment_materializing_event(nil, _provider), do: nil
 
+  # Addressed as a document rather than as an attachment, so whoever holds the record can
+  # materialize it generically and `DownloadDocument` can reach the same bytes by provider
+  # plus id. Both land on `download_document/2` here.
   defp attachment_materializing_event(file_ref, provider) when is_binary(file_ref) do
-    Event.new(%{file_ref: file_ref, provider: to_string(provider)}, :channels,
-      opts: [action: :materialize_inbound_attachment]
+    Event.new(%{provider: to_string(provider), params: %{"file_id" => file_ref}}, :channels,
+      opts: [action: :data_source_download_document]
     )
   end
 
@@ -721,7 +724,37 @@ defmodule Zaq.Channels.JidoChatBridge do
   @spec materialize_inbound_attachment(map()) :: {:ok, map()} | {:error, term()}
   @impl true
   def materialize_inbound_attachment(%{file_ref: file_ref, provider: provider})
-      when is_binary(file_ref) do
+      when is_binary(file_ref),
+      do: fetch_attachment(provider, file_ref)
+
+  def materialize_inbound_attachment(_request), do: {:error, :file_ref_required}
+
+  @doc """
+  Answers the DataSource download callback for a communication channel.
+
+  A file someone attached is addressed the same way as any other document — provider plus id,
+  where the id is the provider's own `file_ref`. That lets `DownloadDocument` reach an
+  attachment without knowing it is one, and is the same fetch
+  `materialize_inbound_attachment/1` performs.
+
+  Answers `Zaq.Channels.DataSourceBridge`'s `download_document/2` shape without adopting the
+  behaviour: a communication channel serves the files sent to it but is not a data source, and
+  the rest of that contract — listing, permissions, export options — has no meaning here.
+  """
+  @spec download_document(map(), map()) :: {:ok, map()} | {:error, term()}
+  def download_document(config, %{"file_id" => file_ref}) when is_binary(file_ref),
+    do: fetch_attachment(bridge_provider(config), file_ref)
+
+  def download_document(_config, _params), do: {:error, :file_ref_required}
+
+  # The provider key travels on the normalized config under either name depending on which
+  # side resolved it.
+  defp bridge_provider(%{provider: provider}) when not is_nil(provider), do: provider
+  defp bridge_provider(%{"provider" => provider}) when not is_nil(provider), do: provider
+  defp bridge_provider(%{provider_atom: provider}) when not is_nil(provider), do: provider
+  defp bridge_provider(_config), do: nil
+
+  defp fetch_attachment(provider, file_ref) do
     with {:ok, adapter} <- resolve_media_adapter(provider),
          {:ok, binary} <- fetch_media(adapter, file_ref, provider) do
       {:ok,
@@ -737,8 +770,6 @@ defmodule Zaq.Channels.JidoChatBridge do
        }}
     end
   end
-
-  def materialize_inbound_attachment(_request), do: {:error, :file_ref_required}
 
   defp resolve_media_adapter(provider) do
     with {:ok, adapter} <- adapter_for(provider),
