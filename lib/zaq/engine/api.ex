@@ -14,6 +14,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Notifications
+  alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.PeopleGateway
   alias Zaq.Engine.Workflows
   alias Zaq.Event
@@ -101,6 +102,18 @@ defmodule Zaq.Engine.Api do
           |> Map.merge(%{subject: subject, message: message})
 
         %{event | response: notifications_module.notify_person(person_id, attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :notify, _context) do
+    case event.request do
+      %{recipient_channels: channels} = attrs when is_list(channels) ->
+        notifications_module = Keyword.get(event.opts, :notifications_module, Notifications)
+
+        %{event | response: build_and_notify(attrs, notifications_module)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}
@@ -603,6 +616,13 @@ defmodule Zaq.Engine.Api do
     else
       false -> {:error, :unauthorized}
       nil -> {:error, {:invalid_request, %{run_id: run_id}}}
+    end
+  end
+
+  defp build_and_notify(attrs, notifications_module) do
+    case Notification.build(attrs) do
+      {:ok, notification} -> notifications_module.notify(notification)
+      {:error, reason} -> {:error, reason}
     end
   end
 

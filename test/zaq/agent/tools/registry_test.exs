@@ -13,6 +13,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "answering.knowledge_base_overview",
              "conversation.persist_message_history",
              "message.upsert_incoming_routing_rules",
+             "message.notify",
              "people.ensure_person",
              "people.update_person",
              "resources.query",
@@ -126,6 +127,12 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              Registry.resolve_modules(["message.upsert_incoming_routing_rules"])
   end
 
+  test "message.notify resolves to the notify tool" do
+    assert Registry.valid_tool_key?("message.notify")
+
+    assert {:ok, [Zaq.Agent.Tools.Messages.Notify]} = Registry.resolve_modules(["message.notify"])
+  end
+
   test "people.ensure_person resolves to the ensure person tool" do
     assert Registry.valid_tool_key?("people.ensure_person")
 
@@ -161,6 +168,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "answering.knowledge_base_overview",
              "conversation.persist_message_history",
              "message.upsert_incoming_routing_rules",
+             "message.notify",
              "people.ensure_person",
              "people.update_person",
              "resources.query",

@@ -318,6 +318,23 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
              ]
     end
 
+    test "a caller-facing platform alias resolves to the configured provider" do
+      {:ok, n} =
+        Notification.build(%{
+          @valid_attrs
+          | recipient_channels: [%{platform: "email", identifier: "alias@example.com"}]
+        })
+
+      assert {:ok,
+              %{status: :sent, channel: "email:smtp", channel_identifier: "alias@example.com"}} =
+               Notifications.notify(n,
+                 config: NotificationConfig,
+                 channels_event_opts: [bridge_module: OkCommunicationBridge]
+               )
+
+      assert_receive {:delivered, "email:smtp", "alias@example.com"}
+    end
+
     test "provider without a resolvable bridge fails that attempt and falls back to email" do
       provider = "coverage_unknown_#{System.unique_integer([:positive])}"
       now = DateTime.utc_now() |> DateTime.truncate(:second)

@@ -42,7 +42,10 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.Event
   alias Zaq.Repo
 
-  @person_channel_platforms %{
+  # Familiar channel names callers use, mapped to the provider string channel
+  # configs are keyed by. Applied to every recipient channel, so callers never
+  # need to know a provider's wire name.
+  @platform_aliases %{
     "email" => "email:smtp"
   }
 
@@ -120,7 +123,7 @@ defmodule Zaq.Engine.Notifications do
 
     {channels, skipped_channels} =
       Enum.reduce(notification.recipient_channels, {[], []}, fn ch, {configured, skipped} ->
-        platform = Map.get(ch, :platform)
+        platform = ch |> Map.get(:platform) |> normalize_platform()
         identifier = Map.get(ch, :identifier)
 
         if platform in configured_platforms and bridge_available?(platform, opts) do
@@ -401,11 +404,16 @@ defmodule Zaq.Engine.Notifications do
     |> Enum.sort_by(& &1.weight)
     |> Enum.map(fn channel ->
       %{
-        platform: Map.get(@person_channel_platforms, channel.platform, channel.platform),
+        platform: normalize_platform(channel.platform),
         identifier: delivery_identifier(channel)
       }
     end)
   end
+
+  defp normalize_platform(platform) when is_binary(platform),
+    do: Map.get(@platform_aliases, platform, platform)
+
+  defp normalize_platform(platform), do: platform
 
   # `channel_identifier` identifies the person on the provider (for example a
   # Mattermost user id). `dm_channel_id`, when present, is the deliverable

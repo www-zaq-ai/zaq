@@ -225,6 +225,12 @@ Rule write commands accept a required `rules` list. Each rule carries optional s
   - Creates a `NotificationLog` record, then delivers inline through Channels.
   - Returns a structured sent/skipped/failed result with final channel details on success.
 - `bridge_available?/1` — returns true if a bridge is configured for the given platform.
+- Recipient channel platforms are normalised through the alias map (`"email"` → `"email:smtp"`),
+  so callers never need a provider's wire name.
+- Engine action `:notify` builds a `%Notification{}` from the request and calls `notify/1`.
+  The registered tool `message.notify` (`Zaq.Agent.Tools.Messages.Notify`) uses this path to
+  send to one channel destination; its `payload` is plain text or an object with `subject`,
+  `body`, `html_body`, and `metadata`.
 
 ### Notification Struct (`Zaq.Engine.Notifications.Notification`)
 - Build via `Notification.build/1` — validates subject, body, channel format.
