@@ -44,6 +44,28 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :create_trace_artifact, _context) do
+    case event.request do
+      %{} = attrs ->
+        conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
+        %{event | response: conversations_module.create_trace_artifact(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :get_trace_artifact, _context) do
+    case event.request do
+      %{id: id} when is_binary(id) ->
+        conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
+        %{event | response: {:ok, conversations_module.get_trace_artifact(id)}}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :noop, _context), do: event
 
   def handle_event(%Event{request: %Incoming{}} = event, :route_incoming_message, _context),

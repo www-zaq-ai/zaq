@@ -66,6 +66,9 @@ defmodule ZaqWeb.Router do
     # File serving — raw content with correct Content-Type (opens in browser tab)
     get "/files/*path", FileController, :show
 
+    # Bytes an agent read during a turn, pointed at from the message trace.
+    get "/trace-artifacts/:id", TraceArtifactController, :show
+
     live_session :bo, on_mount: {ZaqWeb.Live.BO.AuthHook, :default} do
       live "/dashboard", Live.BO.DashboardLive
       live "/dashboard/llm-performance", Live.BO.LLMPerformanceLive

@@ -13,6 +13,7 @@ defmodule Zaq.Engine.Conversations do
     ConversationShare,
     Message,
     MessageRating,
+    MessageTraceArtifact,
     TitleGenerator,
     TokenUsageAggregator
   }
@@ -239,12 +240,35 @@ defmodule Zaq.Engine.Conversations do
 
   # Someone who sends a photo with no caption wrote nothing, and an empty user row would
   # fail `validate_required` anyway.
-  defp maybe_add_user_message(conv, %Zaq.Engine.Messages.Incoming{content: content}) do
+  defp maybe_add_user_message(conv, %Zaq.Engine.Messages.Incoming{content: content} = msg) do
     if is_binary(content) and String.trim(content) != "" do
-      add_message(conv, %{role: "user", content: content})
+      add_message(conv, %{
+        role: "user",
+        content: content,
+        metadata: incoming_attachment_metadata(msg)
+      })
     else
       {:ok, :no_user_text}
     end
+  end
+
+  # What the person attached, kept on the message so the transcript can draw a file chip
+  # without reading the trace or fetching any bytes. The bytes themselves are a trace concern
+  # and live in `message_trace_artifacts`, keyed by the tool call that read them.
+  defp incoming_attachment_metadata(%Zaq.Engine.Messages.Incoming{} = msg) do
+    case Incoming.attachment_records(msg) do
+      [] -> %{}
+      records -> %{"attachments" => Enum.map(records, &attachment_chip/1)}
+    end
+  end
+
+  defp attachment_chip(%Zaq.Contracts.Record{} = record) do
+    %{
+      "attachment_id" => record.id,
+      "name" => record.name,
+      "mime_type" => record.mime_type,
+      "size" => record.size
+    }
   end
 
   @doc """
@@ -611,6 +635,32 @@ defmodule Zaq.Engine.Conversations do
         where: fragment("?->>'external_message_id' = ?", m.metadata, ^external_message_id)
     )
   end
+
+  # ── Trace artifacts ────────────────────────────────────────────────
+
+  @doc """
+  Stores the bytes an agent read during a turn, for reviewing the message trace.
+
+  Answers the stored row so the caller can put its id in the trace entry.
+  """
+  @spec create_trace_artifact(map()) ::
+          {:ok, MessageTraceArtifact.t()} | {:error, Ecto.Changeset.t()}
+  def create_trace_artifact(attrs) when is_map(attrs) do
+    %MessageTraceArtifact{}
+    |> MessageTraceArtifact.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc "Returns the artifact with the given id, or `nil`."
+  @spec get_trace_artifact(Ecto.UUID.t() | String.t()) :: MessageTraceArtifact.t() | nil
+  def get_trace_artifact(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> Repo.get(MessageTraceArtifact, uuid)
+      :error -> nil
+    end
+  end
+
+  def get_trace_artifact(_id), do: nil
 
   # ── Ratings ────────────────────────────────────────────────────────
 

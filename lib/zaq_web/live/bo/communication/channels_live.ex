@@ -130,9 +130,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:selected_team_name, nil)
      |> assign(:confirm_remove_channel, nil)
      |> assign(:connect_credentials, connect_credentials_for(kind, provider))
-     |> assign(:attachment_sources, attachment_sources_for(kind))
-     |> assign(:attachment_volumes, attachment_volumes_for(kind))
-     |> assign(:attachment_persistence, ChannelConfig.attachment_persistence(List.first(configs)))
      |> assign(:grants_by_config, grants_by_config(kind, configs))
      |> schedule_ingress_status_refresh(configs)}
   end
@@ -367,7 +364,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> assign(:configs, configs)
          |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
          |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
-         |> assign(:attachment_persistence, ChannelConfig.attachment_persistence(first_config))
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
          |> schedule_ingress_status_refresh(configs)
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
@@ -492,38 +488,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     else
       _ ->
         {:noreply, put_flash(socket, :error, "Failed to update provider default agent.")}
-    end
-  end
-
-  # Switching persistence off stops rendering the two fields, so they stop being posted.
-  # An absent key therefore means "leave as it was" and only an empty one means "clear" —
-  # otherwise toggling off would silently discard the destination an operator had chosen.
-  def handle_event("set_attachment_persistence", %{"config_id" => config_id} = params, socket) do
-    current = socket.assigns.attachment_persistence
-
-    with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
-         %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
-         {:ok, source} <-
-           params
-           |> Map.get("provider", current.provider)
-           |> validate_attachment_source(socket.assigns.attachment_sources),
-         {:ok, path} <-
-           attachment_path(params, source, current, socket.assigns.attachment_volumes),
-         {:ok, updated} <-
-           config
-           |> ChannelConfig.put_attachment_persistence(%{
-             persist: params["persist"] == "true",
-             provider: source,
-             path: path
-           })
-           |> Repo.update() do
-      {:noreply,
-       socket
-       |> assign(:configs, list_configs(socket.assigns.provider))
-       |> assign(:attachment_persistence, ChannelConfig.attachment_persistence(updated))
-       |> put_flash(:info, "Attachment settings updated.")}
-    else
-      _ -> {:noreply, put_flash(socket, :error, "Failed to update attachment settings.")}
     end
   end
 
@@ -1369,92 +1333,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp connect_credentials_for(_, _), do: []
-
-  # Only a communication channel receives attachments, so a data source page never offers
-  # somewhere to keep them. `{label, value}` pairs for the select.
-  defp attachment_sources_for(:data_source), do: []
-
-  defp attachment_sources_for(_kind) do
-    Enum.map(ChannelConfig.list_enabled_data_sources(), &{&1.name, &1.provider})
-  end
-
-  defp attachment_volumes_for(:data_source), do: []
-
-  defp attachment_volumes_for(_kind) do
-    event = Event.new(%{}, :ingestion, opts: [action: :list_volumes])
-
-    case NodeRouter.dispatch(event).response do
-      {:ok, volumes} when is_map(volumes) -> volumes |> Map.keys() |> Enum.sort()
-      _ -> []
-    end
-  end
-
-  @doc """
-  Splits a stored destination into the two fields the form edits.
-
-  The disk data source addresses a file by volume first, so `"media/attachments/telegram"`
-  is a volume and a directory inside it rather than one opaque string. Every other data
-  source has a single path and no volume to pick.
-  """
-  def attachment_volume_value(%{provider: "disk", path: path}) when is_binary(path),
-    do: path |> Path.split() |> List.first() || ""
-
-  def attachment_volume_value(_persistence), do: ""
-
-  def attachment_path_value(%{provider: "disk", path: path}) when is_binary(path) do
-    case Path.split(path) do
-      [_volume, _first | _rest] = segments -> segments |> tl() |> Path.join()
-      _volume_only -> ""
-    end
-  end
-
-  def attachment_path_value(%{path: path}), do: path || ""
-
-  # The two fields make one stored path. An absent key means the form is not currently
-  # rendering that field, so what was already chosen stands.
-  defp attachment_path(params, "disk", current, volumes) do
-    volume = Map.get(params, "volume", attachment_volume_value(current))
-
-    with {:ok, volume} <- validate_volume(volume, volumes) do
-      {:ok, join_destination(volume, Map.get(params, "path", attachment_path_value(current)))}
-    end
-  end
-
-  defp attachment_path(params, _source, current, _volumes),
-    do: {:ok, Map.get(params, "path", current.path)}
-
-  defp join_destination(volume, directory) do
-    [volume, directory]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> case do
-      [] -> nil
-      segments -> Path.join(segments)
-    end
-  end
-
-  # The volume list comes from ingestion, so an operator can only pick one that is mounted.
-  defp validate_volume(volume, _volumes) when volume in [nil, ""], do: {:ok, nil}
-
-  defp validate_volume(volume, volumes) when is_binary(volume) do
-    if volume in volumes, do: {:ok, volume}, else: :error
-  end
-
-  defp validate_volume(_volume, _volumes), do: :error
-
-  # A data source the operator can no longer see is not one they can be writing to, so the
-  # choice is rejected rather than saved blind.
-  defp validate_attachment_source(nil, _sources), do: {:ok, nil}
-  defp validate_attachment_source("", _sources), do: {:ok, nil}
-
-  defp validate_attachment_source(provider, sources) when is_binary(provider) do
-    if Enum.any?(sources, fn {_label, value} -> value == provider end) do
-      {:ok, provider}
-    else
-      :error
-    end
-  end
-
-  defp validate_attachment_source(_provider, _sources), do: :error
 
   defp grants_by_config(:data_source, configs) do
     config_ids = Enum.map(configs, &to_string(&1.id))

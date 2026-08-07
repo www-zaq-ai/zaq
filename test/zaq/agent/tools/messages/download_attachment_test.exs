@@ -35,21 +35,6 @@ defmodule Zaq.Agent.Tools.Messages.DownloadAttachmentTest do
             )
       }
     end
-
-    def dispatch(%Event{opts: [action: :attachment_destination]} = event) do
-      send(self(), {:destination, event.request.provider})
-      %{event | response: Process.get(:destination_response, {:ok, %{destination: nil}})}
-    end
-
-    def dispatch(%Event{request: %{provider: provider, params: params}} = event) do
-      send(self(), {:create_file, provider, params})
-
-      %{
-        event
-        | response:
-            Process.get(:create_response, {:ok, %{record: %Record{id: "doc-7", kind: :file}}})
-      }
-    end
   end
 
   defp record(attrs \\ %{}) do
@@ -100,8 +85,6 @@ defmodule Zaq.Agent.Tools.Messages.DownloadAttachmentTest do
              }
 
       refute_received {:materialize, _file_ref}
-      refute_received {:destination, _provider}
-      refute_received {:create_file, _provider, _params}
     end
 
     test "an explicit nil id lists too — the model omitting a value means the same thing" do
@@ -220,64 +203,6 @@ defmodule Zaq.Agent.Tools.Messages.DownloadAttachmentTest do
 
       assert message =~ "photo.png"
       refute_received {:materialize, _file_ref}
-    end
-  end
-
-  describe "keeping a copy" do
-    defp keeps_files_at(path) do
-      Process.put(:destination_response, {:ok, %{destination: %{provider: "disk", path: path}}})
-    end
-
-    test "a channel that keeps nothing writes nothing" do
-      assert {:ok, _payload} = run(context(record(), %{input_modalities: [:text, :image]}))
-
-      assert_received {:destination, "telegram"}
-      refute_received {:create_file, _provider, _params}
-    end
-
-    test "a channel with a destination gets the bytes written there" do
-      keeps_files_at("media/attachments/telegram")
-
-      assert {:ok, _payload} = run(context(record(), %{input_modalities: [:text, :image]}))
-
-      assert_received {:create_file, "disk", params}
-      assert params["path"] == "media/attachments/telegram"
-      assert params["name"] == "photo.png"
-      assert params["content"] == Base.encode64("PNGBYTES")
-      assert params["encoding"] == "base64"
-    end
-
-    test "the stored document id travels back on the record" do
-      keeps_files_at("media/attachments/telegram")
-
-      assert {:ok, payload} = run(context(record(), %{input_modalities: []}))
-
-      assert payload.record.attributes["stored_document_id"] == "doc-7"
-    end
-
-    test "the destination is asked for by the channel named on the fetching event" do
-      assert {:ok, _payload} = run(context(record(), %{input_modalities: []}))
-
-      assert_received {:destination, "telegram"}
-    end
-
-    test "a failed write does not cost the read" do
-      keeps_files_at("media/attachments/telegram")
-      Process.put(:create_response, {:error, :volume_gone})
-
-      assert {:ok, payload} = run(context(record(), %{input_modalities: [:text, :image]}))
-
-      assert [%ReqLLM.Message.ContentPart{type: :image}] = payload.__content_parts__
-      refute Map.has_key?(payload.record.attributes, "stored_document_id")
-    end
-
-    test "a channels node that cannot answer means nothing is kept" do
-      Process.put(:destination_response, {:error, :node_down})
-
-      assert {:ok, payload} = run(context(record(), %{input_modalities: [:text, :image]}))
-
-      assert [%ReqLLM.Message.ContentPart{type: :image}] = payload.__content_parts__
-      refute_received {:create_file, _provider, _params}
     end
   end
 

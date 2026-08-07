@@ -203,19 +203,6 @@ defmodule Zaq.Channels.Api do
     end
   end
 
-  # What a channel does with the files it receives. The config lives on this node; whoever
-  # holds an attachment's bytes and has to decide whether to keep them does not. The answer
-  # is a destination rather than the settings themselves, so reshaping the setting never
-  # reaches the caller.
-  def handle_event(
-        %Event{request: %{provider: provider}} = event,
-        :attachment_destination,
-        _context
-      )
-      when is_binary(provider) do
-    %{event | response: {:ok, %{destination: ChannelConfig.attachment_destination(provider)}}}
-  end
-
   def handle_event(
         %Event{request: %{before_config: before_config, after_config: after_config}} = event,
         :sync_data_source_runtime,

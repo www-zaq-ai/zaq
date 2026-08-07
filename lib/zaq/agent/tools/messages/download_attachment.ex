@@ -17,11 +17,8 @@ defmodule Zaq.Agent.Tools.Messages.DownloadAttachment do
   any bytes move; the fetched record's own type — read from the bytes, since providers like
   Telegram declare none — settles the real one.
 
-  Whether a copy is kept is the channel's business, not the model's: the record's own
-  materializing event names the channel it came from, and the channels node answers where —
-  if anywhere — files from that channel belong. Looked up here rather than stamped when the
-  message arrived, so a change in BO takes effect on the next read rather than the next
-  message.
+  Reading moves bytes to the caller and keeps no copy. Retaining what an agent looked at is
+  the trace's concern, not this tool's.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -54,14 +51,10 @@ defmodule Zaq.Agent.Tools.Messages.DownloadAttachment do
       ]
     ]
 
-  require Logger
-
   alias Zaq.Agent.Tools.Helpers.ChannelTool
   alias Zaq.Agent.Tools.MediaModality
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
-  alias Zaq.Event
-  alias Zaq.Utils.Map, as: MapUtils
 
   @error_prefix "Attachment download failed"
 
@@ -119,79 +112,12 @@ defmodule Zaq.Agent.Tools.Messages.DownloadAttachment do
         {:ok,
          materialized
          |> keep_name(record)
-         |> keep_copy(channel_of(record), context)
          |> MediaModality.deliver(modalities)}
       end
     else
       {:ok, %{refused: MediaModality.refusal(record.name, record.mime_type)}}
     end
   end
-
-  # ── keeping a copy ──────────────────────────────────────────────────────────
-
-  # The channel the file arrived on, taken off the event that fetches it — the same value the
-  # channels node looks its configuration up by.
-  defp channel_of(%Record{materializing_event: %Event{request: %{provider: provider}}})
-       when is_binary(provider),
-       do: provider
-
-  defp channel_of(%Record{}), do: nil
-
-  defp keep_copy(%{record: %Record{} = fetched} = materialized, channel, context)
-       when is_binary(channel) do
-    case destination(channel, context) do
-      %{provider: provider, path: path} ->
-        %{materialized | record: store(fetched, provider, path, context)}
-
-      _nothing ->
-        materialized
-    end
-  end
-
-  defp keep_copy(materialized, _channel, _context), do: materialized
-
-  defp destination(channel, context) do
-    node_router = Map.get(context, :node_router, Zaq.NodeRouter)
-
-    %{provider: channel}
-    |> Event.new(:channels, opts: [action: :attachment_destination])
-    |> node_router.dispatch()
-    |> Map.fetch!(:response)
-    |> case do
-      {:ok, %{destination: destination}} -> destination
-      _other -> nil
-    end
-  end
-
-  # A failed write must not cost the read: the model asked to see the file, and keeping a
-  # copy is an operator's concern it cannot act on. So the record travels either way and the
-  # failure goes to the log.
-  defp store(%Record{} = fetched, provider, path, context) do
-    params = %{
-      "name" => fetched.name,
-      "path" => path,
-      "content" => fetched.content,
-      "encoding" => MapUtils.present_value(fetched.attributes, "encoding")
-    }
-
-    request = ChannelTool.wrap_request(params, provider)
-
-    case ChannelTool.dispatch(:data_source_create_file, request, context, @error_prefix) do
-      {:ok, %{record: %Record{id: id}}} ->
-        annotate(fetched, "stored_document_id", to_string(id))
-
-      other ->
-        Logger.warning(
-          "[DownloadAttachment] Could not keep a copy of #{inspect(fetched.name)} " <>
-            "at #{inspect(path)}: #{inspect(other)}"
-        )
-
-        fetched
-    end
-  end
-
-  defp annotate(%Record{} = record, key, value),
-    do: %{record | attributes: Map.put(record.attributes || %{}, key, value)}
 
   # Materializing answers with the provider's own record, which knows the bytes but not what
   # the file was called — that only ever existed on the inbound one.

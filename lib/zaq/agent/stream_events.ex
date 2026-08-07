@@ -8,6 +8,7 @@ defmodule Zaq.Agent.StreamEvents do
 
   alias Zaq.Agent.RequestRegistry
   alias Zaq.Agent.Status
+  alias Zaq.Agent.TraceArtifact
   alias Zaq.Engine.Messages.Incoming
 
   @flush_chars 20
@@ -214,7 +215,11 @@ defmodule Zaq.Agent.StreamEvents do
         "turn_id" => to_string(field(event, :iteration) || 0),
         "content" => field(event, :tool_name) || data_get(data, :tool_name) || "tool",
         "name" => field(event, :tool_name) || data_get(data, :tool_name),
-        "response" => json_safe(data_get(data, :result)),
+        "response" =>
+          data
+          |> data_get(:result)
+          |> TraceArtifact.store(tool_call_id, state)
+          |> json_safe(),
         "duration_ms" => data_get(data, :duration_ms),
         "ended_at" => timestamp(event),
         "ended_at_ms" => field(event, :at_ms),

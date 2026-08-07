@@ -9,6 +9,8 @@ defmodule ZaqWeb.Components.AgentTracePanel do
 
   use Phoenix.Component
 
+  import ZaqWeb.CoreComponents, only: [icon: 1]
+
   attr :message_info, :map, default: %{}
   attr :expanded_ids, :any, default: nil
   attr :toggle_event, :string, required: true
@@ -84,6 +86,22 @@ defmodule ZaqWeb.Components.AgentTracePanel do
             class="px-3 pb-3 pt-1 bg-[#fcfcfb] border-t border-[#f0ede8]"
             data-testid={"trace-details-#{row_id}"}
           >
+            <%!-- A file the agent read. The bytes are in `message_trace_artifacts`, not in the
+                  entry below, so the chip draws from the metadata and fetches only on click. --%>
+            <a
+              :if={artifact = trace_artifact(trace)}
+              href={"/bo/trace-artifacts/#{artifact.id}"}
+              target="_blank"
+              class="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg border border-[#e8e6e1] bg-white hover:bg-[#faf9f7]"
+              data-testid="trace-artifact-link"
+            >
+              <.icon name={artifact_icon(artifact.mime_type)} class="zaq-icon-sm" />
+              <span class="font-mono text-[0.7rem] text-[#2c2b28] truncate">{artifact.name}</span>
+              <span :if={artifact.size} class="font-mono text-[0.62rem] text-[#9e9b94] ml-auto">
+                {format_bytes(artifact.size)}
+              </span>
+            </a>
+
             <div class="flex items-center justify-between mt-2 mb-1">
               <p class="font-mono text-[0.68rem] text-[#7f7c76] font-bold">Full JSON</p>
               <button
@@ -103,6 +121,45 @@ defmodule ZaqWeb.Components.AgentTracePanel do
     </div>
     """
   end
+
+  @doc """
+  The file a trace entry's tool read, or `nil` when it read none.
+
+  Everything the chip needs is on the entry already — the tool result keeps name, type and size
+  after `Zaq.Agent.TraceArtifact` takes the bytes out — so drawing a row costs no query.
+  """
+  def trace_artifact(%{"response" => %{"record" => record}}) when is_map(record) do
+    case get_in(record, ["attributes", "trace_artifact_id"]) do
+      id when is_binary(id) and id != "" ->
+        %{
+          id: id,
+          name: Map.get(record, "name") || "attachment",
+          mime_type: Map.get(record, "mime_type"),
+          size: Map.get(record, "size")
+        }
+
+      _no_artifact ->
+        nil
+    end
+  end
+
+  def trace_artifact(_trace), do: nil
+
+  @doc "Heroicon for a file, chosen from what the bytes were sniffed as."
+  def artifact_icon("image/" <> _subtype), do: "hero-photo"
+  def artifact_icon("audio/" <> _subtype), do: "hero-musical-note"
+  def artifact_icon("video/" <> _subtype), do: "hero-film"
+  def artifact_icon(_mime_type), do: "hero-document"
+
+  @doc "Byte count as a reviewer reads it."
+  def format_bytes(bytes) when is_integer(bytes) and bytes >= 1_048_576,
+    do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+
+  def format_bytes(bytes) when is_integer(bytes) and bytes >= 1024,
+    do: "#{Float.round(bytes / 1024, 1)} KB"
+
+  def format_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
+  def format_bytes(_bytes), do: nil
 
   defp traces(message_info) when is_map(message_info) do
     case Map.get(message_info, :traces) || Map.get(message_info, "traces") do
