@@ -97,7 +97,7 @@ defmodule Zaq.Engine.Messages.Incoming do
   end
 
   @doc """
-  Finds an attachment by the id `attachment_notice/1` hands the model, or `nil`.
+  Finds an attachment by id, or `nil`.
 
   The id is whatever the channel minted for the file, so it is compared as a string — the
   model echoes back the text it was shown.
@@ -108,48 +108,6 @@ defmodule Zaq.Engine.Messages.Incoming do
   end
 
   def attachment_record(%__MODULE__{}, _id), do: nil
-
-  @doc """
-  Describes the message's attachments for the model, or `nil` when there are none.
-
-  This is application-injected context rather than anything the sender wrote, so it is
-  persisted as a `system` message and merged into the prompt separately — never folded into
-  `content`, which stays exactly what the person typed.
-
-  Naming the file is not enough on its own: a model told only that an attachment exists left
-  it alone. So each line spells out the call to make.
-  """
-  @spec attachment_notice(t()) :: String.t() | nil
-  def attachment_notice(%__MODULE__{} = incoming) do
-    case attachment_records(incoming) do
-      [] -> nil
-      records -> records |> Enum.map_join("\n", &describe_attachment/1) |> presence()
-    end
-  end
-
-  # No materializing event means the channel handed over no way to reach the bytes, so the
-  # model is told the file exists and cannot be opened rather than being sent after it.
-  defp describe_attachment(%Record{materializing_event: nil} = record) do
-    "[attachment: #{attachment_label(record)} — the sender's channel gave no way to fetch " <>
-      "it, so it cannot be opened. Tell the user the file could not be received.]"
-  end
-
-  defp describe_attachment(%Record{} = record) do
-    "[attachment: #{attachment_label(record)}. To read it, call the download_attachment " <>
-      "tool with attachment_id=\"#{record.id}\".]"
-  end
-
-  defp attachment_label(%Record{name: name, mime_type: mime_type}) do
-    case {name, mime_type} do
-      {name, nil} when is_binary(name) -> name
-      {name, mime} when is_binary(name) -> "#{name} (#{mime})"
-      {_, mime} when is_binary(mime) -> "unnamed (#{mime})"
-      _ -> "unnamed"
-    end
-  end
-
-  defp presence(""), do: nil
-  defp presence(text), do: text
 
   @doc "Returns the ZAQ Person ID carried by the incoming message, if resolved."
   @spec person_id(t()) :: integer() | nil

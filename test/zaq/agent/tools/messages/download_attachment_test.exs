@@ -87,6 +87,86 @@ defmodule Zaq.Agent.Tools.Messages.DownloadAttachmentTest do
   defp run(context, attachment_id \\ "telegram://file/abc"),
     do: DownloadAttachment.run(%{attachment_id: attachment_id}, context)
 
+  describe "listing what is attached" do
+    test "an omitted id lists instead of fetching, and moves no bytes" do
+      assert {:ok, %{attachments: [entry]}} = DownloadAttachment.run(%{}, context(record()))
+
+      assert entry == %{
+               attachment_id: "telegram://file/abc",
+               name: "photo.png",
+               mime_type: nil,
+               size: nil,
+               readable: true
+             }
+
+      refute_received {:materialize, _file_ref}
+      refute_received {:destination, _provider}
+      refute_received {:create_file, _provider, _params}
+    end
+
+    test "an explicit nil id lists too — the model omitting a value means the same thing" do
+      assert {:ok, %{attachments: [_entry]}} =
+               DownloadAttachment.run(%{attachment_id: nil}, context(record()))
+    end
+
+    test "the id it hands back is the one that reads the file" do
+      context = context(record(), %{input_modalities: [:text, :image]})
+
+      assert {:ok, %{attachments: [%{attachment_id: id}]}} = DownloadAttachment.run(%{}, context)
+      assert {:ok, payload} = DownloadAttachment.run(%{attachment_id: id}, context)
+      assert [%ReqLLM.Message.ContentPart{type: :image}] = payload.__content_parts__
+    end
+
+    test "an attachment with no way to be fetched says so rather than costing a call" do
+      assert {:ok, %{attachments: [entry]}} =
+               DownloadAttachment.run(%{}, context(record(%{materializing_event: nil})))
+
+      assert entry.readable == false
+    end
+
+    test "name, type and size travel so a file can be chosen without opening it" do
+      record = record(%{name: "scan.pdf", mime_type: "application/pdf", size: 24_010})
+
+      assert {:ok, %{attachments: [entry]}} = DownloadAttachment.run(%{}, context(record))
+      assert %{name: "scan.pdf", mime_type: "application/pdf", size: 24_010} = entry
+    end
+
+    test "a message with nothing attached lists nothing" do
+      context = %{
+        node_router: StubRouter,
+        incoming: %Incoming{content: "hi", channel_id: "ch1", provider: :telegram}
+      }
+
+      assert {:ok, %{attachments: []}} = DownloadAttachment.run(%{}, context)
+    end
+
+    test "a context with no message lists nothing rather than crashing" do
+      assert {:ok, %{attachments: []}} = DownloadAttachment.run(%{}, %{node_router: StubRouter})
+    end
+
+    test "a context whose :incoming is not a message lists nothing" do
+      assert {:ok, %{attachments: []}} =
+               DownloadAttachment.run(%{}, %{node_router: StubRouter, incoming: :nope})
+    end
+
+    test "every attachment on the message is listed, in order" do
+      records = [record(%{id: "a", name: "one.png"}), record(%{id: "b", name: "two.pdf"})]
+
+      context = %{
+        node_router: StubRouter,
+        incoming: %Incoming{
+          content: "look",
+          channel_id: "ch1",
+          provider: :telegram,
+          attachments: %RecordPage{resource_type: :attachment, records: records}
+        }
+      }
+
+      assert {:ok, %{attachments: [%{attachment_id: "a"}, %{attachment_id: "b"}]}} =
+               DownloadAttachment.run(%{}, context)
+    end
+  end
+
   describe "reading an attachment" do
     test "dispatches the record's own event, not a data source download" do
       assert {:ok, payload} =

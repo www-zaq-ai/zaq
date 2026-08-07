@@ -46,42 +46,35 @@
                 timestamp={item.inserted_at}
               />
             <% else %>
-              <%= if item.role == "system" do %>
-                <ZaqWeb.Components.ChatMessage.system_note
-                  content={item.content}
-                  timestamp={item.inserted_at}
-                />
-              <% else %>
-                <% feedback = infer_feedback_from_ratings(item.ratings || []) %>
-                <% feedback_display = MessageHelpers.rating_feedback_display(item.ratings || []) %>
-                <ZaqWeb.Components.ChatMessage.assistant_bubble
-                  content={item.content}
-                  timestamp={item.inserted_at}
-                  confidence={item.confidence_score}
-                  sources={item.sources || []}
-                  source_click_event="open_preview_modal"
-                  saved_feedback_reasons={feedback_display && feedback_display.reasons}
-                  saved_feedback_user_comment={feedback_display && feedback_display.user_comment}
-                >
-                  <:actions>
-                    <% message_info = MessageHelpers.message_info_from_message(item) %>
-                    <ZaqWeb.Components.ChatMessage.message_info_button
-                      available={MessageHelpers.message_info_available?(message_info)}
-                      message_id={item.id}
-                      open_event="open_message_info_modal"
-                    />
-                    <ZaqWeb.Components.ChatMessage.copy_action_button text={item.content || ""} />
-                    <ZaqWeb.Components.ChatMessage.feedback_positive_button
-                      message_id={item.id}
-                      feedback={feedback}
-                    />
-                    <ZaqWeb.Components.ChatMessage.feedback_negative_button
-                      message_id={item.id}
-                      feedback={feedback}
-                    />
-                  </:actions>
-                </ZaqWeb.Components.ChatMessage.assistant_bubble>
-              <% end %>
+              <% feedback = infer_feedback_from_ratings(item.ratings || []) %>
+              <% feedback_display = MessageHelpers.rating_feedback_display(item.ratings || []) %>
+              <ZaqWeb.Components.ChatMessage.assistant_bubble
+                content={item.content}
+                timestamp={item.inserted_at}
+                confidence={item.confidence_score}
+                sources={item.sources || []}
+                source_click_event="open_preview_modal"
+                saved_feedback_reasons={feedback_display && feedback_display.reasons}
+                saved_feedback_user_comment={feedback_display && feedback_display.user_comment}
+              >
+                <:actions>
+                  <% message_info = MessageHelpers.message_info_from_message(item) %>
+                  <ZaqWeb.Components.ChatMessage.message_info_button
+                    available={MessageHelpers.message_info_available?(message_info)}
+                    message_id={item.id}
+                    open_event="open_message_info_modal"
+                  />
+                  <ZaqWeb.Components.ChatMessage.copy_action_button text={item.content || ""} />
+                  <ZaqWeb.Components.ChatMessage.feedback_positive_button
+                    message_id={item.id}
+                    feedback={feedback}
+                  />
+                  <ZaqWeb.Components.ChatMessage.feedback_negative_button
+                    message_id={item.id}
+                    feedback={feedback}
+                  />
+                </:actions>
+              </ZaqWeb.Components.ChatMessage.assistant_bubble>
             <% end %>
           <% end %>
         <% end %>

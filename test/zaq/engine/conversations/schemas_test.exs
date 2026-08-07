@@ -109,7 +109,7 @@ defmodule Zaq.Engine.Conversations.SchemasTest do
     end
 
     test "accepts every role a transcript can hold" do
-      for role <- ~w[user assistant system tool] do
+      for role <- ~w[user assistant tool] do
         cs =
           Message.changeset(%Message{}, %{
             conversation_id: @valid_uuid,

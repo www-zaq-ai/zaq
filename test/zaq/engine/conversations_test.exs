@@ -1042,13 +1042,13 @@ defmodule Zaq.Engine.ConversationsTest do
       assert %{role: _} = errors_on(changeset)
     end
 
-    test "stores a system message, which is neither participant speaking" do
+    test "rejects a system message — the transcript holds no application-injected rows" do
       {:ok, conv} = Conversations.create_conversation(conv_attrs())
 
-      assert {:ok, message} =
+      assert {:error, changeset} =
                Conversations.add_message(conv, %{role: "system", content: "[attachment: x]"})
 
-      assert message.role == "system"
+      assert %{role: _} = errors_on(changeset)
     end
   end
 

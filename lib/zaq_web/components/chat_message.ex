@@ -344,28 +344,6 @@ defmodule ZaqWeb.Components.ChatMessage do
     """
   end
 
-  attr :content, :string, required: true
-  attr :timestamp, :any, default: nil
-
-  @doc """
-  Renders application-injected context as a note rather than a bubble.
-
-  A `system` message belongs to neither participant — showing it as a bubble would put
-  words in someone's mouth, which is the whole reason it is not stored as one.
-  """
-  def system_note(assigns) do
-    ~H"""
-    <div class="flex justify-center" data-testid="system-note">
-      <p
-        class="zaq-text-caption"
-        style="color: var(--zaq-text-color-body-tertiary); text-align: center;"
-      >
-        {@content}
-      </p>
-    </div>
-    """
-  end
-
   attr :message_id, :string, required: true
   attr :feedback, :atom, default: nil
 

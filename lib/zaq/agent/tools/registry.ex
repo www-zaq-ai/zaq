@@ -53,7 +53,8 @@ defmodule Zaq.Agent.Tools.Registry do
     %{
       key: "message.download_attachment",
       label: "Download attachment",
-      description: "Read a file the sender attached to the message being answered",
+      description:
+        "List the files the sender attached to the message being answered, and read the ones the agent asks for",
       module: Zaq.Agent.Tools.Messages.DownloadAttachment
     },
     %{

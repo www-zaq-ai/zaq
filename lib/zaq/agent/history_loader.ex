@@ -140,16 +140,6 @@ defmodule Zaq.Agent.HistoryLoader do
           timestamp: ts
         })
 
-      # Application-injected context — an attachment announcement, for instance. It has to
-      # survive into later turns or the model loses the handle it needs to re-open a file
-      # someone sent earlier in the conversation.
-      %{role: "system", content: content, inserted_at: ts}, ctx ->
-        AIContext.append(ctx, %AIContext.Entry{
-          role: :system,
-          content: content || "",
-          timestamp: ts
-        })
-
       _other, ctx ->
         ctx
     end)

@@ -79,13 +79,6 @@ defmodule Zaq.Agent.InboundAttachmentE2ETest do
     }
   end
 
-  # The id the model is told to send back, read out of the notice rather than out of the
-  # record — if the two ever disagree the tool call the model actually makes is this one.
-  defp attachment_id_from_notice(notice) do
-    [_, id] = Regex.run(~r|attachment_id="([^"]+)"|, notice)
-    id
-  end
-
   defp context(modalities),
     do: %{node_router: RealChannelsRouter, input_modalities: modalities}
 
@@ -97,14 +90,12 @@ defmodule Zaq.Agent.InboundAttachmentE2ETest do
 
     test "travels from provider message to image content part" do
       incoming = JidoChatBridge.to_internal(chat_message(), :telegram)
-      notice = Incoming.attachment_notice(incoming)
 
-      assert notice =~ "photo.png"
-      assert notice =~ "download_attachment"
+      assert [%Record{name: "photo.png"}] = Incoming.attachment_records(incoming)
 
       assert {:ok, payload} =
                DownloadAttachment.run(
-                 %{attachment_id: attachment_id_from_notice(notice)},
+                 %{attachment_id: attachment_id(incoming)},
                  Map.put(context([:text, :image]), :incoming, incoming)
                )
 
@@ -116,11 +107,28 @@ defmodule Zaq.Agent.InboundAttachmentE2ETest do
       assert_received {:fetch_media, "telegram://file/abc"}
     end
 
+    test "the file is discoverable from the tool alone, with nothing announcing it" do
+      incoming = JidoChatBridge.to_internal(chat_message(), :telegram)
+      context = Map.put(context([:text, :image]), :incoming, incoming)
+
+      # Nothing in the message names the file — the caption is all the model is given.
+      assert incoming.content == "what does this say?"
+
+      assert {:ok, %{attachments: [%{attachment_id: id, name: "photo.png"}]}} =
+               DownloadAttachment.run(%{}, context)
+
+      refute_received {:fetch_media, _ref}
+
+      assert {:ok, payload} = DownloadAttachment.run(%{attachment_id: id}, context)
+      assert [%ReqLLM.Message.ContentPart{type: :image}] = payload.__content_parts__
+      assert_received {:fetch_media, "telegram://file/abc"}
+    end
+
     test "the caption the person typed is never touched by any of it" do
       incoming = JidoChatBridge.to_internal(chat_message(), :telegram)
 
       assert incoming.content == "what does this say?"
-      assert Incoming.attachment_notice(incoming) != nil
+      assert Incoming.attachment_records(incoming) != []
     end
 
     test "the bytes do not also travel as base64 in the JSON payload" do
@@ -211,10 +219,10 @@ defmodule Zaq.Agent.InboundAttachmentE2ETest do
       assert message =~ "file_gone"
     end
 
-    test "an attachment with no provider reference is described as unfetchable" do
+    test "an attachment with no provider reference cannot be fetched" do
       incoming = JidoChatBridge.to_internal(chat_message(%{url: nil}), :telegram)
 
-      assert Incoming.attachment_notice(incoming) =~ "no way to fetch"
+      assert [%Record{materializing_event: nil}] = Incoming.attachment_records(incoming)
 
       assert {:error, message} =
                DownloadAttachment.run(

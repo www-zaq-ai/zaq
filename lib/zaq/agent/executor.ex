@@ -171,7 +171,6 @@ defmodule Zaq.Agent.Executor do
       opts
       |> Keyword.get(:question, incoming.content)
       |> timestamp_question()
-      |> append_attachment_notice(incoming)
 
     result =
       with {:ok, configured_agent} <- selected_agent_result,
@@ -532,22 +531,6 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp timestamp_question(content), do: content
-
-  # The notice is system context, not something the sender wrote — it is persisted as a
-  # `system` message and only spliced into the question here because jido_ai's request has
-  # no per-request system slot. Move this to that option once the fork gains one.
-  defp append_attachment_notice(question, %Incoming{} = incoming) do
-    case {Incoming.attachment_notice(incoming), blank?(question)} do
-      {nil, _blank} -> question
-      # A photo sent with no caption is the whole request, so the notice stands alone
-      # rather than trailing an empty line.
-      {notice, true} -> notice
-      {notice, false} -> "#{question}\n\n#{notice}"
-    end
-  end
-
-  defp blank?(question) when is_binary(question), do: String.trim(question) == ""
-  defp blank?(_question), do: true
 
   defp status_mod(opts) do
     Keyword.get(opts, :status_module, Zaq.Agent.Status)
