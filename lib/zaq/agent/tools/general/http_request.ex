@@ -77,73 +77,61 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
     A large body is truncated and `truncated` is set to true; if you need the
     rest, narrow the request with query parameters rather than resending.
     """,
-    schema: [
-      method: [
-        type: {:in, ["GET", "POST", "PUT", "PATCH", "DELETE"]},
-        required: true,
-        doc: "HTTP method the documentation specifies for this endpoint"
-      ],
-      url: [
-        type: :string,
-        required: true,
-        doc: "Absolute http:// or https:// endpoint URL, without a query string"
-      ],
-      # `headers` and `query` are typed `:any` rather than `:map` because
-      # NimbleOptions' `:map` accepts atom keys only, while a JSON tool call
-      # always produces string keys. Shape is validated in `run/2` instead.
-      headers: [
-        type: :any,
-        default: %{},
-        doc:
-          ~s|Non-secret request headers, e.g. %{"content-type" => "application/json"}. | <>
-            ~s|Never put a credential here — an authorization header is rejected|
-      ],
-      query: [
-        type: :any,
-        default: %{},
-        doc: "Query string parameters as a flat map of string keys to string values"
-      ],
-      body: [
-        type: :any,
-        default: nil,
-        doc:
-          ~s|Request body: a map for the "json" and "form" formats, a string | <>
-            ~s|for "raw". Must be omitted for GET and DELETE|
-      ],
-      body_format: [
-        type: {:in, ["json", "form", "raw"]},
-        default: "json",
-        doc: ~s|How to encode the body: "json", "form" (url-encoded), or "raw"|
-      ],
-      timeout_ms: [
-        type: :pos_integer,
-        default: 30_000,
-        doc: "Receive timeout in milliseconds"
-      ],
-      doc_reference: [
-        type: :string,
-        default: "",
-        doc: "Where this request shape came from — doc URL or section, for traceability"
-      ]
-    ],
-    output_schema: [
-      status: [type: :pos_integer, required: true, doc: "HTTP response status code"],
-      success: [type: :boolean, required: true, doc: "True when the status is 2xx"],
-      # `{:map, :string, :string}`, not `:map` — NimbleOptions reads a bare
-      # `:map` as `{:map, :atom, :any}`, and response header names are strings.
-      headers: [
-        type: {:map, :string, :string},
-        required: true,
-        doc: "Response headers, lowercased"
-      ],
-      body: [type: :any, required: true, doc: "Response body, decoded when JSON"],
-      truncated: [
-        type: :boolean,
-        required: true,
-        doc: "True when the body was cut short to fit the agent's context"
-      ],
-      url: [type: :string, required: true, doc: "URL the request was sent to"]
-    ]
+    schema:
+      Zoi.object(%{
+        method:
+          Zoi.enum(["GET", "POST", "PUT", "PATCH", "DELETE"],
+            description: "HTTP method the documentation specifies for this endpoint"
+          ),
+        url:
+          Zoi.string(
+            description: "Absolute http:// or https:// endpoint URL, without a query string"
+          ),
+        headers:
+          Zoi.map(Zoi.string(), Zoi.string(),
+            description:
+              ~s|Non-secret request headers, e.g. %{"content-type" => "application/json"}. | <>
+                ~s|Never put a credential here — an authorization header is rejected|
+          )
+          |> Zoi.default(%{}),
+        query:
+          Zoi.map(Zoi.string(), Zoi.union([Zoi.string(), Zoi.number(), Zoi.boolean()]),
+            description: "Query string parameters as a flat map of string keys to scalar values"
+          )
+          |> Zoi.default(%{}),
+        body:
+          Zoi.any(
+            description:
+              ~s|Request body: a map for the "json" and "form" formats, a string | <>
+                ~s|for "raw". Must be omitted for GET and DELETE|
+          )
+          |> Zoi.optional(),
+        body_format:
+          Zoi.enum(["json", "form", "raw"],
+            description: ~s|How to encode the body: "json", "form" (url-encoded), or "raw"|
+          )
+          |> Zoi.default("json"),
+        timeout_ms:
+          Zoi.integer(description: "Receive timeout in milliseconds")
+          |> Zoi.positive()
+          |> Zoi.default(30_000),
+        doc_reference:
+          Zoi.string(
+            description:
+              "Where this request shape came from — doc URL or section, for traceability"
+          )
+          |> Zoi.default("")
+      }),
+    output_schema:
+      Zoi.object(%{
+        status: Zoi.integer(description: "HTTP response status code"),
+        success: Zoi.boolean(description: "True when the status is 2xx"),
+        headers: Zoi.map(Zoi.string(), Zoi.string(), description: "Response headers, lowercased"),
+        body: Zoi.any(description: "Response body, decoded when JSON") |> Zoi.nullable(),
+        truncated:
+          Zoi.boolean(description: "True when the body was cut short to fit the agent's context"),
+        url: Zoi.string(description: "URL the request was sent to")
+      })
 
   alias Zaq.Agent.Tools.DataSourceTool
   alias Zaq.Channels.HttpRequest
