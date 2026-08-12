@@ -62,23 +62,22 @@ defmodule Zaq.Agent.Tools.General.DecodeBase64 do
     Base64 is an encoding, not encryption. Decoding reveals nothing that was
     protected; treat the result with the same care as the input.
     """,
-    schema: [
-      data: [
-        type: :string,
-        required: true,
-        doc: "The Base64 string to decode"
-      ],
-      variant: [
-        type: {:in, ["auto", "standard", "url_safe"]},
-        default: "auto",
-        doc: ~s|Alphabet: "auto" (try both), "standard" (+ and /), or "url_safe" (- and _)|
-      ]
-    ],
-    output_schema: [
-      decoded: [type: :string, required: true, doc: "The decoded bytes"],
-      text?: [type: :boolean, required: true, doc: "True when the bytes are valid UTF-8 text"],
-      byte_size: [type: :non_neg_integer, required: true, doc: "Size in bytes, not codepoints"]
-    ]
+    schema:
+      Zoi.object(%{
+        data: Zoi.string(description: "The Base64 string to decode"),
+        variant:
+          Zoi.enum(["auto", "standard", "url_safe"],
+            description:
+              ~s|Alphabet: "auto" (try both), "standard" (+ and /), or "url_safe" (- and _)|
+          )
+          |> Zoi.default("auto")
+      }),
+    output_schema:
+      Zoi.object(%{
+        decoded: Zoi.string(description: "The decoded bytes"),
+        text?: Zoi.boolean(description: "True when the bytes are valid UTF-8 text"),
+        byte_size: Zoi.integer(description: "Size in bytes, not codepoints") |> Zoi.non_negative()
+      })
 
   @whitespace ~r/\s/
 

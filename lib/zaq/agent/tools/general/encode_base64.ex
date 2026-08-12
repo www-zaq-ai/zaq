@@ -32,26 +32,22 @@ defmodule Zaq.Agent.Tools.General.EncodeBase64 do
     and it does not encrypt — Base64 is an encoding, not a secret, so anyone
     holding the result can read the original value.
     """,
-    schema: [
-      data: [
-        type: :string,
-        required: true,
-        doc: "Text to encode"
-      ],
-      variant: [
-        type: {:in, ["standard", "url_safe"]},
-        default: "standard",
-        doc: ~s|Alphabet: "standard" (+ and /) or "url_safe" (- and _)|
-      ],
-      padding: [
-        type: :boolean,
-        default: true,
-        doc: ~s|Whether to append "=" padding characters|
-      ]
-    ],
-    output_schema: [
-      encoded: [type: :string, required: true, doc: "The Base64-encoded string"]
-    ]
+    schema:
+      Zoi.object(%{
+        data: Zoi.string(description: "Text to encode"),
+        variant:
+          Zoi.enum(["standard", "url_safe"],
+            description: ~s|Alphabet: "standard" (+ and /) or "url_safe" (- and _)|
+          )
+          |> Zoi.default("standard"),
+        padding:
+          Zoi.boolean(description: ~s|Whether to append "=" padding characters|)
+          |> Zoi.default(true)
+      }),
+    output_schema:
+      Zoi.object(%{
+        encoded: Zoi.string(description: "The Base64-encoded string")
+      })
 
   @impl Jido.Action
   def run(%{data: data, variant: variant, padding: padding}, _context) do
