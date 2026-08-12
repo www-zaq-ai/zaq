@@ -37,6 +37,16 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.KnowledgeBaseOverview
     },
     %{
+      key: "general.http_request",
+      label: "HTTP request",
+      description:
+        "Send an HTTP request to an external API — turn what the documentation specifies " <>
+          "(method, url, headers, body) into a validated request, send it, and return the " <>
+          "status, headers, and body. Credentials are passed as named references, resolved " <>
+          "on the channels node: the agent never holds a secret or opens a socket.",
+      module: Zaq.Agent.Tools.General.HttpRequest
+    },
+    %{
       key: "conversation.persist_message_history",
       label: "Persist message history",
       description:
