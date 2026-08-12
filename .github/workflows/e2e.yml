@@ -7,10 +7,19 @@ on:
 
 jobs:
   e2e:
-    name: User Journeys QA
+    name: E2E ${{ matrix.browser }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
+    # One runner per browser. Each leg is its own container with its own Postgres
+    # and its own Phoenix, so POST /e2e/reset stays a whole-node reset within its
+    # leg and no test isolation work is needed. fail-fast is off so one browser
+    # failing still tells us about the other two.
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
 
     services:
       postgres:
@@ -54,15 +63,29 @@ jobs:
           cache-dependency-path: test/e2e/package-lock.json
 
       - name: Restore Mix cache
+        id: mix-cache
         uses: actions/cache@v4
         with:
           path: |
             deps
-            _build
+            _build/test-e2e
           key: ${{ runner.os }}-mix-e2e-${{ hashFiles('**/mix.lock') }}
           restore-keys: |
             ${{ runner.os }}-mix-e2e-
             ${{ runner.os }}-mix-
+
+      # `mix assets.setup` is `tailwind.install --if-missing` + `esbuild.install
+      # --if-missing`, which downloads ~83 MB of binaries to _build/{esbuild,tailwind}-*
+      # (top level, NOT under MIX_BUILD_PATH). Cached separately from the Mix cache
+      # so a compile-cache miss does not also re-download the toolchain.
+      - name: Restore asset tooling
+        id: tooling-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            _build/esbuild-*
+            _build/tailwind-*
+          key: ${{ runner.os }}-assets-tooling-${{ hashFiles('config/config.exs') }}
 
       - name: Restore asset build cache
         id: assets-cache
@@ -71,11 +94,24 @@ jobs:
           path: priv/static
           key: ${{ runner.os }}-assets-${{ hashFiles('assets/**') }}
 
+      - name: Report cache hits
+        run: |
+          echo "mix cache hit:           ${{ steps.mix-cache.outputs.cache-hit }}"
+          echo "asset tooling cache hit: ${{ steps.tooling-cache.outputs.cache-hit }}"
+          echo "asset build cache hit:   ${{ steps.assets-cache.outputs.cache-hit }}"
+
       - name: Install Elixir dependencies
         run: mix deps.get
 
       - name: Install asset tooling
         run: mix assets.setup
+
+      # Explicit, so compile time shows up as its own step instead of hiding inside
+      # `mix assets.build` (which aliases to "compile" first) or inside the test step.
+      - name: Compile
+        run: |
+          mix deps.compile
+          mix compile
 
       - name: Build frontend assets
         if: steps.assets-cache.outputs.cache-hit != 'true'
@@ -89,20 +125,39 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-firefox-webkit-${{ hashFiles('test/e2e/package-lock.json') }}
+          key: playwright-${{ matrix.browser }}-${{ hashFiles('test/e2e/package-lock.json') }}
 
-      - name: Install Playwright browsers
-        run: npx --prefix test/e2e playwright install --with-deps chromium firefox webkit
+      - name: Install Playwright browser
+        run: npx --prefix test/e2e playwright install --with-deps ${{ matrix.browser }}
 
-      - name: Run full E2E suite
-        run: npm --prefix test/e2e run test:journeys
+      # test:ci seeds the DB only — assets are built by the steps above. The
+      # developer-facing `test:journeys` still runs the full bootstrap.
+      - name: Run E2E suite (${{ matrix.browser }})
+        run: npm --prefix test/e2e run test:ci -- --project=journeys-${{ matrix.browser }}
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-artifacts
+          name: playwright-artifacts-${{ matrix.browser }}
           path: |
             test/e2e/playwright-report
             test/e2e/test-results
           if-no-files-found: ignore
+
+  # The repository ruleset "Bypassable Main Branch" requires a check named
+  # exactly "User Journeys QA". The matrix above reports three differently-named
+  # checks, so this job carries the required name and fails if any leg failed.
+  # `if: always()` is required — a skipped job leaves the required check pending
+  # forever and blocks the PR just as hard as a failure.
+  e2e-result:
+    name: User Journeys QA
+    if: always()
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check matrix result
+        if: ${{ needs.e2e.result != 'success' }}
+        run: |
+          echo "E2E matrix result: ${{ needs.e2e.result }}"
+          exit 1

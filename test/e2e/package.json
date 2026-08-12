@@ -3,11 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "bootstrap": "sh -c 'cd ../.. && PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix assets.setup && PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix assets.build && PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix ecto.create --quiet && PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix ecto.migrate --quiet && PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix run test/support/e2e/bootstrap.exs'",
+    "bootstrap:assets": "sh -c 'cd ../.. && export PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e && mix assets.setup && mix assets.build'",
+    "bootstrap:db": "sh -c 'cd ../.. && export PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e && mix ecto.create --quiet && mix ecto.migrate --quiet && mix run test/support/e2e/bootstrap.exs'",
+    "bootstrap": "npm run bootstrap:assets && npm run bootstrap:db",
     "test": "npm run bootstrap && playwright test",
     "test:journeys": "npm run bootstrap && playwright test --project=journeys-*",
     "test:headed": "npm run bootstrap && playwright test --headed",
-    "test:storybook": "STORYBOOK_ONLY=1 playwright test --project=storybook"
+    "test:storybook": "STORYBOOK_ONLY=1 playwright test --project=storybook",
+    "test:ci": "npm run bootstrap:db && playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2"

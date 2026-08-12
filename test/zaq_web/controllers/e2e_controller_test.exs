@@ -1,6 +1,8 @@
 defmodule ZaqWeb.E2EControllerTest do
   use ZaqWeb.ConnCase, async: false
 
+  import Zaq.AccountsFixtures
+
   alias Zaq.E2E.LogCollector
   alias Zaq.E2E.PortalState
 
@@ -72,6 +74,62 @@ defmodule ZaqWeb.E2EControllerTest do
     test "returns 400 when no email provided", %{conn: conn} do
       conn = post(conn, "/e2e/portal/conflicts", %{})
       assert json_response(conn, 400)["error"] =~ "email"
+    end
+  end
+
+  # The /e2e/session route only compiles when E2E=1, and that build swaps the Repo
+  # pool away from Ecto.Adapters.SQL.Sandbox, so `mix test` cannot drive it through
+  # the router. The action is called directly instead — the route wiring itself is
+  # exercised by the Playwright suite on every run.
+  describe "create_session/2" do
+    setup %{conn: conn} do
+      %{
+        conn: Plug.Test.init_test_session(conn, %{}),
+        user: user_fixture(%{username: "e2e_admin"})
+      }
+    end
+
+    test "mints a session for the default admin and lands in the BO", %{conn: conn, user: user} do
+      conn = ZaqWeb.E2EController.create_session(conn, %{})
+
+      assert redirected_to(conn) == "/bo/dashboard"
+      assert get_session(conn, :user_id) == user.id
+    end
+
+    test "honours return_to so specs skip a second navigation", %{conn: conn, user: user} do
+      conn = ZaqWeb.E2EController.create_session(conn, %{"return_to" => "/bo/people"})
+
+      assert redirected_to(conn) == "/bo/people"
+      assert get_session(conn, :user_id) == user.id
+    end
+
+    test "ignores a protocol-relative return_to", %{conn: conn} do
+      conn = ZaqWeb.E2EController.create_session(conn, %{"return_to" => "//evil.example.com"})
+
+      assert redirected_to(conn) == "/bo/dashboard"
+    end
+
+    test "ignores an absolute return_to", %{conn: conn} do
+      conn =
+        ZaqWeb.E2EController.create_session(conn, %{"return_to" => "https://evil.example.com"})
+
+      assert redirected_to(conn) == "/bo/dashboard"
+    end
+
+    test "resolves an explicit username", %{conn: conn} do
+      other = user_fixture(%{username: "someone_else"})
+
+      conn = ZaqWeb.E2EController.create_session(conn, %{"username" => "someone_else"})
+
+      assert redirected_to(conn) == "/bo/dashboard"
+      assert get_session(conn, :user_id) == other.id
+    end
+
+    test "returns 404 for an unknown user rather than a silent login page", %{conn: conn} do
+      conn = ZaqWeb.E2EController.create_session(conn, %{"username" => "nobody"})
+
+      assert json_response(conn, 404)["error"] == "unknown_user"
+      refute get_session(conn, :user_id)
     end
   end
 

@@ -156,6 +156,8 @@ These functions are in `test/e2e/support/bo.js` and hit the `/e2e/*` endpoints:
 | `createE2EConversation(request, attrs)` | Inserts a conversation for the E2E admin user. Body: required `channel_type`; optional `title`, `channel_user_id`, `status` (`active` / `archived`), `user_id`. Returns `{ ok, id, title, channel_type, status }`. |
 | `createE2EMcpEndpoint(request, attrs)` | Inserts an MCP endpoint record. Returns the created record. |
 
+`GET /e2e/session` backs `loginToBackOffice` — see [Logging In](#logging-in).
+
 ### Pattern: `beforeAll` with reset + seed
 
 ```js
@@ -184,6 +186,31 @@ test.describe("Agent page", () => {
   })
 })
 ```
+
+---
+
+## Logging In
+
+`loginToBackOffice(page)` mints the BO session cookie server-side via
+`GET /e2e/session` — one navigation, no form, no LiveView round trip on the login
+page. Driving the real form costs 2–4s per test, and the suite logs in on almost
+every test across three browsers.
+
+```js
+await loginToBackOffice(page)                              // minted session
+await loginToBackOffice(page, { returnTo: "/bo/people" })  // land straight on the page
+```
+
+The real login form is used when you pass a `password` — **passing one means you
+want it verified** — or set `realLogin: true` explicitly:
+
+```js
+// onboarding.spec.js — the login journey IS the subject here
+await loginToBackOffice(page, { username: user.username, password: user.password })
+```
+
+Do not switch those to the minted path: it skips password verification and the
+`must_change_password` redirect that those specs exist to cover.
 
 ---
 

@@ -44,6 +44,37 @@ defmodule ZaqWeb.E2EController do
     json(conn, %{ok: true})
   end
 
+  # GET /e2e/session — mint a BO session cookie without driving the login form.
+  # Params: "username" (default E2E_ADMIN_USERNAME), "return_to" (default /bo/dashboard).
+  # `must_change_password` is not handled here: ZaqWeb.Plugs.Auth already redirects
+  # those users, so this matches what a real login would produce.
+  def create_session(conn, params) do
+    username = Map.get(params, "username") || default_admin_username()
+
+    case Accounts.get_user_by_username(username) do
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "unknown_user", username: username})
+
+      user ->
+        conn
+        |> put_session(:user_id, user.id)
+        |> redirect(to: session_return_to(params))
+    end
+  end
+
+  defp default_admin_username, do: System.get_env("E2E_ADMIN_USERNAME", "e2e_admin")
+
+  # Only same-site absolute paths — keeps the redirect from being a general
+  # purpose open redirect even though the route is test-only.
+  defp session_return_to(params) do
+    case Map.get(params, "return_to") do
+      "/" <> _ = path -> if String.starts_with?(path, "//"), do: "/bo/dashboard", else: path
+      _ -> "/bo/dashboard"
+    end
+  end
+
   # POST /e2e/addon-package — seed in-memory add-on package data for dashboard E2E.
   # JSON body: pass `"clear": true` to clear only the feature store (unusual — prefer POST /e2e/reset).
   # Otherwise requires string-keyed addon map: "company_name", "license_key", "expires_at", "features" (list).

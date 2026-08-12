@@ -61,7 +61,48 @@ async function gotoBackOfficeLive(page, path, options = {}) {
   }
 }
 
+// Authenticates the page against the BO.
+//
+// By default this mints the session cookie server-side via GET /e2e/session —
+// one navigation, no form, no LiveView round trip on the login page. Driving the
+// real login form costs 2-4s per test and the suite does it ~350 times.
+//
+// The form is used when the caller supplies a `password` (passing one means you
+// want it verified — the mint path never takes a password) or sets
+// `realLogin: true`. That keeps the login journey itself under test in
+// onboarding.spec.js while every other spec skips it.
+//
+// `returnTo` lands directly on the page under test, saving a second navigation.
 async function loginToBackOffice(page, options = {}) {
+  const useForm = options.realLogin === true || typeof options.password === "string";
+
+  if (!useForm) {
+    return loginViaMintedSession(page, options);
+  }
+
+  return loginViaForm(page, options);
+}
+
+async function loginViaMintedSession(page, options = {}) {
+  const username = options.username || DEFAULT_ADMIN_USERNAME;
+  const returnTo = options.returnTo || "/bo/dashboard";
+
+  const query = new URLSearchParams({ username, return_to: returnTo });
+  await page.goto(`/e2e/session?${query.toString()}`);
+
+  // A missing user renders the controller's JSON 404 instead of redirecting —
+  // fail here with the reason rather than downstream on a missing selector.
+  await expect(page, `GET /e2e/session did not authenticate "${username}"`).toHaveURL(
+    /\/bo\//,
+    { timeout: 10_000 }
+  );
+
+  if (options.ensureConnected !== false) {
+    await waitForLiveViewConnected(page, options);
+  }
+}
+
+async function loginViaForm(page, options = {}) {
   const username = options.username || DEFAULT_ADMIN_USERNAME;
   const password = options.password || DEFAULT_ADMIN_PASSWORD;
   const maxAttempts = options.maxAttempts || 4;
