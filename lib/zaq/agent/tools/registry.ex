@@ -44,6 +44,21 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.KnowledgeBaseOverview
     },
     %{
+      key: "general.encode_base64",
+      label: "Encode Base64",
+      description:
+        "Encode text as Base64, in the standard or URL-safe alphabet, with optional padding",
+      module: Zaq.Agent.Tools.General.EncodeBase64
+    },
+    %{
+      key: "general.decode_base64",
+      label: "Decode Base64",
+      description:
+        "Decode a Base64 string back to text, auto-detecting the standard or URL-safe " <>
+          "alphabet and tolerating missing padding and line breaks",
+      module: Zaq.Agent.Tools.General.DecodeBase64
+    },
+    %{
       key: "conversation.persist_message_history",
       label: "Persist message history",
       description:
