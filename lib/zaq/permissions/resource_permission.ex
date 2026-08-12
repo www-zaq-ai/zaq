@@ -54,8 +54,11 @@ defmodule Zaq.Permissions.ResourcePermission do
     |> validate_required([:resource_type, :resource_id, :access_rights])
     |> validate_target_present()
     |> validate_subset(:access_rights, @valid_rights)
-    |> foreign_key_constraint(:person_id)
-    |> foreign_key_constraint(:team_id)
+    # The table was renamed from `document_permissions` without renaming its constraints, so
+    # the names Ecto derives from the current table do not exist. See
+    # `Zaq.Permissions.DocumentPermission.changeset/2`.
+    |> foreign_key_constraint(:person_id, name: :document_permissions_person_id_fkey)
+    |> foreign_key_constraint(:team_id, name: :document_permissions_team_id_fkey)
     |> unique_constraint([:resource_type, :resource_id, :person_id],
       name: :uix_resource_perm_person
     )

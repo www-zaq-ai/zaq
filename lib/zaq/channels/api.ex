@@ -356,6 +356,16 @@ defmodule Zaq.Channels.Api do
 
   def handle_event(
         %Event{request: %{provider: provider, params: params}} = event,
+        :data_source_update_permissions,
+        _context
+      )
+      when is_map(params) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.update_permissions(provider, params)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
         :data_source_teardown_listener,
         _context
       )

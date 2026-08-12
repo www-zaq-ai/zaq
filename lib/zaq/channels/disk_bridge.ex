@@ -135,6 +135,28 @@ defmodule Zaq.Channels.DiskBridge do
     end
   end
 
+  @doc """
+  Grants a person, a team, or everyone access to a document or a folder.
+
+  Answers with the same page `list_permissions/2` would, so a caller reads the result of its
+  own write without a second call.
+
+  A folder cascades: ingestion writes each grant onto every document under it, since a folder
+  has no permissions of its own to hold one. That is ingestion's rule to apply, not this
+  bridge's — the request travels whole and the fan-out happens where the documents live.
+  """
+  @impl true
+  def update_permissions(config, params) when is_map(config) and is_map(params) do
+    file_id = to_string(fetch(params, "file_id") || fetch(params, "path"))
+    request = permissions_request(params)
+
+    with {:ok, %{applied_to: applied_to} = grants} <-
+           dispatch(:update_record_permissions, request, config) do
+      page = permission_page(grants, file_id)
+      {:ok, %RecordPage{page | stats: Map.put(page.stats, :applied_to, applied_to)}}
+    end
+  end
+
   # -- mapping --
 
   # Ingestion answers with volume entries; the canonical record shape is put on here. The
@@ -239,6 +261,30 @@ defmodule Zaq.Channels.DiskBridge do
       "encoding" => fetch(params, "encoding"),
       "tags" => fetch(params, "tags") || []
     }
+  end
+
+  # Whichever handle the caller holds travels: `file_id` names a document or a folder, and
+  # `path`/`volume` name one directly. Ingestion resolves it — this bridge does not have to
+  # know which volume anything sits on.
+  defp permissions_request(params) do
+    ["file_id", "path", "volume", "grants"]
+    |> Enum.reduce(%{}, fn key, request ->
+      case fetch(params, key) do
+        nil -> request
+        value -> Map.put(request, key, value)
+      end
+    end)
+    |> put_public(params)
+  end
+
+  # `public` is the one field where `false` carries an instruction — stop sharing this with
+  # everyone — so it is read by key presence. `fetch/2` reports a `false` value as an absent
+  # one, which would silently turn "unshare" into "leave as is".
+  defp put_public(request, params) do
+    case Utils.Map.read_any(params, ["public", :public]) do
+      nil -> request
+      public -> Map.put(request, "public", public)
+    end
   end
 
   # Only the keys the caller actually sent travel, so ingestion can tell "leave this alone"

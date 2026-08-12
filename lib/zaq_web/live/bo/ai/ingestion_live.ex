@@ -355,58 +355,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("confirm_share", _params, %{assigns: %{share_modal_read_only: true}} = socket),
     do: {:noreply, socket}
 
+  # Ingestion owns the folder cascade — granting on a folder writes the grant onto every
+  # document under it — so the whole share travels as one request rather than being fanned out
+  # from here.
   def handle_event("confirm_share", _params, socket) do
-    pending = socket.assigns.share_modal_pending
     name = socket.assigns.modal_name
-    is_public = socket.assigns.share_modal_is_public
-    original_is_public = socket.assigns.share_modal_original_is_public
-    volume = socket.assigns.current_volume
+    folder? = socket.assigns.share_modal_is_folder
 
-    if socket.assigns.share_modal_is_folder do
-      docs =
-        ingestion_call(:list_documents_under_folder, [
-          volume,
-          socket.assigns.share_modal_folder_path
-        ])
+    case dispatch_update_permissions(share_permissions_request(socket.assigns)) do
+      {:ok, _grants} ->
+        {:noreply,
+         socket
+         |> assign(modal: nil, modal_error: nil, share_modal_pending: [])
+         |> refresh_share_permissions(folder?)
+         |> load_entries()
+         |> put_flash(:info, share_saved_message(folder?, name))}
 
-      for doc <- docs,
-          %{type: type, id: id, access_rights: rights} <- pending do
-        ingestion_call(:set_document_permission, [doc.id, type, id, rights])
-      end
-
-      maybe_update_folder_public(
-        volume,
-        socket.assigns.share_modal_folder_path,
-        is_public,
-        original_is_public
-      )
-
-      {:noreply,
-       socket
-       |> assign(modal: nil, modal_error: nil, share_modal_pending: [])
-       |> load_entries()
-       |> put_flash(:info, "Permissions applied to all documents in \"#{name}\".")}
-    else
-      doc_id = socket.assigns.share_modal_document_id
-
-      for %{type: type, id: id, access_rights: rights} <- pending do
-        ingestion_call(:set_document_permission, [doc_id, type, id, rights])
-      end
-
-      maybe_update_document_public(doc_id, is_public, original_is_public)
-
-      permissions = ingestion_call(:list_document_permissions, [doc_id])
-
-      {:noreply,
-       socket
-       |> assign(
-         modal: nil,
-         modal_error: nil,
-         share_modal_permissions: permissions,
-         share_modal_pending: []
-       )
-       |> load_entries()
-       |> put_flash(:info, "Permissions saved for \"#{name}\".")}
+      {:error, reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Could not save permissions for \"#{name}\": #{inspect(reason)}"
+         )}
     end
   end
 
@@ -1287,21 +1258,44 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     Application.get_env(:zaq, :ingestion_prep_ttl_ms, @prep_ttl_ms_default)
   end
 
-  defp maybe_update_folder_public(_volume, _path, same, same), do: :ok
+  defp share_permissions_request(assigns) do
+    %{"grants" => Enum.map(assigns.share_modal_pending, &share_grant/1)}
+    |> Map.merge(share_target(assigns))
+    |> maybe_put_public(assigns.share_modal_is_public, assigns.share_modal_original_is_public)
+  end
 
-  defp maybe_update_folder_public(volume, path, true, _),
-    do: Ingestion.set_folder_public(volume, path)
+  defp share_grant(%{type: type, id: id, access_rights: rights}),
+    do: %{"type" => type, "target_id" => id, "access_rights" => rights}
 
-  defp maybe_update_folder_public(volume, path, false, _),
-    do: Ingestion.unset_folder_public(volume, path)
+  # A folder is named by its path, a file by the document it already has.
+  defp share_target(%{share_modal_is_folder: true} = assigns),
+    do: %{"path" => assigns.share_modal_folder_path, "volume" => assigns.current_volume}
 
-  defp maybe_update_document_public(_doc_id, same, same), do: :ok
+  defp share_target(assigns), do: %{"file_id" => to_string(assigns.share_modal_document_id)}
 
-  defp maybe_update_document_public(doc_id, true, _),
-    do: Ingestion.add_document_tag(doc_id, "public")
+  # Writing the flag re-tags every document under a folder, so it travels only when the
+  # operator actually moved the toggle.
+  defp maybe_put_public(request, same, same), do: request
+  defp maybe_put_public(request, is_public, _original), do: Map.put(request, "public", is_public)
 
-  defp maybe_update_document_public(doc_id, false, _),
-    do: Ingestion.remove_document_tag(doc_id, "public")
+  # A folder's modal closes on save, so only the file modal has a list left to repopulate.
+  defp refresh_share_permissions(socket, true), do: socket
+
+  defp refresh_share_permissions(socket, false) do
+    permissions =
+      ingestion_call(:list_document_permissions, [socket.assigns.share_modal_document_id])
+
+    assign(socket, share_modal_permissions: permissions)
+  end
+
+  defp share_saved_message(true, name), do: "Permissions applied to all documents in \"#{name}\"."
+  defp share_saved_message(false, name), do: "Permissions saved for \"#{name}\"."
+
+  defp dispatch_update_permissions(request) do
+    Event.new(request, :ingestion, opts: [action: :update_record_permissions])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
 
   defp status_match?("all", _job_status), do: true
 

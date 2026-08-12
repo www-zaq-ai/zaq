@@ -107,6 +107,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.DataSource.UpdateDocument
     },
     %{
+      key: "data_source.update_permissions",
+      label: "Update permissions",
+      description:
+        "Grant a person, a team, or everyone access to a document or folder; a folder applies the grant to every document inside it",
+      module: Zaq.Agent.Tools.DataSource.UpdatePermissions
+    },
+    %{
       key: "data_source.get_sheet",
       label: "Get sheet",
       description: "Read spreadsheet data from a specific datasource provider",

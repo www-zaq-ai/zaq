@@ -47,6 +47,7 @@ defmodule Zaq.Ingestion do
     VolumeRecords
   }
 
+  alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion.FileExplorer.Entry
   alias Zaq.Permissions.DocumentPermission, as: Permission
@@ -634,18 +635,316 @@ defmodule Zaq.Ingestion do
   @spec list_record_permissions(String.t() | integer()) ::
           {:ok, %{permissions: [map()], public?: boolean()}} | {:error, term()}
   def list_record_permissions(file_id) do
-    case Document.get(file_id) do
-      %Document{} = document ->
-        {:ok,
-         %{
-           permissions: Enum.map(list_document_permissions(document.id), &permission_grant/1),
-           public?: "public" in (document.tags || [])
-         }}
-
-      nil ->
-        {:error, :not_found}
+    with {:ok, target} <- permission_target_for(%{"file_id" => file_id}) do
+      {:ok, read_permissions(target)}
     end
   end
+
+  @doc """
+  Grants access to a record, then answers with the resulting grants.
+
+  `grants` is a list of `%{type, target_id, access_rights}` maps naming a person or a team.
+  Each is upserted, so re-granting a target already holding access rewrites its rights rather
+  than failing. `public` toggles read access for everyone; leaving it out keeps the record's
+  current visibility, which is not the same as sending `false`.
+
+  A folder holds no permissions of its own, so granting on one writes the grant onto every
+  document under it — the rule an operator gets from the BO ingestion page. The whole cascade
+  runs in one transaction: a grant naming a person who does not exist fails the request rather
+  than leaving half a folder shared. `applied_to` reports how many documents were written.
+
+  The record is named either by `file_id` — a `documents.id`, or the `disk:<volume>:<path>` id
+  a folder answers with, both as `list_records/1` hands them out — or by an explicit `path`
+  and `volume`.
+  """
+  @spec update_record_permissions(map()) :: {:ok, map()} | {:error, term()}
+  def update_record_permissions(request) when is_map(request) do
+    with {:ok, grants} <- cast_permission_grants(MapUtils.present_value(request, "grants") || []),
+         {:ok, public} <- cast_permission_public(MapUtils.read_any(request, ["public", :public])),
+         {:ok, target} <- permission_target_for(request),
+         {:ok, applied_to} <- write_permissions(target, grants, public) do
+      {:ok, Map.put(read_permissions(target), :applied_to, applied_to)}
+    end
+  end
+
+  # -- resolving a permission target --
+
+  # BO holds a volume and a path; a bridge or agent holds the id from a listing. Both name the
+  # same thing, so both are accepted rather than making one caller rebuild the other's handle.
+  defp permission_target_for(request) do
+    case {MapUtils.present_value(request, "file_id"), MapUtils.present_value(request, "path")} do
+      {nil, path} when is_binary(path) ->
+        resolve_permission_path(MapUtils.present_value(request, "volume"), path)
+
+      {file_id, _path} when is_binary(file_id) or is_integer(file_id) ->
+        resolve_permission_file_id(file_id)
+
+      _ ->
+        {:error, :file_id_required}
+    end
+  end
+
+  defp resolve_permission_file_id("disk:" <> rest) do
+    case String.split(rest, ":", parts: 2) do
+      [volume, path] when path != "" -> resolve_permission_path(volume, path)
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp resolve_permission_file_id(file_id) when is_integer(file_id),
+    do: resolve_permission_document(file_id)
+
+  defp resolve_permission_file_id(file_id) when is_binary(file_id) do
+    # `Document.get/1` casts its argument into an integer id, so a handle that is not one would
+    # raise rather than answer. An id naming nothing is a missing record, not a crash.
+    case Integer.parse(file_id) do
+      {_id, ""} -> resolve_permission_document(file_id)
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp resolve_permission_document(file_id) do
+    case Document.get(file_id) do
+      %Document{} = document -> {:ok, {:document, document}}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  # Nothing here reads the filesystem. A folder's grants live on the document rows under it, so
+  # a path naming no document row is a folder — possibly an empty one. That is the rule
+  # `list_folder_permissions/2` and `set_folder_public/2` already follow, and it means a folder
+  # can be shared whether or not its volume happens to be mounted.
+  defp resolve_permission_path(volume, path) do
+    path = SourcePath.normalize_relative(path)
+
+    case find_document_by_path(volume, path) do
+      %Document{} = document -> {:ok, {:document, document}}
+      nil -> {:ok, {:folder, volume, path}}
+    end
+  end
+
+  # A volume-prefixed candidate has no meaning without a volume — single-volume deployments
+  # store the bare relative path.
+  defp find_document_by_path(nil, path), do: Document.get_by_source(path)
+
+  defp find_document_by_path(volume, path) do
+    volume
+    |> SourcePath.source_candidates(path)
+    |> Enum.find_value(&Document.get_by_source/1)
+  end
+
+  # -- reading and writing a permission target --
+
+  defp read_permissions({:document, %Document{id: id}}) do
+    document = Document.get(id)
+
+    %{
+      permissions: Enum.map(list_document_permissions(id), &permission_grant/1),
+      public?: "public" in ((document && document.tags) || [])
+    }
+  end
+
+  defp read_permissions({:folder, volume, path}) do
+    %{
+      permissions: Enum.map(list_folder_permissions(volume, path), &permission_grant/1),
+      public?: folder_public?(volume, path)
+    }
+  end
+
+  defp write_permissions({:document, %Document{id: id}}, grants, public) do
+    Repo.transaction(fn ->
+      Enum.each(grants, &write_permission_grant(id, &1))
+      write_document_public(id, public)
+      1
+    end)
+  end
+
+  defp write_permissions({:folder, volume, path}, grants, public) do
+    documents = list_documents_under_folder(volume, path)
+
+    Repo.transaction(fn ->
+      # Granting to nothing is a miss, not a success. A path ZAQ holds no documents for is
+      # almost always a wrong or un-ingested one, and answering `:ok` would tell the caller the
+      # share happened when nobody gained access.
+      if documents == [] and grants != [] do
+        Repo.rollback(no_documents_error(path))
+      end
+
+      for document <- documents, grant <- grants, do: write_permission_grant(document.id, grant)
+      write_folder_public(volume, path, public)
+      length(documents)
+    end)
+  end
+
+  defp no_documents_error(path) do
+    %{
+      display_message:
+        "\"#{path}\" names no ingested document, so nobody was granted access. Check the path, or ingest it first.",
+      reason: :no_documents_matched,
+      path: path
+    }
+  end
+
+  defp write_permission_grant(document_id, %{type: type, target_id: target_id, rights: rights}) do
+    case set_document_permission(document_id, type, target_id, rights) do
+      {:ok, permission} -> permission
+      {:error, changeset} -> Repo.rollback({:invalid_grant, changeset_errors(changeset)})
+    end
+  end
+
+  # An absent flag means "leave sharing as it is" — only an explicit boolean writes.
+  defp write_document_public(_document_id, nil), do: :ok
+  defp write_document_public(document_id, true), do: add_document_tag(document_id, "public")
+  defp write_document_public(document_id, false), do: remove_document_tag(document_id, "public")
+
+  defp write_folder_public(_volume, _path, nil), do: :ok
+  defp write_folder_public(volume, path, true), do: set_folder_public(volume, path)
+  defp write_folder_public(volume, path, false), do: unset_folder_public(volume, path)
+
+  # -- casting grant input --
+
+  defp cast_permission_grants(grants) when is_list(grants) do
+    Enum.reduce_while(grants, {:ok, []}, fn grant, {:ok, cast} ->
+      case cast_permission_grant(grant) do
+        {:ok, grant} -> {:cont, {:ok, cast ++ [grant]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp cast_permission_grants(grants), do: {:error, {:invalid_grants, grants}}
+
+  defp cast_permission_grant(grant) when is_map(grant) do
+    with {:ok, type} <- cast_permission_type(MapUtils.present_value(grant, "type")),
+         {:ok, target_id} <-
+           resolve_grant_target(type, MapUtils.present_value(grant, "target_id")) do
+      # Rights are left to `DocumentPermission`'s changeset, which is the one place that says
+      # which rights a document grant may carry.
+      rights = MapUtils.present_value(grant, "access_rights") || ["read"]
+      {:ok, %{type: type, target_id: target_id, rights: rights}}
+    end
+  end
+
+  defp cast_permission_grant(grant), do: {:error, {:invalid_grant, grant}}
+
+  defp cast_permission_type("person"), do: {:ok, :person}
+  defp cast_permission_type("team"), do: {:ok, :team}
+  defp cast_permission_type(type) when type in [:person, :team], do: {:ok, type}
+  defp cast_permission_type(type), do: {:error, {:invalid_grant_type, type}}
+
+  # -- resolving who a grant names --
+
+  # A grant must end up naming a real row. Callers that hold an id send one; a caller working
+  # from what a human said sends a name, and resolving it here is what stops "Jad" from being
+  # written into `person_id`. An ambiguous name is refused with the candidates attached, so the
+  # caller can put the choice back to the human instead of guessing.
+  defp resolve_grant_target(_type, target) when target in [nil, ""],
+    do: {:error, :target_id_required}
+
+  defp resolve_grant_target(type, target) when is_integer(target),
+    do: verify_grant_target(type, target)
+
+  defp resolve_grant_target(type, target) when is_binary(target) do
+    case Integer.parse(target) do
+      {id, ""} -> verify_grant_target(type, id)
+      _ -> resolve_grant_target_by_name(type, target)
+    end
+  end
+
+  defp resolve_grant_target(_type, target), do: {:error, {:invalid_target_id, target}}
+
+  defp verify_grant_target(:person, id) do
+    case People.get_person(id) do
+      nil -> {:error, unknown_target_error(:person, id)}
+      person -> {:ok, person.id}
+    end
+  end
+
+  defp verify_grant_target(:team, id) do
+    case People.get_team(id) do
+      nil -> {:error, unknown_target_error(:team, id)}
+      team -> {:ok, team.id}
+    end
+  end
+
+  defp resolve_grant_target_by_name(type, name) do
+    case match_grant_targets(type, name) do
+      [match] -> {:ok, match.id}
+      [] -> {:error, no_target_match_error(type, name)}
+      matches -> {:error, ambiguous_target_error(type, name, matches)}
+    end
+  end
+
+  # An exact name settles it: "Jad" alongside "Jad Tarabay" is a match and a near-miss, not a
+  # genuine ambiguity.
+  defp match_grant_targets(type, name) do
+    matches = search_grant_targets(type, name)
+    normalized = String.downcase(String.trim(name))
+
+    case Enum.filter(matches, &(String.downcase(target_label(&1)) == normalized)) do
+      [] -> matches
+      exact -> exact
+    end
+  end
+
+  defp search_grant_targets(:person, name), do: People.search_people(name)
+
+  defp search_grant_targets(:team, name) do
+    normalized = String.downcase(String.trim(name))
+
+    Enum.filter(People.list_teams(), &String.contains?(String.downcase(&1.name), normalized))
+  end
+
+  defp target_label(%{full_name: full_name}) when is_binary(full_name), do: full_name
+  defp target_label(%{name: name}) when is_binary(name), do: name
+  defp target_label(_target), do: ""
+
+  defp unknown_target_error(type, id) do
+    %{
+      display_message:
+        "No #{type} has id #{id}. Search for the #{type} by name first, then grant using the id it returns.",
+      reason: :unknown_grant_target,
+      type: type
+    }
+  end
+
+  defp no_target_match_error(type, name) do
+    %{
+      display_message:
+        "No #{type} matches \"#{name}\". Check the spelling, or ask the user who they mean.",
+      reason: :no_grant_target_match,
+      type: type
+    }
+  end
+
+  defp ambiguous_target_error(type, name, matches) do
+    candidates = Enum.map(matches, &%{id: &1.id, name: target_label(&1)})
+
+    listed =
+      matches
+      |> Enum.take(5)
+      |> Enum.map_join("; ", &"#{&1.id} — #{target_label(&1)}#{target_detail(&1)}")
+
+    %{
+      display_message:
+        "\"#{name}\" matches #{length(matches)} #{type}s. Ask the user which one, then grant using that id: #{listed}",
+      reason: :ambiguous_grant_target,
+      type: type,
+      candidates: candidates
+    }
+  end
+
+  defp target_detail(%{email: email}) when is_binary(email) and email != "", do: " <#{email}>"
+  defp target_detail(_target), do: ""
+
+  defp cast_permission_public(nil), do: {:ok, nil}
+  defp cast_permission_public(public) when is_boolean(public), do: {:ok, public}
+  defp cast_permission_public("true"), do: {:ok, true}
+  defp cast_permission_public("false"), do: {:ok, false}
+  defp cast_permission_public(public), do: {:error, {:invalid_public, public}}
+
+  defp changeset_errors(%Ecto.Changeset{} = changeset),
+    do: Ecto.Changeset.traverse_errors(changeset, fn {message, _opts} -> message end)
 
   defp permission_grant(%Permission{} = permission) do
     {type, target_id, name} = permission_target(permission)

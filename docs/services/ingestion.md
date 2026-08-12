@@ -82,6 +82,8 @@ File path
 - `list_documents_under_folder/2` — list docs under a folder path
 - `add_document_tag/2`, `remove_document_tag/2` — per-document tag mutations
 - `delete_folder_target_permission/3` — remove one permission record when pruning folder-level grants
+- `list_record_permissions/1` — flat grants for a record, named by document id or `disk:<volume>:<path>` folder id
+- `update_record_permissions/1` — grant a person, team, or everyone access to a record; a folder writes the grant onto every document under it and reports `applied_to`. Omitting `public` leaves visibility unchanged; the whole cascade runs in one transaction
 
 ### NodeRouter Boundary (`Zaq.Ingestion.Api`)
 - Ingestion role boundary used by `Zaq.NodeRouter.dispatch/1`
