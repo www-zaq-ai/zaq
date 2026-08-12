@@ -1,16 +1,16 @@
 defmodule Zaq.Agent.Tools.General.HttpRequestTest do
   use ExUnit.Case, async: true
 
-  # Validation itself is covered in `Zaq.Channels.HttpRequestTest`. This file
+  # Validation itself is covered in `Zaq.HttpRequestTest`. This file
   # covers the tool surface: schema, dispatch, and the build/send seam.
 
   alias Jido.Action.Schema
   alias Zaq.Agent.Tools.General.HttpRequest, as: Tool
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Channels.Api
-  alias Zaq.Channels.HttpRequest
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Event
+  alias Zaq.HttpRequest
 
   @response %{
     status: 200,

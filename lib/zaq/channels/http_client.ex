@@ -1,6 +1,6 @@
 defmodule Zaq.Channels.HttpClient do
   @moduledoc """
-  Sends a validated `Zaq.Channels.HttpRequest` over the network.
+  Sends a validated `Zaq.HttpRequest` over the network.
 
   This is the far side of the `:http_request` hop:
 
@@ -18,7 +18,7 @@ defmodule Zaq.Channels.HttpClient do
 
   ## This module validates nothing
 
-  It accepts `%Zaq.Channels.HttpRequest{}` and nothing else. That struct can
+  It accepts `%Zaq.HttpRequest{}` and nothing else. That struct can
   only be produced by `HttpRequest.build/2`, so receiving one *is* the proof
   that the URL, headers, query, body, and destination allowlist were all
   checked. A bare map — however well-formed — is refused with
@@ -31,7 +31,7 @@ defmodule Zaq.Channels.HttpClient do
 
   Requests carry no authorization: `HttpRequest.build/2` rejects credential
   headers outright, so there is nothing here to resolve, redact on the way out,
-  or keep out of a log. See `Zaq.Channels.HttpRequest` for why.
+  or keep out of a log. See `Zaq.HttpRequest` for why.
 
   ## Configuration
 
@@ -44,7 +44,7 @@ defmodule Zaq.Channels.HttpClient do
   `Req.Test` plug.
 
   Two things are deliberately **not** configured here: destination policy
-  (`allowed_hosts`) belongs to `Zaq.Channels.HttpRequest`, where it is enforced,
+  (`allowed_hosts`) belongs to `Zaq.HttpRequest`, where it is enforced,
   and the receive timeout travels on the request struct.
 
   ## Response
@@ -60,7 +60,7 @@ defmodule Zaq.Channels.HttpClient do
   > bounds what reaches the agent, not what crosses the network.
   """
 
-  alias Zaq.Channels.HttpRequest
+  alias Zaq.HttpRequest
 
   @default_max_response_bytes 100_000
   @redacted_response_headers ~w(set-cookie authorization proxy-authorization)
@@ -77,7 +77,7 @@ defmodule Zaq.Channels.HttpClient do
   @doc """
   Sends `request`.
 
-  Only a `%Zaq.Channels.HttpRequest{}` is accepted — see the module note on why
+  Only a `%Zaq.HttpRequest{}` is accepted — see the module note on why
   a map is refused instead of normalised.
 
   `opts` may override `:max_response_bytes` and `:req_options`.
