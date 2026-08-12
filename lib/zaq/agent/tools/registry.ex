@@ -59,6 +59,21 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.General.DecodeBase64
     },
     %{
+      key: "general.encode_json",
+      label: "Encode JSON",
+      description:
+        "Serialise a value to a JSON string, compact for the wire or indented for a reader",
+      module: Zaq.Agent.Tools.General.EncodeJson
+    },
+    %{
+      key: "general.decode_json",
+      label: "Decode JSON",
+      description:
+        "Parse a JSON string into a value, accepting any top-level type and tolerating " <>
+          "surrounding whitespace and a wrapping Markdown code fence",
+      module: Zaq.Agent.Tools.General.DecodeJson
+    },
+    %{
       key: "conversation.persist_message_history",
       label: "Persist message history",
       description:
