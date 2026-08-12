@@ -23,7 +23,7 @@ defmodule Zaq.Channels.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
-  alias Zaq.Channels.{HttpClient, HttpRequest}
+  alias Zaq.Channels.HttpClient
   alias Zaq.Channels.MessageFormatter
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -31,6 +31,7 @@ defmodule Zaq.Channels.Api do
   alias Zaq.Event
   alias Zaq.Events.Helper
   alias Zaq.Events.TrustedContext
+  alias Zaq.HttpRequest
   alias Zaq.InternalBoundaries
 
   @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
@@ -729,7 +730,7 @@ defmodule Zaq.Channels.Api do
     %{event | response: http_module.request(request, event.opts)}
   end
 
-  # A plain map never reaches the executor: only `Zaq.Channels.HttpRequest`
+  # A plain map never reaches the executor: only `Zaq.HttpRequest`
   # carries proof that the spec was validated.
   def handle_event(%Event{request: %{request: request}} = event, :http_request, _context)
       when is_map(request),

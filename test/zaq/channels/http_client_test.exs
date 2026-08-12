@@ -2,11 +2,11 @@ defmodule Zaq.Channels.HttpClientTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Channels.HttpClient, as: Client
-  alias Zaq.Channels.HttpRequest
+  alias Zaq.HttpRequest
 
   # Every test that should reach the "network" installs a Req.Test plug, which
   # stubs the transport. Destination policy is not exercised here — it is
-  # enforced at build time and covered in `Zaq.Channels.HttpRequestTest`.
+  # enforced at build time and covered in `Zaq.HttpRequestTest`.
   defp stub(fun), do: [req_options: [plug: fun]]
   defp stub_with(opts, extra), do: Keyword.merge(opts, extra)
 
@@ -241,5 +241,5 @@ defmodule Zaq.Channels.HttpClientTest do
   end
 
   # Credential resolution needs the database, so it lives in
-  # `Zaq.Channels.HttpRequest.SecretsTest` rather than here.
+  # `Zaq.HttpRequest.SecretsTest` rather than here.
 end

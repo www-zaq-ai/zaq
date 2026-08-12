@@ -1,4 +1,4 @@
-defmodule Zaq.Channels.HttpRequest do
+defmodule Zaq.HttpRequest do
   @moduledoc """
   A validated outbound HTTP request spec.
 
@@ -6,6 +6,10 @@ defmodule Zaq.Channels.HttpRequest do
   *sending it*. `Zaq.Channels.HttpClient` accepts nothing else, so the struct's
   existence is the proof that validation ran — which is why the client performs
   no checks of its own.
+
+  It lives at the top level, alongside `Zaq.Event`, because it crosses roles:
+  the agent builds one, the channels node sends it. Neither role owns it, and
+  neither depends on the other.
 
       http_request tool  →  %HttpRequest{}  →  Zaq.Channels.HttpClient
        (all validation)       (the proof)         (send only)
@@ -46,7 +50,7 @@ defmodule Zaq.Channels.HttpRequest do
 
   ## Configuration
 
-      config :zaq, Zaq.Channels.HttpRequest,
+      config :zaq, Zaq.HttpRequest,
         allowed_hosts: ["api.acme.com", ".internal.acme.com"]
 
   Overridable per call through `opts`.
