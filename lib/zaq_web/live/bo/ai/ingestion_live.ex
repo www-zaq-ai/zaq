@@ -27,6 +27,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
   @ingestion_topic "ingestion:jobs"
+  @disk_provider "disk"
 
   # A "Preparing…" entry normally clears via a terminal job broadcast. If a job
   # is orphaned (hard VM/node kill emits no Oban telemetry), that broadcast may
@@ -1291,8 +1292,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp share_saved_message(true, name), do: "Permissions applied to all documents in \"#{name}\"."
   defp share_saved_message(false, name), do: "Permissions saved for \"#{name}\"."
 
-  defp dispatch_update_permissions(request) do
-    Event.new(request, :ingestion, opts: [action: :update_record_permissions])
+  # Shares go out through `Zaq.Channels.DiskBridge`, the same hop an agent takes. The provider
+  # is `"disk"`, the name the bridge is registered under — not BO's `"local"` browsing sentinel.
+  defp dispatch_update_permissions(params) do
+    opts = [
+      action: :data_source_update_permissions,
+      data_source_bridge_module: data_source_bridge_module()
+    ]
+
+    Event.new(%{provider: @disk_provider, params: params}, :channels, opts: opts)
     |> NodeRouter.dispatch()
     |> Map.get(:response)
   end
