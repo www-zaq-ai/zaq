@@ -4,6 +4,7 @@ defmodule Zaq.Agent.Tools.General.HttpRequestTest do
   # Validation itself is covered in `Zaq.Channels.HttpRequestTest`. This file
   # covers the tool surface: schema, dispatch, and the build/send seam.
 
+  alias Jido.Action.Schema
   alias Zaq.Agent.Tools.General.HttpRequest, as: Tool
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Channels.Api
@@ -164,8 +165,15 @@ defmodule Zaq.Agent.Tools.General.HttpRequestTest do
                })
     end
 
+    test "params and output schemas are valid Zoi schemas" do
+      assert Schema.schema_type(Tool.schema()) == :zoi
+      assert Schema.schema_type(Tool.output_schema()) == :zoi
+      assert :ok = Schema.validate_config_schema(Tool.schema())
+      assert :ok = Schema.validate_config_schema(Tool.output_schema())
+    end
+
     test "there is no auth parameter to pass a credential through" do
-      refute Enum.any?(Tool.schema(), fn {key, _spec} -> key == :auth end)
+      refute Keyword.has_key?(Tool.schema().fields, :auth)
     end
   end
 
