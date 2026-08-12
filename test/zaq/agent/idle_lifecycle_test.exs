@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.IdleLifecycleTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Zaq.Agent.IdleLifecycle
 

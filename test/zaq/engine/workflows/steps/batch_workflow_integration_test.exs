@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Workflows.Steps.BatchWorkflowIntegrationTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.{CategorizeBySize, ListClients}

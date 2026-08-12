@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.Tools.Workflow.ScheduleActionTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
   use Oban.Testing, repo: Zaq.Repo
 
   alias Zaq.Agent.Tools.Workflow.ScheduleAction

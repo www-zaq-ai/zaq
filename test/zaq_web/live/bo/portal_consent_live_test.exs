@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
-  use ZaqWeb.ConnCase
+  use ZaqWeb.ConnCase, async: true
 
   import Ecto.Query
   import Phoenix.LiveViewTest

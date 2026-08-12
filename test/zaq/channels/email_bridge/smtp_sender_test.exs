@@ -1,4 +1,6 @@
 defmodule Zaq.Channels.EmailBridge.SmtpSenderTest do
+  # Not async: this test purges and reloads the OTP :public_key module, which is
+  # VM-global and would break TLS for any concurrently running test.
   use Zaq.DataCase, async: false
 
   @moduletag capture_log: true

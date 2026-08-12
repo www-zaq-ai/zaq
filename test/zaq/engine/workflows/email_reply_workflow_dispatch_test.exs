@@ -17,7 +17,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
   Workflows.list_step_runs/1, so all keys are string-keyed (JSONB round-trip)
   and atom values like :skipped/:sent become their string equivalents.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.{TriggerNode, Workflows}
   alias Zaq.Engine.Workflows.Steps.HumanInTheLoop

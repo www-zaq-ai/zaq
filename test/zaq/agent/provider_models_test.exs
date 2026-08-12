@@ -1,4 +1,6 @@
 defmodule Zaq.Agent.ProviderModelsTest do
+  # Not async: with_temporary_modules/2 purges and recompiles ReqLLM and LLMDB.*,
+  # which is VM-global state a concurrent test would see or clobber.
   use ExUnit.Case, async: false
 
   alias Zaq.Agent.ProviderModels

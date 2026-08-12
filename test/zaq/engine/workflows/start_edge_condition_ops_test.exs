@@ -22,7 +22,7 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
   *absent* content cases against a spaced key, since that is where a
   content-vs-generate entry fork branches.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows.DagBuilder
 

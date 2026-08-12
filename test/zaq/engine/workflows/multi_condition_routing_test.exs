@@ -30,7 +30,7 @@ defmodule Zaq.Engine.Workflows.MultiConditionRoutingTest do
   the real dispatch path:
     TriggerNode.fire → Workflows.create_and_start_run → WorkflowRunAgent.execute.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.{TriggerNode, Workflows}
   alias Zaq.Event

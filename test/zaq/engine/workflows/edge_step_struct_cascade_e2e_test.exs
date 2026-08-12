@@ -22,7 +22,7 @@ defmodule Zaq.Engine.Workflows.EdgeStepStructCascadeE2ETest do
   gets a `Step.Run` row, the run finalizes `"completed"`, and `leaf` runs — for
   both a top-level struct and a struct nested in a list.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.WorkflowRunAgent

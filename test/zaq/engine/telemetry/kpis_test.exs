@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Telemetry.KpisTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Rollup

@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Telemetry.Workers.AggregateRollupsWorkerTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   import Ecto.Query
 

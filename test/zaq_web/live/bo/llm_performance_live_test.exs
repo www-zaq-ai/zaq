@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.LLMPerformanceLiveTest do
-  use ZaqWeb.ConnCase
+  use ZaqWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures

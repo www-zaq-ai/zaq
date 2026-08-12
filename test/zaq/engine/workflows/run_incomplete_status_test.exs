@@ -29,7 +29,7 @@ defmodule Zaq.Engine.Workflows.RunIncompleteStatusTest do
   leaf — is pruned and never writes a row. No leaf completed ⇒ the run finalizes
   `"incomplete"`.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.WorkflowRunAgent

@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
   use Oban.Testing, repo: Zaq.Repo
 
   alias Zaq.Engine.Workflows

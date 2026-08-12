@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Jido.Action.Runtime
   alias Jido.Action.Schema

@@ -31,7 +31,7 @@ defmodule Zaq.Engine.Workflows.EdgeCrashVisibilityTest do
   `DagBuilder`'s private `build_edge_step_node/5`, bypassing only
   `validate_edges/2` — everything else is the real node/edge wiring.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Jido.Runic.ActionNode
   alias Zaq.Engine.Workflows

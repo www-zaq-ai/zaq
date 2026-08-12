@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
-  use ZaqWeb.ConnCase
+  use ZaqWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures

@@ -1,7 +1,7 @@
 defmodule Zaq.Engine.Workflows.AsyncLaunchTest do
   # async: false → DataCase runs the sandbox in shared mode, so the supervised
   # background task spawned by start_run_async/2 can use the DB connection.
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
 

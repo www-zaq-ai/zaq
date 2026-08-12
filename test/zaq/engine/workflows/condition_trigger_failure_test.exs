@@ -16,7 +16,7 @@ defmodule Zaq.Engine.Workflows.ConditionTriggerFailureTest do
     - `position` is `"CTO"`, so **both** conditions fail → the step fails and the run
       ends `failed`, with the clear sentence stored verbatim on the `StepRun`.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.{TriggerNode, Workflows}
   alias Zaq.Event

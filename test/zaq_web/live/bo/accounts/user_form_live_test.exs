@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.Accounts.UserFormLiveTest do
-  use ZaqWeb.ConnCase
+  use ZaqWeb.ConnCase, async: true
 
   import Mox
   import Phoenix.LiveViewTest

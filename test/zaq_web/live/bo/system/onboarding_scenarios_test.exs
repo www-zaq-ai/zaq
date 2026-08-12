@@ -10,7 +10,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
   `change_password_live_test.exs` and `portal_consent_live_test.exs`.
   """
 
-  use ZaqWeb.ConnCase, async: false
+  use ZaqWeb.ConnCase, async: true
 
   import Ecto.Query
   import Mox

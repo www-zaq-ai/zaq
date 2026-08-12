@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLiveTest do
-  use ZaqWeb.ConnCase, async: false
+  use ZaqWeb.ConnCase, async: true
 
   import Mox
   import Phoenix.LiveViewTest

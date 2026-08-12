@@ -18,7 +18,7 @@ defmodule Zaq.Engine.Conversations.ThreadingPersistenceTest do
        topic/subject-based, or the next anchor lookup would miss and the chain
        would break.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   @moduletag capture_log: true
 

@@ -1,5 +1,5 @@
 defmodule Zaq.Ingestion.ObanTelemetryTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Ingestion.{IngestJob, ObanTelemetry}
   alias Zaq.Repo

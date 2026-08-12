@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.System.ForgotPasswordLiveTest do
-  use ZaqWeb.ConnCase, async: false
+  use ZaqWeb.ConnCase, async: true
 
   import Ecto.Query
   import Phoenix.LiveViewTest

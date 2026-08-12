@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.SharedConversationLiveTest do
-  use ZaqWeb.ConnCase
+  use ZaqWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
 

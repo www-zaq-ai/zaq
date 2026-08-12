@@ -1,5 +1,5 @@
 defmodule Zaq.Accounts.PasswordResetTest do
-  use Zaq.DataCase
+  use Zaq.DataCase, async: true
 
   alias Zaq.Accounts
 

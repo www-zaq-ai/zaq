@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
   use ExUnitProperties
 
   alias Zaq.Contracts.Record

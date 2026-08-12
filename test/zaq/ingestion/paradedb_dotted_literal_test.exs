@@ -11,7 +11,7 @@ defmodule Zaq.Ingestion.ParadeDBDottedLiteralTest do
   version retrieval on ParadeDB (the Native counterpart lives in
   `bm25_fusion_validation_test.exs` §5).
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Ingestion.{Chunk, Document, FTSBackend}
   alias Zaq.Ingestion.FTSBackend.ParadeDB

@@ -17,7 +17,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
   tests fail instead of silently shipping raw markdown to recipients.
   """
 
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Channels.Api
   alias Zaq.Channels.ChannelConfig

@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.IncomingMessageRouterTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Channels.EventNames

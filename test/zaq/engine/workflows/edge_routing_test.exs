@@ -8,7 +8,7 @@ defmodule Zaq.Engine.Workflows.EdgeRoutingTest do
     A → B → C  condition {gender==male}  mapping {person_name←name}  → D
          B → F  condition {gender==female} mapping {first_name←name}
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.WorkflowRunAgent

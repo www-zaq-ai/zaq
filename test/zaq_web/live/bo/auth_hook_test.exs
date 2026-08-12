@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.AuthHookTest do
-  use ZaqWeb.ConnCase
+  use ZaqWeb.ConnCase, async: true
 
   import Zaq.AccountsFixtures
   import Phoenix.LiveViewTest

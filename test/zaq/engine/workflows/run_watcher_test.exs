@@ -12,7 +12,7 @@ defmodule Zaq.Engine.Workflows.RunWatcherTest do
   at the execution pipeline around it.
   """
 
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.RunWatcher

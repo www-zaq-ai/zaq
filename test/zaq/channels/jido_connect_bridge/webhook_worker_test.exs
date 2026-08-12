@@ -1,4 +1,6 @@
 defmodule Zaq.Channels.JidoConnectBridge.WebhookWorkerTest do
+  # Not async: this test purges and recompiles Zaq.Channels.JidoConnectBridge,
+  # which is VM-global state a concurrent test would see or clobber.
   use Zaq.DataCase, async: false
 
   alias Oban.Job

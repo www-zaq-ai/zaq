@@ -23,7 +23,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
   Global counts: 6 dispatched, 3 inactive, 3 in_sequence.
   """
 
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.TriggerNode
   alias Zaq.Engine.Workflows

@@ -1,5 +1,5 @@
 defmodule Zaq.Channels.JidoConnectBridge.RuntimeMapperTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
   alias Zaq.Engine.Connect.{Credential, Grant}

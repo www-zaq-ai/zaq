@@ -8,7 +8,7 @@ defmodule Zaq.Engine.Conversations.EmailThreadAnchorTest do
   and is returned verbatim from `metadata["threading"]["anchor"]`, written at
   persist time by the delivering channel.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   @moduletag capture_log: true
 

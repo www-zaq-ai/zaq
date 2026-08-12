@@ -1,7 +1,7 @@
 # test/zaq_web/controllers/page_controller_test.exs
 
 defmodule ZaqWeb.PageControllerTest do
-  use ZaqWeb.ConnCase
+  use ZaqWeb.ConnCase, async: true
 
   import Zaq.AccountsFixtures
 

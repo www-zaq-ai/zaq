@@ -13,7 +13,7 @@ defmodule Zaq.Ingestion.ChunkSectionPathConvertedPdfTest do
   an 11-page French council-minutes PDF) through the real
   `parse_layout/2` + `chunk_sections/2` — no stubs.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Ingestion.DocumentChunker
   alias Zaq.System

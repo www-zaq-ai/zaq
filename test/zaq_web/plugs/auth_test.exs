@@ -1,7 +1,7 @@
 # test/zaq_web/plugs/auth_test.exs
 
 defmodule ZaqWeb.Plugs.AuthTest do
-  use ZaqWeb.ConnCase
+  use ZaqWeb.ConnCase, async: true
 
   import Zaq.AccountsFixtures
 

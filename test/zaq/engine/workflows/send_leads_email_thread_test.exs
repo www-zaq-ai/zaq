@@ -27,7 +27,7 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadTest do
   → `TriggerNode.fire/2` seam, which needs the shared Ecto sandbox and Mox
   `$callers` propagation.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Tools.Workflow.DispatchEvent
   alias Zaq.Engine.{TriggerNode, Workflows}

@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.IncomingMessageRoutingTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.Person
   alias Zaq.Agent.ConfiguredAgent
