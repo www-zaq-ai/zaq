@@ -7,7 +7,7 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
         → http_request   (this tool: validate → dispatch → response)
 
   The tool performs no I/O itself. It validates the parameters into a
-  `Zaq.Channels.HttpRequest`, then dispatches `:http_request` to the channels
+  `Zaq.HttpRequest`, then dispatches `:http_request` to the channels
   role through `NodeRouter.dispatch/1`, where `Zaq.Channels.HttpClient` opens
   the socket. The agent node never connects, and never holds a credential.
 
@@ -19,15 +19,15 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
   context as JSON, which meant re-validating whatever came back.
 
   Keeping the LLM out of the network path does not need a second tool call: the
-  `%Zaq.Channels.HttpRequest{}` struct plus the NodeRouter hop already
+  `%Zaq.HttpRequest{}` struct plus the NodeRouter hop already
   guarantee it.
 
-  ## Validation lives in `Zaq.Channels.HttpRequest`
+  ## Validation lives in `Zaq.HttpRequest`
 
   This module is the tool surface — schema, description, and result shaping.
   Every rule about what makes a request valid (URL form, header and query
   shape, auth rendering, body/format agreement, destination allowlist) lives in
-  `Zaq.Channels.HttpRequest.build/2`, so a workflow step can build the same
+  `Zaq.HttpRequest.build/2`, so a workflow step can build the same
   spec without going through a tool call.
 
   A build failure short-circuits: nothing is dispatched and no socket opens.
@@ -41,7 +41,7 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
 
   That confines this tool to endpoints needing no authorization. Supporting the
   rest needs a named reference resolved on the channels node — see
-  `Zaq.Channels.HttpRequest`.
+  `Zaq.HttpRequest`.
 
   ## Expected context keys
 
@@ -134,8 +134,8 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
       })
 
   alias Zaq.Agent.Tools.DataSourceTool
-  alias Zaq.Channels.HttpRequest
   alias Zaq.Event
+  alias Zaq.HttpRequest
   alias Zaq.NodeRouter
 
   # Dispatched inline rather than through `DataSourceTool.dispatch/5`: that helper

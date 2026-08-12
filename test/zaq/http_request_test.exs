@@ -1,7 +1,7 @@
-defmodule Zaq.Channels.HttpRequestTest do
+defmodule Zaq.HttpRequestTest do
   use ExUnit.Case, async: true
 
-  alias Zaq.Channels.HttpRequest
+  alias Zaq.HttpRequest
 
   defp build(params, opts \\ []), do: HttpRequest.build(params, opts)
 
@@ -228,11 +228,11 @@ defmodule Zaq.Channels.HttpRequestTest do
   end
 end
 
-defmodule Zaq.Channels.HttpRequestConfigTest do
+defmodule Zaq.HttpRequestConfigTest do
   # Not async: the allowlist is read from application env, which is global.
   use ExUnit.Case, async: false
 
-  alias Zaq.Channels.HttpRequest
+  alias Zaq.HttpRequest
 
   setup do
     previous = Application.get_env(:zaq, HttpRequest)
