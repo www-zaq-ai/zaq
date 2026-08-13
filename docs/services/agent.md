@@ -183,7 +183,8 @@ BO-managed skills built on **Open Agent Skills**, using Jido's *stateless* skill
 1. **Declaration.** `Zaq.Agent.Skill` (`agent_skills` table) is the source of truth: `name`
    (kebab-case, unique), `description` (**required**), `body` (markdown), `provided_tool_keys`
    (ZAQ `Tools.Registry` keys), `allowed_tools` (OAS tool names), `enabled_mcp_endpoint_ids`,
-   `resource_root`, `diagnostics` (validation cache), `tags`, `active`. BO CRUD at `/bo/skills`;
+   `resources` (bundled documents), `diagnostics` (validation cache), `tags`, `active`. BO CRUD
+   at `/bo/skills`;
    agents attach via `enabled_skill_ids` (array, no FK — ghost ids dropped at runtime).
 2. **Validation** (`Zaq.Agent.Skills.Validation`). Field shape is validated **by Jido's
    `Loader`**, not by ZAQ regexes: attrs are serialized to SKILL.md text and round-tripped
@@ -238,31 +239,43 @@ assembly only. Set it `false` to restore the eager renderer (`effective_system_p
 
 ### Skill resources (`Zaq.Agent.Skill.Resources`)
 
-Pure path derivation for a skill's reference files. Files live on an **ingestion volume**
-under `.agents/skills/{slug}/references/`, so they appear in the BO ingestion browser like
-any other ingested file — there is no separate storage mechanism.
+Owns `Skill.resources` — the documents a skill bundles — and the volume paths uploads land on.
 
-- `default_root/1` — `.agents/skills/{slug}` derived from `Skill.name`
-- `root/1` — the skill's effective root: the stored `resource_root` when present and safe,
-  else `default_root/1`. This is the directory removed on skill deletion
-- `references_dir/1` — `{root}/references`, where uploads land
+```elixir
+%{"references" => [%{"file_id" => "42", "file_name" => "prices.md", "provider" => "disk"}]}
+```
+
+`file_id` is a `documents.id`. Buckets are restricted to `references`, `scripts` and `assets`;
+only `references` is implemented. Every entry must carry all three keys.
+
+- `references/1` — the reference entries, `[]` when the skill has none
+- `add_references/2` / `remove_reference/2` — return the new resources map
+- `entry/3` — builds an entry from a bridge record
+- `record_page/1` — the references as unmaterialized `%Record{}` values in a `%RecordPage{}`
+- `references_dir/1` — `.agents/skills/{slug}/references`, where uploads land
 - `destination/2` — `{references_dir}/{basename}`; the client filename is reduced to a bare
   basename so directory components and traversal segments cannot survive
-- `slug/1` — defensive normaliser; identity for any persisted skill, since Jido already
-  constrains `name` to `~r/^[a-z0-9]+(-[a-z0-9]+)*$/`
+- `slug/1` — defensive normaliser; identity for any persisted skill
 
 **The module never touches the filesystem.** It derives path *strings* only; resolution and
 the authoritative containment check belong to the `:ingestion` role, the only node
-guaranteed to have the volume mounted. The sanitising here is a shape guard, not a security
-boundary — `FileExplorer.resolve_path/2` still rejects traversal independently.
+guaranteed to have the volume mounted.
 
-`resource_root` is **sticky**: written once on the first successful upload and reused
-thereafter, so renaming a skill does not orphan files already uploaded under the old name.
+**Write path (BO):** `SkillsLive` → `NodeRouter` (`:channels`, `:data_source_create_file`,
+provider `"disk"`) → `Zaq.Channels.DiskBridge` → `:ingestion`. The BO never calls ingestion
+directly. Files are written with `tags: ["public"]`, and the returned `documents.id` is
+appended to the skill's references bucket. Deleting a resource or a skill removes each
+recorded document by id — there is no volume sweep.
 
-**Write path (BO):** `SkillsLive` → `NodeRouter` (`:ingestion`) → `Ingestion.upload_file/3`
-+ `track_upload/2`. Uploading is gated on `Ingestion.volumes_configured?/0`. Wiring these
-files into the skill at runtime (progressive disclosure via `load_skill`) is not implemented
-yet.
+**Read path (agent):** `load_skill` returns `record_page/1` — metadata only, no content and
+no `materializing_event`. The model reads a file by calling `download_document` with the
+record's `id` and `attributes["provider"]`.
+
+> **Reads are not permission-filtered yet.** `Ingestion.materialize_record/1` and
+> `describe_record/1` take a bare `file_id`, and neither `DownloadDocument` nor
+> `ChannelTool.dispatch/5` forwards `:person_id`. The `"public"` tag is written now so the
+> data is correct when enforcement lands; until then any agent that can name a document id
+> can read it. Tracked in `docs/exec-plans/active/2026-08-07-skill-resources-documents.md`.
 
 **Staged uploads on an unsaved skill.** Resources can be added before a skill exists, as
 soon as a name is typed — the name is all the destination needs. Those entries are held in
@@ -282,17 +295,9 @@ Staged entries must be dropped whenever the form changes which skill it is about
 `consume_uploaded_entries/3` consumes *every* done entry in the config, so a leftover entry
 would otherwise be written into the next skill the operator touches.
 
-**Delete path (BO):** deleting a skill removes its whole `root/1` directory via
-`Ingestion.delete_path/4` (`"directory"`), which also clears the tracked `Document` rows.
-`Ingestion.file_info/2` gates each removal, because a skill that never had an upload has no
-directory and `delete_path/4` reports `{:error, :not_a_directory}` for a missing path.
-
-**Known gap — the volume is not persisted.** The upload modal lets the operator pick a
-volume, but only the volume-relative `resource_root` is stored, so which volume holds a
-skill's files is not recoverable from the record. Deletion therefore **sweeps every
-configured volume**, removing the root wherever it exists. This is correct but O(volumes);
-persisting a `resource_volume` column would make it a direct lookup and is the right fix if
-volume counts grow.
+**Delete path (BO):** deleting a skill removes each recorded `file_id` through
+`:data_source_delete_file`, which removes the file and its `Document` row. Deletion runs after the record is gone: the skill is the user's intent and
+already deleted, and orphaned files stay visible in the ingestion browser.
 
 ### `load_skill` tool (`Zaq.Agent.Tools.Skills.LoadSkill`, key `skills.load_skill`)
 - Returns a skill's full `instructions` as a tool result. **Stateless** — records nothing; the
@@ -310,9 +315,8 @@ volume counts grow.
   arrives with the deferred fork bump, Part 2 M0), and even that one resolves globally and leaks
   the catalog. Part 2 M2 adopts upstream's once it gains caller scoping (upstream U3).
 
-**Skill resources** (`load_skill_resource`, reading bundled `scripts/`/`references/`/`assets/`
-from the ingestion volume) are **Part 2 (M8)** — deferred until a skill ships bundled files. The
-`resource_root` column and its write-time validation exist from Part 1 but are unused until then.
+- Returns the skill's references as a `%RecordPage{}` of unmaterialized records. The model reads
+  one with `download_document`, passing the record's `id` and `attributes.provider`.
 
 ### Runtime Sync (`Zaq.Agent.RuntimeSync`)
 - Owns runtime orchestration after configured-agent, MCP endpoint, and skill mutations.

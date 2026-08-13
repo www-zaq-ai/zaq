@@ -244,6 +244,41 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       assert entry.name == "notes.md"
     end
 
+    test "writes the requested tags onto the document row" do
+      assert {:ok, _} =
+               Ingestion.persist_record(%{
+                 "name" => "tagged.md",
+                 "path" => @volume,
+                 "content" => "hi",
+                 "tags" => ["public"]
+               })
+
+      assert Document.get_by_source("#{@volume}/tagged.md").tags == ["public"]
+    end
+
+    test "defaults to no tags" do
+      assert {:ok, _} =
+               Ingestion.persist_record(%{
+                 "name" => "untagged.md",
+                 "path" => @volume,
+                 "content" => "hi"
+               })
+
+      assert Document.get_by_source("#{@volume}/untagged.md").tags == []
+    end
+
+    test "ignores tags that are not strings" do
+      assert {:ok, _} =
+               Ingestion.persist_record(%{
+                 "name" => "mixed.md",
+                 "path" => @volume,
+                 "content" => "hi",
+                 "tags" => ["public", 42, nil]
+               })
+
+      assert Document.get_by_source("#{@volume}/mixed.md").tags == ["public"]
+    end
+
     test "writes into a subdirectory of the volume", %{root: root} do
       File.mkdir_p!(Path.join(root, "manuals"))
 
@@ -872,6 +907,21 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
     test "reports the mounted volume names, sorted" do
       assert {:ok, %{root_folders: [@volume, @other_volume]}} = Ingestion.volume_stats()
+    end
+
+    test "reports whether volumes were actually configured" do
+      assert {:ok, %{volumes_configured?: true}} = Ingestion.volume_stats()
+    end
+
+    test "reports volumes as unconfigured when none are set, though root_folders is not empty" do
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, Keyword.delete(original || [], :volumes))
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original) end)
+
+      assert {:ok, %{volumes_configured?: false, root_folders: folders}} =
+               Ingestion.volume_stats()
+
+      refute folders == []
     end
   end
 end

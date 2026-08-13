@@ -191,7 +191,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   describe "create_file/2" do
-    test "dispatches :persist_record carrying name, path, content, and encoding" do
+    test "dispatches :persist_record carrying name, path, content, encoding, and tags" do
       stub_response({:ok, %{status: "created", entry: entry("42")}})
 
       assert {:ok, %{status: "created", record: %Record{id: "42"}}} =
@@ -199,7 +199,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
                  "name" => "notes.md",
                  "path" => "archives",
                  "content" => "# notes",
-                 "encoding" => "base64"
+                 "encoding" => "base64",
+                 "tags" => ["public"]
                })
 
       assert_received {:dispatch, :ingestion, :persist_record, request}
@@ -208,7 +209,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
                "name" => "notes.md",
                "path" => "archives",
                "content" => "# notes",
-               "encoding" => "base64"
+               "encoding" => "base64",
+               "tags" => ["public"]
              }
     end
 
@@ -220,6 +222,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert_received {:dispatch, :ingestion, :persist_record, request}
       assert request["content"] == ""
       assert request["encoding"] == nil
+      assert request["tags"] == []
     end
 
     test "passes an ingestion error back unchanged" do

@@ -456,9 +456,17 @@ defmodule Zaq.Ingestion do
          {:ok, content} <- decode_content(request),
          dest = dir |> Path.join(name) |> SourcePath.normalize_relative(),
          {:ok, absolute_path} <- upload_file(volume_name, dest, content),
-         {:ok, %Document{} = document} <- track_upload(volume_name, absolute_path),
+         {:ok, %Document{} = document} <-
+           track_upload(volume_name, absolute_path, request_tags(request)),
          {:ok, entry} <- describe_document(document) do
       {:ok, %{status: "created", entry: entry}}
+    end
+  end
+
+  defp request_tags(request) do
+    case MapUtils.present_value(request, "tags") do
+      tags when is_list(tags) -> Enum.filter(tags, &is_binary/1)
+      _ -> []
     end
   end
 
@@ -592,7 +600,9 @@ defmodule Zaq.Ingestion do
        files_count: length(sources),
        folders_count: length(folders),
        principals_count: count_principals(),
-       root_folders: FileExplorer.list_volumes() |> Map.keys() |> Enum.sort()
+       root_folders: FileExplorer.list_volumes() |> Map.keys() |> Enum.sort(),
+       # `root_folders` synthesizes a "default" entry, so it cannot answer this.
+       volumes_configured?: FileExplorer.volumes_configured?()
      }}
   end
 
@@ -1024,12 +1034,14 @@ defmodule Zaq.Ingestion do
   end
 
   @doc """
-  Records a newly uploaded file in the documents table.
+  Records a newly uploaded file in the documents table, optionally tagged.
   Called immediately at upload time so the file browser sees it right away.
   """
-  def track_upload(_volume_name, path) do
+  def track_upload(volume_name, path, tags \\ [])
+
+  def track_upload(_volume_name, path, tags) when is_list(tags) do
     {:ok, source} = SourcePath.absolute_to_source(path)
-    Document.insert_new(%{source: source})
+    Document.insert_new(%{source: source, tags: tags})
   end
 
   def delete_path(volume_name, path, type, volumes \\ nil) do

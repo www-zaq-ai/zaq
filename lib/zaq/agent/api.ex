@@ -23,6 +23,7 @@ defmodule Zaq.Agent.Api do
     PromptGuard,
     RequestRegistry,
     RuntimeSync,
+    Skills,
     Status
   }
 
@@ -55,6 +56,9 @@ defmodule Zaq.Agent.Api do
 
   - `:mcp_endpoint_updated` — delegates to `RuntimeSync.mcp_endpoint_updated/2`.
     Expects `event.request` to be a map with an `:action` key.
+
+  - `:agent_skill_created` — delegates to `Skills.create_skill/1`.
+    Expects `event.request` to carry `:attrs` (map).
 
   - `:agent_skill_updated` — delegates to `RuntimeSync.agent_skill_updated/3`.
     Expects `event.request` to carry `:id` (integer) and `:attrs` (map).
@@ -193,6 +197,18 @@ defmodule Zaq.Agent.Api do
 
       other ->
         invalid_request_response(event, other)
+    end
+  end
+
+  # Creates the skill without a RuntimeSync fan-out — a new skill has no agents attached.
+  def handle_event(%Event{} = event, :agent_skill_created, _context) do
+    case fetch_key(event.request, :attrs) do
+      {:ok, attrs} when is_map(attrs) ->
+        # Not normalized: the BO renders the changeset a failed create returns.
+        %{event | response: Skills.create_skill(attrs)}
+
+      _ ->
+        invalid_request_response(event, event.request)
     end
   end
 

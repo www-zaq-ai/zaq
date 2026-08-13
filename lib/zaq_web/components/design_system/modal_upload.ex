@@ -53,9 +53,9 @@ defmodule ZaqWeb.Components.DesignSystem.ModalUpload do
   attr :folder_drop_skipped, :list, default: []
 
   # Optional volume picker.
-  attr :volumes, :map,
+  attr :volumes, :any,
     default: %{},
-    doc: "`%{name => abs_path}`. The picker appears only with more than one entry."
+    doc: "`%{name => abs_path}` or a list of names. The picker appears above one entry."
 
   attr :current_volume, :string, default: nil
   attr :volume_event, :string, default: "select_volume"
@@ -210,7 +210,9 @@ defmodule ZaqWeb.Components.DesignSystem.ModalUpload do
   end
 
   # `Map.keys/1` ordering is not guaranteed, so sort for a stable picker across renders.
-  defp volume_options(volumes) when is_map(volumes) do
-    volumes |> Map.keys() |> Enum.sort() |> Enum.map(&{&1, &1})
+  defp volume_options(volumes) when is_map(volumes), do: volume_options(Map.keys(volumes))
+
+  defp volume_options(volumes) when is_list(volumes) do
+    volumes |> Enum.sort() |> Enum.map(&{&1, &1})
   end
 end

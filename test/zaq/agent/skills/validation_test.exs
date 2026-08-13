@@ -183,23 +183,6 @@ defmodule Zaq.Agent.Skills.ValidationTest do
     end
   end
 
-  describe "resource_root" do
-    test "accepts a relative path inside a volume" do
-      changeset = Skill.changeset(%Skill{}, Map.put(@valid, :resource_root, "skills/calculator"))
-      assert changeset.valid?
-    end
-
-    test "rejects an absolute path" do
-      changeset = Skill.changeset(%Skill{}, Map.put(@valid, :resource_root, "/etc/passwd"))
-      assert "must be relative to an ingestion volume" in errors_on(changeset).resource_root
-    end
-
-    test "rejects traversal out of the volume" do
-      changeset = Skill.changeset(%Skill{}, Map.put(@valid, :resource_root, "skills/../../etc"))
-      assert ~s(must not contain "..") in errors_on(changeset).resource_root
-    end
-  end
-
   property "validation never silently changes a field it accepts" do
     check all(
             description <- string(:alphanumeric, min_length: 1, max_length: 200),

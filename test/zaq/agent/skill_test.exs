@@ -3,6 +3,7 @@ defmodule Zaq.Agent.SkillTest do
   use ExUnitProperties
 
   alias Zaq.Agent.Skill
+  alias Zaq.Agent.Skills.Limits
   alias Zaq.Repo
 
   @valid_attrs %{
@@ -416,17 +417,10 @@ defmodule Zaq.Agent.SkillTest do
       assert {:ok, skill} = %Skill{} |> Skill.changeset(@valid_attrs) |> Repo.insert()
 
       assert skill.allowed_tools == []
-      assert skill.resource_root == nil
+      assert skill.resources == %{}
       # diagnostics is written by validation, string-keyed to match the stored/reloaded
       # shape, and a clean skill has none to report.
       assert %{"warning_count" => 0, "errors" => []} = skill.diagnostics
-    end
-
-    test "resource_root round-trips" do
-      attrs = Map.put(@valid_attrs, :resource_root, "skills/calculator")
-
-      assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
-      assert skill.resource_root == "skills/calculator"
     end
 
     test "diagnostics is not user-settable — validation owns it" do
@@ -437,6 +431,85 @@ defmodule Zaq.Agent.SkillTest do
       # The submitted value is discarded, not merged: diagnostics is a cache of what the
       # loader reported, and a user-supplied one would be a lie the BO then badges on.
       assert %{"warnings" => []} = skill.diagnostics
+    end
+  end
+
+  describe "resources" do
+    defp entry(overrides \\ %{}) do
+      Map.merge(
+        %{"file_id" => "42", "file_name" => "prices.md", "provider" => "disk"},
+        overrides
+      )
+    end
+
+    defp with_resources(resources), do: Map.put(@valid_attrs, :resources, resources)
+
+    test "round-trips a references bucket" do
+      resources = %{"references" => [entry(), entry(%{"file_id" => "43"})]}
+
+      assert {:ok, skill} =
+               %Skill{} |> Skill.changeset(with_resources(resources)) |> Repo.insert()
+
+      assert skill.resources == resources
+    end
+
+    test "accepts an empty map" do
+      changeset = Skill.changeset(%Skill{}, with_resources(%{}))
+      assert changeset.valid?
+    end
+
+    test "accepts the scripts and assets buckets" do
+      changeset =
+        Skill.changeset(%Skill{}, with_resources(%{"scripts" => [], "assets" => [entry()]}))
+
+      assert changeset.valid?
+    end
+
+    test "rejects an unknown bucket" do
+      changeset = Skill.changeset(%Skill{}, with_resources(%{"referances" => []}))
+
+      refute changeset.valid?
+      assert "has an unknown bucket: referances" in errors_on(changeset).resources
+    end
+
+    test "rejects a bucket that is not a list" do
+      changeset = Skill.changeset(%Skill{}, with_resources(%{"references" => entry()}))
+
+      refute changeset.valid?
+      assert "references must be a list" in errors_on(changeset).resources
+    end
+
+    for key <- ~w(file_id file_name provider) do
+      test "rejects an entry missing #{key}" do
+        resources = %{"references" => [Map.delete(entry(), unquote(key))]}
+        changeset = Skill.changeset(%Skill{}, with_resources(resources))
+
+        refute changeset.valid?
+        assert Enum.any?(errors_on(changeset).resources, &(&1 =~ "missing"))
+      end
+    end
+
+    test "rejects a non-binary file_id" do
+      resources = %{"references" => [entry(%{"file_id" => 42})]}
+      changeset = Skill.changeset(%Skill{}, with_resources(resources))
+
+      refute changeset.valid?
+    end
+
+    test "rejects a blank file_name" do
+      resources = %{"references" => [entry(%{"file_name" => "   "})]}
+      changeset = Skill.changeset(%Skill{}, with_resources(resources))
+
+      refute changeset.valid?
+    end
+
+    test "rejects more entries than the file cap allows" do
+      max = Limits.get(:resource_max_files)
+      entries = for i <- 0..max, do: entry(%{"file_id" => to_string(i)})
+      changeset = Skill.changeset(%Skill{}, with_resources(%{"references" => entries}))
+
+      refute changeset.valid?
+      assert Enum.any?(errors_on(changeset).resources, &(&1 =~ "more than #{max}"))
     end
   end
 

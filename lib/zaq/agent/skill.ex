@@ -11,8 +11,7 @@ defmodule Zaq.Agent.Skill do
   Field-shape validation against the Open Agent Skills spec (name format, length caps,
   `allowed-tools` encoding) is **owned by `Jido.AI.Skill.Loader`**, reached through
   `Zaq.Agent.Skills.Validation` — ZAQ does not reimplement it. This module keeps only the
-  validations Jido cannot do: that `provided_tool_keys` exist in `Tools.Registry`, and
-  that `resource_root` is a safe relative path.
+  validations Jido cannot do: that `provided_tool_keys` exist in `Tools.Registry`.
 
   ## Two kinds of "tools" — do not conflate them
 
@@ -34,6 +33,7 @@ defmodule Zaq.Agent.Skill do
 
   import Ecto.Changeset
 
+  alias Zaq.Agent.Skill.Resources
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.Skills.Validation
   alias Zaq.Agent.TokenEstimator
@@ -49,7 +49,7 @@ defmodule Zaq.Agent.Skill do
     field :provided_tool_keys, {:array, :string}, default: []
     field :allowed_tools, {:array, :string}, default: []
     field :enabled_mcp_endpoint_ids, {:array, :integer}, default: []
-    field :resource_root, :string
+    field :resources, :map, default: %{}
     field :diagnostics, :map
     field :tags, {:array, :string}, default: []
     field :active, :boolean, default: true
@@ -64,7 +64,7 @@ defmodule Zaq.Agent.Skill do
   # `%Jido.AI.Skill.Spec{}` at all.
   @required_fields ~w(name description body)a
   @optional_fields ~w(tool_keys provided_tool_keys allowed_tools
-                      enabled_mcp_endpoint_ids resource_root tags active)a
+                      enabled_mcp_endpoint_ids resources tags active)a
 
   def changeset(skill, attrs) do
     skill
@@ -75,7 +75,7 @@ defmodule Zaq.Agent.Skill do
     |> normalize_allowed_tools()
     |> normalize_mcp_endpoint_ids()
     |> normalize_tags()
-    |> validate_resource_root()
+    |> validate_resources()
     |> validate_against_spec()
     |> validate_body_size()
     |> unique_constraint(:name)
@@ -132,35 +132,56 @@ defmodule Zaq.Agent.Skill do
     put_change(changeset, :diagnostics, updated)
   end
 
-  # `resource_root` is a path RELATIVE to an ingestion volume. This is a syntactic guard
-  # only — it rejects the shapes that could escape a volume, and nothing more.
-  #
-  # It deliberately does NOT resolve the path against the filesystem. Resolution belongs
-  # to the `:ingestion` role, which is the only node guaranteed to have the volume
-  # mounted (a changeset must not make a cross-service call, and the BO node may not see
-  # the volume at all). `Skill.Resources` re-checks containment at read time, on the
-  # ingestion node, which is the authoritative check.
-  defp validate_resource_root(changeset) do
-    case get_field(changeset, :resource_root) do
-      nil ->
-        changeset
+  # Rejects unknown buckets so a typo cannot silently create one, and rejects entries missing
+  # any of the three keys the BO and `load_skill` both read.
+  defp validate_resources(changeset) do
+    resources = get_field(changeset, :resources) || %{}
 
-      "" ->
-        put_change(changeset, :resource_root, nil)
+    cond do
+      not is_map(resources) ->
+        add_error(changeset, :resources, "must be a map of buckets")
 
-      root when is_binary(root) ->
-        cond do
-          String.starts_with?(root, "/") ->
-            add_error(changeset, :resource_root, "must be relative to an ingestion volume")
+      unknown = Enum.find(Map.keys(resources), &(&1 not in Resources.buckets())) ->
+        add_error(changeset, :resources, "has an unknown bucket: #{unknown}")
 
-          ".." in Path.split(root) ->
-            add_error(changeset, :resource_root, "must not contain \"..\"")
-
-          true ->
-            changeset
-        end
+      true ->
+        Enum.reduce(resources, changeset, &validate_bucket/2)
     end
   end
+
+  defp validate_bucket({bucket, entries}, changeset) when is_list(entries) do
+    max = Limits.get(:resource_max_files)
+
+    cond do
+      length(entries) > max ->
+        add_error(changeset, :resources, "#{bucket} holds more than #{max} files")
+
+      Enum.all?(entries, &valid_resource_entry?/1) ->
+        changeset
+
+      true ->
+        add_error(
+          changeset,
+          :resources,
+          "#{bucket} has an entry missing file_id/file_name/provider"
+        )
+    end
+  end
+
+  defp validate_bucket({bucket, _entries}, changeset) do
+    add_error(changeset, :resources, "#{bucket} must be a list")
+  end
+
+  defp valid_resource_entry?(entry) when is_map(entry) do
+    Enum.all?(Resources.entry_keys(), fn key ->
+      case Map.get(entry, key) do
+        value when is_binary(value) -> String.trim(value) != ""
+        _ -> false
+      end
+    end)
+  end
+
+  defp valid_resource_entry?(_entry), do: false
 
   # Field-shape validation (name format, length caps, allowed-tools encoding) is owned by
   # `Jido.AI.Skill.Loader` via `Validation.validate/1` — ZAQ does not reimplement it. See

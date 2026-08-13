@@ -35,6 +35,9 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
     Load the full instructions for one of your available skills, by name. The system prompt
     lists each skill's name and what it is for; call this to read a skill's actual
     instructions before following it. Pass the exact skill name from the list.
+
+    The result also lists the skill's reference files. They arrive as metadata only — read
+    one with `download_document`, passing the record's `id` and `attributes.provider`.
     """,
     schema: [
       name: [type: :string, required: true, doc: "The exact name of the skill to load."]
@@ -43,14 +46,17 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
       name: [type: :string, required: true, doc: "The loaded skill's name."],
       instructions: [type: :string, required: true, doc: "The skill's full instructions."],
       resources: [
-        type: {:list, :any},
+        type: :any,
         required: false,
-        doc: "Resource files the skill bundles, loadable on demand (always [] in Part 1; Part 2)."
+        doc:
+          "The skill's reference files as unmaterialized records. Call `download_document` " <>
+            "with a record's `id` and `attributes.provider` to read one."
       ]
     ]
 
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.Skill.Resources
   alias Zaq.Agent.Skills
   alias Zaq.Agent.TokenEstimator
 
@@ -66,9 +72,7 @@ defmodule Zaq.Agent.Tools.Skills.LoadSkill do
        %{
          name: skill.name,
          instructions: skill.body,
-         # Resource loading is Part 2 (§ M8). The key is present now so the tool's output
-         # shape stays stable when resources land — adding them is non-breaking.
-         resources: []
+         resources: Resources.record_page(skill)
        }}
     end
   end
