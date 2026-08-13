@@ -862,6 +862,534 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       assert {:ok, %{permissions: []}} =
                Ingestion.list_record_permissions(to_string(document.id))
     end
+
+    test "answers for a folder, reporting the grants held across the documents under it",
+         %{root: root} do
+      document = seed_file(root, @volume, "reports/q1.md", "# q1")
+      person = create_person()
+      {:ok, _} = Ingestion.set_document_permission(document.id, :person, person.id, ["read"])
+
+      assert {:ok, %{permissions: [grant], public?: false}} =
+               Ingestion.list_record_permissions("disk:#{@volume}:reports")
+
+      assert grant.target_id == to_string(person.id)
+    end
+  end
+
+  # ── update_record_permissions/1 ─────────────────────────────────────────────
+
+  describe "update_record_permissions/1 on a file" do
+    test "grants a person access and answers with the resulting grants", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      person = create_person()
+
+      assert {:ok, %{permissions: [grant], public?: false, applied_to: 1}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert grant.type == "person"
+      assert grant.target_id == to_string(person.id)
+      assert grant.name == person.full_name
+    end
+
+    test "grants a team access", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      team = create_team()
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [
+                   %{
+                     "type" => "team",
+                     "target_id" => to_string(team.id),
+                     "access_rights" => ["read", "write"]
+                   }
+                 ]
+               })
+
+      assert grant.type == "team"
+      assert grant.access_rights == ["read", "write"]
+    end
+
+    test "defaults a grant with no rights to read", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      person = create_person()
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert grant.access_rights == ["read"]
+    end
+
+    test "rewrites the rights of a target that already holds access", %{root: root} do
+      # Re-granting is an upsert, not a conflict: an operator widening someone's access must
+      # not have to revoke first.
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      person = create_person()
+      {:ok, _} = Ingestion.set_document_permission(document.id, :person, person.id, ["read"])
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [
+                   %{
+                     "type" => "person",
+                     "target_id" => to_string(person.id),
+                     "access_rights" => ["read", "write"]
+                   }
+                 ]
+               })
+
+      assert grant.access_rights == ["read", "write"]
+    end
+
+    test "shares with everyone", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:ok, %{public?: true}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "public" => true
+               })
+
+      assert "public" in Document.get(document.id).tags
+    end
+
+    test "withdraws access from everyone", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide", %{tags: ["public"]})
+
+      assert {:ok, %{public?: false}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "public" => false
+               })
+
+      refute "public" in Document.get(document.id).tags
+    end
+
+    test "leaves visibility alone when the flag is not sent", %{root: root} do
+      # Omitting the flag is not the same as sending `false` — a grant must not quietly
+      # unshare a record the caller never mentioned.
+      document = seed_file(root, @volume, "guide.md", "# guide", %{tags: ["public"]})
+      person = create_person()
+
+      assert {:ok, %{public?: true}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert "public" in Document.get(document.id).tags
+    end
+
+    test "accepts a path instead of an id", %{root: root} do
+      seed_file(root, @volume, "guide.md", "# guide")
+      person = create_person()
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "guide.md",
+                 "volume" => @volume,
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert grant.target_id == to_string(person.id)
+    end
+
+    test "accepts atom keys, as an internal caller sends them", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      person = create_person()
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 file_id: to_string(document.id),
+                 grants: [%{type: :person, target_id: person.id}]
+               })
+
+      assert grant.target_id == to_string(person.id)
+    end
+  end
+
+  describe "update_record_permissions/1 on a folder" do
+    test "writes the grant onto every document under the folder", %{root: root} do
+      # A folder holds no permissions of its own, so sharing one has to reach the documents
+      # inside it — the rule the BO ingestion page applies.
+      first = seed_file(root, @volume, "reports/q1.md", "# q1")
+      second = seed_file(root, @volume, "reports/q2.md", "# q2")
+      outside = seed_file(root, @volume, "guide.md", "# guide")
+      person = create_person()
+
+      assert {:ok, %{applied_to: 2}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "reports",
+                 "volume" => @volume,
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert [_] = Ingestion.list_document_permissions(first.id)
+      assert [_] = Ingestion.list_document_permissions(second.id)
+      assert [] == Ingestion.list_document_permissions(outside.id)
+    end
+
+    test "reaches documents nested below the folder", %{root: root} do
+      nested = seed_file(root, @volume, "reports/2026/q1.md", "# q1")
+      person = create_person()
+
+      assert {:ok, %{applied_to: 1}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "reports",
+                 "volume" => @volume,
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert [_] = Ingestion.list_document_permissions(nested.id)
+    end
+
+    test "accepts the folder id a listing hands out", %{root: root} do
+      document = seed_file(root, @volume, "reports/q1.md", "# q1")
+      person = create_person()
+
+      assert {:ok, %{applied_to: 1}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => "disk:#{@volume}:reports",
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert [_] = Ingestion.list_document_permissions(document.id)
+    end
+
+    test "answers with one entry per target, not one per document", %{root: root} do
+      seed_file(root, @volume, "reports/q1.md", "# q1")
+      seed_file(root, @volume, "reports/q2.md", "# q2")
+      person = create_person()
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "reports",
+                 "volume" => @volume,
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert grant.target_id == to_string(person.id)
+    end
+
+    test "shares a whole folder with everyone", %{root: root} do
+      first = seed_file(root, @volume, "reports/q1.md", "# q1")
+      second = seed_file(root, @volume, "reports/q2.md", "# q2")
+
+      assert {:ok, %{public?: true}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "reports",
+                 "volume" => @volume,
+                 "public" => true
+               })
+
+      assert "public" in Document.get(first.id).tags
+      assert "public" in Document.get(second.id).tags
+      assert Ingestion.folder_public?(@volume, "reports")
+    end
+
+    test "withdraws a whole folder from everyone", %{root: root} do
+      document = seed_file(root, @volume, "reports/q1.md", "# q1")
+      :ok = Ingestion.set_folder_public(@volume, "reports")
+
+      assert {:ok, %{public?: false}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "reports",
+                 "volume" => @volume,
+                 "public" => false
+               })
+
+      refute "public" in Document.get(document.id).tags
+      refute Ingestion.folder_public?(@volume, "reports")
+    end
+
+    test "refuses to grant on a folder holding no documents" do
+      person = create_person()
+
+      assert {:error, %{reason: :no_documents_matched}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "empty",
+                 "volume" => @volume,
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+    end
+
+    test "shares a folder whose volume is not mounted, since grants live on the rows" do
+      # Folder grants are a prefix query over `documents`, never a directory listing — an
+      # unmounted volume, or a folder that only ever existed as ingested rows, still shares.
+      document = seed_stale_row(@volume, "reports/q1.md")
+      person = create_person()
+
+      assert {:ok, %{applied_to: 1}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "reports",
+                 "volume" => @volume,
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert [_] = Ingestion.list_document_permissions(document.id)
+    end
+  end
+
+  describe "update_record_permissions/1 refusals" do
+    test "refuses an unknown id" do
+      assert {:error, :not_found} =
+               Ingestion.update_record_permissions(%{"file_id" => "99999999"})
+    end
+
+    test "refuses a handle that names nothing" do
+      assert {:error, :not_found} =
+               Ingestion.update_record_permissions(%{"file_id" => "not-an-id"})
+    end
+
+    test "refuses a request naming no record" do
+      assert {:error, :file_id_required} = Ingestion.update_record_permissions(%{})
+    end
+
+    test "refuses a file ZAQ has never ingested, since it has no row to carry a grant",
+         %{root: root} do
+      File.write!(Path.join(root, "unread.md"), "# unread")
+      person = create_person()
+
+      assert {:error, %{reason: :no_documents_matched}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "unread.md",
+                 "volume" => @volume,
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+    end
+
+    test "refuses a grant naming neither a person nor a team", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:error, {:invalid_grant_type, "everyone"}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "everyone", "target_id" => "1"}]
+               })
+    end
+
+    test "refuses a grant with no target", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:error, :target_id_required} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person"}]
+               })
+    end
+
+    test "refuses an id that names no person", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:error, %{reason: :unknown_grant_target, display_message: message}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => "99999999"}]
+               })
+
+      assert message =~ "No person has id 99999999"
+    end
+
+    test "refuses an id that names no team", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:error, %{reason: :unknown_grant_target, type: :team}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "team", "target_id" => "99999999"}]
+               })
+    end
+  end
+
+  # ── update_record_permissions/1 target resolution ───────────────────────────
+
+  describe "update_record_permissions/1 resolving who a grant names" do
+    test "resolves a person by name", %{root: root} do
+      # An agent working from what a human said holds a name, not an id. Resolving it here is
+      # what stops "Jad" being written into `person_id`.
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      person = create_person()
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => person.full_name}]
+               })
+
+      assert grant.target_id == to_string(person.id)
+    end
+
+    test "resolves a person by email", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      person = create_person()
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => person.email}]
+               })
+
+      assert grant.target_id == to_string(person.id)
+    end
+
+    test "resolves a team by name", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      team = create_team()
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "team", "target_id" => team.name}]
+               })
+
+      assert grant.target_id == to_string(team.id)
+    end
+
+    test "refuses an ambiguous name and hands back the candidates to choose from",
+         %{root: root} do
+      # Two people called Jad: the caller must put the choice back to the human rather than
+      # pick one. The candidates travel so it can show them.
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      {:ok, first} = People.create_person(%{"full_name" => "Jad Alpha", "email" => "a@test.com"})
+      {:ok, second} = People.create_person(%{"full_name" => "Jad Beta", "email" => "b@test.com"})
+
+      assert {:error, %{reason: :ambiguous_grant_target} = error} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => "Jad"}]
+               })
+
+      assert Enum.sort(Enum.map(error.candidates, & &1.id)) == Enum.sort([first.id, second.id])
+      assert error.display_message =~ "matches 2 persons"
+      assert error.display_message =~ "Jad Alpha"
+      assert error.display_message =~ "a@test.com"
+
+      # Nothing was granted while the question is open.
+      assert [] == Ingestion.list_document_permissions(document.id)
+    end
+
+    test "takes an exact name over a longer one that also matches", %{root: root} do
+      # "Jad" beside "Jad Tarabay" is a match and a near-miss, not a real ambiguity.
+      document = seed_file(root, @volume, "guide.md", "# guide")
+      {:ok, exact} = People.create_person(%{"full_name" => "Jad", "email" => "jad@test.com"})
+
+      {:ok, _longer} =
+        People.create_person(%{"full_name" => "Jad Tarabay", "email" => "jt@t.com"})
+
+      assert {:ok, %{permissions: [grant]}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => "Jad"}]
+               })
+
+      assert grant.target_id == to_string(exact.id)
+    end
+
+    test "refuses a name nobody answers to", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:error, %{reason: :no_grant_target_match, display_message: message}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => [%{"type" => "person", "target_id" => "Nobody At All"}]
+               })
+
+      assert message =~ "No person matches \"Nobody At All\""
+    end
+
+    test "refuses a path that names no ingested document instead of reporting success" do
+      # The failure this replaces: a wrong path resolved to an empty folder, so the grant loop
+      # never ran and the caller was told `ok` with applied_to: 0 — nobody gained access.
+      person = create_person()
+
+      assert {:error, %{reason: :no_documents_matched, display_message: message}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "investor.md",
+                 "volume" => @volume,
+                 "grants" => [%{"type" => "person", "target_id" => to_string(person.id)}]
+               })
+
+      assert message =~ "names no ingested document"
+    end
+
+    test "still allows marking an empty folder public, which records the folder setting" do
+      # Only a grant needs documents to land on; a folder policy is meaningful on its own.
+      assert {:ok, %{applied_to: 0, public?: true}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "empty",
+                 "volume" => @volume,
+                 "public" => true
+               })
+    end
+
+    test "refuses a public flag that is not a boolean", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:error, {:invalid_public, "yes"}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "public" => "yes"
+               })
+    end
+
+    test "refuses grants that are not a list", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:error, {:invalid_grants, "person"}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => "person"
+               })
+    end
+
+    test "refuses a grant that is not an object", %{root: root} do
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:error, {:invalid_grant, "person"}} =
+               Ingestion.update_record_permissions(%{
+                 "file_id" => to_string(document.id),
+                 "grants" => ["person"]
+               })
+    end
+
+    test "writes nothing when one grant in a folder cascade is rejected by the changeset",
+         %{root: root} do
+      # The cascade is one transaction: a request that cannot be honoured in full must not
+      # leave half a folder shared. An unusable right is caught by `DocumentPermission`'s
+      # changeset mid-write, after the first grant has already been applied.
+      first = seed_file(root, @volume, "reports/q1.md", "# q1")
+      second = seed_file(root, @volume, "reports/q2.md", "# q2")
+      person = create_person()
+
+      assert {:error, {:invalid_grant, _errors}} =
+               Ingestion.update_record_permissions(%{
+                 "path" => "reports",
+                 "volume" => @volume,
+                 "grants" => [
+                   %{
+                     "type" => "person",
+                     "target_id" => to_string(person.id),
+                     "access_rights" => ["read"]
+                   },
+                   %{
+                     "type" => "person",
+                     "target_id" => to_string(person.id),
+                     "access_rights" => ["obliterate"]
+                   }
+                 ]
+               })
+
+      assert [] == Ingestion.list_document_permissions(first.id)
+      assert [] == Ingestion.list_document_permissions(second.id)
+    end
   end
 
   # ── volume_stats/0 ──────────────────────────────────────────────────────────

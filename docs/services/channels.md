@@ -176,6 +176,7 @@ defstruct [
 - `:data_source_delete_file`
 - `:data_source_search_files`
 - `:data_source_list_permissions`
+- `:data_source_update_permissions`
 - `:data_source_setup_listener`
 - `:data_source_teardown_listener`
 - `:data_source_channel_stats`

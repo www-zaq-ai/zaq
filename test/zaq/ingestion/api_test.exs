@@ -130,6 +130,16 @@ defmodule Zaq.Ingestion.ApiTest do
                handle(%{file_id: to_string(document.id)}, :list_record_permissions)
     end
 
+    test "update_record_permissions delegates", %{root: root} do
+      document = seed_file(root, "guide.md", "# guide")
+
+      assert {:ok, %{public?: true, applied_to: 1}} =
+               handle(
+                 %{"file_id" => to_string(document.id), "public" => true},
+                 :update_record_permissions
+               )
+    end
+
     test "search_records delegates", %{root: root} do
       document = seed_file(root, "quarterly.md", "# report")
 
@@ -165,6 +175,11 @@ defmodule Zaq.Ingestion.ApiTest do
     test "list_record_permissions with a non-binary file_id falls through to the catch-all" do
       assert handle(%{file_id: 123}, :list_record_permissions) ==
                {:error, {:unsupported_action, :list_record_permissions}}
+    end
+
+    test "update_record_permissions with a non-map request falls through to the catch-all" do
+      assert handle("nope", :update_record_permissions) ==
+               {:error, {:unsupported_action, :update_record_permissions}}
     end
 
     test "list_records with non-map params falls through to the catch-all" do

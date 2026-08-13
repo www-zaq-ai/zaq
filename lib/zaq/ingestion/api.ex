@@ -69,6 +69,11 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.list_record_permissions(file_id)}
   end
 
+  def handle_event(%Event{request: request} = event, :update_record_permissions, _context)
+      when is_map(request) do
+    %{event | response: Ingestion.update_record_permissions(request)}
+  end
+
   # -- volumes --
 
   def handle_event(%Event{request: %{params: params}} = event, :search_records, _context)

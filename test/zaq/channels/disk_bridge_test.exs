@@ -55,6 +55,10 @@ defmodule Zaq.Channels.DiskBridgeTest do
     )
   end
 
+  defp update_response(overrides \\ %{}) do
+    {:ok, Map.merge(%{permissions: [], public?: false, applied_to: 1}, overrides)}
+  end
+
   # ── mapping: entries to records ─────────────────────────────────────────────
 
   describe "entry mapping" do
@@ -405,6 +409,101 @@ defmodule Zaq.Channels.DiskBridgeTest do
       stub_response({:error, :not_found})
 
       assert {:error, :not_found} = DiskBridge.list_permissions(config(), %{"file_id" => "42"})
+    end
+  end
+
+  describe "update_permissions/2" do
+    test "dispatches :update_record_permissions and maps the result onto a permission page" do
+      stub_response(update_response(%{permissions: [grant("7")]}))
+
+      assert {:ok, %RecordPage{resource_type: :permission, records: [record]}} =
+               DiskBridge.update_permissions(config(), %{
+                 "file_id" => "42",
+                 "grants" => [%{"type" => "person", "target_id" => "7"}]
+               })
+
+      assert %Record{id: "7", kind: :permission, name: "Ada"} = record
+
+      assert_received {:dispatch, :ingestion, :update_record_permissions,
+                       %{
+                         "file_id" => "42",
+                         "grants" => [%{"type" => "person", "target_id" => "7"}]
+                       }}
+    end
+
+    test "reports how many documents a folder grant was written to" do
+      # A folder cascade writes onto every document under it, so the count is the only way a
+      # caller learns the reach of what it just asked for.
+      stub_response(update_response(%{applied_to: 12}))
+
+      assert {:ok, %RecordPage{stats: stats}} =
+               DiskBridge.update_permissions(config(), %{"file_id" => "disk:archives:reports"})
+
+      assert stats.applied_to == 12
+    end
+
+    test "carries a path and volume when the caller names the record that way" do
+      stub_response(update_response())
+
+      DiskBridge.update_permissions(config(), %{"path" => "reports", "volume" => "archives"})
+
+      assert_received {:dispatch, :ingestion, :update_record_permissions,
+                       %{"path" => "reports", "volume" => "archives"}}
+    end
+
+    test "carries a false public flag, which is an instruction and not an absent value" do
+      # `false` means "stop sharing this with everyone". Dropping it the way an unset optional
+      # field is dropped would silently turn an unshare into a no-op.
+      stub_response(update_response())
+
+      DiskBridge.update_permissions(config(), %{"file_id" => "42", "public" => false})
+
+      assert_received {:dispatch, :ingestion, :update_record_permissions,
+                       %{"file_id" => "42", "public" => false}}
+    end
+
+    test "carries a true public flag" do
+      stub_response(update_response())
+
+      DiskBridge.update_permissions(config(), %{"file_id" => "42", "public" => true})
+
+      assert_received {:dispatch, :ingestion, :update_record_permissions,
+                       %{"file_id" => "42", "public" => true}}
+    end
+
+    test "leaves out a public flag the caller never sent" do
+      stub_response(update_response())
+
+      DiskBridge.update_permissions(config(), %{"file_id" => "42"})
+
+      assert_received {:dispatch, :ingestion, :update_record_permissions, request}
+      refute Map.has_key?(request, "public")
+    end
+
+    test "synthesizes the public grant the same way a read does" do
+      stub_response(update_response(%{public?: true}))
+
+      assert {:ok, %RecordPage{records: [record]}} =
+               DiskBridge.update_permissions(config(), %{"file_id" => "42"})
+
+      assert record.id == "public:42"
+      assert record.attributes["type"] == "public"
+    end
+
+    test "passes an ingestion error back unchanged" do
+      stub_response({:error, :not_found})
+
+      assert {:error, :not_found} = DiskBridge.update_permissions(config(), %{"file_id" => "42"})
+    end
+
+    test "reads its router from config, never from caller-supplied params" do
+      stub_response(update_response())
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.update_permissions(config(), %{
+                 "file_id" => "42",
+                 "node_router" => ExplodingRouter
+               })
     end
   end
 

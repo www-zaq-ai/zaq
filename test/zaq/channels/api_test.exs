@@ -272,6 +272,11 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
     end
 
+    def update_permissions(provider, params) do
+      send(self(), {:ds_update_permissions, provider, params})
+      {:ok, %{records: [%{"id" => "p1", "role" => "reader"}]}}
+    end
+
     def sync_config_runtime(before_config, after_config) do
       send(self(), {:ds_sync_config_runtime, before_config, after_config})
       :ok
@@ -1104,6 +1109,27 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
     assert_received {:ds_list_permissions, :google_drive, %{}}
+  end
+
+  test "handles data_source_update_permissions action" do
+    params = %{
+      "file_id" => "f1",
+      "grants" => [%{"type" => "person", "target_id" => "7"}],
+      "public" => false
+    }
+
+    event =
+      Event.new(%{provider: :google_drive, params: params}, :channels,
+        opts: [
+          action: :data_source_update_permissions,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_update_permissions, nil)
+
+    assert result.response == {:ok, %{records: [%{"id" => "p1", "role" => "reader"}]}}
+    assert_received {:ds_update_permissions, :google_drive, ^params}
   end
 
   test "handles webhook_delivered for data_source" do

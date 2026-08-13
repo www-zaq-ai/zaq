@@ -57,8 +57,12 @@ defmodule Zaq.Permissions.DocumentPermission do
     |> validate_required([:resource_id, :access_rights])
     |> validate_target_present()
     |> validate_subset(:access_rights, @valid_rights)
-    |> foreign_key_constraint(:person_id)
-    |> foreign_key_constraint(:team_id)
+    # `20260501000001_rename_document_permissions_to_resource_permissions` renamed the table but
+    # not its constraints, so the names Ecto would derive from the current table do not exist.
+    # Without the explicit names a grant naming a missing person raises instead of answering
+    # with a changeset error.
+    |> foreign_key_constraint(:person_id, name: :document_permissions_person_id_fkey)
+    |> foreign_key_constraint(:team_id, name: :document_permissions_team_id_fkey)
     |> unique_constraint([:resource_type, :resource_id, :person_id],
       name: :uix_resource_perm_person
     )

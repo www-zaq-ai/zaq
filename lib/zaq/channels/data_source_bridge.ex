@@ -62,6 +62,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback search_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback download_document(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_permissions(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
+  @callback update_permissions(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback export_options(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback sheet_inspect(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -102,6 +103,7 @@ defmodule Zaq.Channels.DataSourceBridge do
                       search_files: 2,
                       download_document: 2,
                       list_permissions: 2,
+                      update_permissions: 2,
                       channel_stats: 2,
                       export_options: 2,
                       sheet_inspect: 2,
@@ -380,6 +382,21 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :list_permissions, 2) || {:error, :unsupported} do
       bridge.list_permissions(config, params)
+    end
+  end
+
+  @doc """
+  Grants access to a provider file or folder through the configured DataSource bridge.
+
+  Answers with the resulting permissions, so a caller never has to follow a write with a read.
+  """
+  @spec update_permissions(atom() | String.t(), map()) ::
+          {:ok, RecordPage.t()} | {:error, term()}
+  def update_permissions(provider, params) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :update_permissions, 2) || {:error, :unsupported} do
+      bridge.update_permissions(config, params)
     end
   end
 
