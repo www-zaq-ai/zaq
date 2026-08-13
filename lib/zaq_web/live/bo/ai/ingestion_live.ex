@@ -1284,7 +1284,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp prep_ttl_ms do
-    Application.get_env(:zaq, :ingestion_prep_ttl_ms, @prep_ttl_ms_default)
+    Zaq.Config.get(:zaq, :ingestion_prep_ttl_ms, @prep_ttl_ms_default)
   end
 
   defp maybe_update_folder_public(_volume, _path, same, same), do: :ok
@@ -1390,7 +1390,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp data_source_bridge_module do
-    Application.get_env(:zaq, :ingestion_data_source_bridge_module, DataSourceBridge)
+    Zaq.Config.get(:zaq, :ingestion_data_source_bridge_module, DataSourceBridge)
   end
 
   defp dispatch_ingest_records([], _params), do: {:ok, []}

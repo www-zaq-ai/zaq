@@ -148,7 +148,7 @@ defmodule Zaq.Ingestion.SourcePath do
   end
 
   defp configured_volumes do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+    Zaq.Config.get(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:volumes, %{})
   end
 

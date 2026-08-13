@@ -16,12 +16,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   alias ZaqWeb.Live.BO.Communication.ChannelsLive
 
   setup do
-    original_base_url = ZaqSystem.get_global_base_url()
     :ok = ZaqSystem.set_global_base_url("https://zaq.example")
-
-    on_exit(fn ->
-      :ok = ZaqSystem.set_global_base_url(original_base_url)
-    end)
 
     :ok
   end

@@ -56,20 +56,20 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp hybrid_search_limit do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+    Zaq.Config.get(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:hybrid_search_limit, 20)
   end
 
   defp chunk_processing_concurrency do
     default = System.schedulers_online()
 
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+    Zaq.Config.get(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:chunk_processing_concurrency, default)
     |> normalize_concurrency(default)
   end
 
   defp chunk_processing_timeout do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+    Zaq.Config.get(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:chunk_processing_timeout, 90_000)
   end
 

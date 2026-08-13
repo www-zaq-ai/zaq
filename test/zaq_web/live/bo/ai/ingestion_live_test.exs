@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
-  use ZaqWeb.ConnCase, async: false
+  use ZaqWeb.ConnCase, async: true
 
   import Ecto.Query
   import Mox
@@ -22,7 +22,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   defmodule ProviderBrowserBridgeStub do
     def list_files(provider, params) do
-      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+      if pid = Zaq.Config.get(:zaq, :ingestion_provider_browser_test_pid, nil) do
         send(pid, {:list_files, provider, params})
       end
 
@@ -98,7 +98,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     def capability_snapshot(_provider) do
-      case Application.get_env(
+      case Zaq.Config.get(
              :zaq,
              :provider_browser_capability_snapshot,
              {:ok, %{resolved: %{watch_changes_webhook: true}}}
@@ -110,7 +110,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     def watch_item(provider, params) do
-      case Application.get_env(:zaq, :provider_browser_watch_response, :default) do
+      case Zaq.Config.get(:zaq, :provider_browser_watch_response, :default) do
         :default ->
           if Map.get(params, "kind") == "folder" do
             return_watch_collection(provider, params)
@@ -124,15 +124,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     def unwatch_item(provider, params) do
-      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+      if pid = Zaq.Config.get(:zaq, :ingestion_provider_browser_test_pid, nil) do
         send(pid, {:unwatch_item, provider, params})
       end
 
-      Application.get_env(:zaq, :provider_browser_unwatch_response, :ok)
+      Zaq.Config.get(:zaq, :provider_browser_unwatch_response, :ok)
     end
 
     defp return_watch_item(provider, params) do
-      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+      if pid = Zaq.Config.get(:zaq, :ingestion_provider_browser_test_pid, nil) do
         send(pid, {:watch_item, provider, params})
       end
 
@@ -148,7 +148,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     defp return_watch_collection(provider, params) do
-      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+      if pid = Zaq.Config.get(:zaq, :ingestion_provider_browser_test_pid, nil) do
         send(pid, {:watch_collection, provider, params})
       end
 
@@ -173,21 +173,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   defmodule ProviderBrowserErrorBridgeStub do
     def list_files(provider, params) do
-      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+      if pid = Zaq.Config.get(:zaq, :ingestion_provider_browser_test_pid, nil) do
         send(pid, {:list_files, provider, params})
       end
 
-      Application.get_env(:zaq, :provider_browser_response, {:error, :timeout})
+      Zaq.Config.get(:zaq, :provider_browser_response, {:error, :timeout})
     end
   end
 
   defmodule ProviderBrowserCustomBridgeStub do
     def list_files(provider, params) do
-      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+      if pid = Zaq.Config.get(:zaq, :ingestion_provider_browser_test_pid, nil) do
         send(pid, {:list_files, provider, params})
       end
 
-      response = Application.get_env(:zaq, :provider_browser_response, [])
+      response = Zaq.Config.get(:zaq, :provider_browser_response, [])
       records = if is_list(response), do: response, else: Map.get(response, :records, [])
 
       {:ok,
@@ -225,57 +225,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     File.write!(Path.join(tmp_dir, "notes.txt"), "notes")
     File.write!(Path.join(tmp_dir, "docs/readme.md"), "# readme")
 
-    original = Application.get_env(:zaq, Zaq.Ingestion)
-    original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
-    original_test_pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid)
-    original_provider_browser_response = Application.get_env(:zaq, :provider_browser_response)
+    # Process-scoped, so no save/restore is needed: the overrides die with the
+    # test process and are invisible to concurrently running tests.
+    Zaq.Config.put_process(:zaq, Zaq.Ingestion, base_path: tmp_dir)
 
-    original_provider_browser_capability_snapshot =
-      Application.get_env(:zaq, :provider_browser_capability_snapshot)
-
-    original_provider_browser_watch_response =
-      Application.get_env(:zaq, :provider_browser_watch_response)
-
-    original_provider_browser_unwatch_response =
-      Application.get_env(:zaq, :provider_browser_unwatch_response)
-
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir)
-
-    on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, original || [])
-
-      case original_bridge do
-        nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
-        module -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, module)
-      end
-
-      case original_test_pid do
-        nil -> Application.delete_env(:zaq, :ingestion_provider_browser_test_pid)
-        pid -> Application.put_env(:zaq, :ingestion_provider_browser_test_pid, pid)
-      end
-
-      case original_provider_browser_response do
-        nil -> Application.delete_env(:zaq, :provider_browser_response)
-        value -> Application.put_env(:zaq, :provider_browser_response, value)
-      end
-
-      case original_provider_browser_capability_snapshot do
-        nil -> Application.delete_env(:zaq, :provider_browser_capability_snapshot)
-        value -> Application.put_env(:zaq, :provider_browser_capability_snapshot, value)
-      end
-
-      case original_provider_browser_watch_response do
-        nil -> Application.delete_env(:zaq, :provider_browser_watch_response)
-        value -> Application.put_env(:zaq, :provider_browser_watch_response, value)
-      end
-
-      case original_provider_browser_unwatch_response do
-        nil -> Application.delete_env(:zaq, :provider_browser_unwatch_response)
-        value -> Application.put_env(:zaq, :provider_browser_unwatch_response, value)
-      end
-
-      File.rm_rf!(tmp_dir)
-    end)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
 
     {:ok, conn: conn, tmp_dir: tmp_dir}
   end
@@ -348,8 +302,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   describe "provider browsing" do
     setup do
-      Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
-      Application.put_env(:zaq, :ingestion_provider_browser_test_pid, self())
+      Zaq.Config.put_process(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        ProviderBrowserBridgeStub
+      )
+
+      Zaq.Config.put_process(:zaq, :ingestion_provider_browser_test_pid, self())
 
       {:ok, config} =
         %ChannelConfig{}
@@ -407,10 +366,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url(nil)
-
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
 
@@ -430,10 +386,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root/")
-
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
 
@@ -455,10 +408,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example")
-
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       source = "data_source/google_drive/#{config.id}/folder-1"
       refute Document.get_by_source(source)
@@ -485,10 +435,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example")
-
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       {:ok, _doc} =
         Document.insert_new(%{
@@ -518,10 +465,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example")
-
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       {:ok, _doc} =
         Document.insert_new(%{
@@ -553,17 +497,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
-
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       for {capability_snapshot, idx} <-
             Enum.with_index([
               {:ok, %{resolved: %{"watch_changes_webhook" => true}}},
               %{resolved: %{watch_changes_webhook: true}}
             ]) do
-        Application.put_env(:zaq, :provider_browser_capability_snapshot, capability_snapshot)
+        Zaq.Config.put_process(:zaq, :provider_browser_capability_snapshot, capability_snapshot)
 
         selected_path = if idx == 0, do: "file-1", else: "folder-1"
 
@@ -592,12 +533,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
 
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
-
-      Application.put_env(:zaq, :provider_browser_capability_snapshot, {:raise, "boom"})
+      Zaq.Config.put_process(:zaq, :provider_browser_capability_snapshot, {:raise, "boom"})
       create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
@@ -613,12 +551,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
            conn: conn,
            provider_config: config
          } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
 
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
-
-      Application.put_env(:zaq, :provider_browser_capability_snapshot, {:ok, %{resolved: %{}}})
+      Zaq.Config.put_process(:zaq, :provider_browser_capability_snapshot, {:ok, %{resolved: %{}}})
       create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
@@ -638,10 +573,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root/")
-
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       file_source = "data_source/google_drive/#{config.id}/file-1"
       folder_source = "data_source/google_drive/#{config.id}/folder-1"
@@ -674,12 +606,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example")
 
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
-
-      Application.put_env(
+      Zaq.Config.put_process(
         :zaq,
         :provider_browser_watch_response,
         {:error, "provider denied"}
@@ -707,12 +636,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
 
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
-
-      Application.put_env(:zaq, :provider_browser_unwatch_response, {:ok, %{}})
+      Zaq.Config.put_process(:zaq, :provider_browser_unwatch_response, {:ok, %{}})
 
       source = "data_source/google_drive/#{config.id}/file-1"
       create_document_with_chunk(source, %{watch_status: "watched"})
@@ -737,10 +663,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
-
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       source = "data_source/google_drive/#{config.id}/file-1"
       create_document_with_chunk(source, %{watch_status: "watched"})
@@ -764,12 +687,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
 
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
-
-      Application.put_env(:zaq, :provider_browser_unwatch_response, {:error, "gone"})
+      Zaq.Config.put_process(:zaq, :provider_browser_unwatch_response, {:error, "gone"})
 
       source = "data_source/google_drive/#{config.id}/file-1"
       create_document_with_chunk(source, %{watch_status: "watched"})
@@ -792,12 +712,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
 
-      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
-
-      Application.put_env(:zaq, :provider_browser_unwatch_response, :unexpected)
+      Zaq.Config.put_process(:zaq, :provider_browser_unwatch_response, :unexpected)
 
       source = "data_source/google_drive/#{config.id}/file-1"
       create_document_with_chunk(source, %{watch_status: "watched"})
@@ -854,19 +771,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
            tmp_dir: tmp_dir,
            provider_config: config
          } do
-      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      original_ingestion = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
       documents_root = Path.join(tmp_dir, "documents")
       archives_root = Path.join(tmp_dir, "archives")
 
       File.mkdir_p!(documents_root)
       File.mkdir_p!(archives_root)
 
-      Application.put_env(:zaq, Zaq.Ingestion,
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion,
         base_path: documents_root,
         volumes: %{"archives" => archives_root, "documents" => documents_root}
       )
 
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || []) end)
+      on_exit(fn -> Zaq.Config.put_process(:zaq, Zaq.Ingestion, original_ingestion || []) end)
 
       source = "data_source/google_drive/#{config.id}/file-1"
       sidecar_source = source <> ".md"
@@ -1068,13 +985,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "provider load errors render empty state and detailed provider_error", %{conn: conn} do
-      Application.put_env(
+      Zaq.Config.put_process(
         :zaq,
         :ingestion_data_source_bridge_module,
         ProviderBrowserErrorBridgeStub
       )
 
-      Application.put_env(:zaq, :provider_browser_response, {:error, :timeout})
+      Zaq.Config.put_process(:zaq, :provider_browser_response, {:error, :timeout})
       {:ok, timeout_view, timeout_html} = live(conn, ~p"/bo/ingestion/google_drive")
 
       assert timeout_html =~ "Failed to load provider records: :timeout"
@@ -1083,7 +1000,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert timeout_state.socket.assigns.records_by_path == %{}
       assert timeout_state.socket.assigns.ingestion_map == %{}
 
-      Application.put_env(:zaq, :provider_browser_response, :unexpected)
+      Zaq.Config.put_process(:zaq, :provider_browser_response, :unexpected)
       {:ok, unexpected_view, unexpected_html} = live(conn, ~p"/bo/ingestion/google_drive")
 
       assert unexpected_html =~ "Failed to load provider records."
@@ -1198,21 +1115,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
            tmp_dir: tmp_dir,
            provider_config: config
          } do
-      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
-      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
-      original_response = Application.get_env(:zaq, :provider_browser_response)
+      original_ingestion = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
+      original_bridge = Zaq.Config.get(:zaq, :ingestion_data_source_bridge_module, nil)
+      original_response = Zaq.Config.get(:zaq, :provider_browser_response, nil)
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+        Zaq.Config.put_process(:zaq, Zaq.Ingestion, original_ingestion || [])
 
         case original_bridge do
-          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
-          value -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, value)
+          nil -> Zaq.Config.delete_process(:zaq, :ingestion_data_source_bridge_module)
+          value -> Zaq.Config.put_process(:zaq, :ingestion_data_source_bridge_module, value)
         end
 
         case original_response do
-          nil -> Application.delete_env(:zaq, :provider_browser_response)
-          value -> Application.put_env(:zaq, :provider_browser_response, value)
+          nil -> Zaq.Config.delete_process(:zaq, :provider_browser_response)
+          value -> Zaq.Config.put_process(:zaq, :provider_browser_response, value)
         end
       end)
 
@@ -1222,12 +1139,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.mkdir_p!(documents_root)
       File.mkdir_p!(archives_root)
 
-      Application.put_env(:zaq, Zaq.Ingestion,
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion,
         base_path: documents_root,
         volumes: %{"archives" => archives_root, "documents" => documents_root}
       )
 
-      Application.put_env(
+      Zaq.Config.put_process(
         :zaq,
         :ingestion_data_source_bridge_module,
         ProviderBrowserCustomBridgeStub
@@ -1250,7 +1167,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         }
       })
 
-      Application.put_env(:zaq, :provider_browser_response, [
+      Zaq.Config.put_process(:zaq, :provider_browser_response, [
         %Record{
           id: "fallback-1",
           kind: :file,
@@ -1277,21 +1194,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
            tmp_dir: tmp_dir,
            provider_config: config
          } do
-      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
-      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
-      original_response = Application.get_env(:zaq, :provider_browser_response)
+      original_ingestion = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
+      original_bridge = Zaq.Config.get(:zaq, :ingestion_data_source_bridge_module, nil)
+      original_response = Zaq.Config.get(:zaq, :provider_browser_response, nil)
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+        Zaq.Config.put_process(:zaq, Zaq.Ingestion, original_ingestion || [])
 
         case original_bridge do
-          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
-          value -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, value)
+          nil -> Zaq.Config.delete_process(:zaq, :ingestion_data_source_bridge_module)
+          value -> Zaq.Config.put_process(:zaq, :ingestion_data_source_bridge_module, value)
         end
 
         case original_response do
-          nil -> Application.delete_env(:zaq, :provider_browser_response)
-          value -> Application.put_env(:zaq, :provider_browser_response, value)
+          nil -> Zaq.Config.delete_process(:zaq, :provider_browser_response)
+          value -> Zaq.Config.put_process(:zaq, :provider_browser_response, value)
         end
       end)
 
@@ -1301,12 +1218,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.mkdir_p!(documents_root)
       File.mkdir_p!(archives_root)
 
-      Application.put_env(:zaq, Zaq.Ingestion,
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion,
         base_path: documents_root,
         volumes: %{"archives" => archives_root, "documents" => documents_root}
       )
 
-      Application.put_env(
+      Zaq.Config.put_process(
         :zaq,
         :ingestion_data_source_bridge_module,
         ProviderBrowserCustomBridgeStub
@@ -1340,7 +1257,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         }
       })
 
-      Application.put_env(:zaq, :provider_browser_response, [record])
+      Zaq.Config.put_process(:zaq, :provider_browser_response, [record])
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
 
@@ -1357,22 +1274,22 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       provider_config: config
     } do
-      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
-      original_response = Application.get_env(:zaq, :provider_browser_response)
+      original_bridge = Zaq.Config.get(:zaq, :ingestion_data_source_bridge_module, nil)
+      original_response = Zaq.Config.get(:zaq, :provider_browser_response, nil)
 
       on_exit(fn ->
         case original_bridge do
-          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
-          value -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, value)
+          nil -> Zaq.Config.delete_process(:zaq, :ingestion_data_source_bridge_module)
+          value -> Zaq.Config.put_process(:zaq, :ingestion_data_source_bridge_module, value)
         end
 
         case original_response do
-          nil -> Application.delete_env(:zaq, :provider_browser_response)
-          value -> Application.put_env(:zaq, :provider_browser_response, value)
+          nil -> Zaq.Config.delete_process(:zaq, :provider_browser_response)
+          value -> Zaq.Config.put_process(:zaq, :provider_browser_response, value)
         end
       end)
 
-      Application.put_env(
+      Zaq.Config.put_process(
         :zaq,
         :ingestion_data_source_bridge_module,
         ProviderBrowserCustomBridgeStub
@@ -1401,7 +1318,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         set: [updated_at: ~U[2024-01-01 00:00:00Z]]
       )
 
-      Application.put_env(:zaq, :provider_browser_response, [record])
+      Zaq.Config.put_process(:zaq, :provider_browser_response, [record])
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
 
@@ -1713,11 +1630,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "removes volume-prefixed document and chunks", %{conn: conn, tmp_dir: tmp_dir} do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+      original = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+        Zaq.Config.put_process(:zaq, Zaq.Ingestion, original || [])
       end)
 
       doc = create_document_with_chunk("docs/alpha.md")
@@ -1762,11 +1679,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "removes metadata-linked sidecar in volume mode", %{conn: conn, tmp_dir: tmp_dir} do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+      original = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+        Zaq.Config.put_process(:zaq, Zaq.Ingestion, original || [])
       end)
 
       File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
@@ -1837,11 +1754,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.write!(Path.join(nested_dir, "first.md"), "# First")
       File.write!(Path.join(nested_dir, "second.md"), "# Second")
 
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => docs_root})
+      original = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion, volumes: %{"docs" => docs_root})
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+        Zaq.Config.put_process(:zaq, Zaq.Ingestion, original || [])
       end)
 
       first_doc = create_document_with_chunk("docs/sub/deep/first.md")
@@ -1994,11 +1911,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       tmp_dir: tmp_dir
     } do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+      original = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+        Zaq.Config.put_process(:zaq, Zaq.Ingestion, original || [])
       end)
 
       File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
@@ -2028,11 +1945,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       conn: conn,
       tmp_dir: tmp_dir
     } do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+      original = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+        Zaq.Config.put_process(:zaq, Zaq.Ingestion, original || [])
       end)
 
       File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
@@ -2647,11 +2564,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     conn: conn,
     tmp_dir: tmp_dir
   } do
-    original = Application.get_env(:zaq, Zaq.Ingestion)
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir, volumes: %{})
+    original = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
+    Zaq.Config.put_process(:zaq, Zaq.Ingestion, base_path: tmp_dir, volumes: %{})
 
     on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion, original || [])
     end)
 
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
@@ -3032,8 +2949,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "prunes a stale prep entry left by an orphaned job after the TTL", %{conn: conn} do
-      Application.put_env(:zaq, :ingestion_prep_ttl_ms, 0)
-      on_exit(fn -> Application.delete_env(:zaq, :ingestion_prep_ttl_ms) end)
+      Zaq.Config.put_process(:zaq, :ingestion_prep_ttl_ms, 0)
+      on_exit(fn -> Zaq.Config.delete_process(:zaq, :ingestion_prep_ttl_ms) end)
 
       job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
 
@@ -3082,8 +2999,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     test "prune removes stale prep entries and keeps fresh ones queued for another sweep", %{
       conn: conn
     } do
-      Application.put_env(:zaq, :ingestion_prep_ttl_ms, 0)
-      on_exit(fn -> Application.delete_env(:zaq, :ingestion_prep_ttl_ms) end)
+      Zaq.Config.put_process(:zaq, :ingestion_prep_ttl_ms, 0)
+      on_exit(fn -> Zaq.Config.delete_process(:zaq, :ingestion_prep_ttl_ms) end)
 
       job_a = create_job(%{file_path: "scan-a.pdf", status: "processing", total_chunks: 0})
       job_b = create_job(%{file_path: "scan-b.pdf", status: "processing", total_chunks: 0})
@@ -3216,13 +3133,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.write!(Path.join(vol_docs, "manual.md"), "# Manual")
       File.write!(Path.join(vol_archives, "old.md"), "# Old")
 
-      original = Application.get_env(:zaq, Zaq.Ingestion)
+      original = Zaq.Config.get(:zaq, Zaq.Ingestion, nil)
 
-      Application.put_env(:zaq, Zaq.Ingestion,
+      Zaq.Config.put_process(:zaq, Zaq.Ingestion,
         volumes: %{"docs" => vol_docs, "archives" => vol_archives}
       )
 
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      on_exit(fn -> Zaq.Config.put_process(:zaq, Zaq.Ingestion, original || []) end)
 
       {:ok, conn: conn, vol_docs: vol_docs, vol_archives: vol_archives}
     end

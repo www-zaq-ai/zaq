@@ -1362,10 +1362,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
-      on_exit(fn ->
-        :ok = Zaq.System.set_global_default_agent_id(nil)
-      end)
-
       channel_agent = insert_configured_agent(true)
       provider_agent = insert_configured_agent(true)
       global_agent = insert_configured_agent(true)
@@ -1412,10 +1408,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
-      on_exit(fn ->
-        :ok = Zaq.System.set_global_default_agent_id(nil)
-      end)
-
       inactive_channel_agent = insert_configured_agent(false)
       provider_agent = insert_configured_agent(true)
 
@@ -1458,10 +1450,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
-
-      on_exit(fn ->
-        :ok = Zaq.System.set_global_default_agent_id(nil)
-      end)
 
       channel_agent = insert_configured_agent(true, false)
       provider_agent = insert_configured_agent(true)
@@ -1506,10 +1494,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
 
-      on_exit(fn ->
-        :ok = Zaq.System.set_global_default_agent_id(nil)
-      end)
-
       :ok = Zaq.System.set_global_default_agent_id(nil)
 
       config =
@@ -1539,10 +1523,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
-
-      on_exit(fn ->
-        :ok = Zaq.System.set_global_default_agent_id(nil)
-      end)
 
       config =
         insert_channel_config(%{
@@ -3943,10 +3923,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "list_ingress_subscriptions/2 delegates with computed opts" do
-      previous_base_url = Zaq.System.get_global_base_url()
       :ok = Zaq.System.set_global_base_url("https://zaq.example/base/")
-
-      on_exit(fn -> :ok = Zaq.System.set_global_base_url(previous_base_url) end)
 
       config =
         insert_channel_config(%{
@@ -4022,7 +3999,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   describe "webhook target URL and capability coercion" do
     test "ingress opts uses global base URL when target_url absent" do
       previous = Application.get_env(:zaq, :channels, %{})
-      previous_base_url = Zaq.System.get_global_base_url()
 
       Application.put_env(:zaq, :channels, %{
         mattermost: %{
@@ -4036,7 +4012,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       on_exit(fn ->
         Application.put_env(:zaq, :channels, previous)
-        :ok = Zaq.System.set_global_base_url(previous_base_url)
       end)
 
       config =
