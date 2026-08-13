@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-13T12:06:42Z",
+  "description": "Address duplicate-code quality feedback by extracting shared BO dispatch, webhook capability detection, email TLS CA cert handling, and repeated component attr declarations without changing behavior.",
+  "id": "zaq-rwx",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Deduplicate code quality findings",
+  "type": "task",
+  "updated_at": "2026-08-13T12:06:42Z"
+}
