@@ -2,7 +2,9 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
   @moduledoc """
   ReAct tool: downloads a document by id from a datasource provider.
 
-  Delegates to Channels through `NodeRouter.dispatch/1`.
+  Delegates to Channels through `NodeRouter.dispatch/1`. A bridge that answers with an
+  unmaterialized record — `content: nil` plus a `materializing_event` — takes a second hop
+  through that event, so the tool returns content whichever way the provider works.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -33,6 +35,8 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
 
   alias Zaq.Agent.Tools.DataSourceTool
 
+  @error_prefix "Data source document download failed"
+
   @impl Jido.Action
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
@@ -49,7 +53,8 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
       :data_source_download_document,
       request,
       context,
-      "Data source document download failed"
+      @error_prefix,
+      &DataSourceTool.materialize(&1, context, @error_prefix)
     )
   end
 end

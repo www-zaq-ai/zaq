@@ -58,6 +58,54 @@ defmodule Zaq.Utils.MapTest do
     end
   end
 
+  describe "present_value/2" do
+    test "reads either string or existing atom keys" do
+      assert Map.present_value(%{"file_id" => "42"}, "file_id") == "42"
+      assert Map.present_value(%{file_id: "42"}, "file_id") == "42"
+      assert Map.present_value(%{"file_id" => "42"}, :file_id) == "42"
+      assert Map.present_value(%{file_id: "42"}, :file_id) == "42"
+    end
+
+    test "a key holding nil does not shadow the other spelling" do
+      # This is the whole reason the function exists over metadata_value/2: payloads
+      # assembled by more than one writer carry the same field twice, once empty.
+      assert Map.present_value(%{"file_id" => nil, :file_id => "42"}, "file_id") == "42"
+      assert Map.present_value(%{:file_id => nil, "file_id" => "42"}, :file_id) == "42"
+      assert Map.metadata_value(%{"file_id" => nil, :file_id => "42"}, "file_id") == nil
+    end
+
+    test "prefers the requested spelling when both hold a value" do
+      assert Map.present_value(%{"file_id" => "string", :file_id => "atom"}, "file_id") ==
+               "string"
+
+      assert Map.present_value(%{"file_id" => "string", :file_id => "atom"}, :file_id) == "atom"
+    end
+
+    test "treats false as absent" do
+      assert Map.present_value(%{"enabled" => false}, "enabled") == nil
+    end
+
+    test "keeps other falsey values" do
+      assert Map.present_value(%{"count" => 0}, "count") == 0
+      assert Map.present_value(%{"label" => ""}, "label") == ""
+    end
+
+    test "returns nil when neither spelling is present" do
+      assert Map.present_value(%{"other" => "x"}, "file_id") == nil
+    end
+
+    test "does not create an atom for a string key that has none yet" do
+      assert Map.present_value(%{}, "not_yet_an_atom_key_#{System.unique_integer([:positive])}") ==
+               nil
+    end
+
+    test "returns nil for invalid input or unsupported key types" do
+      assert Map.present_value("not-a-map", "file_id") == nil
+      assert Map.present_value(nil, "file_id") == nil
+      assert Map.present_value(%{"file_id" => "42"}, 123) == nil
+    end
+  end
+
   describe "stringify_keys/1" do
     test "converts atom keys to strings and leaves values untouched" do
       assert Map.stringify_keys(%{:originator => "zaqos", "scope" => "openid"}) == %{

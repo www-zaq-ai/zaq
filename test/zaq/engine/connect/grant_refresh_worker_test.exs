@@ -38,6 +38,13 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
     |> Repo.insert!()
   end
 
+  # `Connect.issue_grant/1` rejects a data_source grant whose channel config names another
+  # provider, so a test that wants the "no config" path needs an id no row holds. Migrations
+  # seed channel_configs rows, so that id cannot be a literal.
+  defp unused_config_id do
+    to_string((Repo.aggregate(ChannelConfig, :max, :id) || 0) + 1)
+  end
+
   test "perform/1 returns ok when grant does not exist" do
     assert :ok = GrantRefreshWorker.perform(%Job{args: %{"grant_id" => -1}})
   end
@@ -112,7 +119,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
       Connect.issue_grant(%{
         credential_id: credential.id,
         resource_type: "data_source",
-        resource_id: "2",
+        resource_id: unused_config_id(),
         owner_type: "org",
         metadata: %{},
         status: "active",
@@ -125,7 +132,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   end
 
   test "perform/1 returns ok when oauth2 refresh succeeds" do
-    insert_config(:google_drive, kind: "data_source")
+    config = insert_config(:google_drive, kind: "data_source")
 
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -157,7 +164,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
       Connect.issue_grant(%{
         credential_id: credential.id,
         resource_type: "data_source",
-        resource_id: "2",
+        resource_id: to_string(config.id),
         owner_type: "org",
         metadata: %{},
         status: "active",
@@ -169,7 +176,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   end
 
   test "perform/1 returns ok when bridge does not support oauth2 refresh" do
-    insert_config(:slack, kind: "data_source")
+    config = insert_config(:slack, kind: "data_source")
 
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -201,7 +208,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
       Connect.issue_grant(%{
         credential_id: credential.id,
         resource_type: "data_source",
-        resource_id: "2",
+        resource_id: to_string(config.id),
         owner_type: "org",
         metadata: %{},
         status: "active",
@@ -213,7 +220,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   end
 
   test "perform/1 keeps existing refresh_token when refresh payload omits it" do
-    insert_config(:google_drive, kind: "data_source")
+    config = insert_config(:google_drive, kind: "data_source")
 
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -245,7 +252,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
       Connect.issue_grant(%{
         credential_id: credential.id,
         resource_type: "data_source",
-        resource_id: "2",
+        resource_id: to_string(config.id),
         owner_type: "org",
         metadata: %{},
         status: "active",

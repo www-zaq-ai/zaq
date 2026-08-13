@@ -8,6 +8,23 @@ defmodule Zaq.Ingestion do
   decides which watched records should be re-ingested, which removed records
   should delete existing documents and sidecars, and how folder watch inheritance
   is reflected in the BO UI.
+
+  ## Records are not produced here
+
+  The data-source read path answers with ingestion's own shapes —
+  `Zaq.Ingestion.FileExplorer.Entry` values and flat permission grants. Mapping those onto
+  `Zaq.Contracts.Record` belongs to `Zaq.Channels.DiskBridge`, the same way every other
+  provider's bridge maps that provider's payloads. Ingestion still *consumes* records, since
+  `ingest_records/2` takes them from any bridge.
+
+  `materialize_record/1` is the one exception. It is the far end of the `materializing_event`
+  every file record carries, and a caller holding that event dispatches straight to this node
+  — deliberately not through channels, so a listing never drags file bytes across the
+  channels node. The record therefore has to be built on this side.
+
+  `directory_snapshot/3` also still returns records, for BO's local browse branch. That is
+  temporary: BO moves to `Zaq.Channels.DiskBridge` in a follow-up, and
+  `Zaq.Ingestion.VolumeRecords` goes with it.
   """
 
   alias Zaq.Ingestion.{
@@ -26,10 +43,12 @@ defmodule Zaq.Ingestion do
     RenameService,
     Sidecar,
     SourcePath,
+    VolumeEntries,
     VolumeRecords
   }
 
   alias Zaq.Contracts.Record
+  alias Zaq.Ingestion.FileExplorer.Entry
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
   alias Zaq.Repo
@@ -41,6 +60,14 @@ defmodule Zaq.Ingestion do
 
   @pubsub Zaq.PubSub
   @topic "ingestion:jobs"
+
+  @typedoc """
+  A page of volume entries.
+
+  `scanned` is what the underlying listing held before entries whose file is gone were
+  dropped, so a caller can tell a short page from a complete one.
+  """
+  @type entry_page :: %{entries: [Entry.t()], scanned: non_neg_integer()}
 
   # --- Ingestion triggers ---
 
@@ -346,6 +373,7 @@ defmodule Zaq.Ingestion do
   """
   def volumes_configured?, do: FileExplorer.volumes_configured?()
 
+  def list_entries(nil, path), do: FileExplorer.list(path)
   def list_entries(volume_name, path), do: FileExplorer.list(volume_name, path)
 
   def create_directory(volume_name, path), do: FileExplorer.create_directory(volume_name, path)
@@ -361,12 +389,441 @@ defmodule Zaq.Ingestion do
 
   def file_info(volume_name, path), do: FileExplorer.file_info(volume_name, path)
 
+  @doc """
+  Returns the volume entry for a document id.
+
+  Answers `{:error, :not_found}` for an id with no document row, and the filesystem error
+  when the row exists but its file is gone from the volume.
+  """
+  @spec describe_record(String.t() | integer()) :: {:ok, Entry.t()} | {:error, term()}
+  def describe_record(file_id) do
+    case Document.get(file_id) do
+      %Document{} = document -> describe_document(document)
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Returns a page of volume entries.
+
+  With no `filters["parent"]`, answers every file the deployment holds across all mounted
+  volumes. With one, answers that directory's entries — folders alongside files, so a caller
+  can walk the tree the way `RecordSource.list_children/1` does for a folder record. A parent
+  is a volume-prefixed source, the same form `Document.source` carries.
+
+  Ingested files answer with their `documents.id`, so an id read off this page is the one
+  `describe_record/1` accepts.
+  """
+  @spec list_records(map()) :: {:ok, entry_page()} | {:error, term()}
+  def list_records(params \\ %{}) when is_map(params) do
+    case parent_source(params) do
+      nil -> list_all_entries()
+      parent -> list_directory_entries(split_parent(parent))
+    end
+  end
+
+  # Document rows already span every volume, so listing them needs no walk across the mounts.
+  defp list_all_entries do
+    documents = Document.list()
+    {:ok, entry_page(entries_for(documents), length(documents))}
+  end
+
+  defp list_directory_entries({volume_name, path}) do
+    with {:ok, entries} <- list_entries(volume_name, path) do
+      {:ok, entries |> VolumeEntries.resolve() |> entry_page(length(entries))}
+    end
+  end
+
+  defp entry_page(entries, scanned) do
+    %{entries: entries, scanned: scanned}
+  end
+
+  @doc """
+  Writes a file onto a mounted volume and registers its document row.
+
+  `path` is the destination directory and must name a volume — a bare relative path has no
+  volume to write to and is refused rather than silently landing on the default one. The
+  file is deduplicated the way a BO upload is, so a name already taken yields
+  `notes (1).md`; the returned entry carries the name that was actually written.
+
+  Creating is not ingesting: the document row exists immediately, but chunking and
+  embedding still happen through the normal ingest flow.
+  """
+  @spec persist_record(map()) :: {:ok, map()} | {:error, term()}
+  def persist_record(request) when is_map(request) do
+    with {:ok, {volume_name, dir}} <- destination(request),
+         {:ok, name} <- required(request, "name", :name_required),
+         {:ok, content} <- decode_content(request),
+         dest = dir |> Path.join(name) |> SourcePath.normalize_relative(),
+         {:ok, absolute_path} <- upload_file(volume_name, dest, content),
+         {:ok, %Document{} = document} <- track_upload(volume_name, absolute_path),
+         {:ok, entry} <- describe_document(document) do
+      {:ok, %{status: "created", entry: entry}}
+    end
+  end
+
+  @doc """
+  Reads a document's bytes and returns it as a materialized record.
+
+  This is the far end of the `materializing_event` every file record carries: the record
+  travels without content so a listing does not read every file it names, and a caller that
+  wants the bytes dispatches the event to land here.
+
+  A textual document comes back as text, so a caller reading markdown does not have to
+  decode it first. Anything else is base64 with `attributes["encoding"]` saying so — the
+  convention `RecordSource.store_download/2` already reads. Send `encoding: "base64"` in the
+  request to force it, which is how a caller asks for the raw bytes of a text file.
+  """
+  @spec materialize_record(map()) :: {:ok, map()} | {:error, term()}
+  def materialize_record(request) when is_map(request) do
+    with {:ok, file_id} <- required(request, "file_id", :file_id_required) do
+      case Document.get(file_id) do
+        %Document{} = document -> materialize_document(document, request)
+        nil -> {:error, :not_found}
+      end
+    end
+  end
+
+  # The one place ingestion still produces a `Zaq.Contracts.Record`. Everything else answers
+  # with volume entries and leaves the record shape to `Zaq.Channels.DiskBridge`, but this is
+  # the far end of `materializing_event`: a caller on any node dispatches straight here,
+  # deliberately not through the channels node, so the record has to be built on this side.
+  defp materialize_document(%Document{} = document, request) do
+    with {:ok, entry} <- describe_document(document),
+         record = VolumeRecords.to_record(entry),
+         {:ok, absolute_path} <- RecordSource.resolve_path(record),
+         {:ok, binary} <- File.read(absolute_path) do
+      {:ok, %{record: put_content(record, binary, request)}}
+    end
+  end
+
+  defp put_content(%Record{} = record, binary, request) do
+    if base64?(record, binary, request) do
+      %{
+        record
+        | content: Base.encode64(binary),
+          attributes: Map.put(record.attributes, "encoding", "base64")
+      }
+    else
+      %{record | content: binary}
+    end
+  end
+
+  # `String.valid?/1` is not redundant with the mime check: an extension says what a file is
+  # meant to be, not what it holds. A `.md` carrying invalid UTF-8 would otherwise come back
+  # as a broken string, so it falls to base64 instead.
+  defp base64?(%Record{} = record, binary, request) do
+    MapUtils.present_value(request, "encoding") == "base64" or
+      not (textual_mime?(record.mime_type) and String.valid?(binary))
+  end
+
+  @textual_mime_types ~w(
+    application/json application/xml application/javascript
+    application/yaml application/x-yaml application/x-sh
+  )
+
+  defp textual_mime?(mime) when is_binary(mime),
+    do: String.starts_with?(mime, "text/") or mime in @textual_mime_types
+
+  defp textual_mime?(_mime), do: false
+
+  @doc """
+  Returns volume entries for documents whose source or title matches `query`.
+
+  Matching is a case-insensitive substring over the stored source and title — there is no
+  index behind it, so the page is capped. Chunk and sidecar rows are excluded; they are not
+  files a caller can act on.
+  """
+  @spec search_records(map()) :: {:ok, entry_page()} | {:error, term()}
+  def search_records(params) when is_map(params) do
+    with {:ok, query} <- required(params, "query", :query_required) do
+      documents = search_documents(query)
+      {:ok, entry_page(entries_for(documents), length(documents))}
+    end
+  end
+
+  # A document whose file is gone from its volume is dropped rather than failing the page —
+  # one missing file does not hide the rest.
+  defp entries_for(documents) do
+    Enum.flat_map(documents, fn document ->
+      case describe_document(document) do
+        {:ok, entry} -> [entry]
+        {:error, _reason} -> []
+      end
+    end)
+  end
+
+  defp search_documents(query) do
+    pattern = "%#{query}%"
+
+    from(d in Document,
+      where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+      where: ilike(d.source, ^pattern) or ilike(d.title, ^pattern),
+      order_by: [asc: d.source],
+      limit: 100
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  Reports what the mounted volumes hold.
+
+  `root_folders` are the mounted volume names — a volume is the root a caller browses from.
+  `folders_count` is derived from document sources rather than walked on disk, so it counts
+  directories that hold at least one document.
+  """
+  @spec volume_stats() :: {:ok, map()}
+  def volume_stats do
+    sources =
+      from(d in Document,
+        where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+        select: d.source
+      )
+      |> Repo.all()
+
+    folders =
+      sources
+      |> Enum.map(&Path.dirname/1)
+      |> Enum.reject(&(&1 in [".", "", "/"]))
+      |> Enum.uniq()
+
+    {:ok,
+     %{
+       files_count: length(sources),
+       folders_count: length(folders),
+       principals_count: count_principals(),
+       root_folders: FileExplorer.list_volumes() |> Map.keys() |> Enum.sort()
+     }}
+  end
+
+  # A principal is whoever a grant names, counted once no matter how many documents it
+  # covers. Public access names nobody, so it is not a principal.
+  defp count_principals do
+    from(p in Permission,
+      where: p.resource_type == "document",
+      distinct: true,
+      select: {p.person_id, p.team_id}
+    )
+    |> Repo.all()
+    |> Enum.reject(&(&1 == {nil, nil}))
+    |> length()
+  end
+
+  @doc """
+  Returns who can read a document, one flat map per grant.
+
+  A grant names a person or a team; `public?` reports the `"public"` tag on the document
+  itself, which grants read access to everyone and has no `resource_permissions` row to
+  name. Both are grants — the caller shaping them into a page is `Zaq.Channels.DiskBridge`,
+  which does not have to know ZAQ stores the two differently.
+
+  Grants are flattened rather than returned as `Zaq.Permissions.DocumentPermission` structs
+  so the bridge never reaches into an Ecto schema or depends on which associations were
+  preloaded.
+  """
+  @spec list_record_permissions(String.t() | integer()) ::
+          {:ok, %{permissions: [map()], public?: boolean()}} | {:error, term()}
+  def list_record_permissions(file_id) do
+    case Document.get(file_id) do
+      %Document{} = document ->
+        {:ok,
+         %{
+           permissions: Enum.map(list_document_permissions(document.id), &permission_grant/1),
+           public?: "public" in (document.tags || [])
+         }}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  defp permission_grant(%Permission{} = permission) do
+    {type, target_id, name} = permission_target(permission)
+
+    %{
+      id: to_string(permission.id),
+      type: type,
+      target_id: target_id,
+      name: name,
+      access_rights: permission.access_rights || []
+    }
+  end
+
+  defp permission_target(%Permission{person: %{} = person}),
+    do: {"person", to_string(person.id), person.full_name || person.email}
+
+  defp permission_target(%Permission{team: %{} = team}),
+    do: {"team", to_string(team.id), team.name}
+
+  defp permission_target(%Permission{}), do: {"unknown", nil, nil}
+
+  @doc """
+  Updates a file in place: rewrites its content, renames it, or moves it within its volume.
+
+  Every field is optional and applied to whatever the document already is — `name` renames,
+  `path` moves to another directory, `content` overwrites the bytes. Moves go through the
+  same `rename_entry/3` a BO rename runs, so the document source and any linked sidecar move
+  with the file in one transaction and the id stays stable.
+  """
+  @spec update_record(map()) :: {:ok, map()} | {:error, term()}
+  def update_record(request) when is_map(request) do
+    with {:ok, file_id} <- required(request, "file_id", :file_id_required) do
+      case Document.get(file_id) do
+        %Document{} = document -> update_document(document, request)
+        nil -> {:error, :not_found}
+      end
+    end
+  end
+
+  defp update_document(%Document{} = document, request) do
+    {volume_name, path} = SourcePath.split_source(document.source, nil)
+
+    # Content is written at the current location before any move, so a request that both
+    # rewrites and renames lands the new bytes under the new name.
+    with :ok <- write_content(volume_name, path, request),
+         {:ok, target} <- move_target(volume_name, path, request),
+         :ok <- move(volume_name, path, target),
+         %Document{} = updated <- Document.get(document.id),
+         {:ok, entry} <- describe_document(updated) do
+      {:ok, %{status: "updated", entry: entry}}
+    end
+  end
+
+  defp write_content(volume_name, path, request) do
+    case MapUtils.present_value(request, "content") do
+      nil ->
+        :ok
+
+      _content ->
+        with {:ok, content} <- decode_content(request),
+             {:ok, _absolute_path} <- save_file(volume_name, path, content) do
+          :ok
+        end
+    end
+  end
+
+  defp move_target(volume_name, path, request) do
+    name = MapUtils.present_value(request, "name") || Path.basename(path)
+
+    case MapUtils.present_value(request, "path") do
+      nil ->
+        {:ok, path |> Path.dirname() |> Path.join(name) |> SourcePath.normalize_relative()}
+
+      new_path ->
+        case split_parent(new_path) do
+          # A move names its volume the way a create does. Crossing volumes is refused rather
+          # than half-done: `rename_entry/3` renames within one volume, so a cross-volume move
+          # would leave the file moved and the sidecar behind.
+          {^volume_name, dir} ->
+            {:ok, dir |> Path.join(name) |> SourcePath.normalize_relative()}
+
+          {nil, _dir} ->
+            {:error, :volume_required}
+
+          {_other_volume, _dir} ->
+            {:error, :cross_volume_move_unsupported}
+        end
+    end
+  end
+
+  defp move(_volume_name, path, path), do: :ok
+  defp move(volume_name, path, target), do: rename_entry(volume_name, path, target)
+
+  @doc """
+  Removes a document row and the file behind it.
+
+  Delegates to the same `delete_path/4` a BO delete runs, so chunks and linked sidecars go
+  with it. Answers with the status alone: the file is gone by the time this returns, so
+  there is nothing left on the volume to describe.
+  """
+  @spec delete_record(String.t() | integer()) :: {:ok, map()} | {:error, term()}
+  def delete_record(file_id) do
+    case Document.get(file_id) do
+      %Document{} = document -> delete_document(document)
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp delete_document(%Document{} = document) do
+    {volume_name, path} = SourcePath.split_source(document.source, nil)
+
+    case delete_path(volume_name, path, "file") do
+      :ok -> {:ok, %{status: "deleted"}}
+      error -> error
+    end
+  end
+
+  defp destination(request) do
+    with {:ok, path} <- required(request, "path", :path_required) do
+      case split_parent(path) do
+        {nil, _dir} -> {:error, :volume_required}
+        {volume_name, dir} -> {:ok, {volume_name, dir}}
+      end
+    end
+  end
+
+  # Binary uploads arrive base64-encoded because the request travels as JSON from agent
+  # tools; anything else is written through as the text it already is.
+  defp decode_content(request) do
+    content = MapUtils.present_value(request, "content") || ""
+
+    case MapUtils.present_value(request, "encoding") do
+      "base64" ->
+        case Base.decode64(content) do
+          {:ok, binary} -> {:ok, binary}
+          :error -> {:error, :invalid_base64}
+        end
+
+      _ ->
+        {:ok, content}
+    end
+  end
+
+  defp required(request, key, error) do
+    case MapUtils.present_value(request, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> {:error, error}
+    end
+  end
+
+  # `split_source/2` splits a file source, so it needs a "volume/rest" shape and leaves a bare
+  # volume name untouched — which would then resolve against the default volume and answer
+  # `:not_a_directory`. A parent naming a whole volume is that volume's root.
+  defp split_parent(parent) do
+    volumes = FileExplorer.list_volumes()
+
+    if Map.has_key?(volumes, parent) do
+      {parent, "."}
+    else
+      SourcePath.split_source(parent, nil, volumes)
+    end
+  end
+
+  defp parent_source(params) do
+    filters = MapUtils.present_value(params, "filters") || %{}
+
+    case MapUtils.present_value(filters, "parent") do
+      parent when is_binary(parent) and parent != "" -> parent
+      _ -> nil
+    end
+  end
+
+  defp describe_document(%Document{} = document) do
+    {volume_name, path} = SourcePath.split_source(document.source, nil)
+
+    with {:ok, %Entry{} = entry} <- VolumeEntries.from_path(volume_name, path) do
+      # The document id is the identity the caller holds, so the entry answers with it
+      # rather than the volume-path id `from_path/2` derives for browsing.
+      {:ok, %{entry | id: to_string(document.id), document_id: document.id}}
+    end
+  end
+
   def directory_snapshot(volume_name, current_dir, current_user) do
     with {:ok, entries} <- list_entries(volume_name, current_dir) do
       sorted =
         entries
         |> Enum.sort_by(fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
-        |> VolumeRecords.from_entries(volume_name, current_dir)
+        |> VolumeRecords.from_entries()
 
       {:ok, DirectorySnapshot.build(sorted, volume_name, current_dir, current_user)}
     end
