@@ -138,6 +138,7 @@ defmodule Zaq.Channels.BridgeConversationIdentityTest do
 
   describe "EmailBridge callbacks" do
     test "implements the optional Bridge conversation identity callbacks" do
+      assert Code.ensure_loaded?(EmailBridge)
       assert function_exported?(EmailBridge, :conversation_key, 1)
       assert function_exported?(EmailBridge, :outbound_conversation_key, 2)
     end
