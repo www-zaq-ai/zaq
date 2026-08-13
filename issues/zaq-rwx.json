@@ -2,13 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-13T12:16:08Z",
+  "close_reason": "Implemented duplicate-code cleanup: shared BO engine dispatch helper, shared webhook capability detection, shared email TLS CA cert helper, local component attr macros. Verified focused tests and mix q pass.",
   "created": "2026-08-13T12:06:42Z",
   "description": "Address duplicate-code quality feedback by extracting shared BO dispatch, webhook capability detection, email TLS CA cert handling, and repeated component attr declarations without changing behavior.",
   "id": "zaq-rwx",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "Deduplicate code quality findings",
   "type": "task",
-  "updated_at": "2026-08-13T12:06:42Z"
+  "updated_at": "2026-08-13T12:16:08Z"
 }
