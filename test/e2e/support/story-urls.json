@@ -68,6 +68,7 @@
   "/storybook/layouts/master_detail",
   "/storybook/modals/bo_modal",
   "/storybook/modals/channel_capabilities",
+  "/storybook/modals/drawer",
   "/storybook/modals/file_preview",
   "/storybook/modals/file_preview_modal",
   "/storybook/not_used/role_share_picker",

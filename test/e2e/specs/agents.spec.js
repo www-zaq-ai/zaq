@@ -8,12 +8,14 @@ const {
   createE2EAiCredential,
   createE2EMcpEndpoint,
   createE2EAgent,
+  getE2EZAQRouterCredential,
 } = require("../support/bo")
 
 const AGENTS_PATH = "/bo/agents"
 
-// Seed an OpenRouter credential with a known tool-capable model.
-const TOOL_MODEL = "openai/gpt-5.1-chat"
+// ZAQ Router is provisioned by the E2E support path and advertises deterministic
+// tool-capable models, unlike external provider catalogs.
+const TOOL_MODEL = "openai/gpt-oss-120b"
 
 // Clicks `clickSelector` and waits for `revealSelector` to appear, retrying the
 // click if it lands before the LiveView channel is bound (a known connection
@@ -61,14 +63,12 @@ async function pickFirstSearchableSelectOption(page, containerSel) {
   await options.first().click()
 }
 
-async function seedOpenRouterCredential(req) {
-  return createE2EAiCredential(req, {
-    name: `E2E OpenRouter ${Date.now()}`,
-    provider: "OpenRouter",
-    endpoint: "https://openrouter.ai/api/v1",
-    api_key: `e2e-key-${Date.now()}`,
-    description: "Agents spec seeded credential",
-  })
+async function getZaqRouterCredential(req) {
+  const credential = await getE2EZAQRouterCredential(req, { withApiKey: true })
+  expect(credential.found).toBeTruthy()
+  expect(credential.name).toBe("ZAQ Router")
+  expect(credential.has_api_key).toBeTruthy()
+  return credential
 }
 
 async function selectModelFromPicker(page, modelName) {
@@ -108,7 +108,7 @@ test.describe("Agents", () => {
 
   test("create an agent with AI credentials", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     await req.dispose()
     await loginToBackOffice(page)
 
@@ -125,7 +125,7 @@ test.describe("Agents", () => {
 
   test("add tools and MCP endpoint for a tool-capable model", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     const mcpName = `E2E MCP ${Date.now()}-${Math.floor(Math.random() * 10000)}`
     const mcp = await createE2EMcpEndpoint(req, {
       name: mcpName,
@@ -208,7 +208,7 @@ test.describe("Agents", () => {
 
   test("cancel agent form discards changes", async ({ page }) => {
     const req = await apiRequest.newContext()
-    await seedOpenRouterCredential(req)
+    await getZaqRouterCredential(req)
     await req.dispose()
     await loginToBackOffice(page)
 
@@ -225,7 +225,7 @@ test.describe("Agents", () => {
 
   test("edit an existing agent and save updates", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     const agent = await createE2EAgent(req, {
       name: "E2E Agent To Edit",
       job: "Original job description.",
@@ -250,7 +250,7 @@ test.describe("Agents", () => {
 
   test("delete an agent removes it from the list", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     const agent = await createE2EAgent(req, {
       name: "E2E Agent To Delete",
       job: "Will be deleted.",
@@ -280,7 +280,7 @@ test.describe("Agents", () => {
 
   test("filter agents by name shows only matching agents", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     const agentA = await createE2EAgent(req, {
       name: "E2E FilterAlpha",
       job: "First agent.",
@@ -317,7 +317,7 @@ test.describe("Agents", () => {
 
   test("remove a tool from the agent form", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     await req.dispose()
     await loginToBackOffice(page)
 
@@ -346,7 +346,7 @@ test.describe("Agents", () => {
 
   test("remove an MCP endpoint from the agent form", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     const mcp = await createE2EMcpEndpoint(req, {
       name: `E2E MCP Remove ${Date.now()}`,
       type: "local",
@@ -387,7 +387,7 @@ test.describe("Agents", () => {
 
   test("save fails with inline error when name is blank", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     await req.dispose()
     await loginToBackOffice(page)
 
@@ -419,7 +419,7 @@ test.describe("Agents", () => {
 
   test("invalid JSON in advanced options shows inline error", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     await req.dispose()
     await loginToBackOffice(page)
 
@@ -438,7 +438,7 @@ test.describe("Agents", () => {
 
   test("non-object JSON in advanced options shows inline error", async ({ page }) => {
     const req = await apiRequest.newContext()
-    const credential = await seedOpenRouterCredential(req)
+    const credential = await getZaqRouterCredential(req)
     await req.dispose()
     await loginToBackOffice(page)
 

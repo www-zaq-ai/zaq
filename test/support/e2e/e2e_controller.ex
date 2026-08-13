@@ -10,8 +10,10 @@ defmodule ZaqWeb.E2EController do
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry
   alias Zaq.System, as: SystemContext
+  alias Zaq.UserPortal.Provisioner
 
   @e2e_enabled Application.compile_env(:zaq, :e2e, false)
+  @zaq_router_e2e_api_key "e2e-zaq-router-key"
 
   # Final safety net — routes compile away in prod, but this guards at action level too.
   def action(conn, _) do
@@ -364,21 +366,32 @@ defmodule ZaqWeb.E2EController do
     json(conn, %{ok: true, username: user.username, password: password, user_id: user.id})
   end
 
-  # GET /e2e/zaq-router-credential — returns whether the "ZAQ Router" AI
-  # credential exists and whether it has an API key. Used by E2E specs to
-  # assert provisioning state without clicking through the system config UI.
-  def get_zaq_router_credential(conn, _params) do
-    case SystemContext.get_ai_provider_credential_by_name("ZAQ Router") do
-      nil ->
-        conn |> put_status(:not_found) |> json(%{found: false, has_api_key: false})
-
-      credential ->
+  # GET /e2e/zaq-router-credential — ensures and returns the "ZAQ Router" AI
+  # credential. Pass with_api_key=true for specs that need model discovery.
+  def get_zaq_router_credential(conn, params) do
+    case ensure_zaq_router_credential(params) do
+      {:ok, credential} ->
         json(conn, %{
           found: true,
+          id: credential.id,
+          name: credential.name,
+          provider: credential.provider,
           has_api_key: is_binary(credential.api_key) and credential.api_key != ""
         })
+
+      {:error, reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{found: false, has_api_key: false, error: inspect(reason)})
     end
   end
+
+  defp ensure_zaq_router_credential(%{"with_api_key" => value})
+       when value in ["true", true] do
+    Provisioner.provision_with_key(%{litellm_api_key: @zaq_router_e2e_api_key})
+  end
+
+  defp ensure_zaq_router_credential(_params), do: Provisioner.ensure_offline_credential()
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, val), do: Keyword.put(opts, key, val)

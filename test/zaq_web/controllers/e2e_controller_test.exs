@@ -88,6 +88,32 @@ defmodule ZaqWeb.E2EControllerTest do
     end
   end
 
+  describe "GET /e2e/zaq-router-credential" do
+    @tag :integration
+    test "ensures and returns the ZAQ Router credential", %{conn: conn} do
+      conn = get(conn, "/e2e/zaq-router-credential")
+      body = json_response(conn, 200)
+
+      assert body["found"] == true
+      assert is_integer(body["id"])
+      assert body["name"] == "ZAQ Router"
+      assert body["provider"] == "zaq_router"
+      assert body["has_api_key"] == false
+    end
+
+    @tag :integration
+    test "can ensure a keyed ZAQ Router credential for model discovery", %{conn: conn} do
+      conn = get(conn, "/e2e/zaq-router-credential?with_api_key=true")
+      body = json_response(conn, 200)
+
+      assert body["found"] == true
+      assert is_integer(body["id"])
+      assert body["name"] == "ZAQ Router"
+      assert body["provider"] == "zaq_router"
+      assert body["has_api_key"] == true
+    end
+  end
+
   describe "GET /e2e/telemetry/points" do
     test "returns 200 with correct shape", %{conn: conn} do
       conn = get(conn, "/e2e/telemetry/points")
