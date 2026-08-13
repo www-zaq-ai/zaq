@@ -69,6 +69,6 @@ defmodule Zaq.Agent.Tools.DataSource.SearchDocumentsTest do
                node_router: UnexpectedResponseNodeRouter
              })
 
-    assert message == "Unexpected data source response: :not_a_tuple"
+    assert message == "Unexpected channel response: :not_a_tuple"
   end
 end

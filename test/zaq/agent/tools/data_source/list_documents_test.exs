@@ -80,6 +80,6 @@ defmodule Zaq.Agent.Tools.DataSource.ListDocumentsTest do
                node_router: StubNodeRouterTimeout
              })
 
-    assert message == "Unexpected data source response: :timeout"
+    assert message == "Unexpected channel response: :timeout"
   end
 end

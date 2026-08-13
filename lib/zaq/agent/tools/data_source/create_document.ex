@@ -5,42 +5,62 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
   Delegates to Channels through `NodeRouter.dispatch/1`.
   """
 
+  @schema Zoi.object(%{
+            provider: Zoi.string(description: "Datasource provider key"),
+            name: Zoi.string(description: "Document name/title"),
+            content:
+              Zoi.string(description: "Optional textual content to create")
+              |> Zoi.optional(),
+            encoding:
+              Zoi.string(description: "Optional content encoding, e.g. base64 for binary content")
+              |> Zoi.optional(),
+            path:
+              Zoi.string(description: "Optional provider path/parent folder")
+              |> Zoi.optional(),
+            parent_id:
+              Zoi.string(description: "Optional provider parent identifier")
+              |> Zoi.optional(),
+            mime_type:
+              Zoi.string(description: "Optional provider MIME type")
+              |> Zoi.optional(),
+            config_id:
+              Zoi.string(description: "Optional scoped datasource config id")
+              |> Zoi.optional()
+          })
+
+  @output_schema Zoi.object(%{
+                   record:
+                     Zoi.any(description: "Created document metadata record")
+                     |> Zoi.optional()
+                 })
+
   use Zaq.Engine.Workflows.Action,
     name: "create_document",
-    output_schema: [
-      record: [type: :any, required: false, doc: "Created document metadata record"]
-    ],
     description: """
     Create a document on a specific datasource provider.
     Returns provider metadata for the created document.
     """,
-    schema: [
-      provider: [type: :string, required: true, doc: "Datasource provider key"],
-      name: [type: :string, required: true, doc: "Document name/title"],
-      content: [type: :string, required: false, doc: "Optional textual content to create"],
-      path: [type: :string, required: false, doc: "Optional provider path/parent folder"],
-      parent_id: [type: :string, required: false, doc: "Optional provider parent identifier"],
-      mime_type: [type: :string, required: false, doc: "Optional provider MIME type"],
-      config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
-    ]
+    schema: @schema,
+    output_schema: @output_schema
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.Helpers.ChannelTool
 
   @impl Jido.Action
   def run(%{provider: provider} = params, context) do
     request =
       %{}
-      |> DataSourceTool.merge_optional(params, [
+      |> ChannelTool.merge_optional(params, [
         :name,
         :content,
+        :encoding,
         :path,
         :parent_id,
         :mime_type,
         :config_id
       ])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_create_file,
       request,
       context,

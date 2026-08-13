@@ -21,17 +21,17 @@ defmodule Zaq.Agent.Tools.DataSource.ListDocuments do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.Helpers.ChannelTool
 
   @impl Jido.Action
 
   def run(%{provider: provider, path: path} = params, context) do
     request =
       %{"path" => path}
-      |> DataSourceTool.merge_optional(params, [:config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_list_files,
       request,
       context,

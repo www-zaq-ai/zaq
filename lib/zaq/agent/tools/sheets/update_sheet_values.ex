@@ -46,7 +46,7 @@ defmodule Zaq.Agent.Tools.Sheets.UpdateSheetValues do
       ]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.Helpers.ChannelTool
   alias Zaq.Contracts.Record
 
   @spec run(
@@ -68,10 +68,10 @@ defmodule Zaq.Agent.Tools.Sheets.UpdateSheetValues do
         "range" => Map.fetch!(params, :range),
         "values" => Map.fetch!(params, :values)
       }
-      |> DataSourceTool.merge_optional(params, [:value_input_option, :config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:value_input_option, :config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_sheet_update_values,
       request,
       context,

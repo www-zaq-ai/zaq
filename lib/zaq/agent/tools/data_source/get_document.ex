@@ -20,17 +20,17 @@ defmodule Zaq.Agent.Tools.DataSource.GetDocument do
       config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
     ]
 
-  alias Zaq.Agent.Tools.DataSourceTool
+  alias Zaq.Agent.Tools.Helpers.ChannelTool
 
   @impl Jido.Action
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
     request =
       %{"file_id" => document_id}
-      |> DataSourceTool.merge_optional(params, [:config_id])
-      |> DataSourceTool.wrap_request(provider)
+      |> ChannelTool.merge_optional(params, [:config_id])
+      |> ChannelTool.wrap_request(provider)
 
-    DataSourceTool.dispatch(
+    ChannelTool.dispatch(
       :data_source_get_file,
       request,
       context,
