@@ -53,6 +53,19 @@ defmodule Zaq.Channels.Bridge do
                       test_connection: 2,
                       capability_snapshot: 1
 
+  @webhook_capability_keys [
+    :watch_changes_webhook,
+    :receive_change_webhook,
+    "watch_changes_webhook",
+    "receive_change_webhook"
+  ]
+
+  def webhook_capability_declared?(resolved) when is_map(resolved) do
+    Enum.any?(@webhook_capability_keys, fn key ->
+      match?(value when not is_nil(value), Map.get(resolved, key))
+    end)
+  end
+
   @communication_required_capabilities [
     :text,
     :image,

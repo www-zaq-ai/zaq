@@ -17,6 +17,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
   alias Mailroom.IMAP.Envelope
   alias Zaq.Channels.EmailBridge.ImapAdapter.{Listener, Parser}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
+  alias Zaq.Channels.EmailBridge.TlsHelpers
 
   @fetch_items [:uid, :envelope, :rfc822, :header]
   @default_idle_timeout 1_500_000
@@ -258,23 +259,13 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     ]
 
     if ssl do
-      Keyword.put(opts, :ssl_opts, depth: ssl_depth(config), cacerts: default_cacerts())
+      Keyword.put(opts, :ssl_opts,
+        depth: ssl_depth(config),
+        cacerts: TlsHelpers.default_cacerts()
+      )
     else
       opts
     end
-  end
-
-  defp default_cacerts do
-    :public_key.cacerts_get()
-    |> Enum.flat_map(fn
-      {:cert, der, _} when is_binary(der) -> [der]
-      der when is_binary(der) -> [der]
-      _ -> []
-    end)
-  rescue
-    _ -> []
-  catch
-    _, _ -> []
   end
 
   defp normalize_connect_error({:timeout, _}), do: :timeout

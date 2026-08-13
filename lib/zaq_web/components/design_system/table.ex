@@ -1,3 +1,17 @@
+defmodule ZaqWeb.Components.DesignSystem.Table.Attrs do
+  @moduledoc false
+
+  defmacro scroll_shell_attrs do
+    quote do
+      attr :id, :string, required: true
+      attr :scrollable, :boolean, default: false
+      attr :scroll_max, :atom, default: :default, values: [:default, :sm, :md, :lg, :fill]
+      attr :wrapper_class, :any, default: nil
+      attr :class, :any, default: nil
+    end
+  end
+end
+
 defmodule ZaqWeb.Components.DesignSystem.Table do
   @moduledoc """
   BO data table — list shell, rows, cells, and shared cell helpers.
@@ -23,15 +37,12 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
 
   alias Phoenix.LiveView.JS
   alias ZaqWeb.Components.DesignSystem.StatusPill
+  import ZaqWeb.Components.DesignSystem.Table.Attrs
 
   @doc "List table shell — `.zaq-table` with optional scroll wrapper and caption."
-  attr :id, :string, required: true
-  attr :scrollable, :boolean, default: false
-  attr :scroll_max, :atom, default: :default, values: [:default, :sm, :md, :lg, :fill]
-  attr :wrapper_class, :any, default: nil
+  scroll_shell_attrs()
   attr :sticky_header, :boolean, default: false
   attr :min_width, :string, default: nil
-  attr :class, :any, default: nil
 
   slot :caption
   slot :head
@@ -435,15 +446,13 @@ defmodule ZaqWeb.Components.DesignSystem.Table.Grid do
       row_click?: 1
     ]
 
+  import ZaqWeb.Components.DesignSystem.Table.Attrs
+
   alias Phoenix.LiveView.JS
 
   @doc "Grid shell — sticky header table + card grid body."
-  attr :id, :string, required: true
-  attr :scrollable, :boolean, default: false
-  attr :scroll_max, :atom, default: :default, values: [:default, :sm, :md, :lg, :fill]
-  attr :wrapper_class, :any, default: nil
+  scroll_shell_attrs()
   attr :columns, :integer, default: 4
-  attr :class, :any, default: nil
   slot :header
   slot :cards, required: true
   slot :empty

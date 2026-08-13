@@ -1,3 +1,23 @@
+defmodule ZaqWeb.Components.Drawer.Attrs do
+  @moduledoc false
+
+  defmacro drawer_shell_attrs do
+    quote do
+      attr :id, :string, required: true
+      attr :is_open, :boolean, required: true
+      attr :on_close, :any, required: true
+      attr :placement, :atom, default: :right, values: [:left, :right, :top, :bottom]
+      attr :size, :atom, default: :two_thirds, values: [:one_third, :two_thirds]
+      attr :padding, :atom, default: :default, values: [:default, :flush]
+      attr :return_focus_id, :string, default: nil
+      attr :panel_class, :string, default: ""
+      attr :body_class, :string, default: ""
+
+      attr :rest, :global, include: [:js]
+    end
+  end
+end
+
 defmodule ZaqWeb.Components.Drawer do
   @moduledoc """
   Reusable Back Office drawer primitive.
@@ -16,20 +36,11 @@ defmodule ZaqWeb.Components.Drawer do
   use ZaqWeb, :html
 
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
+  import ZaqWeb.Components.Drawer.Attrs
 
-  attr :id, :string, required: true
-  attr :is_open, :boolean, required: true
-  attr :on_close, :any, required: true
-  attr :placement, :atom, default: :right, values: [:left, :right, :top, :bottom]
-  attr :size, :atom, default: :two_thirds, values: [:one_third, :two_thirds]
-  attr :padding, :atom, default: :default, values: [:default, :flush]
-  attr :return_focus_id, :string, default: nil
+  drawer_shell_attrs()
   attr :title_id, :string, default: nil
   attr :backdrop_class, :string, default: "zaq-bo-modal-backdrop"
-  attr :panel_class, :string, default: ""
-  attr :body_class, :string, default: ""
-
-  attr :rest, :global, include: [:js]
 
   slot :header, doc: "Title row content rendered beside the mandatory close button."
   slot :inner_block, required: true
@@ -100,18 +111,8 @@ defmodule ZaqWeb.Components.Drawer do
     """
   end
 
-  attr :id, :string, required: true
-  attr :is_open, :boolean, required: true
-  attr :on_close, :any, required: true
+  drawer_shell_attrs()
   attr :title, :string, required: true
-  attr :placement, :atom, default: :right, values: [:left, :right, :top, :bottom]
-  attr :size, :atom, default: :two_thirds, values: [:one_third, :two_thirds]
-  attr :padding, :atom, default: :default, values: [:default, :flush]
-  attr :return_focus_id, :string, default: nil
-  attr :panel_class, :string, default: ""
-  attr :body_class, :string, default: ""
-
-  attr :rest, :global, include: [:js]
 
   slot :inner_block, required: true
   slot :actions, doc: "Footer actions — pass `DesignSystem.Button` components."

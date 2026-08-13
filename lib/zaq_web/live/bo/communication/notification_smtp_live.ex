@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   import Zaq.Helpers, only: [blank?: 1]
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.EmailBridge.TlsHelpers
   alias Zaq.Config
   alias Zaq.Mailer
   alias Zaq.System.EmailConfig
@@ -441,22 +442,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
         options ++ [cacertfile: to_charlist(cfg.ca_cert_path)]
 
       true ->
-        options ++ [cacerts: default_cacerts()]
+        options ++ [cacerts: TlsHelpers.default_cacerts()]
     end
   end
 
   defp normalize_tls_verify_mode("verify_none"), do: :verify_none
   defp normalize_tls_verify_mode(_), do: :verify_peer
-
-  defp default_cacerts do
-    :public_key.cacerts_get()
-    |> Enum.map(fn
-      {:cert, der, _} -> der
-      der when is_binary(der) -> der
-    end)
-  rescue
-    _ -> []
-  end
 
   defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
 

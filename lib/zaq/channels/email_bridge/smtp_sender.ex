@@ -12,6 +12,7 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
   import Zaq.Helpers, only: [blank?: 1]
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.EmailBridge.TlsHelpers
   alias Zaq.Mailer
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.HtmlUtils
@@ -211,21 +212,11 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
         options
 
       blank?(ca_cert_path) ->
-        options ++ [cacerts: default_cacerts()]
+        options ++ [cacerts: TlsHelpers.default_cacerts()]
 
       true ->
         options ++ [cacertfile: to_charlist(ca_cert_path)]
     end
-  end
-
-  defp default_cacerts do
-    :public_key.cacerts_get()
-    |> Enum.map(fn
-      {:cert, der, _} -> der
-      der when is_binary(der) -> der
-    end)
-  rescue
-    _ -> []
   end
 
   defp parse_int(str, default), do: ParseUtils.parse_int(str, default)

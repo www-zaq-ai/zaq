@@ -16,6 +16,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
   alias ZaqWeb.Live.BO.Communication.OAuthClaimState
   alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
+  alias ZaqWeb.Live.BO.EngineDispatch
   require Logger
 
   @max_pages_default 5
@@ -922,25 +923,11 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp provider_requires_global_base_url?(provider) do
     case Bridge.capability_snapshot(provider) do
       {:ok, %{resolved: resolved}} when is_map(resolved) ->
-        webhook_capability_declared?(resolved)
+        Bridge.webhook_capability_declared?(resolved)
 
       _ ->
         false
     end
-  end
-
-  defp webhook_capability_declared?(resolved) do
-    Enum.any?(
-      [
-        :watch_changes_webhook,
-        :receive_change_webhook,
-        "watch_changes_webhook",
-        "receive_change_webhook"
-      ],
-      fn key ->
-        match?(value when not is_nil(value), Map.get(resolved, key))
-      end
-    )
   end
 
   defp ensure_global_base_url_for_oauth2("oauth2") do
@@ -974,9 +961,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   defp dispatch_engine(action, request \\ %{}) do
-    Event.new(request, :engine, opts: [action: action])
-    |> NodeRouter.dispatch()
-    |> Map.get(:response)
+    EngineDispatch.dispatch(action, request)
   end
 
   defp engine_connect_fetch_credential(id),

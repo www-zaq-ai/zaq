@@ -489,6 +489,14 @@ defmodule Zaq.Channels.BridgeTest do
   end
 
   describe "data source capabilities" do
+    test "webhook_capability_declared? detects atom and string webhook capability keys" do
+      assert Bridge.webhook_capability_declared?(%{watch_changes_webhook: true})
+      assert Bridge.webhook_capability_declared?(%{"receive_change_webhook" => :native})
+
+      refute Bridge.webhook_capability_declared?(%{})
+      refute Bridge.webhook_capability_declared?(%{watch_changes_webhook: nil})
+    end
+
     test "required_capabilities returns data source capabilities" do
       assert Bridge.required_capabilities(:data_source) ==
                DataSourceBridge.required_capabilities()
