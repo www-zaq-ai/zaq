@@ -4,7 +4,7 @@
 
 The Channels service provides transport and runtime infrastructure for communication adapters.
 
-- **Data Sources** (ingestion channels in routes/API) ingest external documents (Google Drive, SharePoint, etc.).
+- **Data Sources** (ingestion channels in routes/API) ingest documents from Google Drive, SharePoint, and the server's own mounted volumes (`disk`).
 - **Retrieval channels** receive user messages and deliver ZAQ responses (Mattermost, Slack, Teams, Email, Telegram, Discord).
 
 All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For channel event creation/dispatch, use `Zaq.Channels.Events` helpers; these helpers emit `%Zaq.Event{}` envelopes for cross-node routing.
@@ -22,6 +22,7 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers               |
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters          |
 | `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources   |
+| `Zaq.Channels.DiskBridge`           | `lib/zaq/channels/disk_bridge.ex`            | Data-source bridge over the ingestion volumes   |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email (SMTP) delivery                |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
@@ -139,6 +140,23 @@ Unmaterialized data-source file records carry a signed `materialization_handle` 
 `data_source_document`. The handle survives agent/tool JSON serialization and is redeemed
 through `Zaq.Materialization`; the Channels materializer validates the locator and dispatches
 the fixed `:data_source_download_document` action.
+
+### The `disk` data source
+
+`Zaq.Channels.DiskBridge` fronts the ingestion volumes mounted on this install. It behaves like
+any other data source and is configured the same way, at `/bo/channels/data_source/disk`:
+
+- **Off by default.** There is no `channel_configs` row until an operator adds one, so
+  `Bridge.fetch_channel_config("disk")` answers `{:error, {:channel_not_configured, "disk"}}` and
+  every disk tool hop refuses. Adding a config enables it; toggling `enabled` turns it back off.
+- **A config needs nothing but a name** — there is no remote system to authenticate against, so
+  `url` and `token` are placeholdered for every `kind: "data_source"` config.
+- **Volumes are the root.** `list_files` with `filters.parent == "/"` answers one folder record
+  per configured volume, each carrying `attributes["mounted"]`. A volume configured but not
+  present on disk is listed with `"mounted" => false` rather than dropped, so a broken mount is
+  visible instead of merely absent. The BO renders this as a badge on the provider page.
+- Disabling disk does not affect `/bo/ingestion` — browsing and uploading local files is an
+  operator function, separate from exposing those files to agents.
 
 ### Data source required capabilities
 

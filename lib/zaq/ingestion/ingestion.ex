@@ -66,6 +66,10 @@ defmodule Zaq.Ingestion do
   @pubsub Zaq.PubSub
   @topic "ingestion:jobs"
 
+  # The parent above every volume. No volume is named "/", so this can never collide with a
+  # real mount, and it is what `ProviderCatalog.root_folder_default("disk")` hands back.
+  @volumes_root "/"
+
   @typedoc """
   A page of volume entries.
 
@@ -426,6 +430,10 @@ defmodule Zaq.Ingestion do
   can walk the tree the way `RecordSource.list_children/1` does for a folder record. A parent
   is a volume-prefixed source, the same form `Document.source` carries.
 
+  `"/"` is the root above every volume, so it answers the volumes themselves rather than any
+  one mount's contents. It is the only parent that can name a volume that is not there — see
+  `FileExplorer.volume_entries/0`.
+
   Every entry answers with its source as its id, which is the handle `describe_document/1`
   accepts. `document_id` is filled where that source has been ingested and left `nil` where
   it has not — the file is listed and reachable either way.
@@ -434,8 +442,14 @@ defmodule Zaq.Ingestion do
   def list_documents(params \\ %{}) when is_map(params) do
     case parent_source(params) do
       nil -> list_all_entries()
+      @volumes_root -> list_volume_entries()
       parent -> list_directory_entries(split_parent(parent))
     end
+  end
+
+  defp list_volume_entries do
+    entries = FileExplorer.volume_entries()
+    {:ok, entry_page(entries, length(entries))}
   end
 
   # Document rows already span every volume, so listing them needs no walk across the mounts.

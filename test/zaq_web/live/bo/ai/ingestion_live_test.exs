@@ -2678,6 +2678,33 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert state.socket.assigns.provider == "local"
       assert state.socket.assigns.current_path == "/bo/ingestion"
     end
+
+    test "mounting /bo/ingestion/disk normalizes provider to local", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/disk")
+      state = :sys.get_state(view.pid)
+
+      assert state.socket.assigns.provider == "local"
+      assert state.socket.assigns.current_path == "/bo/ingestion"
+    end
+
+    # Disk now has a config row like any other data source. Its files are the volumes this
+    # page already lists, so offering it again as an external source would duplicate them.
+    test "an enabled disk config is not offered as an external source", %{conn: conn} do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "disk",
+        "provider" => "disk",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      state = :sys.get_state(view.pid)
+
+      refute Enum.any?(state.socket.assigns.data_source_sources, &(&1.id == "disk"))
+    end
   end
 
   # ────────────────────────────────────────────────────────────────

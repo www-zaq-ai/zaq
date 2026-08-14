@@ -27,6 +27,7 @@ defmodule Zaq.Channels.DiskBridge do
 
   @behaviour Zaq.Channels.DataSourceBridge
 
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
@@ -36,6 +37,21 @@ defmodule Zaq.Channels.DiskBridge do
   alias Zaq.Utils
 
   @provider "disk"
+
+  # Which callback answers each data-source capability. A capability absent from this map has
+  # no filesystem equivalent — versions, spreadsheets, and change webhooks.
+  @capability_callbacks %{
+    list_items: {:list_files, 2},
+    count_items: {:channel_stats, 2},
+    list_principals: {:list_permissions, 2},
+    count_principals: {:channel_stats, 2},
+    get_item_metadata: {:get_file, 2},
+    download_items: {:download_document, 2},
+    create_item: {:create_file, 2},
+    update_item: {:update_file, 2},
+    delete_item: {:delete_file, 2},
+    search_items: {:search_files, 2}
+  }
 
   @doc "Reports what the mounted volumes hold — file, folder, and principal counts."
   @impl true
@@ -140,6 +156,43 @@ defmodule Zaq.Channels.DiskBridge do
     end
   end
 
+  @doc """
+  Reports which data-source capabilities the mounted volumes can serve.
+
+  A capability resolves to the callback that answers it, and only where this module actually
+  exports that callback — so the BO never advertises something the dispatcher would refuse
+  with `{:error, :unsupported}`. The gaps are gaps by nature, not omissions: a filesystem
+  keeps no version history, holds no spreadsheets, and pushes no change webhooks.
+  """
+  @spec capability_snapshot(map()) :: {:ok, map()}
+  def capability_snapshot(config) when is_map(config) do
+    {resolved, unsupported} =
+      Enum.reduce(DataSourceBridge.required_capabilities(), {%{}, []}, fn capability,
+                                                                          {resolved, unsupported} ->
+        case resolve_capability(capability) do
+          {:ok, ref} -> {Map.put(resolved, capability, ref), unsupported}
+          :error -> {resolved, [capability | unsupported]}
+        end
+      end)
+
+    {:ok,
+     %{
+       required: DataSourceBridge.required_capabilities(),
+       resolved: resolved,
+       unsupported: Enum.reverse(unsupported),
+       labels: DataSourceBridge.capability_meta()
+     }}
+  end
+
+  defp resolve_capability(capability) do
+    with {:ok, {fun, arity}} <- Map.fetch(@capability_callbacks, capability),
+         true <- function_exported?(__MODULE__, fun, arity) do
+      {:ok, "#{fun}/#{arity}"}
+    else
+      _ -> :error
+    end
+  end
+
   # -- mapping --
 
   # Ingestion answers with volume entries; the canonical record shape is put on here. The
@@ -161,7 +214,8 @@ defmodule Zaq.Channels.DiskBridge do
         "provider" => @provider,
         "volume" => entry.volume,
         "relative_path" => entry.relative_path,
-        "source" => entry.source
+        "source" => entry.source,
+        "mounted" => entry.mounted?
       },
       raw: %{local_entry: entry}
     }

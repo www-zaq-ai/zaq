@@ -35,7 +35,7 @@ defmodule Zaq.Channels.ProviderCatalog do
   ]
 
   @labels %{
-    "zaq_local" => "Disk",
+    "disk" => "Disk",
     "google_drive" => "Google Drive",
     "sharepoint" => "SharePoint"
   }
@@ -43,7 +43,7 @@ defmodule Zaq.Channels.ProviderCatalog do
   @root_folder_defaults %{
     "google_drive" => "root",
     "sharepoint" => "/",
-    "zaq_local" => "/"
+    "disk" => "/"
   }
 
   @spec label(String.t()) :: String.t()
@@ -57,7 +57,7 @@ defmodule Zaq.Channels.ProviderCatalog do
   end
 
   @spec credential_provider(String.t()) :: String.t()
-  def credential_provider("zaq_local"), do: "local_filesystem"
+  def credential_provider("disk"), do: "local_filesystem"
   def credential_provider(provider) when is_binary(provider), do: provider
 
   @spec credential_request_format(String.t()) :: String.t()

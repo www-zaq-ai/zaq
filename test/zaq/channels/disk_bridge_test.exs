@@ -3,6 +3,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
   # the bridge asks ingestion for and what it maps the answer into — never ingestion itself.
   use ExUnit.Case, async: true
 
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.DiskBridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
@@ -73,8 +74,30 @@ defmodule Zaq.Channels.DiskBridgeTest do
                "provider" => "disk",
                "volume" => "archives",
                "relative_path" => "guide.md",
-               "source" => "guide.md"
+               "source" => "guide.md",
+               "mounted" => true
              }
+    end
+
+    # The BO reads this attribute to badge a volume that is configured but absent. It has to
+    # survive the entry -> record hop, and it is the one attribute that can be false.
+    test "carries an unmounted volume root through as mounted: false" do
+      stub_response(
+        {:ok,
+         entry_page([
+           entry("archives", %{
+             type: :directory,
+             name: "archives",
+             relative_path: ".",
+             mounted?: false
+           })
+         ])}
+      )
+
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+
+      assert record.kind == :folder
+      assert record.attributes["mounted"] == false
     end
 
     test "translates the entry's :directory into the record's :folder, with no mime type" do
@@ -414,6 +437,45 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       assert {:ok, %{files_count: 3}} = DiskBridge.channel_stats(config(), %{})
       assert_received {:dispatch, :ingestion, :volume_stats, %{params: %{}}}
+    end
+  end
+
+  describe "capability_snapshot/1" do
+    test "resolves each supported capability to the callback that answers it" do
+      assert {:ok, snapshot} = DiskBridge.capability_snapshot(config())
+
+      assert snapshot.resolved[:list_items] == "list_files/2"
+      assert snapshot.resolved[:get_item_metadata] == "get_file/2"
+      assert snapshot.resolved[:create_item] == "create_file/2"
+      assert snapshot.resolved[:update_item] == "update_file/2"
+      assert snapshot.resolved[:delete_item] == "delete_file/2"
+      assert snapshot.resolved[:search_items] == "search_files/2"
+      assert snapshot.resolved[:download_items] == "download_document/2"
+      assert snapshot.resolved[:list_principals] == "list_permissions/2"
+      assert snapshot.resolved[:count_items] == "channel_stats/2"
+    end
+
+    # A filesystem has no version history, no spreadsheets, and pushes no change webhooks.
+    # Claiming otherwise would have the BO advertise what the dispatcher then refuses.
+    test "reports what a filesystem cannot do as unsupported" do
+      assert {:ok, snapshot} = DiskBridge.capability_snapshot(config())
+
+      assert :list_item_versions in snapshot.unsupported
+      assert :sheet_get in snapshot.unsupported
+      assert :watch_changes_webhook in snapshot.unsupported
+      assert :receive_change_webhook in snapshot.unsupported
+
+      refute Map.has_key?(snapshot.resolved, :sheet_get)
+    end
+
+    test "every required capability is either resolved or explicitly unsupported" do
+      required = DataSourceBridge.required_capabilities()
+
+      assert {:ok, snapshot} = DiskBridge.capability_snapshot(config())
+
+      assert snapshot.required == required
+      assert Enum.sort(Map.keys(snapshot.resolved) ++ snapshot.unsupported) == Enum.sort(required)
+      assert snapshot.labels == DataSourceBridge.capability_meta()
     end
   end
 

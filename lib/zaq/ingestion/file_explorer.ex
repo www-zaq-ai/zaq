@@ -54,6 +54,40 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
+  Returns one entry per configured volume — the roots a caller browses from.
+
+  A volume whose path is not a directory is **listed with `mounted?: false`**, not dropped.
+  Configuration says the volume should be there; whether it actually is, is what an operator
+  needs to see. `modified_at` and `size` are only readable on a mount that is present.
+  """
+  @spec volume_entries() :: [Entry.t()]
+  def volume_entries do
+    list_volumes()
+    |> Enum.sort_by(fn {name, _path} -> name end)
+    |> Enum.map(fn {name, path} -> volume_entry(name, path) end)
+  end
+
+  defp volume_entry(name, path) do
+    %Entry{
+      id: name,
+      name: name,
+      type: :directory,
+      volume: name,
+      relative_path: ".",
+      source: name,
+      mounted?: File.dir?(path),
+      modified_at: volume_modified_at(path)
+    }
+  end
+
+  defp volume_modified_at(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, %File.Stat{mtime: mtime}} -> DateTime.from_unix!(mtime)
+      _ -> nil
+    end
+  end
+
+  @doc """
   Resolves a relative path against the base path (single-volume, legacy).
   Rejects path traversal attempts (e.g. `..`).
 

@@ -57,7 +57,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionVolumeSelector do
           value: "volume:#{name}",
           label: name,
           title: name,
-          provider: "zaq_local"
+          provider: "disk"
         }
       end)
 

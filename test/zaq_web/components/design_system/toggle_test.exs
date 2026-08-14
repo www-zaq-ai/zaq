@@ -57,7 +57,7 @@ defmodule ZaqWeb.Components.DesignSystem.ToggleTest do
         event: "switch_source",
         value_param: "source",
         choices: [
-          %{value: "volume:documents", label: "documents", provider: "zaq_local"},
+          %{value: "volume:documents", label: "documents", provider: "disk"},
           %{value: "provider:google_drive", label: "Google Drive", provider: "google_drive"}
         ]
       )
