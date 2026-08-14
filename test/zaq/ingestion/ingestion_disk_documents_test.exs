@@ -91,71 +91,89 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     team
   end
 
-  # ── describe_record/1 ───────────────────────────────────────────────────────
+  # ── describe_document/1 ───────────────────────────────────────────────────────
 
-  describe "describe_record/1" do
-    test "answers with the entry for a known document id", %{root: root} do
+  describe "describe_document/1" do
+    test "answers with the entry for a known source", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
-      assert {:ok, entry} = Ingestion.describe_record(to_string(document.id))
+      assert {:ok, entry} = Ingestion.describe_document(document.source)
 
-      assert entry.id == to_string(document.id)
+      assert entry.id == document.source
       assert entry.name == "guide.md"
       assert entry.type == :file
       assert entry.document_id == document.id
     end
 
-    test "answers :not_found for an unknown id", %{root: root} do
-      document = seed_file(root, @volume, "guide.md", "# guide")
+    test "answers for a file that was never ingested", %{root: root} do
+      # Reaching a file does not depend on a document row: the source names it on the volume,
+      # and the missing row is reported as `document_id: nil` rather than as an error.
+      File.write!(Path.join(root, "unindexed.md"), "# unindexed")
 
-      assert {:error, :not_found} = Ingestion.describe_record(to_string(document.id + 9_999))
+      assert {:ok, entry} = Ingestion.describe_document("#{@volume}/unindexed.md")
+
+      assert entry.id == "#{@volume}/unindexed.md"
+      assert entry.name == "unindexed.md"
+      assert entry.document_id == nil
+    end
+
+    test "reports the filesystem error for a source naming no file" do
+      assert {:error, :enoent} = Ingestion.describe_document("#{@volume}/gone.md")
+    end
+
+    test "finds a row whose source predates volume prefixes", %{root: root} do
+      # Legacy rows stored the bare relative path. Both spellings are looked up, so the row
+      # is still matched from the volume-prefixed source an entry now carries.
+      File.write!(Path.join(root, "legacy.md"), "# legacy")
+      {:ok, document} = Document.create(%{source: "legacy.md", content: "seeded"})
+
+      assert {:ok, entry} = Ingestion.describe_document("#{@volume}/legacy.md")
+      assert entry.document_id == document.id
     end
 
     test "reports the filesystem error for a stale row whose file is gone" do
       stale = seed_stale_row(@volume, "deleted.md")
 
-      assert {:error, :enoent} = Ingestion.describe_record(to_string(stale.id))
+      assert {:error, :enoent} = Ingestion.describe_document(stale.source)
     end
 
-    test "names the entry by its document row, not its volume path", %{root: root} do
-      # The id the caller holds is the document id; the volume-path id `from_path/2` derives
-      # for browsing is only for files with no row.
+    test "names the entry by its source, not by its document row", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
-      assert {:ok, entry} = Ingestion.describe_record(to_string(document.id))
-      assert entry.id == to_string(document.id)
-      refute entry.id == "disk:#{@volume}:guide.md"
+      assert {:ok, entry} = Ingestion.describe_document(document.source)
+      assert entry.id == "#{@volume}/guide.md"
+      refute entry.id == to_string(document.id)
     end
   end
 
-  # ── list_records/1 ──────────────────────────────────────────────────────────
+  # ── list_documents/1 ──────────────────────────────────────────────────────────
 
-  describe "list_records/1 without a parent filter" do
+  describe "list_documents/1 without a parent filter" do
     test "answers with documents from every mounted volume", %{root: root, other_root: other} do
       archived = seed_file(root, @volume, "guide.md", "# guide")
       vaulted = seed_file(other, @other_volume, "secret.md", "# secret")
 
-      assert {:ok, %{entries: entries}} = Ingestion.list_records(%{})
+      assert {:ok, %{entries: entries}} = Ingestion.list_documents(%{})
 
       ids = Enum.map(entries, & &1.id)
-      assert to_string(archived.id) in ids
-      assert to_string(vaulted.id) in ids
+      assert archived.source in ids
+      assert vaulted.source in ids
     end
 
     test "treats an empty parent filter as no filter", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
       assert {:ok, %{entries: entries}} =
-               Ingestion.list_records(%{"filters" => %{"parent" => ""}})
+               Ingestion.list_documents(%{"filters" => %{"parent" => ""}})
 
-      assert to_string(document.id) in Enum.map(entries, & &1.id)
+      assert document.source in Enum.map(entries, & &1.id)
     end
 
     test "drops stale rows and reports the gap in stats", %{root: root} do
       _live = seed_file(root, @volume, "guide.md", "# guide")
       _stale = seed_stale_row(@volume, "deleted.md")
 
-      assert {:ok, %{entries: entries, scanned: scanned}} = Ingestion.list_records(%{})
+      assert {:ok, %{entries: entries, scanned: scanned}} = Ingestion.list_documents(%{})
 
       assert scanned == length(entries) + 1
     end
@@ -163,21 +181,21 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     test "defaults params to an empty map", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
-      assert {:ok, %{entries: entries}} = Ingestion.list_records()
-      assert to_string(document.id) in Enum.map(entries, & &1.id)
+      assert {:ok, %{entries: entries}} = Ingestion.list_documents()
+      assert document.source in Enum.map(entries, & &1.id)
     end
   end
 
-  describe "list_records/1 with a parent filter" do
+  describe "list_documents/1 with a parent filter" do
     test "a bare volume name lists that volume's root", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
       File.mkdir_p!(Path.join(root, "manuals"))
 
       assert {:ok, %{entries: entries}} =
-               Ingestion.list_records(%{"filters" => %{"parent" => @volume}})
+               Ingestion.list_documents(%{"filters" => %{"parent" => @volume}})
 
       by_name = Map.new(entries, &{&1.name, &1})
-      assert by_name["guide.md"].id == to_string(document.id)
+      assert by_name["guide.md"].id == document.source
       assert by_name["manuals"].type == :directory
     end
 
@@ -185,9 +203,9 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "manuals/nested.md", "# nested")
 
       assert {:ok, %{entries: [entry], scanned: 1}} =
-               Ingestion.list_records(%{"filters" => %{"parent" => "#{@volume}/manuals"}})
+               Ingestion.list_documents(%{"filters" => %{"parent" => "#{@volume}/manuals"}})
 
-      assert entry.id == to_string(document.id)
+      assert entry.id == document.source
       assert entry.relative_path == "manuals/nested.md"
     end
 
@@ -196,43 +214,43 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       _document = seed_file(root, @volume, "guide.md", "# guide")
 
       assert {:ok, %{entries: entries}} =
-               Ingestion.list_records(%{"filters" => %{"parent" => @volume}})
+               Ingestion.list_documents(%{"filters" => %{"parent" => @volume}})
 
       folder = Enum.find(entries, &(&1.type == :directory))
-      assert folder.id == "disk:#{@volume}:manuals"
+      assert folder.id == "#{@volume}/manuals"
       assert folder.document_id == nil
     end
 
-    test "a file with no document row carries the path-form id", %{root: root} do
+    test "a file with no document row is listed and named by its source", %{root: root} do
       File.write!(Path.join(root, "unindexed.md"), "# unindexed")
 
       assert {:ok, %{entries: [entry]}} =
-               Ingestion.list_records(%{"filters" => %{"parent" => @volume}})
+               Ingestion.list_documents(%{"filters" => %{"parent" => @volume}})
 
-      assert entry.id == "disk:#{@volume}:unindexed.md"
+      assert entry.id == "#{@volume}/unindexed.md"
     end
 
     test "an unknown volume answers with FileExplorer's error rather than crashing" do
       assert {:error, _reason} =
-               Ingestion.list_records(%{"filters" => %{"parent" => "nosuchvolume/sub"}})
+               Ingestion.list_documents(%{"filters" => %{"parent" => "nosuchvolume/sub"}})
     end
 
     test "accepts atom-keyed filters", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
       assert {:ok, %{entries: entries}} =
-               Ingestion.list_records(%{filters: %{parent: @volume}})
+               Ingestion.list_documents(%{filters: %{parent: @volume}})
 
-      assert to_string(document.id) in Enum.map(entries, & &1.id)
+      assert document.source in Enum.map(entries, & &1.id)
     end
   end
 
-  # ── persist_record/1 ────────────────────────────────────────────────────────
+  # ── persist_document/1 ────────────────────────────────────────────────────────
 
-  describe "persist_record/1" do
+  describe "persist_document/1" do
     test "writes the file, registers the row, and names the entry by the row", %{root: root} do
       assert {:ok, %{status: "created", entry: entry}} =
-               Ingestion.persist_record(%{
+               Ingestion.persist_document(%{
                  "name" => "notes.md",
                  "path" => @volume,
                  "content" => "# notes"
@@ -240,7 +258,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
       assert File.read!(Path.join(root, "notes.md")) == "# notes"
       document = Document.get_by_source("#{@volume}/notes.md")
-      assert entry.id == to_string(document.id)
+      assert entry.id == document.source
       assert entry.name == "notes.md"
     end
 
@@ -248,7 +266,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       File.mkdir_p!(Path.join(root, "manuals"))
 
       assert {:ok, %{entry: entry}} =
-               Ingestion.persist_record(%{
+               Ingestion.persist_document(%{
                  "name" => "nested.md",
                  "path" => "#{@volume}/manuals",
                  "content" => "# nested"
@@ -260,10 +278,10 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
     test "deduplicates a name that is already taken", %{root: root} do
       {:ok, _first} =
-        Ingestion.persist_record(%{"name" => "hello.md", "path" => @volume, "content" => "one"})
+        Ingestion.persist_document(%{"name" => "hello.md", "path" => @volume, "content" => "one"})
 
       assert {:ok, %{entry: entry}} =
-               Ingestion.persist_record(%{
+               Ingestion.persist_document(%{
                  "name" => "hello.md",
                  "path" => @volume,
                  "content" => "two"
@@ -279,7 +297,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       bytes = <<0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A>>
 
       assert {:ok, %{entry: entry}} =
-               Ingestion.persist_record(%{
+               Ingestion.persist_document(%{
                  "name" => "logo.png",
                  "path" => @volume,
                  "content" => Base.encode64(bytes),
@@ -292,7 +310,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
     test "refuses malformed base64" do
       assert {:error, :invalid_base64} =
-               Ingestion.persist_record(%{
+               Ingestion.persist_document(%{
                  "name" => "logo.png",
                  "path" => @volume,
                  "content" => "not base64!!",
@@ -302,7 +320,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
     test "refuses a path that names no mounted volume" do
       assert {:error, :volume_required} =
-               Ingestion.persist_record(%{
+               Ingestion.persist_document(%{
                  "name" => "notes.md",
                  "path" => "somewhere",
                  "content" => "hi"
@@ -311,21 +329,21 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
     test "refuses a request with no path" do
       assert {:error, :path_required} =
-               Ingestion.persist_record(%{"name" => "notes.md", "content" => "hi"})
+               Ingestion.persist_document(%{"name" => "notes.md", "content" => "hi"})
     end
 
     test "refuses a request with no name" do
       assert {:error, :name_required} =
-               Ingestion.persist_record(%{"path" => @volume, "content" => "hi"})
+               Ingestion.persist_document(%{"path" => @volume, "content" => "hi"})
     end
 
     test "treats a blank name as absent" do
       assert {:error, :name_required} =
-               Ingestion.persist_record(%{"name" => "", "path" => @volume, "content" => "hi"})
+               Ingestion.persist_document(%{"name" => "", "path" => @volume, "content" => "hi"})
     end
 
     test "defaults missing content to an empty file", %{root: root} do
-      assert {:ok, _} = Ingestion.persist_record(%{"name" => "empty.md", "path" => @volume})
+      assert {:ok, _} = Ingestion.persist_document(%{"name" => "empty.md", "path" => @volume})
 
       assert File.read!(Path.join(root, "empty.md")) == ""
     end
@@ -334,56 +352,61 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       create_chunks_table()
 
       assert {:ok, %{entry: entry}} =
-               Ingestion.persist_record(%{
+               Ingestion.persist_document(%{
                  "name" => "notes.md",
                  "path" => @volume,
                  "content" => "# notes"
                })
 
-      document_id = String.to_integer(entry.id)
-      assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^document_id), :count) == 0
+      assert Repo.aggregate(
+               from(c in Chunk, where: c.document_id == ^entry.document_id),
+               :count
+             ) == 0
     end
 
     test "accepts atom-keyed requests", %{root: root} do
       assert {:ok, %{entry: entry}} =
-               Ingestion.persist_record(%{name: "atom.md", path: @volume, content: "# atom"})
+               Ingestion.persist_document(%{name: "atom.md", path: @volume, content: "# atom"})
 
       assert entry.name == "atom.md"
       assert File.read!(Path.join(root, "atom.md")) == "# atom"
     end
   end
 
-  # ── update_record/1 ─────────────────────────────────────────────────────────
+  # ── update_document/1 ─────────────────────────────────────────────────────────
 
-  describe "update_record/1" do
+  describe "update_document/1" do
     test "replaces the bytes in place, leaving the path alone", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "old")
 
       assert {:ok, %{status: "updated", entry: entry}} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "content" => "new"
                })
 
       assert File.read!(Path.join(root, "guide.md")) == "new"
       refute File.exists?(Path.join(root, "guide (1).md"))
-      assert entry.id == to_string(document.id)
+      assert entry.id == document.source
       assert entry.relative_path == "guide.md"
     end
 
-    test "renames the file, moves the source, and keeps the id", %{root: root} do
+    test "renames the file and moves the source with it", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "content")
 
       assert {:ok, %{entry: entry}} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "name" => "renamed.md"
                })
 
       refute File.exists?(Path.join(root, "guide.md"))
       assert File.read!(Path.join(root, "renamed.md")) == "content"
-      assert entry.id == to_string(document.id)
+      # The id is the source, so renaming the file renames the record — the document row is
+      # the same row, and its id is what stays stable underneath.
+      assert entry.id == "#{@volume}/renamed.md"
       assert entry.name == "renamed.md"
+      assert entry.document_id == document.id
       assert Repo.get!(Document, document.id).source == "#{@volume}/renamed.md"
     end
 
@@ -392,14 +415,14 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       File.mkdir_p!(Path.join(root, "manuals"))
 
       assert {:ok, %{entry: entry}} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "path" => "#{@volume}/manuals"
                })
 
       refute File.exists?(Path.join(root, "guide.md"))
       assert File.read!(Path.join([root, "manuals", "guide.md"])) == "content"
-      assert entry.id == to_string(document.id)
+      assert entry.id == "#{@volume}/manuals/guide.md"
       assert entry.relative_path == "manuals/guide.md"
       assert Repo.get!(Document, document.id).source == "#{@volume}/manuals/guide.md"
     end
@@ -409,8 +432,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       File.mkdir_p!(Path.join(root, "manuals"))
 
       assert {:ok, %{entry: entry}} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "name" => "renamed.md",
                  "path" => "#{@volume}/manuals",
                  "content" => "new"
@@ -425,8 +448,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "guide.md", "keep me")
 
       assert {:ok, _} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "name" => "renamed.md"
                })
 
@@ -438,8 +461,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       bytes = <<0x89, 0x50, 0x4E, 0x47>>
 
       assert {:ok, _} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "content" => Base.encode64(bytes),
                  "encoding" => "base64"
                })
@@ -451,8 +474,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "guide.md", "content")
 
       assert {:error, :cross_volume_move_unsupported} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "path" => @other_volume
                })
 
@@ -463,26 +486,26 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "guide.md", "content")
 
       assert {:error, :volume_required} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "path" => "somewhere"
                })
     end
 
     test "refuses an unknown id" do
-      assert {:error, :not_found} = Ingestion.update_record(%{"file_id" => "99999999"})
+      assert {:error, :not_found} = Ingestion.update_document(%{"file_id" => "99999999"})
     end
 
     test "refuses a request with no file_id" do
-      assert {:error, :file_id_required} = Ingestion.update_record(%{"name" => "renamed.md"})
+      assert {:error, :file_id_required} = Ingestion.update_document(%{"name" => "renamed.md"})
     end
 
     test "a rename with no other change is a no-op move", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "content")
 
       assert {:ok, %{entry: entry}} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "name" => "guide.md"
                })
 
@@ -504,8 +527,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
         })
 
       assert {:ok, _} =
-               Ingestion.update_record(%{
-                 "file_id" => to_string(document.id),
+               Ingestion.update_document(%{
+                 "file_id" => document.source,
                  "name" => "slides.pdf"
                })
 
@@ -517,9 +540,9 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     end
   end
 
-  # ── delete_record/1 ─────────────────────────────────────────────────────────
+  # ── delete_document/1 ─────────────────────────────────────────────────────────
 
-  describe "delete_record/1" do
+  describe "delete_document/1" do
     test "removes the row, the file, and the chunks", %{root: root} do
       create_chunks_table()
 
@@ -534,7 +557,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       })
       |> Repo.insert!()
 
-      assert {:ok, %{status: "deleted"}} = Ingestion.delete_record(to_string(document.id))
+      assert {:ok, %{status: "deleted"}} = Ingestion.delete_document(document.source)
 
       refute File.exists?(Path.join(root, "guide.md"))
       assert Repo.get(Document, document.id) == nil
@@ -547,18 +570,14 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       # read — the same answer `JidoConnectBridge.delete_file/2` gives.
       document = seed_file(root, @volume, "guide.md", "# guide")
 
-      assert {:ok, result} = Ingestion.delete_record(to_string(document.id))
+      assert {:ok, result} = Ingestion.delete_document(document.source)
       assert result == %{status: "deleted"}
     end
 
-    test "refuses an unknown id" do
-      assert {:error, :not_found} = Ingestion.delete_record("99999999")
-    end
-
-    test "accepts an integer id", %{root: root} do
-      document = seed_file(root, @volume, "guide.md", "# guide")
-
-      assert {:ok, %{status: "deleted"}} = Ingestion.delete_record(document.id)
+    test "refuses a source with no document row" do
+      # Deleting is one of the actions that genuinely needs the row — there are chunks and
+      # sidecars hanging off it — so an un-ingested file is refused rather than unlinked.
+      assert {:error, :not_found} = Ingestion.delete_document("#{@volume}/never-ingested.md")
     end
 
     test "on a stale row the row still goes but the call reports :enoent" do
@@ -566,7 +585,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       # whose file is already gone reports the filesystem error while still being cleaned up.
       document = seed_stale_row(@volume, "deleted.md")
 
-      assert {:error, :enoent} = Ingestion.delete_record(to_string(document.id))
+      assert {:error, :enoent} = Ingestion.delete_document(document.source)
       assert Repo.get(Document, document.id) == nil
     end
   end
@@ -574,50 +593,56 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
   # ── materialize_record/1 ────────────────────────────────────────────────────
 
   describe "materialize_record/1" do
-    test "returns markdown as a plain string with no encoding attribute", %{root: root} do
+    test "returns markdown as a plain string with no encoding", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
-      assert {:ok, %{record: record}} =
-               Ingestion.materialize_record(%{"file_id" => to_string(document.id)})
+      assert {:ok, answer} = Ingestion.materialize_record(%{"file_id" => document.source})
 
-      assert record.content == "# guide"
-      refute Map.has_key?(record.attributes, "encoding")
-      assert record.mime_type == "text/markdown"
+      assert answer == %{content: "# guide", encoding: nil}
+    end
+
+    test "answers with the bytes alone, never a record", %{root: root} do
+      # Shaping a record is the bridge's job — the caller dispatching the event already holds
+      # the one the bridge built, so rebuilding it here would mean two record shapes for one
+      # file.
+      document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:ok, answer} = Ingestion.materialize_record(%{"file_id" => document.source})
+
+      refute Map.has_key?(answer, :record)
+      assert Map.keys(answer) |> Enum.sort() == [:content, :encoding]
     end
 
     test "returns a pdf base64-encoded, decoding back to the original bytes", %{root: root} do
       bytes = <<0x25, 0x50, 0x44, 0x46, 0x00, 0xFF>>
       document = seed_file(root, @volume, "deck.pdf", bytes)
 
-      assert {:ok, %{record: record}} =
-               Ingestion.materialize_record(%{"file_id" => to_string(document.id)})
+      assert {:ok, %{content: content, encoding: "base64"}} =
+               Ingestion.materialize_record(%{"file_id" => document.source})
 
-      assert record.attributes["encoding"] == "base64"
-      assert Base.decode64!(record.content) == bytes
+      assert Base.decode64!(content) == bytes
     end
 
     test "an explicit base64 encoding forces encoding for a text file", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
-      assert {:ok, %{record: record}} =
+      assert {:ok, %{content: content, encoding: "base64"}} =
                Ingestion.materialize_record(%{
-                 "file_id" => to_string(document.id),
+                 "file_id" => document.source,
                  "encoding" => "base64"
                })
 
-      assert record.attributes["encoding"] == "base64"
-      assert Base.decode64!(record.content) == "# guide"
+      assert Base.decode64!(content) == "# guide"
     end
 
     test "a markdown file holding invalid UTF-8 falls back to base64", %{root: root} do
       bytes = <<0xFF, 0xFE, 0x00, 0x41>>
       document = seed_file(root, @volume, "broken.md", bytes)
 
-      assert {:ok, %{record: record}} =
-               Ingestion.materialize_record(%{"file_id" => to_string(document.id)})
+      assert {:ok, %{content: content, encoding: "base64"}} =
+               Ingestion.materialize_record(%{"file_id" => document.source})
 
-      assert record.attributes["encoding"] == "base64"
-      assert Base.decode64!(record.content) == bytes
+      assert Base.decode64!(content) == bytes
     end
 
     test "returns other textual types as plain strings", %{root: root} do
@@ -629,16 +654,15 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
           ] do
         document = seed_file(root, @volume, name, content)
 
-        assert {:ok, %{record: record}} =
-                 Ingestion.materialize_record(%{"file_id" => to_string(document.id)})
+        assert {:ok, answer} = Ingestion.materialize_record(%{"file_id" => document.source})
 
-        assert record.content == content, "expected #{name} to come back as text"
-        refute Map.has_key?(record.attributes, "encoding")
+        assert answer.content == content, "expected #{name} to come back as text"
+        assert answer.encoding == nil
       end
     end
 
-    test "refuses an unknown id" do
-      assert {:error, :not_found} = Ingestion.materialize_record(%{"file_id" => "99999999"})
+    test "reports the filesystem error for a source naming no file" do
+      assert {:error, :enoent} = Ingestion.materialize_record(%{"file_id" => "99999999"})
     end
 
     test "refuses a request with no file_id" do
@@ -649,29 +673,35 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_stale_row(@volume, "deleted.md")
 
       assert {:error, :enoent} =
-               Ingestion.materialize_record(%{"file_id" => to_string(document.id)})
+               Ingestion.materialize_record(%{"file_id" => document.source})
     end
 
-    test "a non-numeric file_id raises rather than answering :not_found" do
-      # Pinned: `file_id` reaches `Document.get/1` verbatim from agent tools, and Ecto casts
-      # it. Guarding this is a decision, not a bug fix — the test says which way it is today.
-      assert_raise Ecto.Query.CastError, fn ->
-        Ingestion.materialize_record(%{"file_id" => "disk:#{@volume}:guide.md"})
-      end
+    test "materializes a file that was never ingested", %{root: root} do
+      # The whole point of naming a record by its source: the bytes are reachable with no
+      # document row anywhere in the way.
+      File.write!(Path.join(root, "unindexed.md"), "# never ingested")
+
+      assert {:ok, %{content: "# never ingested", encoding: nil}} =
+               Ingestion.materialize_record(%{"file_id" => "#{@volume}/unindexed.md"})
+    end
+
+    test "reports :enoent for a source naming no file" do
+      assert {:error, :enoent} =
+               Ingestion.materialize_record(%{"file_id" => "#{@volume}/gone.md"})
     end
   end
 
-  # ── search_records/1 ────────────────────────────────────────────────────────
+  # ── search_documents/1 ────────────────────────────────────────────────────────
 
-  describe "search_records/1" do
+  describe "search_documents/1" do
     test "matches on the document source", %{root: root} do
       document = seed_file(root, @volume, "quarterly-report.md", "# report")
       _other = seed_file(root, @volume, "guide.md", "# guide")
 
       assert {:ok, %{entries: entries}} =
-               Ingestion.search_records(%{"query" => "quarterly"})
+               Ingestion.search_documents(%{"query" => "quarterly"})
 
-      assert Enum.map(entries, & &1.id) == [to_string(document.id)]
+      assert Enum.map(entries, & &1.id) == [document.source]
     end
 
     test "matches on the document title", %{root: root} do
@@ -679,18 +709,18 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       _other = seed_file(root, @volume, "b.md", "# b", %{title: "Something Else"})
 
       assert {:ok, %{entries: entries}} =
-               Ingestion.search_records(%{"query" => "Budget"})
+               Ingestion.search_documents(%{"query" => "Budget"})
 
-      assert Enum.map(entries, & &1.id) == [to_string(document.id)]
+      assert Enum.map(entries, & &1.id) == [document.source]
     end
 
     test "matches case-insensitively", %{root: root} do
       document = seed_file(root, @volume, "Quarterly.md", "# report")
 
       assert {:ok, %{entries: [entry]}} =
-               Ingestion.search_records(%{"query" => "QUARTERLY"})
+               Ingestion.search_documents(%{"query" => "QUARTERLY"})
 
-      assert entry.id == to_string(document.id)
+      assert entry.id == document.source
     end
 
     test "excludes chunk and sidecar rows", %{root: root} do
@@ -701,19 +731,19 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
           metadata: %{"source_document_source" => "#{@volume}/deck.pdf"}
         })
 
-      assert {:ok, %{entries: entries}} = Ingestion.search_records(%{"query" => "deck"})
+      assert {:ok, %{entries: entries}} = Ingestion.search_documents(%{"query" => "deck"})
 
-      assert Enum.map(entries, & &1.id) == [to_string(document.id)]
+      assert Enum.map(entries, & &1.id) == [document.source]
     end
 
     test "refuses a request with no query" do
-      assert {:error, :query_required} = Ingestion.search_records(%{})
-      assert {:error, :query_required} = Ingestion.search_records(%{"query" => ""})
+      assert {:error, :query_required} = Ingestion.search_documents(%{})
+      assert {:error, :query_required} = Ingestion.search_documents(%{"query" => ""})
     end
 
     test "answers with an empty page when nothing matches" do
       assert {:ok, %{entries: [], scanned: 0}} =
-               Ingestion.search_records(%{"query" => "nothing-matches-this"})
+               Ingestion.search_documents(%{"query" => "nothing-matches-this"})
     end
 
     test "caps the page at 100 rows", %{root: root} do
@@ -722,15 +752,15 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       end)
 
       assert {:ok, %{entries: entries, scanned: 100}} =
-               Ingestion.search_records(%{"query" => "capped-"})
+               Ingestion.search_documents(%{"query" => "capped-"})
 
       assert length(entries) == 100
     end
   end
 
-  # ── list_record_permissions/1 ───────────────────────────────────────────────
+  # ── list_document_grants/1 ───────────────────────────────────────────────
 
-  describe "list_record_permissions/1" do
+  describe "list_document_grants/1" do
     test "reports a person grant with the person's full name", %{root: root} do
       # Grants come back flattened, not as `DocumentPermission` structs — the bridge shaping
       # them into records must not reach into an Ecto schema or its preloads.
@@ -741,7 +771,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
         Ingestion.set_document_permission(document.id, :person, person.id, ["read"])
 
       assert {:ok, %{permissions: [grant], public?: false}} =
-               Ingestion.list_record_permissions(to_string(document.id))
+               Ingestion.list_document_grants(document.source)
 
       assert grant == %{
                id: to_string(permission.id),
@@ -771,7 +801,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       {:ok, _} = Ingestion.set_document_permission(document.id, :team, team.id, ["read"])
 
       assert {:ok, %{permissions: grants, public?: true}} =
-               Ingestion.list_record_permissions(to_string(document.id))
+               Ingestion.list_document_grants(document.source)
 
       assert Enum.sort(Enum.map(grants, & &1.type)) == ["person", "team"]
     end
@@ -782,7 +812,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       {:ok, _} = Ingestion.set_document_permission(document.id, :team, team.id, ["read", "write"])
 
       assert {:ok, %{permissions: [grant]}} =
-               Ingestion.list_record_permissions(to_string(document.id))
+               Ingestion.list_document_grants(document.source)
 
       assert grant.name == team.name
       assert grant.type == "team"
@@ -796,7 +826,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "guide.md", "# guide", %{tags: ["public"]})
 
       assert {:ok, %{permissions: [], public?: true}} =
-               Ingestion.list_record_permissions(to_string(document.id))
+               Ingestion.list_document_grants(document.source)
     end
 
     test "reports the public tag alongside an explicit grant", %{root: root} do
@@ -805,7 +835,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       {:ok, _} = Ingestion.set_document_permission(document.id, :person, person.id, ["read"])
 
       assert {:ok, %{permissions: [grant], public?: true}} =
-               Ingestion.list_record_permissions(to_string(document.id))
+               Ingestion.list_document_grants(document.source)
 
       assert grant.type == "person"
     end
@@ -814,18 +844,18 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
       assert {:ok, %{permissions: [], public?: false}} =
-               Ingestion.list_record_permissions(to_string(document.id))
+               Ingestion.list_document_grants(document.source)
     end
 
     test "refuses an unknown id" do
-      assert {:error, :not_found} = Ingestion.list_record_permissions("99999999")
+      assert {:error, :not_found} = Ingestion.list_document_grants("99999999")
     end
 
     test "answers for a stale row, since permissions do not need the file" do
       document = seed_stale_row(@volume, "deleted.md")
 
       assert {:ok, %{permissions: []}} =
-               Ingestion.list_record_permissions(to_string(document.id))
+               Ingestion.list_document_grants(document.source)
     end
   end
 

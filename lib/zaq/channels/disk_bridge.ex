@@ -9,7 +9,9 @@ defmodule Zaq.Channels.DiskBridge do
   `:ingestion`, which owns `FileExplorer` and the `documents` table. Ingestion answers with
   its own shapes — `Zaq.Ingestion.FileExplorer.Entry` values and flat permission grants — and
   mapping those onto `Zaq.Contracts.Record` is this module's job, the same way
-  `Zaq.Channels.JidoConnectBridge` maps provider payloads.
+  `Zaq.Channels.JidoConnectBridge` maps provider payloads. Ingestion never shapes a record:
+  `materialize_record` answers with the bytes alone, and the caller merges them into the
+  record this module already gave it.
 
   Records come back **unmaterialized**: `content: nil` plus a `materializing_event`, so a
   listing does not drag file bytes across a node boundary for a caller that only wanted
@@ -17,9 +19,10 @@ defmodule Zaq.Channels.DiskBridge do
   here — which is why `materialize_record` is the one ingestion action that still answers
   with a record rather than an entry.
 
-  A file is named by its `documents.id`, the same handle `list_files/2` returns and
-  `get_file/2`, `update_file/2`, and `delete_file/2` accept. Folders and files with no
-  document row fall back to a volume-path id, since there is no document to name.
+  A file is named by its source — volume plus relative path — which is the id `list_files/2`
+  returns and `get_file/2`, `update_file/2`, and `delete_file/2` accept. It is deliberately
+  not the `documents.id`: any file on a mounted volume is reachable whether or not it was
+  ever ingested, so identity cannot depend on a document row existing.
   """
 
   @behaviour Zaq.Channels.DataSourceBridge
@@ -44,7 +47,7 @@ defmodule Zaq.Channels.DiskBridge do
   @doc "Lists the documents on the mounted volumes as **unmaterialized** records — no content."
   @impl true
   def list_files(config, params) when is_map(config) and is_map(params) do
-    with {:ok, page} <- dispatch(:list_records, %{params: params}, config) do
+    with {:ok, page} <- dispatch(:list_documents, %{params: params}, config) do
       {:ok, record_page(page)}
     end
   end
@@ -59,7 +62,7 @@ defmodule Zaq.Channels.DiskBridge do
   @impl true
   def create_file(config, params) when is_map(config) and is_map(params) do
     with {:ok, %{entry: entry} = result} <-
-           dispatch(:persist_record, persist_request(params), config) do
+           dispatch(:persist_document, persist_request(params), config) do
       {:ok, %{status: Map.get(result, :status, "created"), record: map_entry(entry)}}
     end
   end
@@ -69,7 +72,7 @@ defmodule Zaq.Channels.DiskBridge do
   def get_file(config, params) when is_map(config) and is_map(params) do
     file_id = to_string(fetch(params, "file_id"))
 
-    with {:ok, %Entry{} = entry} <- dispatch(:describe_record, %{file_id: file_id}, config) do
+    with {:ok, %Entry{} = entry} <- dispatch(:describe_document, %{file_id: file_id}, config) do
       {:ok, %{record: map_entry(entry)}}
     end
   end
@@ -83,7 +86,7 @@ defmodule Zaq.Channels.DiskBridge do
   @impl true
   def update_file(config, params) when is_map(config) and is_map(params) do
     with {:ok, %{entry: entry} = result} <-
-           dispatch(:update_record, update_request(params), config) do
+           dispatch(:update_document, update_request(params), config) do
       {:ok, %{status: Map.get(result, :status, "updated"), record: map_entry(entry)}}
     end
   end
@@ -96,13 +99,13 @@ defmodule Zaq.Channels.DiskBridge do
   """
   @impl true
   def delete_file(config, params) when is_map(config) and is_map(params) do
-    dispatch(:delete_record, %{file_id: to_string(fetch(params, "file_id"))}, config)
+    dispatch(:delete_document, %{file_id: to_string(fetch(params, "file_id"))}, config)
   end
 
   @doc "Finds documents whose source or title matches `query`."
   @impl true
   def search_files(config, params) when is_map(config) and is_map(params) do
-    with {:ok, page} <- dispatch(:search_records, %{params: params}, config) do
+    with {:ok, page} <- dispatch(:search_documents, %{params: params}, config) do
       {:ok, record_page(page)}
     end
   end
@@ -129,7 +132,7 @@ defmodule Zaq.Channels.DiskBridge do
   def list_permissions(config, params) when is_map(config) and is_map(params) do
     file_id = to_string(fetch(params, "file_id"))
 
-    with {:ok, grants} <- dispatch(:list_record_permissions, %{file_id: file_id}, config) do
+    with {:ok, grants} <- dispatch(:list_document_grants, %{file_id: file_id}, config) do
       {:ok, permission_page(grants, file_id)}
     end
   end
@@ -160,6 +163,22 @@ defmodule Zaq.Channels.DiskBridge do
       raw: %{local_entry: entry}
     }
   end
+
+  defp kind(:directory), do: :folder
+  defp kind(_type), do: :file
+
+  # A volume entry carries no declared type, so the extension is all there is to go on.
+  defp mime_type(:file, name) when is_binary(name), do: MIME.from_path(name)
+  defp mime_type(_kind, _name), do: nil
+
+  # A record travels without its bytes — reading every file a listing names would be wasted
+  # work. This is the hop that fetches them when a caller actually wants the content, and it
+  # goes straight to ingestion rather than back through this bridge. A folder has nothing to
+  # materialize.
+  defp materializing_event(:file, id) when is_binary(id),
+    do: Event.new(%{file_id: id}, :ingestion, opts: [action: :materialize_record])
+
+  defp materializing_event(_kind, _id), do: nil
 
   defp record_page(%{entries: entries, scanned: scanned}) do
     records = Enum.map(entries, &map_entry/1)
@@ -211,22 +230,6 @@ defmodule Zaq.Channels.DiskBridge do
       }
     }
   end
-
-  defp kind(:directory), do: :folder
-  defp kind(_type), do: :file
-
-  # A volume entry carries no declared type, so the extension is all there is to go on.
-  defp mime_type(:file, name) when is_binary(name), do: MIME.from_path(name)
-  defp mime_type(_kind, _name), do: nil
-
-  # A record travels without its bytes — reading every file a listing names would be wasted
-  # work. This is the hop that fetches them when a caller actually wants the content, and it
-  # goes straight to ingestion rather than back through this bridge. A folder has nothing to
-  # materialize.
-  defp materializing_event(:file, id) when is_binary(id),
-    do: Event.new(%{file_id: id}, :ingestion, opts: [action: :materialize_record])
-
-  defp materializing_event(_kind, _id), do: nil
 
   # -- requests --
 

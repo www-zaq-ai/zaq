@@ -14,11 +14,14 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Ingestion.{
     ExternalSidecarStore,
     ExternalSource,
-    FileExplorer,
-    VolumeRecords
+    FileExplorer
   }
 
+  alias Zaq.Ingestion.FileExplorer.Entry
+
   alias Zaq.NodeRouter
+
+  @local_provider "disk"
 
   @doc "Returns the normalized ingestion kind for a canonical record."
   @spec kind(Record.t()) :: atom()
@@ -78,10 +81,43 @@ defmodule Zaq.Ingestion.RecordSource do
 
       with path when is_binary(path) <- relative_path(record),
            {:ok, entries} <- list_entries(volume, path) do
-        {:ok, VolumeRecords.from_entries(entries)}
+        {:ok, from_entries(entries)}
       end
     end
   end
+
+  @doc """
+  Adapts volume entries into records for the ingest pipeline.
+
+  These are pipeline input, not the outward-facing shape a data-source bridge answers with:
+  they carry no `materializing_event`, because the worker resolves a local path directly
+  through `resolve_path/1` rather than dispatching for the bytes.
+  """
+  @spec from_entries([Entry.t()]) :: [Record.t()]
+  def from_entries(entries) when is_list(entries), do: Enum.map(entries, &from_entry/1)
+
+  @doc "Adapts one volume entry into a record for the ingest pipeline."
+  @spec from_entry(Entry.t()) :: Record.t()
+  def from_entry(%Entry{} = entry) do
+    %Record{
+      id: entry.id,
+      kind: entry_kind(entry.type),
+      name: entry.name,
+      path: entry.relative_path,
+      size: entry.size,
+      modified_at: entry.modified_at,
+      attributes: %{
+        "provider" => @local_provider,
+        "volume" => entry.volume,
+        "relative_path" => entry.relative_path,
+        "source" => entry.source
+      },
+      raw: %{local_entry: entry}
+    }
+  end
+
+  defp entry_kind(:directory), do: :folder
+  defp entry_kind(_type), do: :file
 
   @doc "Serializes a canonical record into a JSON-safe map for persistence."
   @spec to_storage_map(Record.t()) :: map()

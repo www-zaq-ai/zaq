@@ -108,19 +108,8 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
       def dispatch(%Event{request: request, opts: opts} = event) do
         send(self(), {:materialize, event.next_hop.destination, opts[:action], request})
 
-        %{
-          event
-          | response:
-              {:ok,
-               %{
-                 record: %Record{
-                   id: request.file_id,
-                   kind: :file,
-                   content: "# materialized",
-                   attributes: %{"encoding" => "base64"}
-                 }
-               }}
-        }
+        # Ingestion answers with the bytes alone — shaping a record is the bridge's job.
+        %{event | response: {:ok, %{content: "# materialized", encoding: "base64"}}}
       end
     end
 
@@ -146,14 +135,32 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
       }
     end
 
-    test "dispatches the event and returns the record with content" do
+    test "merges the returned bytes into the record the caller already holds" do
       payload = %{record: unmaterialized(), extra: :kept}
 
       assert {:ok, %{record: %Record{content: "# materialized"} = record, extra: :kept}} =
                DataSourceTool.materialize(payload, %{node_router: MaterializingRouter}, "Failed")
 
+      # Identity and metadata come from the record the bridge built, not from the answer.
+      assert record.id == "42"
+      assert record.kind == :file
       assert record.attributes["encoding"] == "base64"
       assert_received {:materialize, :ingestion, :materialize_record, %{file_id: "42"}}
+    end
+
+    test "leaves attributes alone when the bytes came back unencoded" do
+      defmodule PlainRouter do
+        @moduledoc false
+        def dispatch(%Event{} = event),
+          do: %{event | response: {:ok, %{content: "# plain", encoding: nil}}}
+      end
+
+      payload = %{record: unmaterialized()}
+
+      assert {:ok, %{record: %Record{content: "# plain"} = record}} =
+               DataSourceTool.materialize(payload, %{node_router: PlainRouter}, "Failed")
+
+      refute Map.has_key?(record.attributes || %{}, "encoding")
     end
 
     test "passes a record that already has content through untouched" do

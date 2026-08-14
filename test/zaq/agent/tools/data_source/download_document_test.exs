@@ -311,24 +311,15 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
         }
       end
 
+      # The second hop reads bytes off a volume and answers with those alone; the record the
+      # first hop returned is what carries identity and metadata.
       def dispatch(%Event{request: %{file_id: file_id}, opts: opts} = event) do
         send(self(), {:second_hop, event.next_hop.destination, opts[:action], file_id})
-        {mime_type, content, attributes} = Map.fetch!(@files, file_id)
+        {_mime_type, content, attributes} = Map.fetch!(@files, file_id)
 
         %{
           event
-          | response:
-              {:ok,
-               %{
-                 record: %Record{
-                   id: file_id,
-                   kind: :file,
-                   name: file_id,
-                   mime_type: mime_type,
-                   content: content,
-                   attributes: Map.merge(%{"provider" => "disk"}, attributes)
-                 }
-               }}
+          | response: {:ok, %{content: content, encoding: attributes["encoding"]}}
         }
       end
     end

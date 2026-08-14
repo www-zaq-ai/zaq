@@ -91,14 +91,4 @@ defmodule Zaq.Contracts.Record do
           raw: map(),
           materializing_event: Zaq.Event.t() | nil
         }
-
-  @doc """
-  The record as a plain map carrying only the fields the `Jason.Encoder` derives from.
-
-  For boundaries that need a map rather than a struct, such as an agent tool's output.
-  Takes only the public fields rather than using `Map.from_struct/1`, so `raw` and
-  `materializing_event` are dropped.
-  """
-  @spec to_map(t()) :: map()
-  def to_map(%__MODULE__{} = record), do: Map.take(record, @public_fields)
 end

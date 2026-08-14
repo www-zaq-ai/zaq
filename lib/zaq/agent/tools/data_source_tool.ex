@@ -46,12 +46,17 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   A payload that already has content, or a record with no event to dispatch, passes through
   untouched — so a caller can run this over any provider's answer.
 
+  The event answers with the bytes alone, not a record: whoever holds the record already has
+  the metadata, and rebuilding it on the far side would mean two places shaping the same
+  record. The bytes are merged into the record here.
+
   Read `attributes["encoding"]` on the result: `"base64"` means the content is encoded bytes,
   and its absence means it is already text.
   """
   @spec materialize(map(), map(), String.t()) :: {:ok, map()} | {:error, String.t()}
   def materialize(
-        %{record: %Record{content: nil, materializing_event: %Event{} = event}} = payload,
+        %{record: %Record{content: nil, materializing_event: %Event{} = event} = record} =
+          payload,
         context,
         error_prefix
       ) do
@@ -61,12 +66,31 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
     |> node_router.dispatch()
     |> Map.fetch!(:response)
     |> format_response(error_prefix, fn
-      %{record: %Record{} = record} -> {:ok, %{payload | record: record}}
-      other -> {:error, "#{error_prefix}: unexpected materialize response #{inspect(other)}"}
+      %{content: content} = answer ->
+        {:ok, %{payload | record: put_content(record, content, answer)}}
+
+      other ->
+        {:error, "#{error_prefix}: unexpected materialize response #{inspect(other)}"}
     end)
   end
 
   def materialize(payload, _context, _error_prefix), do: {:ok, payload}
+
+  # `encoding` travels beside the content rather than inside the record, so it is stamped onto
+  # the record's attributes here — the key `RecordSource.store_download/2` reads.
+  defp put_content(%Record{} = record, content, answer) do
+    case Map.get(answer, :encoding) || Map.get(answer, "encoding") do
+      nil ->
+        %{record | content: content}
+
+      encoding ->
+        %{
+          record
+          | content: content,
+            attributes: Map.put(record.attributes || %{}, "encoding", encoding)
+        }
+    end
+  end
 
   @spec put_if_present(map(), String.t(), any()) :: map()
   def put_if_present(map, _key, nil), do: map
