@@ -186,6 +186,48 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     end
   end
 
+  describe "list_documents/1 at the volumes root" do
+    test "\"/\" lists the volumes themselves, not any one mount's contents", %{root: root} do
+      _document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:ok, %{entries: entries, scanned: 2}} =
+               Ingestion.list_documents(%{"filters" => %{"parent" => "/"}})
+
+      assert Enum.map(entries, & &1.name) == [@volume, @other_volume] |> Enum.sort()
+      assert Enum.all?(entries, &(&1.type == :directory))
+      assert Enum.all?(entries, & &1.mounted?)
+    end
+
+    # Each volume root answers with the id `list_documents/1` accepts as a parent, so the BO
+    # can drill from the root into a volume without inventing a path.
+    test "each volume root is addressable as the next parent", %{root: root} do
+      _document = seed_file(root, @volume, "guide.md", "# guide")
+
+      assert {:ok, %{entries: entries}} =
+               Ingestion.list_documents(%{"filters" => %{"parent" => "/"}})
+
+      volume_root = Enum.find(entries, &(&1.name == @volume))
+
+      assert {:ok, %{entries: [entry]}} =
+               Ingestion.list_documents(%{"filters" => %{"parent" => volume_root.id}})
+
+      assert entry.name == "guide.md"
+    end
+
+    test "a volume whose path is gone is still listed, flagged not mounted", %{
+      other_root: other_root
+    } do
+      File.rm_rf!(other_root)
+
+      assert {:ok, %{entries: entries}} =
+               Ingestion.list_documents(%{"filters" => %{"parent" => "/"}})
+
+      by_name = Map.new(entries, &{&1.name, &1})
+      refute by_name[@other_volume].mounted?
+      assert by_name[@volume].mounted?
+    end
+  end
+
   describe "list_documents/1 with a parent filter" do
     test "a bare volume name lists that volume's root", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")

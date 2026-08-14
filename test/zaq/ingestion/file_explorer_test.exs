@@ -339,6 +339,67 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     end
   end
 
+  describe "volume_entries/0" do
+    test "answers one directory entry per configured volume, sorted by name" do
+      vol_a = Path.join(@test_base, "vol_a")
+      vol_b = Path.join(@test_base, "vol_b")
+      File.mkdir_p!(vol_a)
+      File.mkdir_p!(vol_b)
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol_a, "archives" => vol_b})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+
+      assert [archives, docs] = FileExplorer.volume_entries()
+
+      assert %Entry{name: "archives", type: :directory, mounted?: true} = archives
+      assert %Entry{name: "docs", type: :directory, mounted?: true} = docs
+
+      # A volume is named by its own name — that is the parent `list_documents/1` accepts.
+      assert archives.id == "archives"
+      assert archives.source == "archives"
+      assert archives.volume == "archives"
+      assert archives.relative_path == "."
+      assert %DateTime{} = archives.modified_at
+    end
+
+    # Dropping an absent volume would make a broken mount look like a volume that was never
+    # configured. The operator has to be able to tell those apart.
+    test "lists a configured volume whose path is absent, flagged as not mounted" do
+      present = Path.join(@test_base, "present")
+      File.mkdir_p!(present)
+      missing = Path.join(@test_base, "never_created")
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(:zaq, Zaq.Ingestion,
+        volumes: %{"present" => present, "missing" => missing}
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+
+      assert [missing_entry, present_entry] = FileExplorer.volume_entries()
+
+      assert %Entry{name: "missing", mounted?: false, modified_at: nil} = missing_entry
+      assert %Entry{name: "present", mounted?: true} = present_entry
+    end
+
+    # A file that exists on a mount is mounted by definition — the flag only ever varies on a
+    # volume root.
+    test "entries read off a volume default to mounted" do
+      File.mkdir_p!(Path.join(@test_base, "docs"))
+      File.write!(Path.join(@test_base, "docs/file.txt"), "hello")
+
+      assert {:ok, [file]} = FileExplorer.list("docs")
+      assert file.mounted?
+    end
+
+    test "falls back to the synthesized default volume when none are configured" do
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
+
+      assert [%Entry{name: "default", type: :directory, mounted?: true}] =
+               FileExplorer.volume_entries()
+    end
+  end
+
   describe "volumes_configured?/0" do
     test "is false when no volumes key is configured" do
       Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)

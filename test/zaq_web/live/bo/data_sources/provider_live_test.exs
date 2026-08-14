@@ -1,7 +1,11 @@
 defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   use Zaq.DataCase, async: false
 
+  import Ecto.Query
+
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Repo
@@ -1316,15 +1320,15 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "not found"))
   end
 
-  test "zaq_local provider uses local_filesystem credential mapping" do
+  test "disk provider uses local_filesystem credential mapping" do
     assert {:ok, mounted} =
              ProviderLive.mount(
-               %{"provider" => "zaq_local"},
+               %{"provider" => "disk"},
                %{},
                socket_with(%{service_available: false})
              )
 
-    assert mounted.assigns.provider == "zaq_local"
+    assert mounted.assigns.provider == "disk"
     assert mounted.assigns.provider_label == "Disk"
 
     assert {:noreply, opened} = ProviderLive.handle_event("open_new_credential", %{}, mounted)
@@ -1334,6 +1338,146 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       Ecto.Changeset.get_field(opened.assigns.credential_changeset, :provider)
 
     assert cred_provider == "local_filesystem"
+  end
+
+  # These run against the real `Zaq.Channels.DiskBridge` and the real ingestion hop — the
+  # whole point is whether a config row in the database is what turns disk on, so stubbing
+  # the bridge would test nothing.
+  describe "disk enable/disable" do
+    setup do
+      unique = System.unique_integer([:positive])
+      mounted = Path.join(System.tmp_dir!(), "zaq_disk_bo_#{unique}")
+      absent = Path.join(System.tmp_dir!(), "zaq_disk_bo_absent_#{unique}")
+      File.mkdir_p!(mounted)
+
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original || [], volumes: %{"archives" => mounted, "ghost" => absent})
+      )
+
+      on_exit(fn ->
+        File.rm_rf(mounted)
+
+        if is_nil(original) do
+          Application.delete_env(:zaq, Zaq.Ingestion)
+        else
+          Application.put_env(:zaq, Zaq.Ingestion, original)
+        end
+      end)
+
+      :ok
+    end
+
+    defp enable_disk(enabled) do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "disk-#{System.unique_integer([:positive])}",
+        "provider" => "disk",
+        "kind" => "data_source",
+        "enabled" => enabled,
+        "settings" => %{}
+      })
+      |> Repo.insert!()
+    end
+
+    test "disk is off until a config row exists" do
+      assert Repo.all(from(c in ChannelConfig, where: c.provider == "disk")) == []
+
+      assert {:error, {:channel_not_configured, "disk"}} =
+               DataSourceBridge.list_files("disk", %{})
+    end
+
+    test "a config saves with no url, token, or credential" do
+      changeset =
+        ChannelConfig.changeset(%ChannelConfig{}, %{
+          "name" => "disk-minimal",
+          "provider" => "disk",
+          "kind" => "data_source",
+          "enabled" => true
+        })
+
+      assert changeset.valid?
+      assert {:ok, config} = Repo.insert(changeset)
+      assert config.provider == "disk"
+      assert config.kind == "data_source"
+    end
+
+    test "enabling disk lets the bridge list the volumes, mount state and all" do
+      enable_disk(true)
+
+      assert {:ok, page} =
+               DataSourceBridge.list_files("disk", %{"filters" => %{"parent" => "/"}})
+
+      by_name = Map.new(page.records, &{&1.name, &1})
+
+      assert Map.keys(by_name) |> Enum.sort() == ["archives", "ghost"]
+      assert by_name["archives"].kind == :folder
+      assert by_name["archives"].attributes["mounted"] == true
+      assert by_name["ghost"].attributes["mounted"] == false
+    end
+
+    test "toggling the config off closes the bridge again" do
+      config = enable_disk(true)
+
+      assert {:ok, _page} = DataSourceBridge.list_files("disk", %{})
+
+      assert {:noreply, _socket} =
+               ProviderLive.handle_event(
+                 "toggle_enabled",
+                 %{"id" => Integer.to_string(config.id)},
+                 socket_with(%{provider: "disk"})
+               )
+
+      refute Repo.get!(ChannelConfig, config.id).enabled
+
+      assert {:error, {:channel_not_configured, "disk"}} =
+               DataSourceBridge.list_files("disk", %{})
+    end
+
+    # Disk declares no `:integration`, so the capability kind has to come from the bridge's
+    # behaviour — otherwise its page advertises communication capabilities.
+    test "the page describes disk with data-source capabilities" do
+      assert {:ok, snapshot} = Bridge.capability_snapshot("disk")
+
+      assert snapshot.required == DataSourceBridge.required_capabilities()
+      assert snapshot.resolved[:list_items] == "list_files/2"
+      refute Map.has_key?(snapshot.resolved, :sheet_get)
+    end
+
+    # Disk has nothing to authenticate against, so Add Config must open with usable defaults
+    # and no credential or export chrome to fill in.
+    test "Add Config opens with the volumes root selected and no export options" do
+      assert {:ok, mounted} =
+               ProviderLive.mount(
+                 %{"provider" => "disk"},
+                 %{},
+                 socket_with(%{service_available: true})
+               )
+
+      assert {:noreply, opened} =
+               ProviderLive.handle_event("open_modal", %{"action" => "new"}, mounted)
+
+      assert opened.assigns.modal == :new
+      assert opened.assigns.native_export_options == %{}
+
+      settings = Ecto.Changeset.get_field(opened.assigns.changeset, :settings)
+      assert settings["connect"]["root_selector"] == "/"
+    end
+
+    test "mounting the disk page with no config shows no configurations" do
+      assert {:ok, socket} =
+               ProviderLive.mount(
+                 %{"provider" => "disk"},
+                 %{},
+                 socket_with(%{service_available: true})
+               )
+
+      assert socket.assigns.configs == []
+      assert socket.assigns.provider_label == "Disk"
+    end
   end
 
   test "fetch_more with next_page_token attempts to load additional pages" do

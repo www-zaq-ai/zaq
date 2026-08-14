@@ -111,8 +111,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/data_source")
 
     assert has_element?(view, "a", "All Channels")
-    assert has_element?(view, "#channel-card-zaq_local")
-    assert has_element?(view, "#channel-card-zaq_local", "Disk")
+    assert has_element?(view, "#channel-card-disk")
+    assert has_element?(view, "#channel-card-disk", "Disk")
     assert has_element?(view, "#channel-card-google_drive")
     assert has_element?(view, "#channel-card-sharepoint")
   end
@@ -160,14 +160,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
 
   describe "module helpers" do
     test "stat_for returns count or default zero" do
-      stats = %{slack: 2}
+      stats = %{"slack" => 2}
 
       assert ChannelsIndexLive.stat_for(stats, "slack") == 2
       assert ChannelsIndexLive.stat_for(stats, "teams") == 0
     end
 
     test "stat_for sums email imap and smtp" do
-      stats = %{:"email:imap" => 3, :"email:smtp" => 4}
+      stats = %{"email:imap" => 3, "email:smtp" => 4}
 
       assert ChannelsIndexLive.stat_for(stats, "email") == 7
     end
@@ -176,7 +176,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
       assert ChannelsIndexLive.stat_for(%{}, "unknown_provider") == 0
     end
 
-    test "stat_for rescues ArgumentError for brand-new provider strings" do
+    # Stats are keyed by the provider string straight off `channel_configs.provider`, so a
+    # provider name never seen before is a plain miss — it builds no atom to exhaust.
+    test "stat_for returns zero for brand-new provider strings" do
       provider = "nonexistent_provider_#{System.unique_integer([:positive])}"
 
       assert ChannelsIndexLive.stat_for(%{}, provider) == 0
@@ -184,24 +186,27 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
 
     test "retrieval_total and data_source_total aggregate known providers" do
       base_stats =
-        ~w(slack teams mattermost discord telegram webhook zaq_local google_drive sharepoint)
-        |> Map.new(fn provider -> {String.to_atom(provider), 0} end)
+        ~w(slack teams mattermost discord telegram webhook disk google_drive sharepoint)
+        |> Map.new(fn provider -> {provider, 0} end)
 
-      stats = %{base_stats | slack: 2, mattermost: 1, zaq_local: 3, google_drive: 4}
+      stats = %{base_stats | "slack" => 2, "mattermost" => 1, "disk" => 3, "google_drive" => 4}
 
       assert ChannelsIndexLive.retrieval_total(stats) == 3
       assert ChannelsIndexLive.data_source_total(stats) == 7
     end
 
     test "notification_total aggregates notification providers" do
-      stats = %{:"email:smtp" => 2}
+      stats = %{"email:smtp" => 2}
 
       assert ChannelsIndexLive.notification_total(stats) == 2
     end
 
-    test "provider_path handles zaq_local special case and scoped paths" do
-      assert ChannelsIndexLive.provider_path(:data_source, "zaq_local") == "/bo/ingestion"
+    test "disk resolves to its own data source page, not the ingestion explorer" do
+      assert ChannelsIndexLive.provider_path(:data_source, "disk") ==
+               "/bo/channels/data_source/disk"
+    end
 
+    test "provider_path scopes paths by kind" do
       assert ChannelsIndexLive.provider_path(:retrieval, "slack") ==
                "/bo/channels/retrieval/slack"
 

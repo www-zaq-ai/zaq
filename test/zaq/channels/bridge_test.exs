@@ -155,6 +155,14 @@ defmodule Zaq.Channels.BridgeTest do
     end
   end
 
+  # Same snapshot, but declaring the data-source behaviour — that declaration is what marks a
+  # provider as a data source when there is no config row to say so.
+  defmodule CapabilityDataSourceBridge do
+    @behaviour Zaq.Channels.DataSourceBridge
+
+    defdelegate capability_snapshot(config), to: CapabilitySnapshotBridge
+  end
+
   defmodule StringKeyCapabilityBridge do
     def capability_snapshot(_config) do
       {:ok,
@@ -534,7 +542,7 @@ defmodule Zaq.Channels.BridgeTest do
         :zaq,
         :channels,
         Map.put(channels, :google_drive, %{
-          bridge: CapabilitySnapshotBridge,
+          bridge: CapabilityDataSourceBridge,
           integration: StubIntegration
         })
       )
@@ -542,6 +550,22 @@ defmodule Zaq.Channels.BridgeTest do
       assert {:ok, snapshot} = Bridge.capability_snapshot(:google_drive)
       assert snapshot.kind == :data_source
       assert snapshot.required == [:text, :image, :streaming]
+    end
+
+    # A data source is one whose bridge declares the behaviour, not one whose config entry
+    # happens to name an `:integration` — `Zaq.Channels.DiskBridge` has no integration to
+    # name and would otherwise be described with communication capabilities.
+    test "capability_snapshot reads the data source kind off the bridge, not an :integration key" do
+      channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(channels, :google_drive, %{bridge: CapabilityDataSourceBridge})
+      )
+
+      assert {:ok, snapshot} = Bridge.capability_snapshot(:google_drive)
+      assert snapshot.kind == :data_source
     end
 
     test "capability_snapshot works for communication provider without config" do

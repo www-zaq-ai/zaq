@@ -259,7 +259,7 @@ defmodule ZaqWeb.Components.ChannelIcons do
             </linearGradient>
           </defs>
         </svg>
-      <% "zaq_local" -> %>
+      <% "disk" -> %>
         <svg
           class={@class}
           fill="none"

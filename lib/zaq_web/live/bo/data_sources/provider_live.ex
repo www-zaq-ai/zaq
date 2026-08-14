@@ -487,6 +487,17 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def folder_url(%{url: url}) when is_binary(url), do: url
   def folder_url(_), do: nil
 
+  @doc """
+  Reports a root folder's mount state, or `nil` when the provider does not have one.
+
+  Only disk answers a `"mounted"` attribute — a volume can be configured but absent. Every
+  other provider returns `nil` here and renders no badge.
+  """
+  def folder_mount_state(%{attributes: %{"mounted" => mounted}}) when is_boolean(mounted),
+    do: mounted
+
+  def folder_mount_state(_folder), do: nil
+
   def selected_folder_info(folder_info_modal), do: folder_info_modal && folder_info_modal.folder
 
   def folder_permissions(%{permissions: permissions}) when is_list(permissions), do: permissions

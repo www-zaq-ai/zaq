@@ -556,7 +556,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: New Folder
 
   def handle_event("show_new_folder_modal", _params, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local"] do
+      when provider not in ["local", "zaq_local", "disk"] do
     {:noreply, put_flash(socket, :info, "Provider folders are read-only in this phase.")}
   end
 
@@ -589,7 +589,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Rename
 
   def handle_event("rename_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local"] do
+      when provider not in ["local", "zaq_local", "disk"] do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -624,7 +624,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Delete single item
 
   def handle_event("delete_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local"] do
+      when provider not in ["local", "zaq_local", "disk"] do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -668,7 +668,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         _params,
         %{assigns: %{provider: provider}} = socket
       )
-      when provider not in ["local", "zaq_local"] do
+      when provider not in ["local", "zaq_local", "disk"] do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -703,7 +703,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Move item
 
   def handle_event("move_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local"] do
+      when provider not in ["local", "zaq_local", "disk"] do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -1362,7 +1362,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp enabled_data_source_sources do
-    local_providers = ["zaq_local", "local"]
+    # Disk has a config row like any other data source, but its files are the volumes this
+    # page already browses — listing it again as an external source would duplicate them.
+    local_providers = ["disk", "zaq_local", "local"]
 
     ChannelConfig
     |> where([c], c.kind == "data_source" and c.enabled == true)
@@ -1939,6 +1941,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp normalize_provider(nil), do: "local"
   defp normalize_provider(""), do: "local"
   defp normalize_provider("local"), do: "local"
+  # "disk" is the data-source provider id; "zaq_local" is the id it replaced and still
+  # appears in bookmarked URLs. Both name this server's volumes, which the explorer calls
+  # "local".
+  defp normalize_provider("disk"), do: "local"
   defp normalize_provider("zaq_local"), do: "local"
   defp normalize_provider(provider) when is_binary(provider), do: provider
 

@@ -16,7 +16,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   @pending_ingress_status_max_attempts 25
 
   @retrieval_providers ~w(slack teams mattermost discord telegram webhook email)
-  @data_source_providers ~w(zaq_local google_drive sharepoint)
+  @data_source_providers ~w(disk google_drive sharepoint)
   @notification_providers ~w(email:smtp)
 
   # ---------------------------------------------------------------------------
@@ -85,10 +85,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   @data_source_cards [
     %{
-      id: "zaq_local",
+      id: "disk",
       label: "Disk",
       color: "#64748B",
-      desc: "Upload and manage documents stored on the local server disk."
+      desc: "Expose documents stored on the mounted server volumes to agents."
     },
     %{
       id: "google_drive",
@@ -107,7 +107,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   # Provider IDs shown as mini-logos inside category cards on the index page
   # (E2E: CHANNEL_INDEX_* in test/e2e/specs/channels.spec.js — keep in sync)
   @retrieval_preview ~w(slack teams mattermost discord telegram)
-  @data_source_preview ~w(zaq_local google_drive sharepoint)
+  @data_source_preview ~w(disk google_drive sharepoint)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -269,38 +269,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   # --- Helpers used by template ---
 
-  def stat_for(stats, provider) do
-    case provider do
-      "email" ->
-        Map.get(stats, :"email:imap", 0) + Map.get(stats, :"email:smtp", 0)
+  # Stats are keyed by provider string — the same key `compute_stats/0` reads off
+  # `channel_configs.provider`, so no atom is ever built from one.
+  def stat_for(stats, "email"),
+    do: Map.get(stats, "email:imap", 0) + Map.get(stats, "email:smtp", 0)
 
-      _ ->
-        Map.get(stats, String.to_existing_atom(provider), 0)
-    end
-  rescue
-    ArgumentError ->
-      0
+  def stat_for(stats, provider), do: Map.get(stats, provider, 0)
+
+  def retrieval_total(stats), do: total_for(stats, @retrieval_providers)
+
+  def data_source_total(stats), do: total_for(stats, @data_source_providers)
+
+  def notification_total(stats), do: total_for(stats, @notification_providers)
+
+  defp total_for(stats, providers) do
+    Enum.reduce(providers, 0, fn provider, acc -> acc + Map.get(stats, provider, 0) end)
   end
 
-  def retrieval_total(stats) do
-    Enum.reduce(@retrieval_providers, 0, fn p, acc ->
-      acc + Map.get(stats, String.to_existing_atom(p), 0)
-    end)
-  end
-
-  def data_source_total(stats) do
-    Enum.reduce(@data_source_providers, 0, fn p, acc ->
-      acc + Map.get(stats, String.to_existing_atom(p), 0)
-    end)
-  end
-
-  def notification_total(stats) do
-    Enum.reduce(@notification_providers, 0, fn p, acc ->
-      acc + Map.get(stats, String.to_existing_atom(p), 0)
-    end)
-  end
-
-  def provider_path(_kind, "zaq_local"), do: "/bo/ingestion"
   def provider_path(:retrieval, "email"), do: "/bo/channels/retrieval/email"
   def provider_path(:retrieval, id), do: "/bo/channels/retrieval/#{id}"
   def provider_path(:data_source, id), do: "/bo/channels/data_source/#{id}"
@@ -319,9 +304,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
       |> Repo.all()
       |> Map.new()
 
-    Enum.reduce(all_providers, %{}, fn provider, acc ->
-      Map.put(acc, String.to_atom(provider), Map.get(counts, provider, 0))
-    end)
+    Map.new(all_providers, &{&1, Map.get(counts, &1, 0)})
   end
 
   defp compute_ingress_statuses(configured_providers)

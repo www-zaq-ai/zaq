@@ -396,12 +396,30 @@ defmodule Zaq.Channels.Bridge do
     |> normalize_channel_config()
   end
 
+  # A provider is a data source when its bridge says so by declaring the behaviour, not when
+  # its config entry happens to carry an `:integration` key. `Zaq.Channels.DiskBridge` has no
+  # integration to name — its files are already inside ZAQ — and would otherwise be described
+  # with communication capabilities on its BO page.
   defp synthetic_capability_kind(provider) do
     case channel_definition(provider) do
-      %{integration: _} -> "data_source"
-      _ -> "communication"
+      %{bridge: bridge} ->
+        if data_source_bridge?(bridge), do: "data_source", else: "communication"
+
+      _ ->
+        "communication"
     end
   end
+
+  defp data_source_bridge?(bridge) when is_atom(bridge) do
+    if Code.ensure_loaded?(bridge) do
+      behaviours = Keyword.get_values(bridge.module_info(:attributes), :behaviour)
+      DataSourceBridge in List.flatten(behaviours)
+    else
+      false
+    end
+  end
+
+  defp data_source_bridge?(_bridge), do: false
 
   defp channel_definition(provider) do
     provider_key = provider_to_bridge_key(provider)
