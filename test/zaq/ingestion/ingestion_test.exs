@@ -21,8 +21,7 @@ defmodule Zaq.IngestionTest do
     IngestJob,
     IngestWorker,
     RecordSource,
-    SourcePath,
-    VolumeRecords
+    SourcePath
   }
 
   alias Zaq.Repo
@@ -788,41 +787,6 @@ defmodule Zaq.IngestionTest do
     end
   end
 
-  describe "ingest_file/2" do
-    test "creates a job and enqueues worker in async mode" do
-      assert {:ok, _} = FileExplorer.upload("docs/file.md", "# file")
-      on_exit(fn -> FileExplorer.delete("docs/file.md") end)
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 2, document_id: nil}}
-      end)
-
-      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :async)
-      assert job.status == "pending"
-      assert job.mode == "async"
-      assert job.file_path == "docs/file.md"
-      assert job.source_record["attributes"]["relative_path"] == "docs/file.md"
-    end
-
-    test "creates a job and processes inline" do
-      Ingestion.subscribe()
-      assert {:ok, _} = FileExplorer.upload("docs/file.md", "# file")
-      on_exit(fn -> FileExplorer.delete("docs/file.md") end)
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 3, document_id: nil}}
-      end)
-
-      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline)
-      job_id = job.id
-      assert job.status == "completed"
-      assert job.mode == "inline"
-
-      assert_receive {:job_updated, %{id: ^job_id, status: "processing"}}
-      assert_receive {:job_updated, %{id: ^job_id, status: "completed"}}
-    end
-  end
-
   describe "local volume records" do
     defp volume_entry do
       %Zaq.Ingestion.FileExplorer.Entry{
@@ -836,7 +800,7 @@ defmodule Zaq.IngestionTest do
     end
 
     test "converts local volume entries into canonical records" do
-      assert [record] = VolumeRecords.from_entries([volume_entry()])
+      assert [record] = RecordSource.from_entries([volume_entry()])
 
       assert record.kind == :file
       assert record.name == "file.md"
@@ -847,7 +811,7 @@ defmodule Zaq.IngestionTest do
     end
 
     test "storage maps round-trip back into records" do
-      assert [record] = VolumeRecords.from_entries([volume_entry()])
+      assert [record] = RecordSource.from_entries([volume_entry()])
 
       assert {:ok, decoded} =
                record |> RecordSource.to_storage_map() |> RecordSource.from_storage_map()
@@ -873,7 +837,7 @@ defmodule Zaq.IngestionTest do
       {:ok, entries} = FileExplorer.list(".")
 
       record =
-        entries |> VolumeRecords.from_entries() |> Enum.find(&(&1.path == path))
+        entries |> RecordSource.from_entries() |> Enum.find(&(&1.path == path))
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
@@ -887,6 +851,34 @@ defmodule Zaq.IngestionTest do
       assert job.source_record["attributes"]["relative_path"] == path
     end
 
+    test "stores the volume on a job created from a record on a named volume" do
+      base_dir = FileExplorer.base_path() |> Path.expand()
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        Keyword.merge(original || [], volumes: %{"docs" => base_dir})
+      )
+
+      on_exit(fn -> restore_ingestion_env(original) end)
+
+      path = "record_volume_#{System.unique_integer([:positive])}.md"
+      assert {:ok, _full_path} = FileExplorer.upload("docs", path, "# record")
+      on_exit(fn -> FileExplorer.delete("docs", path) end)
+
+      {:ok, entries} = FileExplorer.list("docs", ".")
+      record = entries |> RecordSource.from_entries() |> Enum.find(&(&1.path == path))
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
+      end)
+
+      assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "inline"})
+      assert job.volume_name == "docs"
+      assert job.source_record["attributes"]["volume"] == "docs"
+    end
+
     test "expands folder records inside the ingestion service" do
       folder = "record_folder_#{System.unique_integer([:positive])}"
       assert :ok = FileExplorer.create_directory(folder)
@@ -897,7 +889,7 @@ defmodule Zaq.IngestionTest do
       {:ok, entries} = FileExplorer.list(".")
 
       record =
-        entries |> VolumeRecords.from_entries() |> Enum.find(&(&1.path == folder))
+        entries |> RecordSource.from_entries() |> Enum.find(&(&1.path == folder))
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
@@ -917,7 +909,7 @@ defmodule Zaq.IngestionTest do
       {:ok, entries} = FileExplorer.list(".")
 
       record =
-        entries |> VolumeRecords.from_entries() |> Enum.find(&(&1.path == path))
+        entries |> RecordSource.from_entries() |> Enum.find(&(&1.path == path))
 
       bad_record = %Record{id: "bad", kind: :unsupported, name: "bad"}
 
@@ -940,35 +932,6 @@ defmodule Zaq.IngestionTest do
         )
 
       assert %{response: {:ok, []}} = Api.handle_event(event, :ingest_records, nil)
-    end
-  end
-
-  describe "ingest_folder/2" do
-    test "creates one job per file and recursively expands directories" do
-      unique = System.unique_integer([:positive])
-      folder = "ingestion_test_#{unique}"
-
-      assert :ok = FileExplorer.create_directory(folder)
-      assert :ok = FileExplorer.create_directory(Path.join(folder, "nested"))
-      assert {:ok, _} = FileExplorer.upload(Path.join(folder, "one.md"), "# one")
-      assert {:ok, _} = FileExplorer.upload(Path.join(folder, "two.md"), "# two")
-      assert {:ok, _} = FileExplorer.upload(Path.join([folder, "nested", "three.md"]), "# three")
-
-      on_exit(fn ->
-        _ = FileExplorer.delete_directory(folder)
-      end)
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 3, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:ok, jobs} = Ingestion.ingest_folder(folder, :inline)
-      assert length(jobs) == 3
-      assert Enum.all?(jobs, &(&1.status == "completed"))
-    end
-
-    test "returns error when folder cannot be listed" do
-      assert {:error, :path_traversal} = Ingestion.ingest_folder("../..", :inline)
     end
   end
 
@@ -1260,45 +1223,6 @@ defmodule Zaq.IngestionTest do
       assert {:error, %Ecto.Changeset{} = changeset} = Ingestion.cancel_job(id)
       assert "can't be blank" in errors_on(changeset).file_path
       assert Repo.get!(IngestJob, id).status == "processing"
-    end
-  end
-
-  describe "ingest_file/3 (volume-aware)" do
-    test "stores volume_name on the created job" do
-      base_dir = FileExplorer.base_path() |> Path.expand()
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-
-      Application.put_env(
-        :zaq,
-        Zaq.Ingestion,
-        Keyword.merge(original || [], volumes: %{"docs" => base_dir})
-      )
-
-      on_exit(fn -> restore_ingestion_env(original) end)
-
-      assert {:ok, _} = FileExplorer.upload("docs", "docs/file.md", "# file")
-      on_exit(fn -> FileExplorer.delete("docs", "docs/file.md") end)
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline, "docs")
-      assert job.volume_name == "docs"
-      assert job.source_record["attributes"]["volume"] == "docs"
-    end
-
-    test "nil volume_name when not provided (backward compat)" do
-      assert {:ok, _} = FileExplorer.upload("docs/file.md", "# file")
-      on_exit(fn -> FileExplorer.delete("docs/file.md") end)
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:ok, job} = Ingestion.ingest_file("docs/file.md", :inline)
-      assert job.volume_name == nil
-      assert job.source_record["attributes"]["relative_path"] == "docs/file.md"
     end
   end
 
@@ -2060,45 +1984,6 @@ defmodule Zaq.IngestionTest do
     test "returns normalized relative path when no document exists" do
       result = Ingestion.source_for("vol", "missing-#{System.unique_integer()}.md")
       assert is_binary(result)
-    end
-  end
-
-  describe "ingest_folder/3 (volume-aware)" do
-    test "stores volume_name on all created jobs" do
-      unique = System.unique_integer([:positive])
-      folder = "ingestion_vol_test_#{unique}"
-
-      # Configure a "docs" volume pointing at the same base path so files
-      # created via FileExplorer.create_directory/upload are reachable.
-      base_dir = FileExplorer.base_path() |> Path.expand()
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-
-      Application.put_env(
-        :zaq,
-        Zaq.Ingestion,
-        Keyword.merge(original || [], volumes: %{"docs" => base_dir})
-      )
-
-      on_exit(fn ->
-        if is_nil(original) do
-          Application.delete_env(:zaq, Zaq.Ingestion)
-        else
-          Application.put_env(:zaq, Zaq.Ingestion, original)
-        end
-      end)
-
-      assert :ok = FileExplorer.create_directory(folder)
-      assert {:ok, _} = FileExplorer.upload(Path.join(folder, "one.md"), "# one")
-
-      on_exit(fn -> _ = FileExplorer.delete_directory(folder) end)
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, 1, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:ok, jobs} = Ingestion.ingest_folder(folder, :inline, "docs")
-      assert Enum.all?(jobs, &(&1.volume_name == "docs"))
-      assert Enum.all?(jobs, &is_map(&1.source_record))
     end
   end
 

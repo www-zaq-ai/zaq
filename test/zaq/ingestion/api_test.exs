@@ -67,76 +67,79 @@ defmodule Zaq.Ingestion.ApiTest do
   end
 
   describe "record actions" do
-    test "describe_record delegates and puts the entry on the response", %{root: root} do
+    test "describe_document delegates and puts the entry on the response", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
-      assert {:ok, entry} = handle(%{file_id: to_string(document.id)}, :describe_record)
+      assert {:ok, entry} = handle(%{file_id: document.source}, :describe_document)
 
-      assert entry.id == to_string(document.id)
+      assert entry.id == document.source
     end
 
-    test "list_records delegates", %{root: root} do
+    test "list_documents delegates", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
-      assert {:ok, %{entries: entries}} = handle(%{params: %{}}, :list_records)
-      assert to_string(document.id) in Enum.map(entries, & &1.id)
+      assert {:ok, %{entries: entries}} = handle(%{params: %{}}, :list_documents)
+      assert document.source in Enum.map(entries, & &1.id)
     end
 
     test "materialize_record delegates and passes the whole request through", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
-      assert {:ok, %{record: record}} =
+      assert {:ok, %{content: content, encoding: "base64"}} =
                handle(
-                 %{"encoding" => "base64", file_id: to_string(document.id)},
+                 %{"encoding" => "base64", file_id: document.source},
                  :materialize_record
                )
 
-      assert record.attributes["encoding"] == "base64"
+      assert Base.decode64!(content) == "# guide"
     end
 
-    test "persist_record delegates", %{root: root} do
+    test "persist_document delegates", %{root: root} do
       assert {:ok, %{status: "created", entry: entry}} =
                handle(
                  %{"name" => "notes.md", "path" => @volume, "content" => "# notes"},
-                 :persist_record
+                 :persist_document
                )
 
       assert entry.name == "notes.md"
       assert File.read!(Path.join(root, "notes.md")) == "# notes"
     end
 
-    test "update_record delegates", %{root: root} do
+    test "update_document delegates", %{root: root} do
       document = seed_file(root, "guide.md", "old")
 
       assert {:ok, %{status: "updated"}} =
-               handle(%{"file_id" => to_string(document.id), "content" => "new"}, :update_record)
+               handle(
+                 %{"file_id" => document.source, "content" => "new"},
+                 :update_document
+               )
 
       assert File.read!(Path.join(root, "guide.md")) == "new"
     end
 
-    test "delete_record delegates", %{root: root} do
+    test "delete_document delegates", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
       assert {:ok, %{status: "deleted"}} =
-               handle(%{file_id: to_string(document.id)}, :delete_record)
+               handle(%{file_id: document.source}, :delete_document)
 
       refute File.exists?(Path.join(root, "guide.md"))
     end
 
-    test "list_record_permissions delegates", %{root: root} do
+    test "list_document_grants delegates", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
       assert {:ok, %{permissions: [], public?: false}} =
-               handle(%{file_id: to_string(document.id)}, :list_record_permissions)
+               handle(%{file_id: document.source}, :list_document_grants)
     end
 
-    test "search_records delegates", %{root: root} do
+    test "search_documents delegates", %{root: root} do
       document = seed_file(root, "quarterly.md", "# report")
 
       assert {:ok, %{entries: [entry]}} =
-               handle(%{params: %{"query" => "quarterly"}}, :search_records)
+               handle(%{params: %{"query" => "quarterly"}}, :search_documents)
 
-      assert entry.id == to_string(document.id)
+      assert entry.id == document.source
     end
 
     test "volume_stats delegates", %{root: root} do
@@ -147,9 +150,9 @@ defmodule Zaq.Ingestion.ApiTest do
   end
 
   describe "clause guards" do
-    test "describe_record with a non-binary file_id falls through to the catch-all" do
-      assert handle(%{file_id: 123}, :describe_record) ==
-               {:error, {:unsupported_action, :describe_record}}
+    test "describe_document with a non-binary file_id falls through to the catch-all" do
+      assert handle(%{file_id: 123}, :describe_document) ==
+               {:error, {:unsupported_action, :describe_document}}
     end
 
     test "materialize_record with a non-binary file_id falls through to the catch-all" do
@@ -157,32 +160,32 @@ defmodule Zaq.Ingestion.ApiTest do
                {:error, {:unsupported_action, :materialize_record}}
     end
 
-    test "delete_record with a non-binary file_id falls through to the catch-all" do
-      assert handle(%{file_id: 123}, :delete_record) ==
-               {:error, {:unsupported_action, :delete_record}}
+    test "delete_document with a non-binary file_id falls through to the catch-all" do
+      assert handle(%{file_id: 123}, :delete_document) ==
+               {:error, {:unsupported_action, :delete_document}}
     end
 
-    test "list_record_permissions with a non-binary file_id falls through to the catch-all" do
-      assert handle(%{file_id: 123}, :list_record_permissions) ==
-               {:error, {:unsupported_action, :list_record_permissions}}
+    test "list_document_grants with a non-binary file_id falls through to the catch-all" do
+      assert handle(%{file_id: 123}, :list_document_grants) ==
+               {:error, {:unsupported_action, :list_document_grants}}
     end
 
-    test "list_records with non-map params falls through to the catch-all" do
-      assert handle(%{params: "nope"}, :list_records) ==
-               {:error, {:unsupported_action, :list_records}}
+    test "list_documents with non-map params falls through to the catch-all" do
+      assert handle(%{params: "nope"}, :list_documents) ==
+               {:error, {:unsupported_action, :list_documents}}
     end
 
-    test "search_records with non-map params falls through to the catch-all" do
-      assert handle(%{params: "nope"}, :search_records) ==
-               {:error, {:unsupported_action, :search_records}}
+    test "search_documents with non-map params falls through to the catch-all" do
+      assert handle(%{params: "nope"}, :search_documents) ==
+               {:error, {:unsupported_action, :search_documents}}
     end
 
     test "a record action with a non-map request falls through to the catch-all" do
-      assert handle(:not_a_map, :persist_record) ==
-               {:error, {:unsupported_action, :persist_record}}
+      assert handle(:not_a_map, :persist_document) ==
+               {:error, {:unsupported_action, :persist_document}}
 
-      assert handle(:not_a_map, :update_record) ==
-               {:error, {:unsupported_action, :update_record}}
+      assert handle(:not_a_map, :update_document) ==
+               {:error, {:unsupported_action, :update_document}}
 
       assert handle(:not_a_map, :volume_stats) ==
                {:error, {:unsupported_action, :volume_stats}}
@@ -192,14 +195,14 @@ defmodule Zaq.Ingestion.ApiTest do
       # Clause order is load-bearing and silent when wrong: a catch-all placed above these
       # would swallow them all, and this assertion is what notices.
       actions = [
-        {%{file_id: "1"}, :describe_record},
-        {%{params: %{}}, :list_records},
+        {%{file_id: "1"}, :describe_document},
+        {%{params: %{}}, :list_documents},
         {%{file_id: "99999999"}, :materialize_record},
-        {%{}, :persist_record},
-        {%{}, :update_record},
-        {%{file_id: "99999999"}, :delete_record},
-        {%{file_id: "99999999"}, :list_record_permissions},
-        {%{params: %{}}, :search_records},
+        {%{}, :persist_document},
+        {%{}, :update_document},
+        {%{file_id: "99999999"}, :delete_document},
+        {%{file_id: "99999999"}, :list_document_grants},
+        {%{params: %{}}, :search_documents},
         {%{}, :volume_stats}
       ]
 

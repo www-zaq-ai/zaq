@@ -12,8 +12,8 @@ and a Python-based pre-processing pipeline for PDF, DOCX, PPTX, XLSX, CSV, and i
 ## Pipeline Flow
 
 ```
-File path
-  → Zaq.Ingestion.ingest_file/3             ← creates IngestJob, queues Oban worker
+Canonical records (from any data-source bridge)
+  → Zaq.Ingestion.ingest_records/2          ← creates one IngestJob per record, queues Oban worker
   → IngestWorker.perform/1                  ← document-level orchestrator
       → [Python.Pipeline.run/2]             ← optional: PDF → clean Markdown
       → [DocxToMd/PptxToMd/XlsxToMd]        ← optional: office docs → Markdown sidecar
@@ -39,8 +39,8 @@ File path
 ### Public API (`Zaq.Ingestion`)
 
 **Ingestion triggers**
-- `ingest_file/3` — trigger ingestion for a single file (`:async` or `:inline` mode); accepts `path, mode \\ :async, volume_name \\ nil`
-- `ingest_folder/3` — trigger ingestion for all files in a directory; accepts `path, mode \\ :async, volume_name \\ nil`
+- `ingest_records/2` — the entry point; takes `%Zaq.Contracts.Record{}` values from any data-source bridge and a `%{mode: :async | :inline}` map, and answers `{:ok, jobs}` or `{:error, {:partial_failure, jobs, errors}}`
+- `ingest_record/2` — one record; a file record becomes a job, a folder record is expanded through `RecordSource.list_children/1` and fanned back into `ingest_records/2`
 
 **Job queries**
 - `list_jobs/1` — paginated job list with optional status filter

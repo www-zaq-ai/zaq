@@ -127,6 +127,21 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @doc """
+  Maps each of `sources` to the id of the document holding it.
+
+  Sources with no document row are absent from the result — a file on a volume is reachable
+  whether or not it was ever ingested, so a miss is an ordinary answer rather than an error.
+  One query covers the whole list, which is what keeps a directory listing from running a
+  lookup per file.
+  """
+  @spec ids_by_source([String.t()]) :: %{String.t() => integer()}
+  def ids_by_source(sources) when is_list(sources) do
+    sources
+    |> list_by_sources()
+    |> Map.new(&{&1.source, &1.id})
+  end
+
+  @doc """
   Lists all documents, ordered by most recently updated.
   """
   def list do

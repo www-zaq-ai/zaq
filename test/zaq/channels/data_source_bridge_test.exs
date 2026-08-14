@@ -1075,6 +1075,8 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     end
 
     test "answers :unsupported for the callbacks it omits" do
+      insert_data_source_config(:disk)
+
       assert {:error, :unsupported} = DataSourceBridge.auth_handshake(:disk, %{})
       assert {:error, :unsupported} = DataSourceBridge.list_resources(:disk, %{})
       assert {:error, :unsupported} = DataSourceBridge.oauth_authorize_url(:disk, %{})
@@ -1089,13 +1091,13 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     test "export_options falls back to an empty answer rather than :unsupported" do
       # `export_options/2` has its own fallback in the dispatcher: a bridge that exports
       # nothing answers with empty lists, not an error.
+      insert_data_source_config(:disk)
+
       assert {:ok, %{native_types: [], export_formats_by_native_type: %{}}} =
                DataSourceBridge.export_options(:disk, %{})
     end
 
     test "a provider with no channel_configs row errors rather than getting a synthetic one" do
-      Repo.get_by!(ChannelConfig, provider: "disk") |> Repo.delete!()
-
       assert {:error, {:channel_not_configured, :disk}} =
                DataSourceBridge.list_files(:disk, %{})
     end
