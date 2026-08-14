@@ -45,6 +45,7 @@ npm-debug.log
 /.venv/
 # Playwright E2E artifacts
 /test/e2e/node_modules/
+/test/e2e/.auth/
 /test/e2e/test-results/
 /test/e2e/playwright-report/
 /test/storybook/node_modules/

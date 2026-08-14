@@ -34,6 +34,18 @@ defmodule ZaqWeb.Plugs.AuthTest do
     assert conn.halted
   end
 
+  test "clears stale session and redirects to login", %{conn: conn} do
+    conn =
+      conn
+      |> init_test_session(%{user_id: -1})
+      |> fetch_flash()
+      |> Auth.call(%{})
+
+    assert redirected_to(conn) == "/bo/login"
+    refute get_session(conn, :user_id)
+    assert conn.halted
+  end
+
   test "redirects to change-password when must_change_password is true", %{conn: conn} do
     user = user_fixture()
     # user has must_change_password: true by default

@@ -26,15 +26,27 @@ defmodule ZaqWeb.Plugs.Auth do
         |> halt()
 
       user_id ->
-        user = Accounts.get_user!(user_id)
+        case Accounts.get_user(user_id) do
+          nil ->
+            conn
+            |> clear_session()
+            |> put_flash(:error, "You must log in to access this page.")
+            |> redirect(to: ~p"/bo/login")
+            |> halt()
 
-        if user.must_change_password and conn.request_path != ~p"/bo/change-password" do
-          conn
-          |> redirect(to: ~p"/bo/change-password")
-          |> halt()
-        else
-          assign(conn, :current_user, user)
+          user ->
+            authorize_user(conn, user)
         end
+    end
+  end
+
+  defp authorize_user(conn, user) do
+    if user.must_change_password and conn.request_path != ~p"/bo/change-password" do
+      conn
+      |> redirect(to: ~p"/bo/change-password")
+      |> halt()
+    else
+      assign(conn, :current_user, user)
     end
   end
 end

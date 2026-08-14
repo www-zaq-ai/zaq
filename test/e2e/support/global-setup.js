@@ -1,12 +1,15 @@
-const { request } = require("@playwright/test");
+const { chromium, request } = require("@playwright/test");
 const fs = require("fs");
 const path = require("path");
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:4002";
+const DEFAULT_ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || "e2e_admin";
+const DEFAULT_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || "StrongPass1!";
 const STORYBOOK_URL = "http://localhost:4000";
 const REQUIRED_ASSET_PATHS = ["/assets/js/app.js", "/assets/css/app.css"];
 const STORYBOOK_DIR = path.join(__dirname, "..", "..", "..", "storybook");
 const STORY_URLS_PATH = path.join(__dirname, "story-urls.json");
+const AUTH_STATE_PATH = path.join(__dirname, "..", ".auth", "bo-admin.json");
 
 function discoverStoryFiles(dir) {
   const results = [];
@@ -57,6 +60,26 @@ module.exports = async () => {
   }
 
   await ctx.dispose();
+
+  if (!process.env.STORYBOOK_ONLY) {
+    const browser = await chromium.launch();
+
+    try {
+      const page = await browser.newPage({ baseURL: BASE_URL });
+
+      await page.goto("/bo/login");
+      await page.waitForSelector("[data-phx-main].phx-connected", { timeout: 15_000 });
+      await page.locator('input[name="username"]').fill(DEFAULT_ADMIN_USERNAME);
+      await page.locator('input[name="password"]').fill(DEFAULT_ADMIN_PASSWORD);
+      await page.getByRole("button", { name: "Sign In to Dashboard" }).click();
+      await page.waitForURL(/\/bo\/(dashboard|change-password)/, { timeout: 15_000 });
+
+      fs.mkdirSync(path.dirname(AUTH_STATE_PATH), { recursive: true });
+      await page.context().storageState({ path: AUTH_STATE_PATH });
+    } finally {
+      await browser.close();
+    }
+  }
 
   const storyFiles = discoverStoryFiles(STORYBOOK_DIR);
   const urls = storyFiles.map(fileToUrl).sort();

@@ -18,13 +18,21 @@ defmodule ZaqWeb.Live.BO.AuthHook do
         {:halt, push_navigate(socket, to: ~p"/bo/login")}
 
       user_id ->
-        user = Accounts.get_user!(user_id)
+        case Accounts.get_user(user_id) do
+          nil ->
+            {:halt, push_navigate(socket, to: ~p"/bo/login")}
 
-        if user.must_change_password and socket.view != ZaqWeb.Live.BO.System.ChangePasswordLive do
-          {:halt, push_navigate(socket, to: ~p"/bo/change-password")}
-        else
-          {:cont, setup_addons_hook(socket, user)}
+          user ->
+            authorize_user(socket, user)
         end
+    end
+  end
+
+  defp authorize_user(socket, user) do
+    if user.must_change_password and socket.view != ZaqWeb.Live.BO.System.ChangePasswordLive do
+      {:halt, push_navigate(socket, to: ~p"/bo/change-password")}
+    else
+      {:cont, setup_addons_hook(socket, user)}
     end
   end
 

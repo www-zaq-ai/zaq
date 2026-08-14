@@ -24,6 +24,15 @@ defmodule ZaqWeb.Live.BO.AuthHookTest do
     assert {:live, :redirect, %{to: "/bo/login", kind: :push}} = halted_socket.redirected
   end
 
+  test "halts and redirects to login when the session user no longer exists" do
+    socket = build_socket(ZaqWeb.Live.BO.DashboardLive)
+
+    assert {:halt, halted_socket} =
+             AuthHook.on_mount(:default, %{}, %{"user_id" => -1}, socket)
+
+    assert {:live, :redirect, %{to: "/bo/login", kind: :push}} = halted_socket.redirected
+  end
+
   test "halts and redirects to change-password when user must rotate password" do
     user = user_fixture(%{username: "bo_auth_hook_force_change"})
     socket = build_socket(ZaqWeb.Live.BO.DashboardLive)

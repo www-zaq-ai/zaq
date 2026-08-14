@@ -178,14 +178,6 @@ defmodule ZaqWeb.Router do
 
       post "/llm/v1/chat/completions", E2EController, :fake_llm
     end
-
-    # Needs :browser for :fetch_session — Plug.Session itself is endpoint-wide.
-    # Mints a BO session cookie so specs skip the login form on every test.
-    scope "/e2e", ZaqWeb do
-      pipe_through :browser
-
-      get "/session", E2EController, :create_session
-    end
   end
 
   if Application.compile_env(:zaq, :e2e, false) do

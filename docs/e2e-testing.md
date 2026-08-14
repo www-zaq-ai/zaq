@@ -156,7 +156,7 @@ These functions are in `test/e2e/support/bo.js` and hit the `/e2e/*` endpoints:
 | `createE2EConversation(request, attrs)` | Inserts a conversation for the E2E admin user. Body: required `channel_type`; optional `title`, `channel_user_id`, `status` (`active` / `archived`), `user_id`. Returns `{ ok, id, title, channel_type, status }`. |
 | `createE2EMcpEndpoint(request, attrs)` | Inserts an MCP endpoint record. Returns the created record. |
 
-`GET /e2e/session` backs `loginToBackOffice` — see [Logging In](#logging-in).
+`loginToBackOffice` uses the authenticated browser state created in global setup — see [Logging In](#logging-in).
 
 ### Pattern: `beforeAll` with reset + seed
 
@@ -191,15 +191,19 @@ test.describe("Agent page", () => {
 
 ## Logging In
 
-`loginToBackOffice(page)` mints the BO session cookie server-side via
-`GET /e2e/session` — one navigation, no form, no LiveView round trip on the login
-page. Driving the real form costs 2–4s per test, and the suite logs in on almost
-every test across three browsers.
+Global setup signs in once through the regular BO login form and saves the
+resulting Phoenix session cookie to Playwright storage state at
+`test/e2e/.auth/bo-admin.json`. Journey projects load that state for every test,
+so `loginToBackOffice(page)` normally just navigates to the target BO route.
 
 ```js
-await loginToBackOffice(page)                              // minted session
+await loginToBackOffice(page)                              // cached regular-login session
 await loginToBackOffice(page, { returnTo: "/bo/people" })  // land straight on the page
 ```
+
+If a destructive flow invalidates the cached session, `loginToBackOffice` falls
+back to the regular login form for the default E2E admin and refreshes the saved
+storage state.
 
 The real login form is used when you pass a `password` — **passing one means you
 want it verified** — or set `realLogin: true` explicitly:
@@ -209,8 +213,8 @@ want it verified** — or set `realLogin: true` explicitly:
 await loginToBackOffice(page, { username: user.username, password: user.password })
 ```
 
-Do not switch those to the minted path: it skips password verification and the
-`must_change_password` redirect that those specs exist to cover.
+Do not remove the explicit form path from those specs: password verification and
+the `must_change_password` redirect are part of what they cover.
 
 ---
 

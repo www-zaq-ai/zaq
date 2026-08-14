@@ -69,6 +69,13 @@ defmodule Zaq.Accounts do
     |> Repo.insert()
   end
 
+  def get_user(id) do
+    case Repo.get(User, id) do
+      nil -> nil
+      user -> Repo.preload(user, :role)
+    end
+  end
+
   def get_user!(id), do: Repo.get!(User, id) |> Repo.preload(:role)
 
   def get_user_by_username(username) do

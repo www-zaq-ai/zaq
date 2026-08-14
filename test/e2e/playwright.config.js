@@ -1,6 +1,8 @@
 const { defineConfig, devices } = require("@playwright/test");
+const path = require("path");
 
 const storybookOnly = !!process.env.STORYBOOK_ONLY;
+const boAdminStorageState = path.join(__dirname, ".auth", "bo-admin.json");
 
 // Retries are deliberately 0. Do NOT bump this to mask flakes — the plan
 // `docs/exec-plans/active/2026-04-20-fix-e2e-flakiness.md` explicitly forbids
@@ -50,17 +52,17 @@ module.exports = defineConfig({
     {
       name: "journeys-firefox",
       testDir: "./specs",
-      use: { ...devices["Desktop Firefox"] },
+      use: { ...devices["Desktop Firefox"], storageState: boAdminStorageState },
     },
         {
       name: "journeys-webkit",
       testDir: "./specs",
-      use: { ...devices["Desktop Safari"] },
+      use: { ...devices["Desktop Safari"], storageState: boAdminStorageState },
     },
     {
       name: "journeys-chromium",
       testDir: "./specs",
-      use: { ...devices["Desktop Chrome"] },
+      use: { ...devices["Desktop Chrome"], storageState: boAdminStorageState },
     },
     {
       name: "storybook",

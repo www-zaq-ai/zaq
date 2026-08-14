@@ -1,8 +1,10 @@
 const { expect } = require("@playwright/test");
+const path = require("path");
 
 const DEFAULT_BASE_URL = process.env.E2E_BASE_URL || "http://localhost:4002";
 const DEFAULT_ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || "e2e_admin";
 const DEFAULT_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || "StrongPass1!";
+const AUTH_STATE_PATH = path.join(__dirname, "..", ".auth", "bo-admin.json");
 
 function normalizeBaseURL(baseURL) {
   return (baseURL || DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -63,39 +65,34 @@ async function gotoBackOfficeLive(page, path, options = {}) {
 
 // Authenticates the page against the BO.
 //
-// By default this mints the session cookie server-side via GET /e2e/session —
-// one navigation, no form, no LiveView round trip on the login page. Driving the
-// real login form costs 2-4s per test and the suite does it ~350 times.
+// By default, Playwright loads a storageState file created once by global setup
+// through the regular login form. This helper just navigates to the requested BO
+// route and falls back to the real form if a destructive test invalidated the
+// cached session.
 //
-// The form is used when the caller supplies a `password` (passing one means you
-// want it verified — the mint path never takes a password) or sets
-// `realLogin: true`. That keeps the login journey itself under test in
-// onboarding.spec.js while every other spec skips it.
+// The form is always used when the caller supplies a `password` or sets
+// `realLogin: true`. That keeps login/onboarding journeys under test and avoids
+// cached e2e_admin auth leaking into specs that intentionally log in as another
+// user.
 //
-// `returnTo` lands directly on the page under test, saving a second navigation.
+// `returnTo` lands directly on the page under test.
 async function loginToBackOffice(page, options = {}) {
   const useForm = options.realLogin === true || typeof options.password === "string";
 
-  if (!useForm) {
-    return loginViaMintedSession(page, options);
+  if (useForm) {
+    await page.context().clearCookies();
+    return loginViaForm(page, options);
   }
 
-  return loginViaForm(page, options);
-}
-
-async function loginViaMintedSession(page, options = {}) {
-  const username = options.username || DEFAULT_ADMIN_USERNAME;
   const returnTo = options.returnTo || "/bo/dashboard";
 
-  const query = new URLSearchParams({ username, return_to: returnTo });
-  await page.goto(`/e2e/session?${query.toString()}`);
+  await page.goto(returnTo);
 
-  // A missing user renders the controller's JSON 404 instead of redirecting —
-  // fail here with the reason rather than downstream on a missing selector.
-  await expect(page, `GET /e2e/session did not authenticate "${username}"`).toHaveURL(
-    /\/bo\//,
-    { timeout: 10_000 }
-  );
+  if (/\/bo\/login(?:$|[?#])/.test(new URL(page.url()).pathname)) {
+    await loginViaForm(page, { ...options, returnTo });
+    await page.context().storageState({ path: AUTH_STATE_PATH });
+    return;
+  }
 
   if (options.ensureConnected !== false) {
     await waitForLiveViewConnected(page, options);
@@ -128,6 +125,7 @@ async function loginViaForm(page, options = {}) {
         timeout: 7_000 + attempt * 2_000,
       });
       await waitForLiveViewConnected(page, options);
+      await maybeNavigateAfterLogin(page, options);
       return;
     } catch (_error) {
       // Exponential-ish backoff: 0, 500, 1000, 1500 ms
@@ -139,6 +137,17 @@ async function loginViaForm(page, options = {}) {
   // Final assertion gives a clean failure message if all retries fell through.
   await expect(page).toHaveURL(/\/bo\/(dashboard|change-password)/);
   await waitForLiveViewConnected(page, options);
+  await maybeNavigateAfterLogin(page, options);
+}
+
+async function maybeNavigateAfterLogin(page, options = {}) {
+  const returnTo = options.returnTo;
+
+  if (!returnTo || returnTo === "/bo/dashboard" || /\/bo\/change-password/.test(page.url())) {
+    return;
+  }
+
+  await gotoBackOfficeLive(page, returnTo, options);
 }
 
 // Dismisses any visible flash toast so the NEXT test does not match on a
