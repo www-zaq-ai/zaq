@@ -2,18 +2,17 @@ defmodule Zaq.Ingestion.FileExplorer.Entry do
   @moduledoc """
   One file or folder on a mounted ingestion volume, as read from disk.
 
-  `Zaq.Ingestion.FileExplorer` builds these from `File.stat/2`, so it fills only filesystem
-  state. `id`, `source`, and `document_id` need a database lookup and are filled by
-  `Zaq.Ingestion.VolumeEntries.resolve/1` — on an entry straight out of `FileExplorer` they
-  are `nil`.
+  `Zaq.Ingestion.FileExplorer` builds these from `File.stat/2` and fills everything but
+  `document_id`. `id` is the entry's `source` — volume plus normalized relative path — so a
+  file is named without consulting the `documents` table and a file that was never ingested
+  is addressable exactly like one that was.
+
+  `document_id` is the one field a database answers: it says whether this source has been
+  ingested, and is `nil` on an entry straight out of `FileExplorer`.
 
   `type` is `:directory`, not `:folder`. Callers pattern-match `%{type: :directory}` to
   branch on it; `Zaq.Contracts.Record`'s `:folder` naming is applied by the data-source
   bridge when it maps an entry into a record.
-
-  `relative_path` out of `FileExplorer` is as-given by the caller, joined with the entry
-  name — it is not passed through `Zaq.Ingestion.SourcePath.normalize_relative/1`, which
-  aliases `FileExplorer` and cannot be called from here. `resolve/1` normalizes it.
   """
 
   @enforce_keys [:name, :type]

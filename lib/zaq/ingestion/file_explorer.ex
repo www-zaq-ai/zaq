@@ -11,6 +11,7 @@ defmodule Zaq.Ingestion.FileExplorer do
   require Logger
 
   alias Zaq.Ingestion.FileExplorer.Entry
+  alias Zaq.Ingestion.SourcePath
 
   @doc """
   Returns the configured base path for ingestion files.
@@ -396,16 +397,31 @@ defmodule Zaq.Ingestion.FileExplorer do
   defp normalize_concurrency(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_concurrency(_value, default), do: default
 
+  # A file is named by its source, which is volume plus path and nothing else — no document
+  # row is consulted, so a file that was never ingested is addressable exactly like one that
+  # was.
   defp build_entry(name, stat, volume_name, relative_path) do
+    normalized = SourcePath.normalize_relative(relative_path)
+    source = source_for(volume_name, normalized)
+
     %Entry{
+      id: source,
       name: name,
       type: if(stat.type == :directory, do: :directory, else: :file),
       size: stat.size,
       modified_at: stat.mtime |> DateTime.from_unix!(),
       volume: volume_name,
-      relative_path: relative_path
+      relative_path: normalized,
+      source: source
     }
   end
+
+  # Without a volume there is nothing to prefix — single-volume deployments store the bare
+  # relative path.
+  defp source_for(nil, relative_path), do: relative_path
+
+  defp source_for(volume_name, relative_path),
+    do: SourcePath.build_source(volume_name, relative_path)
 
   # Matches how the rest of ingestion joins a listing directory to an entry name — a "."
   # directory contributes nothing, so entries under the root are named bare.

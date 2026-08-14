@@ -225,9 +225,6 @@ defmodule Zaq.Channels.ChannelConfigTest do
     test "gets url and token placeholders rather than being required to supply them" do
       # The disk data source fronts volumes ZAQ already owns — there is nothing for an
       # operator to enter, but the row still has to exist for the bridge to be resolved.
-      # The migration already seeded one, so this starts from a clean slate.
-      Repo.get_by!(ChannelConfig, provider: "disk") |> Repo.delete!()
-
       assert {:ok, config} =
                %ChannelConfig{}
                |> ChannelConfig.changeset(%{
@@ -244,8 +241,7 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
     test "keeps a url and token the caller did supply" do
       assert {:ok, config} =
-               ChannelConfig
-               |> Repo.get_by!(provider: "disk")
+               insert_disk_config()
                |> ChannelConfig.changeset(%{url: "https://example.test", token: "supplied"})
                |> Repo.update()
 
@@ -253,7 +249,9 @@ defmodule Zaq.Channels.ChannelConfigTest do
       assert Repo.get!(ChannelConfig, config.id).token == "supplied"
     end
 
-    test "the migration's row is what Bridge.fetch_channel_config/1 finds" do
+    test "its row is what Bridge.fetch_channel_config/1 finds" do
+      insert_disk_config()
+
       assert {:ok, config} = Bridge.fetch_channel_config("disk")
       assert config.provider == "disk"
       assert config.kind == "data_source"
@@ -262,6 +260,17 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
     test "resolves to the disk bridge" do
       assert {:ok, DiskBridge} = Bridge.resolve_bridge("disk")
+    end
+
+    defp insert_disk_config do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Disk",
+        provider: "disk",
+        kind: "data_source",
+        enabled: true
+      })
+      |> Repo.insert!()
     end
   end
 

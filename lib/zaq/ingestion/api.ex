@@ -24,16 +24,16 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.process_data_source_changes(request)}
   end
 
-  # -- records --
+  # -- documents --
 
-  def handle_event(%Event{request: %{file_id: file_id}} = event, :describe_record, _context)
+  def handle_event(%Event{request: %{file_id: file_id}} = event, :describe_document, _context)
       when is_binary(file_id) do
-    %{event | response: Ingestion.describe_record(file_id)}
+    %{event | response: Ingestion.describe_document(file_id)}
   end
 
-  def handle_event(%Event{request: %{params: params}} = event, :list_records, _context)
+  def handle_event(%Event{request: %{params: params}} = event, :list_documents, _context)
       when is_map(params) do
-    %{event | response: Ingestion.list_records(params)}
+    %{event | response: Ingestion.list_documents(params)}
   end
 
   def handle_event(
@@ -45,35 +45,35 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.materialize_record(request)}
   end
 
-  def handle_event(%Event{request: request} = event, :persist_record, _context)
+  def handle_event(%Event{request: request} = event, :persist_document, _context)
       when is_map(request) do
-    %{event | response: Ingestion.persist_record(request)}
+    %{event | response: Ingestion.persist_document(request)}
   end
 
-  def handle_event(%Event{request: request} = event, :update_record, _context)
+  def handle_event(%Event{request: request} = event, :update_document, _context)
       when is_map(request) do
-    %{event | response: Ingestion.update_record(request)}
+    %{event | response: Ingestion.update_document(request)}
   end
 
-  def handle_event(%Event{request: %{file_id: file_id}} = event, :delete_record, _context)
+  def handle_event(%Event{request: %{file_id: file_id}} = event, :delete_document, _context)
       when is_binary(file_id) do
-    %{event | response: Ingestion.delete_record(file_id)}
+    %{event | response: Ingestion.delete_document(file_id)}
   end
 
   def handle_event(
         %Event{request: %{file_id: file_id}} = event,
-        :list_record_permissions,
+        :list_document_grants,
         _context
       )
       when is_binary(file_id) do
-    %{event | response: Ingestion.list_record_permissions(file_id)}
+    %{event | response: Ingestion.list_document_grants(file_id)}
   end
 
   # -- volumes --
 
-  def handle_event(%Event{request: %{params: params}} = event, :search_records, _context)
+  def handle_event(%Event{request: %{params: params}} = event, :search_documents, _context)
       when is_map(params) do
-    %{event | response: Ingestion.search_records(params)}
+    %{event | response: Ingestion.search_documents(params)}
   end
 
   def handle_event(%Event{request: request} = event, :volume_stats, _context)
