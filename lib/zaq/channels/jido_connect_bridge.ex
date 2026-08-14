@@ -1655,7 +1655,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp resolve_action(provider, capability, params)
-       when capability == :download_items and is_map(params) do
+       when capability in [:download_items, :create_item] and is_map(params) do
     with {:ok, tools} <- provider_tools(provider, capability) do
       resolve_action_spec(tools, capability, provider, params)
     end
@@ -2746,10 +2746,35 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
+  defp resolve_action_spec(tools, :create_item, provider, params)
+       when is_list(tools) and is_map(params) do
+    if content_file_create_requested?(params) do
+      resolve_action_by_suffixes(tools, provider, ["file.upload"])
+      |> case do
+        {:ok, _} = ok -> ok
+        _ -> resolve_action_by_candidates(tools, provider, :create_item)
+      end
+    else
+      resolve_action_by_candidates(tools, provider, :create_item)
+    end
+  end
+
   defp resolve_action_by_candidates(tools, provider, capability)
        when is_list(tools) and not is_nil(provider) do
-    suffixes = capability_tool_candidates(capability)
+    resolve_action_by_suffixes(
+      tools,
+      provider,
+      capability_tool_candidates(capability),
+      capability
+    )
+  end
 
+  defp resolve_action_by_candidates(_tools, _provider, _capability), do: {:error, :unsupported}
+
+  defp resolve_action_by_suffixes(tools, provider, suffixes, capability \\ :action)
+
+  defp resolve_action_by_suffixes(tools, provider, suffixes, capability)
+       when is_list(tools) and not is_nil(provider) and is_list(suffixes) do
     Enum.reduce_while(suffixes, {:error, :unsupported}, fn suffix, _acc ->
       matches = find_actions_by_suffix(tools, suffix)
 
@@ -2774,10 +2799,26 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end)
   end
 
-  defp resolve_action_by_candidates(_tools, _provider, _capability), do: {:error, :unsupported}
+  defp resolve_action_by_suffixes(_tools, _provider, _suffixes, _capability),
+    do: {:error, :unsupported}
 
   defp capability_tool_candidates(capability),
     do: ProviderCatalog.capability_action_suffixes(capability)
+
+  defp content_file_create_requested?(params) when is_map(params) do
+    content_present?(read_any(params, [:content, "content"])) and
+      not folder_create_requested?(params)
+  end
+
+  defp content_present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp content_present?(nil), do: false
+  defp content_present?(_value), do: true
+
+  defp folder_create_requested?(params) do
+    read_any(params, [:kind, "kind", :type, "type"]) in [:folder, "folder"] or
+      read_any(params, [:mime_type, "mime_type", :mimeType, "mimeType"]) ==
+        "application/vnd.google-apps.folder"
+  end
 
   defp find_actions_by_suffix(tools, suffix) when is_binary(suffix) do
     Enum.filter(tools, fn

@@ -84,6 +84,13 @@ defmodule Zaq.Channels.JidoConnectBridge.FieldNormalizationTest do
              %{"name" => "Doc", "parents" => ["folder-1"]}
   end
 
+  test "maps parent_id to parents for google drive file upload" do
+    params = %{"name" => "Doc", "content" => "hello", "parent_id" => "folder-1"}
+
+    assert FieldNormalization.normalize_all("google_drive", "google.drive.file.upload", params) ==
+             %{"name" => "Doc", "content" => "hello", "parents" => ["folder-1"]}
+  end
+
   test "maps parent_id to parents for google drive folder create" do
     params = %{name: "Folder", parent_id: "folder-1"}
 

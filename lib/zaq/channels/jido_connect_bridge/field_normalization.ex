@@ -79,7 +79,13 @@ defmodule Zaq.Channels.JidoConnectBridge.FieldNormalization do
 
   defp google_drive_create_action?(provider, action_id) do
     provider_match? = to_string(provider) in ["google_drive", "google", "google.drive"]
-    provider_match? and action_id in ["google.drive.file.create", "google.drive.folder.create"]
+
+    provider_match? and
+      action_id in [
+        "google.drive.file.create",
+        "google.drive.file.upload",
+        "google.drive.folder.create"
+      ]
   end
 
   defp normalize_mime_key(field) when is_atom(field), do: :mime_type

@@ -918,6 +918,49 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     end
   end
 
+  defmodule StubJidoConnectCreateUpload do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{id: "stub.file.create", resource: :file, verb: :create, auth_profiles: [:user]},
+         %{id: "stub.file.upload", resource: :file, verb: :upload, auth_profiles: [:user]}
+       ]}
+    end
+
+    def invoke(_integration, action_id, params, _opts)
+        when action_id in ["stub.file.create", "stub.file.upload"] do
+      send(self(), {:invoke_create_file, action_id, params})
+
+      {:ok,
+       %{
+         file: %{
+           "id" => "f1",
+           "name" => Map.get(params, "name") || Map.get(params, :name),
+           "mimeType" => Map.get(params, "mime_type") || Map.get(params, :mime_type)
+         }
+       }}
+    end
+  end
+
+  defmodule StubJidoConnectCreateOnly do
+    def actions(_integration) do
+      {:ok, [%{id: "stub.file.create", resource: :file, verb: :create, auth_profiles: [:user]}]}
+    end
+
+    def invoke(_integration, "stub.file.create", params, _opts) do
+      send(self(), {:invoke_create_file, "stub.file.create", params})
+
+      {:ok,
+       %{
+         file: %{
+           "id" => "f1",
+           "name" => Map.get(params, "name") || Map.get(params, :name),
+           "mimeType" => Map.get(params, "mime_type") || Map.get(params, :mime_type)
+         }
+       }}
+    end
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
     original_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
@@ -1053,6 +1096,82 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     assert opts[:context].connection.id == "grant:#{grant.id}"
     assert opts[:credential_lease].connection_id == "grant:#{grant.id}"
+  end
+
+  test "create_file uses upload action when content is present" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectCreateUpload
+    )
+
+    assert {:ok, %{status: "created"}} =
+             JidoConnectBridge.create_file(config, %{"name" => "Doc", "content" => "hello"})
+
+    assert_received {:invoke_create_file, "stub.file.upload",
+                     %{"name" => "Doc", "content" => "hello"}}
+  end
+
+  test "create_file keeps metadata create when content is blank or missing" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectCreateUpload
+    )
+
+    assert {:ok, %{status: "created"}} =
+             JidoConnectBridge.create_file(config, %{"name" => "No Content"})
+
+    assert_received {:invoke_create_file, "stub.file.create", %{"name" => "No Content"}}
+
+    assert {:ok, %{status: "created"}} =
+             JidoConnectBridge.create_file(config, %{"name" => "Blank", "content" => "  "})
+
+    assert_received {:invoke_create_file, "stub.file.create",
+                     %{"name" => "Blank", "content" => "  "}}
+  end
+
+  test "create_file ignores content for explicit folder creates" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectCreateUpload
+    )
+
+    params = %{
+      "name" => "Folder",
+      "content" => "ignored",
+      "mimeType" => "application/vnd.google-apps.folder"
+    }
+
+    assert {:ok, %{status: "created"}} = JidoConnectBridge.create_file(config, params)
+    assert_received {:invoke_create_file, "stub.file.create", ^params}
+  end
+
+  test "create_file falls back to metadata create when upload action is unavailable" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnectCreateOnly)
+
+    assert {:ok, %{status: "created"}} =
+             JidoConnectBridge.create_file(config, %{"name" => "Doc", "content" => "hello"})
+
+    assert_received {:invoke_create_file, "stub.file.create",
+                     %{"name" => "Doc", "content" => "hello"}}
   end
 
   test "list_files preserves service_account profile when action has no auth_profiles" do
