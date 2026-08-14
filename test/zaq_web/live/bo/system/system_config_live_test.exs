@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
-  use ZaqWeb.ConnCase, async: true
+  use ZaqWeb.ConnCase
 
   import Mox
   import Phoenix.LiveViewTest
@@ -145,7 +145,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "MCP administration" do
     setup do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       :ok
     end
@@ -339,7 +348,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows friendly message when MCP server capabilities are not ready", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestNotReadyStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestNotReadyStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       {:ok, endpoint} =
         MCP.create_mcp_endpoint(%{
@@ -361,7 +379,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows friendly unauthorized message when MCP authentication fails", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestUnauthorizedStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestUnauthorizedStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       {:ok, endpoint} =
         MCP.create_mcp_endpoint(%{
@@ -572,7 +599,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows fallback message for unexpected MCP test response", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestOtherResponseStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestOtherResponseStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       {:ok, endpoint} =
         MCP.create_mcp_endpoint(%{
@@ -594,7 +630,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows stale-endpoint message when endpoint already registered", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestAlreadyRegisteredStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestAlreadyRegisteredStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       {:ok, endpoint} =
         MCP.create_mcp_endpoint(%{
@@ -616,7 +661,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows client-disconnect message for mcp runtime call exit", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestRuntimeExitStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestRuntimeExitStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       {:ok, endpoint} =
         MCP.create_mcp_endpoint(%{
@@ -738,7 +792,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "provider selector hides unsupported LLMDB providers by default", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :show_unsupported_ai_providers, false)
+      previous = Application.get_env(:zaq, :show_unsupported_ai_providers)
+      Application.put_env(:zaq, :show_unsupported_ai_providers, false)
+      on_exit(fn -> restore_show_unsupported_ai_providers(previous) end)
 
       case unsupported_llmdb_provider_option() do
         nil ->
@@ -756,7 +812,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "provider selector can show unsupported LLMDB providers as disabled", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :show_unsupported_ai_providers, true)
+      previous = Application.get_env(:zaq, :show_unsupported_ai_providers)
+      Application.put_env(:zaq, :show_unsupported_ai_providers, true)
+      on_exit(fn -> restore_show_unsupported_ai_providers(previous) end)
 
       case unsupported_llmdb_provider_option() do
         nil ->
@@ -1042,10 +1100,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     test "connect_ai_credential_oauth requires a global base URL before starting OAuth2", %{
       conn: conn
     } do
-      # No on_exit restore: the value is DB-backed, so the sandbox transaction
-      # rolls it back. Restoring in on_exit runs after the connection is checked
-      # in and raises DBConnection.OwnershipError under async.
+      previous_base_url = System.get_global_base_url()
       :ok = System.set_global_base_url(nil)
+
+      on_exit(fn -> :ok = System.set_global_base_url(previous_base_url) end)
 
       credential =
         ai_credential_fixture(%{
@@ -2171,13 +2229,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "save_ai_credential invalid params keeps modal open", %{conn: conn} do
-      # Deliberately stale: the LiveView must resolve its router from the session,
-      # never from this key. Kept process-scoped so it cannot leak to other tests.
-      Zaq.Config.put_process(
+      original_node_router = Application.get_env(:zaq, :node_router_module)
+
+      Application.put_env(
         :zaq,
         :node_router_module,
         ZaqWeb.Live.BO.System.SystemConfigLiveTest.OldGlobalNodeRouterLeakStub
       )
+
+      on_exit(fn ->
+        if original_node_router,
+          do: Application.put_env(:zaq, :node_router_module, original_node_router),
+          else: Application.delete_env(:zaq, :node_router_module)
+      end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -2261,10 +2325,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "save_ai_credential shows encryption error when key config is invalid", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, Zaq.System.SecretConfig,
+      prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
         encryption_key: "invalid",
         key_id: "test-v1"
       )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.System.SecretConfig, prev_secret)
+      end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -2895,7 +2965,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "MCP test endpoint failure mapping" do
     test "shows generic fallback message for unexpected MCP error", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestOtherResponseStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestOtherResponseStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       {:ok, endpoint} =
         MCP.create_mcp_endpoint(%{
@@ -2917,7 +2996,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
 
     test "shows generic fallback message for unknown mcp error", %{conn: conn} do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestGenericErrorStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestGenericErrorStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       {:ok, endpoint} =
         MCP.create_mcp_endpoint(%{
@@ -3538,7 +3626,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "MCP admin — error handling" do
     setup do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       :ok
     end
@@ -3987,7 +4084,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   describe "MCP — save error handling" do
     setup do
-      Zaq.Config.put_process(:zaq, :mcp_test_module, MCPTestStub)
+      prev = Application.get_env(:zaq, :mcp_test_module)
+      Application.put_env(:zaq, :mcp_test_module, MCPTestStub)
+
+      on_exit(fn ->
+        if is_nil(prev) do
+          Application.delete_env(:zaq, :mcp_test_module)
+        else
+          Application.put_env(:zaq, :mcp_test_module, prev)
+        end
+      end)
 
       :ok
     end
@@ -5399,4 +5505,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     |> String.split("_")
     |> Enum.map_join(" ", &String.capitalize/1)
   end
+
+  defp restore_show_unsupported_ai_providers(nil),
+    do: Application.delete_env(:zaq, :show_unsupported_ai_providers)
+
+  defp restore_show_unsupported_ai_providers(value),
+    do: Application.put_env(:zaq, :show_unsupported_ai_providers, value)
 end

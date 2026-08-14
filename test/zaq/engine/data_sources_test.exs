@@ -326,10 +326,13 @@ defmodule Zaq.Engine.DataSourcesTest do
 
   test "renew_watch_channel creates replacement, stops provider watch, and deletes old row" do
     previous_router = Application.get_env(:zaq, :engine_data_sources_node_router_module)
+    previous_base_url = System.get_global_base_url()
     Application.put_env(:zaq, :engine_data_sources_node_router_module, StubRenewalNodeRouter)
     :ok = System.set_global_base_url("https://renewed.example/base/")
 
     on_exit(fn ->
+      :ok = System.set_global_base_url(previous_base_url)
+
       case previous_router do
         nil -> Application.delete_env(:zaq, :engine_data_sources_node_router_module)
         module -> Application.put_env(:zaq, :engine_data_sources_node_router_module, module)
@@ -384,7 +387,10 @@ defmodule Zaq.Engine.DataSourcesTest do
   end
 
   test "renew_watch_channel fails without global base URL" do
+    previous_base_url = System.get_global_base_url()
     :ok = System.set_global_base_url(nil)
+
+    on_exit(fn -> :ok = System.set_global_base_url(previous_base_url) end)
 
     config = insert_data_source_config()
 

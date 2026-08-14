@@ -515,6 +515,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "routes with global default when provider default is absent" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
 
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
       config = insert_imap_channel_config(%{})
       global_agent = insert_configured_agent(true)
       :ok = Zaq.System.set_global_default_agent_id(global_agent.id)
@@ -534,6 +538,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "routes to default ZAQ agent when no explicit or global selection is configured" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
 
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
+
       :ok = Zaq.System.set_global_default_agent_id(nil)
 
       config =
@@ -551,6 +559,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
     test "keeps mailbox-specific agent routing when using runtime-prepared config" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
 
       :ok = Zaq.System.set_global_default_agent_id(nil)
 
@@ -575,6 +587,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
     test "NONE mailbox routing fires trigger event without agent dispatch" do
       Application.put_env(:zaq, :email_bridge_node_router_module, CapturingNodeRouterStub)
+
+      on_exit(fn ->
+        :ok = Zaq.System.set_global_default_agent_id(nil)
+      end)
 
       config = %{
         provider: "email:imap",

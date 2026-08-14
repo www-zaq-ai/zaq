@@ -10,11 +10,14 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   alias ZaqWeb.Live.BO.DataSources.ProviderLive
 
   setup do
+    original_base_url = ZaqSystem.get_global_base_url()
     original_channels = Application.get_env(:zaq, :channels)
 
     :ok = ZaqSystem.set_global_base_url("https://zaq.example")
 
     on_exit(fn ->
+      :ok = ZaqSystem.set_global_base_url(original_base_url)
+
       case original_channels do
         nil -> Application.delete_env(:zaq, :channels)
         channels -> Application.put_env(:zaq, :channels, channels)

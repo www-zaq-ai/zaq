@@ -4,6 +4,14 @@ defmodule Zaq.Channels.WebhookUrlTest do
   alias Zaq.Channels.WebhookUrl
   alias Zaq.System
 
+  setup do
+    previous_base_url = System.get_global_base_url()
+
+    on_exit(fn -> :ok = System.set_global_base_url(previous_base_url) end)
+
+    :ok
+  end
+
   test "build! raises when global base URL is unset" do
     :ok = System.set_global_base_url(nil)
 

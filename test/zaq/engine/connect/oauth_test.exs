@@ -312,10 +312,13 @@ defmodule Zaq.Engine.Connect.OAuthTest do
   end
 
   setup do
+    original_base_url = ZaqSystem.get_global_base_url()
     original_channels = Application.get_env(:zaq, :channels)
     original_http_client = Application.get_env(:zaq, :connect_oauth_http_client)
 
     on_exit(fn ->
+      :ok = ZaqSystem.set_global_base_url(original_base_url)
+
       if is_nil(original_channels) do
         Application.delete_env(:zaq, :channels)
       else
