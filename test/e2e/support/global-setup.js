@@ -1,10 +1,11 @@
-const { chromium, request } = require("@playwright/test");
+const { chromium, firefox, request, webkit } = require("@playwright/test");
 const fs = require("fs");
 const path = require("path");
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:4002";
 const DEFAULT_ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || "e2e_admin";
 const DEFAULT_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || "StrongPass1!";
+const AUTH_BROWSER = process.env.E2E_AUTH_BROWSER || "chromium";
 const STORYBOOK_URL = "http://localhost:4000";
 const REQUIRED_ASSET_PATHS = ["/assets/js/app.js", "/assets/css/app.css"];
 const STORYBOOK_DIR = path.join(__dirname, "..", "..", "..", "storybook");
@@ -28,6 +29,19 @@ function fileToUrl(filePath) {
   const rel = path.relative(STORYBOOK_DIR, filePath);
   const withoutExt = rel.replace(/\.story\.exs$/, "");
   return "/storybook/" + withoutExt.split(path.sep).join("/");
+}
+
+function authBrowserType() {
+  switch (AUTH_BROWSER) {
+    case "chromium":
+      return chromium;
+    case "firefox":
+      return firefox;
+    case "webkit":
+      return webkit;
+    default:
+      throw new Error(`Unsupported E2E_AUTH_BROWSER=${AUTH_BROWSER}`);
+  }
 }
 
 // Runs exactly once before the whole suite. Used to:
@@ -62,7 +76,7 @@ module.exports = async () => {
   await ctx.dispose();
 
   if (!process.env.STORYBOOK_ONLY) {
-    const browser = await chromium.launch();
+    const browser = await authBrowserType().launch();
 
     try {
       const page = await browser.newPage({ baseURL: BASE_URL });

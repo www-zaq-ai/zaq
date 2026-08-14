@@ -40,6 +40,7 @@ jobs:
       MIX_ENV: test
       MIX_BUILD_PATH: _build/test-e2e
       E2E: "1"
+      E2E_AUTH_BROWSER: ${{ matrix.browser }}
       PORT: "4002"
 
     steps:
