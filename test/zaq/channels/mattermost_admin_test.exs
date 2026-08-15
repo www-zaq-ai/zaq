@@ -1,5 +1,5 @@
 defmodule Zaq.Channels.MattermostAdminTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.MattermostAdmin

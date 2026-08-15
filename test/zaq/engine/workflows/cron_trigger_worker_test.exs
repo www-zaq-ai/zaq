@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Workflows.CronTriggerWorkerTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   import Mox
 

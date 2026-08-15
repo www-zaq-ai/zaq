@@ -33,7 +33,7 @@ defmodule Zaq.Engine.TriggerNodeLinkTest do
   reimplementation) to prove the link is gone and has exactly this effect.
   """
 
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.TriggerNode
   alias Zaq.Engine.Workflows

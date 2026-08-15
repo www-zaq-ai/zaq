@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Conversations.TitleGenerator
   alias Zaq.TestSupport.OpenAIStub

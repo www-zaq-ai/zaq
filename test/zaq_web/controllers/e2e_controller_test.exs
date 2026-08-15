@@ -1,5 +1,5 @@
 defmodule ZaqWeb.E2EControllerTest do
-  use ZaqWeb.ConnCase, async: false
+  use ZaqWeb.ConnCase, async: true
 
   alias Zaq.E2E.LogCollector
   alias Zaq.E2E.PortalState

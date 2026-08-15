@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
-  use ZaqWeb.ConnCase, async: false
+  use ZaqWeb.ConnCase, async: true
 
   import Mox
   import Phoenix.LiveViewTest

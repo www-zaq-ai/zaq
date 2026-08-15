@@ -31,7 +31,7 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
   forever, and not dependent on a node restart.
   """
 
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.SignalListener

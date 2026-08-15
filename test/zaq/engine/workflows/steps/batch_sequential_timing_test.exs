@@ -17,7 +17,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchSequentialTimingTest do
   Note: chunk *order* is hash-based, not item-index order, so we assert on the
   set/sizes of chunks, never on which chunk runs first.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.TimeRecorder

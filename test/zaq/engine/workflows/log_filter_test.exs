@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Workflows.LogFilterTest do
   prune logs, plus an end-to-end check that firing a fork (which prunes one branch
   via `ConditionNotMet`) no longer emits the framework error/warning lines.
   """
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   import ExUnit.CaptureLog
 
