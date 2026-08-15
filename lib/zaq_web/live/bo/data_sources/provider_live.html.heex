@@ -197,16 +197,16 @@
             </a>
             <span :if={!folder_url(folder)}>{folder_name(folder)}</span>
             <span
-              :if={folder_mount_state(folder) == true}
+              :if={folder_bound_state(folder) == true}
               class="px-1.5 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 text-[0.6rem] uppercase tracking-wider"
             >
-              Mounted
+              Bound
             </span>
             <span
-              :if={folder_mount_state(folder) == false}
+              :if={folder_bound_state(folder) == false}
               class="px-1.5 py-0.5 rounded-full border border-red-200 bg-red-50 text-red-700 text-[0.6rem] uppercase tracking-wider"
             >
-              Not mounted
+              Not bound
             </span>
             <button
               type="button"

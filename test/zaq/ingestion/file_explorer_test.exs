@@ -351,8 +351,8 @@ defmodule Zaq.Ingestion.FileExplorerTest do
 
       assert [archives, docs] = FileExplorer.volume_entries()
 
-      assert %Entry{name: "archives", type: :directory, mounted?: true} = archives
-      assert %Entry{name: "docs", type: :directory, mounted?: true} = docs
+      assert %Entry{name: "archives", type: :directory} = archives
+      assert %Entry{name: "docs", type: :directory} = docs
 
       # A volume is named by its own name — that is the parent `list_documents/1` accepts.
       assert archives.id == "archives"
@@ -362,9 +362,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       assert %DateTime{} = archives.modified_at
     end
 
-    # Dropping an absent volume would make a broken mount look like a volume that was never
+    # Dropping an unbound volume would make a broken mount look like a volume that was never
     # configured. The operator has to be able to tell those apart.
-    test "lists a configured volume whose path is absent, flagged as not mounted" do
+    test "lists a configured volume whose path is absent" do
       present = Path.join(@test_base, "present")
       File.mkdir_p!(present)
       missing = Path.join(@test_base, "never_created")
@@ -378,25 +378,71 @@ defmodule Zaq.Ingestion.FileExplorerTest do
 
       assert [missing_entry, present_entry] = FileExplorer.volume_entries()
 
-      assert %Entry{name: "missing", mounted?: false, modified_at: nil} = missing_entry
-      assert %Entry{name: "present", mounted?: true} = present_entry
-    end
-
-    # A file that exists on a mount is mounted by definition — the flag only ever varies on a
-    # volume root.
-    test "entries read off a volume default to mounted" do
-      File.mkdir_p!(Path.join(@test_base, "docs"))
-      File.write!(Path.join(@test_base, "docs/file.txt"), "hello")
-
-      assert {:ok, [file]} = FileExplorer.list("docs")
-      assert file.mounted?
+      assert %Entry{name: "missing", modified_at: nil} = missing_entry
+      assert %Entry{name: "present"} = present_entry
     end
 
     test "falls back to the synthesized default volume when none are configured" do
       Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
 
-      assert [%Entry{name: "default", type: :directory, mounted?: true}] =
-               FileExplorer.volume_entries()
+      assert [%Entry{name: "default", type: :directory}] = FileExplorer.volume_entries()
+    end
+  end
+
+  describe "volume_entries/0 bound" do
+    test "reports each configured volume as bound or not" do
+      bound = Path.join(@test_base, "bound_vol")
+      File.mkdir_p!(bound)
+      unbound = Path.join(@test_base, "never_created")
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"bound" => bound, "unbound" => unbound})
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+
+      assert [bound_entry, unbound_entry] = FileExplorer.volume_entries()
+
+      assert %Entry{name: "bound", bound: true} = bound_entry
+      assert %Entry{name: "unbound", bound: false} = unbound_entry
+    end
+
+    # The failure this whole check exists for: a directory that exists but cannot be listed
+    # is not usable, however much it looks like a volume from the outside.
+    test "an unreadable directory is not bound" do
+      vol = Path.join(@test_base, "no_perm_vol")
+      File.mkdir_p!(vol)
+      File.chmod!(vol, 0o000)
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"locked" => vol})
+
+      on_exit(fn ->
+        File.chmod!(vol, 0o755)
+        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      end)
+
+      assert [%Entry{name: "locked", bound: false}] = FileExplorer.volume_entries()
+    end
+
+    # The volume a legacy single-volume install browses, so it has to answer too.
+    test "probes the synthesized default volume rather than leaving it unanswered" do
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
+
+      assert [%Entry{name: "default", bound: true}] = FileExplorer.volume_entries()
+    end
+
+    test "reports the synthesized default as unbound when its base path is absent" do
+      Application.put_env(:zaq, Zaq.Ingestion, base_path: Path.join(@test_base, "never_created"))
+
+      assert [%Entry{name: "default", bound: false}] = FileExplorer.volume_entries()
+    end
+
+    # Every other entry was read off disk, so the question does not apply to it.
+    test "leaves bound nil on entries inside a volume" do
+      File.mkdir_p!(Path.join(@test_base, "docs"))
+      File.write!(Path.join(@test_base, "docs/file.txt"), "hello")
+
+      assert {:ok, entries} = FileExplorer.list("docs")
+      assert Enum.all?(entries, &is_nil(&1.bound))
     end
   end
 
@@ -446,6 +492,40 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       Application.delete_env(:zaq, Zaq.Ingestion)
 
       refute FileExplorer.volumes_configured?()
+    end
+
+    # Naming a volume is an intent to mount one, not evidence that one is there: a bind that
+    # never attached leaves the mount point behind as an empty directory.
+    test "is false when a volume is named but its path was never created" do
+      Application.put_env(:zaq, Zaq.Ingestion,
+        volumes: %{"archives" => Path.join(@test_base, "never_created")}
+      )
+
+      refute FileExplorer.volumes_configured?()
+    end
+
+    test "is false when a configured volume exists but cannot be listed" do
+      vol = Path.join(@test_base, "locked_vol")
+      File.mkdir_p!(vol)
+      File.chmod!(vol, 0o000)
+      on_exit(fn -> File.chmod!(vol, 0o755) end)
+
+      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"locked" => vol})
+
+      refute FileExplorer.volumes_configured?()
+    end
+
+    # The gate gives permission to act, so one usable volume is enough — a second volume
+    # failing to bind must not block uploads to the one that did.
+    test "is true when at least one of several configured volumes is bound" do
+      bound = Path.join(@test_base, "one_bound")
+      File.mkdir_p!(bound)
+
+      Application.put_env(:zaq, Zaq.Ingestion,
+        volumes: %{"bound" => bound, "unbound" => Path.join(@test_base, "never_created")}
+      )
+
+      assert FileExplorer.volumes_configured?()
     end
   end
 

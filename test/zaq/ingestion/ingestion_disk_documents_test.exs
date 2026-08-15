@@ -42,10 +42,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     %{root: root, other_root: other_root}
   end
 
-  # Writes a file onto a volume and registers the document row the way an ingest would, so
-  # tests start from the state the bridge actually reads.
-  # The bytes on disk and `documents.content` are kept separate: a document row holds the
-  # extracted text, and a test seeding raw binary must not push it through a UTF-8 column.
+  # Writes a file and registers its document row the way an ingest would. Bytes on disk stay
+  # separate from `documents.content`, which is a UTF-8 column holding extracted text.
   defp seed_file(root, volume, relative_path, bytes, attrs \\ %{}) do
     absolute = Path.join(root, relative_path)
     absolute |> Path.dirname() |> File.mkdir_p!()
@@ -66,10 +64,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     document
   end
 
-  # `chunks` is not left behind by migrations: `20260326000000_reset_ingestion` drops it, and
-  # `Chunk.create_table/1` provisions it at runtime once an embedding dimension is known. A
-  # freshly migrated database has no such table, so a test asserting on chunks has to create
-  # it rather than assume one. The DDL rolls back with the sandbox transaction.
+  # Migrations drop `chunks`; `Chunk.create_table/1` provisions it at runtime once an
+  # embedding dimension is known. The DDL rolls back with the sandbox transaction.
   defp create_chunks_table do
     Chunk.create_table(@embedding_dimension)
   end
@@ -195,7 +191,6 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
 
       assert Enum.map(entries, & &1.name) == [@volume, @other_volume] |> Enum.sort()
       assert Enum.all?(entries, &(&1.type == :directory))
-      assert Enum.all?(entries, & &1.mounted?)
     end
 
     # Each volume root answers with the id `list_documents/1` accepts as a parent, so the BO
@@ -214,17 +209,20 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       assert entry.name == "guide.md"
     end
 
-    test "a volume whose path is gone is still listed, flagged not mounted", %{
-      other_root: other_root
-    } do
+    # Dropping it would make a volume whose bind failed indistinguishable from one that was
+    # never configured. It is listed, and says on itself that it cannot be read.
+    test "a volume whose path is gone is still listed, and says so", %{other_root: other_root} do
       File.rm_rf!(other_root)
 
       assert {:ok, %{entries: entries}} =
                Ingestion.list_documents(%{"filters" => %{"parent" => "/"}})
 
+      assert Enum.map(entries, & &1.name) == [@volume, @other_volume] |> Enum.sort()
+
       by_name = Map.new(entries, &{&1.name, &1})
-      refute by_name[@other_volume].mounted?
-      assert by_name[@volume].mounted?
+
+      assert by_name[@other_volume].bound == false
+      assert by_name[@volume].bound == true
     end
   end
 
@@ -644,9 +642,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     end
 
     test "answers with the bytes alone, never a record", %{root: root} do
-      # Shaping a record is the bridge's job — the caller dispatching the event already holds
-      # the one the bridge built, so rebuilding it here would mean two record shapes for one
-      # file.
+      # Shaping a record is the bridge's job — the dispatching caller already holds the one it
+      # built, so rebuilding here would mean two record shapes for one file.
       document = seed_file(root, @volume, "guide.md", "# guide")
 
       assert {:ok, answer} = Ingestion.materialize_record(%{"file_id" => document.source})
@@ -824,17 +821,8 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
              }
     end
 
-    # Two branches of `permission_target/1` are unreachable through the schema and are left
-    # uncovered on purpose:
-    #
-    #   * the `full_name || email` fallback — `people.full_name` is NOT NULL and required on
-    #     create, so a preloaded person always has a name;
-    #   * the `{"unknown", nil, nil}` clause — a `check_person_or_team_present` check
-    #     constraint refuses a grant naming neither, so no such row can exist.
-    #
-    # Both stay as guards. Covering them would mean asserting against states the database
-    # forbids.
-
+    # `permission_target/1`'s `full_name || email` fallback and `{"unknown", nil, nil}` clause
+    # are left uncovered: NOT NULL and `check_person_or_team_present` forbid both states.
     test "reports grants for a document with several kinds at once", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide", %{tags: ["public"]})
       person = create_person()

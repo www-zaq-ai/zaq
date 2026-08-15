@@ -146,11 +146,27 @@ any other data source and is configured the same way, at `/bo/channels/data_sour
 - **A config needs nothing but a name** — there is no remote system to authenticate against, so
   `url` and `token` are placeholdered for every `kind: "data_source"` config.
 - **Volumes are the root.** `list_files` with `filters.parent == "/"` answers one folder record
-  per configured volume, each carrying `attributes["mounted"]`. A volume configured but not
-  present on disk is listed with `"mounted" => false` rather than dropped, so a broken mount is
-  visible instead of merely absent. The BO renders this as a badge on the provider page.
+  per configured volume. A volume that is configured but not actually there is still listed
+  rather than dropped, so a failed bind is visible instead of merely absent. Those entries carry
+  `bound`, which the bridge passes through to `attributes["bound"]` and the BO renders as a
+  badge. Entries *inside* a volume have no such attribute — one read off disk is readable by
+  definition, so the question only applies to the roots.
 - Disabling disk does not affect `/bo/ingestion` — browsing and uploading local files is an
   operator function, separate from exposing those files to agents.
+
+Whether a volume is usable is a separate question from whether it is configured, and
+`Zaq.Ingestion.FileExplorer` owns both: `volumes_configured?/0` answers whether at least one
+volume is configured **and bound**, and `volume_entries/0` answers per volume, on the entry.
+Bound means the directory lists (`File.ls/1` succeeds) — deliberately a weaker claim than
+"mounted", because `File.dir?/1` cannot tell a mounted filesystem from an empty directory left
+behind by a bind that never attached, and a true mount test would misreport a volume that is
+intentionally a plain subdirectory of the host filesystem.
+
+Note the asymmetry between the two: `volumes_configured?/0` reads only explicitly configured
+volumes, deliberately ignoring the `"default"` volume `list_volumes/0` synthesizes from
+`base_path` — a fallback for single-volume installs is not an operator having connected
+anything. `volume_entries/0` browses, so it lists that synthesized volume and probes it like
+any other.
 
 ### Data source required capabilities
 

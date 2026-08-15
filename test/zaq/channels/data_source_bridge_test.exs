@@ -1023,9 +1023,8 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
   describe "@optional_callbacks" do
     test "every declared callback is optional" do
-      # The dispatcher already answers {:error, :unsupported} for anything a bridge does not
-      # export, so partial implementation is the design. The behaviour has to say so, or a
-      # narrow bridge cannot get compile-time checking on the callbacks it does implement.
+      # Partial implementation is the design, and the behaviour has to say so — otherwise a
+      # narrow bridge gets no compile-time checking on the callbacks it does implement.
       callbacks = DataSourceBridge.behaviour_info(:callbacks)
       optional = DataSourceBridge.behaviour_info(:optional_callbacks)
 

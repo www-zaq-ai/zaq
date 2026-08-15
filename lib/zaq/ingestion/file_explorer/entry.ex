@@ -14,10 +14,8 @@ defmodule Zaq.Ingestion.FileExplorer.Entry do
   branch on it; `Zaq.Contracts.Record`'s `:folder` naming is applied by the data-source
   bridge when it maps an entry into a record.
 
-  `mounted?` is `true` for anything read off a volume — a file listed from disk exists by
-  definition. Only a volume root can be `false`: `FileExplorer.volume_entries/0` answers one
-  entry per *configured* volume, including volumes whose path is not there, so an operator
-  can see a mount is missing rather than seeing it silently vanish from the list.
+  `bound` is the one exception to "as read from disk": volume roots are listed whether or not
+  their path is there, so only they answer it. It is `nil` on every other entry.
   """
 
   @enforce_keys [:name, :type]
@@ -31,7 +29,7 @@ defmodule Zaq.Ingestion.FileExplorer.Entry do
     :relative_path,
     :source,
     :document_id,
-    mounted?: true
+    :bound
   ]
 
   @type t :: %__MODULE__{
@@ -44,6 +42,6 @@ defmodule Zaq.Ingestion.FileExplorer.Entry do
           relative_path: String.t() | nil,
           source: String.t() | nil,
           document_id: integer() | nil,
-          mounted?: boolean()
+          bound: boolean() | nil
         }
 end

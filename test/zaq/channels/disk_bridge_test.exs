@@ -31,6 +31,19 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
   defp stub_response(response), do: Process.put(:stub_response, response)
 
+  # A volume root as ingestion answers it: a directory named by the volume itself.
+  defp volume_entry(name, bound \\ true) do
+    %Entry{
+      id: name,
+      name: name,
+      type: :directory,
+      volume: name,
+      relative_path: ".",
+      source: name,
+      bound: bound
+    }
+  end
+
   defp entry(id, attrs \\ %{}) do
     struct!(
       %Entry{
@@ -73,30 +86,43 @@ defmodule Zaq.Channels.DiskBridgeTest do
                "provider" => "disk",
                "volume" => "archives",
                "relative_path" => "guide.md",
-               "source" => "guide.md",
-               "mounted" => true
+               "source" => "guide.md"
              }
     end
 
-    # The BO reads this attribute to badge a volume that is configured but absent. It has to
-    # survive the entry -> record hop, and it is the one attribute that can be false.
-    test "carries an unmounted volume root through as mounted: false" do
+    test "carries the volume root's binding onto the record" do
       stub_response(
-        {:ok,
-         entry_page([
-           entry("archives", %{
-             type: :directory,
-             name: "archives",
-             relative_path: ".",
-             mounted?: false
-           })
-         ])}
+        {:ok, entry_page([volume_entry("archives", true), volume_entry("ghost", false)])}
       )
 
-      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+      assert {:ok, %RecordPage{records: records}} =
+               DiskBridge.list_files(config(), %{"filters" => %{"parent" => "/"}})
 
-      assert record.kind == :folder
-      assert record.attributes["mounted"] == false
+      by_name = Map.new(records, &{&1.name, &1})
+
+      assert by_name["archives"].attributes["bound"] == true
+      assert by_name["ghost"].attributes["bound"] == false
+    end
+
+    # Boundness rides the entry ingestion already built — nothing to look up separately.
+    test "lists the volumes root in a single dispatch" do
+      stub_response({:ok, entry_page([volume_entry("archives")])})
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(config(), %{"filters" => %{"parent" => "/"}})
+
+      assert_received {:dispatch, :ingestion, :list_documents, _}
+      refute_received {:dispatch, :ingestion, _action, _}
+    end
+
+    # Inside a volume, being readable is implied by the entry having been listed off disk.
+    test "omits the attribute entirely when listing inside a volume" do
+      stub_response({:ok, entry_page([entry("42")])})
+
+      assert {:ok, %RecordPage{records: [record]}} =
+               DiskBridge.list_files(config(), %{"filters" => %{"parent" => "archives"}})
+
+      refute Map.has_key?(record.attributes, "bound")
     end
 
     test "translates the entry's :directory into the record's :folder, with no mime type" do

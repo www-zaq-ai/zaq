@@ -1941,9 +1941,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp normalize_provider(nil), do: "local"
   defp normalize_provider(""), do: "local"
   defp normalize_provider("local"), do: "local"
-  # "disk" is the data-source provider id; "zaq_local" is the id it replaced and still
-  # appears in bookmarked URLs. Both name this server's volumes, which the explorer calls
-  # "local".
+  # "disk" is the data-source provider id and "zaq_local" the id it replaced, still in
+  # bookmarked URLs. Both name this server's volumes, which the explorer calls "local".
   defp normalize_provider("disk"), do: "local"
   defp normalize_provider("zaq_local"), do: "local"
   defp normalize_provider(provider) when is_binary(provider), do: provider
