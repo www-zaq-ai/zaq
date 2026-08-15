@@ -96,7 +96,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
     with {:ok, payload} <- invoke_intent(config, :list_items, params) do
       files = read_list(payload, [:files, "files"], []) |> Enum.filter(&is_map/1)
-      {:ok, build_item_record_page(files, params, payload)}
+      {:ok, build_item_record_page(files, config, params, payload)}
     end
   end
 
@@ -111,7 +111,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   @impl true
   def get_file(config, params) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :get_item_metadata, params),
-         {:ok, record} <- map_file_from_payload(payload) do
+         {:ok, record} <- map_file_from_payload(payload, config, params) do
       {:ok, %{record: record}}
     end
   end
@@ -134,7 +134,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   @impl true
   def search_files(config, params) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :search_items, params) do
-      map_file_page(payload, params)
+      map_file_page(payload, config, params)
     end
   end
 
@@ -341,11 +341,13 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp map_file_from_payload(payload) when is_map(payload) do
+  defp map_file_from_payload(payload, config \\ nil, params \\ %{})
+
+  defp map_file_from_payload(payload, config, params) when is_map(payload) do
     raw = read_any(payload, [:file, "file"]) || payload
 
     if is_map(raw) do
-      {:ok, map_file_record(raw)}
+      {:ok, map_file_record(raw, config, params)}
     else
       {:error, :unsupported}
     end
@@ -353,7 +355,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
     _ -> {:error, :unsupported}
   end
 
-  defp map_file_from_payload(_), do: {:error, :unsupported}
+  defp map_file_from_payload(_, _config, _params), do: {:error, :unsupported}
 
   defp map_downloaded_document_record(payload, params) when is_map(payload) and is_map(params) do
     with content_payload when is_map(content_payload) <-
@@ -695,20 +697,20 @@ defmodule Zaq.Channels.JidoConnectBridge do
     }
   end
 
-  defp map_file_page(payload, params) when is_map(payload) and is_map(params) do
+  defp map_file_page(payload, config, params) when is_map(payload) and is_map(params) do
     files = read_list(payload, [:files, "files"], []) |> Enum.filter(&is_map/1)
 
-    {:ok, build_item_record_page(files, params, payload)}
+    {:ok, build_item_record_page(files, config, params, payload)}
   end
 
-  defp build_item_record_page(files, params, payload)
+  defp build_item_record_page(files, config, params, payload)
        when is_list(files) and is_map(params) and is_map(payload) do
     next_cursor = read_stringish(payload, [:next_page_token, "next_page_token"])
     page_size = map_get_integer(params, [:page_size, "page_size"])
 
     %RecordPage{
       resource_type: :item,
-      records: Enum.map(files, &map_file_record/1),
+      records: Enum.map(files, &map_file_record(&1, config, params)),
       pagination: %{
         cursor: next_cursor,
         has_more?: is_binary(next_cursor) and next_cursor != "",
@@ -1697,18 +1699,22 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp map_file_record(raw) when is_map(raw) do
+  defp map_file_record(raw, config \\ nil, params \\ %{}) when is_map(raw) do
     id = fetch_required_string!(raw, ["id", :id, "file_id", :file_id], "file")
     parent_ids = read_parent_ids(raw)
     permissions = map_embedded_permissions(raw)
+    kind = infer_item_kind(raw)
+    mime_type = read_stringish(raw, ["mimeType", :mimeType, "mime_type", :mime_type])
+    {content, encoding} = extract_metadata_content(raw)
 
     %Record{
       id: id,
-      kind: infer_item_kind(raw),
+      kind: kind,
+      content: content,
       name: read_stringish(raw, ["name", :name, "title", :title]),
       parent_id: List.first(parent_ids),
       parent_ids: parent_ids,
-      mime_type: read_stringish(raw, ["mime_type", :mime_type]),
+      mime_type: mime_type,
       path: read_stringish(raw, ["path", :path]),
       url: read_stringish(raw, ["web_view_link", :web_view_link]),
       size: read_integer(raw, ["size", :size]),
@@ -1722,10 +1728,46 @@ defmodule Zaq.Channels.JidoConnectBridge do
       lifecycle_state: :active,
       deleted_at: nil,
       permissions: permissions,
-      attributes: %{},
+      materializing_event: materializing_event(config, params, id, kind, content, mime_type),
+      attributes: %{} |> maybe_put_attr("encoding", encoding),
       raw: raw
     }
   end
+
+  defp extract_metadata_content(raw) when is_map(raw) do
+    declared_encoding = read_stringish(raw, ["encoding", :encoding])
+    content = read_any(raw, ["content", :content])
+    base64_content = read_stringish(raw, ["content_base64", :content_base64])
+
+    cond do
+      not is_nil(content) -> {content, declared_encoding}
+      is_binary(base64_content) -> {base64_content, "base64"}
+      true -> {nil, nil}
+    end
+  end
+
+  defp materializing_event(config, params, file_id, :file, nil, mime_type) when is_map(params) do
+    provider = config && Map.get(config, :provider)
+
+    if is_nil(provider) do
+      nil
+    else
+      request = %{
+        provider: provider,
+        params:
+          %{"file_id" => file_id}
+          |> maybe_put_attr(
+            "config_id",
+            Map.get(params, "config_id") || Map.get(params, :config_id) || Map.get(config, :id)
+          )
+          |> maybe_put_attr("document_mime_type", mime_type)
+      }
+
+      Event.new(request, :channels, opts: [action: :data_source_download_document])
+    end
+  end
+
+  defp materializing_event(_config, _params, _file_id, _kind, _content, _mime_type), do: nil
 
   defp map_permission_record(raw) when is_map(raw) do
     id = fetch_required_string!(raw, ["id", :id, "permission_id", :permission_id], "permission")
