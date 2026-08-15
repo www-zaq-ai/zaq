@@ -1,5 +1,5 @@
 defmodule Zaq.Ingestion.DocumentChunkerTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
 
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion.DocumentChunker

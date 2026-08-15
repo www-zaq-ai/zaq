@@ -1,5 +1,5 @@
 defmodule Zaq.Ingestion.FTSBackendTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
   use ExUnitProperties
 
   import Ecto.Query
