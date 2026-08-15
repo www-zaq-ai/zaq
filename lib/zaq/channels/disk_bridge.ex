@@ -61,7 +61,11 @@ defmodule Zaq.Channels.DiskBridge do
 
   # -- files --
 
-  @doc "Lists the documents on the mounted volumes as **unmaterialized** records — no content."
+  @doc """
+  Lists the documents on the mounted volumes as **unmaterialized** records — no content.
+
+  Volume-root entries carry `bound`, which travels through to `attributes["bound"]`.
+  """
   @impl true
   def list_files(config, params) when is_map(config) and is_map(params) do
     with {:ok, page} <- dispatch(:list_documents, %{params: params}, config) do
@@ -195,9 +199,8 @@ defmodule Zaq.Channels.DiskBridge do
 
   # -- mapping --
 
-  # Ingestion answers with volume entries; the canonical record shape is put on here. The
-  # entry's `:directory` becomes the record's `:folder` — the two vocabularies meet at this
-  # function and nowhere else.
+  # Puts the canonical record shape on an ingestion entry. The entry's `:directory` becomes
+  # the record's `:folder` here and nowhere else.
   defp map_entry(%Entry{} = entry) do
     kind = kind(entry.type)
 
@@ -210,15 +213,22 @@ defmodule Zaq.Channels.DiskBridge do
       materialization_handle: materialization_handle(kind, entry.id),
       size: entry.size,
       modified_at: entry.modified_at,
-      attributes: %{
-        "provider" => @provider,
-        "volume" => entry.volume,
-        "relative_path" => entry.relative_path,
-        "source" => entry.source,
-        "mounted" => entry.mounted?
-      },
+      attributes: attributes(entry),
       raw: %{local_entry: entry}
     }
+  end
+
+  # `bound` is absent rather than `nil` off a volume root, so reading it never asks whether a
+  # file is there.
+  defp attributes(%Entry{} = entry) do
+    base = %{
+      "provider" => @provider,
+      "volume" => entry.volume,
+      "relative_path" => entry.relative_path,
+      "source" => entry.source
+    }
+
+    if is_boolean(entry.bound), do: Map.put(base, "bound", entry.bound), else: base
   end
 
   defp kind(:directory), do: :folder
@@ -252,9 +262,8 @@ defmodule Zaq.Channels.DiskBridge do
     }
   end
 
-  # Public access has no `resource_permissions` row, so ingestion reports it as a flag and
-  # the grant is synthesized here. Its id is derived from the document — stable across calls,
-  # and visibly not a permission-row id.
+  # Public access has no `resource_permissions` row, so the grant is synthesized here. Its id
+  # derives from the document — stable across calls, and visibly not a permission-row id.
   defp permission_page(%{permissions: grants, public?: public?}, file_id) do
     records = public_records(public?, file_id) ++ Enum.map(grants, &map_permission/1)
 
@@ -318,10 +327,8 @@ defmodule Zaq.Channels.DiskBridge do
 
   # -- dispatch --
 
-  # The bytes and the document rows live on the ingestion node, so every read crosses a role
-  # boundary. The router is read off `config`, never off `params`: `params` is caller-supplied
-  # data that reaches here verbatim from agent tools, and choosing the dispatch target from it
-  # would make what runs a function of what the caller sent.
+  # The router is read off `config`, never off `params` — `params` reaches here verbatim from
+  # agent tools, so taking the dispatch target from it would let a caller choose what runs.
   defp dispatch(action, request, config) do
     node_router = fetch(config, "node_router") || NodeRouter
 

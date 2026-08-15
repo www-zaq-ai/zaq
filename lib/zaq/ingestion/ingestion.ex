@@ -464,9 +464,8 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  # Whether a file has been ingested is one query for the whole page, not one per entry. A
-  # source stored before volumes were introduced has no volume prefix, so both spellings are
-  # looked up and whichever the row carries wins.
+  # One query for the whole page. Sources stored before volumes have no volume prefix, so
+  # both spellings are looked up and whichever the row carries wins.
   defp put_document_ids(entries) do
     ids =
       entries
@@ -565,9 +564,8 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  # `String.valid?/1` is not redundant with the mime check: an extension says what a file is
-  # meant to be, not what it holds. A `.md` carrying invalid UTF-8 would otherwise come back
-  # as a broken string, so it falls to base64 instead.
+  # `String.valid?/1` is not redundant with the mime check — an extension says what a file is
+  # meant to be, not what it holds. A `.md` carrying invalid UTF-8 falls to base64.
   defp base64?(%Entry{name: name}, binary, request) do
     MapUtils.present_value(request, "encoding") == "base64" or
       not (textual_mime?(MIME.from_path(name)) and String.valid?(binary))
@@ -753,9 +751,8 @@ defmodule Zaq.Ingestion do
 
       new_path ->
         case split_parent(new_path) do
-          # A move names its volume the way a create does. Crossing volumes is refused rather
-          # than half-done: `rename_entry/3` renames within one volume, so a cross-volume move
-          # would leave the file moved and the sidecar behind.
+          # `rename_entry/3` renames within one volume, so a cross-volume move would leave the
+          # file moved and the sidecar behind. Refused rather than half-done.
           {^volume_name, dir} ->
             {:ok, dir |> Path.join(name) |> SourcePath.normalize_relative()}
 
@@ -820,9 +817,8 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  # `split_source/2` splits a file source, so it needs a "volume/rest" shape and leaves a bare
-  # volume name untouched — which would then resolve against the default volume and answer
-  # `:not_a_directory`. A parent naming a whole volume is that volume's root.
+  # `split_source/2` needs a "volume/rest" shape and leaves a bare volume name untouched,
+  # which would resolve against the default volume. A parent naming a volume is its root.
   defp split_parent(parent) do
     volumes = FileExplorer.list_volumes()
 

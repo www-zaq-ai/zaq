@@ -38,9 +38,8 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
     |> Repo.insert!()
   end
 
-  # `Connect.issue_grant/1` rejects a data_source grant whose channel config names another
-  # provider, so a test that wants the "no config" path needs an id no row holds. Migrations
-  # seed channel_configs rows, so that id cannot be a literal.
+  # The "no config" path needs an id no row holds, and migrations seed `channel_configs`, so
+  # it cannot be a literal.
   defp unused_config_id do
     to_string((Repo.aggregate(ChannelConfig, :max, :id) || 0) + 1)
   end

@@ -38,27 +38,29 @@ defmodule Zaq.Ingestion.FileExplorer do
   end
 
   @doc """
-  Returns `true` when at least one volume is explicitly configured.
+  Returns `true` when at least one volume is explicitly configured and bound.
 
-  This is **not** `list_volumes/0 != %{}` — `list_volumes/0` synthesizes a `"default"`
-  volume from `base_path` and therefore can never be empty. That synthesized entry is a
-  fallback so single-volume deployments keep working; it does not mean an operator has
-  connected a volume. Callers that must refuse an action when nothing is mounted (the BO
-  skill-resources upload) need this predicate, not the map.
+  Ignores the `"default"` volume `list_volumes/0` synthesizes from `base_path`.
   """
+  @spec volumes_configured?() :: boolean()
   def volumes_configured? do
+    configured_volumes()
+    |> Enum.any?(fn {_name, path} -> bound?(path) end)
+  end
+
+  # Bound means the directory lists — deliberately weaker than testing for a mount.
+  defp bound?(path), do: match?({:ok, _entries}, File.ls(path))
+
+  defp configured_volumes do
     :zaq
-    |> Application.get_env(Zaq.Ingestion, [])
+    |> Zaq.Config.get(Zaq.Ingestion, [])
     |> Keyword.get(:volumes, %{})
-    |> map_size() > 0
   end
 
   @doc """
   Returns one entry per configured volume — the roots a caller browses from.
 
-  A volume whose path is not a directory is **listed with `mounted?: false`**, not dropped.
-  Configuration says the volume should be there; whether it actually is, is what an operator
-  needs to see. `modified_at` and `size` are only readable on a mount that is present.
+  Every volume is listed bound or not, so each entry carries `bound` to tell those apart.
   """
   @spec volume_entries() :: [Entry.t()]
   def volume_entries do
@@ -75,7 +77,7 @@ defmodule Zaq.Ingestion.FileExplorer do
       volume: name,
       relative_path: ".",
       source: name,
-      mounted?: File.dir?(path),
+      bound: bound?(path),
       modified_at: volume_modified_at(path)
     }
   end
@@ -431,9 +433,8 @@ defmodule Zaq.Ingestion.FileExplorer do
   defp normalize_concurrency(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_concurrency(_value, default), do: default
 
-  # A file is named by its source, which is volume plus path and nothing else — no document
-  # row is consulted, so a file that was never ingested is addressable exactly like one that
-  # was.
+  # A file is named by its source — volume plus path, no document row consulted — so one that
+  # was never ingested is addressable exactly like one that was.
   defp build_entry(name, stat, volume_name, relative_path) do
     normalized = SourcePath.normalize_relative(relative_path)
     source = source_for(volume_name, normalized)

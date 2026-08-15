@@ -552,9 +552,8 @@ defmodule Zaq.Channels.BridgeTest do
       assert snapshot.required == [:text, :image, :streaming]
     end
 
-    # A data source is one whose bridge declares the behaviour, not one whose config entry
-    # happens to name an `:integration` — `Zaq.Channels.DiskBridge` has no integration to
-    # name and would otherwise be described with communication capabilities.
+    # `DiskBridge` has no `:integration` to name, and would otherwise be described with
+    # communication capabilities.
     test "capability_snapshot reads the data source kind off the bridge, not an :integration key" do
       channels = Application.get_env(:zaq, :channels)
 

@@ -1340,9 +1340,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert cred_provider == "local_filesystem"
   end
 
-  # These run against the real `Zaq.Channels.DiskBridge` and the real ingestion hop — the
-  # whole point is whether a config row in the database is what turns disk on, so stubbing
-  # the bridge would test nothing.
+  # Real `DiskBridge`, real ingestion hop: the point is whether a config row in the database
+  # turns disk on, so stubbing the bridge would test nothing.
   describe "disk enable/disable" do
     setup do
       unique = System.unique_integer([:positive])
@@ -1405,7 +1404,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       assert config.kind == "data_source"
     end
 
-    test "enabling disk lets the bridge list the volumes, mount state and all" do
+    test "enabling disk lets the bridge list the volumes, binding and all" do
       enable_disk(true)
 
       assert {:ok, page} =
@@ -1415,8 +1414,44 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
       assert Map.keys(by_name) |> Enum.sort() == ["archives", "ghost"]
       assert by_name["archives"].kind == :folder
-      assert by_name["archives"].attributes["mounted"] == true
-      assert by_name["ghost"].attributes["mounted"] == false
+
+      # "ghost" is configured but its directory was never created — the whole point of the
+      # badge is that it is listed and marked, not quietly missing.
+      assert by_name["archives"].attributes["bound"] == true
+      assert by_name["ghost"].attributes["bound"] == false
+    end
+
+    # A legacy install configures `base_path` and no `volumes`, and browses the synthesized
+    # `"default"` volume — which has to answer the badge like any other.
+    test "the synthesized default volume is badged too" do
+      enable_disk(true)
+      original = Application.get_env(:zaq, Zaq.Ingestion)
+
+      absent =
+        Path.join(System.tmp_dir!(), "zaq_disk_legacy_#{System.unique_integer([:positive])}")
+
+      Application.put_env(
+        :zaq,
+        Zaq.Ingestion,
+        original |> Keyword.delete(:volumes) |> Keyword.put(:base_path, absent)
+      )
+
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original) end)
+
+      assert {:ok, page} =
+               DataSourceBridge.list_files("disk", %{"filters" => %{"parent" => "/"}})
+
+      assert [record] = page.records
+      assert record.name == "default"
+      assert record.attributes["bound"] == false
+    end
+
+    test "the page badges each volume from its binding" do
+      assert ProviderLive.folder_bound_state(%{attributes: %{"bound" => true}}) == true
+      assert ProviderLive.folder_bound_state(%{attributes: %{"bound" => false}}) == false
+
+      # Providers with no such notion render no badge.
+      assert ProviderLive.folder_bound_state(%{attributes: %{}}) == nil
     end
 
     test "toggling the config off closes the bridge again" do

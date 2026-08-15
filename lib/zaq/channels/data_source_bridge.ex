@@ -73,13 +73,8 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback sheet_clear_values(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback sheet_delete_tab(map(), map()) :: {:ok, map()} | {:error, term()}
 
-  # Every callback above is optional. This module already dispatches through
-  # `supports_callback?/3` and answers `{:error, :unsupported}` for anything a bridge does
-  # not export, so partial implementation is the design, not an accident — a provider that
-  # has no spreadsheets should not have to stub twelve sheet functions. Declaring them
-  # optional makes the behaviour say what the dispatcher already does, and lets a narrow
-  # bridge (`Zaq.Channels.DiskBridge`) still get compile-time checking on the callbacks it
-  # does implement.
+  # All optional: `supports_callback?/3` already answers `{:error, :unsupported}` for anything
+  # a bridge does not export, so a narrow bridge implements only what it can serve.
   @optional_callbacks auth_handshake: 2,
                       list_resources: 2,
                       download_resource: 3,
