@@ -1,5 +1,9 @@
 defmodule ZaqWeb.Live.BO.AI.KnowledgeGapLiveTest do
-  use ZaqWeb.ConnCase, async: true
+  # Not async: broadcasts :addons_updated on the global "addons:updated" topic,
+  # which AuthHook subscribes every BO LiveView to. The 11 BO LiveViews with a
+  # handle_info/2 but no :addons_updated clause crash on it, failing whichever
+  # concurrent test mounted them.
+  use ZaqWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures

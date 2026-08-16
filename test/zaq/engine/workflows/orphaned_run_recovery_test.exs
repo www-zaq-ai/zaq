@@ -31,7 +31,10 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
   forever, and not dependent on a node restart.
   """
 
-  use Zaq.DataCase, async: true
+  # Not async: these race a process kill against RunWatcher's grace period using
+  # wall-clock deadlines (wait_until_running/3, assert_receive, Process.sleep/1),
+  # which resolve the wrong way when parallel tests saturate the schedulers.
+  use Zaq.DataCase, async: false
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.SignalListener

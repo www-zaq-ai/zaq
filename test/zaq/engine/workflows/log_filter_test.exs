@@ -4,7 +4,10 @@ defmodule Zaq.Engine.Workflows.LogFilterTest do
   prune logs, plus an end-to-end check that firing a fork (which prunes one branch
   via `ConditionNotMet`) no longer emits the framework error/warning lines.
   """
-  use Zaq.DataCase, async: true
+  # Not async: the end-to-end test asserts a captured log does NOT contain
+  # "ConditionNotMet"/"Runnable failed", but capture_log/1 captures every
+  # process's output, so a concurrent test logging either string fails it.
+  use Zaq.DataCase, async: false
 
   import ExUnit.CaptureLog
 
