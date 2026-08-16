@@ -3,7 +3,7 @@ defmodule Storybook.Components.Icons.ChannelIcons do
 
   def description, do: "Channel provider icons — one for each supported integration."
 
-  @providers ~w(slack teams discord email google_drive mattermost sharepoint smtp telegram webhook zaq_local ai_agents)
+  @providers ~w(slack teams discord email google_drive mattermost sharepoint smtp telegram webhook disk ai_agents)
 
   def render(assigns) do
     assigns = assign(assigns, :providers, @providers)

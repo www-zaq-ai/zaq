@@ -79,7 +79,7 @@ defmodule Zaq.Ingestion.IngestJobTest do
 
     test "accepts optional source_record field" do
       source_record = %{
-        "id" => "zaq_local:default:docs/readme.md",
+        "id" => "disk:default:docs/readme.md",
         "kind" => "file",
         "attributes" => %{"relative_path" => "docs/readme.md"}
       }

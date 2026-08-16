@@ -146,6 +146,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       assert html =~ "Embedding not configured"
       assert html =~ "/bo/system-config?tab=embedding"
     end
+
+    test "renders no data source notice pointing at the data sources page" do
+      html = render_component(&IngestionComponents.ingestion_no_source_notice/1, %{})
+
+      assert html =~ "no-data-source-title"
+      assert html =~ "No data source enabled"
+      assert html =~ "/bo/channels/data_source"
+    end
   end
 
   describe "ingestion file status helpers" do

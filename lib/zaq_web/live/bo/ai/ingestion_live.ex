@@ -28,6 +28,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
   @ingestion_topic "ingestion:jobs"
 
+  # Disk answers with the volumes this page already browses, so it is never listed again as an
+  # external source.
+  @disk_provider "disk"
+
   # A "Preparing…" entry normally clears via a terminal job broadcast. If a job
   # is orphaned (hard VM/node kill emits no Oban telemetry), that broadcast may
   # never arrive and the bar would linger until Oban's orphan rescue. As a
@@ -41,8 +45,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def mount(params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, @ingestion_topic)
 
-    provider = normalize_provider(Map.get(params, "provider"))
-    volumes = fetch_volumes()
+    data_source_sources = enabled_data_source_sources()
+    # Disk is a data source like any other: its volumes are browsable only while its config
+    # row is enabled, so a disabled disk leaves this page with no volumes at all.
+    volumes = if disk_enabled?(), do: fetch_volumes(), else: %{}
+    provider = resolve_provider(Map.get(params, "provider"), volumes, data_source_sources)
     current_volume = volumes |> Map.keys() |> List.first()
 
     {:ok,
@@ -79,7 +86,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Volume state
        volumes: volumes,
        current_volume: current_volume,
-       data_source_sources: enabled_data_source_sources(),
+       data_source_sources: data_source_sources,
+       has_data_source: volumes != %{} or data_source_sources != [],
        # Embedding readiness
        embedding_ready: System.embedding_ready?(),
        # Permission sharing
@@ -556,7 +564,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: New Folder
 
   def handle_event("show_new_folder_modal", _params, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local", "disk"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider folders are read-only in this phase.")}
   end
 
@@ -589,7 +597,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Rename
 
   def handle_event("rename_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local", "disk"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -624,7 +632,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Delete single item
 
   def handle_event("delete_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local", "disk"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -668,7 +676,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         _params,
         %{assigns: %{provider: provider}} = socket
       )
-      when provider not in ["local", "zaq_local", "disk"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -703,7 +711,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Move item
 
   def handle_event("move_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local", "disk"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -1120,6 +1128,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     if provider_mode?(socket), do: load_provider_entries(socket), else: load_local_entries(socket)
   end
 
+  # No volume means disk is disabled — there is nothing to browse, and no volume to browse it on.
+  defp load_local_entries(%{assigns: %{current_volume: nil}} = socket) do
+    assign(socket, entries: [], records_by_path: %{}, ingestion_map: %{})
+  end
+
   defp load_local_entries(socket) do
     volume = socket.assigns.current_volume
 
@@ -1361,14 +1374,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp enabled_data_source_sources do
-    # Disk has a config row like any other data source, but its files are the volumes this
-    # page already browses — listing it again as an external source would duplicate them.
-    local_providers = ["disk", "zaq_local", "local"]
-
+  defp disk_enabled? do
     ChannelConfig
     |> where([c], c.kind == "data_source" and c.enabled == true)
-    |> where([c], c.provider not in ^local_providers)
+    |> where([c], c.provider == ^@disk_provider)
+    |> Repo.exists?()
+  end
+
+  # The page opens on the requested source, on the first enabled data source when disk is off,
+  # and stays on "local" when nothing is enabled — where the template shows the notice instead.
+  defp resolve_provider(requested, volumes, data_source_sources) do
+    case normalize_provider(requested) do
+      "local" -> if volumes == %{}, do: first_source_provider(data_source_sources), else: "local"
+      provider -> provider
+    end
+  end
+
+  defp first_source_provider([%{id: id} | _]), do: id
+  defp first_source_provider([]), do: "local"
+
+  defp enabled_data_source_sources do
+    ChannelConfig
+    |> where([c], c.kind == "data_source" and c.enabled == true)
+    |> where([c], c.provider != ^@disk_provider)
     |> select([c], c.provider)
     |> distinct([c], c.provider)
     |> Repo.all()
@@ -1382,13 +1410,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     NodeRouter.invoke(:ingestion, Ingestion, fun, args)
   end
 
-  defp dispatch_list_files(provider, params) do
-    opts = [action: :data_source_list_files]
-    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
+  # Every data-source call from this page goes through here, so the bridge module is resolved
+  # in one place and no call site builds an event by hand.
+  defp dispatch_data_source(provider, params, action) do
+    ChannelEvents.build_and_dispatch_data_source_event(provider, params, action,
+      event_opts: [data_source_bridge_module: data_source_bridge_module()]
+    ).response
+  end
 
-    Event.new(%{provider: provider, params: params}, :channels, opts: opts)
-    |> NodeRouter.dispatch()
-    |> Map.get(:response)
+  defp dispatch_list_files(provider, params) do
+    dispatch_data_source(provider, params, :data_source_list_files)
   end
 
   defp data_source_bridge_module do
@@ -1941,10 +1972,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp normalize_provider(nil), do: "local"
   defp normalize_provider(""), do: "local"
   defp normalize_provider("local"), do: "local"
-  # "disk" is the data-source provider id and "zaq_local" the id it replaced, still in
-  # bookmarked URLs. Both name this server's volumes, which the explorer calls "local".
+  # "disk" is the data-source provider id for this server's volumes, which this page browses
+  # under its own name for them, "local".
   defp normalize_provider("disk"), do: "local"
-  defp normalize_provider("zaq_local"), do: "local"
   defp normalize_provider(provider) when is_binary(provider), do: provider
 
   defp provider_label(provider) when is_binary(provider) do

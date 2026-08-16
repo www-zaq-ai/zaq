@@ -6,6 +6,7 @@
 
 alias Zaq.Accounts
 alias Zaq.Agent.PromptTemplate
+alias Zaq.Channels.ChannelConfig
 alias Zaq.Engine.Conversations
 alias Zaq.Engine.Telemetry
 alias Zaq.Engine.Telemetry.Rollup
@@ -67,6 +68,21 @@ IO.puts("[e2e-bootstrap] Pre-indexing #{length(seed_files)} source files")
 Enum.each(seed_files, fn source_path ->
   {:ok, _document} = Zaq.E2E.DocumentProcessorFake.process_single_file(source_path)
 end)
+
+# The ingestion page browses volumes only while the disk data source is enabled.
+IO.puts("[e2e-bootstrap] Ensuring the disk data source is enabled")
+
+unless Repo.get_by(ChannelConfig, provider: "disk", kind: "data_source") do
+  %ChannelConfig{}
+  |> ChannelConfig.changeset(%{
+    "name" => "disk",
+    "provider" => "disk",
+    "kind" => "data_source",
+    "enabled" => true,
+    "settings" => %{}
+  })
+  |> Repo.insert!()
+end
 
 ensure_role = fn role_name ->
   case Accounts.get_role_by_name(role_name) do

@@ -241,6 +241,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir)
 
+    # The page browses volumes only while the disk data source is enabled, which is the state
+    # of any install that uses it. Tests for a disabled disk drop this row.
+    enable_data_source("disk")
+
     on_exit(fn ->
       Application.put_env(:zaq, Zaq.Ingestion, original || [])
 
@@ -278,6 +282,29 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end)
 
     {:ok, conn: conn, tmp_dir: tmp_dir}
+  end
+
+  defp enable_data_source(provider, attrs \\ %{}) do
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(
+      Map.merge(
+        %{
+          "name" => provider,
+          "provider" => provider,
+          "kind" => "data_source",
+          "enabled" => true,
+          "settings" => %{}
+        },
+        attrs
+      )
+    )
+    |> Repo.insert!()
+  end
+
+  defp disable_disk_data_source do
+    Repo.delete_all(
+      from(c in ChannelConfig, where: c.kind == "data_source" and c.provider == "disk")
+    )
   end
 
   defp create_job(attrs) do
@@ -2671,14 +2698,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert state.socket.assigns.current_path == "/bo/ingestion"
     end
 
-    test "mounting /bo/ingestion/zaq_local also normalizes provider to local", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/zaq_local")
-      state = :sys.get_state(view.pid)
-
-      assert state.socket.assigns.provider == "local"
-      assert state.socket.assigns.current_path == "/bo/ingestion"
-    end
-
     test "mounting /bo/ingestion/disk normalizes provider to local", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/disk")
       state = :sys.get_state(view.pid)
@@ -2690,20 +2709,69 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     # Disk now has a config row like any other data source. Its files are the volumes this
     # page already lists, so offering it again as an external source would duplicate them.
     test "an enabled disk config is not offered as an external source", %{conn: conn} do
-      %ChannelConfig{}
-      |> ChannelConfig.changeset(%{
-        "name" => "disk",
-        "provider" => "disk",
-        "kind" => "data_source",
-        "enabled" => true,
-        "settings" => %{}
-      })
-      |> Repo.insert!()
-
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
       state = :sys.get_state(view.pid)
 
       refute Enum.any?(state.socket.assigns.data_source_sources, &(&1.id == "disk"))
+      assert map_size(state.socket.assigns.volumes) > 0
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────
+  # Data source availability
+  # ────────────────────────────────────────────────────────────────
+
+  describe "data source availability" do
+    test "a disabled disk leaves the page with no volumes", %{conn: conn} do
+      disable_disk_data_source()
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      state = :sys.get_state(view.pid)
+
+      assert state.socket.assigns.volumes == %{}
+      assert state.socket.assigns.current_volume == nil
+      assert state.socket.assigns.entries == []
+      refute has_element?(view, "[phx-value-source]")
+    end
+
+    test "no enabled data source points the operator at the data sources page", %{conn: conn} do
+      disable_disk_data_source()
+
+      {:ok, view, html} = live(conn, ~p"/bo/ingestion")
+
+      refute :sys.get_state(view.pid).socket.assigns.has_data_source
+      assert html =~ "No data source enabled"
+      assert html =~ "/bo/channels/data_source"
+    end
+
+    test "an enabled disk keeps the browser and shows no notice", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/bo/ingestion")
+
+      assert :sys.get_state(view.pid).socket.assigns.has_data_source
+      refute html =~ "No data source enabled"
+    end
+
+    test "a disabled disk opens the page on the first enabled data source", %{conn: conn} do
+      disable_disk_data_source()
+      enable_data_source("google_drive")
+
+      {:ok, view, html} = live(conn, ~p"/bo/ingestion")
+      state = :sys.get_state(view.pid)
+
+      assert state.socket.assigns.provider == "google_drive"
+      assert state.socket.assigns.volumes == %{}
+      assert state.socket.assigns.has_data_source
+      refute html =~ "No data source enabled"
+    end
+
+    test "a disabled disk offers no volume choice in the source selector", %{conn: conn} do
+      disable_disk_data_source()
+      enable_data_source("google_drive")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      refute has_element?(view, "[phx-value-source^='volume:']")
+      assert has_element?(view, "[phx-value-source='provider:google_drive']")
     end
   end
 
