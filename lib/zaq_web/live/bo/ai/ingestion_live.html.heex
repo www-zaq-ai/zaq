@@ -8,8 +8,9 @@
   auto_dismiss={false}
 >
   <.ingestion_embedding_banner :if={not @embedding_ready} />
+  <.ingestion_no_source_notice :if={not @has_data_source} />
 
-  <div class="space-y-6 min-w-0">
+  <div :if={@has_data_source} class="space-y-6 min-w-0">
     <.volume_selector
       :if={map_size(@volumes) > 1 or @data_source_sources != []}
       volumes={@volumes}

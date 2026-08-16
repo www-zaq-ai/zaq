@@ -157,8 +157,10 @@ any other data source and is configured the same way, at `/bo/channels/data_sour
   `bound`, which the bridge passes through to `attributes["bound"]` and the BO renders as a
   badge. Entries *inside* a volume have no such attribute — one read off disk is readable by
   definition, so the question only applies to the roots.
-- Disabling disk does not affect `/bo/ingestion` — browsing and uploading local files is an
-  operator function, separate from exposing those files to agents.
+- **Disabling disk removes the volumes from `/bo/ingestion`.** That page is a multi-provider
+  browser, not a disk page: it lists a source only while that source is enabled, disk included.
+  With disk off it opens on the first other enabled data source, and with nothing enabled at all
+  it shows a notice pointing at `/bo/channels/data_source` instead of a browser.
 
 Whether a volume is usable is a separate question from whether it is configured, and
 `Zaq.Ingestion.FileExplorer` owns both: `volumes_configured?/0` answers whether at least one

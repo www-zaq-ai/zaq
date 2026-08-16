@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon
   alias ZaqWeb.Components.DesignSystem.IngestionFileListView
   alias ZaqWeb.Components.DesignSystem.IngestionJobsPanel
+  alias ZaqWeb.Components.DesignSystem.IngestionNoSourceNotice
   alias ZaqWeb.Components.DesignSystem.IngestionVolumeSelector
   alias ZaqWeb.Components.DesignSystem.ModalAddRaw
   alias ZaqWeb.Components.DesignSystem.ModalDelete
@@ -84,6 +85,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   def ingestion_embedding_banner(assigns) do
     IngestionEmbeddingBanner.ingestion_embedding_banner(assigns)
+  end
+
+  def ingestion_no_source_notice(assigns) do
+    IngestionNoSourceNotice.ingestion_no_source_notice(assigns)
   end
 
   # ── File List View ────────────────────────────────────────────────────────
