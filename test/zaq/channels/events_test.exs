@@ -266,43 +266,4 @@ defmodule Zaq.Channels.EventsTest do
     assert event.next_hop == nil
     assert event.response == {:error, {:no_bridge, provider}}
   end
-
-  test "build_data_source_event builds an event for any action" do
-    params = %{"file_id" => "disk:notes/report.md"}
-
-    event = Events.build_data_source_event("disk", params, :data_source_list_permissions)
-
-    assert event.request == %{provider: "disk", params: params}
-    assert event.opts[:action] == :data_source_list_permissions
-    assert event.next_hop.type == :sync
-  end
-
-  test "build_data_source_event merges event_opts after the action" do
-    event =
-      Events.build_data_source_event("disk", %{}, :data_source_list_files,
-        type: :async,
-        event_opts: [data_source_bridge_module: Zaq.Channels.DiskBridge]
-      )
-
-    assert event.opts[:action] == :data_source_list_files
-    assert event.opts[:data_source_bridge_module] == Zaq.Channels.DiskBridge
-    assert event.next_hop.type == :async
-  end
-
-  test "build_and_dispatch_data_source_event dispatches the built event" do
-    params = %{"file_id" => "disk:notes/report.md", "name" => "renamed.md"}
-
-    event =
-      Events.build_and_dispatch_data_source_event("disk", params, :data_source_update_file,
-        node_router: StubNodeRouter
-      )
-
-    assert event.response == :ok
-
-    assert_received {:node_router_dispatch,
-                     %Zaq.Event{
-                       opts: [action: :data_source_update_file],
-                       request: %{provider: "disk", params: ^params}
-                     }}
-  end
 end

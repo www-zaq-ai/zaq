@@ -81,10 +81,7 @@ defmodule Zaq.Channels.Events do
     |> node_router(opts).dispatch()
   end
 
-  @spec build_data_source_event(atom() | String.t(), map(), atom(), keyword()) :: Event.t()
-  @doc "Builds a Channels event for any provider data-source action."
-  def build_data_source_event(provider, params, action, opts \\ [])
-      when is_map(params) and is_atom(action) do
+  defp build_data_source_event(provider, params, action, opts) do
     event_type = Keyword.get(opts, :type, :sync)
     event_opts = Keyword.get(opts, :event_opts, [])
 
@@ -92,16 +89,6 @@ defmodule Zaq.Channels.Events do
       type: event_type,
       opts: [action: action] ++ event_opts
     )
-  end
-
-  @spec build_and_dispatch_data_source_event(atom() | String.t(), map(), atom(), keyword()) ::
-          Event.t()
-  @doc "Builds and dispatches a provider data-source event for any action."
-  def build_and_dispatch_data_source_event(provider, params, action, opts \\ [])
-      when is_map(params) and is_atom(action) do
-    provider
-    |> build_data_source_event(params, action, opts)
-    |> node_router(opts).dispatch()
   end
 
   defp resolve_upsert_event_type(%Outgoing{} = outgoing, nil) do
