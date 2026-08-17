@@ -145,6 +145,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/change-password")
       submit_bootstrap_form(view)
+      render_async(view)
 
       assert has_element?(view, "[phx-click='accept_portal_consent']")
       render_click(view, "accept_portal_consent")
@@ -187,6 +188,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/change-password")
       submit_bootstrap_form(view)
+      render_async(view)
 
       assert has_element?(view, "[phx-click='decline_portal_consent']")
       render_click(view, "decline_portal_consent")

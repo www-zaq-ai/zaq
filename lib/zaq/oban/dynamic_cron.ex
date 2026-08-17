@@ -194,7 +194,7 @@ defmodule Zaq.Oban.DynamicCron do
       }
 
       Logger.info(
-        "[DynamicCron] Registered #{length(new_entries)} schedule(s) for feature :#{feature_key}"
+        "[DynamicCron] Registered #{length(new_entries)} schedule(s) for feature #{inspect(feature_key)}"
       )
 
       {:reply, :ok, new_state}
@@ -216,7 +216,7 @@ defmodule Zaq.Oban.DynamicCron do
         schedules: Map.delete(state.schedules, feature_key)
     }
 
-    Logger.info("[DynamicCron] Removed schedule(s) for feature :#{feature_key}")
+    Logger.info("[DynamicCron] Removed schedule(s) for feature #{inspect(feature_key)}")
 
     {:reply, :ok, new_state}
   end
@@ -249,7 +249,7 @@ defmodule Zaq.Oban.DynamicCron do
         schedules: Map.put(state.schedules, feature_key, entry_names)
     }
 
-    Logger.info("[DynamicCron] Replaced schedule(s) for feature :#{feature_key}")
+    Logger.info("[DynamicCron] Replaced schedule(s) for feature #{inspect(feature_key)}")
 
     {:reply, :ok, new_state}
   end

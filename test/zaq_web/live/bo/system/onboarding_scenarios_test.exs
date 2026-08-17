@@ -106,6 +106,10 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       {:ok, view, _html} = live(conn, ~p"/bo/change-password")
       submit_bootstrap_form(view)
 
+      # The submit kicks off start_async(:fetch_portal_metadata); the modal only
+      # renders once handle_async/3 lands, so settle it before asserting.
+      render_async(view)
+
       # Consent modal must appear after form submit
       assert has_element?(view, "[phx-click='accept_portal_consent']")
 
@@ -159,6 +163,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/change-password")
       submit_bootstrap_form(view)
+      render_async(view)
 
       assert has_element?(view, "[phx-click='decline_portal_consent']")
       render_click(view, "decline_portal_consent")
