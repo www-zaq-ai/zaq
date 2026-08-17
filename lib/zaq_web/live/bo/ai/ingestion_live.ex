@@ -1410,16 +1410,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     NodeRouter.invoke(:ingestion, Ingestion, fun, args)
   end
 
-  # Every data-source call from this page goes through here, so the bridge module is resolved
-  # in one place and no call site builds an event by hand.
-  defp dispatch_data_source(provider, params, action) do
-    ChannelEvents.build_and_dispatch_data_source_event(provider, params, action,
-      event_opts: [data_source_bridge_module: data_source_bridge_module()]
-    ).response
-  end
-
   defp dispatch_list_files(provider, params) do
-    dispatch_data_source(provider, params, :data_source_list_files)
+    opts = [action: :data_source_list_files]
+    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
+
+    Event.new(%{provider: provider, params: params}, :channels, opts: opts)
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
   end
 
   defp data_source_bridge_module do
