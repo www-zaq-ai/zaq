@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-ic9.4"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-ic9",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[#613] Persist materialized media as trace artifacts",
   "type": "task",
-  "updated_at": "2026-08-18T06:49:26Z"
+  "updated_at": "2026-08-18T08:43:28Z"
 }
