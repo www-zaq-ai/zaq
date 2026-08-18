@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-18T06:49:25Z",
@@ -7,8 +7,8 @@
   "id": "zaq-ic9",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[#613] Communication channel media attachments",
   "type": "epic",
-  "updated_at": "2026-08-18T06:49:25Z"
+  "updated_at": "2026-08-18T06:50:09Z"
 }
