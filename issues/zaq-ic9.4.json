@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-ic9.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ic9.5"
+  ],
   "created": "2026-08-18T06:49:25Z",
   "description": "Test-first: install a Factory/ReAct result transformer that projects supported materialized media into ReqLLM content parts while preserving canonical tool results for workflows and traces.",
   "id": "zaq-ic9.4",
