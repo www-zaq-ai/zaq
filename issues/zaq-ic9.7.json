@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-ic9.6"
+  ],
   "blocks": [],
   "created": "2026-08-18T06:49:26Z",
   "description": "Add integrated/e2e coverage for lazy ingress through hydration, materialization, AI projection, trace persistence and BO retrieval; update service docs; run mix format and mix q.",
