@@ -11,9 +11,15 @@
   "id": "zaq-ic9.2",
   "labels": [],
   "parent": "zaq-ic9",
+  "comments": [
+    {
+      "text": "Implemented generic Channels :hydrate_record/:materialize_record actions, CommunicationBridge source routing, bridge-owned event construction, JidoChat media-to-Record mapping, and Jido.Chat.Adapter.fetch_media/2 materialization. Focused contract/API/bridge tests pass, including property coverage and two JidoChat media tests.",
+      "timestamp": "2026-08-18T07:13:43Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#613] Route Record hydration through source nodes and Channels bridges",
   "type": "task",
-  "updated_at": "2026-08-18T07:03:41Z"
+  "updated_at": "2026-08-18T07:13:43Z"
 }
