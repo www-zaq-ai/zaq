@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-18T06:49:25Z",
+  "description": "Test-first: dispatch hydrate_record through NodeRouter to the owning role. For communication media, Channels resolves the configured communication bridge; each bridge builds its own materializing event and materializes through JidoChat abstractions.",
+  "id": "zaq-ic9.2",
+  "labels": [],
+  "parent": "zaq-ic9",
+  "priority": 1,
+  "status": "open",
+  "title": "[#613] Route Record hydration through source nodes and Channels bridges",
+  "type": "task",
+  "updated_at": "2026-08-18T06:49:25Z"
+}
