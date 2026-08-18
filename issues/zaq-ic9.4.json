@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-ic9.5"
   ],
+  "closed_at": "2026-08-18T08:43:24Z",
   "created": "2026-08-18T06:49:25Z",
   "description": "Test-first: install a Factory/ReAct result transformer that projects supported materialized media into ReqLLM content parts while preserving canonical tool results for workflows and traces.",
   "id": "zaq-ic9.4",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#613] Add AI-only media result projection",
   "type": "task",
-  "updated_at": "2026-08-18T07:23:48Z"
+  "updated_at": "2026-08-18T08:43:24Z"
 }
