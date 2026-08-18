@@ -11,9 +11,15 @@
   "id": "zaq-ic9.3",
   "labels": [],
   "parent": "zaq-ic9",
+  "comments": [
+    {
+      "text": "Implemented Record.metadata/1, attachment-only message validation, incoming/history persistence, cold-history and current-Agent safe descriptors, existing BO user-bubble rendering, and Storybook variations. Regression suite: 6 doctests + 233 tests passing.",
+      "timestamp": "2026-08-18T07:21:29Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#613] Persist and render attachment metadata",
   "type": "task",
-  "updated_at": "2026-08-18T07:13:43Z"
+  "updated_at": "2026-08-18T07:21:29Z"
 }
