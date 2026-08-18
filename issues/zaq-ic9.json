@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-18T06:49:25Z",
+  "description": "Implement lazy communication media Records, source-node hydration, AI-only modality projection, access-driven trace artifacts, and authorized BO retrieval from the final PRD.",
+  "id": "zaq-ic9",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[#613] Communication channel media attachments",
+  "type": "epic",
+  "updated_at": "2026-08-18T06:49:25Z"
+}
