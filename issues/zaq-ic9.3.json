@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-ic9.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ic9.4"
+  ],
   "created": "2026-08-18T06:49:25Z",
   "description": "Test-first: persist explicit attachment Record metadata without bytes/events/raw data, allow attachment-only messages, expose safe descriptors in Agent history/current input, and render metadata in existing BO chat components.",
   "id": "zaq-ic9.3",
