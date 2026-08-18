@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-18T06:49:26Z",
+  "description": "Test-first: create message_trace_artifacts, externalize accessed bytes transactionally with assistant message trace persistence, enforce configurable 100 MiB limits, and keep artifact IDs out of Records.",
+  "id": "zaq-ic9.5",
+  "labels": [],
+  "parent": "zaq-ic9",
+  "priority": 1,
+  "status": "open",
+  "title": "[#613] Persist materialized media as trace artifacts",
+  "type": "task",
+  "updated_at": "2026-08-18T06:49:26Z"
+}
