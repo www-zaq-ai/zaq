@@ -13,11 +13,15 @@
     {
       "text": "Validation complete in working tree: focused attachment/security/integration suites pass; mix format and mix q pass; upstream jido_ai mix precommit passes. Full ZAQ suite: 48 doctests, 40 properties, 7765 tests, 6 unrelated failures (skill description truncation x3, file preview fallback x2, MCP timeout UI x1). Full jido_ai suite reproduced one existing RunStrategyTest timing failure, which passed focused rerun. git diff --check passes in both repos. Left issue open because changes are intentionally uncommitted and full suites are not entirely green.",
       "timestamp": "2026-08-18T10:15:48Z"
+    },
+    {
+      "text": "Reworked media projection per review: core Jido.Plugin now defines transform_tool_result/3 post-tool interception; jido_ai runs mounted plugins in declaration order, preserves canonical tool_completed results, and uses transformed content in both Runner and durable Strategy context. Removed all ReAct tool_result_transformer config/request/action/fingerprint/event plumbing. ZAQ Factory now registers MediaResultTransformer only as a plugin; StreamEvents handles canonical tool_completed only. Validation: core Jido mix q + 2211 tests pass; jido_ai mix precommit passes and focused 235 tests pass (full suite had one unrelated timing failure that passed direct rerun); ZAQ mix q + focused 61 tests pass. git diff --check passes in all three repos. No commits made.",
+      "timestamp": "2026-08-18T12:53:55Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#613] Validate attachment flow and update docs",
   "type": "task",
-  "updated_at": "2026-08-18T10:15:48Z"
+  "updated_at": "2026-08-18T12:53:55Z"
 }
