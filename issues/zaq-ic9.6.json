@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-ic9.5"
+  ],
   "blocks": [],
   "created": "2026-08-18T06:49:26Z",
   "description": "Test-first: add Engine-authorized artifact lookup, authenticated BO serving with safe MIME headers, and artifact links in the existing trace panel.",
