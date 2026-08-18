@@ -6,14 +6,15 @@
   "blocks": [
     "zaq-ic9.7"
   ],
+  "closed_at": "2026-08-18T09:00:16Z",
   "created": "2026-08-18T06:49:26Z",
   "description": "Test-first: add Engine-authorized artifact lookup, authenticated BO serving with safe MIME headers, and artifact links in the existing trace panel.",
   "id": "zaq-ic9.6",
   "labels": [],
   "parent": "zaq-ic9",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#613] Authorize BO trace artifact access",
   "type": "task",
-  "updated_at": "2026-08-18T08:54:01Z"
+  "updated_at": "2026-08-18T09:00:16Z"
 }
