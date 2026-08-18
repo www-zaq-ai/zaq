@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-18T06:49:26Z",
+  "description": "Add integrated/e2e coverage for lazy ingress through hydration, materialization, AI projection, trace persistence and BO retrieval; update service docs; run mix format and mix q.",
+  "id": "zaq-ic9.7",
+  "labels": [],
+  "parent": "zaq-ic9",
+  "priority": 1,
+  "status": "open",
+  "title": "[#613] Validate attachment flow and update docs",
+  "type": "task",
+  "updated_at": "2026-08-18T06:49:26Z"
+}
