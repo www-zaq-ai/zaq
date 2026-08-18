@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-ic9.2"
   ],
+  "closed_at": "2026-08-18T07:03:41Z",
   "created": "2026-08-18T06:49:25Z",
   "description": "Test-first: add Incoming.attachments, safe persisted-map reconstruction, and Zaq.Contracts.RecordHydrator beside RecordMaterializer. Hydrator chooses a trusted owning role from semantic Record source data; DownloadDocument remains unchanged.",
   "id": "zaq-ic9.1",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#613] Add Record hydration and incoming attachment contracts",
   "type": "task",
   "updated_at": "2026-08-18T07:03:41Z"
