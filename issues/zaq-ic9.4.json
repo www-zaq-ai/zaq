@@ -11,9 +11,15 @@
   "id": "zaq-ic9.4",
   "labels": [],
   "parent": "zaq-ic9",
+  "comments": [
+    {
+      "text": "Blocked on pinned jido_ai capability: RequestTransformer runs after Turn.format_tool_result_content/1 sanitizes raw tool output; non-UTF8 bytes become a placeholder and strings over 16,384 chars truncate. Final PRD requires an Agent-only raw-result projection hook preserving canonical action results. Awaiting decision between upstream hook and ZAQ wrapper.",
+      "timestamp": "2026-08-18T07:23:48Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#613] Add AI-only media result projection",
   "type": "task",
-  "updated_at": "2026-08-18T07:21:29Z"
+  "updated_at": "2026-08-18T07:23:48Z"
 }
