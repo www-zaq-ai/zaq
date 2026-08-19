@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-19T10:41:36Z",
+  "description": "Add Channels datasource materializer handler and fixed Channels Events builder/dispatcher.",
+  "id": "zaq-xfm",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[materialization-handle-2] Add datasource document materializer",
+  "type": "task",
+  "updated_at": "2026-08-19T10:41:36Z"
+}
