@@ -16,11 +16,15 @@
     {
       "text": "Cleanup pass: removed unused public Materialization.materialize_record/3 and kept only handle redemption API; mix q passed.",
       "timestamp": "2026-08-19T11:46:21Z"
+    },
+    {
+      "text": "Helper cleanup: reused Zaq.MapUtils.fetch/2 and Zaq.Helpers.blank?/1 in materialization core; restored top-level encoding support; mix q passed.",
+      "timestamp": "2026-08-19T12:15:05Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-vy5] Add signed materialization handle core",
   "type": "task",
-  "updated_at": "2026-08-19T11:46:21Z"
+  "updated_at": "2026-08-19T12:15:05Z"
 }
