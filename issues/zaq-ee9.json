@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-19T10:41:36Z",
+  "description": "Update tests and docs for JSON-safe handles and simplified download_document schema.",
+  "id": "zaq-ee9",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[materialization-handle-4] Validate and document materialization handles",
+  "type": "task",
+  "updated_at": "2026-08-19T10:41:36Z"
+}
