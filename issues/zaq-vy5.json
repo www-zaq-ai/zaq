@@ -8,9 +8,15 @@
   "description": "Implement JSON-safe signed materialization handles, registry, handler behaviour, and generic materialization facade.",
   "id": "zaq-vy5",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented signed JSON-safe handle core, registry, handler behaviour, and facade in working tree; validation passed with mix q. Not closing because changes are not committed.",
+      "timestamp": "2026-08-19T10:56:37Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-vy5] Add signed materialization handle core",
   "type": "task",
-  "updated_at": "2026-08-19T10:41:43Z"
+  "updated_at": "2026-08-19T10:56:37Z"
 }
