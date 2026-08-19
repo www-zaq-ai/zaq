@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-xfm"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ee9"
+  ],
   "created": "2026-08-19T10:41:36Z",
   "description": "Replace materializing_event with materialization_handle across Record, JidoConnectBridge, download_document, and ingestion source materialization.",
   "id": "zaq-fo2",
