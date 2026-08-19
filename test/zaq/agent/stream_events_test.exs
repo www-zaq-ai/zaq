@@ -2,6 +2,7 @@ defmodule Zaq.Agent.StreamEventsTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Agent.StreamEvents
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
 
   defmodule FakeStatus do
@@ -215,6 +216,42 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert result.measurements["tool_call_count"] == 1
     assert_receive {:broadcast, :tool_call, "Using search", :tool_call}
     assert_receive {:broadcast, :tool_call, "Finished search", :tool_call}
+  end
+
+  test "externalizes materialized media from canonical tool results without adding bytes to trace" do
+    bytes = <<0, 1, 2, 3>>
+
+    record = %Record{
+      id: "media-1",
+      kind: :file,
+      content: bytes,
+      name: "image.png",
+      mime_type: "image/png",
+      size: 4,
+      attributes: %{"source_type" => "communication_media"}
+    }
+
+    events = [
+      event(:tool_started, 10, %{tool_name: "download_document", arguments: %{}},
+        tool_call_id: "tool-media"
+      ),
+      event(
+        :tool_completed,
+        20,
+        %{tool_name: "download_document", result: {:ok, %{record: record}, []}},
+        tool_call_id: "tool-media"
+      ),
+      event(:request_completed, 30, %{result: "done"})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [artifact] = result.trace_artifacts
+    assert artifact.content == bytes
+    assert artifact.record["id"] == "media-1"
+    refute Map.has_key?(artifact.record, "content")
+    assert Jason.encode!(result.trace)
+    refute inspect(result.trace) =~ inspect(bytes)
   end
 
   test "uses struct event timestamps for tool started entries" do

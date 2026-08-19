@@ -5,6 +5,7 @@ defmodule Zaq.Engine.Api do
 
   @behaviour Zaq.InternalBoundaries
 
+  alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
@@ -41,6 +42,16 @@ defmodule Zaq.Engine.Api do
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :get_message_trace_artifact, _context) do
+    with {:ok, user_id} <- authenticated_user_id(event.actor),
+         user when not is_nil(user) <- Accounts.get_user(user_id) do
+      conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
+      %{event | response: conversations_module.get_authorized_trace_artifact(event.request, user)}
+    else
+      _ -> %{event | response: {:error, :unauthorized}}
     end
   end
 
@@ -613,4 +624,8 @@ defmodule Zaq.Engine.Api do
     person = People.get_person(person_id)
     person != nil and Permissions.can?(person, :run, workflow)
   end
+
+  defp authenticated_user_id(%{user_id: user_id}) when not is_nil(user_id), do: {:ok, user_id}
+  defp authenticated_user_id(%{"user_id" => user_id}) when not is_nil(user_id), do: {:ok, user_id}
+  defp authenticated_user_id(_actor), do: {:error, :unauthorized}
 end

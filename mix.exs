@@ -107,12 +107,12 @@ defmodule Zaq.MixProject do
 
       # Jido Ecosystem
       {:llm_db, "~> 2026.5", runtime: false, override: true},
-      {:jido, "~> 2.3", override: true},
+      {:jido, path: "../jido/jido", override: true},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       # {:jido_chat, "~> 1.0"},
       # {:jido_chat,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat", override: true},
-      {:jido_chat, github: "agentjido/jido_chat", branch: "main", override: true},
+      {:jido_chat, "~> 1.1.0"},
       {:jido_chat_discord, "~> 1.0"},
       # {:jido_chat_mattermost, path: "../jido_chat_mattermost", override: true},
       {:jido_chat_mattermost,
@@ -121,10 +121,8 @@ defmodule Zaq.MixProject do
       # {:jido_chat_telegram,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat_telegram",
       #  override: true},
-      {:jido_chat_telegram,
-       github: "jat10/jido_chat_telegram", branch: "fix/add-rich-markdown", override: true},
+      {:jido_chat_telegram, "~> 1.2.1"},
       {:jido_ai, github: "jfayad/jido_ai", branch: "feat/tool-result-plugin", override: true},
-      # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       # Bump zoi to avoid conflicts with deps using the old 0.17.1 (jido_connect)
       {:zoi, "~> 0.18", override: true},
       {:jido_mcp, "~> 1.1.0"},

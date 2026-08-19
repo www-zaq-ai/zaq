@@ -930,8 +930,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp welcome_message?(%{role: "assistant", content: @welcome_body}), do: true
   defp welcome_message?(_), do: false
 
-  defp db_message_to_ui(%{role: "user", content: content, inserted_at: ts}) do
-    %{id: generate_id(), role: :user, body: content || "", timestamp: ts}
+  defp db_message_to_ui(%{role: "user", content: content, inserted_at: ts} = message) do
+    %{
+      id: generate_id(),
+      role: :user,
+      body: content || "",
+      timestamp: ts,
+      attachments: MessageHelpers.attachments_from_message(message)
+    }
   end
 
   defp db_message_to_ui(%{role: "assistant"} = msg) do

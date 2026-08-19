@@ -5,6 +5,7 @@ defmodule Zaq.Agent.ExecutorTest do
 
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.Executor
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
 
   defmodule StubAgent do
@@ -613,6 +614,49 @@ defmodule Zaq.Agent.ExecutorTest do
 
       assert_received {:coverage_ask, {:raw_question, "keep as-is"}, _configured_agent,
                        _tool_context}
+    end
+
+    test "current attachment descriptors are visible to the model without runtime fields" do
+      incoming = %Incoming{
+        content: "",
+        channel_id: "c1",
+        provider: :mattermost,
+        person: %{id: 15},
+        attachments: [
+          %Record{
+            id: "file-1",
+            kind: :file,
+            name: "photo.png",
+            mime_type: "image/png",
+            attributes: %{
+              "source_type" => "communication_media",
+              "provider" => "mattermost",
+              "source_id" => "file-1"
+            },
+            raw: %{secret: true},
+            materializing_event:
+              Zaq.Event.new(%{reference: "file-1"}, :channels,
+                opts: [action: :materialize_record]
+              )
+          }
+        ]
+      }
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: "coverage"
+      )
+
+      assert_received {:coverage_ask, question, _configured_agent, _tool_context}
+      assert question =~ "Attachments:"
+      assert question =~ "photo.png"
+      refute question =~ "materializing_event"
+      refute question =~ "secret"
     end
   end
 end

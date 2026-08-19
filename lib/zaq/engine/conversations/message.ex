@@ -4,7 +4,7 @@ defmodule Zaq.Engine.Conversations.Message do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Zaq.Engine.Conversations.{Conversation, MessageRating}
+  alias Zaq.Engine.Conversations.{Conversation, MessageRating, MessageTraceArtifact}
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -24,6 +24,7 @@ defmodule Zaq.Engine.Conversations.Message do
 
     belongs_to :conversation, Conversation
     has_many :ratings, MessageRating
+    has_many :trace_artifacts, MessageTraceArtifact
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
@@ -47,7 +48,31 @@ defmodule Zaq.Engine.Conversations.Message do
       :metadata,
       :trace
     ])
-    |> validate_required([:conversation_id, :role, :content])
+    |> validate_required([:conversation_id, :role])
     |> validate_inclusion(:role, @valid_roles)
+    |> validate_content_or_attachments()
   end
+
+  defp validate_content_or_attachments(changeset) do
+    role = get_field(changeset, :role)
+    content = get_field(changeset, :content)
+    metadata = get_field(changeset, :metadata) || %{}
+    attachments = Map.get(metadata, "attachments") || Map.get(metadata, :attachments) || []
+
+    case {content_present?(content), user_attachments?(role, attachments)} do
+      {true, _} ->
+        changeset
+
+      {false, true} ->
+        put_change(changeset, :content, content || "")
+
+      {false, false} ->
+        add_error(changeset, :content, "can't be blank")
+    end
+  end
+
+  defp content_present?(content), do: is_binary(content) and String.trim(content) != ""
+
+  defp user_attachments?("user", attachments), do: is_list(attachments) and attachments != []
+  defp user_attachments?(_role, _attachments), do: false
 end

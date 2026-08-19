@@ -38,7 +38,8 @@ defmodule Zaq.Agent.Factory do
     request_policy: :reject,
     plugins: [
       {Jido.MCP.Plugins.MCP, %{allowed_endpoints: :all}},
-      Jido.MCP.JidoAI.Plugins.MCPAI
+      Jido.MCP.JidoAI.Plugins.MCPAI,
+      Zaq.Agent.MediaResultTransformer
     ],
     tools: []
 

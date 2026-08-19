@@ -3,6 +3,7 @@ defmodule Zaq.Channels.ApiTest do
 
   alias Zaq.Channels.Api
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Types.EncryptedString
@@ -12,6 +13,20 @@ defmodule Zaq.Channels.ApiTest do
     def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
+
+    def hydrate_record(record, opts) do
+      send(self(), {:hydrate_record, record, opts})
+
+      {:ok,
+       Event.new(%{provider: "mattermost", reference: record.id, record: record}, :channels,
+         opts: [action: :materialize_record]
+       )}
+    end
+
+    def materialize_record(request, opts) do
+      send(self(), {:materialize_record, request, opts})
+      {:ok, %{content: "media-bytes"}}
+    end
 
     def sync_config_runtime(before_config, after_config) do
       send(self(), {:bridge_sync_config_runtime, before_config, after_config})
@@ -35,6 +50,41 @@ defmodule Zaq.Channels.ApiTest do
          labels: %{text: "Text"}
        }}
     end
+  end
+
+  test "handles hydrate_record through the communication bridge boundary" do
+    record = %Record{
+      id: "media-1",
+      kind: :file,
+      attributes: %{"source_type" => "communication_media", "provider" => "mattermost"}
+    }
+
+    event =
+      Event.new(record, :channels,
+        opts: [action: :hydrate_record, communication_bridge_module: StubCommunicationBridge]
+      )
+
+    result = Api.handle_event(event, :hydrate_record, nil)
+
+    assert {:ok, %Event{opts: materialize_opts}} = result.response
+    assert materialize_opts[:action] == :materialize_record
+    assert_received {:hydrate_record, ^record, opts}
+    assert opts[:action] == :hydrate_record
+  end
+
+  test "handles materialize_record through the communication bridge boundary" do
+    request = %{provider: "mattermost", reference: "media-1"}
+
+    event =
+      Event.new(request, :channels,
+        opts: [action: :materialize_record, communication_bridge_module: StubCommunicationBridge]
+      )
+
+    result = Api.handle_event(event, :materialize_record, nil)
+
+    assert result.response == {:ok, %{content: "media-bytes"}}
+    assert_received {:materialize_record, ^request, opts}
+    assert opts[:action] == :materialize_record
   end
 
   defmodule StubCommunicationBridgeConfigError do

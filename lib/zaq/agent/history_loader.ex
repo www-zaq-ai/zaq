@@ -62,7 +62,12 @@ defmodule Zaq.Agent.HistoryLoader do
       where: m.conversation_id == ^conversation_id,
       order_by: [desc: m.inserted_at],
       limit: @max_db_fetch,
-      select: %{role: m.role, content: m.content, inserted_at: m.inserted_at}
+      select: %{
+        role: m.role,
+        content: m.content,
+        metadata: m.metadata,
+        inserted_at: m.inserted_at
+      }
     )
     |> Repo.all()
     |> accumulate_within_budget(max_tokens)
@@ -105,14 +110,19 @@ defmodule Zaq.Agent.HistoryLoader do
       where: m.conversation_id in subquery(conv_ids),
       order_by: [desc: m.inserted_at],
       limit: @max_db_fetch,
-      select: %{role: m.role, content: m.content, inserted_at: m.inserted_at}
+      select: %{
+        role: m.role,
+        content: m.content,
+        metadata: m.metadata,
+        inserted_at: m.inserted_at
+      }
     )
     |> Repo.all()
   end
 
   defp accumulate_within_budget(messages, max_tokens) do
     Enum.reduce_while(messages, {[], 0}, fn msg, {acc, total} ->
-      tokens = TokenEstimator.estimate(msg.content || "")
+      tokens = TokenEstimator.estimate(history_content(msg))
       new_total = total + tokens
 
       if new_total > max_tokens do
@@ -126,10 +136,10 @@ defmodule Zaq.Agent.HistoryLoader do
 
   defp build_context(messages) do
     Enum.reduce(messages, AIContext.new(), fn
-      %{role: "user", content: content, inserted_at: ts}, ctx ->
+      %{role: "user", inserted_at: ts} = message, ctx ->
         AIContext.append(ctx, %AIContext.Entry{
           role: :user,
-          content: "[#{DateUtils.format_ts(ts)}] #{content || ""}",
+          content: "[#{DateUtils.format_ts(ts)}] #{history_content(message)}",
           timestamp: ts
         })
 
@@ -144,4 +154,39 @@ defmodule Zaq.Agent.HistoryLoader do
         ctx
     end)
   end
+
+  defp history_content(message) when is_map(message) do
+    content = Map.get(message, :content) || ""
+    metadata = Map.get(message, :metadata) || %{}
+
+    case safe_attachments(metadata) do
+      [] -> content
+      attachments -> Enum.join([content, "Attachments:", Jason.encode!(attachments)], "\n")
+    end
+  end
+
+  defp safe_attachments(metadata) when is_map(metadata) do
+    metadata
+    |> Map.get("attachments", Map.get(metadata, :attachments, []))
+    |> case do
+      attachments when is_list(attachments) ->
+        attachments
+        |> Enum.filter(&is_map/1)
+        |> Enum.map(
+          &Map.drop(&1, [
+            "content",
+            :content,
+            "raw",
+            :raw,
+            "materializing_event",
+            :materializing_event
+          ])
+        )
+
+      _ ->
+        []
+    end
+  end
+
+  defp safe_attachments(_metadata), do: []
 end

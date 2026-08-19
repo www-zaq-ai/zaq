@@ -83,6 +83,20 @@ defmodule Zaq.Contracts.RecordTest do
     end
   end
 
+  describe "metadata/1" do
+    test "keeps stable public fields and excludes content and runtime fields" do
+      metadata = Record.metadata(record())
+
+      assert metadata["id"] == "42"
+      assert metadata["kind"] == "file"
+      assert metadata["name"] == "guide.md"
+      assert metadata["attributes"] == %{"provider" => "disk"}
+      refute Map.has_key?(metadata, "content")
+      refute Map.has_key?(metadata, "raw")
+      refute Map.has_key?(metadata, "materializing_event")
+    end
+  end
+
   test "id and kind are enforced" do
     assert_raise ArgumentError, fn -> struct!(Record, name: "guide.md") end
   end

@@ -18,6 +18,27 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     assert html =~ "Copy"
   end
 
+  test "user_bubble renders attachment metadata when the text body is empty" do
+    html =
+      render_component(&ChatMessage.user_bubble/1,
+        content: "",
+        timestamp: ~N[2026-04-15 09:30:00],
+        attachments: [
+          %{
+            "id" => "file-1",
+            "name" => "photo.png",
+            "mime_type" => "image/png",
+            "size" => 2048
+          }
+        ]
+      )
+
+    assert html =~ "photo.png"
+    assert html =~ "image/png"
+    assert html =~ "2.0 KB"
+    assert html =~ "data-testid=\"chat-attachment\""
+  end
+
   test "assistant_bubble renders markdown immediately, source chip and click target" do
     html =
       render_component(&ChatMessage.assistant_bubble/1,

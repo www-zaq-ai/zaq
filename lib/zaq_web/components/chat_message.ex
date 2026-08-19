@@ -31,6 +31,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   import ZaqWeb.Helpers.DateFormat, only: [format_time: 1]
   alias ZaqWeb.Components.AgentTracePanel
   alias ZaqWeb.Helpers.Markdown
+  alias ZaqWeb.Helpers.SizeFormat
 
   alias ZaqWeb.Live.BO.PreviewHelpers
 
@@ -41,6 +42,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :content, :string, required: true
   attr :timestamp, :any, required: true
   attr :filters, :list, default: []
+  attr :attachments, :list, default: []
 
   slot :actions
 
@@ -53,6 +55,23 @@ defmodule ZaqWeb.Components.ChatMessage do
         <div class="zaq-chat-user-bubble">
           <%!-- Use div (not p): body_html may include buttons from @-filters; p+interactive HTML breaks layout in browsers. --%>
           <div class="zaq-text-body whitespace-pre-wrap">{@body_html}</div>
+          <div :if={@attachments != []} class="zaq-layout-stack-tight mt-3">
+            <div
+              :for={attachment <- @attachments}
+              class="zaq-layout-inline gap-2"
+              data-testid="chat-attachment"
+            >
+              <span class="zaq-text-body-sm">
+                {attachment_value(attachment, "name") || "Attachment"}
+              </span>
+              <span
+                class="zaq-text-caption"
+                style="color: var(--zaq-text-color-body-tertiary);"
+              >
+                {attachment_details(attachment)}
+              </span>
+            </div>
+          </div>
         </div>
         <div class="flex items-center justify-end gap-2 mt-1 pr-1">
           <span class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary);">
@@ -63,6 +82,19 @@ defmodule ZaqWeb.Components.ChatMessage do
       </div>
     </div>
     """
+  end
+
+  defp attachment_details(attachment) do
+    mime_type = attachment_value(attachment, "mime_type")
+    size = attachment_value(attachment, "size")
+
+    [mime_type, if(is_integer(size), do: SizeFormat.format_size(size))]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp attachment_value(attachment, key) when is_map(attachment) do
+    Map.get(attachment, key) || Map.get(attachment, String.to_existing_atom(key))
   end
 
   # ---------------------------------------------------------------------------

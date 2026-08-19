@@ -46,6 +46,7 @@ defmodule ZaqWeb.Chat.Transcript do
                 content={item.body}
                 timestamp={item.timestamp}
                 filters={Map.get(item, :filters, [])}
+                attachments={Map.get(item, :attachments, [])}
               >
                 <:actions>
                   <button

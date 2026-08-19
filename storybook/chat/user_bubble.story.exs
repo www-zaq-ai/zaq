@@ -33,6 +33,22 @@ defmodule Storybook.Chat.UserBubble do
             "I have two questions:\n1. Where is the onboarding checklist?\n2. Who should I contact for IT access?",
           timestamp: ~N[2024-01-15 10:32:00]
         }
+      },
+      %Variation{
+        id: :attachment_only,
+        description: "Attachment-only message",
+        attributes: %{
+          content: "",
+          timestamp: ~N[2024-01-15 10:33:00],
+          attachments: [
+            %{
+              "id" => "file-1",
+              "name" => "quarterly-results.pdf",
+              "mime_type" => "application/pdf",
+              "size" => 245_760
+            }
+          ]
+        }
       }
     ]
   end

@@ -398,8 +398,8 @@ defmodule Zaq.Agent.Api do
           event
           |> schedule_return_hop(enrich_outgoing_with_persistence(outgoing, persisted))
 
-        {:error, _reason} ->
-          schedule_return_hop(event, outgoing)
+        {:error, reason} ->
+          %{event | response: {:error, {:persist_failed, reason}}, next_hop: nil}
       end
     else
       %{event | response: outgoing}
@@ -449,6 +449,8 @@ defmodule Zaq.Agent.Api do
        when is_map(persisted) do
     metadata =
       outgoing.metadata
+      |> Map.delete(:trace_artifacts)
+      |> Map.delete("trace_artifacts")
       |> maybe_put_persisted(
         :conversation_id,
         Map.get(persisted, :conversation_id) || Map.get(persisted, "conversation_id")

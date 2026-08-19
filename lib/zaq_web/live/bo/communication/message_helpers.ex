@@ -15,6 +15,26 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
   alias Zaq.Engine.Messages.Measurements
   alias Zaq.Engine.Telemetry.FeedbackReasons
 
+  @attachment_fields ~w[id kind name mime_type size attributes]
+
+  def attachments_from_message(message) when is_map(message) do
+    metadata = get_any(message, [:metadata, "metadata"]) || %{}
+
+    metadata
+    |> get_any(["attachments", :attachments])
+    |> case do
+      attachments when is_list(attachments) ->
+        attachments
+        |> Enum.filter(&is_map/1)
+        |> Enum.map(&Map.take(&1, @attachment_fields))
+
+      _ ->
+        []
+    end
+  end
+
+  def attachments_from_message(_message), do: []
+
   def positive_rater_attrs(current_user) do
     if current_user,
       do: %{user_id: current_user.id, rating: 5},

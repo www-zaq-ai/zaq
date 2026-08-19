@@ -728,7 +728,10 @@ defmodule Zaq.Agent.ApiTest do
           body: "ok",
           channel_id: incoming.channel_id,
           provider: incoming.provider,
-          metadata: %{"telemetry_dimensions" => %{"channel_config_id" => "unknown"}}
+          metadata: %{
+            "telemetry_dimensions" => %{"channel_config_id" => "unknown"},
+            trace_artifacts: [%{content: <<0, 1, 2, 3>>}]
+          }
         }
       end
     end
@@ -760,6 +763,8 @@ defmodule Zaq.Agent.ApiTest do
     persist_event = first_event
 
     assert persist_event.next_hop.destination == :engine
+    assert persist_event.request.metadata.trace_artifacts == [%{content: <<0, 1, 2, 3>>}]
+    refute Map.has_key?(result.response.metadata, :trace_artifacts)
     assert result.next_hop.destination == :channels
     assert result.next_hop.type == :sync
     assert result.opts[:action] == :deliver_outgoing
@@ -768,7 +773,7 @@ defmodule Zaq.Agent.ApiTest do
     assert result.request == result.response
   end
 
-  test "run_pipeline schedules delivery when persist_from_incoming fails" do
+  test "run_pipeline blocks delivery when persist_from_incoming fails" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
 
     event =
@@ -785,13 +790,12 @@ defmodule Zaq.Agent.ApiTest do
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
-    assert %Outgoing{} = result.response
-    assert result.response.body == "ok"
-    assert result.next_hop.destination == :channels
-    assert result.opts[:action] == :deliver_outgoing
+    assert result.response == {:error, {:persist_failed, :db_down}}
+    assert result.next_hop == nil
+    refute result.opts[:action] == :deliver_outgoing
   end
 
-  test "run_pipeline schedules delivery for invalid persist response" do
+  test "run_pipeline blocks delivery for invalid persist response" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
 
     event =
@@ -808,10 +812,11 @@ defmodule Zaq.Agent.ApiTest do
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
-    assert %Outgoing{} = result.response
-    assert result.response.body == "ok"
-    assert result.next_hop.destination == :channels
-    assert result.opts[:action] == :deliver_outgoing
+    assert result.response ==
+             {:error, {:persist_failed, {:invalid_persist_response, :unexpected}}}
+
+    assert result.next_hop == nil
+    refute result.opts[:action] == :deliver_outgoing
   end
 
   test "run_pipeline accepts non-map persist response and keeps outgoing metadata unchanged" do

@@ -31,6 +31,7 @@ defmodule Zaq.Agent.Executor do
   require Logger
 
   alias Zaq.Agent
+  alias Zaq.Contracts.Record
 
   alias Zaq.Agent.{
     Answering,
@@ -170,6 +171,7 @@ defmodule Zaq.Agent.Executor do
     question =
       opts
       |> Keyword.get(:question, incoming.content)
+      |> append_attachments(incoming.attachments)
       |> timestamp_question()
 
     result =
@@ -348,6 +350,7 @@ defmodule Zaq.Agent.Executor do
       termination_reason: stream_result.termination_reason,
       tool_calls: stream_result.tool_calls,
       trace: stream_result.trace,
+      trace_artifacts: Map.get(stream_result, :trace_artifacts, []),
       sources: []
     }
   end
@@ -531,6 +534,14 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp timestamp_question(content), do: content
+
+  defp append_attachments(content, attachments)
+       when is_binary(content) and is_list(attachments) and attachments != [] do
+    metadata = Enum.map(attachments, &Record.metadata/1)
+    Enum.join([content, "Attachments:", Jason.encode!(metadata)], "\n")
+  end
+
+  defp append_attachments(content, _attachments), do: content
 
   defp status_mod(opts) do
     Keyword.get(opts, :status_module, Zaq.Agent.Status)

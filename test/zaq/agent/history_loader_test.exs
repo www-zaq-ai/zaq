@@ -25,12 +25,13 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     |> Repo.insert!()
   end
 
-  defp insert_message(conversation, role, content, inserted_at \\ nil) do
+  defp insert_message(conversation, role, content, inserted_at \\ nil, metadata \\ %{}) do
     attrs = %{
       conversation_id: conversation.id,
       role: role,
       content: content,
-      inserted_at: inserted_at || DateTime.utc_now()
+      inserted_at: inserted_at || DateTime.utc_now(),
+      metadata: metadata
     }
 
     Repo.insert!(struct(Message, attrs))
@@ -113,6 +114,37 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
       assert length(messages) == 1
       assert hd(messages).role == :assistant
+    end
+
+    test "includes safe attachment descriptors without loading media bytes" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+
+      insert_message(conv, "user", "", nil, %{
+        "attachments" => [
+          %{
+            "id" => "file-1",
+            "kind" => "file",
+            "name" => "photo.png",
+            "mime_type" => "image/png",
+            "attributes" => %{
+              "source_type" => "communication_media",
+              "provider" => "mattermost",
+              "source_id" => "file-1"
+            }
+          }
+        ]
+      })
+
+      [message] =
+        conv.id
+        |> HistoryLoader.load_for_conversation()
+        |> AIContext.to_messages()
+
+      assert message.content =~ "Attachments:"
+      assert message.content =~ "photo.png"
+      assert message.content =~ "file-1"
+      refute message.content =~ "materializing_event"
     end
 
     test "is bounded to 500 rows from the DB" do

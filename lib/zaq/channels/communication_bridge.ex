@@ -20,6 +20,7 @@ defmodule Zaq.Channels.CommunicationBridge do
 
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.EventNames
+  alias Zaq.Contracts.{Record, RecordCapability}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Engine.Messages.Outgoing
@@ -64,6 +65,8 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback ensure_ingress_subscription(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_ingress_subscriptions(map(), map()) :: {:ok, [map()]} | {:error, term()}
   @callback delete_ingress_subscription(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback build_materializing_event(map(), Record.t()) :: {:ok, Event.t()} | {:error, term()}
+  @callback materialize_record(map(), map(), map()) :: {:ok, map()} | {:error, term()}
 
   @optional_callbacks send_typing: 3,
                       upsert_message: 3,
@@ -80,7 +83,9 @@ defmodule Zaq.Channels.CommunicationBridge do
                       fetch_profile: 2,
                       list_mailboxes: 2,
                       conversation_key: 1,
-                      outbound_conversation_key: 2
+                      outbound_conversation_key: 2,
+                      build_materializing_event: 2,
+                      materialize_record: 3
 
   defmacro __using__(_opts) do
     quote do
@@ -99,6 +104,52 @@ defmodule Zaq.Channels.CommunicationBridge do
       defdelegate dispatch_message_rating(message_ref, rater_attrs, opts \\ []),
         to: Zaq.Channels.CommunicationBridge
     end
+  end
+
+  @doc "Asks the configured source bridge to rebuild a record's materialization event."
+  @spec hydrate_record(Record.t(), keyword()) :: {:ok, Event.t()} | {:error, term()}
+  def hydrate_record(record, opts \\ [])
+
+  def hydrate_record(%Record{} = record, opts) do
+    with {:ok, provider} <- record_provider(record),
+         :ok <- RecordCapability.authorize(record, capability_context(opts)),
+         {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider),
+         true <-
+           bridge_supports?(bridge, :build_materializing_event, 2) || {:error, :unsupported} do
+      with {:ok, %Event{} = event} <- bridge.build_materializing_event(config, record) do
+        {:ok, %{event | actor: Keyword.get(opts, :actor)}}
+      end
+    end
+  end
+
+  @doc "Routes a bridge-built materialization payload back to its source bridge."
+  @spec materialize_record(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def materialize_record(request, opts \\ [])
+
+  def materialize_record(request, opts) when is_map(request) do
+    with {:ok, record} <- request_record(request),
+         :ok <- RecordCapability.authorize(record, capability_context(opts)),
+         {:ok, provider} <- request_provider(request),
+         {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider),
+         true <- bridge_supports?(bridge, :materialize_record, 3) || {:error, :unsupported} do
+      bridge.materialize_record(config, request, Bridge.fetch_connection_details(provider))
+    end
+  end
+
+  defp request_record(request) do
+    case Map.get(request, :record) || Map.get(request, "record") do
+      %Record{} = record -> {:ok, record}
+      _ -> {:error, :invalid_record_capability}
+    end
+  end
+
+  defp capability_context(opts) do
+    %{
+      actor: Keyword.get(opts, :actor),
+      skip_permissions: Keyword.get(opts, :skip_permissions, false)
+    }
   end
 
   @doc "Sends typing indicator through the provider bridge."
@@ -600,5 +651,23 @@ defmodule Zaq.Channels.CommunicationBridge do
   defp bridge_supports?(bridge, fun, arity)
        when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
     Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
+  end
+
+  defp record_provider(%Record{attributes: attributes}) when is_map(attributes) do
+    case Map.get(attributes, "provider") || Map.get(attributes, :provider) do
+      provider when is_binary(provider) and provider != "" -> {:ok, provider}
+      provider when is_atom(provider) and not is_nil(provider) -> {:ok, provider}
+      _ -> {:error, {:invalid_record_source, :missing_provider}}
+    end
+  end
+
+  defp record_provider(%Record{}), do: {:error, {:invalid_record_source, :missing_provider}}
+
+  defp request_provider(request) do
+    case Map.get(request, :provider) || Map.get(request, "provider") do
+      provider when is_binary(provider) and provider != "" -> {:ok, provider}
+      provider when is_atom(provider) and not is_nil(provider) -> {:ok, provider}
+      _ -> {:error, {:invalid_materialization_request, :missing_provider}}
+    end
   end
 end

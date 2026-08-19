@@ -65,6 +65,7 @@ defmodule ZaqWeb.Router do
 
     # File serving — raw content with correct Content-Type (opens in browser tab)
     get "/files/*path", FileController, :show
+    get "/trace-artifacts/:id", MessageTraceArtifactController, :show
 
     live_session :bo, on_mount: {ZaqWeb.Live.BO.AuthHook, :default} do
       live "/dashboard", Live.BO.DashboardLive

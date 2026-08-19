@@ -15,6 +15,7 @@
           :if={msg.role == "user"}
           content={msg.content}
           timestamp={msg.inserted_at}
+          attachments={ZaqWeb.Live.BO.Communication.MessageHelpers.attachments_from_message(msg)}
         />
         <ZaqWeb.Components.ChatMessage.assistant_bubble
           :if={msg.role != "user"}

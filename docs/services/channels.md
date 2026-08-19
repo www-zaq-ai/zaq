@@ -125,6 +125,28 @@ defstruct [
 
 `Outgoing.from_pipeline_result/2` builds an `%Outgoing{}` from an `%Incoming{}` and a pipeline result map, copying routing fields and merging metadata.
 
+### Communication media attachments
+
+JidoChat bridges map inbound media to lazy `Zaq.Contracts.Record` values in
+`Incoming.attachments`. Persisted metadata contains only an allowlisted
+`attributes["source_type"] == "communication_media"` source descriptor; provider
+bytes, credentials, and dispatchable events are never serialized.
+
+Fetch-controlling fields are bound by an HMAC capability derived from the
+node-shared runtime secret. Hydration and materialization reject missing or altered
+capabilities before fetching, so model-supplied Record maps cannot select arbitrary
+provider references or URLs. The capability also binds the source transport author;
+fetching requires the normalized event actor's matching transport ID unless trusted
+internal code explicitly sets `skip_permissions: true`.
+
+When an agent accesses a persisted attachment, `RecordHydrator` dispatches
+`:hydrate_record` to Channels. `CommunicationBridge` rebuilds the current trusted
+`:materialize_record` event, and `JidoChatBridge` calls the provider adapter's
+`fetch_media/2`. Live records that already carry a materialization event skip the
+hydration hop. The 100 MiB default byte limit is configurable through
+`:message_trace_artifact_max_bytes`; communication media without a known declared
+size, or with a declared size above that limit, is rejected before provider fetch.
+
 ---
 
 ## Channels API and Communication Routing

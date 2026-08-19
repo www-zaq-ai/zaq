@@ -6,16 +6,19 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.Author
   alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
+  alias Jido.Chat.Media
   alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
+  alias Zaq.Contracts.{Record, RecordCapability}
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.IncomingMessageRouter
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Event
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
   alias Zaq.TestSupport.OpenAIStub
@@ -37,6 +40,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     def dispatch_sync(_event, _payload, _ctx), do: :ok
+  end
+
+  defmodule FetchMediaAdapter do
+    def fetch_media(reference, opts) do
+      send(self(), {:fetch_media, reference, opts})
+      {:ok, <<0, 1, 2, 3>>}
+    end
   end
 
   defmodule StubPipeline do
@@ -710,6 +720,101 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                "provider" => "mattermost",
                "retrieval_channel_id" => "unknown"
              }
+    end
+
+    test "maps every media item to a ready lazy Record" do
+      incoming = %ChatIncoming{
+        text: "see attachments",
+        external_room_id: "room-media",
+        external_message_id: "message-1",
+        media: [
+          %Media{
+            kind: :image,
+            filename: "photo.png",
+            media_type: "image/png",
+            size_bytes: 4,
+            metadata: %{file_id: "file-1"}
+          },
+          %Media{
+            kind: :file,
+            filename: "notes.pdf",
+            media_type: "application/pdf",
+            size_bytes: 8,
+            metadata: %{"id" => "file-2"}
+          }
+        ]
+      }
+
+      msg =
+        JidoChatBridge.to_internal(incoming, %{provider: :mattermost, id: "channel-config-1"})
+
+      assert [image, document] = msg.attachments
+
+      assert %Record{
+               id: "file-1",
+               kind: :file,
+               name: "photo.png",
+               mime_type: "image/png",
+               size: 4,
+               content: nil,
+               materializing_event: %Event{}
+             } = image
+
+      assert Map.drop(image.attributes, ["source_signature"]) == %{
+               "channel_config_id" => "channel-config-1",
+               "media_kind" => "image",
+               "provider" => "mattermost",
+               "source_channel_id" => "room-media",
+               "source_id" => "file-1",
+               "source_message_id" => "message-1",
+               "source_type" => "communication_media"
+             }
+
+      assert is_binary(image.attributes["source_signature"])
+
+      assert document.id == "file-2"
+      assert document.materializing_event.opts[:action] == :materialize_record
+    end
+  end
+
+  describe "communication media materialization" do
+    test "uses the JidoChat adapter fetch_media abstraction" do
+      original_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: JidoChatBridge, adapter: FetchMediaAdapter}
+      })
+
+      on_exit(fn ->
+        if original_channels do
+          Application.put_env(:zaq, :channels, original_channels)
+        else
+          Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      record =
+        RecordCapability.sign!(%Record{
+          id: "file-1",
+          kind: :file,
+          size: 4,
+          attributes: %{
+            "source_type" => "communication_media",
+            "provider" => "mattermost",
+            "source_id" => "file-1"
+          }
+        })
+
+      request = %{provider: "mattermost", reference: "file-1", record: record}
+      config = %{provider: "mattermost"}
+      details = %{url: "https://mattermost.example", token: "secret"}
+
+      assert {:ok, %{content: <<0, 1, 2, 3>>}} =
+               JidoChatBridge.materialize_record(config, request, details)
+
+      assert_received {:fetch_media, "file-1", opts}
+      assert opts[:url] == "https://mattermost.example"
+      assert opts[:token] == "secret"
     end
   end
 

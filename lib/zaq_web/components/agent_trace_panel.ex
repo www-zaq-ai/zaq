@@ -84,6 +84,21 @@ defmodule ZaqWeb.Components.AgentTracePanel do
             class="px-3 pb-3 pt-1 bg-[#fcfcfb] border-t border-[#f0ede8]"
             data-testid={"trace-details-#{row_id}"}
           >
+            <div :if={trace_artifacts(trace) != []} class="mt-2 mb-3">
+              <p class="font-mono text-[0.68rem] text-[#7f7c76] font-bold mb-1">Artifacts</p>
+              <div class="flex flex-wrap gap-2">
+                <a
+                  :for={artifact <- trace_artifacts(trace)}
+                  href={artifact.path}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="font-mono text-[0.66rem] px-2 py-1 rounded-md border border-black/10 text-[#027589] hover:bg-black/5"
+                  data-testid="trace-artifact-link"
+                >
+                  {artifact.name}
+                </a>
+              </div>
+            </div>
             <div class="flex items-center justify-between mt-2 mb-1">
               <p class="font-mono text-[0.68rem] text-[#7f7c76] font-bold">Full JSON</p>
               <button
@@ -112,6 +127,37 @@ defmodule ZaqWeb.Components.AgentTracePanel do
   end
 
   defp traces(_), do: []
+
+  defp trace_artifacts(trace) when is_map(trace) do
+    trace
+    |> trace_value([:artifacts, "artifacts"])
+    |> case do
+      artifacts when is_list(artifacts) -> Enum.flat_map(artifacts, &normalize_artifact/1)
+      _ -> []
+    end
+  end
+
+  defp trace_artifacts(_trace), do: []
+
+  defp normalize_artifact(artifact) when is_map(artifact) do
+    id = trace_value(artifact, [:id, "id"])
+    name = trace_value(artifact, [:name, "name"])
+
+    case Ecto.UUID.cast(id) do
+      {:ok, id} ->
+        [
+          %{
+            name: if(is_binary(name) and name != "", do: name, else: "Artifact"),
+            path: "/bo/trace-artifacts/#{id}"
+          }
+        ]
+
+      :error ->
+        []
+    end
+  end
+
+  defp normalize_artifact(_artifact), do: []
 
   defp measurements(message_info) when is_map(message_info) do
     case Map.get(message_info, :measurements) || Map.get(message_info, "measurements") do

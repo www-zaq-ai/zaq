@@ -57,12 +57,12 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
     name: "download_document",
     output_schema: @output_schema,
     description: """
-    Download datasource document content.
+    Materialize a record to retrieve its full content.
 
     Pass either a materialization_handle, or a provider plus document_id. Include config_id
     when the provider has multiple configurations and a specific source must be used.
 
-    Returns a normalized record including document content.
+    Returns the normalized record including its materialized content.
     """,
     schema: @schema
 

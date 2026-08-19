@@ -13,6 +13,7 @@ defmodule Zaq.Engine.Messages.Incoming do
   For cross-node routing, this struct is wrapped by `%Zaq.Event{request: %Incoming{...}}`.
   """
 
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Identity.ActorNormalizer
 
@@ -27,6 +28,7 @@ defmodule Zaq.Engine.Messages.Incoming do
     :message_id,
     :provider,
     :person,
+    attachments: [],
     routing_context: %RoutingContext{},
     is_dm: false,
     metadata: %{},
@@ -42,6 +44,7 @@ defmodule Zaq.Engine.Messages.Incoming do
           message_id: String.t() | integer() | nil,
           provider: atom() | String.t(),
           person: map() | nil,
+          attachments: [Record.t()],
           routing_context: RoutingContext.t(),
           is_dm: boolean(),
           metadata: map(),
@@ -58,6 +61,7 @@ defmodule Zaq.Engine.Messages.Incoming do
       content: fetch_required!(attrs, :content),
       channel_id: fetch_required!(attrs, :channel_id),
       provider: fetch_required!(attrs, :provider),
+      attachments: normalize_attachments(fetch_optional(attrs, :attachments)),
       author_id: fetch_optional(attrs, :author_id),
       author_name: fetch_optional(attrs, :author_name),
       thread_id: fetch_optional(attrs, :thread_id),
@@ -166,6 +170,11 @@ defmodule Zaq.Engine.Messages.Incoming do
   defp maybe_merge_legacy_routing_context(context, _attrs, _metadata), do: context
 
   defp normalize_person(person), do: ActorNormalizer.person(%{person: person})
+
+  defp normalize_attachments(attachments) when is_list(attachments),
+    do: Enum.filter(attachments, &match?(%Record{}, &1))
+
+  defp normalize_attachments(_), do: []
 
   defp normalize_content_filter(list) when is_list(list) do
     Enum.filter(list, &is_binary/1)

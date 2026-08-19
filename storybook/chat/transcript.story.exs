@@ -29,6 +29,22 @@ defmodule Storybook.Chat.Transcript do
       filters: []
     }
 
+    user_attachment = %{
+      id: "u2",
+      role: :user,
+      body: "Please review this image.",
+      timestamp: ts,
+      filters: [],
+      attachments: [
+        %{
+          "id" => "file-1",
+          "name" => "storefront.png",
+          "mime_type" => "image/png",
+          "size" => 82_944
+        }
+      ]
+    }
+
     assistant_with_actions = %{
       id: "a1",
       role: :bot,
@@ -74,6 +90,16 @@ defmodule Storybook.Chat.Transcript do
         description: "Chat page — user + assistant with message actions (as in BO transcript)",
         attributes: %{
           messages: [user_msg, assistant_with_actions],
+          status: :idle,
+          status_message: "",
+          streaming_response_active: false
+        }
+      },
+      %Variation{
+        id: :message_with_attachment,
+        description: "User message with persisted attachment metadata",
+        attributes: %{
+          messages: [user_attachment, assistant_with_actions],
           status: :idle,
           status_message: "",
           streaming_response_active: false

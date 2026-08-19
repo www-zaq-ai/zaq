@@ -8,8 +8,10 @@ defmodule Zaq.Engine.ConversationsTest do
   alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.CommunicationBridge
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry.{Buffer, Point}
+  alias Zaq.Event
 
   # Production stamps conversation identity on the channels node before the
   # envelope reaches the engine — mirror that here so grouping assertions
@@ -291,6 +293,85 @@ defmodule Zaq.Engine.ConversationsTest do
   end
 
   describe "persist_from_incoming/2" do
+    test "persists accessed media transactionally and links descriptors from the assistant trace" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Describe the image",
+        channel_id: "chan-artifact",
+        author_id: "artifact-user",
+        provider: :mattermost
+      }
+
+      result = %{
+        answer: "It is a diagram.",
+        trace: [%{"id" => "tool-media", "type" => "tool_call"}],
+        trace_artifacts: [
+          %{
+            content: <<0, 1, 2, 3>>,
+            name: "diagram.png",
+            mime_type: "image/png",
+            size: 4,
+            record: %{"id" => "media-1", "kind" => "file"},
+            tool_call_id: "tool-media",
+            tool_name: "download_document"
+          }
+        ]
+      }
+
+      assert {:ok, %{conversation_id: conversation_id, assistant_message_id: assistant_id}} =
+               persist_from_incoming(incoming, result)
+
+      assistant = Zaq.Repo.get!(Zaq.Engine.Conversations.Message, assistant_id)
+      artifact = Zaq.Repo.one!(Zaq.Engine.Conversations.MessageTraceArtifact)
+
+      assert artifact.message_id == assistant_id
+      assert artifact.content == <<0, 1, 2, 3>>
+      assert artifact.record == %{"id" => "media-1", "kind" => "file"}
+      assert artifact.sha256 == :crypto.hash(:sha256, artifact.content)
+
+      assert [%{"id" => "tool-media", "artifacts" => [descriptor]}] = assistant.trace
+      assert descriptor["id"] == artifact.id
+      assert descriptor["name"] == "diagram.png"
+      refute Map.has_key?(descriptor, "content")
+      assert Conversations.get_conversation!(conversation_id)
+    end
+
+    test "rolls back both messages when an accessed artifact exceeds the configured limit" do
+      {:ok, conversation} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "artifact-limit-user"
+        })
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Read this file",
+        channel_id: "chan-artifact-limit",
+        author_id: "artifact-limit-user",
+        provider: :mattermost,
+        metadata: %{conversation_id: conversation.id}
+      }
+
+      result = %{
+        answer: "Unable to read it.",
+        trace_artifacts: [
+          %{
+            content: <<0, 1, 2, 3>>,
+            name: "large.bin",
+            mime_type: "application/octet-stream",
+            size: 4,
+            record: %{"id" => "large-media"},
+            tool_call_id: "tool-large",
+            tool_name: "download_document"
+          }
+        ]
+      }
+
+      assert {:error, :trace_artifact_too_large} =
+               Conversations.persist_from_incoming(incoming, result, artifact_max_bytes: 3)
+
+      assert Conversations.list_messages(conversation) == []
+      assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
+    end
+
     test "uses an existing conversation when metadata carries conversation_id" do
       {:ok, existing} =
         Conversations.create_conversation(%{
@@ -630,6 +711,60 @@ defmodule Zaq.Engine.ConversationsTest do
 
       assert assistant.metadata["model"] == "openai:gpt-4o-mini"
       assert assistant.metadata["agent"] == %{"id" => 12, "name" => "Answering"}
+    end
+
+    test "persists attachment metadata without bytes or events and accepts attachment-only input" do
+      materializing_event =
+        Event.new(%{provider: "mattermost", reference: "file-1"}, :channels,
+          opts: [action: :materialize_record]
+        )
+
+      attachment = %Record{
+        id: "file-1",
+        kind: :file,
+        name: "photo.png",
+        mime_type: "image/png",
+        size: 4,
+        content: <<0, 1, 2, 3>>,
+        attributes: %{
+          "source_type" => "communication_media",
+          "provider" => "mattermost",
+          "source_id" => "file-1"
+        },
+        raw: %{token: "secret"},
+        materializing_event: materializing_event
+      }
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "",
+        channel_id: "chan-attachment",
+        author_id: "attachment-user",
+        provider: :mattermost,
+        attachments: [attachment]
+      }
+
+      result = %{
+        answer: "I can inspect the attachment when needed.",
+        confidence_score: 0.9,
+        latency_ms: 20,
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} = persist_from_incoming(incoming, result)
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      user_message = Enum.find(Conversations.list_messages(conversation), &(&1.role == "user"))
+
+      assert user_message.content == ""
+      assert [stored] = user_message.metadata["attachments"]
+      assert stored["id"] == "file-1"
+      assert stored["kind"] == "file"
+      assert stored["name"] == "photo.png"
+      refute Map.has_key?(stored, "content")
+      refute Map.has_key?(stored, "raw")
+      refute Map.has_key?(stored, "materializing_event")
     end
 
     test "falls back to normalized email thread id then message id then author" do

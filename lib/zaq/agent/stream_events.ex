@@ -8,6 +8,7 @@ defmodule Zaq.Agent.StreamEvents do
 
   alias Zaq.Agent.RequestRegistry
   alias Zaq.Agent.Status
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
 
   @flush_chars 20
@@ -28,6 +29,7 @@ defmodule Zaq.Agent.StreamEvents do
           answer: term(),
           usage: map(),
           trace: [map()],
+          trace_artifacts: [map()],
           tool_calls: [map()],
           termination_reason: term(),
           incoming: Incoming.t()
@@ -81,6 +83,7 @@ defmodule Zaq.Agent.StreamEvents do
       buffer: "",
       turns: %{},
       trace: [],
+      trace_artifacts: [],
       tool_calls: %{},
       answer: nil,
       usage: %{},
@@ -90,36 +93,27 @@ defmodule Zaq.Agent.StreamEvents do
     |> register(:running)
   end
 
-  defp handle_event(event, state) do
-    case kind(event) do
-      :llm_delta ->
-        handle_llm_delta(event, state)
+  defp handle_event(event, state), do: handle_event(kind(event), event, state)
 
-      :llm_completed ->
-        handle_llm_completed(event, state)
+  defp handle_event(:llm_delta, event, state), do: handle_llm_delta(event, state)
+  defp handle_event(:llm_completed, event, state), do: handle_llm_completed(event, state)
+  defp handle_event(:tool_started, event, state), do: handle_tool_started(event, state)
+  defp handle_event(:tool_completed, event, state), do: handle_tool_completed(event, state)
 
-      :tool_started ->
-        handle_tool_started(event, state)
+  defp handle_event(:request_completed, event, state),
+    do: state |> flush_trace_segment(event) |> handle_request_completed(event)
 
-      :tool_completed ->
-        handle_tool_completed(event, state)
+  defp handle_event(:request_failed, event, state),
+    do: state |> flush_trace_segment(event) |> handle_request_failed(event)
 
-      :request_completed ->
-        state |> flush_trace_segment(event) |> handle_request_completed(event)
-
-      :request_failed ->
-        state |> flush_trace_segment(event) |> handle_request_failed(event)
-
-      :request_cancelled ->
-        state
-        |> flush_trace_segment(event)
-        |> Map.put(:termination_reason, :cancelled)
-        |> register(:cancelled)
-
-      _ ->
-        state
-    end
+  defp handle_event(:request_cancelled, event, state) do
+    state
+    |> flush_trace_segment(event)
+    |> Map.put(:termination_reason, :cancelled)
+    |> register(:cancelled)
   end
+
+  defp handle_event(_kind, _event, state), do: state
 
   defp handle_llm_delta(event, state) do
     data = data(event)
@@ -206,6 +200,11 @@ defmodule Zaq.Agent.StreamEvents do
     tool_call_id =
       field(event, :tool_call_id) || data_get(data, :tool_call_id) || field(event, :id)
 
+    tool_name = field(event, :tool_name) || data_get(data, :tool_name)
+
+    {trace_result, trace_artifacts} =
+      externalize_trace_artifacts(data_get(data, :result), tool_call_id, tool_name)
+
     tool_call =
       state.tool_calls
       |> Map.get(tool_call_id, %{"id" => tool_call_id})
@@ -213,8 +212,8 @@ defmodule Zaq.Agent.StreamEvents do
         "type" => "tool_call",
         "turn_id" => to_string(field(event, :iteration) || 0),
         "content" => field(event, :tool_name) || data_get(data, :tool_name) || "tool",
-        "name" => field(event, :tool_name) || data_get(data, :tool_name),
-        "response" => json_safe(data_get(data, :result)),
+        "name" => tool_name,
+        "response" => json_safe(trace_result),
         "duration_ms" => data_get(data, :duration_ms),
         "ended_at" => timestamp(event),
         "ended_at_ms" => field(event, :at_ms),
@@ -226,11 +225,91 @@ defmodule Zaq.Agent.StreamEvents do
     state = %{
       state
       | tool_calls: Map.put(state.tool_calls, tool_call_id, tool_call),
-        trace: [tool_call | state.trace]
+        trace: [tool_call | state.trace],
+        trace_artifacts: state.trace_artifacts ++ trace_artifacts
     }
 
     broadcast_tool(state, tool_call, :completed) |> register(:tool_completed)
   end
+
+  defp externalize_trace_artifacts({:ok, payload, effects}, tool_call_id, tool_name)
+       when is_map(payload) do
+    case payload_record(payload) do
+      {key, %Record{} = record} ->
+        case trace_media_artifact(record, tool_call_id, tool_name) do
+          {:ok, artifact} ->
+            safe_record = %{record | content: nil, materializing_event: nil}
+            {{:ok, Map.put(payload, key, safe_record), effects}, [artifact]}
+
+          {:error, _reason} ->
+            safe_record = %{record | content: nil, materializing_event: nil}
+            {{:ok, Map.put(payload, key, safe_record), effects}, []}
+
+          :not_media ->
+            {{:ok, payload, effects}, []}
+        end
+
+      nil ->
+        {{:ok, payload, effects}, []}
+    end
+  end
+
+  defp externalize_trace_artifacts(result, _tool_call_id, _tool_name), do: {result, []}
+
+  defp payload_record(payload) do
+    cond do
+      match?(%Record{}, Map.get(payload, :record)) -> {:record, Map.get(payload, :record)}
+      match?(%Record{}, Map.get(payload, "record")) -> {"record", Map.get(payload, "record")}
+      true -> nil
+    end
+  end
+
+  defp trace_media_artifact(
+         %Record{content: content, attributes: attributes} = record,
+         tool_call_id,
+         tool_name
+       )
+       when is_binary(content) and is_map(attributes) do
+    if source_type(attributes) == "communication_media" do
+      case decode_record_content(record, content) do
+        {:ok, decoded_content} ->
+          {:ok,
+           %{
+             record: Record.metadata(record),
+             content: decoded_content,
+             name: record.name || "attachment",
+             mime_type: record.mime_type || "application/octet-stream",
+             size: byte_size(decoded_content),
+             tool_call_id: tool_call_id,
+             tool_name: tool_name || "tool"
+           }}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      :not_media
+    end
+  end
+
+  defp trace_media_artifact(_record, _tool_call_id, _tool_name), do: :not_media
+
+  defp decode_record_content(%Record{attributes: attributes}, content) do
+    if encoding(attributes) == "base64" do
+      case Base.decode64(content) do
+        {:ok, decoded} -> {:ok, decoded}
+        :error -> {:error, :invalid_encoding}
+      end
+    else
+      {:ok, content}
+    end
+  end
+
+  defp source_type(attributes),
+    do: Map.get(attributes, "source_type") || Map.get(attributes, :source_type)
+
+  defp encoding(attributes),
+    do: Map.get(attributes, "encoding") || Map.get(attributes, :encoding)
 
   defp handle_request_completed(state, event) do
     data = data(event)
@@ -297,6 +376,7 @@ defmodule Zaq.Agent.StreamEvents do
       answer: state.answer || state.current_full,
       usage: state.usage,
       trace: Enum.reverse(state.trace),
+      trace_artifacts: state.trace_artifacts,
       tool_calls: state.tool_calls |> Map.values(),
       termination_reason: state.termination_reason,
       measurements: measurements(state),

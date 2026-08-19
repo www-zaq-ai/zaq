@@ -24,6 +24,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Jido.Chat
   alias Jido.Chat.Adapter
   alias Jido.Chat.Capabilities
+  alias Jido.Chat.Media
   alias Jido.Chat.Thread
 
   alias Zaq.Channels.{
@@ -39,8 +40,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
   alias Zaq.Channels.JidoChatBridge.ReactionMapper
   alias Zaq.Channels.JidoChatBridge.State
+  alias Zaq.Contracts.{Record, RecordCapability}
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
+  alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Types.EncryptedString
 
@@ -623,7 +626,9 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   @doc "Converts a `Jido.Chat.Incoming` struct to the internal `Incoming` message format."
   @impl true
-  def to_internal(%Chat.Incoming{} = incoming, provider) do
+  def to_internal(%Chat.Incoming{} = incoming, provider_or_config) do
+    {provider, channel_config_id} = provider_context(provider_or_config)
+
     Incoming.new(%{
       content: incoming.text,
       channel_id: incoming.external_room_id,
@@ -632,11 +637,66 @@ defmodule Zaq.Channels.JidoChatBridge do
       author_id: incoming.author && incoming.author.user_id,
       author_name: incoming.author && incoming.author.user_name,
       provider: provider,
-      channel_config_id: provider,
+      channel_config_id: channel_config_id,
+      attachments:
+        media_records(
+          incoming.media,
+          provider,
+          channel_config_id,
+          incoming.external_message_id,
+          incoming.author && incoming.author.user_id,
+          incoming.external_room_id
+        ),
       is_dm: (incoming.channel_meta && Map.get(incoming.channel_meta, :is_dm)) == true,
       metadata: incoming.metadata || %{}
     })
   end
+
+  @doc "Builds the current Channels materialization event for a JidoChat media record."
+  @impl true
+  def build_materializing_event(config, %Record{} = record) when is_map(config) do
+    attributes = if is_map(record.attributes), do: record.attributes, else: %{}
+    provider = config_value(config, :provider) || attributes["provider"]
+    reference = attributes["source_id"]
+
+    if RecordCapability.verify(record) == :ok and present_reference?(reference) and
+         (is_binary(provider) or is_atom(provider)) do
+      request = %{
+        provider: to_string(provider),
+        reference: reference,
+        record: %{record | materializing_event: nil}
+      }
+
+      {:ok, Event.new(request, :channels, opts: [action: :materialize_record])}
+    else
+      {:error, :invalid_media_source}
+    end
+  end
+
+  @doc "Fetches media bytes through the configured JidoChat adapter."
+  @impl true
+  def materialize_record(config, %{reference: reference, record: %Record{} = record}, details)
+      when is_map(config) and is_map(details) do
+    provider = config_value(config, :provider)
+    max_bytes = max_media_bytes()
+
+    with :ok <- RecordCapability.verify(record),
+         :ok <- enforce_media_size(record.size, max_bytes),
+         true <- present_reference?(reference) || {:error, :invalid_media_reference},
+         {:ok, adapter} <- resolve_adapter_for_provider(provider),
+         true <- function_exported?(adapter, :fetch_media, 2) || {:error, :unsupported},
+         {:ok, content} when is_binary(content) <-
+           adapter.fetch_media(reference, media_opts(details)),
+         :ok <- enforce_media_size(byte_size(content), max_bytes) do
+      {:ok, %{content: content}}
+    else
+      {:ok, _other} -> {:error, :invalid_media_content}
+      {:error, _reason} = error -> error
+      false -> {:error, :invalid_media_reference}
+    end
+  end
+
+  def materialize_record(_config, _request, _details), do: {:error, :invalid_media_request}
 
   @doc """
   Opens or returns the existing DM channel between the bot and a user.
@@ -702,7 +762,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp handle_message_event(_config, _thread, %Chat.Incoming{author: %{is_me: true}}), do: :ok
 
   defp handle_message_event(config, thread, %Chat.Incoming{} = incoming) do
-    msg = to_internal(incoming, thread.adapter_name)
+    msg =
+      to_internal(incoming, %{
+        provider: thread.adapter_name,
+        id: Map.get(config, :id) || Map.get(config, "id")
+      })
 
     with {:ok, role_ids} <- resolve_roles(msg),
          :ok <-
@@ -1384,6 +1448,116 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp normalize_pipeline_result({:error, _} = error), do: error
 
   defp normalize_pipeline_result(other), do: {:error, {:invalid_pipeline_response, other}}
+
+  defp provider_context(config) when is_map(config) do
+    provider = config_value(config, :provider)
+    config_id = config_value(config, :id)
+    {provider, config_id && to_string(config_id)}
+  end
+
+  defp provider_context(provider), do: {provider, nil}
+
+  defp media_records(media, provider, channel_config_id, message_id, author_id, channel_id)
+       when is_list(media) do
+    media
+    |> Enum.with_index(1)
+    |> Enum.map(fn {item, index} ->
+      item
+      |> Media.normalize()
+      |> media_record(provider, channel_config_id, message_id, author_id, channel_id, index)
+    end)
+  end
+
+  defp media_records(_media, _provider, _channel_config_id, _message_id, _author_id, _channel_id),
+    do: []
+
+  defp media_record(
+         %Media{} = media,
+         provider,
+         channel_config_id,
+         message_id,
+         author_id,
+         channel_id,
+         index
+       ) do
+    source_id = media_source_id(media, message_id, index)
+
+    attributes =
+      %{
+        "source_type" => "communication_media",
+        "provider" => to_string(provider),
+        "source_id" => source_id,
+        "media_kind" => to_string(media.kind)
+      }
+      |> maybe_put_channel_config_id(channel_config_id)
+      |> maybe_put_source_scope(author_id, channel_id, message_id)
+
+    record =
+      %Record{
+        id: source_id,
+        kind: :file,
+        name: media.filename || "attachment-#{index}",
+        mime_type: media.media_type,
+        size: media.size_bytes,
+        attributes: attributes
+      }
+      |> RecordCapability.sign!()
+
+    {:ok, materializing_event} = build_materializing_event(%{provider: provider}, record)
+    %{record | materializing_event: materializing_event}
+  end
+
+  defp media_source_id(%Media{metadata: metadata, url: url}, message_id, index) do
+    metadata = if is_map(metadata), do: metadata, else: %{}
+
+    source_id =
+      metadata[:file_id] || metadata["file_id"] || metadata[:id] || metadata["id"] || url ||
+        "#{message_id || "message"}:media:#{index}"
+
+    to_string(source_id)
+  end
+
+  defp maybe_put_channel_config_id(attributes, nil), do: attributes
+
+  defp maybe_put_channel_config_id(attributes, channel_config_id),
+    do: Map.put(attributes, "channel_config_id", to_string(channel_config_id))
+
+  defp maybe_put_source_scope(attributes, author_id, channel_id, message_id) do
+    attributes
+    |> maybe_put_source_scope_value("source_author_id", author_id)
+    |> maybe_put_source_scope_value("source_channel_id", channel_id)
+    |> maybe_put_source_scope_value("source_message_id", message_id)
+  end
+
+  defp maybe_put_source_scope_value(attributes, _key, value) when value in [nil, ""],
+    do: attributes
+
+  defp maybe_put_source_scope_value(attributes, key, value),
+    do: Map.put(attributes, key, to_string(value))
+
+  defp enforce_media_size(size, max_bytes) when is_integer(size) and size > max_bytes,
+    do: {:error, :media_too_large}
+
+  defp enforce_media_size(size, _max_bytes) when is_integer(size) and size >= 0, do: :ok
+  defp enforce_media_size(_size, _max_bytes), do: {:error, :unknown_media_size}
+
+  defp max_media_bytes do
+    case Application.get_env(:zaq, :message_trace_artifact_max_bytes, 100 * 1024 * 1024) do
+      max_bytes when is_integer(max_bytes) and max_bytes > 0 -> max_bytes
+      _ -> 100 * 1024 * 1024
+    end
+  end
+
+  defp media_opts(details) do
+    Enum.reduce(details, [], fn
+      {key, value}, opts when is_atom(key) and not is_nil(value) -> Keyword.put(opts, key, value)
+      _, opts -> opts
+    end)
+  end
+
+  defp config_value(config, key), do: Map.get(config, key) || Map.get(config, Atom.to_string(key))
+
+  defp present_reference?(value), do: (is_binary(value) and value != "") or is_integer(value)
 
   # person is resolved by Engine before routing to the final destination.
   defp actor_from_incoming(%Incoming{} = incoming) do

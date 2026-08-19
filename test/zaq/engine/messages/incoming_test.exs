@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.Messages.IncomingTest do
   use ExUnit.Case, async: true
 
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Incoming.RoutingContext
 
@@ -14,6 +15,26 @@ defmodule Zaq.Engine.Messages.IncomingTest do
   test "metadata defaults to empty map" do
     msg = %Incoming{content: "hi", channel_id: "ch1", provider: :slack}
     assert msg.metadata == %{}
+  end
+
+  test "attachments default to an empty list" do
+    msg = Incoming.new(%{content: "hi", channel_id: "ch1", provider: :mattermost})
+
+    assert msg.attachments == []
+  end
+
+  test "new/1 preserves attachment records" do
+    attachment = %Record{id: "media-1", kind: :file, name: "photo.png"}
+
+    msg =
+      Incoming.new(%{
+        content: "hi",
+        channel_id: "ch1",
+        provider: :mattermost,
+        attachments: [attachment]
+      })
+
+    assert msg.attachments == [attachment]
   end
 
   test "routing context defaults to an empty struct" do

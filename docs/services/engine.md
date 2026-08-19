@@ -112,7 +112,13 @@ Adapter inbound path:
   (`DateTime` bounds on `updated_at`).
 - `update_conversation/2`, `archive_conversation/1`, `delete_conversation/1` — lifecycle.
 - `persist_from_incoming/2` — convenience: upserts conversation + stores both user and
-  assistant messages from a pipeline result in one call.
+  assistant messages from a pipeline result in one call. Accessed media bytes are
+  stored in `message_trace_artifacts` in the same transaction as both messages;
+  the assistant JSON trace receives only artifact IDs and safe descriptors.
+- `get_authorized_trace_artifact/2` — returns artifact bytes only to the owning or
+  shared BO user, with super-admin access across conversations. BO serves these
+  through authenticated `GET /bo/trace-artifacts/:id`; unauthorized and missing
+  artifacts are indistinguishable.
 - `persist_message_history/2` — upserts/resolves a conversation from an Incoming routing
   envelope and stores one message, defaulting to assistant messages for initiated follow-ups.
   Email delivery providers such as `email:smtp` normalize to the existing `email:imap`
@@ -153,7 +159,7 @@ Channels map their provider's emoji vocabulary to a ZAQ rating *before* dispatch
 rejected rather than ignored, since it would silently override the message resolved from
 `message_ref`.
 - `share_conversation/2`, `list_shares/1`, `revoke_share/1` — share link management.
-- `get_conversation_by_token/1` — resolves a conversation from a share token.
+- `get_conversation_by_token/1` — resolves a conversation from an unexpired share token.
 
 ### People Command Gateway (`Zaq.Engine.PeopleGateway`)
 - BO People operations are routed through `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`

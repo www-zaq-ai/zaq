@@ -59,6 +59,36 @@ defmodule ZaqWeb.Components.AgentTracePanelTest do
       assert html =~ "Copy trace JSON"
     end
 
+    test "renders authenticated artifact links inside expanded trace details" do
+      message_info = %{
+        traces: [
+          %{
+            "id" => "tool-media",
+            "type" => "tool_call",
+            "artifacts" => [
+              %{
+                "id" => "b3496060-57a3-44a5-9255-a73d2eef62e1",
+                "name" => "diagram.png",
+                "mime_type" => "image/png",
+                "size" => 4
+              }
+            ]
+          }
+        ]
+      }
+
+      html =
+        render_component(&AgentTracePanel.agent_trace_panel/1,
+          message_info: message_info,
+          expanded_ids: MapSet.new(["tool-media"]),
+          toggle_event: "toggle_trace_details"
+        )
+
+      assert html =~ "diagram.png"
+      assert html =~ ~s(href="/bo/trace-artifacts/b3496060-57a3-44a5-9255-a73d2eef62e1")
+      assert html =~ ~s(data-testid="trace-artifact-link")
+    end
+
     test "reasoning and content traces persisted with the same id toggle independently" do
       # Old persisted traces gave both segments of one LLM call the bare call
       # id; the panel must disambiguate them or one row toggles the other.

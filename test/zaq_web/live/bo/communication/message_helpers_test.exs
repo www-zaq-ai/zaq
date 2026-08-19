@@ -3,6 +3,28 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
 
   alias ZaqWeb.Live.BO.Communication.MessageHelpers
 
+  describe "attachments_from_message/1" do
+    test "returns only safe attachment descriptor maps" do
+      message = %{
+        metadata: %{
+          "attachments" => [
+            %{"id" => "file-1", "name" => "photo.png", "mime_type" => "image/png"},
+            "invalid"
+          ]
+        }
+      }
+
+      assert MessageHelpers.attachments_from_message(message) == [
+               %{"id" => "file-1", "name" => "photo.png", "mime_type" => "image/png"}
+             ]
+    end
+
+    test "returns an empty list for missing or invalid metadata" do
+      assert MessageHelpers.attachments_from_message(%{}) == []
+      assert MessageHelpers.attachments_from_message(%{metadata: nil}) == []
+    end
+  end
+
   describe "positive_rater_attrs/1" do
     test "returns anonymous attrs when current user is nil" do
       assert MessageHelpers.positive_rater_attrs(nil) == %{

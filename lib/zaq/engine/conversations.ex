@@ -7,17 +7,19 @@ defmodule Zaq.Engine.Conversations do
   """
 
   import Ecto.Query
+  alias Ecto.Multi
 
   alias Zaq.Engine.Conversations.{
     Conversation,
     ConversationShare,
     Message,
     MessageRating,
+    MessageTraceArtifact,
     TitleGenerator,
     TokenUsageAggregator
   }
 
-  alias Zaq.Accounts.{Person, PersonChannel}
+  alias Zaq.Accounts.{Person, PersonChannel, User}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
   alias Zaq.Engine.Messages.{Incoming, Measurements}
@@ -209,7 +211,12 @@ defmodule Zaq.Engine.Conversations do
   Persists a user message and its pipeline result into a conversation.
   Gets or creates a conversation scoped to the sender and provider (channel type).
   """
-  def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result) do
+  def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result),
+    do: persist_from_incoming(msg, result, [])
+
+  @doc "Persists an incoming exchange with optional artifact/config overrides."
+  def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result, opts)
+      when is_list(opts) do
     {channel_type, conversation_key} = conversation_identity(msg)
     channel_user_id = conversation_key || msg.author_id
     %{body: assistant_body, sources: assistant_sources} = normalize_assistant_response(result)
@@ -218,24 +225,146 @@ defmodule Zaq.Engine.Conversations do
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
          {:ok, conv} <-
            maybe_assign_person(conv, Incoming.person_id(msg) || Map.get(result, :person_id)),
-         {:ok, _} <- add_message(conv, %{role: "user", content: msg.content}),
+         {:ok, artifacts} <- prepare_trace_artifacts(result, opts),
          {:ok, assistant_msg} <-
-           add_message(conv, %{
-             role: "assistant",
-             content: assistant_body,
-             confidence_score: result.confidence_score,
-             latency_ms: result.latency_ms,
-             prompt_tokens: result.prompt_tokens,
-             completion_tokens: result.completion_tokens,
-             total_tokens: result.total_tokens,
-             model: Map.get(result, :model) || Map.get(result, "model"),
-             sources: assistant_sources,
-             metadata: assistant_metadata(result),
-             trace: assistant_trace(result)
-           }) do
+           persist_exchange(conv, msg, result, assistant_body, assistant_sources, artifacts, opts) do
       {:ok, %{conversation_id: conv.id, assistant_message_id: assistant_msg.id}}
     end
   end
+
+  defp persist_exchange(conv, msg, result, assistant_body, assistant_sources, artifacts, opts) do
+    user_attrs = %{
+      role: "user",
+      content: msg.content || "",
+      metadata: incoming_attachment_metadata(msg)
+    }
+
+    assistant_attrs =
+      assistant_message_attrs(result, assistant_body, assistant_sources, artifacts)
+
+    Multi.new()
+    |> Multi.insert(:user_message, message_changeset(conv, user_attrs))
+    |> Multi.insert(:assistant_message, message_changeset(conv, assistant_attrs))
+    |> Multi.run(:trace_artifacts, fn repo, %{assistant_message: assistant_message} ->
+      insert_trace_artifacts(repo, assistant_message, artifacts, artifact_max_bytes(opts))
+    end)
+    |> Repo.transaction()
+    |> finish_persist_exchange(conv)
+  end
+
+  defp assistant_message_attrs(result, assistant_body, assistant_sources, artifacts) do
+    %{
+      role: "assistant",
+      content: assistant_body,
+      confidence_score: map_get(result, "confidence_score"),
+      latency_ms: map_get(result, "latency_ms"),
+      prompt_tokens: map_get(result, "prompt_tokens"),
+      completion_tokens: map_get(result, "completion_tokens"),
+      total_tokens: map_get(result, "total_tokens"),
+      model: map_get(result, "model"),
+      sources: assistant_sources,
+      metadata: assistant_metadata(result),
+      trace: assistant_trace(result, artifacts)
+    }
+  end
+
+  defp finish_persist_exchange(
+         {:ok, %{user_message: user_message, assistant_message: assistant_message}},
+         conv
+       ) do
+    after_message_insert(conv, user_message)
+    after_message_insert(conv, assistant_message)
+    {:ok, assistant_message}
+  end
+
+  defp finish_persist_exchange({:error, _operation, reason, _changes}, _conv),
+    do: {:error, normalize_artifact_error(reason)}
+
+  defp prepare_trace_artifacts(result, opts) when is_map(result) do
+    result
+    |> Map.get(:trace_artifacts, Map.get(result, "trace_artifacts", []))
+    |> normalize_trace_artifacts(artifact_max_bytes(opts))
+  end
+
+  defp normalize_trace_artifacts(nil, _max_bytes), do: {:ok, []}
+
+  defp normalize_trace_artifacts(artifacts, max_bytes) when is_list(artifacts) do
+    Enum.reduce_while(artifacts, {:ok, [], 0}, fn artifact, {:ok, normalized, total_size} ->
+      with {:ok, artifact} <- normalize_trace_artifact(artifact),
+           new_total = total_size + artifact.size,
+           true <- artifact.size <= max_bytes and new_total <= max_bytes do
+        {:cont, {:ok, [artifact | normalized], new_total}}
+      else
+        false -> {:halt, {:error, :trace_artifact_too_large}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, artifacts, _total_size} -> {:ok, Enum.reverse(artifacts)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_trace_artifacts(_artifacts, _max_bytes), do: {:error, :invalid_trace_artifact}
+
+  defp normalize_trace_artifact(artifact) when is_map(artifact) do
+    content = map_get(artifact, "content")
+    tool_call_id = map_get(artifact, "tool_call_id")
+    tool_name = map_get(artifact, "tool_name")
+    name = map_get(artifact, "name")
+    mime_type = map_get(artifact, "mime_type")
+
+    if is_binary(content) and present_binary?(tool_call_id) and present_binary?(tool_name) and
+         present_binary?(name) and present_binary?(mime_type) do
+      {:ok,
+       %{
+         id: Ecto.UUID.generate(),
+         content: content,
+         size: byte_size(content),
+         sha256: :crypto.hash(:sha256, content),
+         tool_call_id: tool_call_id,
+         tool_name: tool_name,
+         name: name,
+         mime_type: mime_type,
+         record: map_get(artifact, "record") || %{}
+       }}
+    else
+      {:error, :invalid_trace_artifact}
+    end
+  end
+
+  defp normalize_trace_artifact(_artifact), do: {:error, :invalid_trace_artifact}
+
+  defp insert_trace_artifacts(repo, assistant_message, artifacts, max_bytes) do
+    Enum.reduce_while(artifacts, {:ok, []}, fn artifact, {:ok, inserted} ->
+      changeset =
+        %MessageTraceArtifact{id: artifact.id, message_id: assistant_message.id}
+        |> MessageTraceArtifact.changeset(Map.delete(artifact, :id), max_bytes)
+
+      case repo.insert(changeset) do
+        {:ok, row} -> {:cont, {:ok, [row | inserted]}}
+        {:error, changeset} -> {:halt, {:error, changeset}}
+      end
+    end)
+  end
+
+  defp artifact_max_bytes(opts) do
+    case Keyword.get(opts, :artifact_max_bytes) do
+      max_bytes when is_integer(max_bytes) and max_bytes > 0 ->
+        max_bytes
+
+      _ ->
+        case Zaq.Config.get(:zaq, :message_trace_artifact_max_bytes, 100 * 1024 * 1024, opts) do
+          max_bytes when is_integer(max_bytes) and max_bytes > 0 -> max_bytes
+          _ -> 100 * 1024 * 1024
+        end
+    end
+  end
+
+  defp normalize_artifact_error(%Ecto.Changeset{} = changeset), do: changeset
+  defp normalize_artifact_error(reason), do: reason
+
+  defp present_binary?(value), do: is_binary(value) and value != ""
 
   @doc """
   Persists one message into the conversation resolved from an incoming routing envelope.
@@ -341,7 +470,37 @@ defmodule Zaq.Engine.Conversations do
     |> StreamEvents.json_safe()
   end
 
+  defp assistant_trace(result, artifacts) do
+    artifacts_by_tool_call = Enum.group_by(artifacts, & &1.tool_call_id)
+
+    result
+    |> assistant_trace()
+    |> Enum.map(fn entry ->
+      tool_call_id = Map.get(entry, "id") || Map.get(entry, :id)
+
+      case Map.get(artifacts_by_tool_call, tool_call_id, []) do
+        [] -> entry
+        matches -> Map.put(entry, "artifacts", Enum.map(matches, &artifact_descriptor/1))
+      end
+    end)
+  end
+
+  defp artifact_descriptor(artifact) do
+    %{
+      "id" => artifact.id,
+      "name" => artifact.name,
+      "mime_type" => artifact.mime_type,
+      "size" => artifact.size
+    }
+  end
+
   defp message_history_attrs(attrs, %Incoming{} = incoming) do
+    metadata =
+      attrs
+      |> map_get("metadata")
+      |> then(&if(is_map(&1), do: &1, else: %{}))
+      |> merge_incoming_attachments(incoming)
+
     %{
       role: map_get(attrs, "role") || "assistant",
       content: map_get(attrs, "content") || incoming.content,
@@ -352,11 +511,25 @@ defmodule Zaq.Engine.Conversations do
       total_tokens: map_get(attrs, "total_tokens"),
       model: map_get(attrs, "model"),
       sources: (map_get(attrs, "sources") || []) |> StreamEvents.json_safe(),
-      metadata: (map_get(attrs, "metadata") || %{}) |> StreamEvents.json_safe(),
+      metadata: StreamEvents.json_safe(metadata),
       trace: (map_get(attrs, "trace") || []) |> StreamEvents.json_safe()
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp incoming_attachment_metadata(%Incoming{attachments: attachments})
+       when is_list(attachments) and attachments != [] do
+    %{"attachments" => Enum.map(attachments, &Zaq.Contracts.Record.metadata/1)}
+  end
+
+  defp incoming_attachment_metadata(%Incoming{}), do: %{}
+
+  defp merge_incoming_attachments(metadata, %Incoming{} = incoming) do
+    case incoming_attachment_metadata(incoming) do
+      %{"attachments" => attachments} -> Map.put(metadata, "attachments", attachments)
+      %{} -> metadata
+    end
   end
 
   defp message_history_title(attrs, %Incoming{} = incoming) do
@@ -551,27 +724,35 @@ defmodule Zaq.Engine.Conversations do
   enqueues a `TokenUsageAggregator` job.
   """
   def add_message(%Conversation{} = conversation, attrs) do
-    attrs_with_id = Map.put(attrs, :conversation_id, conversation.id)
-
     result =
-      %Message{}
-      |> Message.changeset(attrs_with_id)
+      conversation
+      |> message_changeset(attrs)
       |> Repo.insert()
 
     with {:ok, msg} <- result do
-      touch_conversation(conversation)
-      maybe_record_message_telemetry(conversation, msg)
-
-      if msg.role == "assistant" do
-        enqueue_token_aggregator(conversation.id, msg)
-      end
-
-      if msg.role == "user" && is_nil(conversation.title) do
-        maybe_generate_title(conversation, msg.content)
-      end
-
+      after_message_insert(conversation, msg)
       {:ok, msg}
     end
+  end
+
+  defp message_changeset(%Conversation{} = conversation, attrs) do
+    attrs_with_id = Map.put(attrs, :conversation_id, conversation.id)
+    Message.changeset(%Message{}, attrs_with_id)
+  end
+
+  defp after_message_insert(%Conversation{} = conversation, %Message{} = message) do
+    touch_conversation(conversation)
+    maybe_record_message_telemetry(conversation, message)
+
+    if message.role == "assistant" do
+      enqueue_token_aggregator(conversation.id, message)
+    end
+
+    if message.role == "user" && is_nil(conversation.title) do
+      maybe_generate_title(conversation, message.content)
+    end
+
+    :ok
   end
 
   @doc """
@@ -591,6 +772,56 @@ defmodule Zaq.Engine.Conversations do
     |> maybe_limit(opts[:limit])
     |> Repo.all()
   end
+
+  @doc "Returns a trace artifact when the BO user may access its conversation."
+  @spec get_authorized_trace_artifact(String.t(), User.t()) ::
+          {:ok, map()} | {:error, :not_found}
+  def get_authorized_trace_artifact(artifact_id, %User{} = user) when is_binary(artifact_id) do
+    with {:ok, artifact_id} <- Ecto.UUID.cast(artifact_id),
+         %MessageTraceArtifact{} = artifact <-
+           Repo.one(authorized_trace_artifact_query(artifact_id, user)) do
+      {:ok,
+       %{
+         id: artifact.id,
+         content: artifact.content,
+         name: artifact.name,
+         mime_type: artifact.mime_type,
+         size: artifact.size,
+         sha256: artifact.sha256
+       }}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def get_authorized_trace_artifact(_artifact_id, _user), do: {:error, :not_found}
+
+  defp authorized_trace_artifact_query(artifact_id, %{id: user_id} = user) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    base_query =
+      from artifact in MessageTraceArtifact,
+        join: message in Message,
+        on: message.id == artifact.message_id,
+        join: conversation in Conversation,
+        on: conversation.id == message.conversation_id,
+        where: artifact.id == ^artifact_id
+
+    if super_admin?(user) do
+      base_query
+    else
+      from [artifact, _message, conversation] in base_query,
+        left_join: share in ConversationShare,
+        on:
+          share.conversation_id == conversation.id and share.shared_with_user_id == ^user_id and
+            share.permission == "read" and (is_nil(share.expires_at) or share.expires_at > ^now),
+        where: conversation.user_id == ^user_id or not is_nil(share.id),
+        select: artifact
+    end
+  end
+
+  defp super_admin?(%{role: %{name: "super_admin"}}), do: true
+  defp super_admin?(_user), do: false
 
   defp maybe_limit(query, nil), do: query
   defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)
@@ -735,7 +966,15 @@ defmodule Zaq.Engine.Conversations do
 
   @doc "Returns the conversation associated with a share token, or nil."
   def get_conversation_by_token(share_token) do
-    case Repo.get_by(ConversationShare, share_token: share_token) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    query =
+      from share in ConversationShare,
+        where:
+          share.share_token == ^share_token and
+            (is_nil(share.expires_at) or share.expires_at > ^now)
+
+    case Repo.one(query) do
       nil -> nil
       share -> Repo.get(Conversation, share.conversation_id)
     end

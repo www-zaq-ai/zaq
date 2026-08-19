@@ -402,6 +402,13 @@ from the ingestion volume) are **Part 2 (M8)** — deferred until a skill ships 
 - Reduces `Jido.AI.Agent.ask_stream/3` events into one request result consumed by `Executor`.
 - Broadcasts buffered realtime updates through `Status.broadcast/4` so all channels keep using the same channel update flow.
 - Captures a uniform top-level message trace list, including content/reasoning segments and tool calls.
+- `MediaResultTransformer` is attached to `Factory` as a Jido plugin. Its
+  post-tool-execution hook projects materialized communication media into model-facing content. Generic `download_document` first hydrates and
+  materializes the Record for every caller; the transformer only projects supported
+  images, PDFs, and UTF-8 text into ReqLLM content parts.
+- `StreamEvents` extracts accessed media bytes from the canonical `:tool_completed`
+  result into `trace_artifacts`, then removes content from its JSON trace copy. The
+  runtime event and workflow/direct action result remain materialized and unchanged.
 - Extracts `measurements`, `model`, and sanitized `agent` metadata from the stream result; token counts come from stream usage.
 - Registers request-local inspection state in `Zaq.Agent.RequestRegistry` for inspect/steer/inject actions.
 

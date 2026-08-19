@@ -44,6 +44,7 @@
               <ZaqWeb.Components.ChatMessage.user_bubble
                 content={item.content}
                 timestamp={item.inserted_at}
+                attachments={MessageHelpers.attachments_from_message(item)}
               />
             <% else %>
               <% feedback = infer_feedback_from_ratings(item.ratings || []) %>
