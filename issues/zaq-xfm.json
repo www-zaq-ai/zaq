@@ -18,11 +18,15 @@
     {
       "text": "Cleanup pass: data_source_document locator validation now expects string-keyed verified locators and propagates trusted actor into the Channels event; mix q passed.",
       "timestamp": "2026-08-19T11:46:21Z"
+    },
+    {
+      "text": "Helper cleanup: reused MapUtils/Helpers in datasource materializer and kept strict string-key locator reads; actor propagation still covered; mix q passed.",
+      "timestamp": "2026-08-19T12:15:05Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-xfm] Add datasource document materializer",
   "type": "task",
-  "updated_at": "2026-08-19T11:46:21Z"
+  "updated_at": "2026-08-19T12:15:05Z"
 }
