@@ -12,11 +12,15 @@
     {
       "text": "Added/updated tests and docs for materialization handles in working tree; validation passed with mix q. Not closing because changes are not committed.",
       "timestamp": "2026-08-19T10:56:37Z"
+    },
+    {
+      "text": "Cleanup pass: updated tests for actor propagation and removed test-only materialize_record coverage; mix q passed.",
+      "timestamp": "2026-08-19T11:46:21Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-ee9] Validate and document materialization handles",
   "type": "task",
-  "updated_at": "2026-08-19T10:56:37Z"
+  "updated_at": "2026-08-19T11:46:21Z"
 }
