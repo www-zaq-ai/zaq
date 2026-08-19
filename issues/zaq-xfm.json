@@ -10,9 +10,15 @@
   "description": "Add Channels datasource materializer handler and fixed Channels Events builder/dispatcher.",
   "id": "zaq-xfm",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented data_source_document handler and Channels download event helper in working tree; validation passed with mix q. Not closing because changes are not committed.",
+      "timestamp": "2026-08-19T10:56:37Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-xfm] Add datasource document materializer",
   "type": "task",
-  "updated_at": "2026-08-19T10:41:43Z"
+  "updated_at": "2026-08-19T10:56:37Z"
 }
