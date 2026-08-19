@@ -14,11 +14,15 @@
     {
       "text": "Implemented data_source_document handler and Channels download event helper in working tree; validation passed with mix q. Not closing because changes are not committed.",
       "timestamp": "2026-08-19T10:56:37Z"
+    },
+    {
+      "text": "Cleanup pass: data_source_document locator validation now expects string-keyed verified locators and propagates trusted actor into the Channels event; mix q passed.",
+      "timestamp": "2026-08-19T11:46:21Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-xfm] Add datasource document materializer",
   "type": "task",
-  "updated_at": "2026-08-19T10:56:37Z"
+  "updated_at": "2026-08-19T11:46:21Z"
 }
