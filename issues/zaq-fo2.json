@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-xfm"
+  ],
   "blocks": [],
   "created": "2026-08-19T10:41:36Z",
   "description": "Replace materializing_event with materialization_handle across Record, JidoConnectBridge, download_document, and ingestion source materialization.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-fo2] Migrate record materialization callsites",
   "type": "task",
-  "updated_at": "2026-08-19T10:41:42Z"
+  "updated_at": "2026-08-19T10:41:43Z"
 }

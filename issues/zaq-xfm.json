@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-vy5"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-fo2"
+  ],
   "created": "2026-08-19T10:41:36Z",
   "description": "Add Channels datasource materializer handler and fixed Channels Events builder/dispatcher.",
   "id": "zaq-xfm",
@@ -12,5 +14,5 @@
   "status": "open",
   "title": "[zaq-xfm] Add datasource document materializer",
   "type": "task",
-  "updated_at": "2026-08-19T10:41:42Z"
+  "updated_at": "2026-08-19T10:41:43Z"
 }
