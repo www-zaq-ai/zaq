@@ -10,9 +10,15 @@
   "description": "Replace materializing_event with materialization_handle across Record, JidoConnectBridge, download_document, and ingestion source materialization.",
   "id": "zaq-fo2",
   "labels": [],
+  "comments": [
+    {
+      "text": "Migrated Record, JidoConnectBridge, download_document, and RecordSource to materialization_handle in working tree; validation passed with mix q. Not closing because changes are not committed.",
+      "timestamp": "2026-08-19T10:56:37Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-fo2] Migrate record materialization callsites",
   "type": "task",
-  "updated_at": "2026-08-19T10:41:43Z"
+  "updated_at": "2026-08-19T10:56:37Z"
 }
