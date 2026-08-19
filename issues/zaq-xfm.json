@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-vy5"
+  ],
   "blocks": [],
   "created": "2026-08-19T10:41:36Z",
   "description": "Add Channels datasource materializer handler and fixed Channels Events builder/dispatcher.",

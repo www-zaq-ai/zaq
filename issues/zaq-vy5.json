@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-xfm"
+  ],
   "created": "2026-08-19T10:41:36Z",
   "description": "Implement JSON-safe signed materialization handles, registry, handler behaviour, and generic materialization facade.",
   "id": "zaq-vy5",
