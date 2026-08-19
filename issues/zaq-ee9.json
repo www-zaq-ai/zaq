@@ -8,9 +8,15 @@
   "description": "Update tests and docs for JSON-safe handles and simplified download_document schema.",
   "id": "zaq-ee9",
   "labels": [],
+  "comments": [
+    {
+      "text": "Added/updated tests and docs for materialization handles in working tree; validation passed with mix q. Not closing because changes are not committed.",
+      "timestamp": "2026-08-19T10:56:37Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-ee9] Validate and document materialization handles",
   "type": "task",
-  "updated_at": "2026-08-19T10:41:43Z"
+  "updated_at": "2026-08-19T10:56:37Z"
 }
