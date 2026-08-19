@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-19T10:41:36Z",
+  "description": "Implement JSON-safe signed materialization handles, registry, handler behaviour, and generic materialization facade.",
+  "id": "zaq-vy5",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[materialization-handle-1] Add signed materialization handle core",
+  "type": "task",
+  "updated_at": "2026-08-19T10:41:36Z"
+}
