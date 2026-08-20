@@ -1,6 +1,4 @@
 defmodule Zaq.Agent.Factory do
-  # credo:disable-for-this-file Credo.Check.Refactor.RedundantWithClauseResult
-  # credo:disable-for-this-file ExSlop.Check.Refactor.WithIdentityDo
   @moduledoc """
   Runtime agent implementation used by every configured ZAQ agent.
 
@@ -49,6 +47,8 @@ defmodule Zaq.Agent.Factory do
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
 
+  @behaviour Jido.AI.ToolInterceptor
+
   def strategy_opts do
     super()
     |> Keyword.delete(:model)
@@ -56,16 +56,12 @@ defmodule Zaq.Agent.Factory do
 
   @impl Jido.AI.ToolInterceptor
   def before_tool_call(tool_call, context) do
-    with {:ok, tool_call} <- MaterializationAliases.expand_tool_call(tool_call, context) do
-      {:ok, tool_call}
-    end
+    MaterializationAliases.expand_tool_call(tool_call, context)
   end
 
   @impl Jido.AI.ToolInterceptor
   def after_tool_call(tool_call, result, context) do
-    with {:ok, result} <- MaterializationAliases.alias_tool_result(tool_call, result, context) do
-      {:ok, result}
-    end
+    MaterializationAliases.alias_tool_result(tool_call, result, context)
   end
 
   # Replace with per-agent advanced LLM opts so each ConfiguredAgent carries its own
