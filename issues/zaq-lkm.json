@@ -5,12 +5,12 @@
   ],
   "blocks": [],
   "created": "2026-08-20T05:06:12Z",
-  "description": "Run edited test files with --cover, filter relevant source coverage, and report observations.",
+  "description": "Targeted --cover run for the three edited test files reported: materialization_aliases.ex 97.7%, channels/events.ex 86.6%, materialization.ex 94.1%.",
   "id": "zaq-lkm",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-lkm] Report targeted file coverage",
   "type": "task",
-  "updated_at": "2026-08-20T05:16:29Z"
+  "updated_at": "2026-08-20T05:17:11Z"
 }
