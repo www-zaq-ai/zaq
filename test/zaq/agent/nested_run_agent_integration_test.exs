@@ -82,6 +82,11 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
               context: [
                 %{role: "user", content: "earlier user turn"},
                 %{
+                  role: "assistant",
+                  content: "earlier tool call",
+                  tool_calls: [%{"id" => "t1", "name" => "lookup"}]
+                },
+                %{
                   role: "tool",
                   content: "earlier tool output",
                   tool_call_id: "t1",
@@ -245,7 +250,11 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
               # String-keyed, all three roles + optional fields — the JSONB shape.
               "context" => [
                 %{"role" => "user", "content" => "earlier question about {{who}}"},
-                %{"role" => "assistant", "content" => "earlier answer"},
+                %{
+                  "role" => "assistant",
+                  "content" => "earlier answer",
+                  "tool_calls" => [%{"id" => "c1", "name" => "calc"}]
+                },
                 %{
                   "role" => "tool",
                   "content" => "42",
@@ -392,6 +401,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
 
     assert [
              %{role: :user, content: "earlier user turn"},
+             %{role: :assistant, content: "earlier tool call"},
              %{
                role: :tool,
                content: "earlier tool output",

@@ -26,6 +26,7 @@ defmodule Zaq.Agent.Plugin.ContextWindowPlugin do
 
   alias Jido.Agent.Strategy.State, as: StratState
   alias Jido.AI.Context, as: AIContext
+  alias Jido.Signal
   alias Zaq.Agent.{ContextWindow, Factory, HistoryLoader}
 
   require Logger
@@ -44,7 +45,7 @@ defmodule Zaq.Agent.Plugin.ContextWindowPlugin do
   end
 
   @impl Jido.Plugin
-  def prepare_signal(signal, %{agent: agent}) do
+  def prepare_signal(%Signal{type: "ai.request.completed"} = signal, %{agent: agent}) do
     context = agent |> StratState.get(%{}) |> Map.get(:context)
 
     with %AIContext{} <- context,

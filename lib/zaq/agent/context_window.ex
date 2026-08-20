@@ -49,7 +49,7 @@ defmodule Zaq.Agent.ContextWindow do
       |> Enum.with_index()
       |> Enum.filter(fn {_entry, index} -> MapSet.member?(keep, index) end)
       |> Enum.map(&elem(&1, 0))
-      |> drop_orphan_tool_entries()
+      |> repair_tool_blocks()
 
     %{context | entries: Enum.reverse(kept)}
   end
@@ -107,18 +107,43 @@ defmodule Zaq.Agent.ContextWindow do
     |> Enum.find_value(fn {entry, index} -> if entry.role == :user, do: index end)
   end
 
-  # A tool result whose assistant tool call was evicted is unusable by the
-  # provider, so it goes with it.
-  defp drop_orphan_tool_entries(chronological) do
-    known_ids =
+  # An assistant tool call and its results are one indivisible block: providers
+  # reject an assistant `tool_calls` message that is not followed by a `tool`
+  # message per `tool_call_id`, and reject a `tool` message with no call to
+  # answer. Eviction alone cannot split a block — the newest-first walk always
+  # reaches the results before the call — but a half-written block can arrive
+  # that way when a run dies between `:tool_started` and `:tool_completed`, so
+  # the repair runs regardless of whether anything was trimmed.
+  #
+  # Two passes: drop assistant entries whose calls are not all answered, then
+  # drop results left without a call. A partially answered multi-call entry
+  # needs both passes to resolve.
+  defp repair_tool_blocks(chronological) do
+    answered =
       chronological
+      |> Enum.filter(&(&1.role == :tool))
+      |> MapSet.new(& &1.tool_call_id)
+
+    kept =
+      Enum.reject(chronological, fn entry ->
+        entry.role == :assistant and unanswered_call?(entry, answered)
+      end)
+
+    live_ids =
+      kept
       |> Enum.flat_map(fn entry -> entry.tool_calls || [] end)
       |> MapSet.new(&tool_call_id/1)
 
-    Enum.reject(chronological, fn entry ->
-      entry.role == :tool and not MapSet.member?(known_ids, entry.tool_call_id)
+    Enum.reject(kept, fn entry ->
+      entry.role == :tool and not MapSet.member?(live_ids, entry.tool_call_id)
     end)
   end
+
+  defp unanswered_call?(%Entry{tool_calls: calls}, answered) when is_list(calls) do
+    Enum.any?(calls, fn call -> not MapSet.member?(answered, tool_call_id(call)) end)
+  end
+
+  defp unanswered_call?(_entry, _answered), do: false
 
   defp tool_call_id(%{id: id}), do: id
   defp tool_call_id(%{"id" => id}), do: id

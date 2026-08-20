@@ -604,8 +604,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
           input: "continue",
           context: [
             %{role: "user", content: "first"},
-            %{role: "assistant", content: "second"},
-            %{role: "tool", content: "third"}
+            %{role: "assistant", content: "second", tool_calls: [%{"id" => "call_1"}]},
+            %{role: "tool", content: "third", tool_call_id: "call_1"}
           ]
         },
         ok_ctx()
@@ -628,13 +628,16 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
         %{
           agent_id: agent.id,
           input: "go",
-          context: [%{role: "assistant", content: "calling", tool_calls: tool_calls}]
+          context: [
+            %{role: "assistant", content: "calling", tool_calls: tool_calls},
+            %{role: "tool", content: "42", tool_call_id: "call_1"}
+          ]
         },
         ok_ctx()
       )
 
       assert_received {:dispatched, event}
-      assert [turn] = seeded_messages(event)
+      assert [turn, _result] = seeded_messages(event)
       assert turn.role == :assistant
       assert turn.tool_calls == tool_calls
     end
@@ -646,13 +649,16 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
         %{
           agent_id: agent.id,
           input: "go",
-          context: [%{role: "tool", content: "42", tool_call_id: "call_1", name: "search"}]
+          context: [
+            %{role: "assistant", content: "calling", tool_calls: [%{"id" => "call_1"}]},
+            %{role: "tool", content: "42", tool_call_id: "call_1", name: "search"}
+          ]
         },
         ok_ctx()
       )
 
       assert_received {:dispatched, event}
-      assert [turn] = seeded_messages(event)
+      assert [_call, turn] = seeded_messages(event)
       assert turn.role == :tool
       assert turn.content == "42"
       assert turn.tool_call_id == "call_1"
@@ -785,7 +791,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
           agent_id: agent.id,
           input: "go",
           context: [
-            %{role: "tool", content: 42},
+            %{role: "assistant", content: "calling", tool_calls: [%{"id" => "call_1"}]},
+            %{role: "tool", content: 42, tool_call_id: "call_1"},
             %{role: "user", content: %{"nested" => "value"}}
           ]
         },
@@ -795,6 +802,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert_received {:dispatched, event}
 
       assert [
+               %{role: :assistant},
                %{role: :tool, content: "42"},
                %{role: :user, content: content}
              ] = seeded_messages(event)
@@ -811,7 +819,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
           input: "go",
           context: [
             %{role: "assistant", content: "no tools"},
-            %{role: "tool", content: "result only"}
+            %{role: "assistant", content: "calling", tool_calls: [%{"id" => "call_1"}]},
+            %{role: "tool", content: "result only", tool_call_id: "call_1"}
           ]
         },
         ok_ctx()
@@ -819,9 +828,16 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
 
-      assert [assistant_turn, tool_turn] = seeded_messages(event)
+      assert [assistant_turn, _call, tool_turn] = seeded_messages(event)
       assert assistant_turn == %{role: :assistant, content: "no tools"}
-      assert tool_turn == %{role: :tool, content: "result only", tool_call_id: nil, name: nil}
+
+      # `name` was absent from the input and is not fabricated on the way through.
+      assert tool_turn == %{
+               role: :tool,
+               content: "result only",
+               tool_call_id: "call_1",
+               name: nil
+             }
     end
 
     test "wraps a single context map into a one-element seeded context" do
@@ -848,7 +864,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
           input: "go",
           context: [
             %{role: "user"},
-            %{role: "tool", content: "{{missing}}"}
+            %{role: "assistant", content: "calling", tool_calls: [%{"id" => "call_1"}]},
+            %{role: "tool", content: "{{missing}}", tool_call_id: "call_1"}
           ]
         },
         ok_ctx()
@@ -858,6 +875,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert [
                %{role: :user, content: ""},
+               %{role: :assistant},
                %{role: :tool, content: ""}
              ] = seeded_messages(event)
     end
@@ -970,28 +988,48 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
   describe "run/2 — context messages (property)" do
     @valid_roles ["user", "assistant", "tool"]
 
-    property "any list of valid entries round-trips to the same ordered role sequence" do
+    # A `tool` turn only survives alongside the assistant call that produced it —
+    # `Zaq.Agent.ContextWindow` drops half-blocks, so the unit that round-trips is
+    # the block, not the individual turn. Units are generated accordingly.
+    @units [:user, :assistant, :tool_block]
+
+    property "any list of valid units round-trips to the same ordered role sequence" do
       agent = create_agent()
 
       check all(
-              roles <- StreamData.list_of(StreamData.member_of(@valid_roles), max_length: 10),
+              units <- StreamData.list_of(StreamData.member_of(@units), max_length: 8),
               string_keys? <- StreamData.boolean()
             ) do
-        entries =
-          Enum.map(roles, fn role ->
-            entry = %{role: role, content: "content-#{role}"}
-            if string_keys?, do: stringify_keys(entry), else: entry
-          end)
+        entries = units |> Enum.with_index() |> Enum.flat_map(&unit_entries/1)
+        expected_roles = Enum.map(entries, & &1.role)
+
+        entries = if string_keys?, do: Enum.map(entries, &stringify_keys/1), else: entries
 
         RunAgent.run(%{agent_id: agent.id, input: "go", context: entries}, ok_ctx())
 
         assert_received {:dispatched, event}
         messages = seeded_messages(event) || []
-        assert Enum.map(messages, &to_string(&1.role)) == roles
+        assert Enum.map(messages, &to_string(&1.role)) == expected_roles
       end
     end
 
+    defp unit_entries({:tool_block, index}) do
+      id = "call_#{index}"
+
+      [
+        %{role: "assistant", content: "calling", tool_calls: [%{"id" => id}]},
+        %{role: "tool", content: "result", tool_call_id: id}
+      ]
+    end
+
+    defp unit_entries({role, _index}),
+      do: [%{role: to_string(role), content: "content-#{role}"}]
+
     @invalid_roles ["system", "developer", "bogus", ""]
+
+    # Standalone roles only: this property is about role filtering, and an unpaired
+    # `tool` turn is dropped by the tool-block rule rather than by role validation.
+    @standalone_roles ["user", "assistant"]
 
     property "invalid-role entries are dropped while valid ones keep their order" do
       agent = create_agent()
@@ -1000,7 +1038,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
               specs <-
                 StreamData.list_of(
                   StreamData.tuple(
-                    {StreamData.member_of(@valid_roles ++ @invalid_roles),
+                    {StreamData.member_of(@standalone_roles ++ @invalid_roles),
                      StreamData.string(:alphanumeric, min_length: 1, max_length: 6)}
                   ),
                   max_length: 12
@@ -1014,9 +1052,26 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
         got = seeded_messages(event) || []
 
         expected_roles =
-          specs |> Enum.map(&elem(&1, 0)) |> Enum.filter(&(&1 in @valid_roles))
+          specs |> Enum.map(&elem(&1, 0)) |> Enum.filter(&(&1 in @standalone_roles))
 
         assert Enum.map(got, &to_string(&1.role)) == expected_roles
+      end
+    end
+
+    property "an unpaired tool turn is dropped from a seeded context" do
+      agent = create_agent()
+
+      check all(role <- StreamData.member_of(@valid_roles)) do
+        entries = [%{role: role, content: "solo"}]
+
+        RunAgent.run(%{agent_id: agent.id, input: "go", context: entries}, ok_ctx())
+
+        assert_received {:dispatched, event}
+        got = seeded_messages(event) || []
+
+        # A lone tool result names no call, and providers reject it.
+        expected = if role == "tool", do: [], else: [role]
+        assert Enum.map(got, &to_string(&1.role)) == expected
       end
     end
   end

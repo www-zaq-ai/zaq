@@ -51,14 +51,14 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     extra keys: `"assistant"` may add `"tool_calls"`; `"tool"` may add
     `"tool_call_id"` and `"name"` (see `normalize_context_entry/2`). This tool builds
     the turns into a `Jido.AI.Context` (`build_context/2`) and passes it on the event's
-    `pipeline_opts[:context]`; `Factory.build_initial_context/3` uses it as the agent's
-    entire cold-start context (skipping history loading) when the server spawns.
+    `pipeline_opts[:context]`; `Zaq.Agent.Plugin.ContextWindowPlugin` uses it as the
+    agent's entire cold-start context (skipping history loading) when the server spawns.
   - `context_max_size` — optional positive integer. Token budget for the seeded
     context (default 5000). When the seed turns exceed it, the **oldest** turns are
-    dropped (newest kept) via `Zaq.Agent.TokenEstimator` in `build_context/2` before
-    the `Jido.AI.Context` is assembled, so a seeded context never blows past its
-    ceiling — mirroring the budget `HistoryLoader` applies on the history path. Also
-    carried as data on `metadata.context_max_size` for downstream observability.
+    dropped (newest kept) by `Zaq.Agent.ContextWindow` in `build_context/2`, so a
+    seeded context never blows past its ceiling and honours the same policy as every
+    other context path. Also carried as data on `metadata.context_max_size` for
+    downstream observability.
 
   All other params in the accumulated workflow state are available as
   `{{variable_name}}` substitutions in `input` (and in each context turn's `content`).
@@ -113,8 +113,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   require Logger
 
   alias Jido.AI.Context, as: AIContext
+  alias Zaq.Agent.ContextWindow
   alias Zaq.Agent.StreamEvents
-  alias Zaq.Agent.TokenEstimator
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
@@ -236,7 +236,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   end
 
   # `:context` is only present when the caller supplied seed turns — its absence
-  # keeps the standard history-loading path in `Factory.build_initial_context/3`.
+  # keeps the standard history-loading path in `Zaq.Agent.Plugin.ContextWindowPlugin`.
   defp pipeline_opts(context, nil), do: [skip_permissions: skip_permissions?(context)]
 
   defp pipeline_opts(context, %AIContext{} = ai_context),
@@ -310,42 +310,26 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   # Build the optional `context` param into a `Jido.AI.Context`, or nil when the
   # caller supplied none (so the agent falls back to normal history loading). The
-  # built context becomes the agent's entire cold-start context —
-  # `Factory.build_initial_context/3` uses it as-is, applying no further budget — so
-  # the token budget is enforced here, before assembly, by dropping the oldest turns
-  # that overflow `context_max_size` (default 5000).
+  # built context becomes the agent's entire cold-start context, so the budget is
+  # applied here by `Zaq.Agent.ContextWindow` — the same policy that bounds every
+  # other context path, rather than a private copy of it.
   defp build_context(params, vars) do
     case build_context_messages(params, vars) do
       [] ->
         nil
 
       messages ->
-        case within_budget(messages, context_budget(params)) do
-          [] -> nil
-          kept -> AIContext.new() |> AIContext.append_messages(kept)
-        end
+        AIContext.new()
+        |> AIContext.append_messages(messages)
+        |> ContextWindow.fit(context_budget(params))
+        |> reject_empty()
     end
   end
 
   defp context_budget(params), do: context_max_size(params) || @default_context_max_size
 
-  # Keep the most recent turns that fit within `max_tokens`, dropping the oldest
-  # first while preserving chronological order. Mirrors `HistoryLoader`'s budget
-  # policy so a seeded context honors the same token ceiling as loaded history.
-  defp within_budget(messages, max_tokens) do
-    messages
-    |> Enum.reverse()
-    |> Enum.reduce_while({[], 0}, fn msg, {acc, total} ->
-      new_total = total + TokenEstimator.estimate(msg.content || "")
-
-      if new_total > max_tokens do
-        {:halt, {acc, total}}
-      else
-        {:cont, {[msg | acc], new_total}}
-      end
-    end)
-    |> elem(0)
-  end
+  defp reject_empty(%AIContext{entries: []}), do: nil
+  defp reject_empty(%AIContext{} = context), do: context
 
   # Normalise the optional `context` param into an ordered list of role-keyed turn
   # maps (`role: "user" | "assistant" | "tool"`) — the unified role/content

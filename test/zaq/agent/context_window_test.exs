@@ -169,6 +169,80 @@ defmodule Zaq.Agent.ContextWindowTest do
              ]
     end
 
+    test "drops an assistant tool call whose result is absent from the context" do
+      # A run that died between :tool_started and :tool_completed commits a turn
+      # with the call but no result. Providers reject an assistant tool_calls
+      # message that is not followed by a tool message per tool_call_id, so the
+      # dangling call must not reach them — even when nothing needs trimming.
+      calls = [%{id: "call_1", name: "search", arguments: %{}}]
+
+      ctx =
+        context(
+          [
+            entry(:user, "older"),
+            entry(:assistant, "calling", %{tool_calls: calls}),
+            entry(:user, "current question")
+          ],
+          system_prompt: "sys"
+        )
+
+      assert roles_and_content(ContextWindow.fit(ctx, 5_000)) == [
+               {:system, "sys"},
+               {:user, "older"},
+               {:user, "current question"}
+             ]
+    end
+
+    test "drops an assistant entry when only some of its tool calls were answered" do
+      calls = [
+        %{id: "call_1", name: "search", arguments: %{}},
+        %{id: "call_2", name: "search", arguments: %{}}
+      ]
+
+      ctx =
+        context(
+          [
+            entry(:assistant, "calling", %{tool_calls: calls}),
+            entry(:tool, "only the first result", %{tool_call_id: "call_1"}),
+            entry(:user, "current question")
+          ],
+          system_prompt: "sys"
+        )
+
+      # The surviving result goes too — it would otherwise be orphaned by the
+      # assistant entry's removal.
+      assert roles_and_content(ContextWindow.fit(ctx, 5_000)) == [
+               {:system, "sys"},
+               {:user, "current question"}
+             ]
+    end
+
+    test "keeps a fully answered multi-call assistant entry" do
+      calls = [
+        %{id: "call_1", name: "search", arguments: %{}},
+        %{id: "call_2", name: "search", arguments: %{}}
+      ]
+
+      ctx =
+        context(
+          [
+            entry(:assistant, "calling", %{tool_calls: calls}),
+            entry(:tool, "first", %{tool_call_id: "call_1"}),
+            entry(:tool, "second", %{tool_call_id: "call_2"}),
+            entry(:user, "current question")
+          ],
+          system_prompt: "sys"
+        )
+
+      assert roles_and_content(ContextWindow.fit(ctx, 5_000)) == [
+               {:system, "sys"},
+               {:assistant, "calling"},
+               {:tool, "first"},
+               {:tool, "second"},
+               {:user, "current question"}
+             ]
+    end
+
     test "keeps a tool result when its assistant tool call survives" do
       calls = [%{id: "call_1", name: "search", arguments: %{}}]
 
