@@ -92,7 +92,7 @@ defmodule Zaq.Ingestion.RecordSource do
   Adapts volume entries into records for the ingest pipeline.
 
   These are pipeline input, not the outward-facing shape a data-source bridge answers with:
-  they carry no `materializing_event`, because the worker resolves a local path directly
+  they carry no `materialization_handle`, because the worker resolves a local path directly
   through `resolve_path/1` rather than dispatching for the bytes.
   """
   @spec from_entries([Entry.t()]) :: [Record.t()]
