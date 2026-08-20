@@ -25,11 +25,15 @@
     {
       "text": "Fixed current attachment materialization alias scope mismatch: Executor now aliases prompt attachments under the logical server id while using the returned server reference only for runtime calls. Added regression coverage for via-tuple server refs and verified focused Executor/alias tests, mix q, and git diff --check.",
       "timestamp": "2026-08-20T12:13:37Z"
+    },
+    {
+      "text": "Attachment-only follow-up: for explicit configured-agent routing, test first that nil content plus attachments is normalized and reaches Executor; preserve guard rejection for nil content without attachments and preserve the legacy default RAG path. Implement normalization at Agent.Api boundary; no PromptGuard or default answering-agent changes. Property test not warranted because this is a finite three-condition routing branch covered exhaustively by examples.",
+      "timestamp": "2026-08-20T17:42:12Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#613] Validate attachment flow and update docs",
   "type": "task",
-  "updated_at": "2026-08-20T12:13:37Z"
+  "updated_at": "2026-08-20T17:42:12Z"
 }
