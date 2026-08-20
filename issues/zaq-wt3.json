@@ -3,12 +3,12 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-20T06:33:40Z",
-  "description": "Fix download_document so an explicit export_mime_type supplied with a materialization_handle is treated as per-redemption representation state and overrides configured defaults without mutating signed handle identity.",
+  "description": "Implemented export MIME override for materialization handles. Decision: signed data_source_document locators remain identity-only (provider, file_id, config_id, document_mime_type); export_mime_type is per-redemption representation state passed through Materialization.materialize/4 to the trusted handler. DataSourceDocument allowlists only export_mime_type as a runtime option and rejects identity override attempts. Validation: focused materialization/download tests pass; mix format passes; mix q passes.",
   "id": "zaq-wt3",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-wt3] download_document handle export MIME override",
   "type": "bug",
-  "updated_at": "2026-08-20T06:33:45Z"
+  "updated_at": "2026-08-20T06:38:25Z"
 }
