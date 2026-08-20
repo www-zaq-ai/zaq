@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-gda"
+  ],
   "created": "2026-08-20T05:06:11Z",
   "description": "Generate and merge detailed test plans for uncovered lines in channels events, materialization, and materialization aliases.",
   "id": "zaq-bcs",
