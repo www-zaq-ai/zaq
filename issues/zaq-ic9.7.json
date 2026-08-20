@@ -17,11 +17,15 @@
     {
       "text": "Reworked media projection per review: core Jido.Plugin now defines transform_tool_result/3 post-tool interception; jido_ai runs mounted plugins in declaration order, preserves canonical tool_completed results, and uses transformed content in both Runner and durable Strategy context. Removed all ReAct tool_result_transformer config/request/action/fingerprint/event plumbing. ZAQ Factory now registers MediaResultTransformer only as a plugin; StreamEvents handles canonical tool_completed only. Validation: core Jido mix q + 2211 tests pass; jido_ai mix precommit passes and focused 235 tests pass (full suite had one unrelated timing failure that passed direct rerun); ZAQ mix q + focused 61 tests pass. git diff --check passes in all three repos. No commits made.",
       "timestamp": "2026-08-18T12:53:55Z"
+    },
+    {
+      "text": "Updated media refactor for handle-based communication materialization: JidoChat records now carry signed communication_media materialization_handle values; the existing Channels :materialize_record event routes by provider after handle verification; obsolete RecordCapability/RecordHydrator/hydrate_record/materializing_event code and tests were removed. Factory.after_tool_call now composes materialization aliases with MediaResultTransformer using ReqLLM.ToolResult for model-facing content parts, and StreamEvents extracts trace artifacts from ToolResult.output. Validation: focused media/materialization suite passed (6 doctests, 3 properties, 579 tests, 0 failures); mix q passed; git diff --check passed.",
+      "timestamp": "2026-08-20T08:38:17Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#613] Validate attachment flow and update docs",
   "type": "task",
-  "updated_at": "2026-08-18T12:53:55Z"
+  "updated_at": "2026-08-20T08:38:17Z"
 }
