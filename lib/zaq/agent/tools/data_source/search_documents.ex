@@ -6,12 +6,23 @@ defmodule Zaq.Agent.Tools.DataSource.SearchDocuments do
   records only.
   """
 
+  @output_schema Zoi.object(
+                   %{
+                     records:
+                       Zoi.list(
+                         Zaq.Contracts.Record.zoi_type(),
+                         description: "Document metadata results"
+                       )
+                       |> Zoi.optional(),
+                     count:
+                       Zoi.integer(description: "Number of results returned") |> Zoi.optional()
+                   },
+                   unrecognized_keys: :preserve
+                 )
+
   use Zaq.Engine.Workflows.Action,
     name: "search_documents",
-    output_schema: [
-      records: [type: {:list, :any}, required: false, doc: "Document metadata results"],
-      count: [type: :integer, required: false, doc: "Number of results returned"]
-    ],
+    output_schema: @output_schema,
     description: """
     Search documents from a specific datasource provider.
     Returns metadata results only. Use get_document to fetch a selected result.

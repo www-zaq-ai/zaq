@@ -18,6 +18,7 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | `Zaq.Channels.Api`                  | `lib/zaq/channels/api.ex`                    | Channels role boundary for `NodeRouter` events  |
 | `Zaq.Channels.CommunicationBridge`  | `lib/zaq/channels/communication_bridge.ex`   | Communication-domain routing/delegation helpers |
 | `Zaq.Channels.DataSourceBridge`     | `lib/zaq/channels/data_source_bridge.ex`     | DataSource-domain routing/delegation helpers    |
+| `Zaq.Channels.Materializers.DataSourceDocument` | `lib/zaq/channels/materializers/data_source_document.ex` | Data-source record materialization handler |
 | `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers               |
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters          |
 | `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources   |
@@ -133,6 +134,11 @@ defstruct [
 `Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
 
 `Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, `list_files`, file CRUD/search, listener setup/teardown, provider watch setup/teardown, and webhook normalization).
+
+Unmaterialized data-source file records carry a signed `materialization_handle` of type
+`data_source_document`. The handle survives agent/tool JSON serialization and is redeemed
+through `Zaq.Materialization`; the Channels materializer validates the locator and dispatches
+the fixed `:data_source_download_document` action.
 
 ### Data source required capabilities
 

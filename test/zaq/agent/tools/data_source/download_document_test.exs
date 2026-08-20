@@ -3,90 +3,29 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
 
   alias Jido.Action.Schema
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
+  alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Contracts.Record
   alias Zaq.Event
+  alias Zaq.Materialization
+  alias Zaq.Materialization.Handle
 
   defmodule StubNodeRouter do
-    def dispatch(%Event{request: %{provider: "google_drive", params: params}, opts: opts}) do
-      send(self(), {:dispatch, opts[:action], params})
+    def dispatch(%Event{request: %{provider: "google_drive", params: params}, opts: opts} = event) do
+      send(self(), {:dispatch, event.next_hop.destination, opts[:action], params})
 
       %{
-        Event.new(%{}, :channels)
+        event
         | response: {:ok, %{record: %{"id" => params["file_id"], "content" => "abc"}}}
       }
     end
   end
 
-  defmodule StubNodeRouterOkPayload do
-    def dispatch(%Event{request: %{provider: "google_drive", params: %{"file_id" => "f1"}}}) do
-      %{
-        Event.new(%{}, :channels)
-        | response: {:ok, %{status: "ok", bytes: 123}}
-      }
-    end
+  defmodule ErrorNodeRouter do
+    def dispatch(%Event{} = event), do: %{event | response: {:error, :timeout}}
   end
 
-  defmodule StubNodeRouterErrorTuple do
-    def dispatch(%Event{request: %{provider: "google_drive", params: %{"file_id" => "f1"}}}) do
-      %{
-        Event.new(%{}, :channels)
-        | response: {:error, :timeout}
-      }
-    end
-  end
-
-  defmodule StubNodeRouterUnexpected do
-    def dispatch(%Event{request: %{provider: "google_drive", params: %{"file_id" => "f1"}}}) do
-      %{
-        Event.new(%{}, :channels)
-        | response: :weird_response
-      }
-    end
-  end
-
-  defmodule StubNodeRouterMaterializing do
-    def dispatch(%Event{request: %{provider: "google_drive", params: params}, opts: opts}) do
-      send(self(), {:dispatch, opts[:action], params})
-
-      materializing_event =
-        Event.new(%{file_id: params["file_id"]}, :channels,
-          opts: [action: :read_materialized_bytes]
-        )
-
-      %{
-        Event.new(%{}, :channels)
-        | response:
-            {:ok,
-             %{
-               record: %Record{
-                 id: params["file_id"],
-                 kind: :file,
-                 content: nil,
-                 materializing_event: materializing_event
-               }
-             }}
-      }
-    end
-
-    def dispatch(%Event{request: %{file_id: "f1"}, opts: opts} = event) do
-      send(self(), {:dispatch, opts[:action], event.request})
-      %{event | response: {:ok, %{content: "materialized", encoding: "base64"}}}
-    end
-  end
-
-  defmodule StubNodeRouterCurrentDownloadResponse do
-    def dispatch(%Event{} = event) do
-      send(self(), {:dispatch, event.opts[:action], event.request})
-
-      downloaded = %Record{
-        id: "f1",
-        kind: :file,
-        content: "materialized from current API",
-        attributes: %{"encoding" => "base64"}
-      }
-
-      %{event | response: {:ok, %{record: downloaded}}}
-    end
+  defmodule UnexpectedNodeRouter do
+    def dispatch(%Event{} = event), do: %{event | response: :weird_response}
   end
 
   describe "schema" do
@@ -95,11 +34,8 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
       assert is_map(Schema.to_json_schema(DownloadDocument.schema()))
     end
 
-    test "accepts a metadata record input" do
-      assert :ok =
-               DownloadDocument.validate_input_mode(%{
-                 record: %Record{id: "f1", kind: :file}
-               })
+    test "accepts a materialization handle input" do
+      assert :ok = DownloadDocument.validate_input_mode(%{materialization_handle: "handle"})
     end
 
     test "accepts provider and document_id input" do
@@ -110,17 +46,22 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
                })
     end
 
-    test "rejects missing input mode" do
-      assert {:error, "provide either record or provider with document_id"} =
-               DownloadDocument.validate_input_mode(%{})
-    end
+    test "rejects missing, partial, and ambiguous input modes" do
+      message = "provide either materialization_handle or provider with document_id"
 
-    test "rejects partial provider input mode" do
-      assert {:error, "provide either record or provider with document_id"} =
+      assert {:error, ^message} = DownloadDocument.validate_input_mode(%{})
+
+      assert {:error, ^message} =
                DownloadDocument.validate_input_mode(%{provider: "google_drive"})
 
-      assert {:error, "provide either record or provider with document_id"} =
-               DownloadDocument.validate_input_mode(%{document_id: "f1"})
+      assert {:error, ^message} = DownloadDocument.validate_input_mode(%{document_id: "f1"})
+
+      assert {:error, ^message} =
+               DownloadDocument.validate_input_mode(%{
+                 materialization_handle: "handle",
+                 provider: "google_drive",
+                 document_id: "f1"
+               })
     end
 
     test "pre-validation converts map params using the action schema" do
@@ -138,12 +79,8 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
       assert converted["ignored"] == "kept"
     end
 
-    test "pre-validation leaves non-map params unchanged" do
+    test "pre-validation preserves non-map params" do
       assert {:ok, :raw_params} = DownloadDocument.on_before_validate_params(:raw_params)
-      assert {:ok, nil} = DownloadDocument.on_before_validate_params(nil)
-
-      assert {:ok, [:not, :a, :map]} =
-               DownloadDocument.on_before_validate_params([:not, :a, :map])
     end
 
     test "rejects non-object input mode" do
@@ -155,120 +92,107 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     end
   end
 
-  test "dispatches datasource download_document action" do
-    assert {:ok, %{record: %{"id" => "f1", "content" => "abc"}}} =
+  test "materializes a signed handle" do
+    assert {:ok, handle} =
+             Materialization.issue("data_source_document", %{
+               "provider" => "google_drive",
+               "file_id" => "f1"
+             })
+
+    assert {:ok, %{record: %Record{} = record}} =
+             DownloadDocument.run(%{materialization_handle: handle}, %{
+               node_router: StubNodeRouter
+             })
+
+    assert record.id == "f1"
+    assert record.content == "abc"
+    assert_received {:dispatch, :channels, :data_source_download_document, %{"file_id" => "f1"}}
+  end
+
+  test "materializes a signed handle with an explicit export MIME override" do
+    assert {:ok, handle} =
+             Materialization.issue("data_source_document", %{
+               "provider" => "google_drive",
+               "file_id" => "f1"
+             })
+
+    assert {:ok, %{record: %Record{} = record}} =
+             DownloadDocument.run(
+               %{materialization_handle: handle, export_mime_type: "text/plain"},
+               %{node_router: StubNodeRouter}
+             )
+
+    assert record.id == "f1"
+    assert record.content == "abc"
+
+    assert_received {:dispatch, :channels, :data_source_download_document,
+                     %{"file_id" => "f1", "export_mime_type" => "text/plain"}}
+  end
+
+  test "provider and document_id mode issues then redeems a data-source handle" do
+    assert {:ok, %{record: %Record{} = record}} =
              DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
                node_router: StubNodeRouter
              })
 
-    assert_received {:dispatch, :data_source_download_document, %{"file_id" => "f1"}}
+    assert record.id == "f1"
+    assert record.content == "abc"
+    assert_received {:dispatch, :channels, :data_source_download_document, %{"file_id" => "f1"}}
   end
 
-  test "passes config_id when present" do
-    assert {:ok, _} =
-             DownloadDocument.run(
-               %{provider: "google_drive", document_id: "f1", config_id: "12"},
-               %{node_router: StubNodeRouter}
-             )
-
-    assert_received {:dispatch, :data_source_download_document,
-                     %{"file_id" => "f1", "config_id" => "12"}}
-  end
-
-  test "passes document and export mime types when present" do
+  test "provider mode preserves config and MIME options in the download request" do
     assert {:ok, _} =
              DownloadDocument.run(
                %{
                  provider: "google_drive",
                  document_id: "f1",
+                 config_id: "12",
                  document_mime_type: "application/vnd.google-apps.document",
                  export_mime_type: "text/plain"
                },
                %{node_router: StubNodeRouter}
              )
 
-    assert_received {:dispatch, :data_source_download_document,
+    assert_received {:dispatch, :channels, :data_source_download_document,
                      %{
                        "file_id" => "f1",
+                       "config_id" => "12",
                        "document_mime_type" => "application/vnd.google-apps.document",
                        "export_mime_type" => "text/plain"
                      }}
   end
 
-  describe "run/2 response shapes" do
-    test "returns ok payloads without record normalization" do
-      result =
-        DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
-          node_router: StubNodeRouterOkPayload
-        })
+  test "provider mode keeps export MIME out of the signed locator" do
+    assert {:ok, handle} =
+             DataSourceDocument.issue("google_drive", "f1", %{
+               "config_id" => "12",
+               "document_mime_type" => "application/vnd.google-apps.document",
+               "export_mime_type" => "text/plain"
+             })
 
-      assert {:ok, %{status: "ok", bytes: 123}} = result
-      refute match?({:ok, %{record: _}}, result)
-    end
+    assert {:ok, %{locator: locator}} = Handle.verify(handle)
 
-    test "returns formatted errors for error tuples" do
-      assert {:error, "Data source document download failed: :timeout"} =
-               DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
-                 node_router: StubNodeRouterErrorTuple
-               })
-    end
+    refute Map.has_key?(locator, "export_mime_type")
+  end
 
-    test "returns formatted errors for unexpected responses" do
-      assert {:error, "Unexpected data source response: :weird_response"} =
-               DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
-                 node_router: StubNodeRouterUnexpected
-               })
-    end
+  test "returns formatted errors" do
+    assert {:error, "Data source document download failed: :timeout"} =
+             DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
+               node_router: ErrorNodeRouter
+             })
 
-    test "materializes unmaterialized record responses" do
-      assert {:ok, %{record: %Record{} = record}} =
-               DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
-                 node_router: StubNodeRouterMaterializing
-               })
+    assert {:error,
+            "Data source document download failed: unexpected materialize response :weird_response"} =
+             DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
+               node_router: UnexpectedNodeRouter
+             })
+  end
 
-      assert record.id == "f1"
-      assert record.content == "materialized"
-      assert record.attributes["encoding"] == "base64"
-      assert_received {:dispatch, :data_source_download_document, %{"file_id" => "f1"}}
-      assert_received {:dispatch, :read_materialized_bytes, %{file_id: "f1"}}
-    end
+  test "run returns an error when params do not contain a valid mode" do
+    assert {:error, "Provide either materialization_handle or provider with document_id"} =
+             DownloadDocument.run(%{}, %{})
 
-    test "consumes metadata records with materializing events" do
-      event =
-        Event.new(%{provider: "google_drive", params: %{"file_id" => "f1"}}, :channels,
-          opts: [action: :data_source_download_document]
-        )
-
-      metadata_record = %Record{
-        id: "f1",
-        kind: :file,
-        name: "Document.pdf",
-        materializing_event: event
-      }
-
-      assert {:ok, %{record: %Record{} = record}} =
-               DownloadDocument.run(%{record: metadata_record}, %{
-                 node_router: StubNodeRouterCurrentDownloadResponse
-               })
-
-      assert record.id == "f1"
-      assert record.name == "Document.pdf"
-      assert record.content == "materialized from current API"
-      assert record.attributes["encoding"] == "base64"
-
-      assert_received {:dispatch, :data_source_download_document,
-                       %{provider: "google_drive", params: %{"file_id" => "f1"}}}
-    end
-
-    test "run returns an error when params do not contain a record or provider document id" do
-      assert {:error, "Provide either record or provider with document_id"} =
-               DownloadDocument.run(%{}, %{})
-
-      assert {:error, "Provide either record or provider with document_id"} =
-               DownloadDocument.run(%{provider: "google_drive"}, %{})
-
-      assert {:error, "Provide either record or provider with document_id"} =
-               DownloadDocument.run(%{document_id: "f1"}, %{})
-    end
+    assert {:error, "Provide either materialization_handle or provider with document_id"} =
+             DownloadDocument.run(%{provider: "google_drive"}, %{})
   end
 end

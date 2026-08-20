@@ -42,6 +42,10 @@ Before writing any new agent-service code, verify which entry point already cove
 
 If the existing entry point does not cover your case, **extend it** — do not create a parallel path.
 
+Datasource file tools may return records with signed `materialization_handle` values. Tools
+that need document content should redeem those handles through `Zaq.Materialization` rather
+than accepting records with embedded events or constructing cross-service events inline.
+
 ---
 
 ## Module Responsibility Map
@@ -206,11 +210,9 @@ BO-managed skills built on **Open Agent Skills**, using Jido's *stateless* skill
 - `tool_keys` is the pre-split column, **dual-written** with `provided_tool_keys` through the
   rollout window; dropped once every node runs the new code.
 
-**Why validation adds a truncation guard.** Jido *truncates* an over-long `name`/`description`/
-`compatibility` and returns `:ok` even in strict mode (#323 G5). Persisting a silently-shortened
-record of truth is unacceptable, so `Validation` compares the parsed Spec against the input and
-rejects on mismatch. If upstream ever rejects instead, this guard becomes dead code and
-`Zaq.Agent.Skills.JidoContractTest` says so — do not delete it on a hunch.
+**Why validation round-trips through Jido.** Jido owns OAS field-shape validation and rejects
+over-long fields in strict mode. ZAQ serializes DB-backed skills to `SKILL.md`, parses them back,
+and rejects lossy fields such as `allowed_tools` so persisted skills remain import/export safe.
 
 **Body size** is capped at write time (`Zaq.Agent.Skills.Limits`, global config
 `:agent_skills`): a warning threshold, a token cap, and an un-gameable byte cap. A loaded body

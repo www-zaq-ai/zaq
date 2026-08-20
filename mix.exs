@@ -123,7 +123,7 @@ defmodule Zaq.MixProject do
       #  override: true},
       {:jido_chat_telegram,
        github: "jat10/jido_chat_telegram", branch: "fix/add-rich-markdown", override: true},
-      {:jido_ai, github: "www-zaq-ai/jido_ai", branch: "main", override: true},
+      {:jido_ai, github: "jfayad/jido_ai", branch: "feat/tool-result-plugin", override: true},
       # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       # Bump zoi to avoid conflicts with deps using the old 0.17.1 (jido_connect)
       {:zoi, "~> 0.18", override: true},

@@ -89,14 +89,8 @@ defmodule Zaq.Agent.Skills.JidoContractTest do
     end
   end
 
-  describe "3. the truncation bug (#323 G5) that ZAQ's validation guard exists to catch" do
-    # Jido TRUNCATES over-long fields and returns :ok even in strict mode, rather than
-    # rejecting. ZAQ must never persist a silently-shortened record of truth, so it
-    # compares the parsed Spec against the input and rejects on mismatch.
-    #
-    # If this test fails because upstream now REJECTS, that is good news: the ZAQ
-    # truncation guard has become dead code and should be deleted.
-    test "a 1025-char description parses :ok, truncated to 1024 — it is NOT rejected" do
+  describe "3. strict field validation for over-long descriptions" do
+    test "a 1025-char description is rejected in strict mode" do
       long_description = String.duplicate("d", 1025)
 
       content = """
@@ -107,11 +101,29 @@ defmodule Zaq.Agent.Skills.JidoContractTest do
       # Body
       """
 
-      assert {:ok, %Spec{} = parsed} = Loader.parse(content, "inline", lenient: false)
+      assert {:error, error} = Loader.parse(content, "inline", lenient: false)
 
-      assert String.length(parsed.description) == 1024,
-             "upstream no longer truncates — ZAQ's truncation guard may now be dead code"
+      assert %Jido.AI.Skill.Error.Validation.InvalidField{
+               field: :description,
+               reason: :too_long,
+               value: ^long_description
+             } = error
+    end
 
+    test "a 1025-char description is still truncated in lenient mode" do
+      long_description = String.duplicate("d", 1025)
+
+      content = """
+      ---
+      name: calculator
+      description: #{long_description}
+      ---
+      # Body
+      """
+
+      assert {:ok, %Spec{} = parsed} = Loader.parse(content, "inline", lenient: true)
+
+      assert String.length(parsed.description) == 1024
       refute parsed.description == long_description
     end
   end

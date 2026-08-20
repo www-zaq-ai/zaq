@@ -5,11 +5,20 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
   Delegates to Channels through `NodeRouter.dispatch/1`.
   """
 
+  @output_schema Zoi.object(
+                   %{
+                     record:
+                       Zaq.Contracts.Record.zoi_type(
+                         description: "Created document metadata record"
+                       )
+                       |> Zoi.optional()
+                   },
+                   unrecognized_keys: :preserve
+                 )
+
   use Zaq.Engine.Workflows.Action,
     name: "create_document",
-    output_schema: [
-      record: [type: :any, required: false, doc: "Created document metadata record"]
-    ],
+    output_schema: @output_schema,
     description: """
     Create a document on a specific datasource provider.
     Returns provider metadata for the created document.

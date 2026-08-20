@@ -207,6 +207,68 @@ defmodule Zaq.Channels.EventsTest do
     assert event.next_hop.type == :sync
   end
 
+  test "build_data_source_download_document_event builds channels download event" do
+    event =
+      Events.build_data_source_download_document_event(
+        "google_drive",
+        %{
+          "file_id" => "f1",
+          "config_id" => "12"
+        },
+        actor: %{person: %{id: 123}}
+      )
+
+    assert event.next_hop.destination == :channels
+    assert event.next_hop.type == :sync
+    assert event.opts[:action] == :data_source_download_document
+    assert event.actor == %{person: %{id: 123}}
+    assert event.request.provider == "google_drive"
+    assert event.request.params == %{"file_id" => "f1", "config_id" => "12"}
+  end
+
+  test "build_data_source_download_document_event uses default opts" do
+    params = %{"file_id" => "f1"}
+
+    event = Events.build_data_source_download_document_event("google_drive", params)
+
+    assert event.request == %{provider: "google_drive", params: params}
+    assert event.opts[:action] == :data_source_download_document
+    assert event.next_hop.destination == :channels
+    assert event.next_hop.type == :sync
+    assert event.actor == nil
+  end
+
+  test "build_and_dispatch_data_source_download_document_event dispatches built event" do
+    event =
+      Events.build_and_dispatch_data_source_download_document_event(
+        "google_drive",
+        %{"file_id" => "f1"},
+        node_router: StubNodeRouter
+      )
+
+    assert event.response == :ok
+    assert_received {:node_router_dispatch, dispatched}
+    assert dispatched.opts[:action] == :data_source_download_document
+    assert dispatched.request == %{provider: "google_drive", params: %{"file_id" => "f1"}}
+    assert dispatched.next_hop.destination == :channels
+    assert dispatched.next_hop.type == :sync
+  end
+
+  test "build_and_dispatch_data_source_download_document_event dispatches with default opts" do
+    provider =
+      "coverage-missing-download-provider-#{System.unique_integer([:positive])}"
+
+    params = %{"file_id" => "f1"}
+
+    event =
+      Events.build_and_dispatch_data_source_download_document_event(provider, params)
+
+    assert event.request == %{provider: provider, params: params}
+    assert event.opts[:action] == :data_source_download_document
+    assert event.next_hop == nil
+    assert event.response == {:error, {:no_bridge, provider}}
+  end
+
   test "build_and_dispatch_data_source_watch_item_event dispatches built event" do
     params = %{"channel_id" => "watch-1", "resource_id" => "resource-1"}
 

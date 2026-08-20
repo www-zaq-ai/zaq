@@ -29,6 +29,28 @@ defmodule Zaq.Agent.Skills.ValidationTest do
     def parse(_content, _source_path, _opts), do: {:error, %GenericFailure{}}
   end
 
+  defmodule MetadataInvalidFieldLoader do
+    def parse(_content, _source_path, _opts) do
+      {:error,
+       %Jido.AI.Skill.Error.Validation.InvalidField{
+         field: :metadata,
+         reason: :invalid_metadata,
+         value: %{foo: :bar}
+       }}
+    end
+  end
+
+  defmodule TagsInvalidFieldLoader do
+    def parse(_content, _source_path, _opts) do
+      {:error,
+       %Jido.AI.Skill.Error.Validation.InvalidField{
+         field: :tags,
+         reason: :invalid_type,
+         value: ["tooling"]
+       }}
+    end
+  end
+
   @valid %{
     name: "calculator",
     description: "Precise arithmetic. Use when the user asks for a calculation.",
@@ -160,6 +182,21 @@ defmodule Zaq.Agent.Skills.ValidationTest do
       assert {:error, errors} = Validation.validate(@valid, loader: GenericFailureLoader)
 
       assert {:body, "generic parser failure"} in errors
+    end
+
+    test "a mapped InvalidField preserves its changeset field" do
+      assert {:error, errors} =
+               Validation.validate(@valid, loader: MetadataInvalidFieldLoader)
+
+      assert {:metadata, message} = List.keyfind(errors, :metadata, 0)
+      assert message =~ "Invalid metadata"
+    end
+
+    test "an unmapped InvalidField falls back to the body field" do
+      assert {:error, errors} = Validation.validate(@valid, loader: TagsInvalidFieldLoader)
+
+      assert {:body, message} = List.keyfind(errors, :body, 0)
+      assert message =~ "Invalid tags"
     end
 
     test "an over-long name is rejected rather than truncated" do

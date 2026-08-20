@@ -5,11 +5,20 @@ defmodule Zaq.Agent.Tools.DataSource.GetDocument do
   Delegates to Channels through `NodeRouter.dispatch/1`.
   """
 
+  @output_schema Zoi.object(
+                   %{
+                     record:
+                       Zaq.Contracts.Record.zoi_type(
+                         description: "Selected document metadata record"
+                       )
+                       |> Zoi.optional()
+                   },
+                   unrecognized_keys: :preserve
+                 )
+
   use Zaq.Engine.Workflows.Action,
     name: "get_document",
-    output_schema: [
-      record: [type: :any, required: false, doc: "Selected document metadata record"]
-    ],
+    output_schema: @output_schema,
     description: """
     Get a document by id from a specific datasource provider.
     Returns metadata for the selected document.

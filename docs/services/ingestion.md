@@ -142,6 +142,9 @@ File path
 - `query_extraction/2` — token-limited context builder for the answering agent (max context window from `Zaq.System.get_llm_config/0`)
 - Uses `LanguageDetector` to choose per-chunk text-search language config with confidence threshold fallback
 - Current limitation: `prepare_file_chunks/1` materializes all chunk payloads in memory before persistence/scheduling
+- External data-source records persist their signed `materialization_handle` when available.
+  `RecordSource.materialize/1` redeems handles through `Zaq.Materialization`; records without
+  handles are reissued from trusted provider/config/file attributes before download.
 
 ### Document Access (`Zaq.Ingestion.DocumentAccess`)
 - Centralized permission-filtered queries for counts/listings and source-filter handling

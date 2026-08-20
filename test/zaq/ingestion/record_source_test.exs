@@ -409,16 +409,19 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       mime_type: "inode/directory",
       size: 12,
       modified_at: datetime,
+      materialization_handle: "signed-handle",
       attributes: %{"volume" => "docs"}
     }
 
     storage = RecordSource.to_storage_map(record)
     assert storage["kind"] == "directory"
     assert storage["modified_at"] == DateTime.to_iso8601(datetime)
+    assert storage["materialization_handle"] == "signed-handle"
 
     assert {:ok, decoded} = RecordSource.from_storage_map(storage)
     assert decoded.kind == :folder
     assert decoded.modified_at == datetime
+    assert decoded.materialization_handle == "signed-handle"
 
     nil_storage = RecordSource.to_storage_map(%Record{id: "r7", kind: :file, modified_at: nil})
     assert nil_storage["modified_at"] == nil

@@ -19,17 +19,14 @@ defmodule Zaq.Agent.Skills.Validation do
   `@name_regex` / `@max_name_length` / `@max_description_length` constants in
   `Zaq.Agent.Skill` were hand-copied from `loader.ex` and had nothing keeping them in sync.
 
-  ## The truncation guard
+  ## The round-trip guard
 
-  Jido **truncates** an over-long `name`, `description` or `compatibility` and returns
-  `:ok` — *even in strict mode* (`loader.ex:303`: "Always truncate long descriptions as a
-  warning"). Silently persisting a shortened record of truth is not acceptable, so after
-  parsing we compare every field against what we submitted and reject on any mismatch.
+  Jido owns field-shape validation and rejects over-long fields in strict mode. ZAQ
+  still compares round-tripped values that can be normalized by serialization, so a
+  lossy SKILL.md encoding is rejected before it can be persisted.
 
-  This guard is ~20 lines on top of Jido's validator, not a reimplementation of it. It is
-  tracked upstream as gap G5 (agentjido/jido_ai#323); if Jido ever rejects instead of
-  truncating, this becomes dead code and the contract test in
-  `Zaq.Agent.Skills.JidoContractTest` will say so.
+  This guard is intentionally narrow: it is a check that the persisted record can be
+  faithfully exported and parsed back, not a reimplementation of Jido's validator.
   """
 
   alias Jido.AI.Skill.Diagnostics
@@ -62,7 +59,7 @@ defmodule Zaq.Agent.Skills.Validation do
 
     case loader.parse(content, source_path, lenient: false) do
       {:ok, %Spec{} = spec} ->
-        case truncation_errors(spec, name, description, allowed_tools) do
+        case round_trip_errors(spec, allowed_tools) do
           [] -> {:ok, spec, diagnostics_map(spec.diagnostics)}
           errors -> {:error, errors}
         end
@@ -118,17 +115,10 @@ defmodule Zaq.Agent.Skills.Validation do
     "\"#{escaped}\""
   end
 
-  # Jido returns {:ok, truncated} rather than an error, so a mismatch here means a field
-  # was silently shortened. Compare against the submitted values and refuse to persist.
-  defp truncation_errors(%Spec{} = spec, name, description, allowed_tools) do
+  # Compare fields whose SKILL.md encoding can be lossy and refuse to persist any
+  # value that does not parse back to the submitted shape.
+  defp round_trip_errors(%Spec{} = spec, allowed_tools) do
     [
-      field_mismatch(:name, spec.name, name, "is too long (max 64 characters)"),
-      field_mismatch(
-        :description,
-        spec.description,
-        description,
-        "is too long (max 1024 characters)"
-      ),
       field_mismatch(
         :allowed_tools,
         spec.allowed_tools,
@@ -167,8 +157,18 @@ defmodule Zaq.Agent.Skills.Validation do
     case mod do
       Jido.AI.Skill.Error.Validation.MissingField -> {error.field, "can't be blank"}
       Jido.AI.Skill.Error.Validation.InvalidName -> {:name, message}
+      Jido.AI.Skill.Error.Validation.InvalidField -> invalid_field_error(error, message)
       Jido.AI.Skill.Error.Parse.InvalidYaml -> {:description, message}
       _ -> {:body, message}
     end
   end
+
+  defp invalid_field_error(%{field: :description, reason: :too_long}, _message),
+    do: {:description, "is too long (max 1024 characters)"}
+
+  defp invalid_field_error(%{field: field}, message)
+       when field in [:description, :allowed_tools, :metadata, :license, :compatibility],
+       do: {field, message}
+
+  defp invalid_field_error(_error, message), do: {:body, message}
 end

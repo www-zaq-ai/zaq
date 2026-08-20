@@ -63,6 +63,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 | Add-ons loading & feature gating               | `docs/services/addons.md`       |
 | System config, secrets, encryption             | `docs/services/system-config.md` |
 | Telemetry, metrics, buffer behavior            | `docs/services/telemetry.md`     |
+| Record materialization handles                 | `docs/services/materialization.md` |
 | Workflows: DAG engine, triggers, run lifecycle | `docs/services/workflows.md`     |
 
 ---

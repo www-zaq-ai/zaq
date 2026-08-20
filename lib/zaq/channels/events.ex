@@ -55,6 +55,27 @@ defmodule Zaq.Channels.Events do
     build_data_source_event(provider, params, :data_source_watch_item, opts)
   end
 
+  @spec build_data_source_download_document_event(atom() | String.t(), map(), keyword()) ::
+          Event.t()
+  @doc "Builds a Channels event that requests provider data-source document download."
+  def build_data_source_download_document_event(provider, params, opts \\ [])
+      when is_map(params) do
+    build_data_source_event(provider, params, :data_source_download_document, opts)
+  end
+
+  @spec build_and_dispatch_data_source_download_document_event(
+          atom() | String.t(),
+          map(),
+          keyword()
+        ) :: Event.t()
+  @doc "Builds and dispatches a provider data-source document download event."
+  def build_and_dispatch_data_source_download_document_event(provider, params, opts \\ [])
+      when is_map(params) do
+    provider
+    |> build_data_source_download_document_event(params, opts)
+    |> node_router(opts).dispatch()
+  end
+
   @spec build_and_dispatch_data_source_watch_item_event(atom() | String.t(), map(), keyword()) ::
           Event.t()
   @doc "Builds and dispatches a provider data-source watch setup event."
@@ -87,6 +108,7 @@ defmodule Zaq.Channels.Events do
 
     Event.new(%{provider: provider, params: params}, :channels,
       type: event_type,
+      actor: Keyword.get(opts, :actor),
       opts: [action: action] ++ event_opts
     )
   end

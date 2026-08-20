@@ -5,6 +5,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Connect
   alias Zaq.Event
+  alias Zaq.Materialization.Handle
   alias Zaq.Repo
 
   defmodule StubIntegration do
@@ -1130,7 +1131,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert opts[:credential_lease].connection_id == "grant:#{grant.id}"
   end
 
-  test "list_files attaches materializing events to metadata file records" do
+  test "list_files attaches materialization handles to metadata file records" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
     _grant = create_active_grant!(credential, config.id)
@@ -1138,21 +1139,21 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert {:ok, %Zaq.Contracts.RecordPage{records: records}} =
              JidoConnectBridge.list_resources(config, %{})
 
-    assert %Record{id: "f1", kind: :folder, materializing_event: nil} =
+    assert %Record{id: "f1", kind: :folder, materialization_handle: nil} =
              Enum.find(records, &(&1.id == "f1"))
 
-    assert %Record{id: "f2", kind: :file, content: nil, materializing_event: %Event{} = event} =
+    assert %Record{id: "f2", kind: :file, content: nil, materialization_handle: handle} =
              Enum.find(records, &(&1.id == "f2"))
 
-    assert event.opts[:action] == :data_source_download_document
-    assert event.next_hop.destination == :channels
-    assert to_string(event.request.provider) == "google_drive"
-    assert event.request.params["file_id"] == "f2"
-    assert event.request.params["config_id"] == config.id
-    assert event.request.params["document_mime_type"] == "application/pdf"
+    assert {:ok, %{type: "data_source_document", locator: locator}} = Handle.verify(handle)
+
+    assert locator["provider"] == "google_drive"
+    assert locator["file_id"] == "f2"
+    assert locator["config_id"] == config.id
+    assert locator["document_mime_type"] == "application/pdf"
   end
 
-  test "list_files preserves inline content without a materializing event" do
+  test "list_files preserves inline content without a materialization handle" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
     _grant = create_active_grant!(credential, config.id)
@@ -1169,7 +1170,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     assert record.id == "f-inline"
     assert record.content == "already here"
     assert record.attributes["encoding"] == "utf-8"
-    assert record.materializing_event == nil
+    assert record.materialization_handle == nil
   end
 
   test "create_file uses upload action when content is present" do

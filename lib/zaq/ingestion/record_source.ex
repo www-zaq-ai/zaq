@@ -8,8 +8,10 @@ defmodule Zaq.Ingestion.RecordSource do
   events, without adding provider-specific ingestion logic.
   """
 
+  alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Contracts.Record
   alias Zaq.Event
+  alias Zaq.Materialization
 
   alias Zaq.Ingestion.{
     ExternalSidecarStore,
@@ -100,7 +102,8 @@ defmodule Zaq.Ingestion.RecordSource do
       "modified_at" => encode_datetime(record.modified_at),
       "owners" => safe_owners(record.owners),
       "permissions" => safe_permissions(record.permissions),
-      "attributes" => safe_attributes(record.attributes || %{})
+      "attributes" => safe_attributes(record.attributes || %{}),
+      "materialization_handle" => record.materialization_handle
     }
   end
 
@@ -122,7 +125,8 @@ defmodule Zaq.Ingestion.RecordSource do
        modified_at: decode_datetime(Map.get(map, "modified_at")),
        owners: Map.get(map, "owners", []),
        permissions: storage_permissions(Map.get(map, "permissions", [])),
-       attributes: Map.get(map, "attributes", %{})
+       attributes: Map.get(map, "attributes", %{}),
+       materialization_handle: Map.get(map, "materialization_handle")
      }}
   end
 
@@ -155,18 +159,35 @@ defmodule Zaq.Ingestion.RecordSource do
     end
   end
 
+  defp download_external(%Record{materialization_handle: handle}) when is_binary(handle) do
+    Materialization.materialize(
+      handle,
+      data_source_context(),
+      "Data source document download failed"
+    )
+  end
+
   defp download_external(%Record{} = record) do
-    params = %{
+    attrs = %{
       "config_id" => ExternalSource.config_id(record),
-      "file_id" => ExternalSource.file_id(record),
       "document_mime_type" => record.mime_type
     }
 
-    Event.new(%{provider: ExternalSource.provider(record), params: params}, :channels,
-      opts: data_source_opts(:data_source_download_document)
-    )
-    |> NodeRouter.dispatch()
-    |> Map.get(:response)
+    case DataSourceDocument.issue(
+           ExternalSource.provider(record),
+           ExternalSource.file_id(record),
+           attrs
+         ) do
+      {:ok, handle} ->
+        Materialization.materialize(
+          handle,
+          data_source_context(),
+          "Data source document download failed"
+        )
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp store_download(record, %Record{content: rows}) when is_list(rows) do
@@ -399,5 +420,16 @@ defmodule Zaq.Ingestion.RecordSource do
           Zaq.Channels.DataSourceBridge
         )
     ]
+  end
+
+  defp data_source_context do
+    %{
+      data_source_bridge_module:
+        Application.get_env(
+          :zaq,
+          :ingestion_data_source_bridge_module,
+          Zaq.Channels.DataSourceBridge
+        )
+    }
   end
 end

@@ -2,12 +2,11 @@ defmodule Zaq.Contracts.RecordTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Contracts.Record
-  alias Zaq.Event
 
   # Every field that must never leave the struct. Kept as a literal here on purpose: if the
-  # struct grows a field carrying provider internals or a dispatchable capability, one of
+  # struct grows a field carrying provider internals, one of
   # these tests should fail rather than the field quietly appearing in a tool result.
-  @private_fields [:materializing_event, :raw]
+  @private_fields [:raw]
 
   defp record(attrs \\ %{}) do
     struct!(
@@ -18,10 +17,9 @@ defmodule Zaq.Contracts.RecordTest do
         mime_type: "text/markdown",
         content: "# guide",
         path: "manuals/guide.md",
+        materialization_handle: "signed-handle",
         attributes: %{"provider" => "disk"},
-        raw: %{local_entry: %{name: "guide.md"}},
-        materializing_event:
-          Event.new(%{file_id: "42"}, :ingestion, opts: [action: :materialize_record])
+        raw: %{local_entry: %{name: "guide.md"}}
       },
       attrs
     )
@@ -51,11 +49,12 @@ defmodule Zaq.Contracts.RecordTest do
       assert decoded["kind"] == "file"
       assert decoded["content"] == "# guide"
       assert decoded["attributes"] == %{"provider" => "disk"}
+      assert decoded["materialization_handle"] == "signed-handle"
       assert decoded["parent_ids"] == []
       assert decoded["owners"] == []
     end
 
-    test "omits raw and materializing_event" do
+    test "omits raw" do
       decoded = record() |> Jason.encode!() |> Jason.decode!()
 
       for field <- @private_fields do
@@ -64,15 +63,13 @@ defmodule Zaq.Contracts.RecordTest do
       end
     end
 
-    test "a record encodes even when it carries an event" do
-      # A `%Zaq.Event{}` has no encoder — the record only encodes because the event is
-      # excluded from the derived field list.
+    test "a record encodes when it carries a signed materialization handle" do
       assert is_binary(Jason.encode!(record()))
     end
   end
 
   describe "round trip through JSON" do
-    test "comes back without the event, and therefore cannot be materialized" do
+    test "keeps the materialization handle but not raw provider internals" do
       rebuilt =
         record()
         |> Jason.encode!()
@@ -81,12 +78,25 @@ defmodule Zaq.Contracts.RecordTest do
         |> then(&struct(Record, &1))
 
       assert rebuilt.id == "42"
-      assert rebuilt.materializing_event == nil
+      assert rebuilt.materialization_handle == "signed-handle"
       assert rebuilt.raw == %{}
     end
   end
 
   test "id and kind are enforced" do
     assert_raise ArgumentError, fn -> struct!(Record, name: "guide.md") end
+  end
+
+  describe "zoi_type/1" do
+    test "accepts records and rejects other values" do
+      schema = Record.zoi_type()
+
+      assert {:ok, %Record{}} = Zoi.parse(schema, record())
+      assert {:error, _errors} = Zoi.parse(schema, %{"id" => "42", "kind" => "file"})
+    end
+
+    test "encodes to JSON Schema for tool catalog validation" do
+      assert is_map(Zoi.JSONSchema.encode(Record.zoi_type(description: "A ZAQ record")))
+    end
   end
 end

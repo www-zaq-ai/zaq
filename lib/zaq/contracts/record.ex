@@ -3,19 +3,12 @@ defmodule Zaq.Contracts.Record do
   Canonical domain-agnostic record payload.
 
   A pure struct — it never dispatches. A record may travel between nodes
-  **unmaterialized**: full metadata with `content: nil` and a `materializing_event` that
-  fetches the bytes. Whoever wants the content dispatches that event itself.
-
-  `materializing_event` is excluded from the `Jason.Encoder` `only:` list, because a
-  dispatchable event inside a serialized payload would let whoever holds the record choose
-  which event fires, on which node, with which params. As a result a record rebuilt from
-  JSON — out of an LLM tool result or persisted workflow state — always comes back with
-  `materializing_event: nil` and cannot be materialized.
+  **unmaterialized**: full metadata with `content: nil` and a signed
+  `materialization_handle` that can be redeemed by `Zaq.Materialization`.
   """
 
-  # What may leave the struct as JSON. `raw` and `materializing_event` are deliberately
-  # absent — `raw` holds provider internals, and `materializing_event` is a dispatchable
-  # capability that must never travel to a model or into persisted state.
+  # What may leave the struct as JSON. `raw` is deliberately absent because it holds
+  # provider internals. `materialization_handle` is signed and JSON-safe.
   @public_fields [
     :id,
     :kind,
@@ -36,12 +29,14 @@ defmodule Zaq.Contracts.Record do
     :permissions,
     :parent_ids,
     :owners,
-    :attributes
+    :attributes,
+    :materialization_handle
   ]
 
   @derive {Jason.Encoder, only: @public_fields}
 
   @enforce_keys [:id, :kind]
+  @semantic_type :record
   defstruct [
     :id,
     :kind,
@@ -60,7 +55,7 @@ defmodule Zaq.Contracts.Record do
     :lifecycle_state,
     :deleted_at,
     :permissions,
-    :materializing_event,
+    :materialization_handle,
     parent_ids: [],
     owners: [],
     attributes: %{},
@@ -89,6 +84,35 @@ defmodule Zaq.Contracts.Record do
           permissions: nil | [t()],
           attributes: map(),
           raw: map(),
-          materializing_event: Zaq.Event.t() | nil
+          materialization_handle: String.t() | nil
         }
+
+  @doc """
+  Returns the semantic Zoi type for canonical records.
+
+  The JSON Schema representation is intentionally permissive because records can
+  carry arbitrary provider payloads, while runtime validation still requires the
+  canonical `%#{inspect(__MODULE__)}{}` struct.
+  """
+  @spec zoi_type(keyword()) :: Zoi.schema()
+  def zoi_type(opts \\ []) do
+    metadata =
+      opts
+      |> Keyword.get(:metadata, [])
+      |> Keyword.put(:zaq_semantic_type, @semantic_type)
+
+    opts
+    |> Keyword.put(:metadata, metadata)
+    |> Zoi.any()
+    |> Zoi.refine({__MODULE__, :validate_zoi_type, []})
+  end
+
+  @doc "Returns the semantic schema marker used by agent-side Record processors."
+  @spec semantic_type() :: :record
+  def semantic_type, do: @semantic_type
+
+  @doc "Validates that a Zoi value is a canonical Record struct."
+  @spec validate_zoi_type(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_zoi_type(%__MODULE__{}, _opts), do: :ok
+  def validate_zoi_type(_value, _opts), do: {:error, "expected %#{inspect(__MODULE__)}{}"}
 end

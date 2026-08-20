@@ -2,18 +2,19 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
   @moduledoc """
   ReAct tool: downloads datasource document content.
 
-  Prefer passing a metadata `%Zaq.Contracts.Record{}` returned by browse/list/search/get when it
-  has a `materializing_event`; that event is the provider-specific download route and preserves
-  the record metadata that selected the document. The legacy `provider` + `document_id` path is
-  still supported for callers that only have an identifier.
+  Pass either a `materialization_handle` returned by browse/list/search/get, or a
+  `provider` + `document_id` pair. The provider pair may include `config_id` to select an
+  explicit data-source configuration.
 
   Delegates to Channels through `NodeRouter.dispatch/1`.
   """
 
   @schema Zoi.object(
             %{
-              record:
-                Zoi.map(description: "Metadata record with a materializing event.")
+              materialization_handle:
+                Zaq.Materialization.Handle.zoi_type(
+                  description: "Signed materialization handle returned by a record."
+                )
                 |> Zoi.optional(),
               provider:
                 Zoi.string(description: "Datasource provider key.")
@@ -41,17 +42,25 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
           )
           |> Zoi.refine({__MODULE__, :validate_input_mode, []})
 
+  @output_schema Zoi.object(
+                   %{
+                     record:
+                       Zaq.Contracts.Record.zoi_type(
+                         description: "Normalized record including document content"
+                       )
+                       |> Zoi.optional()
+                   },
+                   unrecognized_keys: :preserve
+                 )
+
   use Zaq.Engine.Workflows.Action,
     name: "download_document",
-    output_schema: [
-      record: [type: :any, required: false, doc: "Normalized record including document content"]
-    ],
+    output_schema: @output_schema,
     description: """
     Download datasource document content.
 
-    Pass either a metadata record with a materializing event, or a provider plus document_id.
-    The record path is preferred when the document came from a datasource browse/list/search/get
-    result, because the event already carries the correct routed download request.
+    Pass either a materialization_handle, or a provider plus document_id. Include config_id
+    when the provider has multiple configurations and a specific source must be used.
 
     Returns a normalized record including document content.
     """,
@@ -59,7 +68,9 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
 
   alias Jido.Action.Tool
   alias Zaq.Agent.Tools.DataSourceTool
-  alias Zaq.Contracts.RecordMaterializer
+  alias Zaq.Channels.Materializers.DataSourceDocument
+  alias Zaq.Helpers
+  alias Zaq.Materialization
 
   @impl Jido.Action
 
@@ -72,59 +83,72 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
   def validate_input_mode(params, _opts \\ [])
 
   def validate_input_mode(params, _opts) when is_map(params) do
-    has_record? = present?(Map.get(params, :record) || Map.get(params, "record"))
-    has_provider? = present?(Map.get(params, :provider) || Map.get(params, "provider"))
-    has_document_id? = present?(Map.get(params, :document_id) || Map.get(params, "document_id"))
+    has_handle? =
+      not Helpers.blank?(
+        Map.get(params, :materialization_handle) || Map.get(params, "materialization_handle")
+      )
 
-    cond do
-      has_record? ->
-        :ok
+    has_provider? = not Helpers.blank?(Map.get(params, :provider) || Map.get(params, "provider"))
 
-      has_provider? and has_document_id? ->
-        :ok
+    has_document_id? =
+      not Helpers.blank?(Map.get(params, :document_id) || Map.get(params, "document_id"))
 
-      true ->
-        {:error, "provide either record or provider with document_id"}
-    end
+    has_provider_mode? = has_provider? and has_document_id?
+
+    validate_input_mode_flags(has_handle?, has_provider_mode?)
   end
 
   def validate_input_mode(_params, _opts),
     do: {:error, "download_document input must be an object"}
 
+  defp validate_input_mode_flags(true, false), do: :ok
+  defp validate_input_mode_flags(false, true), do: :ok
+
+  defp validate_input_mode_flags(_has_handle?, _has_provider_mode?),
+    do: {:error, "provide either materialization_handle or provider with document_id"}
+
   @impl Jido.Action
 
-  def run(%{record: record}, context) do
-    RecordMaterializer.materialize(
-      %{record: record},
+  def run(%{materialization_handle: handle} = params, context) when is_binary(handle) do
+    Materialization.materialize(
+      handle,
       context,
-      "Data source document download failed"
+      "Data source document download failed",
+      materialization_options(params)
     )
   end
 
   def run(%{provider: provider, document_id: document_id} = params, context) do
-    request =
-      %{"file_id" => document_id}
-      |> DataSourceTool.merge_optional(params, [
-        :document_mime_type,
-        :export_mime_type,
-        :config_id
-      ])
-      |> DataSourceTool.wrap_request(provider)
-
     error_prefix = "Data source document download failed"
+    attrs = optional_attrs(params)
 
-    DataSourceTool.dispatch(
-      :data_source_download_document,
-      request,
-      context,
-      error_prefix,
-      &RecordMaterializer.materialize(&1, context, error_prefix)
-    )
+    with {:ok, handle} <- DataSourceDocument.issue(provider, document_id, attrs),
+         {:ok, payload} <-
+           Materialization.materialize(
+             handle,
+             context,
+             error_prefix,
+             materialization_options(params)
+           ) do
+      {:ok, payload}
+    else
+      {:error, reason} when is_binary(reason) -> {:error, reason}
+      {:error, reason} -> {:error, "#{error_prefix}: #{inspect(reason)}"}
+    end
   end
 
-  def run(_params, _context), do: {:error, "Provide either record or provider with document_id"}
+  def run(_params, _context),
+    do: {:error, "Provide either materialization_handle or provider with document_id"}
 
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(nil), do: false
-  defp present?(_value), do: true
+  defp optional_attrs(params) do
+    %{}
+    |> DataSourceTool.merge_optional(params, [:document_mime_type, :config_id])
+    |> Map.reject(fn {_key, value} -> Helpers.blank?(value) end)
+  end
+
+  defp materialization_options(params) do
+    %{}
+    |> DataSourceTool.merge_optional(params, [:export_mime_type])
+    |> Map.reject(fn {_key, value} -> Helpers.blank?(value) end)
+  end
 end

@@ -1,0 +1,98 @@
+defmodule Zaq.Channels.Materializers.DataSourceDocumentTest do
+  use Zaq.DataCase, async: true
+  use ExUnitProperties
+
+  alias Zaq.Channels.Materializers.DataSourceDocument
+  alias Zaq.Event
+  alias Zaq.Materialization.Handle
+
+  defmodule StubNodeRouter do
+    def dispatch(%Event{request: %{provider: provider, params: params}, opts: opts} = event) do
+      send(
+        self(),
+        {:dispatch, event.next_hop.destination, opts[:action], provider, params, event.actor}
+      )
+
+      %{event | response: {:ok, %{content: "downloaded"}}}
+    end
+  end
+
+  test "issues data-source document handles with identity locator fields" do
+    assert {:ok, handle} =
+             DataSourceDocument.issue("google_drive", "f1", %{
+               "config_id" => "12",
+               "document_mime_type" => "application/pdf",
+               "export_mime_type" => "text/plain"
+             })
+
+    assert {:ok, %{type: "data_source_document", locator: locator}} = Handle.verify(handle)
+    assert locator["provider"] == "google_drive"
+    assert locator["file_id"] == "f1"
+    assert locator["config_id"] == "12"
+    assert locator["document_mime_type"] == "application/pdf"
+    refute Map.has_key?(locator, "export_mime_type")
+  end
+
+  test "materializes through a fixed Channels download action" do
+    assert {:ok, %{content: "downloaded"}} =
+             DataSourceDocument.materialize(
+               %{"provider" => "google_drive", "file_id" => "f1", "config_id" => "12"},
+               %{node_router: StubNodeRouter, actor: %{person: %{id: 123}}}
+             )
+
+    assert_received {:dispatch, :channels, :data_source_download_document, "google_drive",
+                     %{"file_id" => "f1", "config_id" => "12"}, %{person: %{id: 123}}}
+  end
+
+  test "materializes with an explicit export MIME runtime option" do
+    assert {:ok, %{content: "downloaded"}} =
+             DataSourceDocument.materialize(
+               %{"provider" => "google_drive", "file_id" => "f1", "config_id" => "12"},
+               %{node_router: StubNodeRouter},
+               %{"export_mime_type" => "text/plain"}
+             )
+
+    assert_received {:dispatch, :channels, :data_source_download_document, "google_drive",
+                     %{
+                       "file_id" => "f1",
+                       "config_id" => "12",
+                       "export_mime_type" => "text/plain"
+                     }, nil}
+  end
+
+  test "rejects runtime options that try to override locator identity" do
+    assert {:error, :invalid_materialization_options} =
+             DataSourceDocument.materialize(
+               %{"provider" => "google_drive", "file_id" => "f1", "config_id" => "12"},
+               %{node_router: StubNodeRouter},
+               %{"file_id" => "other"}
+             )
+  end
+
+  property "runtime options never change signed locator identity" do
+    check all(
+            provider <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
+            file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
+            config_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
+            attempted_file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20)
+          ) do
+      locator = %{"provider" => provider, "file_id" => file_id, "config_id" => config_id}
+
+      result =
+        DataSourceDocument.materialize(locator, %{node_router: StubNodeRouter}, %{
+          "file_id" => attempted_file_id,
+          "export_mime_type" => "text/plain"
+        })
+
+      assert {:error, :invalid_materialization_options} = result
+    end
+  end
+
+  test "rejects invalid locators" do
+    assert {:error, :invalid_materialization_locator} =
+             DataSourceDocument.materialize(%{"provider" => "google_drive"}, %{})
+
+    assert {:error, :invalid_materialization_locator} =
+             DataSourceDocument.materialize(%{"file_id" => "f1"}, %{})
+  end
+end

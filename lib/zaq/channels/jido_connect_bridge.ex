@@ -59,6 +59,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Zaq.Channels.JidoConnectBridge.FieldNormalization
   alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
   alias Zaq.Channels.JidoConnectBridge.WebhookWorker
+  alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Channels.ProviderCatalog
 
   alias Zaq.Contracts.Sheets.{
@@ -1728,7 +1729,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
       lifecycle_state: :active,
       deleted_at: nil,
       permissions: permissions,
-      materializing_event: materializing_event(config, params, id, kind, content, mime_type),
+      materialization_handle:
+        materialization_handle(config, params, id, kind, content, mime_type),
       attributes: %{} |> maybe_put_attr("encoding", encoding),
       raw: raw
     }
@@ -1746,28 +1748,29 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp materializing_event(config, params, file_id, :file, nil, mime_type) when is_map(params) do
+  defp materialization_handle(config, params, file_id, :file, nil, mime_type)
+       when is_map(params) do
     provider = config && Map.get(config, :provider)
 
     if is_nil(provider) do
       nil
     else
-      request = %{
-        provider: provider,
-        params:
-          %{"file_id" => file_id}
-          |> maybe_put_attr(
-            "config_id",
-            Map.get(params, "config_id") || Map.get(params, :config_id) || Map.get(config, :id)
-          )
-          |> maybe_put_attr("document_mime_type", mime_type)
-      }
+      attrs =
+        %{}
+        |> maybe_put_attr(
+          "config_id",
+          Map.get(params, "config_id") || Map.get(params, :config_id) || Map.get(config, :id)
+        )
+        |> maybe_put_attr("document_mime_type", mime_type)
 
-      Event.new(request, :channels, opts: [action: :data_source_download_document])
+      case DataSourceDocument.issue(provider, file_id, attrs) do
+        {:ok, handle} -> handle
+        {:error, _reason} -> nil
+      end
     end
   end
 
-  defp materializing_event(_config, _params, _file_id, _kind, _content, _mime_type), do: nil
+  defp materialization_handle(_config, _params, _file_id, _kind, _content, _mime_type), do: nil
 
   defp map_permission_record(raw) when is_map(raw) do
     id = fetch_required_string!(raw, ["id", :id, "permission_id", :permission_id], "permission")

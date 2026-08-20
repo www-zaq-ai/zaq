@@ -93,6 +93,9 @@ defmodule Zaq.Agent.ServerManagerTest do
              status.raw_state.model
 
     assert status.raw_state.runtime_config.system_prompt == "You are a test agent"
+
+    assert status.raw_state.tool_context.materialization_alias_scope ==
+             "configured_agent_#{configured_agent.id}"
   end
 
   test "ensure_server supports catalog-only provider via openai runtime fallback" do

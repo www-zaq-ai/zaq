@@ -64,6 +64,8 @@ NodeRouter.dispatch(event).response
 
 `NodeRouter.dispatch/1` is the preferred API. It routes a `%Zaq.Event{}` by
 `event.next_hop.destination`, checks locally first, then performs remote dispatch on peer nodes.
+Materialization handles do not target exact nodes; their trusted handlers build fixed events
+for the owning role, and `NodeRouter` routes to any node running that role.
 
 Event envelope fields:
 - `request`

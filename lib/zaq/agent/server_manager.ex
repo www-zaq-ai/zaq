@@ -38,7 +38,7 @@ defmodule Zaq.Agent.ServerManager do
   require Logger
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.{ConfiguredAgent, Factory, ProviderSpec, RuntimeSync}
+  alias Zaq.Agent.{ConfiguredAgent, Factory, MaterializationAliases, ProviderSpec, RuntimeSync}
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
   @jido_instance Zaq.Agent.Jido
@@ -221,6 +221,7 @@ defmodule Zaq.Agent.ServerManager do
   @impl true
   def handle_info({:expire_server, server_id}, state) do
     _ = stop_server_if_running(server_id)
+    MaterializationAliases.clear_scope(server_id)
     {:noreply, untrack_server(state, server_id)}
   end
 
@@ -230,6 +231,7 @@ defmodule Zaq.Agent.ServerManager do
         {:noreply, state}
 
       {server_id, _ref} ->
+        MaterializationAliases.clear_scope(server_id)
         {:noreply, untrack_server(state, server_id)}
     end
   end
@@ -238,6 +240,7 @@ defmodule Zaq.Agent.ServerManager do
     case Map.get(state.draining, server_id) do
       ^ref ->
         _ = stop_server_if_running(server_id)
+        MaterializationAliases.clear_scope(server_id)
         {:noreply, state |> untrack_server(server_id) |> clear_drain(server_id)}
 
       _ ->
@@ -251,7 +254,10 @@ defmodule Zaq.Agent.ServerManager do
       spawn_server(server_id, configured_agent, %{
         model: model_spec,
         runtime_config: runtime_config,
-        tool_context: %{configured_agent_id: configured_agent.id},
+        tool_context: %{
+          configured_agent_id: configured_agent.id,
+          materialization_alias_scope: server_id
+        },
         context: Factory.build_initial_context(configured_agent, server_id, context)
       })
     end

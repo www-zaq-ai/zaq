@@ -5,12 +5,23 @@ defmodule Zaq.Agent.Tools.DataSource.ListDocuments do
   Delegates to Channels through `NodeRouter.dispatch/1`.
   """
 
+  @output_schema Zoi.object(
+                   %{
+                     records:
+                       Zoi.list(
+                         Zaq.Contracts.Record.zoi_type(),
+                         description: "Document metadata records"
+                       )
+                       |> Zoi.optional(),
+                     count:
+                       Zoi.integer(description: "Number of records returned") |> Zoi.optional()
+                   },
+                   unrecognized_keys: :preserve
+                 )
+
   use Zaq.Engine.Workflows.Action,
     name: "list_documents",
-    output_schema: [
-      records: [type: {:list, :any}, required: false, doc: "Document metadata records"],
-      count: [type: :integer, required: false, doc: "Number of records returned"]
-    ],
+    output_schema: @output_schema,
     description: """
     List documents from a specific datasource provider path.
     Returns metadata records only.

@@ -165,7 +165,7 @@ defmodule Zaq.Agent.Skill do
   # Field-shape validation (name format, length caps, allowed-tools encoding) is owned by
   # `Jido.AI.Skill.Loader` via `Validation.validate/1` — ZAQ does not reimplement it. See
   # `Zaq.Agent.Skills.Validation` for why this round-trips through SKILL.md text, and for
-  # the truncation guard that stops Jido silently shortening an over-long field.
+  # the guard that rejects lossy SKILL.md serialization.
   #
   # Runs last, and only on an otherwise-valid changeset: it needs normalized values, and
   # there is no point reporting a malformed name on a record that is already failing.
