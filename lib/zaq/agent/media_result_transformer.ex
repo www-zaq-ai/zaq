@@ -2,30 +2,34 @@ defmodule Zaq.Agent.MediaResultTransformer do
   @moduledoc """
   Projects materialized communication media into model-facing content.
 
-  This plugin changes only the content sent to the next LLM turn; the canonical
-  tool result remains a materialized Record for workflows and trace capture.
+  This callback helper keeps the application-visible tool output intact while
+  supplying multimodal content parts to the next LLM turn.
   """
 
-  use Jido.Plugin,
-    name: "zaq_media_result_transformer",
-    description: "Projects communication media tool results for the model",
-    category: "ai",
-    state_key: :zaq_media_result_transformer,
-    actions: []
-
   alias ReqLLM.Message.ContentPart
+  alias ReqLLM.ToolResult
   alias Zaq.Contracts.Record
 
   @default_max_bytes 100 * 1024 * 1024
   @source_type "communication_media"
 
-  @impl Jido.Plugin
-  def transform_tool_result(_tool_call, content, %{tool_result: result} = context) do
+  @type result :: {:ok, term(), [term()]} | {:error, term(), [term()]}
+
+  @doc "Projects materialized communication media results into ReqLLM content parts."
+  @spec project_tool_result(map(), result(), map()) :: {:ok, result()} | {:error, term()}
+  def project_tool_result(_tool_call, {:ok, payload, effects} = result, context) do
     case media_record(result) do
-      {:ok, record} -> project_media(record, Map.get(context, :runtime_context, %{}))
-      :error -> {:ok, content}
+      {:ok, record} ->
+        with {:ok, content} <- project_media(record, context) do
+          {:ok, {:ok, %ToolResult{output: payload, content: content}, effects}}
+        end
+
+      :error ->
+        {:ok, result}
     end
   end
+
+  def project_tool_result(_tool_call, result, _context), do: {:ok, result}
 
   defp media_record({:ok, payload, _effects}) when is_map(payload) do
     payload
@@ -47,8 +51,8 @@ defmodule Zaq.Agent.MediaResultTransformer do
 
   defp source_type(_attributes), do: nil
 
-  defp project_media(record, runtime_context) do
-    max_bytes = max_bytes(runtime_context)
+  defp project_media(record, context) do
+    max_bytes = max_bytes(context)
 
     with :ok <- enforce_size(record.size, max_bytes),
          {:ok, content} <- decode_content(record),
@@ -72,12 +76,8 @@ defmodule Zaq.Agent.MediaResultTransformer do
     end
   end
 
-  defp decode_content(%Record{}), do: {:error, :invalid_content}
-
   defp encoding(attributes) when is_map(attributes),
     do: Map.get(attributes, :encoding, Map.get(attributes, "encoding"))
-
-  defp encoding(_attributes), do: nil
 
   defp model_content(%Record{mime_type: "image/" <> _ = mime_type}, content) do
     [ContentPart.image(content, mime_type)]
@@ -116,8 +116,8 @@ defmodule Zaq.Agent.MediaResultTransformer do
 
   defp enforce_size(_size, _max_bytes), do: :ok
 
-  defp max_bytes(runtime_context) do
-    case Map.get(runtime_context, :media_max_bytes) do
+  defp max_bytes(context) do
+    case Map.get(context, :media_max_bytes) do
       max_bytes when is_integer(max_bytes) and max_bytes > 0 -> max_bytes
       _ -> Application.get_env(:zaq, :message_trace_artifact_max_bytes, @default_max_bytes)
     end

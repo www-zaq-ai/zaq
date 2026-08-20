@@ -168,7 +168,7 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
       [reasons_line, user_line] ->
         %{
           reasons: normalize_reasons_line(reasons_line),
-          user_comment: blank_to_nil(String.trim(user_line))
+          user_comment: String.trim(user_line)
         }
 
       [single_line] ->
@@ -197,9 +197,6 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
       parts -> Enum.all?(parts, &(&1 in FeedbackReasons.list()))
     end
   end
-
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
 
   def toggle_reason(reasons, reason) do
     if reason in reasons,

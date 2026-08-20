@@ -6,6 +6,7 @@ defmodule Zaq.Agent.StreamEvents do
   per-turn trace capture, tool-call capture, and final usage/result extraction.
   """
 
+  alias ReqLLM.ToolResult
   alias Zaq.Agent.RequestRegistry
   alias Zaq.Agent.Status
   alias Zaq.Contracts.Record
@@ -232,17 +233,31 @@ defmodule Zaq.Agent.StreamEvents do
     broadcast_tool(state, tool_call, :completed) |> register(:tool_completed)
   end
 
+  defp externalize_trace_artifacts(
+         {:ok, %ToolResult{} = tool_result, effects},
+         tool_call_id,
+         tool_name
+       ) do
+    case externalize_trace_artifacts({:ok, tool_result.output, effects}, tool_call_id, tool_name) do
+      {{:ok, output, _effects}, artifacts} ->
+        {{:ok, %{tool_result | output: output, content: nil}, effects}, artifacts}
+
+      {result, artifacts} ->
+        {result, artifacts}
+    end
+  end
+
   defp externalize_trace_artifacts({:ok, payload, effects}, tool_call_id, tool_name)
        when is_map(payload) do
     case payload_record(payload) do
       {key, %Record{} = record} ->
         case trace_media_artifact(record, tool_call_id, tool_name) do
           {:ok, artifact} ->
-            safe_record = %{record | content: nil, materializing_event: nil}
+            safe_record = %{record | content: nil}
             {{:ok, Map.put(payload, key, safe_record), effects}, [artifact]}
 
           {:error, _reason} ->
-            safe_record = %{record | content: nil, materializing_event: nil}
+            safe_record = %{record | content: nil}
             {{:ok, Map.put(payload, key, safe_record), effects}, []}
 
           :not_media ->

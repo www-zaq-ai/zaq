@@ -38,6 +38,7 @@ defmodule Zaq.Agent.Executor do
     ErrorMessage,
     Factory,
     LogprobsAnalyzer,
+    MaterializationAliases,
     ServerManager,
     StreamEvents
   }
@@ -168,17 +169,18 @@ defmodule Zaq.Agent.Executor do
     :ok = Telemetry.record("qa.message.count", 1, dims)
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
 
-    question =
-      opts
-      |> Keyword.get(:question, incoming.content)
-      |> append_attachments(incoming.attachments)
-      |> timestamp_question()
+    question = Keyword.get(opts, :question, incoming.content)
 
     result =
       with {:ok, configured_agent} <- selected_agent_result,
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
-           {:ok, server_id} <-
-             ensure_agent_server(server_manager_module, configured_agent, opts),
+           server_id <- agent_server_id(configured_agent, opts),
+           {:ok, server_ref} <-
+             ensure_agent_server(server_manager_module, configured_agent, server_id, opts),
+           question <-
+             question
+             |> append_attachments(incoming.attachments, server_id)
+             |> timestamp_question(),
            _ <-
              Event.new(
                %{provider: incoming.provider, channel_id: incoming.channel_id},
@@ -196,7 +198,7 @@ defmodule Zaq.Agent.Executor do
              ),
            %Incoming{} = incoming <- normalize_status_result(status_result, incoming),
            {:ok, %{request: _request, events: events}} <-
-             factory_module.ask_with_config(server_id, question, configured_agent,
+             factory_module.ask_with_config(server_ref, question, configured_agent,
                tool_context: %{
                  incoming: incoming,
                  person_id: Keyword.get(opts, :person_id),
@@ -210,7 +212,7 @@ defmodule Zaq.Agent.Executor do
            {:ok, stream_result} <-
              StreamEvents.consume(events, incoming,
                started_at: started_at,
-               server_id: server_id,
+               server_id: server_ref,
                agent: configured_agent,
                node_router: node_router(opts),
                status_module: status_mod(opts)
@@ -290,8 +292,11 @@ defmodule Zaq.Agent.Executor do
     :ok
   end
 
-  defp ensure_agent_server(server_manager_module, configured_agent, opts) do
-    server_id = "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
+  defp agent_server_id(configured_agent, opts) do
+    "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
+  end
+
+  defp ensure_agent_server(server_manager_module, configured_agent, server_id, opts) do
     server_manager_module.ensure_server(configured_agent, server_id, Keyword.get(opts, :context))
   end
 
@@ -535,13 +540,20 @@ defmodule Zaq.Agent.Executor do
 
   defp timestamp_question(content), do: content
 
-  defp append_attachments(content, attachments)
+  defp append_attachments(content, attachments, scope)
        when is_binary(content) and is_list(attachments) and attachments != [] do
-    metadata = Enum.map(attachments, &Record.metadata/1)
+    metadata =
+      Enum.map(attachments, fn attachment ->
+        case MaterializationAliases.alias_record_metadata(attachment, scope) do
+          {:ok, metadata} -> metadata
+          {:error, _reason} -> Record.metadata(attachment)
+        end
+      end)
+
     Enum.join([content, "Attachments:", Jason.encode!(metadata)], "\n")
   end
 
-  defp append_attachments(content, _attachments), do: content
+  defp append_attachments(content, _attachments, _scope), do: content
 
   defp status_mod(opts) do
     Keyword.get(opts, :status_module, Zaq.Agent.Status)

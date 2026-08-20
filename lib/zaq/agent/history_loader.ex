@@ -11,6 +11,7 @@ defmodule Zaq.Agent.HistoryLoader do
   import Ecto.Query
 
   alias Jido.AI.Context, as: AIContext
+  alias Zaq.Agent.MaterializationAliases
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
@@ -71,7 +72,7 @@ defmodule Zaq.Agent.HistoryLoader do
     )
     |> Repo.all()
     |> accumulate_within_budget(max_tokens)
-    |> build_context()
+    |> build_context(opts)
   end
 
   @doc """
@@ -96,7 +97,7 @@ defmodule Zaq.Agent.HistoryLoader do
 
     messages
     |> accumulate_within_budget(max_tokens)
-    |> build_context()
+    |> build_context(opts)
   end
 
   defp fetch_recent_messages(person_id, channel_type) do
@@ -122,7 +123,7 @@ defmodule Zaq.Agent.HistoryLoader do
 
   defp accumulate_within_budget(messages, max_tokens) do
     Enum.reduce_while(messages, {[], 0}, fn msg, {acc, total} ->
-      tokens = TokenEstimator.estimate(history_content(msg))
+      tokens = TokenEstimator.estimate(history_content(msg, []))
       new_total = total + tokens
 
       if new_total > max_tokens do
@@ -134,12 +135,12 @@ defmodule Zaq.Agent.HistoryLoader do
     |> elem(0)
   end
 
-  defp build_context(messages) do
+  defp build_context(messages, opts) do
     Enum.reduce(messages, AIContext.new(), fn
       %{role: "user", inserted_at: ts} = message, ctx ->
         AIContext.append(ctx, %AIContext.Entry{
           role: :user,
-          content: "[#{DateUtils.format_ts(ts)}] #{history_content(message)}",
+          content: "[#{DateUtils.format_ts(ts)}] #{history_content(message, opts)}",
           timestamp: ts
         })
 
@@ -155,38 +156,44 @@ defmodule Zaq.Agent.HistoryLoader do
     end)
   end
 
-  defp history_content(message) when is_map(message) do
+  defp history_content(message, opts) when is_map(message) do
     content = Map.get(message, :content) || ""
-    metadata = Map.get(message, :metadata) || %{}
+    metadata = Map.get(message, :metadata)
 
-    case safe_attachments(metadata) do
+    case safe_attachments(metadata, Keyword.get(opts, :materialization_alias_scope)) do
       [] -> content
       attachments -> Enum.join([content, "Attachments:", Jason.encode!(attachments)], "\n")
     end
   end
 
-  defp safe_attachments(metadata) when is_map(metadata) do
+  defp safe_attachments(metadata, scope) when is_map(metadata) do
     metadata
     |> Map.get("attachments", Map.get(metadata, :attachments, []))
     |> case do
       attachments when is_list(attachments) ->
         attachments
         |> Enum.filter(&is_map/1)
-        |> Enum.map(
-          &Map.drop(&1, [
-            "content",
-            :content,
-            "raw",
-            :raw,
-            "materializing_event",
-            :materializing_event
-          ])
-        )
+        |> Enum.map(&safe_attachment(&1, scope))
 
       _ ->
         []
     end
   end
 
-  defp safe_attachments(_metadata), do: []
+  defp safe_attachments(_metadata, _scope), do: []
+
+  defp safe_attachment(attachment, scope) do
+    safe = Map.drop(attachment, ["content", :content, "raw", :raw])
+
+    case scope do
+      nil ->
+        safe
+
+      scope ->
+        case MaterializationAliases.alias_metadata(safe, scope) do
+          {:ok, aliased} -> aliased
+          {:error, _reason} -> safe
+        end
+    end
+  end
 end

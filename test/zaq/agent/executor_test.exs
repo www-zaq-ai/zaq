@@ -4,9 +4,10 @@ defmodule Zaq.Agent.ExecutorTest do
   doctest Zaq.Agent.Executor
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.Executor
+  alias Zaq.Agent.{Executor, Factory, MaterializationAliases}
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Materialization.Handle
 
   defmodule StubAgent do
     def get_active_agent(_agent_id), do: {:ok, %{id: 77, name: "Stub Agent"}}
@@ -39,6 +40,21 @@ defmodule Zaq.Agent.ExecutorTest do
     def ensure_server(configured_agent, server_id, context \\ nil) do
       send(self(), {:coverage_ensure_server, configured_agent, server_id, context})
       {:ok, :coverage_stub_server}
+    end
+  end
+
+  defmodule ViaTupleServerManager do
+    def ensure_server(configured_agent, server_id, context \\ nil) do
+      send(self(), {:coverage_ensure_server, configured_agent, server_id, context})
+      {:ok, {:via, Registry, {Zaq.Agent.Jido.Registry, server_id}}}
+    end
+  end
+
+  defmodule CurrentAttachmentAction do
+    def schema do
+      Zoi.object(%{
+        materialization_handle: Handle.zoi_type()
+      })
     end
   end
 
@@ -634,10 +650,7 @@ defmodule Zaq.Agent.ExecutorTest do
               "source_id" => "file-1"
             },
             raw: %{secret: true},
-            materializing_event:
-              Zaq.Event.new(%{reference: "file-1"}, :channels,
-                opts: [action: :materialize_record]
-              )
+            materialization_handle: "signed-handle"
           }
         ]
       }
@@ -655,8 +668,67 @@ defmodule Zaq.Agent.ExecutorTest do
       assert_received {:coverage_ask, question, _configured_agent, _tool_context}
       assert question =~ "Attachments:"
       assert question =~ "photo.png"
-      refute question =~ "materializing_event"
+      assert question =~ "materialization_handle"
       refute question =~ "secret"
+    end
+
+    test "current attachment aliases use the logical server scope returned to tool callbacks" do
+      scope = "coverage-#{System.unique_integer([:positive])}"
+      logical_server_id = "Stub Agent:#{scope}"
+      handle = "signed-handle-#{System.unique_integer([:positive])}"
+      MaterializationAliases.clear_scope(logical_server_id)
+      on_exit(fn -> MaterializationAliases.clear_scope(logical_server_id) end)
+
+      incoming = %Incoming{
+        content: "inspect this",
+        channel_id: "c1",
+        provider: :mattermost,
+        person: %{id: 15},
+        attachments: [
+          %Record{
+            id: "file-1",
+            kind: :file,
+            name: "photo.png",
+            mime_type: "image/png",
+            materialization_handle: handle
+          }
+        ]
+      }
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: ViaTupleServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: scope
+      )
+
+      assert_received {:coverage_ask, question, _configured_agent, _tool_context}
+      assert [alias] = Regex.run(~r/mat_[A-Za-z0-9_-]+/, question)
+      refute question =~ handle
+
+      tool_call = %{
+        id: "call-1",
+        name: "current_attachment",
+        arguments: %{materialization_handle: alias},
+        action_module: CurrentAttachmentAction
+      }
+
+      assert {:ok, expanded} =
+               Factory.before_tool_call(tool_call, %{
+                 materialization_alias_scope: logical_server_id
+               })
+
+      assert expanded.arguments.materialization_handle == handle
+
+      MaterializationAliases.clear_scope(logical_server_id)
+
+      assert {:error, {:unknown_materialization_alias, ^alias}} =
+               Factory.before_tool_call(tool_call, %{
+                 materialization_alias_scope: logical_server_id
+               })
     end
   end
 end

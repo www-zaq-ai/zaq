@@ -72,7 +72,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert Jido.MCP.Plugins.MCP in plugins
     assert Jido.MCP.JidoAI.Plugins.MCPAI in plugins
-    assert Zaq.Agent.MediaResultTransformer in plugins
+    refute Zaq.Agent.MediaResultTransformer in plugins
 
     assert Jido.MCP.Actions.ListTools in actions
     assert Jido.MCP.JidoAI.Actions.SyncToolsToAgent in actions

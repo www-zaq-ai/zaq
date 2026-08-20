@@ -4,6 +4,7 @@ defmodule Zaq.Materialization.Registry do
   """
 
   @handlers %{
+    "communication_media" => Zaq.Channels.Materializers.CommunicationMedia,
     "data_source_document" => Zaq.Channels.Materializers.DataSourceDocument
   }
 

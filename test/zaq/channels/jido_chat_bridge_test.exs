@@ -12,13 +12,12 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
-  alias Zaq.Contracts.{Record, RecordCapability}
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.IncomingMessageRouter
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.Event
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
   alias Zaq.TestSupport.OpenAIStub
@@ -46,6 +45,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def fetch_media(reference, opts) do
       send(self(), {:fetch_media, reference, opts})
       {:ok, <<0, 1, 2, 3>>}
+    end
+  end
+
+  defmodule FetchMediaResultAdapter do
+    def fetch_media(reference, opts) do
+      send(self(), {:fetch_media_result, reference, opts})
+      Process.get(:fetch_media_result, {:ok, <<0, 1, 2, 3>>})
     end
   end
 
@@ -404,6 +410,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule StubAdapterCapabilitiesMedia do
+    def capabilities, do: %{send_file: :native}
+  end
+
+  defmodule StubAdapterCapabilitiesStreaming do
+    def capabilities, do: [:streaming]
+  end
+
+  defmodule StubAdapterCapabilitiesEdit do
+    def capabilities, do: %{edit_messages: :provider_specific}
+  end
+
   defmodule StubAdapterWebhookIngress do
     def listener_child_specs(_bridge_id, _opts), do: {:ok, []}
 
@@ -757,10 +775,12 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                mime_type: "image/png",
                size: 4,
                content: nil,
-               materializing_event: %Event{}
+               materialization_handle: handle
              } = image
 
-      assert Map.drop(image.attributes, ["source_signature"]) == %{
+      assert is_binary(handle)
+
+      assert image.attributes == %{
                "channel_config_id" => "channel-config-1",
                "media_kind" => "image",
                "provider" => "mattermost",
@@ -770,10 +790,30 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                "source_type" => "communication_media"
              }
 
-      assert is_binary(image.attributes["source_signature"])
-
       assert document.id == "file-2"
-      assert document.materializing_event.opts[:action] == :materialize_record
+      assert is_binary(document.materialization_handle)
+    end
+
+    test "uses empty attachments for non-list media" do
+      incoming = %ChatIncoming{text: "no media", external_room_id: "room", media: nil}
+      assert %{attachments: []} = JidoChatBridge.to_internal(incoming, :mattermost)
+    end
+
+    test "uses fallback media identity without channel configuration" do
+      incoming = %ChatIncoming{
+        text: "fallback",
+        external_room_id: "room",
+        external_message_id: nil,
+        media: [%Media{kind: :file, filename: nil, media_type: "text/plain"}]
+      }
+
+      assert [%Record{id: "message:media:1", name: "attachment-1", attributes: attrs}] =
+               JidoChatBridge.to_internal(incoming, %{provider: :mattermost})
+               |> Map.get(:attachments)
+
+      assert attrs["provider"] == "mattermost"
+      refute Map.has_key?(attrs, "channel_config_id")
+      refute Map.has_key?(attrs, "source_message_id")
     end
   end
 
@@ -793,28 +833,136 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         end
       end)
 
-      record =
-        RecordCapability.sign!(%Record{
-          id: "file-1",
-          kind: :file,
-          size: 4,
-          attributes: %{
-            "source_type" => "communication_media",
-            "provider" => "mattermost",
-            "source_id" => "file-1"
-          }
-        })
+      request = %{
+        "provider" => "mattermost",
+        "reference" => "file-1",
+        "name" => "photo.png",
+        "mime_type" => "image/png",
+        "size" => 4,
+        "media_kind" => "image"
+      }
 
-      request = %{provider: "mattermost", reference: "file-1", record: record}
       config = %{provider: "mattermost"}
       details = %{url: "https://mattermost.example", token: "secret"}
+      on_exit(fn -> Process.delete(:fetch_media_result) end)
 
-      assert {:ok, %{content: <<0, 1, 2, 3>>}} =
+      assert {:ok, %{record: %Record{content: <<0, 1, 2, 3>>, mime_type: "image/png"}}} =
                JidoChatBridge.materialize_record(config, request, details)
 
       assert_received {:fetch_media, "file-1", opts}
       assert opts[:url] == "https://mattermost.example"
       assert opts[:token] == "secret"
+    end
+
+    test "rejects malformed adapter results" do
+      previous_channels = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous_channels) end)
+
+      request = %{
+        "reference" => "file-1",
+        "name" => "x.txt",
+        "mime_type" => "text/plain",
+        "size" => 1
+      }
+
+      config = %{provider: "mattermost"}
+      details = %{url: "https://mattermost.example", token: "secret"}
+
+      for result <- [{:ok, %{}}, {:error, :download_failed}, false] do
+        Process.put(:fetch_media_result, result)
+
+        expected =
+          case result do
+            {:ok, %{}} -> {:error, :invalid_media_content}
+            {:error, _} = error -> error
+            false -> {:error, :invalid_media_reference}
+          end
+
+        assert expected == JidoChatBridge.materialize_record(config, request, details)
+      end
+
+      Process.delete(:fetch_media_result)
+    end
+
+    test "rejects invalid media request shapes" do
+      assert {:error, :invalid_media_request} = JidoChatBridge.materialize_record([], %{}, %{})
+      assert {:error, :invalid_media_request} = JidoChatBridge.materialize_record(%{}, [], %{})
+      assert {:error, :invalid_media_request} = JidoChatBridge.materialize_record(%{}, %{}, [])
+    end
+
+    test "enforces configured media size before calling adapter" do
+      previous_channels = Application.get_env(:zaq, :channels)
+      previous_limit = Application.get_env(:zaq, :message_trace_artifact_max_bytes)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
+      })
+
+      Application.put_env(:zaq, :message_trace_artifact_max_bytes, 2)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+
+        if previous_limit == nil,
+          do: Application.delete_env(:zaq, :message_trace_artifact_max_bytes),
+          else: Application.put_env(:zaq, :message_trace_artifact_max_bytes, previous_limit)
+      end)
+
+      config = %{provider: "mattermost"}
+      details = %{url: "url", token: "token"}
+
+      assert {:error, :media_too_large} =
+               JidoChatBridge.materialize_record(
+                 config,
+                 %{"reference" => "x", "size" => 3},
+                 details
+               )
+
+      assert {:error, :unknown_media_size} =
+               JidoChatBridge.materialize_record(config, %{"reference" => "x"}, details)
+
+      assert {:error, :unknown_media_size} =
+               JidoChatBridge.materialize_record(
+                 config,
+                 %{"reference" => "x", "size" => "3"},
+                 details
+               )
+
+      refute_received {:fetch_media_result, _, _}
+    end
+
+    test "uses default limit and filters adapter options" do
+      previous_channels = Application.get_env(:zaq, :channels)
+      previous_limit = Application.get_env(:zaq, :message_trace_artifact_max_bytes)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
+      })
+
+      Application.put_env(:zaq, :message_trace_artifact_max_bytes, 0)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+
+        if previous_limit == nil,
+          do: Application.delete_env(:zaq, :message_trace_artifact_max_bytes),
+          else: Application.put_env(:zaq, :message_trace_artifact_max_bytes, previous_limit)
+      end)
+
+      assert {:ok, %{record: %Record{content: <<0, 1, 2, 3>>}}} =
+               JidoChatBridge.materialize_record(
+                 %{provider: "mattermost"},
+                 %{"reference" => "x", "size" => 4},
+                 %{"ignored" => "x", url: "url", token: nil}
+               )
+
+      assert_received {:fetch_media_result, "x", opts}
+      assert opts == [url: "url"]
     end
   end
 
@@ -2610,6 +2758,66 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert resolved[:edit_messages] == true
       refute Map.has_key?(resolved, :file)
     end
+
+    test "maps send_file capability to all media capabilities" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: StubAdapterCapabilitiesMedia,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{resolved: resolved}} =
+               JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
+
+      assert resolved[:file] == :native
+      assert resolved[:image] == :native
+      assert resolved[:audio] == :native
+      assert resolved[:video] == :native
+    end
+
+    test "normalizes list streaming capabilities to fallback" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: StubAdapterCapabilitiesStreaming,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{resolved: resolved}} =
+               JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
+
+      assert resolved[:streaming] == :fallback
+    end
+
+    test "preserves provider-specific edit capability" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: StubAdapterCapabilitiesEdit,
+          ingress_mode: :gateway
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{resolved: resolved}} =
+               JidoChatBridge.capability_snapshot(%{provider: "mattermost"})
+
+      assert resolved[:edit_messages] == :provider_specific
+    end
   end
 
   describe "upsert_message/3" do
@@ -2707,6 +2915,43 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert_received {:adapter_send_message, "chan-1", "partial", opts}
       assert opts[:format] == :html
+    end
+
+    test "rejects nonbinary create body" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: JidoChatBridge, adapter: StubAdapterThreadPostWithUpdate}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:error, :invalid_postable} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost", provider_atom: :mattermost},
+                 %{channel_id: "chan-1", thread_id: "thread-1", body: 123, metadata: %{}},
+                 %{url: "url", token: "token"}
+               )
+    end
+
+    test "creates binary body with nonmap metadata without format option" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: JidoChatBridge, adapter: StubAdapterThreadPostWithUpdate}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, %{action: :created, message_id: "post-123"}} =
+               JidoChatBridge.upsert_message(
+                 %{provider: "mattermost", provider_atom: :mattermost},
+                 %{channel_id: "chan-1", thread_id: "thread-1", body: "body", metadata: :invalid},
+                 %{url: "url", token: "token"}
+               )
+
+      assert_received {:adapter_send_message, "chan-1", "body", opts}
+      refute Keyword.has_key?(opts, :format)
     end
 
     test "relays canonical format in upsert edit flow" do
@@ -3687,6 +3932,9 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Process.put(:stub_delete_ingress_subscription_result, {:error, :delete_failed})
 
       assert {:error, :stop_failed} = JidoChatBridge.sync_runtime(config, disabled)
+      assert_received {:list_ingress_subscriptions, _, _}
+      refute_received {:delete_ingress_subscription, _, _, _}
+      assert Process.get(:stub_delete_ingress_subscription_result) == {:error, :delete_failed}
     end
 
     test "wraps ensure_ingress_subscription failure on enable path" do
@@ -3698,6 +3946,19 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Process.put(:stub_ensure_ingress_subscription_result, {:error, :boom})
 
       assert {:error, {:ingress_ensure_failed, :boom}} = JidoChatBridge.sync_runtime(nil, config)
+    end
+
+    test "preserves listing errors during teardown and does not delete" do
+      config =
+        insert_channel_config(%{
+          settings: %{"jido_chat" => %{"ingress" => %{"mode" => "webhook"}}}
+        })
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:error, :timeout})
+
+      assert {:error, :timeout} = JidoChatBridge.delete_ingress_subscription(config, %{})
+      assert_received {:list_ingress_subscriptions, _, _}
+      refute_received {:delete_ingress_subscription, _, _, _}
     end
   end
 
@@ -3917,6 +4178,111 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                JidoChatBridge.channel_ingress_status(config)
     end
 
+    test "listener status supports string errors and wraps scalar details" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+      previous_bridge = Application.get_env(:zaq, Zaq.Channels.JidoChatBridge)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRuntimeLookup)
+      Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, state_module: StubStateStatus)
+      Process.put(:stub_lookup_runtime_result, {:ok, %{listener_pids: [], state_pid: self()}})
+      Process.put(:stub_ingress_status, %{"status" => "error", "details" => :unauthorized})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+        restore_supervisor(previous_supervisor)
+
+        if previous_bridge,
+          do: Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, previous_bridge),
+          else: Application.delete_env(:zaq, Zaq.Channels.JidoChatBridge)
+
+        Process.delete(:stub_lookup_runtime_result)
+        Process.delete(:stub_ingress_status)
+      end)
+
+      assert {:ok,
+              %{
+                "status" => "error",
+                "details" => :unauthorized,
+                details: %{bridge_id: "mattermost_1"}
+              }} =
+               JidoChatBridge.channel_ingress_status(%{provider: "mattermost", id: 1})
+
+      Process.put(:stub_ingress_status, %{status: :error, details: :unauthorized})
+
+      assert {:ok,
+              %{status: :error, details: %{details: :unauthorized, bridge_id: "mattermost_1"}}} =
+               JidoChatBridge.channel_ingress_status(%{provider: "mattermost", id: 1})
+    end
+
+    test "listener status preserves non-error recorded status" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+      previous_bridge = Application.get_env(:zaq, Zaq.Channels.JidoChatBridge)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRuntimeLookup)
+      Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, state_module: StubStateStatus)
+      Process.put(:stub_lookup_runtime_result, {:ok, %{listener_pids: [], state_pid: self()}})
+      Process.put(:stub_ingress_status, %{status: :connected, details: %{connected_at: 1}})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+        restore_supervisor(previous_supervisor)
+
+        if previous_bridge,
+          do: Application.put_env(:zaq, Zaq.Channels.JidoChatBridge, previous_bridge),
+          else: Application.delete_env(:zaq, Zaq.Channels.JidoChatBridge)
+
+        Process.delete(:stub_lookup_runtime_result)
+        Process.delete(:stub_ingress_status)
+      end)
+
+      assert {:ok, %{status: :connected, details: %{connected_at: 1, bridge_id: "mattermost_1"}}} =
+               JidoChatBridge.channel_ingress_status(%{provider: "mattermost", id: 1})
+    end
+
+    test "listener status reports runtime not alive without state or listeners" do
+      previous_channels = Application.get_env(:zaq, :channels, %{})
+      previous_supervisor = Application.get_env(:zaq, :chat_bridge_supervisor_module)
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :websocket
+        }
+      })
+
+      Application.put_env(:zaq, :chat_bridge_supervisor_module, StubSupervisorRuntimeLookup)
+      Process.put(:stub_lookup_runtime_result, {:ok, %{listener_pids: [], state_pid: nil}})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous_channels)
+        restore_supervisor(previous_supervisor)
+        Process.delete(:stub_lookup_runtime_result)
+      end)
+
+      assert {:ok,
+              %{status: :error, reason: :runtime_not_alive, details: %{bridge_id: "mattermost_1"}}} =
+               JidoChatBridge.channel_ingress_status(%{provider: "mattermost", id: 1})
+    end
+
     test "webhook status returns warning when no subscriptions" do
       previous = Application.get_env(:zaq, :channels, %{})
 
@@ -3940,6 +4306,33 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  provider: "mattermost",
                  url: "https://mattermost.example.com",
                  token: "plain-token"
+               })
+    end
+
+    test "webhook status returns ok with one subscription unchanged" do
+      previous = Application.get_env(:zaq, :channels, %{})
+      subscriptions = [%{subscription_id: "sub-1", target_url: "https://target"}]
+
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: JidoChatBridge,
+          adapter: StubAdapterWebhookIngress,
+          ingress_mode: :webhook
+        }
+      })
+
+      Process.put(:stub_list_ingress_subscriptions_result, {:ok, subscriptions})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:stub_list_ingress_subscriptions_result)
+      end)
+
+      assert {:ok, %{status: :ok, details: %{subscriptions: ^subscriptions, count: 1}}} =
+               JidoChatBridge.channel_ingress_status(%{
+                 provider: "mattermost",
+                 url: "url",
+                 token: "token"
                })
     end
 

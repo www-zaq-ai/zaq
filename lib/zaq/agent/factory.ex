@@ -38,13 +38,21 @@ defmodule Zaq.Agent.Factory do
     request_policy: :reject,
     plugins: [
       {Jido.MCP.Plugins.MCP, %{allowed_endpoints: :all}},
-      Jido.MCP.JidoAI.Plugins.MCPAI,
-      Zaq.Agent.MediaResultTransformer
+      Jido.MCP.JidoAI.Plugins.MCPAI
     ],
     tools: []
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, MaterializationAliases, ProviderSpec, Skills}
+
+  alias Zaq.Agent.{
+    ConfiguredAgent,
+    HistoryLoader,
+    MaterializationAliases,
+    MediaResultTransformer,
+    ProviderSpec,
+    Skills
+  }
+
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
 
@@ -62,7 +70,10 @@ defmodule Zaq.Agent.Factory do
 
   @impl Jido.AI.ToolInterceptor
   def after_tool_call(tool_call, result, context) do
-    MaterializationAliases.alias_tool_result(tool_call, result, context)
+    with {:ok, result} <- MaterializationAliases.alias_tool_result(tool_call, result, context),
+         {:ok, result} <- MediaResultTransformer.project_tool_result(tool_call, result, context) do
+      {:ok, result}
+    end
   end
 
   # Replace with per-agent advanced LLM opts so each ConfiguredAgent carries its own
@@ -131,7 +142,8 @@ defmodule Zaq.Agent.Factory do
 
     HistoryLoader.load_context(
       spawn_opts,
-      max_tokens: configured_agent.memory_context_max_size || 5_000
+      max_tokens: configured_agent.memory_context_max_size || 5_000,
+      materialization_alias_scope: server_id
     )
   end
 

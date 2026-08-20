@@ -22,6 +22,12 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
     test "returns an empty list for missing or invalid metadata" do
       assert MessageHelpers.attachments_from_message(%{}) == []
       assert MessageHelpers.attachments_from_message(%{metadata: nil}) == []
+      assert MessageHelpers.attachments_from_message(%{metadata: "invalid"}) == []
+    end
+
+    test "returns an empty list for non-map messages" do
+      assert MessageHelpers.attachments_from_message(nil) == []
+      assert MessageHelpers.attachments_from_message("message") == []
     end
   end
 
@@ -292,6 +298,29 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
              }
     end
 
+    test "treats an unrecognized single line as the user comment" do
+      assert MessageHelpers.rating_feedback_display([%{comment: "Something else"}]) == %{
+               reasons: nil,
+               user_comment: "Something else"
+             }
+    end
+
+    test "treats a comma-only single line as a user comment" do
+      assert MessageHelpers.rating_feedback_display([%{comment: ", ,"}]) == %{
+               reasons: nil,
+               user_comment: ", ,"
+             }
+    end
+
+    test "trims whitespace around a multiline user comment" do
+      assert MessageHelpers.rating_feedback_display([
+               %{comment: "Not factually correct\n  Missing the probation section  "}
+             ]) == %{
+               reasons: "Not factually correct",
+               user_comment: "Missing the probation section"
+             }
+    end
+
     test "returns nil for blank or missing comments" do
       assert MessageHelpers.rating_feedback_display([]) == nil
       assert MessageHelpers.rating_feedback_display([%{comment: ""}]) == nil
@@ -305,6 +334,13 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
                %{"comment" => "Typed at submit"},
                "stale assign"
              ) == "Typed at submit"
+    end
+
+    test "falls back to the socket comment when the submitted comment is not text" do
+      assert MessageHelpers.feedback_comment_from_submit(%{"comment" => nil}, "Draft") ==
+               "Draft"
+
+      assert MessageHelpers.feedback_comment_from_submit(%{"comment" => 123}, nil) == ""
     end
   end
 end

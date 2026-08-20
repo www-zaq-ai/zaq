@@ -3,8 +3,7 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
   alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig, CommunicationBridge}
   alias Zaq.Channels.EventNames
-  alias Zaq.Contracts.{Record, RecordCapability}
-  alias Zaq.Event
+  alias Zaq.Contracts.Record
   alias Zaq.Repo
 
   defmodule StubBridge do
@@ -15,18 +14,9 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       :ok
     end
 
-    def build_materializing_event(config, %Record{} = record) do
-      send(self(), {:build_materializing_event, config, record})
-
-      {:ok,
-       Event.new(%{provider: config.provider, reference: record.id, record: record}, :channels,
-         opts: [action: :materialize_record]
-       )}
-    end
-
     def materialize_record(config, request, details) do
       send(self(), {:materialize_record, config, request, details})
-      {:ok, %{content: "media-bytes"}}
+      {:ok, %{record: %Record{id: request.reference, kind: :file, content: "media-bytes"}}}
     end
 
     def sync_provider_runtime(config) do
@@ -327,60 +317,27 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     end
   end
 
-  describe "record hydration and materialization" do
+  describe "record materialization" do
     setup do
       insert_config(:mattermost)
       :ok
     end
 
-    test "asks the source bridge to build its materializing event" do
-      record =
-        RecordCapability.sign!(%Record{
-          id: "media-1",
-          kind: :file,
-          attributes: %{
-            "source_type" => "communication_media",
-            "provider" => "mattermost",
-            "source_id" => "media-1",
-            "source_author_id" => "author-1"
-          }
-        })
+    test "routes a verified materialization payload back to the source bridge" do
+      request = %{provider: "mattermost", reference: "media-1"}
 
-      assert {:ok, %Event{request: request, opts: opts}} =
-               CommunicationBridge.hydrate_record(record, actor: %{id: "author-1"})
-
-      assert request.reference == "media-1"
-      assert opts[:action] == :materialize_record
-      assert_received {:build_materializing_event, %{provider: "mattermost"}, ^record}
-    end
-
-    test "routes a trusted materialization payload back to the source bridge" do
-      record =
-        RecordCapability.sign!(%Record{
-          id: "media-1",
-          kind: :file,
-          attributes: %{
-            "source_type" => "communication_media",
-            "provider" => "mattermost",
-            "source_id" => "media-1",
-            "source_author_id" => "author-1"
-          }
-        })
-
-      request = %{provider: "mattermost", reference: "media-1", record: record}
-
-      assert {:ok, %{content: "media-bytes"}} =
-               CommunicationBridge.materialize_record(request, actor: %{id: "author-1"})
+      assert {:ok, %{record: %Record{content: "media-bytes"}}} =
+               CommunicationBridge.materialize_record(request, materialization_verified: true)
 
       assert_received {:materialize_record, %{provider: "mattermost"}, ^request, details}
       assert details.url == "https://mattermost.example.com"
     end
 
-    test "rejects records without a configured provider" do
-      record = %Record{id: "media-1", kind: :file, attributes: %{}}
+    test "rejects unverified materialization payloads" do
+      request = %{provider: "mattermost", reference: "media-1"}
 
-      assert {:error, {:invalid_record_source, :missing_provider}} =
-               CommunicationBridge.hydrate_record(record)
+      assert {:error, :unverified_materialization_request} =
+               CommunicationBridge.materialize_record(request)
     end
   end
 

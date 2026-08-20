@@ -1,9 +1,10 @@
 defmodule Zaq.Agent.HistoryLoaderTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
 
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Accounts.Person
   alias Zaq.Agent.HistoryLoader
+  alias Zaq.Agent.MaterializationAliases
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
 
@@ -35,6 +36,31 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     }
 
     Repo.insert!(struct(Message, attrs))
+  end
+
+  defp rendered_attachments(message) do
+    [_content, encoded] = String.split(message.content, "Attachments:\n", parts: 2)
+    Jason.decode!(encoded)
+  end
+
+  defp restore_runtime_store(name, pid) do
+    if Process.whereis(name) == nil and Process.alive?(pid) do
+      Process.register(pid, name)
+    end
+  end
+
+  defp with_runtime_store_unregistered(fun) do
+    name = Jido.runtime_store_name(Zaq.Agent.Jido)
+    pid = Process.whereis(name)
+    assert is_pid(pid)
+    Process.unregister(name)
+    on_exit(fn -> restore_runtime_store(name, pid) end)
+
+    try do
+      fun.()
+    after
+      restore_runtime_store(name, pid)
+    end
   end
 
   describe "load_for_conversation/2" do
@@ -145,6 +171,107 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       assert message.content =~ "photo.png"
       assert message.content =~ "file-1"
       refute message.content =~ "materializing_event"
+    end
+
+    test "ignores unsupported persisted message roles" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+      insert_message(conv, "system", "should not appear", ~U[2026-04-01 10:00:00.000000Z])
+      insert_message(conv, "user", "valid context", ~U[2026-04-01 10:01:00.000000Z])
+
+      messages = conv.id |> HistoryLoader.load_for_conversation() |> AIContext.to_messages()
+
+      assert length(messages) == 1
+      assert String.ends_with?(hd(messages).content, "valid context")
+    end
+
+    test "ignores a non-list attachments value" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+      insert_message(conv, "user", "plain context", nil, %{"attachments" => "not-a-list"})
+
+      [message] = conv.id |> HistoryLoader.load_for_conversation() |> AIContext.to_messages()
+
+      assert message.content =~ "plain context"
+      refute message.content =~ "Attachments:\n"
+    end
+
+    test "handles nil message metadata as having no attachments" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+      insert_message(conv, "user", "preserved context", nil, nil)
+
+      [message] = conv.id |> HistoryLoader.load_for_conversation() |> AIContext.to_messages()
+
+      assert message.content =~ "preserved context"
+      refute message.content =~ "Attachments:\n"
+    end
+
+    test "aliases attachment materialization handles for scoped history" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+      scope = "history-scope-#{System.unique_integer([:positive])}"
+      canonical = "signed-materialization-handle"
+
+      MaterializationAliases.clear_scope(scope)
+      on_exit(fn -> MaterializationAliases.clear_scope(scope) end)
+
+      insert_message(conv, "user", "history", nil, %{
+        "attachments" => [
+          %{
+            "materialization_handle" => canonical,
+            "name" => "photo.png",
+            "content" => "payload",
+            "raw" => "raw-payload"
+          }
+        ]
+      })
+
+      [message] =
+        conv.id
+        |> HistoryLoader.load_for_conversation(materialization_alias_scope: scope)
+        |> AIContext.to_messages()
+
+      [attachment] = rendered_attachments(message)
+      assert String.starts_with?(attachment["materialization_handle"], "mat_")
+      refute attachment["materialization_handle"] == canonical
+      assert attachment["name"] == "photo.png"
+      refute Map.has_key?(attachment, "content")
+      refute Map.has_key?(attachment, "raw")
+      refute message.content =~ canonical
+      refute message.content =~ "payload"
+    end
+
+    test "retains the safe canonical descriptor when alias storage is unavailable" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "bo")
+      scope = "unavailable-history-scope-#{System.unique_integer([:positive])}"
+      canonical = "signed-materialization-handle"
+
+      insert_message(conv, "user", "history", nil, %{
+        "attachments" => [
+          %{
+            "materialization_handle" => canonical,
+            "name" => "photo.png",
+            "content" => "payload",
+            "raw" => "raw-payload"
+          }
+        ]
+      })
+
+      with_runtime_store_unregistered(fn ->
+        [message] =
+          conv.id
+          |> HistoryLoader.load_for_conversation(materialization_alias_scope: scope)
+          |> AIContext.to_messages()
+
+        [attachment] = rendered_attachments(message)
+        assert attachment["materialization_handle"] == canonical
+        assert attachment["name"] == "photo.png"
+        refute Map.has_key?(attachment, "content")
+        refute Map.has_key?(attachment, "raw")
+        refute message.content =~ "payload"
+      end)
     end
 
     test "is bounded to 500 rows from the DB" do

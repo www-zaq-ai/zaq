@@ -132,18 +132,16 @@ JidoChat bridges map inbound media to lazy `Zaq.Contracts.Record` values in
 `attributes["source_type"] == "communication_media"` source descriptor; provider
 bytes, credentials, and dispatchable events are never serialized.
 
-Fetch-controlling fields are bound by an HMAC capability derived from the
-node-shared runtime secret. Hydration and materialization reject missing or altered
-capabilities before fetching, so model-supplied Record maps cannot select arbitrary
-provider references or URLs. The capability also binds the source transport author;
-fetching requires the normalized event actor's matching transport ID unless trusted
-internal code explicitly sets `skip_permissions: true`.
+Fetch-controlling fields are bound into a signed `materialization_handle` with
+type `communication_media`. `Zaq.Materialization` verifies the handle before the
+trusted materializer dispatches the existing `:materialize_record` Channels event.
+The handle binds the source transport author; fetching requires the normalized
+event actor's matching transport ID unless trusted internal code explicitly sets
+`skip_permissions: true`.
 
-When an agent accesses a persisted attachment, `RecordHydrator` dispatches
-`:hydrate_record` to Channels. `CommunicationBridge` rebuilds the current trusted
-`:materialize_record` event, and `JidoChatBridge` calls the provider adapter's
-`fetch_media/2`. Live records that already carry a materialization event skip the
-hydration hop. The 100 MiB default byte limit is configurable through
+When an agent accesses a persisted attachment, `CommunicationBridge` uses the
+verified request's provider to route to the correct bridge, and `JidoChatBridge`
+calls the provider adapter's `fetch_media/2`. The 100 MiB default byte limit is configurable through
 `:message_trace_artifact_max_bytes`; communication media without a known declared
 size, or with a declared size above that limit, is rejected before provider fetch.
 
@@ -161,6 +159,11 @@ Unmaterialized data-source file records carry a signed `materialization_handle` 
 `data_source_document`. The handle survives agent/tool JSON serialization and is redeemed
 through `Zaq.Materialization`; the Channels materializer validates the locator and dispatches
 the fixed `:data_source_download_document` action.
+
+Unmaterialized communication-media records carry a signed `materialization_handle`
+of type `communication_media`. The handle is redeemed through the same
+`Zaq.Materialization` registry and dispatches the generic `:materialize_record`
+Channels action after locator and actor validation.
 
 ### Data source required capabilities
 

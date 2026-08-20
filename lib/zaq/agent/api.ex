@@ -5,6 +5,8 @@ defmodule Zaq.Agent.Api do
   Handles the `:run_pipeline` action by normalizing caller identity into
   `Event.actor`, scoping the request, and dispatching to either `Executor`
   (direct agent run when an agent is selected) or `Pipeline` (full RAG pipeline).
+  Attachment-only requests are normalized for explicitly selected agents before
+  prompt validation so their media metadata reaches `Executor`.
 
   Channel messages may carry a resolved `%Incoming.person`; this boundary
   promotes that transport identity into the canonical execution actor.
@@ -84,6 +86,8 @@ defmodule Zaq.Agent.Api do
             "Checking your request…",
             node_router_mod
           )
+
+        incoming = normalize_selected_agent_attachment_input(incoming, event.assigns)
 
         prompt_guard_mod = Keyword.get(event.opts, :prompt_guard, PromptGuard)
 
@@ -287,6 +291,15 @@ defmodule Zaq.Agent.Api do
   end
 
   defp selected_agent_id(_), do: nil
+
+  defp normalize_selected_agent_attachment_input(
+         %Incoming{content: nil, attachments: [_ | _]} = incoming,
+         assigns
+       ) do
+    if selected_agent_id(assigns), do: %{incoming | content: ""}, else: incoming
+  end
+
+  defp normalize_selected_agent_attachment_input(%Incoming{} = incoming, _assigns), do: incoming
 
   defp mcp_test_opts(opts) when is_list(opts) do
     case Keyword.get(opts, :mcp_test_opts, []) do

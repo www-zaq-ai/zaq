@@ -76,6 +76,27 @@ defmodule Zaq.Channels.Events do
     |> node_router(opts).dispatch()
   end
 
+  @spec build_materialize_record_event(map(), keyword()) :: Event.t()
+  @doc "Builds a Channels event that materializes a generic Record locator."
+  def build_materialize_record_event(request, opts \\ []) when is_map(request) do
+    event_type = Keyword.get(opts, :type, :sync)
+    event_opts = Keyword.get(opts, :event_opts, [])
+
+    Event.new(request, :channels,
+      type: event_type,
+      actor: Keyword.get(opts, :actor),
+      opts: [action: :materialize_record] ++ event_opts
+    )
+  end
+
+  @spec build_and_dispatch_materialize_record_event(map(), keyword()) :: Event.t()
+  @doc "Builds and dispatches a generic Record materialization event."
+  def build_and_dispatch_materialize_record_event(request, opts \\ []) when is_map(request) do
+    request
+    |> build_materialize_record_event(opts)
+    |> node_router(opts).dispatch()
+  end
+
   @spec build_and_dispatch_data_source_watch_item_event(atom() | String.t(), map(), keyword()) ::
           Event.t()
   @doc "Builds and dispatches a provider data-source watch setup event."

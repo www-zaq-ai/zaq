@@ -4,6 +4,34 @@ defmodule Zaq.Engine.Conversations.MessageTraceArtifactTest do
 
   alias Zaq.Engine.Conversations.MessageTraceArtifact
 
+  test "preserves required validation errors when content is missing" do
+    attrs = %{
+      tool_call_id: "tool-1",
+      tool_name: "download_document",
+      name: "attachment.bin",
+      mime_type: "application/octet-stream",
+      size: 0,
+      sha256: :crypto.hash(:sha256, "")
+    }
+
+    changeset =
+      MessageTraceArtifact.changeset(
+        %MessageTraceArtifact{message_id: Ecto.UUID.generate()},
+        attrs,
+        1_024
+      )
+
+    refute Map.has_key?(changeset.changes, :content)
+    refute changeset.valid?
+
+    assert Keyword.get_values(changeset.errors, :content) == [
+             {"can't be blank", [validation: :required]}
+           ]
+
+    refute Keyword.has_key?(changeset.errors, :size)
+    refute Keyword.has_key?(changeset.errors, :sha256)
+  end
+
   property "accepts content exactly when its size and digest match within the limit" do
     check all(content <- binary(min_length: 1, max_length: 1_024)) do
       attrs = %{

@@ -21,7 +21,6 @@ defmodule Zaq.Channels.Api do
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Channels.MessageFormatter
-  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
@@ -31,12 +30,6 @@ defmodule Zaq.Channels.Api do
   @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
 
   @impl true
-  def handle_event(%Event{request: %Record{} = record} = event, :hydrate_record, _context) do
-    communication_bridge = communication_bridge_module(event)
-    opts = Keyword.put(event.opts, :actor, event.actor)
-    %{event | response: communication_bridge.hydrate_record(record, opts)}
-  end
-
   def handle_event(%Event{request: request} = event, :materialize_record, _context)
       when is_map(request) do
     communication_bridge = communication_bridge_module(event)

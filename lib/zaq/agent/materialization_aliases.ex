@@ -62,6 +62,24 @@ defmodule Zaq.Agent.MaterializationAliases do
     :ok
   end
 
+  @doc "Returns JSON-safe Record metadata with materialization handles scoped to short aliases."
+  @spec alias_record_metadata(Record.t(), term()) :: {:ok, map()} | {:error, term()}
+  def alias_record_metadata(%Record{} = record, scope) do
+    record
+    |> Record.metadata()
+    |> map_paths([[:materialization_handle], ["materialization_handle"]], &alias_value(&1, scope))
+  end
+
+  @doc "Aliases a serialized Record metadata map for model-facing history text."
+  @spec alias_metadata(map(), term()) :: {:ok, map()} | {:error, term()}
+  def alias_metadata(metadata, scope) when is_map(metadata) do
+    map_paths(
+      metadata,
+      [[:materialization_handle], ["materialization_handle"]],
+      &alias_value(&1, scope)
+    )
+  end
+
   defp fetch_scope(%{materialization_alias_scope: scope}) when not is_nil(scope), do: {:ok, scope}
 
   defp fetch_scope(%{"materialization_alias_scope" => scope}) when not is_nil(scope),

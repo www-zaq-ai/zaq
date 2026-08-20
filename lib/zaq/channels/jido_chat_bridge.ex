@@ -40,10 +40,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
   alias Zaq.Channels.JidoChatBridge.ReactionMapper
   alias Zaq.Channels.JidoChatBridge.State
-  alias Zaq.Contracts.{Record, RecordCapability}
+  alias Zaq.Channels.Materializers.CommunicationMedia
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
-  alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Types.EncryptedString
 
@@ -652,43 +652,42 @@ defmodule Zaq.Channels.JidoChatBridge do
     })
   end
 
-  @doc "Builds the current Channels materialization event for a JidoChat media record."
-  @impl true
-  def build_materializing_event(config, %Record{} = record) when is_map(config) do
-    attributes = if is_map(record.attributes), do: record.attributes, else: %{}
-    provider = config_value(config, :provider) || attributes["provider"]
-    reference = attributes["source_id"]
-
-    if RecordCapability.verify(record) == :ok and present_reference?(reference) and
-         (is_binary(provider) or is_atom(provider)) do
-      request = %{
-        provider: to_string(provider),
-        reference: reference,
-        record: %{record | materializing_event: nil}
-      }
-
-      {:ok, Event.new(request, :channels, opts: [action: :materialize_record])}
-    else
-      {:error, :invalid_media_source}
-    end
-  end
-
   @doc "Fetches media bytes through the configured JidoChat adapter."
   @impl true
-  def materialize_record(config, %{reference: reference, record: %Record{} = record}, details)
+  def materialize_record(_config, request, _details) when not is_map(request),
+    do: {:error, :invalid_media_request}
+
+  def materialize_record(config, request, details)
       when is_map(config) and is_map(details) do
+    reference = Map.get(request, :reference) || Map.get(request, "reference")
     provider = config_value(config, :provider)
     max_bytes = max_media_bytes()
+    size = Map.get(request, :size) || Map.get(request, "size")
 
-    with :ok <- RecordCapability.verify(record),
-         :ok <- enforce_media_size(record.size, max_bytes),
+    with :ok <- enforce_media_size(size, max_bytes),
          true <- present_reference?(reference) || {:error, :invalid_media_reference},
          {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :fetch_media, 2) || {:error, :unsupported},
          {:ok, content} when is_binary(content) <-
            adapter.fetch_media(reference, media_opts(details)),
          :ok <- enforce_media_size(byte_size(content), max_bytes) do
-      {:ok, %{content: content}}
+      {:ok,
+       %{
+         record: %Record{
+           id: to_string(reference),
+           kind: :file,
+           content: content,
+           name: Map.get(request, :name) || Map.get(request, "name"),
+           mime_type: Map.get(request, :mime_type) || Map.get(request, "mime_type"),
+           size: byte_size(content),
+           attributes: %{
+             "source_type" => "communication_media",
+             "provider" => to_string(provider),
+             "source_id" => to_string(reference),
+             "media_kind" => Map.get(request, :media_kind) || Map.get(request, "media_kind")
+           }
+         }
+       }}
     else
       {:ok, _other} -> {:error, :invalid_media_content}
       {:error, _reason} = error -> error
@@ -1198,6 +1197,7 @@ defmodule Zaq.Channels.JidoChatBridge do
              Map.get(subscription, :subscription_id) || Map.get(subscription, "subscription_id") do
         {:ok, id}
       else
+        {:error, reason} -> {:error, reason}
         _ -> {:error, :missing_subscription_id}
       end
     end
@@ -1492,19 +1492,28 @@ defmodule Zaq.Channels.JidoChatBridge do
       |> maybe_put_channel_config_id(channel_config_id)
       |> maybe_put_source_scope(author_id, channel_id, message_id)
 
-    record =
-      %Record{
-        id: source_id,
-        kind: :file,
-        name: media.filename || "attachment-#{index}",
-        mime_type: media.media_type,
-        size: media.size_bytes,
-        attributes: attributes
-      }
-      |> RecordCapability.sign!()
+    attrs = %{
+      "name" => media.filename || "attachment-#{index}",
+      "mime_type" => media.media_type,
+      "media_kind" => to_string(media.kind),
+      "size" => media.size_bytes,
+      "channel_config_id" => channel_config_id,
+      "source_author_id" => author_id,
+      "source_channel_id" => channel_id,
+      "source_message_id" => message_id
+    }
 
-    {:ok, materializing_event} = build_materializing_event(%{provider: provider}, record)
-    %{record | materializing_event: materializing_event}
+    {:ok, handle} = CommunicationMedia.issue(provider, source_id, attrs)
+
+    %Record{
+      id: source_id,
+      kind: :file,
+      name: media.filename || "attachment-#{index}",
+      mime_type: media.media_type,
+      size: media.size_bytes,
+      attributes: attributes,
+      materialization_handle: handle
+    }
   end
 
   defp media_source_id(%Media{metadata: metadata, url: url}, message_id, index) do

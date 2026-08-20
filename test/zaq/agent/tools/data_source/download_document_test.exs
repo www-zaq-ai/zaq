@@ -28,19 +28,6 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     def dispatch(%Event{} = event), do: %{event | response: :weird_response}
   end
 
-  defmodule StubNodeRouterCommunicationMedia do
-    def dispatch(%Event{opts: [action: :hydrate_record]} = event) do
-      materializing_event =
-        Event.new(%{record: event.request}, :channels, opts: [action: :materialize_record])
-
-      %{event | response: {:ok, materializing_event}}
-    end
-
-    def dispatch(%Event{opts: [action: :materialize_record]} = event) do
-      %{event | response: {:ok, %{content: <<0, 1, 2, 3>>}}}
-    end
-  end
-
   describe "schema" do
     test "is a valid Zoi action schema" do
       assert :ok = Schema.validate_config_schema(DownloadDocument.schema())

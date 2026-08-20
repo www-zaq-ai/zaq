@@ -2,13 +2,14 @@ defmodule Zaq.Agent.MediaAttachmentIntegrationTest do
   use Zaq.DataCase, async: false
 
   alias ReqLLM.Message.ContentPart
+  alias ReqLLM.ToolResult
   alias Zaq.Accounts
   alias Zaq.Agent.{MediaResultTransformer, StreamEvents}
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
-  alias Zaq.Contracts.{Record, RecordCapability}
+  alias Zaq.Channels.Materializers.CommunicationMedia
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
-  alias Zaq.Event
   alias Zaq.TestSupport.NoopAgentStatus
 
   setup :verify_on_exit!
@@ -16,53 +17,37 @@ defmodule Zaq.Agent.MediaAttachmentIntegrationTest do
   test "accessed lazy media flows from hydration through authorized trace persistence" do
     bytes = <<0, 1, 2, 3>>
 
-    expect(Zaq.NodeRouterMock, :dispatch, 2, fn event ->
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
       case Keyword.fetch!(event.opts, :action) do
-        :hydrate_record ->
-          materializing_event =
-            Event.new(%{record: event.request}, :channels, opts: [action: :materialize_record])
-
-          %{event | response: {:ok, materializing_event}}
-
         :materialize_record ->
-          %{event | response: {:ok, %{content: bytes}}}
+          %{event | response: {:ok, %{record: media_record(bytes)}}}
       end
     end)
 
-    record =
-      %Record{
-        id: "media-integration",
-        kind: :file,
-        name: "diagram.png",
-        mime_type: "image/png",
-        size: byte_size(bytes),
-        attributes: %{
-          "source_type" => "communication_media",
-          "provider" => "mattermost",
-          "source_id" => "media-integration",
-          "source_author_id" => "author-1"
-        }
-      }
-      |> RecordCapability.sign!()
+    {:ok, handle} =
+      CommunicationMedia.issue("mattermost", "media-integration", %{
+        "name" => "diagram.png",
+        "mime_type" => "image/png",
+        "size" => byte_size(bytes),
+        "media_kind" => "image",
+        "source_author_id" => "author-1"
+      })
 
     tool_call = %{id: "tool-media", name: "download_document", arguments: %{}}
 
     assert {:ok, %{record: %Record{content: ^bytes} = materialized_record}} =
-             DownloadDocument.run(%{record: Record.metadata(record)}, %{
+             DownloadDocument.run(%{materialization_handle: handle}, %{
                node_router: Zaq.NodeRouterMock,
                actor: %{id: "author-1"}
              })
 
     canonical_result = {:ok, %{record: materialized_record}, []}
 
-    assert {:ok, [%ContentPart{type: :image, data: ^bytes}]} =
-             MediaResultTransformer.transform_tool_result(
+    assert {:ok, {:ok, %ToolResult{content: [%ContentPart{type: :image, data: ^bytes}]}, []}} =
+             MediaResultTransformer.project_tool_result(
                tool_call,
-               "default",
-               %{
-                 tool_result: canonical_result,
-                 runtime_context: %{node_router: Zaq.NodeRouterMock}
-               }
+               canonical_result,
+               %{node_router: Zaq.NodeRouterMock}
              )
 
     events = [
@@ -117,6 +102,23 @@ defmodule Zaq.Agent.MediaAttachmentIntegrationTest do
 
     assert artifact.content == bytes
     assert artifact.mime_type == "image/png"
+  end
+
+  defp media_record(bytes) do
+    %Record{
+      id: "media-integration",
+      kind: :file,
+      content: bytes,
+      name: "diagram.png",
+      mime_type: "image/png",
+      size: byte_size(bytes),
+      attributes: %{
+        "source_type" => "communication_media",
+        "provider" => "mattermost",
+        "source_id" => "media-integration",
+        "media_kind" => "image"
+      }
+    }
   end
 
   defp event(kind, at_ms, data, tool_call) do

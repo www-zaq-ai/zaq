@@ -3,6 +3,7 @@ defmodule ZaqWeb.MessageTraceArtifactController do
 
   use ZaqWeb, :controller
 
+  alias Zaq.Config
   alias Zaq.Event
   alias Zaq.NodeRouter
 
@@ -15,7 +16,7 @@ defmodule ZaqWeb.MessageTraceArtifactController do
         opts: [action: :get_message_trace_artifact]
       )
 
-    case NodeRouter.dispatch(event).response do
+    case node_router_module(conn).dispatch(event).response do
       {:ok, artifact} -> serve_artifact(conn, artifact)
       {:error, :unauthorized} -> conn |> put_status(:forbidden) |> text("Forbidden")
       {:error, :not_found} -> conn |> put_status(:not_found) |> text("Artifact not found")
@@ -51,4 +52,10 @@ defmodule ZaqWeb.MessageTraceArtifactController do
   end
 
   defp safe_filename(_name), do: "artifact"
+
+  defp node_router_module(conn) do
+    Config.get(:zaq, :message_trace_artifact_controller_node_router_module, NodeRouter,
+      config: conn.assigns[:config]
+    )
+  end
 end

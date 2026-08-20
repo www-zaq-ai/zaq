@@ -111,6 +111,20 @@ defmodule Zaq.Contracts.Record do
   @spec semantic_type() :: :record
   def semantic_type, do: @semantic_type
 
+  @doc "Returns the JSON-safe public metadata for a Record without materialized content."
+  @spec metadata(t()) :: map()
+  def metadata(%__MODULE__{} = record) do
+    record
+    |> Map.from_struct()
+    |> Map.take(@public_fields)
+    |> Map.delete(:content)
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), metadata_value(value)} end)
+  end
+
+  defp metadata_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp metadata_value(value), do: value
+
   @doc "Validates that a Zoi value is a canonical Record struct."
   @spec validate_zoi_type(term(), keyword()) :: :ok | {:error, String.t()}
   def validate_zoi_type(%__MODULE__{}, _opts), do: :ok

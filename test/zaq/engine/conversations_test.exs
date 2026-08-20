@@ -11,7 +11,6 @@ defmodule Zaq.Engine.ConversationsTest do
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry.{Buffer, Point}
-  alias Zaq.Event
 
   # Production stamps conversation identity on the channels node before the
   # envelope reaches the engine — mirror that here so grouping assertions
@@ -293,6 +292,104 @@ defmodule Zaq.Engine.ConversationsTest do
   end
 
   describe "persist_from_incoming/2" do
+    test "accepts nil trace artifacts and falls back from an invalid configured byte limit" do
+      {:ok, conversation} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "artifact-nil-user"
+        })
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "No accessed files",
+        channel_id: "chan-artifact-nil",
+        author_id: "artifact-nil-user",
+        provider: :mattermost,
+        metadata: %{conversation_id: conversation.id}
+      }
+
+      previous = Application.get_env(:zaq, :message_trace_artifact_max_bytes)
+      Application.put_env(:zaq, :message_trace_artifact_max_bytes, "invalid")
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:zaq, :message_trace_artifact_max_bytes)
+        else
+          Application.put_env(:zaq, :message_trace_artifact_max_bytes, previous)
+        end
+      end)
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               persist_from_incoming(incoming, %{answer: "All clear.", trace_artifacts: nil})
+
+      assert conversation_id == conversation.id
+      assert length(Conversations.list_messages(conversation)) == 2
+      assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
+    end
+
+    test "rejects a non-map trace artifact before persistence" do
+      {:ok, conversation} = Conversations.create_conversation(conv_attrs())
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Invalid artifact",
+        channel_id: "chan-invalid-artifact",
+        author_id: "invalid-artifact-user",
+        provider: :mattermost,
+        metadata: %{conversation_id: conversation.id}
+      }
+
+      assert {:error, :invalid_trace_artifact} =
+               persist_from_incoming(incoming, %{answer: "Nope", trace_artifacts: [nil]})
+
+      assert Conversations.list_messages(conversation) == []
+      assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
+    end
+
+    test "rejects non-list trace artifacts without persistence" do
+      {:ok, conversation} = Conversations.create_conversation(conv_attrs())
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Invalid artifact list",
+        channel_id: "chan-invalid-artifact-list",
+        author_id: "invalid-artifact-list-user",
+        provider: :mattermost,
+        metadata: %{conversation_id: conversation.id}
+      }
+
+      assert {:error, :invalid_trace_artifact} =
+               persist_from_incoming(incoming, %{answer: "Nope", trace_artifacts: %{}})
+
+      assert Conversations.list_messages(conversation) == []
+      assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
+    end
+
+    test "returns the artifact changeset and rolls back the exchange when artifact insert fails" do
+      {:ok, conversation} = Conversations.create_conversation(conv_attrs())
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Bad record",
+        channel_id: "chan-artifact-record",
+        author_id: "artifact-record-user",
+        provider: :mattermost,
+        metadata: %{conversation_id: conversation.id}
+      }
+
+      artifact = %{
+        content: <<1, 2, 3>>,
+        name: "record.bin",
+        mime_type: "application/octet-stream",
+        record: "not a map",
+        tool_call_id: "tool-record",
+        tool_name: "download_document"
+      }
+
+      assert {:error, changeset} =
+               persist_from_incoming(incoming, %{answer: "Failed", trace_artifacts: [artifact]})
+
+      assert %{record: _} = errors_on(changeset)
+      assert Conversations.list_messages(conversation) == []
+      assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
+    end
+
     test "persists accessed media transactionally and links descriptors from the assistant trace" do
       incoming = %Zaq.Engine.Messages.Incoming{
         content: "Describe the image",
@@ -714,11 +811,6 @@ defmodule Zaq.Engine.ConversationsTest do
     end
 
     test "persists attachment metadata without bytes or events and accepts attachment-only input" do
-      materializing_event =
-        Event.new(%{provider: "mattermost", reference: "file-1"}, :channels,
-          opts: [action: :materialize_record]
-        )
-
       attachment = %Record{
         id: "file-1",
         kind: :file,
@@ -732,7 +824,7 @@ defmodule Zaq.Engine.ConversationsTest do
           "source_id" => "file-1"
         },
         raw: %{token: "secret"},
-        materializing_event: materializing_event
+        materialization_handle: "signed-handle"
       }
 
       incoming = %Zaq.Engine.Messages.Incoming{
@@ -764,7 +856,7 @@ defmodule Zaq.Engine.ConversationsTest do
       assert stored["name"] == "photo.png"
       refute Map.has_key?(stored, "content")
       refute Map.has_key?(stored, "raw")
-      refute Map.has_key?(stored, "materializing_event")
+      assert stored["materialization_handle"] == "signed-handle"
     end
 
     test "falls back to normalized email thread id then message id then author" do
@@ -850,6 +942,42 @@ defmodule Zaq.Engine.ConversationsTest do
 
       assert email_conv.channel_type == "email:imap"
       assert api_conv.channel_type == "api"
+    end
+
+    test "defaults nil provider, metadata, and author to an api conversation keyed by channel_id" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Direct API history",
+        channel_id: "api-history-channel",
+        author_id: nil,
+        provider: nil,
+        metadata: nil
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               persist_message_history(incoming, %{content: "Assistant response"})
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_type == "api"
+      assert conversation.channel_user_id == incoming.channel_id
+      refute Map.has_key?(conversation.metadata, "author_id")
+      assert [%{role: "assistant"}] = Conversations.list_messages(conversation)
+    end
+
+    test "defaults a non-atom and non-binary provider to api keyed by author" do
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "Unknown provider",
+        channel_id: "api-provider-channel",
+        author_id: "api-provider-author",
+        provider: 123,
+        metadata: nil
+      }
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_from_incoming(incoming, %{answer: "API reply"})
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_type == "api"
+      assert conversation.channel_user_id == incoming.author_id
     end
   end
 
@@ -1024,6 +1152,38 @@ defmodule Zaq.Engine.ConversationsTest do
                )
 
       assert Conversations.get_conversation!(conversation_id).title == subject
+    end
+
+    test "leaves the title nil for blank or whitespace history subjects" do
+      for subject <- ["", "   "] do
+        incoming = %Zaq.Engine.Messages.Incoming{
+          content: "Untitled outbound body",
+          channel_id: "untitled-#{System.unique_integer([:positive])}",
+          author_id: "untitled-author-#{System.unique_integer([:positive])}",
+          provider: "mattermost",
+          metadata: %{"subject" => subject}
+        }
+
+        assert {:ok, %{conversation_id: conversation_id}} =
+                 persist_message_history(incoming, %{
+                   content: "Untitled assistant body",
+                   metadata: %{"subject" => subject}
+                 })
+
+        assert is_nil(Conversations.get_conversation!(conversation_id).title)
+      end
+    end
+  end
+
+  describe "get_authorized_trace_artifact/2" do
+    test "returns not_found for invalid artifact id or user" do
+      user = user_fixture()
+
+      assert {:error, :not_found} =
+               Conversations.get_authorized_trace_artifact(Ecto.UUID.generate(), nil)
+
+      assert {:error, :not_found} =
+               Conversations.get_authorized_trace_artifact(nil, user)
     end
   end
 

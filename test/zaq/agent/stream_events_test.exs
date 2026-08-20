@@ -1,6 +1,7 @@
 defmodule Zaq.Agent.StreamEventsTest do
   use ExUnit.Case, async: true
 
+  alias ReqLLM.ToolResult
   alias Zaq.Agent.StreamEvents
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
@@ -238,7 +239,10 @@ defmodule Zaq.Agent.StreamEventsTest do
       event(
         :tool_completed,
         20,
-        %{tool_name: "download_document", result: {:ok, %{record: record}, []}},
+        %{
+          tool_name: "download_document",
+          result: {:ok, %ToolResult{output: %{record: record}, content: []}, []}
+        },
         tool_call_id: "tool-media"
       ),
       event(:request_completed, 30, %{result: "done"})

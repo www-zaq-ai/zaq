@@ -4,6 +4,7 @@ defmodule Zaq.Agent.ApiTest do
   alias Zaq.Agent.Api
   alias Zaq.Agent.MCP
   alias Zaq.Agent.RequestRegistry
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Event
@@ -452,6 +453,90 @@ defmodule Zaq.Agent.ApiTest do
     assert Keyword.get(opts, :telemetry_dimensions) == %{channel_type: "bo"}
 
     refute_received {:pipeline_called, _, _}
+  end
+
+  test "normalizes nil content for an attachment-only selected agent request" do
+    attachment = %Record{id: "media-1", kind: :file}
+
+    incoming = %Incoming{
+      content: nil,
+      channel_id: "c1",
+      provider: nil,
+      attachments: [attachment]
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          status_module: NoopStatus,
+          node_router: SpyNodeRouter
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{body: "selected"} = result.response
+
+    assert_received {:executor_called, %Incoming{content: "", attachments: [^attachment]}, opts}
+
+    assert Keyword.get(opts, :agent_id) == "42"
+    refute_received {:pipeline_called, _, _}
+  end
+
+  test "keeps nil content blocked for a selected agent request without attachments" do
+    incoming = %Incoming{content: nil, channel_id: "c1", provider: nil}
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          status_module: NoopStatus,
+          node_router: SpyNodeRouter
+        ]
+      )
+
+    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.metadata.error == true
+    refute_received {:pipeline_called, _, _}
+    refute_received {:executor_called, _, _}
+  end
+
+  test "keeps attachment-only requests blocked on the legacy default pipeline" do
+    incoming = %Incoming{
+      content: nil,
+      channel_id: "c1",
+      provider: nil,
+      attachments: [%Record{id: "media-1", kind: :file}]
+    }
+
+    event =
+      Event.new(incoming, :agent,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          status_module: NoopStatus,
+          node_router: SpyNodeRouter
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert %Outgoing{} = result.response
+    assert result.response.metadata.error == true
+    refute_received {:pipeline_called, _, _}
+    refute_received {:executor_called, _, _}
   end
 
   test "does not pass a custom system_prompt from pipeline_opts to the executor" do

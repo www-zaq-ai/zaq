@@ -2015,7 +2015,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert_eventually(fn -> render(view) =~ "Sorry, something went wrong. Please try again." end)
   end
 
-  test "mcp tool timeout inside ask/3 returns clean UI error", %{conn: conn} do
+  test "mcp tool timeout inside ask/3 returns clean UI error", %{conn: conn, user: user} do
     {mcp_child_spec, mcp_endpoint} = mcp_timeout_server(self())
     start_supervised!(mcp_child_spec)
 
@@ -2100,14 +2100,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     Application.put_env(:zaq, :pipeline_executor_module, Zaq.Agent.Executor)
 
-    conversation_id = Ecto.UUID.generate()
+    {:ok, conversation} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
 
     NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :create_conversation, fn [_attrs] ->
-      {:ok, %{id: conversation_id, user_id: nil}}
+      {:ok, conversation}
     end)
 
     NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :update_conversation, fn [_conv, attrs] ->
-      {:ok, %{id: conversation_id, user_id: attrs.user_id}}
+      {:ok, %{conversation | user_id: attrs.user_id}}
     end)
 
     NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :add_message, fn [_conv, attrs] ->

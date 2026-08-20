@@ -1,6 +1,7 @@
 defmodule ZaqWeb.MessageTraceArtifactControllerTest do
   use ZaqWeb.ConnCase, async: false
 
+  import Mox
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
@@ -9,9 +10,113 @@ defmodule ZaqWeb.MessageTraceArtifactControllerTest do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Repo
 
+  defmodule StubConfig do
+    def get(:zaq, :message_trace_artifact_controller_node_router_module, _default),
+      do: Zaq.NodeRouterMock
+  end
+
   test "requires an authenticated BO session", %{conn: conn} do
     conn = get(conn, "/bo/trace-artifacts/#{Ecto.UUID.generate()}")
     assert redirected_to(conn) == "/bo/login"
+  end
+
+  describe "Engine authorization and artifact responses" do
+    setup :verify_on_exit!
+
+    setup %{conn: conn} do
+      user = authenticated_user("artifact_mock_user")
+
+      conn =
+        conn
+        |> Plug.Conn.assign(:config, StubConfig)
+        |> init_test_session(%{user_id: user.id})
+
+      %{conn: conn, user: user}
+    end
+
+    test "returns forbidden when the Engine rejects the actor", %{conn: conn, user: user} do
+      artifact_id = Ecto.UUID.generate()
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{
+                                                 request: ^artifact_id,
+                                                 actor: %{user_id: user_id},
+                                                 opts: [action: :get_message_trace_artifact],
+                                                 next_hop: %{destination: :engine}
+                                               } = event ->
+        assert user_id == user.id
+        %{event | response: {:error, :unauthorized}}
+      end)
+
+      conn = get(conn, "/bo/trace-artifacts/#{artifact_id}")
+
+      assert response(conn, 403) == "Forbidden"
+    end
+
+    test "returns internal server error for an unexpected Engine failure", %{
+      conn: conn,
+      user: user
+    } do
+      artifact_id = Ecto.UUID.generate()
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{
+                                                 request: ^artifact_id,
+                                                 actor: %{user_id: user_id},
+                                                 opts: [action: :get_message_trace_artifact],
+                                                 next_hop: %{destination: :engine}
+                                               } = event ->
+        assert user_id == user.id
+        %{event | response: {:error, :timeout}}
+      end)
+
+      conn = get(conn, "/bo/trace-artifacts/#{artifact_id}")
+
+      assert response(conn, 500) == "Could not read artifact"
+    end
+
+    test "uses the fallback filename when the artifact name is empty", %{conn: conn, user: user} do
+      artifact_id = Ecto.UUID.generate()
+      artifact = %MessageTraceArtifact{content: <<0, 1, 2>>, mime_type: "image/png", name: ""}
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{
+                                                 request: ^artifact_id,
+                                                 actor: %{user_id: user_id},
+                                                 opts: [action: :get_message_trace_artifact],
+                                                 next_hop: %{destination: :engine}
+                                               } = event ->
+        assert user_id == user.id
+        %{event | response: {:ok, artifact}}
+      end)
+
+      conn = get(conn, "/bo/trace-artifacts/#{artifact_id}")
+
+      assert response(conn, 200) == <<0, 1, 2>>
+      assert get_resp_header(conn, "content-disposition") == [~s(inline; filename="artifact")]
+      assert List.first(get_resp_header(conn, "content-type")) =~ "image/png"
+    end
+
+    test "uses the fallback filename when the artifact name is not binary", %{
+      conn: conn,
+      user: user
+    } do
+      artifact_id = Ecto.UUID.generate()
+      artifact = %MessageTraceArtifact{content: <<3, 4, 5>>, mime_type: "image/png", name: nil}
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{
+                                                 request: ^artifact_id,
+                                                 actor: %{user_id: user_id},
+                                                 opts: [action: :get_message_trace_artifact],
+                                                 next_hop: %{destination: :engine}
+                                               } = event ->
+        assert user_id == user.id
+        %{event | response: {:ok, artifact}}
+      end)
+
+      conn = get(conn, "/bo/trace-artifacts/#{artifact_id}")
+
+      assert response(conn, 200) == <<3, 4, 5>>
+      assert get_resp_header(conn, "content-disposition") == [~s(inline; filename="artifact")]
+      assert List.first(get_resp_header(conn, "content-type")) =~ "image/png"
+    end
   end
 
   test "serves an owned artifact with safe headers", %{conn: conn} do
