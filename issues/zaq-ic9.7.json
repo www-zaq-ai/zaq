@@ -21,11 +21,15 @@
     {
       "text": "Updated media refactor for handle-based communication materialization: JidoChat records now carry signed communication_media materialization_handle values; the existing Channels :materialize_record event routes by provider after handle verification; obsolete RecordCapability/RecordHydrator/hydrate_record/materializing_event code and tests were removed. Factory.after_tool_call now composes materialization aliases with MediaResultTransformer using ReqLLM.ToolResult for model-facing content parts, and StreamEvents extracts trace artifacts from ToolResult.output. Validation: focused media/materialization suite passed (6 doctests, 3 properties, 579 tests, 0 failures); mix q passed; git diff --check passed.",
       "timestamp": "2026-08-20T08:38:17Z"
+    },
+    {
+      "text": "Fixed current attachment materialization alias scope mismatch: Executor now aliases prompt attachments under the logical server id while using the returned server reference only for runtime calls. Added regression coverage for via-tuple server refs and verified focused Executor/alias tests, mix q, and git diff --check.",
+      "timestamp": "2026-08-20T12:13:37Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#613] Validate attachment flow and update docs",
   "type": "task",
-  "updated_at": "2026-08-20T08:38:17Z"
+  "updated_at": "2026-08-20T12:13:37Z"
 }
