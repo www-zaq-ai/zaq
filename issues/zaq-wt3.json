@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-20T06:33:40Z",
+  "description": "Fix download_document so an explicit export_mime_type supplied with a materialization_handle is treated as per-redemption representation state and overrides configured defaults without mutating signed handle identity.",
+  "id": "zaq-wt3",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "download_document handle export MIME override",
+  "type": "bug",
+  "updated_at": "2026-08-20T06:33:40Z"
+}
