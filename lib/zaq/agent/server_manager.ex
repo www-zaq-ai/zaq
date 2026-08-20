@@ -22,8 +22,7 @@ defmodule Zaq.Agent.ServerManager do
   Interaction boundaries:
 
   - Used by `Zaq.Agent.Executor` to obtain a server reference before execution.
-  - Uses `Factory.runtime_config/1` and `Factory.build_initial_context/3` to
-    initialize agent state.
+  - Uses `Factory.runtime_config/1` to initialize agent state.
   - Uses `ProviderSpec.build/1` as the single source of provider/model runtime
     spec assembly.
   - Uses `RuntimeSync.sync_agent_runtime/3` to apply/update runtime tool and MCP
@@ -251,15 +250,31 @@ defmodule Zaq.Agent.ServerManager do
   defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, context) do
     with {:ok, model_spec} <- ProviderSpec.build(configured_agent),
          {:ok, runtime_config} <- Factory.runtime_config(configured_agent) do
-      spawn_server(server_id, configured_agent, %{
+      initial_state = %{
         model: model_spec,
         runtime_config: runtime_config,
         tool_context: %{
           configured_agent_id: configured_agent.id,
-          materialization_alias_scope: server_id
-        },
-        context: Factory.build_initial_context(configured_agent, server_id, context)
-      })
+          materialization_alias_scope: server_id,
+          # Merged into every turn's runtime context, where
+          # `Zaq.Agent.ContextWindow.transform_request/4` reads it as the per-turn
+          # budget without a DB hit.
+          memory_context_max_size: configured_agent.memory_context_max_size
+        }
+      }
+
+      # Cold-start hydration and the budget both live in
+      # `Zaq.Agent.Plugin.ContextWindowPlugin.mount/2`. A caller-supplied context (a
+      # workflow step assembling its own turns) is passed through for the plugin
+      # to trim rather than replace; with none, the key is left out entirely so
+      # the plugin's mount sees no context instead of a nil one.
+      initial_state =
+        case context do
+          %AIContext{} -> Map.put(initial_state, :context, context)
+          _ -> initial_state
+        end
+
+      spawn_server(server_id, configured_agent, initial_state)
     end
   end
 

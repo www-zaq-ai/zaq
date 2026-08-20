@@ -11,8 +11,8 @@ defmodule Zaq.Agent.Factory do
     resolves enabled tool modules (`Zaq.Agent.Tools.Registry`), builds effective
     LLM options (system defaults from `Zaq.System` merged with per-agent
     overrides from `Zaq.Agent.ProviderSpec`), and derives the system prompt.
-  - Cold-start memory hydration via `build_initial_context/3`, delegating to
-    `Zaq.Agent.HistoryLoader` using scope information encoded in server IDs.
+  - Cold-start scope decoding via `spawn_opts_from_server_id/1`; the hydration
+    and budgeting it feeds live in `Zaq.Agent.Plugin.ContextWindowPlugin`.
   - Safe request dispatch via `ask_with_config/4`, including server-state
     runtime-config fallback and best-effort system prompt synchronization before
     each ask.
@@ -21,8 +21,7 @@ defmodule Zaq.Agent.Factory do
 
   Typical flow:
 
-  1. `Zaq.Agent.ServerManager` calls `runtime_config/1` and
-     `build_initial_context/3` when spawning a server.
+  1. `Zaq.Agent.ServerManager` calls `runtime_config/1` when spawning a server.
   2. `Zaq.Agent.Executor` calls `ask_with_config/4` to run an incoming question.
   3. The request runs through Jido with the resolved tools, model opts, and
      synchronized prompt.
@@ -38,12 +37,13 @@ defmodule Zaq.Agent.Factory do
     request_policy: :reject,
     plugins: [
       {Jido.MCP.Plugins.MCP, %{allowed_endpoints: :all}},
-      Jido.MCP.JidoAI.Plugins.MCPAI
+      Jido.MCP.JidoAI.Plugins.MCPAI,
+      Zaq.Agent.Plugin.ContextWindowPlugin
     ],
+    request_transformer: Zaq.Agent.ContextWindow,
     tools: []
 
-  alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.{ConfiguredAgent, HistoryLoader, MaterializationAliases, ProviderSpec, Skills}
+  alias Zaq.Agent.{ConfiguredAgent, MaterializationAliases, ProviderSpec, Skills}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
 
@@ -104,34 +104,6 @@ defmodule Zaq.Agent.Factory do
          system_prompt: Skills.system_prompt(configured_agent, skills)
        }}
     end
-  end
-
-  @doc """
-  Builds the initial `Jido.AI.Context` for a cold-started agent by loading recent history.
-
-  Routes to conversation history when `incoming.metadata.conversation_id` is present,
-  otherwise loads by `person_id` + normalized provider. Returns an empty context when
-  `incoming` is `nil` or the relevant identifiers are absent.
-
-  When `context` is a pre-built `Jido.AI.Context` (e.g. `RunAgent` supplies the
-  step's turns via `opts[:context]`), it is used **as-is** and no history is loaded
-  — the caller has already assembled the agent's entire starting context. This is
-  exactly right for a per-step workflow scope, which would load no DB history anyway.
-  Otherwise (`nil`), history is loaded from the scope encoded in `server_id`.
-  """
-  @spec build_initial_context(ConfiguredAgent.t(), String.t(), AIContext.t() | nil) ::
-          AIContext.t()
-  def build_initial_context(configured_agent, server_id, context \\ nil)
-
-  def build_initial_context(%ConfiguredAgent{}, _server_id, %AIContext{} = context), do: context
-
-  def build_initial_context(%ConfiguredAgent{} = configured_agent, server_id, _context) do
-    spawn_opts = spawn_opts_from_server_id(server_id)
-
-    HistoryLoader.load_context(
-      spawn_opts,
-      max_tokens: configured_agent.memory_context_max_size || 5_000
-    )
   end
 
   def spawn_opts_from_server_id(server_id) when is_binary(server_id) do
