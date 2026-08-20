@@ -8,6 +8,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.Ingestion.FileExplorer.Entry
+  alias Zaq.Materialization.Handle
 
   defmodule StubRouter do
     @moduledoc false
@@ -112,17 +113,15 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
   end
 
-  describe "materializing events" do
-    test "attaches an event addressed to ingestion, naming the record id" do
+  describe "materialization handles" do
+    test "attaches a disk_document handle naming the record id" do
       stub_response({:ok, entry_page([entry("42")])})
 
       assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
 
-      assert %Event{request: %{file_id: "42"}, opts: opts, next_hop: next_hop} =
-               record.materializing_event
+      assert {:ok, %{type: "disk_document", locator: %{"file_id" => "42"}}} =
+               Handle.verify(record.materialization_handle)
 
-      assert opts[:action] == :materialize_record
-      assert next_hop.destination == :ingestion
       assert record.content == nil
     end
 
@@ -130,14 +129,16 @@ defmodule Zaq.Channels.DiskBridgeTest do
       stub_response({:ok, entry_page([entry("disk:archives:loose.md")])})
 
       assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
-      assert %Event{request: %{file_id: "disk:archives:loose.md"}} = record.materializing_event
+
+      assert {:ok, %{locator: %{"file_id" => "disk:archives:loose.md"}}} =
+               Handle.verify(record.materialization_handle)
     end
 
-    test "leaves folders with no materializing event" do
+    test "leaves folders with no handle" do
       stub_response({:ok, entry_page([entry("d1", %{type: :directory})])})
 
       assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
-      assert record.materializing_event == nil
+      assert record.materialization_handle == nil
     end
   end
 
@@ -185,8 +186,10 @@ defmodule Zaq.Channels.DiskBridgeTest do
     test "returns the record unmaterialized" do
       stub_response({:ok, entry("42")})
 
-      assert {:ok, %{record: %Record{content: nil, materializing_event: %Event{}}}} =
+      assert {:ok, %{record: %Record{content: nil, materialization_handle: handle}}} =
                DiskBridge.get_file(config(), %{"file_id" => "42"})
+
+      assert {:ok, %{type: "disk_document"}} = Handle.verify(handle)
     end
   end
 

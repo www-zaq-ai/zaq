@@ -50,6 +50,27 @@ Per-redemption options:
 The handler always dispatches `:data_source_download_document` to the Channels role via
 `Zaq.Channels.Events`; callers cannot select another action.
 
+## Disk Documents
+
+`disk_document` is implemented by `Zaq.Ingestion.Materializers.DiskDocument`.
+
+Locator fields:
+
+- `file_id` — the document's volume source (volume plus relative path), the same id
+  `Zaq.Channels.DiskBridge` puts on every record it returns
+
+Per-redemption options:
+
+- `encoding` — request `"base64"` to force the raw bytes of a file ingestion would
+  otherwise answer as text. Representation state, not identity, so it stays out of the
+  signed locator.
+
+The handler always dispatches `:materialize_record` to the Ingestion role via
+`Zaq.Ingestion.Events`. Disk records are handed out unmaterialized by a Channels bridge, so
+they redeem as a nested handle: the Channels hop returns a record still carrying its disk
+handle, and `Zaq.Materialization` redeems that second handle and merges the bytes into the
+record the bridge already built.
+
 ## Extension Rules
 
 To add a new materializable source:

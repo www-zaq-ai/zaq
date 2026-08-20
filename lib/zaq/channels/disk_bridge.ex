@@ -13,11 +13,11 @@ defmodule Zaq.Channels.DiskBridge do
   `materialize_record` answers with the bytes alone, and the caller merges them into the
   record this module already gave it.
 
-  Records come back **unmaterialized**: `content: nil` plus a `materializing_event`, so a
+  Records come back **unmaterialized**: `content: nil` plus a `materialization_handle`, so a
   listing does not drag file bytes across a node boundary for a caller that only wanted
-  metadata. Dispatching that event goes straight to ingestion, deliberately not back through
-  here — which is why `materialize_record` is the one ingestion action that still answers
-  with a record rather than an entry.
+  metadata. Redeeming that handle runs `Zaq.Ingestion.Materializers.DiskDocument`, which goes
+  straight to ingestion rather than back through here — which is why `materialize_record`
+  answers with the bytes alone rather than a record.
 
   A file is named by its source — volume plus relative path — which is the id `list_files/2`
   returns and `get_file/2`, `update_file/2`, and `delete_file/2` accept. It is deliberately
@@ -31,6 +31,7 @@ defmodule Zaq.Channels.DiskBridge do
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
   alias Zaq.Ingestion.FileExplorer.Entry
+  alias Zaq.Ingestion.Materializers.DiskDocument
   alias Zaq.NodeRouter
   alias Zaq.Utils
 
@@ -112,12 +113,14 @@ defmodule Zaq.Channels.DiskBridge do
 
   @doc """
   Returns the document as an **unmaterialized** record: `content: nil` plus the
-  `materializing_event` that fetches the bytes.
+  `materialization_handle` that fetches the bytes.
 
   Unlike a bridge fronting a system that holds the file, this one reads nothing. The bytes
   live on an ingestion volume, so carrying them back through here would route the whole
   payload across the channels node for no reason. A caller that actually wants the content
-  dispatches `record.materializing_event`, which goes straight to ingestion.
+  redeems `record.materialization_handle`, which goes straight to ingestion. `Zaq.Materialization`
+  redeems it as a nested handle and merges the bytes into the record this bridge already gave
+  the caller.
 
   That makes this the same answer as `get_file/2` — the difference between the two is what
   the caller does with the record, not what this bridge reads.
@@ -151,7 +154,7 @@ defmodule Zaq.Channels.DiskBridge do
       name: entry.name,
       path: entry.relative_path,
       mime_type: mime_type(kind, entry.name),
-      materializing_event: materializing_event(kind, entry.id),
+      materialization_handle: materialization_handle(kind, entry.id),
       size: entry.size,
       modified_at: entry.modified_at,
       attributes: %{
@@ -172,13 +175,18 @@ defmodule Zaq.Channels.DiskBridge do
   defp mime_type(_kind, _name), do: nil
 
   # A record travels without its bytes — reading every file a listing names would be wasted
-  # work. This is the hop that fetches them when a caller actually wants the content, and it
-  # goes straight to ingestion rather than back through this bridge. A folder has nothing to
-  # materialize.
-  defp materializing_event(:file, id) when is_binary(id),
-    do: Event.new(%{file_id: id}, :ingestion, opts: [action: :materialize_record])
+  # work. The handle is what fetches them when a caller actually wants the content, and it
+  # redeems straight to ingestion rather than back through this bridge. A folder has nothing
+  # to materialize, and an unsignable handle leaves the record metadata-only rather than
+  # failing the whole listing.
+  defp materialization_handle(:file, id) when is_binary(id) do
+    case DiskDocument.issue(id) do
+      {:ok, handle} -> handle
+      {:error, _reason} -> nil
+    end
+  end
 
-  defp materializing_event(_kind, _id), do: nil
+  defp materialization_handle(_kind, _id), do: nil
 
   defp record_page(%{entries: entries, scanned: scanned}) do
     records = Enum.map(entries, &map_entry/1)

@@ -20,7 +20,7 @@ defmodule Zaq.Ingestion do
   Ingestion still *consumes* records — `ingest_records/2` takes them from any bridge — and
   that knowledge is confined to `Zaq.Ingestion.RecordSource` and
   `Zaq.Ingestion.ExternalSource`. `RecordSource.from_entries/1` produces records too, but
-  only as ingest-pipeline input, which is why they carry no `materializing_event`.
+  only as ingest-pipeline input, which is why they carry no `materialization_handle`.
 
   ## A file is named by its source
 
@@ -509,9 +509,10 @@ defmodule Zaq.Ingestion do
   @doc """
   Reads a file's bytes off its volume.
 
-  This is the far end of the `materializing_event` a disk record carries: the record travels
-  without content so a listing does not read every file it names, and a caller that wants the
-  bytes dispatches the event to land here. It answers with the bytes alone —
+  This is the far end of the `materialization_handle` a disk record carries: the record
+  travels without content so a listing does not read every file it names, and a caller that
+  wants the bytes redeems the handle through `Zaq.Ingestion.Materializers.DiskDocument` to
+  land here. It answers with the bytes alone —
   `%{content: ..., encoding: ...}` — never a record. Shaping a record is
   `Zaq.Channels.DiskBridge`'s job, and the caller already holds the one it built.
 

@@ -61,6 +61,12 @@ Canonical records (from any data-source bridge)
 - `delete_paths/3` — batch delete
 - `directory_snapshot/3` — lists entries and combines with DB document/job state (delegates to `DirectorySnapshot.build/4`)
 
+**Disk data source** (backing `Zaq.Channels.DiskBridge`, dispatched as Ingestion role actions)
+- `list_documents/1`, `search_documents/1`, `describe_document/1` — volume entries, never records; the bridge shapes records
+- `persist_document/1`, `update_document/1`, `delete_document/1` — write, rewrite/rename/move, and remove a file plus its rows
+- `materialize_record/1` — reads a file's bytes off its volume and answers `%{content:, encoding:}` alone. Redeemed through `Zaq.Ingestion.Materializers.DiskDocument`, the `disk_document` materializer; see `docs/services/materialization.md`
+- `volume_stats/1`, `list_document_grants/1` — counts and per-document access grants
+
 **Content filter / source search**
 - `list_document_sources/1` — builds @-mention source choices from configured connectors + indexed document sources; supports name search and folder browse semantics
 

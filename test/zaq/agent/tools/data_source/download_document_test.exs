@@ -6,6 +6,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
   alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Contracts.Record
   alias Zaq.Event
+  alias Zaq.Ingestion.Materializers.DiskDocument
   alias Zaq.Materialization
   alias Zaq.Materialization.Handle
 
@@ -226,10 +227,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
                    mime_type: mime_type,
                    content: nil,
                    attributes: %{"provider" => "disk"},
-                   materializing_event:
-                     Event.new(%{file_id: file_id}, :ingestion,
-                       opts: [action: :materialize_record]
-                     )
+                   materialization_handle: disk_handle(file_id)
                  }
                }}
         }
@@ -245,6 +243,11 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
           event
           | response: {:ok, %{content: content, encoding: attributes["encoding"]}}
         }
+      end
+
+      defp disk_handle(file_id) do
+        {:ok, handle} = DiskDocument.issue(file_id)
+        handle
       end
     end
 
@@ -288,13 +291,14 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     end
 
     test "a provider answering with content directly takes exactly one hop" do
-      assert {:ok, %{record: %{"id" => "f1", "content" => "abc"}}} =
+      assert {:ok, %{record: %Record{id: "f1", content: "abc"}}} =
                DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
                  node_router: StubNodeRouter
                })
 
-      assert_received {:dispatch, :data_source_download_document, %{"file_id" => "f1"}}
-      refute_received {:dispatch, _action, _params}
+      assert_received {:dispatch, :channels, :data_source_download_document, %{"file_id" => "f1"}}
+
+      refute_received {:dispatch, _destination, _action, _params}
     end
 
     test "an error on the first hop is prefixed and no second hop is attempted" do

@@ -4,7 +4,8 @@ defmodule Zaq.Materialization.Registry do
   """
 
   @handlers %{
-    "data_source_document" => Zaq.Channels.Materializers.DataSourceDocument
+    "data_source_document" => Zaq.Channels.Materializers.DataSourceDocument,
+    "disk_document" => Zaq.Ingestion.Materializers.DiskDocument
   }
 
   @spec lookup(String.t()) :: {:ok, module()} | {:error, {:unknown_materializer, term()}}
