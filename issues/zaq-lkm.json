@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-20T05:06:12Z",
+  "description": "Run edited test files with --cover, filter relevant source coverage, and report observations.",
+  "id": "zaq-lkm",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Report targeted file coverage",
+  "type": "task",
+  "updated_at": "2026-08-20T05:06:12Z"
+}
