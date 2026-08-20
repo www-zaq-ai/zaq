@@ -52,6 +52,10 @@ defmodule Zaq.Agent.ServerManagerTest do
     def sync_agent_runtime(_agent, _server_ref, _opts \\ []), do: {:error, :runtime_sync_failed}
   end
 
+  defmodule NoSnapshotAgent do
+    @moduledoc false
+  end
+
   test "ensure_server returns a resolvable server reference" do
     credential =
       ai_credential_fixture(%{
@@ -739,6 +743,73 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:noreply, ^state} =
              ServerManager.handle_info({:force_stop_server, server_id, make_ref()}, state)
+  end
+
+  test "handle_info expire_server untracks expired server ids" do
+    server_id = "configured_agent_123460:expired"
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{123_460 => MapSet.new([server_id])},
+      server_to_agent: %{server_id => 123_460},
+      draining: %{},
+      monitors: %{}
+    }
+
+    assert {:noreply, next_state} = ServerManager.handle_info({:expire_server, server_id}, state)
+
+    assert next_state == %{
+             fingerprints: %{},
+             agent_servers: %{},
+             server_to_agent: %{},
+             draining: %{},
+             monitors: %{}
+           }
+  end
+
+  test "handle_call sync_runtime reports no running servers when no ids are tracked" do
+    configured_agent = %ConfiguredAgent{id: 123_460_002}
+
+    state = %{
+      fingerprints: %{},
+      agent_servers: %{},
+      server_to_agent: %{},
+      draining: %{},
+      monitors: %{}
+    }
+
+    assert {:reply,
+            {:ok,
+             %{
+               runtime: %{strategy: :no_running_servers},
+               synced_servers: [],
+               stopped_server_ids: []
+             }}, ^state} =
+             ServerManager.handle_call({:sync_runtime, configured_agent}, self(), state)
+  end
+
+  test "handle_info DOWN removes monitor-only state without agent ownership" do
+    server_id = "configured_agent_123460:monitor_only"
+    monitor_ref = make_ref()
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{},
+      server_to_agent: %{},
+      draining: %{server_id => make_ref()},
+      monitors: %{server_id => monitor_ref}
+    }
+
+    assert {:noreply, next_state} =
+             ServerManager.handle_info({:DOWN, monitor_ref, :process, self(), :normal}, state)
+
+    assert next_state == %{
+             fingerprints: %{},
+             agent_servers: %{},
+             server_to_agent: %{},
+             draining: %{},
+             monitors: %{}
+           }
   end
 
   test "handle_call sync_runtime untracks stale server ids" do
@@ -1496,6 +1567,53 @@ defmodule Zaq.Agent.ServerManagerTest do
                String.ends_with?(m.content, "person-channel message")
              end)
     end
+
+    test "passes a caller-supplied context into a cold-started server" do
+      configured_agent = make_agent_for_routing("SuppliedContext")
+      server_id = "routing_supplied_context_#{configured_agent.id}"
+
+      supplied_context =
+        AIContext.new()
+        |> AIContext.append_user("caller supplied turn")
+
+      assert {:ok, server_ref} =
+               ServerManager.ensure_server(configured_agent, server_id, supplied_context)
+
+      assert {:ok, status} = Jido.AgentServer.status(server_ref)
+      messages = AIContext.to_messages(status.raw_state.context)
+
+      assert Enum.any?(messages, &(&1.content == "caller supplied turn"))
+    end
+  end
+
+  test "handle_call stop_server/3 treats status exceptions as no in-flight requests" do
+    configured_agent = %ConfiguredAgent{id: 123_463}
+    server_id = "configured_agent_123463:status_exit"
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+
+    pid = start_registered_status_exception_server(registry, server_id)
+    monitor_ref = Process.monitor(pid)
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{configured_agent.id => MapSet.new([server_id])},
+      server_to_agent: %{server_id => configured_agent.id},
+      draining: %{},
+      monitors: %{}
+    }
+
+    assert {:reply, :ok, next_state} =
+             ServerManager.handle_call({:stop_server, configured_agent, server_id}, self(), state)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :killed}, 1_000
+
+    assert next_state == %{
+             fingerprints: %{},
+             agent_servers: %{},
+             server_to_agent: %{},
+             draining: %{},
+             monitors: %{}
+           }
   end
 
   test "drain timeout kills in-flight server and next message uses replacement pid" do
@@ -1735,11 +1853,47 @@ defmodule Zaq.Agent.ServerManagerTest do
     pid
   end
 
+  defp start_registered_status_exception_server(registry, server_id) do
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        {:ok, _} = Registry.register(registry, server_id, nil)
+        send(parent, {:status_exception_server_registered, self(), server_id})
+        status_exception_loop()
+      end)
+
+    assert_receive {:status_exception_server_registered, ^pid, ^server_id}, 1_000
+    pid
+  end
+
   defp status_stub_loop do
     receive do
       {:"$gen_call", from, :get_state} ->
         GenServer.reply(from, {:ok, %{raw_state: %{}}})
         status_stub_loop()
+
+      :stop ->
+        :ok
+    end
+  end
+
+  defp status_exception_loop do
+    receive do
+      {:"$gen_call", from, :get_state} ->
+        GenServer.reply(from, {
+          :ok,
+          %Jido.AgentServer.State{
+            id: "status-exception",
+            agent_module: NoSnapshotAgent,
+            agent: %Jido.Agent{id: "status-exception", agent_module: NoSnapshotAgent, state: %{}},
+            jido: Zaq.Agent.Jido,
+            registry: Jido.registry_name(Zaq.Agent.Jido),
+            lifecycle: %Jido.AgentServer.State.Lifecycle{}
+          }
+        })
+
+        status_exception_loop()
 
       :stop ->
         :ok

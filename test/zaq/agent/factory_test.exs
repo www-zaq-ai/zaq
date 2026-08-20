@@ -391,6 +391,11 @@ defmodule Zaq.Agent.FactoryTest do
     # The overridden prompt must appear in the request — not the original DB prompt.
     assert body =~ "personalized prompt for John at Acme"
     refute body =~ "original system prompt"
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server, "hello again", overridden_agent, timeout: 35_000)
+
+    assert {:ok, _answer} = Factory.await(request, timeout: 45_000)
   end
 
   # End-to-end progressive disclosure through ServerManager + the real request path: the

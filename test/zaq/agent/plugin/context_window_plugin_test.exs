@@ -77,6 +77,8 @@ defmodule Zaq.Agent.Plugin.ContextWindowPluginTest do
   end
 
   describe "cold spawn — mount/2" do
+    import ExUnit.CaptureLog
+
     test "returns an empty context when the conversation has no messages" do
       conversation = insert_conversation()
 
@@ -130,6 +132,16 @@ defmodule Zaq.Agent.Plugin.ContextWindowPluginTest do
         Plugin.mount(agent_struct("agent:workflow:run:abc", tool_context(@budget)), %{})
 
       assert %AIContext{entries: []} = context
+    end
+
+    test "falls back to an empty context when history hydration raises" do
+      log =
+        capture_log(fn ->
+          assert {:ok, %AIContext{entries: []}} =
+                   Plugin.mount(agent_struct(nil, tool_context(@budget)), %{})
+        end)
+
+      assert log =~ "ContextWindow could not hydrate history for nil"
     end
 
     test "trims a caller-supplied context rather than replacing it with history" do
@@ -197,6 +209,12 @@ defmodule Zaq.Agent.Plugin.ContextWindowPluginTest do
         Process.sleep(25)
         await_context(pid, predicate, attempts - 1)
       end
+    end
+
+    test "leaves non-completed signals unchanged" do
+      signal = Jido.Signal.new!(%{type: "ai.request.started", source: "zaq:test"})
+
+      assert {:ok, ^signal, %{}} = Plugin.prepare_signal(signal, %{agent: %{}})
     end
 
     test "compacts the live __strategy__ context after a completed request",
