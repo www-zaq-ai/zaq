@@ -29,11 +29,15 @@
     {
       "text": "Attachment-only follow-up: for explicit configured-agent routing, test first that nil content plus attachments is normalized and reaches Executor; preserve guard rejection for nil content without attachments and preserve the legacy default RAG path. Implement normalization at Agent.Api boundary; no PromptGuard or default answering-agent changes. Property test not warranted because this is a finite three-condition routing branch covered exhaustively by examples.",
       "timestamp": "2026-08-20T17:42:12Z"
+    },
+    {
+      "text": "Implemented attachment-only configured-agent routing at Agent.Api: nil content is normalized to an empty binary only when attachments exist and an explicit agent is selected, so PromptGuard passes and Executor receives attachment metadata. Legacy default pipeline remains unchanged; nil without attachments remains blocked. TDD regression reproduced original guard response, then passed. Validation: API tests 61/61; API + Executor + media integration 6 doctests and 98 tests; mix format; mix q; LSP diagnostics clean.",
+      "timestamp": "2026-08-20T17:45:26Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#613] Validate attachment flow and update docs",
   "type": "task",
-  "updated_at": "2026-08-20T17:42:12Z"
+  "updated_at": "2026-08-20T17:45:26Z"
 }
