@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-k0t"
+  ],
   "blocks": [],
   "created": "2026-08-20T05:06:12Z",
   "description": "Run edited test files with --cover, filter relevant source coverage, and report observations.",
