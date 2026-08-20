@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-gda"
+  ],
   "blocks": [],
   "created": "2026-08-20T05:06:12Z",
   "description": "Run mix q and delegate any required fixes without running the full coverage suite.",

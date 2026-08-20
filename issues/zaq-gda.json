@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-bcs"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-k0t"
+  ],
   "created": "2026-08-20T05:06:12Z",
   "description": "Delegate merged coverage plans to test-gap-fixer workers, review their changes, and ensure targeted tests pass.",
   "id": "zaq-gda",
