@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-21T15:35:23Z",
+  "description": "Update materialization-handle tool wording and add integration/security coverage.",
+  "id": "zaq-f94.6",
+  "labels": [],
+  "parent": "zaq-f94",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-f94] Agent docs and hardening tests",
+  "type": "task",
+  "updated_at": "2026-08-21T15:35:23Z"
+}
