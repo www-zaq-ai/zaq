@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-21T15:35:23Z",
@@ -7,8 +7,8 @@
   "id": "zaq-f94",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[lazy-imap-attachments] Lazy IMAP email attachments",
   "type": "epic",
-  "updated_at": "2026-08-21T15:35:23Z"
+  "updated_at": "2026-08-21T15:35:24Z"
 }
