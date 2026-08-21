@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-ic9.9"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ic9.11"
+  ],
   "created": "2026-08-21T08:05:14Z",
   "description": "Fix PR #694 review finding by routing MediaResultTransformer byte-limit lookup through Zaq.Config with context config overrides and tests.",
   "id": "zaq-ic9.10",

@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-ic9.10"
+  ],
   "blocks": [],
   "created": "2026-08-21T08:05:14Z",
   "description": "Fix PR #694 review finding by documenting the actual persisted attachment metadata contract: JSON-safe provider attributes and signed handles are retained, bytes/raw/events/secrets are excluded.",
