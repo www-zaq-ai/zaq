@@ -4,14 +4,16 @@
   "blocks": [
     "zaq-f94.2"
   ],
+  "closed_at": "2026-08-21T16:07:29Z",
+  "close_reason": "completed",
   "created": "2026-08-21T15:35:23Z",
   "description": "Add BODYSTRUCTURE traversal and MIME decoder tests/modules.",
   "id": "zaq-f94.1",
   "labels": [],
   "parent": "zaq-f94",
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-f94] MIME traversal and decoding",
   "type": "task",
-  "updated_at": "2026-08-21T15:35:24Z"
+  "updated_at": "2026-08-21T16:07:29Z"
 }
