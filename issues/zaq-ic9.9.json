@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-21T08:05:14Z",
+  "description": "Fix PR #694 review finding by keeping persist-before-deliver semantics while logging persistence failures and surfacing a safe user-facing status update.",
+  "id": "zaq-ic9.9",
+  "labels": [],
+  "parent": "zaq-ic9",
+  "priority": 2,
+  "status": "open",
+  "title": "Review fix: user-facing persistence failures",
+  "type": "task",
+  "updated_at": "2026-08-21T08:05:14Z"
+}
