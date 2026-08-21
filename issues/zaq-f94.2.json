@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-f94.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-f94.3"
+  ],
   "created": "2026-08-21T15:35:23Z",
   "description": "Replace RFC822 ingress with BODYSTRUCTURE plus BODY.PEEK text sections.",
   "id": "zaq-f94.2",

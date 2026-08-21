@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-f94.2"
+  ],
   "blocks": [],
   "created": "2026-08-21T15:35:23Z",
   "description": "Create email attachment Records with communication_media handles and pass them through Incoming.attachments.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-f94] Email attachment Records",
   "type": "task",
-  "updated_at": "2026-08-21T15:35:23Z"
+  "updated_at": "2026-08-21T15:35:24Z"
 }
