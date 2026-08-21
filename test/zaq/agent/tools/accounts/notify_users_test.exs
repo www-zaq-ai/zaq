@@ -28,6 +28,10 @@ defmodule Zaq.Agent.Tools.Accounts.NotifyUsersTest do
     def dispatch(event), do: %{event | response: {:error, {:boom, :timeout}}}
   end
 
+  defmodule BinaryErrorRouter do
+    def dispatch(event), do: %{event | response: {:error, "engine unavailable"}}
+  end
+
   defmodule UnexpectedRouter do
     def dispatch(event), do: %{event | response: :queued}
   end
@@ -54,6 +58,26 @@ defmodule Zaq.Agent.Tools.Accounts.NotifyUsersTest do
     end
   end
 
+  describe "on_before_validate_params/1" do
+    test "converts map parameters according to the action schema" do
+      assert {:ok,
+              %{
+                users: [%{"id" => 7, "email" => "ops@example.com"}],
+                subject: "Alert",
+                message: "Check queue"
+              }} =
+               NotifyUsers.on_before_validate_params(%{
+                 "users" => [%{"id" => 7, "email" => "ops@example.com"}],
+                 "subject" => "Alert",
+                 "message" => "Check queue"
+               })
+    end
+
+    test "passes non-map parameters through unchanged" do
+      assert {:ok, :invalid} = NotifyUsers.on_before_validate_params(:invalid)
+    end
+  end
+
   describe "validate_input/2" do
     test "accepts QueryResources-style maps with extra fields and string keys" do
       assert :ok =
@@ -74,12 +98,23 @@ defmodule Zaq.Agent.Tools.Accounts.NotifyUsersTest do
       assert {:error, "message must not be blank"} =
                NotifyUsers.validate_input(%{users: [%{id: 1}], subject: "Hello", message: ""})
 
+      assert {:error, "subject must not be blank"} =
+               NotifyUsers.validate_input(%{users: [%{id: 1}], subject: nil, message: "Body"})
+
+      assert {:error, "message must not be blank"} =
+               NotifyUsers.validate_input(%{users: [%{id: 1}], subject: "Hello", message: nil})
+
       assert {:error, "each user must include a positive integer id"} =
                NotifyUsers.validate_input(%{
                  users: [%{id: "1"}],
                  subject: "Hello",
                  message: "Body"
                })
+    end
+
+    test "rejects input missing a required field" do
+      assert {:error, "users, subject, and message are required"} =
+               NotifyUsers.validate_input(%{users: [%{id: 1}], subject: "Hello"})
     end
   end
 
@@ -108,6 +143,13 @@ defmodule Zaq.Agent.Tools.Accounts.NotifyUsersTest do
       assert {:error, "{:boom, :timeout}"} =
                NotifyUsers.run(%{users: [%{id: 1}], subject: "Hello", message: "Body"}, %{
                  node_router: ErrorRouter
+               })
+    end
+
+    test "returns binary Engine errors unchanged" do
+      assert {:error, "engine unavailable"} =
+               NotifyUsers.run(%{users: [%{id: 1}], subject: "Hello", message: "Body"}, %{
+                 node_router: BinaryErrorRouter
                })
     end
 
