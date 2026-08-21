@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-f94.2"
+  ],
   "created": "2026-08-21T15:35:23Z",
   "description": "Add BODYSTRUCTURE traversal and MIME decoder tests/modules.",
   "id": "zaq-f94.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-f94] MIME traversal and decoding",
   "type": "task",
-  "updated_at": "2026-08-21T15:35:23Z"
+  "updated_at": "2026-08-21T15:35:24Z"
 }
