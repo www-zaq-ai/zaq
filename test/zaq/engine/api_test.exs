@@ -43,6 +43,11 @@ defmodule Zaq.Engine.ApiTest do
       send(self(), {:notify_person_called, person_id, attrs})
       {:ok, %{status: :sent, channel: "email:smtp", channel_identifier: "person@example.com"}}
     end
+
+    def notify_users(user_ids, attrs) do
+      send(self(), {:notify_users_called, user_ids, attrs})
+      {:ok, %{recipient_count: length(user_ids), sent_count: length(user_ids), results: []}}
+    end
   end
 
   defmodule StubPeople do
@@ -161,6 +166,27 @@ defmodule Zaq.Engine.ApiTest do
 
     assert result.response ==
              {:error, {:invalid_request, %{person_id: 123, subject: "Hello"}}}
+  end
+
+  test "handles notify_users action" do
+    event =
+      Event.new(
+        %{user_ids: [1, 2], subject: "Hello", message: "Body"},
+        :engine,
+        opts: [action: :notify_users, notifications_module: StubNotifications]
+      )
+
+    result = Api.handle_event(event, :notify_users, nil)
+
+    assert result.response == {:ok, %{recipient_count: 2, sent_count: 2, results: []}}
+    assert_received {:notify_users_called, [1, 2], %{subject: "Hello", message: "Body"}}
+  end
+
+  test "returns invalid request for malformed notify_users payload" do
+    event = Event.new(%{user_ids: [1], subject: "Hello"}, :engine)
+    result = Api.handle_event(event, :notify_users, nil)
+
+    assert result.response == {:error, {:invalid_request, %{user_ids: [1], subject: "Hello"}}}
   end
 
   test "delegates invoke to shared helper" do

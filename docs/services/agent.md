@@ -370,6 +370,12 @@ from the ingestion volume) are **Part 2 (M8)** — deferred until a skill ships 
   passes derived `ctx[:person_id]`); the `person_id` parameter is honored only on `skip_permissions` runs
 - Doubles as a workflow action (`use Zaq.Engine.Workflows.Action`)
 
+### BO User Notification Tool (`Zaq.Agent.Tools.Accounts.NotifyUsers`, key `accounts.notify_users`)
+- Sends one subject/body to BO users selected with `resources.query` by dispatching a `:notify_users` event to the Engine node.
+- The tool accepts the `resources` list from `resources.query` with `resource_type: "user"`; only each user's `id` is trusted, and Engine resolves canonical account emails before Channels delivery.
+- `resources.query` user search covers `username`, `email`, and `portal_consent`; exact filters are `role_id`, `must_change_password`, and `portal_consent`.
+- The `user` resource is private, so callers need normal resource permissions or explicit machine/admin `skip_permissions: true` context.
+
 ### Message History Persistence Tool (`Zaq.Agent.Tools.Conversations.PersistMessageHistory`, key `conversation.persist_message_history`)
 - Persists one user or assistant message into the Engine conversation history via `NodeRouter.dispatch/1`.
 - Accepts either an existing `%Zaq.Engine.Messages.Incoming{}` routing envelope or generic routing fields (`channel_id`, `provider`, `author_id`, `thread_id`, `message_id`, `metadata`).

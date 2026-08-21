@@ -118,6 +118,23 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :notify_users, _context) do
+    case event.request do
+      %{user_ids: user_ids, subject: subject, message: message} when is_list(user_ids) ->
+        notifications_module = Keyword.get(event.opts, :notifications_module, Notifications)
+
+        attrs =
+          event.request
+          |> Map.take([:subject, :message, :sender, :html_body, :metadata])
+          |> Map.merge(%{subject: subject, message: message})
+
+        %{event | response: notifications_module.notify_users(user_ids, attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :connect_get_active_grant, _context) do
     case event.request do
       params when is_map(params) ->

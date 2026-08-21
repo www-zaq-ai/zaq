@@ -32,6 +32,7 @@ defmodule Zaq.Engine.Notifications do
 
   import Ecto.Query
 
+  alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Events, as: ChannelEvents
@@ -91,6 +92,57 @@ defmodule Zaq.Engine.Notifications do
          {:ok, notification} <- build_person_notification(person, attrs) do
       notify(notification, opts)
     end
+  end
+
+  @doc """
+  Builds and dispatches a notification for one BO user through the notification center.
+
+  The user's canonical account email is the delivery identifier. Callers supply a
+  user id, not an email address, so actions cannot become arbitrary-email relays.
+  """
+  @spec notify_user(term(), map(), keyword()) ::
+          {:ok, notification_result()} | {:error, term()}
+  def notify_user(user_id, attrs, opts \\ []) when is_map(attrs) do
+    accounts_module = Keyword.get(opts, :accounts_module, Accounts)
+
+    case accounts_module.get_user(user_id) do
+      nil ->
+        {:error, "user_not_found:#{user_id}"}
+
+      user ->
+        with {:ok, notification} <- build_user_notification(user, attrs) do
+          notify(notification, opts)
+        end
+    end
+  end
+
+  @doc """
+  Notifies a deduplicated list of BO users and returns an aggregate summary.
+
+  Every unique recipient is attempted. Delivery failures are captured per user in
+  the successful summary so one bad recipient does not prevent the rest of the
+  batch from receiving the message.
+  """
+  @spec notify_users([term()], map(), keyword()) :: {:ok, map()}
+  def notify_users(user_ids, attrs, opts \\ []) when is_list(user_ids) and is_map(attrs) do
+    unique_user_ids = Enum.uniq(user_ids)
+
+    results =
+      Enum.map(unique_user_ids, fn user_id ->
+        user_id
+        |> notify_user(attrs, opts)
+        |> user_result(user_id)
+      end)
+
+    {:ok,
+     %{
+       requested_count: length(user_ids),
+       recipient_count: length(unique_user_ids),
+       sent_count: count_status(results, :sent),
+       skipped_count: count_status(results, :skipped),
+       failed_count: count_status(results, :failed),
+       results: results
+     }}
   end
 
   @doc """
@@ -395,6 +447,63 @@ defmodule Zaq.Engine.Notifications do
       metadata: get_attr(attrs, :metadata, %{})
     })
   end
+
+  defp build_user_notification(user, attrs) do
+    Notification.build(%{
+      recipient_name: user.username,
+      recipient_ref: {:user, user.id},
+      recipient_channels: user_channels(user),
+      sender: get_attr(attrs, :sender, "system"),
+      subject: get_attr(attrs, :subject),
+      body: get_attr(attrs, :message) || get_attr(attrs, :body),
+      html_body: get_attr(attrs, :html_body),
+      metadata: get_attr(attrs, :metadata, %{})
+    })
+  end
+
+  defp user_channels(%{email: email}) when is_binary(email) do
+    case String.trim(email) do
+      "" -> []
+      email -> [%{platform: "email:smtp", identifier: email}]
+    end
+  end
+
+  defp user_channels(_user), do: []
+
+  defp user_result({:ok, %{status: status} = result}, user_id) when status in [:sent, :skipped] do
+    %{
+      user_id: user_id,
+      status: status,
+      notification_log_id: Map.get(result, :notification_log_id),
+      channel: Map.get(result, :channel),
+      channel_identifier: Map.get(result, :channel_identifier),
+      reason: Map.get(result, :reason)
+    }
+  end
+
+  defp user_result({:error, %{status: :failed} = result}, user_id) do
+    %{
+      user_id: user_id,
+      status: :failed,
+      notification_log_id: Map.get(result, :notification_log_id),
+      channel: Map.get(result, :channel),
+      channel_identifier: Map.get(result, :channel_identifier),
+      reason: Map.get(result, :reason)
+    }
+  end
+
+  defp user_result({:error, reason}, user_id) do
+    %{
+      user_id: user_id,
+      status: :failed,
+      notification_log_id: nil,
+      channel: nil,
+      channel_identifier: nil,
+      reason: reason
+    }
+  end
+
+  defp count_status(results, status), do: Enum.count(results, &(&1.status == status))
 
   defp person_channels(person) do
     person.channels

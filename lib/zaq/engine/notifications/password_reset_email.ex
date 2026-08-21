@@ -5,7 +5,6 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
 
   alias Zaq.Accounts
   alias Zaq.Engine.Notifications
-  alias Zaq.Engine.Notifications.Notification
 
   @doc """
   Sends a password reset email to the user if they have an email address.
@@ -25,18 +24,12 @@ defmodule Zaq.Engine.Notifications.PasswordResetEmail do
     base_url = Application.get_env(:zaq, :base_url, "http://localhost:4000")
     reset_url = "#{base_url}/bo/reset-password/#{token}"
 
-    {:ok, notification} =
-      Notification.build(%{
-        recipient_channels: [%{platform: "email:smtp", identifier: user.email}],
-        sender: "reset_password",
-        subject: "Reset your ZAQ password",
-        body: build_text_body(user.username, reset_url),
-        html_body: build_html_body(user.username, reset_url),
-        recipient_name: user.username,
-        recipient_ref: {:user, user.id}
-      })
-
-    Notifications.notify(notification)
+    Notifications.notify_user(user.id, %{
+      sender: "reset_password",
+      subject: "Reset your ZAQ password",
+      message: build_text_body(user.username, reset_url),
+      html_body: build_html_body(user.username, reset_url)
+    })
   end
 
   defp build_text_body(username, reset_url) do

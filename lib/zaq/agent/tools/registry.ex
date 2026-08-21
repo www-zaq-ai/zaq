@@ -24,6 +24,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Accounts.History
     },
     %{
+      key: "accounts.notify_users",
+      label: "Notify BO users",
+      description:
+        "Send one notification to BO users selected with resources.query; only user ids are trusted and Engine resolves canonical delivery addresses",
+      module: Zaq.Agent.Tools.Accounts.NotifyUsers
+    },
+    %{
       key: "answering.search_knowledge_base",
       label: "Search knowledge base",
       description: "Search the ZAQ knowledge base with a refined query (answering-only)",

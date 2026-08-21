@@ -9,6 +9,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
 
     assert keys == [
              "accounts.fetch_history",
+             "accounts.notify_users",
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
              "conversation.persist_message_history",
@@ -105,6 +106,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     assert function_exported?(descriptor.module, :run, 2)
   end
 
+  test "accounts.notify_users resolves to the BO user notification tool" do
+    assert Registry.valid_tool_key?("accounts.notify_users")
+
+    assert {:ok, [Zaq.Agent.Tools.Accounts.NotifyUsers]} =
+             Registry.resolve_modules(["accounts.notify_users"])
+  end
+
   test "workflow.run_agent resolves to the RunAgent tool so agents can run other agents" do
     assert Registry.valid_tool_key?("workflow.run_agent")
 
@@ -157,6 +165,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
              "accounts.fetch_history",
+             "accounts.notify_users",
              "answering.search_knowledge_base",
              "answering.knowledge_base_overview",
              "conversation.persist_message_history",
