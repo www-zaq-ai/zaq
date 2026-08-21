@@ -4,13 +4,14 @@
   "blocks": [
     "zaq-ppd"
   ],
+  "closed_at": "2026-08-21T07:46:24Z",
   "created": "2026-08-21T07:33:19Z",
   "description": "",
   "id": "zaq-xvc",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-xvc] Implement BO user notification API",
   "type": "task",
-  "updated_at": "2026-08-21T07:33:36Z"
+  "updated_at": "2026-08-21T07:46:24Z"
 }
