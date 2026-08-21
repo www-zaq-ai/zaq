@@ -34,9 +34,9 @@ config :req_llm,
     }
   ]
 
-config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
-
 if config_env() == :prod do
+  config :zaq, ZaqWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+
   # Portal/LiteLLM URLs default to the live services in prod. dev/test keep their
   # own defaults from config/{dev,test}.exs — runtime.exs only touches these keys
   # in prod, so it never clobbers those compile-time values.

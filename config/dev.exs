@@ -96,7 +96,7 @@ config :zaq, Zaq.Ingestion,
 config :zaq, ZaqWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}],
+  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT", "4000"))],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
@@ -104,6 +104,18 @@ config :zaq, ZaqWeb.Endpoint,
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:zaq, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:zaq_dev, ~w(--watch)]}
+  ],
+  live_reload: [
+    web_console_logger: true,
+    patterns: [
+      # Static assets, except user uploads
+      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
+      # Gettext translations
+      ~r"priv/gettext/.*\.po$"E,
+      # Router, Controllers, LiveViews and LiveComponents
+      ~r"lib/zaq_web/router\.ex$"E,
+      ~r"lib/zaq_web/(controllers|live|components)/.*\.(ex|heex)$"E
+    ]
   ]
 
 # ## SSL Support
@@ -128,21 +140,6 @@ config :zaq, ZaqWeb.Endpoint,
 # If desired, both `http:` and `https:` keys can be
 # configured to run both http and https servers on
 # different ports.
-
-# Reload browser tabs when matching files change.
-config :zaq, ZaqWeb.Endpoint,
-  live_reload: [
-    web_console_logger: true,
-    patterns: [
-      # Static assets, except user uploads
-      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
-      # Gettext translations
-      ~r"priv/gettext/.*\.po$"E,
-      # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/zaq_web/router\.ex$"E,
-      ~r"lib/zaq_web/(controllers|live|components)/.*\.(ex|heex)$"E
-    ]
-  ]
 
 # Enable dev routes for dashboard and mailbox
 config :zaq, dev_routes: true
