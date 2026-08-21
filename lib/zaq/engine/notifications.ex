@@ -34,6 +34,8 @@ defmodule Zaq.Engine.Notifications do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Agent.Tools.Resources.Query, as: ResourcesQuery
+  alias Zaq.Agent.Tools.Resources.Registry, as: ResourcesRegistry
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Engine.Conversations
@@ -119,30 +121,33 @@ defmodule Zaq.Engine.Notifications do
   @doc """
   Notifies a deduplicated list of BO users and returns an aggregate summary.
 
-  Every unique recipient is attempted. Delivery failures are captured per user in
-  the successful summary so one bad recipient does not prevent the rest of the
-  batch from receiving the message.
+  Every unique authorized recipient is attempted. Delivery failures are captured
+  per user in the successful summary so one bad recipient does not prevent the
+  rest of the batch from receiving the message.
   """
-  @spec notify_users([term()], map(), keyword()) :: {:ok, map()}
+  @spec notify_users([term()], map(), keyword()) :: {:ok, map()} | {:error, term()}
   def notify_users(user_ids, attrs, opts \\ []) when is_list(user_ids) and is_map(attrs) do
     unique_user_ids = Enum.uniq(user_ids)
 
-    results =
-      Enum.map(unique_user_ids, fn user_id ->
-        user_id
-        |> notify_user(attrs, opts)
-        |> user_result(user_id)
-      end)
+    with :ok <- valid_user_ids(unique_user_ids),
+         :ok <- authorize_user_ids(unique_user_ids, opts) do
+      results =
+        Enum.map(unique_user_ids, fn user_id ->
+          user_id
+          |> notify_user(attrs, opts)
+          |> user_result(user_id)
+        end)
 
-    {:ok,
-     %{
-       requested_count: length(user_ids),
-       recipient_count: length(unique_user_ids),
-       sent_count: count_status(results, :sent),
-       skipped_count: count_status(results, :skipped),
-       failed_count: count_status(results, :failed),
-       results: results
-     }}
+      {:ok,
+       %{
+         requested_count: length(user_ids),
+         recipient_count: length(unique_user_ids),
+         sent_count: count_status(results, :sent),
+         skipped_count: count_status(results, :skipped),
+         failed_count: count_status(results, :failed),
+         results: results
+       }}
+    end
   end
 
   @doc """
@@ -433,6 +438,51 @@ defmodule Zaq.Engine.Notifications do
       nil -> {:error, "person_not_found:#{person_id}"}
       person -> {:ok, person}
     end
+  end
+
+  defp valid_user_ids(user_ids) do
+    if Enum.all?(user_ids, &(is_integer(&1) and &1 > 0)) do
+      :ok
+    else
+      {:error, {:invalid_request, :user_ids}}
+    end
+  end
+
+  defp authorize_user_ids(user_ids, opts) do
+    if Keyword.get(opts, :skip_permissions, false) do
+      :ok
+    else
+      authorize_actor_user_ids(user_ids, opts)
+    end
+  end
+
+  defp authorize_actor_user_ids(user_ids, opts) do
+    with {:ok, descriptor} <- ResourcesRegistry.get("user"),
+         {:ok, query} <- ResourcesQuery.authorized_query(descriptor, authorization_context(opts)) do
+      authorized_ids = authorized_user_ids(query, user_ids)
+
+      if MapSet.subset?(MapSet.new(user_ids), authorized_ids) do
+        :ok
+      else
+        {:error, :unauthorized}
+      end
+    end
+  end
+
+  defp authorization_context(opts) do
+    %{}
+    |> Map.put(:actor, Keyword.get(opts, :actor))
+    |> Map.put(:person_id, Keyword.get(opts, :person_id))
+    |> Map.put(:skip_permissions, Keyword.get(opts, :skip_permissions, false))
+  end
+
+  defp authorized_user_ids(query, user_ids) do
+    query
+    |> where([user], user.id in ^user_ids)
+    |> select([user], user.id)
+    |> distinct(true)
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   defp build_person_notification(person, attrs) do

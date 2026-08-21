@@ -21,6 +21,46 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   @type query_result ::
           {:ok, map()} | {:error, term()}
 
+  @doc """
+  Returns the descriptor's base Ecto query with the same private-resource
+  authorization enforced by `resources.query`.
+  """
+  @spec authorized_query(map(), map()) :: {:ok, Ecto.Query.t()} | {:error, term()}
+  def authorized_query(%{public?: true, module: module}, _context),
+    do: {:ok, from(row in module)}
+
+  def authorized_query(%{module: module} = descriptor, context) do
+    if skip_permissions?(context) do
+      {:ok, from(row in module)}
+    else
+      case actor_person(context) do
+        nil ->
+          {:error, :unauthorized}
+
+        %{id: person_id, team_ids: team_ids} ->
+          resource_type = resource_type(descriptor.module)
+
+          permissions =
+            from perm in ResourcePermission,
+              where:
+                perm.resource_type == ^resource_type and
+                  fragment("? = ANY(?)", "read", perm.access_rights) and
+                  (perm.person_id == ^person_id or perm.team_id in ^team_ids)
+
+          authorized_resources =
+            from perm in subquery(permissions),
+              join: row in ^module,
+              on: field(row, :id) == fragment("?::bigint", perm.resource_id),
+              select: row,
+              distinct: true
+
+          query = from(row in subquery(authorized_resources))
+
+          {:ok, query}
+      end
+    end
+  end
+
   @spec run(map(), map(), map()) :: query_result()
   def run(descriptor, params, context) do
     with :ok <- validate_requested_fields(descriptor, params),
@@ -67,7 +107,7 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     do: Repo.get(module, id)
 
   defp get_authorized_resource(%{module: _module} = descriptor, id, context) do
-    with {:ok, query} <- base_query(descriptor, context) do
+    with {:ok, query} <- authorized_query(descriptor, context) do
       query
       |> where([row], row.id == ^id)
       |> Repo.one()
@@ -75,7 +115,7 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   end
 
   defp list_resources(descriptor, params, context) do
-    with {:ok, query} <- base_query(descriptor, context) do
+    with {:ok, query} <- authorized_query(descriptor, context) do
       page_limit = page_limit(params, descriptor)
       page_offset = page_offset(params)
       fields = requested_fields(descriptor, params)
@@ -105,40 +145,6 @@ defmodule Zaq.Agent.Tools.Resources.Query do
          limit: page_limit,
          offset: page_offset
        })}
-    end
-  end
-
-  defp base_query(%{public?: true, module: module}, _context), do: {:ok, from(row in module)}
-
-  defp base_query(%{module: module} = descriptor, context) do
-    if skip_permissions?(context) do
-      {:ok, from(row in module)}
-    else
-      case actor_person(context) do
-        nil ->
-          {:error, :unauthorized}
-
-        %{id: person_id, team_ids: team_ids} ->
-          resource_type = resource_type(descriptor.module)
-
-          permissions =
-            from perm in ResourcePermission,
-              where:
-                perm.resource_type == ^resource_type and
-                  fragment("? = ANY(?)", "read", perm.access_rights) and
-                  (perm.person_id == ^person_id or perm.team_id in ^team_ids)
-
-          authorized_resources =
-            from perm in subquery(permissions),
-              join: row in ^module,
-              on: field(row, :id) == fragment("?::bigint", perm.resource_id),
-              select: row,
-              distinct: true
-
-          query = from(row in subquery(authorized_resources))
-
-          {:ok, query}
-      end
     end
   end
 

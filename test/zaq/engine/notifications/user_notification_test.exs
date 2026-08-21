@@ -5,11 +5,13 @@ defmodule Zaq.Engine.Notifications.UserNotificationTest do
   import Ecto.Changeset
   import Ecto.Query
 
+  alias Zaq.Accounts.People
   alias Zaq.Accounts.User
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications
   alias Zaq.Engine.Notifications.NotificationLog
+  alias Zaq.Permissions
   alias Zaq.Repo
 
   defmodule Router do
@@ -59,6 +61,25 @@ defmodule Zaq.Engine.Notifications.UserNotificationTest do
     :ok
   end
 
+  defp person_fixture(attrs) do
+    unique = System.unique_integer([:positive])
+
+    params =
+      Map.merge(
+        %{
+          full_name: "Person #{unique}",
+          email: "person_#{unique}@example.com",
+          phone: "+1555#{unique}",
+          role: "member",
+          status: "active"
+        },
+        attrs
+      )
+
+    {:ok, person} = People.create_person(params)
+    person
+  end
+
   describe "notify_user/3" do
     test "dispatches BO user email through the Channels deliver_outgoing boundary" do
       user = user_fixture(%{username: "ops_user", email: "ops@example.com"})
@@ -99,7 +120,7 @@ defmodule Zaq.Engine.Notifications.UserNotificationTest do
       sent = user_fixture(%{username: "sent_user", email: "sent@example.com"})
       skipped = user_fixture(%{username: "skip_user", email: "skip@example.com"})
       skipped = skipped |> change(email: nil) |> Repo.update!()
-      missing_id = -System.unique_integer([:positive])
+      missing_id = 1_000_000_000 + System.unique_integer([:positive])
 
       assert {:ok,
               %{
@@ -112,7 +133,8 @@ defmodule Zaq.Engine.Notifications.UserNotificationTest do
               }} =
                Notifications.notify_users(
                  [sent.id, skipped.id, sent.id, missing_id],
-                 %{subject: "Same", message: "Same body"}
+                 %{subject: "Same", message: "Same body"},
+                 skip_permissions: true
                )
 
       assert Enum.map(results, & &1.user_id) == [sent.id, skipped.id, missing_id]
@@ -131,7 +153,8 @@ defmodule Zaq.Engine.Notifications.UserNotificationTest do
             ) do
         assert {:ok, summary} =
                  Notifications.notify_users(user_ids, %{subject: "Hello", message: "Body"},
-                   accounts_module: FakeAccounts
+                   accounts_module: FakeAccounts,
+                   skip_permissions: true
                  )
 
         unique_count = user_ids |> Enum.uniq() |> length()
@@ -144,6 +167,44 @@ defmodule Zaq.Engine.Notifications.UserNotificationTest do
         assert summary.results |> Enum.map(& &1.user_id) |> Enum.uniq() |> length() ==
                  unique_count
       end
+    end
+
+    test "requires read permission on every requested user" do
+      actor = person_fixture(%{full_name: "Notification Actor"})
+      allowed = user_fixture(%{username: "allowed_notify", email: "allowed@example.com"})
+      denied = user_fixture(%{username: "denied_notify", email: "denied@example.com"})
+
+      {:ok, _permission} =
+        Permissions.grant(allowed, %{person_id: actor.id, access_rights: ["read"]})
+
+      assert {:error, :unauthorized} =
+               Notifications.notify_users(
+                 [allowed.id, denied.id],
+                 %{subject: "Restricted", message: "Body"},
+                 actor: %{person: %{id: actor.id, team_ids: []}}
+               )
+
+      refute_received {:deliver_outgoing, _outgoing}
+
+      assert {:ok, %{sent_count: 1, recipient_count: 1}} =
+               Notifications.notify_users(
+                 [allowed.id],
+                 %{subject: "Restricted", message: "Body"},
+                 actor: %{person: %{id: actor.id, team_ids: []}}
+               )
+
+      assert_received {:deliver_outgoing, %Outgoing{channel_id: "allowed@example.com"}}
+    end
+
+    test "rejects malformed user ids before account lookup" do
+      assert {:error, {:invalid_request, :user_ids}} =
+               Notifications.notify_users(
+                 ["not-an-id"],
+                 %{subject: "Bad", message: "Body"},
+                 skip_permissions: true
+               )
+
+      refute_received {:deliver_outgoing, _outgoing}
     end
   end
 end

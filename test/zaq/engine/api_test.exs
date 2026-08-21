@@ -44,8 +44,8 @@ defmodule Zaq.Engine.ApiTest do
       {:ok, %{status: :sent, channel: "email:smtp", channel_identifier: "person@example.com"}}
     end
 
-    def notify_users(user_ids, attrs) do
-      send(self(), {:notify_users_called, user_ids, attrs})
+    def notify_users(user_ids, attrs, opts) do
+      send(self(), {:notify_users_called, user_ids, attrs, opts})
       {:ok, %{recipient_count: length(user_ids), sent_count: length(user_ids), results: []}}
     end
   end
@@ -173,13 +173,38 @@ defmodule Zaq.Engine.ApiTest do
       Event.new(
         %{user_ids: [1, 2], subject: "Hello", message: "Body"},
         :engine,
-        opts: [action: :notify_users, notifications_module: StubNotifications]
+        actor: %{person: %{id: 10, team_ids: [20]}},
+        opts: [
+          action: :notify_users,
+          notifications_module: StubNotifications,
+          skip_permissions: true,
+          person_id: 10
+        ]
       )
 
     result = Api.handle_event(event, :notify_users, nil)
 
     assert result.response == {:ok, %{recipient_count: 2, sent_count: 2, results: []}}
-    assert_received {:notify_users_called, [1, 2], %{subject: "Hello", message: "Body"}}
+
+    assert_received {:notify_users_called, [1, 2], %{subject: "Hello", message: "Body"}, opts}
+    assert opts[:actor] == %{person: %{id: 10, team_ids: [20]}}
+    assert opts[:skip_permissions] == true
+    assert opts[:person_id] == 10
+  end
+
+  test "returns invalid request for non-integer notify_users ids" do
+    event =
+      Event.new(%{user_ids: ["not-an-id"], subject: "Hello", message: "Body"}, :engine,
+        opts: [action: :notify_users, notifications_module: StubNotifications]
+      )
+
+    result = Api.handle_event(event, :notify_users, nil)
+
+    assert result.response ==
+             {:error,
+              {:invalid_request, %{user_ids: ["not-an-id"], subject: "Hello", message: "Body"}}}
+
+    refute_received {:notify_users_called, _, _, _}
   end
 
   test "returns invalid request for malformed notify_users payload" do

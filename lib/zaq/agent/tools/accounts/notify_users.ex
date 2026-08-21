@@ -93,10 +93,30 @@ defmodule Zaq.Agent.Tools.Accounts.NotifyUsers do
     node_router = Map.get(context, :node_router, NodeRouter)
 
     %{user_ids: user_ids, subject: subject, message: message}
-    |> Event.new(:engine, opts: [action: :notify_users])
+    |> Event.new(:engine,
+      actor: Map.get(context, :actor) || Map.get(context, "actor"),
+      opts: notify_users_opts(context)
+    )
     |> node_router.dispatch()
     |> Map.get(:response)
     |> handle_response()
+  end
+
+  defp notify_users_opts(context) do
+    [action: :notify_users]
+    |> Keyword.put(:skip_permissions, skip_permissions?(context))
+    |> maybe_put_person_id(context)
+  end
+
+  defp skip_permissions?(context) do
+    Map.get(context, :skip_permissions) == true or Map.get(context, "skip_permissions") == true
+  end
+
+  defp maybe_put_person_id(opts, context) do
+    case Map.get(context, :person_id) || Map.get(context, "person_id") do
+      nil -> opts
+      person_id -> Keyword.put(opts, :person_id, person_id)
+    end
   end
 
   defp handle_response({:ok, result}) when is_map(result), do: {:ok, result}

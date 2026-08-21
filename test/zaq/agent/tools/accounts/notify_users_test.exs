@@ -119,7 +119,9 @@ defmodule Zaq.Agent.Tools.Accounts.NotifyUsersTest do
   end
 
   describe "run/2" do
-    test "dispatches notify_users to Engine using only user ids" do
+    test "dispatches notify_users to Engine using only user ids and trusted context" do
+      actor = %{person: %{id: 10, team_ids: [20]}}
+
       assert {:ok, %{recipient_count: 2, sent_count: 1, skipped_count: 1}} =
                NotifyUsers.run(
                  %{
@@ -130,12 +132,15 @@ defmodule Zaq.Agent.Tools.Accounts.NotifyUsersTest do
                    subject: "Hello",
                    message: "Body"
                  },
-                 %{node_router: OkRouter}
+                 %{node_router: OkRouter, actor: actor, person_id: 10, skip_permissions: true}
                )
 
       assert_received {:dispatched, event}
       assert event.next_hop.destination == :engine
+      assert event.actor == actor
       assert event.opts[:action] == :notify_users
+      assert event.opts[:person_id] == 10
+      assert event.opts[:skip_permissions] == true
       assert event.request == %{user_ids: [1, 2], subject: "Hello", message: "Body"}
     end
 

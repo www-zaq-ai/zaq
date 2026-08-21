@@ -121,14 +121,23 @@ defmodule Zaq.Engine.Api do
   def handle_event(%Event{} = event, :notify_users, _context) do
     case event.request do
       %{user_ids: user_ids, subject: subject, message: message} when is_list(user_ids) ->
-        notifications_module = Keyword.get(event.opts, :notifications_module, Notifications)
+        if valid_user_ids?(user_ids) do
+          notifications_module = Keyword.get(event.opts, :notifications_module, Notifications)
 
-        attrs =
-          event.request
-          |> Map.take([:subject, :message, :sender, :html_body, :metadata])
-          |> Map.merge(%{subject: subject, message: message})
+          attrs =
+            event.request
+            |> Map.take([:subject, :message, :sender, :html_body, :metadata])
+            |> Map.merge(%{subject: subject, message: message})
 
-        %{event | response: notifications_module.notify_users(user_ids, attrs)}
+          opts =
+            event.opts
+            |> Keyword.take([:accounts_module, :people_module, :skip_permissions, :person_id])
+            |> Keyword.put(:actor, event.actor)
+
+          %{event | response: notifications_module.notify_users(user_ids, attrs, opts)}
+        else
+          %{event | response: {:error, {:invalid_request, event.request}}}
+        end
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}
@@ -598,6 +607,10 @@ defmodule Zaq.Engine.Api do
 
   defp smuggled_message_id?(rater_attrs) do
     Map.has_key?(rater_attrs, :message_id) or Map.has_key?(rater_attrs, "message_id")
+  end
+
+  defp valid_user_ids?(user_ids) do
+    Enum.all?(user_ids, &(is_integer(&1) and &1 > 0))
   end
 
   defp rate_by_message_ref(conversations_module, {:id, message_id}, rater_attrs) do
