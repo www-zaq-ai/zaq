@@ -67,7 +67,7 @@ defmodule Zaq.Agent.MaterializationAliases do
   def alias_record_metadata(%Record{} = record, scope) do
     record
     |> Record.metadata()
-    |> map_paths([[:materialization_handle], ["materialization_handle"]], &alias_value(&1, scope))
+    |> alias_metadata(scope)
   end
 
   @doc "Aliases a serialized Record metadata map for model-facing history text."

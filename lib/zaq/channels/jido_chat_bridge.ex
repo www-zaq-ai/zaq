@@ -661,12 +661,13 @@ defmodule Zaq.Channels.JidoChatBridge do
       when is_map(config) and is_map(details) do
     reference = Map.get(request, :reference) || Map.get(request, "reference")
     provider = config_value(config, :provider)
-    max_bytes = max_media_bytes()
+    config_opts = config_opts(details)
+    max_bytes = max_media_bytes(config_opts)
     size = Map.get(request, :size) || Map.get(request, "size")
 
     with :ok <- enforce_media_size(size, max_bytes),
          true <- present_reference?(reference) || {:error, :invalid_media_reference},
-         {:ok, adapter} <- resolve_adapter_for_provider(provider),
+         {:ok, adapter} <- resolve_adapter_for_provider(provider, config_opts),
          true <- function_exported?(adapter, :fetch_media, 2) || {:error, :unsupported},
          {:ok, content} when is_binary(content) <-
            adapter.fetch_media(reference, media_opts(details)),
@@ -830,7 +831,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Returns `{:ok, adapter_module}` for a provider atom/string, or `{:error, :unsupported_provider}`."
-  def adapter_for(provider) do
+  def adapter_for(provider, opts \\ []) do
     provider_key = if is_atom(provider), do: provider, else: provider_to_atom(provider)
 
     case provider_key do
@@ -838,7 +839,7 @@ defmodule Zaq.Channels.JidoChatBridge do
         {:error, :unsupported_provider}
 
       key ->
-        case Application.get_env(:zaq, :channels, %{}) |> get_in([key, :adapter]) do
+        case Zaq.Config.get(:zaq, :channels, %{}, opts) |> get_in([key, :adapter]) do
           nil -> {:error, :unsupported_provider}
           adapter -> {:ok, adapter}
         end
@@ -1550,8 +1551,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp enforce_media_size(size, _max_bytes) when is_integer(size) and size >= 0, do: :ok
   defp enforce_media_size(_size, _max_bytes), do: {:error, :unknown_media_size}
 
-  defp max_media_bytes do
-    case Application.get_env(:zaq, :message_trace_artifact_max_bytes, 100 * 1024 * 1024) do
+  defp max_media_bytes(opts) do
+    case Zaq.Config.get(:zaq, :message_trace_artifact_max_bytes, 100 * 1024 * 1024, opts) do
       max_bytes when is_integer(max_bytes) and max_bytes > 0 -> max_bytes
       _ -> 100 * 1024 * 1024
     end
@@ -1559,10 +1560,17 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp media_opts(details) do
     Enum.reduce(details, [], fn
+      {key, _value}, opts when key in [:config, :config_opts] -> opts
       {key, value}, opts when is_atom(key) and not is_nil(value) -> Keyword.put(opts, key, value)
       _, opts -> opts
     end)
   end
+
+  defp config_opts(%{config_opts: opts}) when is_list(opts), do: opts
+  defp config_opts(%{"config_opts" => opts}) when is_list(opts), do: opts
+  defp config_opts(%{config: config}) when is_atom(config), do: [config: config]
+  defp config_opts(%{"config" => config}) when is_atom(config), do: [config: config]
+  defp config_opts(_details), do: []
 
   defp config_value(config, key), do: Map.get(config, key) || Map.get(config, Atom.to_string(key))
 
@@ -1609,8 +1617,8 @@ defmodule Zaq.Channels.JidoChatBridge do
     Zaq.Config.get(:zaq, :chat_bridge_oban_module, Oban)
   end
 
-  defp resolve_adapter_for_provider(provider) do
-    case adapter_for(provider) do
+  defp resolve_adapter_for_provider(provider, opts \\ []) do
+    case adapter_for(provider, opts) do
       {:ok, adapter} -> {:ok, adapter}
       {:error, _} -> {:error, {:unsupported_provider, provider}}
     end

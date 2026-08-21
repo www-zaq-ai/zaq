@@ -519,6 +519,8 @@ lib/zaq/agent/
 ├── history_loader.ex           # Loads initial runtime context from stored history
 ├── idle_lifecycle.ex           # Runtime idle-lifecycle policy helpers
 ├── logprobs_analyzer.ex        # Confidence scoring from logprobs
+├── materialization_aliases.ex  # Scoped short aliases for model-facing materialization handles
+├── media_result_transformer.ex # Projects materialized media into ReqLLM content parts
 ├── mcp.ex                      # MCP endpoint context + orchestration
 ├── mcp/
 │   ├── endpoint.ex             # MCP endpoint schema

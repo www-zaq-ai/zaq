@@ -56,11 +56,14 @@ The handler always dispatches `:data_source_download_document` to the Channels r
 `Zaq.Channels.Materializers.CommunicationMedia`.
 
 Locator fields include `provider`, `reference`, optional display metadata
-(`name`, `mime_type`, `media_kind`, `size`), optional config scope, and source
-scope (`source_author_id`, `source_channel_id`, `source_message_id`). The handler
-validates the current actor against `source_author_id` unless the trusted runtime
-context sets `skip_permissions: true`, then dispatches the generic
-`:materialize_record` Channels action.
+(`name`, `mime_type`, `media_kind`, `size`), optional config provenance
+(`channel_config_id`), and source provenance (`source_author_id`,
+`source_channel_id`, `source_message_id`). The handler validates the current
+actor against `source_author_id` unless the trusted runtime context sets
+`skip_permissions: true`, then dispatches the generic `:materialize_record`
+Channels action. The remaining provenance fields are signed with the handle so
+future redemption code can validate source config/channel/message scope or route
+more specifically without trusting model-supplied arguments.
 
 ## Extension Rules
 

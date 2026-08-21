@@ -107,7 +107,7 @@ defmodule Zaq.MixProject do
 
       # Jido Ecosystem
       {:llm_db, "~> 2026.5", runtime: false, override: true},
-      {:jido, path: "../jido/jido", override: true},
+      {:jido, "~> 2.3"},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       # {:jido_chat, "~> 1.0"},
       # {:jido_chat,

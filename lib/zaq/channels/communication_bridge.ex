@@ -110,10 +110,15 @@ defmodule Zaq.Channels.CommunicationBridge do
   def materialize_record(request, opts) when is_map(request) do
     with :ok <- verified_materialization(opts),
          {:ok, provider} <- request_provider(request),
-         {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, bridge} <- configured_bridge(provider, opts),
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- bridge_supports?(bridge, :materialize_record, 3) || {:error, :unsupported} do
-      bridge.materialize_record(config, request, Bridge.fetch_connection_details(provider))
+      details =
+        provider
+        |> Bridge.fetch_connection_details()
+        |> Map.put(:config_opts, opts)
+
+      bridge.materialize_record(config, request, details)
     end
   end
 
@@ -121,6 +126,13 @@ defmodule Zaq.Channels.CommunicationBridge do
     if Keyword.get(opts, :materialization_verified) == true,
       do: :ok,
       else: {:error, :unverified_materialization_request}
+  end
+
+  defp configured_bridge(provider, opts) do
+    case Bridge.bridge_for(provider, opts) do
+      nil -> {:error, {:no_bridge, provider}}
+      bridge -> {:ok, bridge}
+    end
   end
 
   @doc "Sends typing indicator through the provider bridge."

@@ -185,7 +185,7 @@ rejected rather than ignored, since it would silently override the message resol
 ### Messages — Incoming (`Zaq.Engine.Messages.Incoming`)
 - Canonical struct for all inbound messages crossing the adapter boundary.
 - Enforce keys: `:content`, `:channel_id`, `:provider`.
-- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person`, `:metadata`, `:routing_context`.
+- Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person`, `:attachments`, `:metadata`, `:routing_context`, `:is_dm`, `:content_filter`.
 - All channel adapters must map their transport payload to this struct before passing to any
   ZAQ component.
 - When crossing nodes, this payload is carried in `%Zaq.Event.request`.

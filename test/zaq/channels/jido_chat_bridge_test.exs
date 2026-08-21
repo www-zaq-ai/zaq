@@ -55,6 +55,17 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
   end
 
+  defmodule MediaMaterializationConfig do
+    def get(:zaq, :channels, _default, _opts) do
+      %{mattermost: %{bridge: JidoChatBridge, adapter: Process.get(:fetch_media_adapter)}}
+    end
+
+    def get(:zaq, :message_trace_artifact_max_bytes, default, _opts),
+      do: Process.get(:fetch_media_limit, default)
+
+    def get(_app, _key, default, _opts), do: default
+  end
+
   defmodule StubPipeline do
     def run(%Incoming{} = incoming, opts) do
       (Process.whereis(:bridge_test_observer) || self())
@@ -819,19 +830,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   describe "communication media materialization" do
     test "uses the JidoChat adapter fetch_media abstraction" do
-      original_channels = Application.get_env(:zaq, :channels)
-
-      Application.put_env(:zaq, :channels, %{
-        mattermost: %{bridge: JidoChatBridge, adapter: FetchMediaAdapter}
-      })
-
-      on_exit(fn ->
-        if original_channels do
-          Application.put_env(:zaq, :channels, original_channels)
-        else
-          Application.delete_env(:zaq, :channels)
-        end
-      end)
+      put_fetch_media_adapter(FetchMediaAdapter)
 
       request = %{
         "provider" => "mattermost",
@@ -843,7 +842,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       config = %{provider: "mattermost"}
-      details = %{url: "https://mattermost.example", token: "secret"}
+
+      details = %{
+        url: "https://mattermost.example",
+        token: "secret",
+        config: MediaMaterializationConfig
+      }
+
       on_exit(fn -> Process.delete(:fetch_media_result) end)
 
       assert {:ok, %{record: %Record{content: <<0, 1, 2, 3>>, mime_type: "image/png"}}} =
@@ -855,13 +860,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "rejects malformed adapter results" do
-      previous_channels = Application.get_env(:zaq, :channels)
-
-      Application.put_env(:zaq, :channels, %{
-        mattermost: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
-      })
-
-      on_exit(fn -> Application.put_env(:zaq, :channels, previous_channels) end)
+      put_fetch_media_adapter(FetchMediaResultAdapter)
 
       request = %{
         "reference" => "file-1",
@@ -871,7 +870,12 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       config = %{provider: "mattermost"}
-      details = %{url: "https://mattermost.example", token: "secret"}
+
+      details = %{
+        url: "https://mattermost.example",
+        token: "secret",
+        config: MediaMaterializationConfig
+      }
 
       for result <- [{:ok, %{}}, {:error, :download_failed}, false] do
         Process.put(:fetch_media_result, result)
@@ -896,25 +900,11 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "enforces configured media size before calling adapter" do
-      previous_channels = Application.get_env(:zaq, :channels)
-      previous_limit = Application.get_env(:zaq, :message_trace_artifact_max_bytes)
-
-      Application.put_env(:zaq, :channels, %{
-        mattermost: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
-      })
-
-      Application.put_env(:zaq, :message_trace_artifact_max_bytes, 2)
-
-      on_exit(fn ->
-        Application.put_env(:zaq, :channels, previous_channels)
-
-        if previous_limit == nil,
-          do: Application.delete_env(:zaq, :message_trace_artifact_max_bytes),
-          else: Application.put_env(:zaq, :message_trace_artifact_max_bytes, previous_limit)
-      end)
+      put_fetch_media_adapter(FetchMediaResultAdapter)
+      put_fetch_media_limit(2)
 
       config = %{provider: "mattermost"}
-      details = %{url: "url", token: "token"}
+      details = %{url: "url", token: "token", config: MediaMaterializationConfig}
 
       assert {:error, :media_too_large} =
                JidoChatBridge.materialize_record(
@@ -937,28 +927,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "uses default limit and filters adapter options" do
-      previous_channels = Application.get_env(:zaq, :channels)
-      previous_limit = Application.get_env(:zaq, :message_trace_artifact_max_bytes)
-
-      Application.put_env(:zaq, :channels, %{
-        mattermost: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
-      })
-
-      Application.put_env(:zaq, :message_trace_artifact_max_bytes, 0)
-
-      on_exit(fn ->
-        Application.put_env(:zaq, :channels, previous_channels)
-
-        if previous_limit == nil,
-          do: Application.delete_env(:zaq, :message_trace_artifact_max_bytes),
-          else: Application.put_env(:zaq, :message_trace_artifact_max_bytes, previous_limit)
-      end)
+      put_fetch_media_adapter(FetchMediaResultAdapter)
+      put_fetch_media_limit(0)
 
       assert {:ok, %{record: %Record{content: <<0, 1, 2, 3>>}}} =
                JidoChatBridge.materialize_record(
                  %{provider: "mattermost"},
                  %{"reference" => "x", "size" => 4},
-                 %{"ignored" => "x", url: "url", token: nil}
+                 %{"ignored" => "x", url: "url", token: nil, config: MediaMaterializationConfig}
                )
 
       assert_received {:fetch_media_result, "x", opts}
@@ -5197,6 +5173,16 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     {:ok, port} = :inet.port(socket)
     :ok = :gen_tcp.close(socket)
     port
+  end
+
+  defp put_fetch_media_adapter(adapter) do
+    Process.put(:fetch_media_adapter, adapter)
+    on_exit(fn -> Process.delete(:fetch_media_adapter) end)
+  end
+
+  defp put_fetch_media_limit(limit) do
+    Process.put(:fetch_media_limit, limit)
+    on_exit(fn -> Process.delete(:fetch_media_limit) end)
   end
 
   defmodule MCPTimeoutPlug do

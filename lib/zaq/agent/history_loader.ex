@@ -71,7 +71,7 @@ defmodule Zaq.Agent.HistoryLoader do
       }
     )
     |> Repo.all()
-    |> accumulate_within_budget(max_tokens)
+    |> accumulate_within_budget(max_tokens, opts)
     |> build_context(opts)
   end
 
@@ -96,7 +96,7 @@ defmodule Zaq.Agent.HistoryLoader do
     messages = fetch_recent_messages(person_id, channel_type)
 
     messages
-    |> accumulate_within_budget(max_tokens)
+    |> accumulate_within_budget(max_tokens, opts)
     |> build_context(opts)
   end
 
@@ -121,9 +121,9 @@ defmodule Zaq.Agent.HistoryLoader do
     |> Repo.all()
   end
 
-  defp accumulate_within_budget(messages, max_tokens) do
+  defp accumulate_within_budget(messages, max_tokens, opts) do
     Enum.reduce_while(messages, {[], 0}, fn msg, {acc, total} ->
-      tokens = TokenEstimator.estimate(history_content(msg, []))
+      tokens = TokenEstimator.estimate(history_content(msg, opts))
       new_total = total + tokens
 
       if new_total > max_tokens do

@@ -19,6 +19,7 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | `Zaq.Channels.CommunicationBridge`  | `lib/zaq/channels/communication_bridge.ex`   | Communication-domain routing/delegation helpers |
 | `Zaq.Channels.DataSourceBridge`     | `lib/zaq/channels/data_source_bridge.ex`     | DataSource-domain routing/delegation helpers    |
 | `Zaq.Channels.Materializers.DataSourceDocument` | `lib/zaq/channels/materializers/data_source_document.ex` | Data-source record materialization handler |
+| `Zaq.Channels.Materializers.CommunicationMedia` | `lib/zaq/channels/materializers/communication_media.ex` | Communication-media record materialization handler |
 | `Zaq.Channels.Bridge`               | `lib/zaq/channels/bridge.ex`                 | Bridge behaviour + shared helpers               |
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters          |
 | `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources   |
@@ -74,10 +75,14 @@ defstruct [
   :author_id,     # String | nil
   :author_name,   # String | nil
   :thread_id,     # String | nil
-  :message_id,    # String | nil
+  :message_id,    # String | integer | nil
   :provider,      # atom | String — e.g. :mattermost, :web
   :person,        # %{id: integer, full_name: string | nil, team_ids: [integer]} | nil
-  metadata: %{}
+  attachments: [],
+  routing_context: %Zaq.Engine.Messages.Incoming.RoutingContext{},
+  is_dm: false,
+  metadata: %{},
+  content_filter: []
 ]
 ```
 
@@ -138,6 +143,12 @@ trusted materializer dispatches the existing `:materialize_record` Channels even
 The handle binds the source transport author; fetching requires the normalized
 event actor's matching transport ID unless trusted internal code explicitly sets
 `skip_permissions: true`.
+
+The handle also carries signed source provenance such as `channel_config_id`,
+`source_channel_id`, and `source_message_id` when the adapter provides them.
+Current fetching routes by provider, while preserving these values lets future
+code validate or route by the exact source config/channel/message without
+trusting model-visible attachment metadata.
 
 When an agent accesses a persisted attachment, `CommunicationBridge` uses the
 verified request's provider to route to the correct bridge, and `JidoChatBridge`
@@ -291,6 +302,7 @@ to a Person. Engine incoming routing promotes the normalized identity into
 | `test_connection/2`          | Runs bridge-specific connection test                         |
 | `bridge_for/2`               | Returns the configured bridge module for a provider          |
 | `route_incoming_message/4`   | Dispatches a canonical `%Incoming{}` to Engine routing       |
+| `materialize_record/2`       | Routes a verified communication-media materialization request |
 
 ### Bridge resolution
 
