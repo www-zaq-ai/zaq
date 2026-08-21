@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-f94.5"
   ],
+  "closed_at": "2026-08-21T16:07:29Z",
+  "close_reason": "completed",
   "created": "2026-08-21T15:35:23Z",
   "description": "Route communication_media materialization through signed exact ChannelConfig ID when present.",
   "id": "zaq-f94.4",
   "labels": [],
   "parent": "zaq-f94",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-f94] Exact config materialization routing",
   "type": "task",
-  "updated_at": "2026-08-21T15:35:24Z"
+  "updated_at": "2026-08-21T16:07:29Z"
 }
