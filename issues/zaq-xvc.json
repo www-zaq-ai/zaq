@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-ppd"
@@ -9,7 +9,7 @@
   "id": "zaq-xvc",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-xvc] Implement BO user notification API",
   "type": "task",
   "updated_at": "2026-08-21T07:33:36Z"
