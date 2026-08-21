@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-21T15:35:23Z",
+  "description": "Implement EmailBridge materialize_record and UID BODY.PEEK section retrieval.",
+  "id": "zaq-f94.5",
+  "labels": [],
+  "parent": "zaq-f94",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-f94] EmailBridge IMAP materialization",
+  "type": "task",
+  "updated_at": "2026-08-21T15:35:23Z"
+}
