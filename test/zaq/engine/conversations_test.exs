@@ -27,6 +27,26 @@ defmodule Zaq.Engine.ConversationsTest do
     |> Conversations.persist_message_history(attrs)
   end
 
+  defp trace_artifact(content, name, tool_call_id) do
+    %{
+      content: content,
+      name: name,
+      mime_type: "application/octet-stream",
+      size: byte_size(content),
+      record: %{"id" => name},
+      tool_call_id: tool_call_id,
+      tool_name: "download_document"
+    }
+  end
+
+  defp artifacts_for_message(message_id) do
+    Zaq.Repo.all(
+      from artifact in Zaq.Engine.Conversations.MessageTraceArtifact,
+        where: artifact.message_id == ^message_id,
+        order_by: [asc: artifact.name]
+    )
+  end
+
   # ── Helpers ────────────────────────────────────────────────────────
 
   defp channel_config_fixture(provider) do

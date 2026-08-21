@@ -9,6 +9,8 @@ defmodule Zaq.Agent.ApiTest do
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Event
 
+  import ExUnit.CaptureLog
+
   defmodule StubPipeline do
     def run(%Incoming{} = incoming, opts) do
       send(self(), {:pipeline_called, incoming, opts})
@@ -121,10 +123,12 @@ defmodule Zaq.Agent.ApiTest do
 
   defmodule PersistFailNodeRouter do
     def dispatch(event) do
+      send(self(), {:persist_fail_router_dispatch, Keyword.get(event.opts, :action), event})
+
       response =
         case Keyword.get(event.opts, :action) do
           :persist_from_incoming -> {:error, :db_down}
-          _ -> :ok
+          _ -> {:ok, %{message_id: "status-message"}}
         end
 
       %{event | response: response}
@@ -859,10 +863,17 @@ defmodule Zaq.Agent.ApiTest do
   end
 
   test "run_pipeline blocks delivery when persist_from_incoming fails" do
-    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      message_id: "incoming-1",
+      provider: :mattermost,
+      metadata: %{request_id: "request-1"}
+    }
 
     event =
       Event.new(incoming, :agent,
+        trace_id: "trace-persist-failure",
         opts: [
           action: :run_pipeline,
           pipeline_module: StubPipeline,
@@ -873,11 +884,31 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    result = Api.handle_event(event, :run_pipeline, nil)
+    log =
+      capture_log(fn ->
+        result = Api.handle_event(event, :run_pipeline, nil)
 
-    assert result.response == {:error, {:persist_failed, :db_down}}
-    assert result.next_hop == nil
-    refute result.opts[:action] == :deliver_outgoing
+        assert result.response == {:error, {:persist_failed, :db_down}}
+        assert result.next_hop == nil
+        refute result.opts[:action] == :deliver_outgoing
+      end)
+
+    assert log =~ "Agent response persistence failed"
+    assert log =~ "trace-persist-failure"
+    assert log =~ ":db_down"
+
+    assert_receive {:persist_fail_router_dispatch, :upsert_message,
+                    %Event{request: %Outgoing{body: "Checking your request…"}}}
+
+    assert_receive {:persist_fail_router_dispatch, :persist_from_incoming, _}
+
+    assert_receive {:persist_fail_router_dispatch, :upsert_message,
+                    %Event{request: %Outgoing{body: failure_body, metadata: metadata}}}
+
+    assert failure_body ==
+             "I couldn't save this exchange, so I can't safely deliver the answer. Please try again."
+
+    assert metadata.intent_meta.stage == :failed
   end
 
   test "run_pipeline blocks delivery for invalid persist response" do

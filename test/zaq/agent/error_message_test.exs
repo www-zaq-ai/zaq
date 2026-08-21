@@ -44,6 +44,14 @@ defmodule Zaq.Agent.ErrorMessageTest do
                "The selected AI provider is not supported. Please check your agent configuration."
     end
 
+    test "maps persistence failures to safe user-facing messages" do
+      assert ErrorMessage.from_reason({:persist_failed, :trace_artifact_too_large}) ==
+               "One or more attachments are too large to store in the conversation. Please retry with smaller attachments."
+
+      assert ErrorMessage.from_reason({:persist_failed, :db_down}) ==
+               "I couldn't save this exchange, so I can't safely deliver the answer. Please try again."
+    end
+
     test "maps incomplete provider responses to temporarily unavailable" do
       assert ErrorMessage.from_reason({:incomplete_response, :incomplete}) ==
                "The AI service is temporarily unavailable."

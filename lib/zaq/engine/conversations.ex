@@ -289,18 +289,17 @@ defmodule Zaq.Engine.Conversations do
   defp normalize_trace_artifacts(nil, _max_bytes), do: {:ok, []}
 
   defp normalize_trace_artifacts(artifacts, max_bytes) when is_list(artifacts) do
-    Enum.reduce_while(artifacts, {:ok, [], 0}, fn artifact, {:ok, normalized, total_size} ->
+    Enum.reduce_while(artifacts, {:ok, []}, fn artifact, {:ok, normalized} ->
       with {:ok, artifact} <- normalize_trace_artifact(artifact),
-           new_total = total_size + artifact.size,
-           true <- artifact.size <= max_bytes and new_total <= max_bytes do
-        {:cont, {:ok, [artifact | normalized], new_total}}
+           true <- artifact.size <= max_bytes do
+        {:cont, {:ok, [artifact | normalized]}}
       else
         false -> {:halt, {:error, :trace_artifact_too_large}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, artifacts, _total_size} -> {:ok, Enum.reverse(artifacts)}
+      {:ok, artifacts} -> {:ok, Enum.reverse(artifacts)}
       {:error, reason} -> {:error, reason}
     end
   end

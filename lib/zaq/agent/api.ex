@@ -14,6 +14,8 @@ defmodule Zaq.Agent.Api do
 
   @behaviour Zaq.InternalBoundaries
 
+  require Logger
+
   alias Zaq.Agent
 
   alias Zaq.Agent.{
@@ -412,6 +414,8 @@ defmodule Zaq.Agent.Api do
           |> schedule_return_hop(enrich_outgoing_with_persistence(outgoing, persisted))
 
         {:error, reason} ->
+          log_persist_failure(event, reason)
+          broadcast_persist_failure(event, incoming, reason, node_router_mod)
           %{event | response: {:error, {:persist_failed, reason}}, next_hop: nil}
       end
     else
@@ -421,6 +425,41 @@ defmodule Zaq.Agent.Api do
 
   defp maybe_dispatch_return_hop(%Event{} = event, _incoming, other),
     do: %{event | response: other}
+
+  defp log_persist_failure(%Event{} = event, reason) do
+    Logger.error(
+      "Agent response persistence failed trace_id=#{inspect(event.trace_id)} reason=#{inspect(safe_persist_reason(reason))}"
+    )
+  end
+
+  defp safe_persist_reason(%Ecto.Changeset{} = changeset),
+    do: {:changeset, Keyword.keys(changeset.errors)}
+
+  defp safe_persist_reason(reason) when is_atom(reason), do: reason
+
+  defp safe_persist_reason({tag, reason}) when is_atom(tag),
+    do: {tag, safe_persist_reason(reason)}
+
+  defp safe_persist_reason(%{__struct__: module}), do: module
+  defp safe_persist_reason(_reason), do: :non_atom_reason
+
+  defp broadcast_persist_failure(
+         %Event{} = event,
+         %Incoming{} = incoming,
+         reason,
+         node_router_mod
+       ) do
+    status_mod = Keyword.get(event.opts, :status_module, Status)
+
+    status_mod.broadcast(
+      incoming,
+      :failed,
+      ErrorMessage.from_reason({:persist_failed, reason}),
+      node_router_mod
+    )
+
+    :ok
+  end
 
   defp delivery_through_channels?(provider), do: not is_nil(provider)
 

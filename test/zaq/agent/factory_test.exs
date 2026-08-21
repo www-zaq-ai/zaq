@@ -306,7 +306,7 @@ defmodule Zaq.Agent.FactoryTest do
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",
-        enabled_tool_keys: [],
+        enabled_tool_keys: ["web.browsing"],
         conversation_enabled: false,
         active: true,
         advanced_options: %{"temperature" => 0.33, "this_option_does_not_exist" => true}
@@ -327,6 +327,10 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:ok, status} = Jido.AgentServer.status(server)
     assert status.raw_state.runtime_config.system_prompt == configured_agent.job
     assert is_list(status.raw_state.runtime_config.llm_opts)
+    assert Browsing in status.raw_state.runtime_config.tools
+
+    assert Factory.tool_timeout_ms(status.raw_state.runtime_config.tools) ==
+             Browsing.tool_timeout_ms()
 
     assert {:ok, request} =
              Factory.ask_with_config(server, incoming.content, configured_agent, timeout: 35_000)
@@ -337,6 +341,20 @@ defmodule Zaq.Agent.FactoryTest do
     assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
     assert body =~ "gpt-4.1-mini"
     assert body =~ configured_agent.job
+
+    assert {:ok, status} = Jido.AgentServer.status(server)
+
+    assert get_in(status.raw_state, [:__strategy__, :config, :system_prompt]) ==
+             configured_agent.job
+
+    assert {:ok, second_request} =
+             Factory.ask_with_config(server, incoming.content, configured_agent, timeout: 35_000)
+
+    assert {:ok, second_answer} = Factory.await(second_request, timeout: 45_000)
+    assert is_binary(second_answer)
+
+    assert_receive {:openai_request, "POST", "/v1/responses", "", second_body}, 1_000
+    assert second_body =~ configured_agent.job
   end
 
   test "ask_with_config uses overridden job (system_prompt) on server initialized with different prompt" do

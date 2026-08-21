@@ -133,9 +133,11 @@ defstruct [
 ### Communication media attachments
 
 JidoChat bridges map inbound media to lazy `Zaq.Contracts.Record` values in
-`Incoming.attachments`. Persisted metadata contains only an allowlisted
-`attributes["source_type"] == "communication_media"` source descriptor; provider
-bytes, credentials, and dispatchable events are never serialized.
+`Incoming.attachments`. Persisted metadata stores the `Record.metadata/1` view:
+canonical JSON-safe descriptor fields, the signed `materialization_handle`, and
+provider-specific JSON-safe `attributes`. Attachment bytes (`content`), raw
+provider internals (`raw`), credentials, and dispatchable events are never
+serialized into message metadata.
 
 Fetch-controlling fields are bound into a signed `materialization_handle` with
 type `communication_media`. `Zaq.Materialization` verifies the handle before the

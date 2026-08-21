@@ -27,6 +27,13 @@ defmodule Zaq.Agent.ErrorMessage do
   def from_reason(:provider_not_supported, _fallback),
     do: "The selected AI provider is not supported. Please check your agent configuration."
 
+  def from_reason({:persist_failed, :trace_artifact_too_large}, _fallback),
+    do:
+      "One or more attachments are too large to store in the conversation. Please retry with smaller attachments."
+
+  def from_reason({:persist_failed, _reason}, _fallback),
+    do: "I couldn't save this exchange, so I can't safely deliver the answer. Please try again."
+
   def from_reason(
         %ReqLLM.Error.API.Request{response_body: %{"error" => %{"type" => "budget_exceeded"}}},
         _fallback

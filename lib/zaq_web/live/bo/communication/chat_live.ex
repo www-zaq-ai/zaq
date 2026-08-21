@@ -633,8 +633,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp metadata_get(metadata, key) when is_map(metadata) and is_atom(key),
     do: Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
 
-  defp metadata_get(_metadata, _key), do: nil
-
   # ── Async pipeline runner (runs inside Task) ───────────────────────
 
   defp run_pipeline_async(
@@ -719,41 +717,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
          request_id,
          %Outgoing{} = outgoing,
          user_msg,
-         %Event{
-           response: {:error, _reason}
-         }
+         %Event{}
        )
        when is_pid(live_view_pid) do
-    send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
-    :ok
-  end
-
-  defp maybe_emit_fallback_pipeline_result(
-         live_view_pid,
-         request_id,
-         %Outgoing{} = outgoing,
-         user_msg,
-         %Event{} = event
-       )
-       when is_pid(live_view_pid) do
-    cond do
-      # An error Outgoing must always reach the UI. The provider may have failed
-      # before the first token (e.g. budget/rate limit), leaving an empty
-      # streaming placeholder that needs to be replaced with the error message.
-      error_outgoing?(outgoing) ->
-        send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
-        :ok
-
-      # Already delivered through channels, or streamed successfully — the UI has
-      # already rendered the answer, so don't emit a duplicate.
-      match?(%Event{request: %Outgoing{}, response: :ok}, event) or
-          match?(%Event{response: %Outgoing{}}, event) ->
-        :ok
-
-      true ->
-        send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
-        :ok
+    if error_outgoing?(outgoing) do
+      send(live_view_pid, {:pipeline_result, request_id, outgoing, user_msg})
     end
+
+    :ok
   end
 
   defp error_outgoing?(%Outgoing{metadata: metadata}) when is_map(metadata),

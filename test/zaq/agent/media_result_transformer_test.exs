@@ -6,6 +6,13 @@ defmodule Zaq.Agent.MediaResultTransformerTest do
   alias Zaq.Agent.MediaResultTransformer
   alias Zaq.Contracts.Record
 
+  defmodule TestConfig do
+    def get(:zaq, :message_trace_artifact_max_bytes, default, _opts),
+      do: Process.get(:media_result_transformer_limit, default)
+
+    def get(_app, _key, default, _opts), do: default
+  end
+
   test "passes non-media tool results through the default formatter" do
     result = {:ok, %{answer: 42}, []}
 
@@ -201,6 +208,53 @@ defmodule Zaq.Agent.MediaResultTransformerTest do
              )
 
     assert text =~ "size limit"
+  end
+
+  test "uses config override for the default media size limit" do
+    Process.put(:media_result_transformer_limit, 3)
+
+    on_exit(fn -> Process.delete(:media_result_transformer_limit) end)
+
+    record = %{media_record("image/png") | size: 4, content: <<0, 1, 2, 3>>}
+
+    assert {:ok, {:ok, %ToolResult{content: [%ContentPart{type: :text, text: text}]}, []}} =
+             MediaResultTransformer.project_tool_result(
+               %{id: "call-config-large", name: "download_document", arguments: %{}},
+               {:ok, %{record: record}, []},
+               %{config: TestConfig}
+             )
+
+    assert text =~ "size limit"
+  end
+
+  test "media_max_bytes context value takes precedence over config override" do
+    Process.put(:media_result_transformer_limit, 1)
+
+    on_exit(fn -> Process.delete(:media_result_transformer_limit) end)
+
+    record = %{media_record("image/png") | size: 4, content: <<0, 1, 2, 3>>}
+
+    assert {:ok, {:ok, %ToolResult{content: [%ContentPart{type: :image}]}, []}} =
+             MediaResultTransformer.project_tool_result(
+               %{id: "call-context-limit", name: "download_document", arguments: %{}},
+               {:ok, %{record: record}, []},
+               %{config: TestConfig, media_max_bytes: 4}
+             )
+  end
+
+  test "falls back to the default media size limit when config override is invalid" do
+    Process.put(:media_result_transformer_limit, "invalid")
+
+    on_exit(fn -> Process.delete(:media_result_transformer_limit) end)
+
+    record = %{media_record("image/png") | size: 4, content: <<0, 1, 2, 3>>}
+
+    assert {:ok, {:ok, %ToolResult{content: [%ContentPart{type: :image}]}, []}} =
+             MediaResultTransformer.project_tool_result(
+               %{id: "call-invalid-config", name: "download_document", arguments: %{}},
+               {:ok, %{record: record}, []},
+               %{config: TestConfig}
+             )
   end
 
   defp media_record(mime_type) do

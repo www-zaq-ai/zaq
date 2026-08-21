@@ -118,8 +118,16 @@ defmodule Zaq.Agent.MediaResultTransformer do
 
   defp max_bytes(context) do
     case Map.get(context, :media_max_bytes) do
-      max_bytes when is_integer(max_bytes) and max_bytes > 0 -> max_bytes
-      _ -> Application.get_env(:zaq, :message_trace_artifact_max_bytes, @default_max_bytes)
+      max_bytes when is_integer(max_bytes) and max_bytes > 0 ->
+        max_bytes
+
+      _ ->
+        case Zaq.Config.get(:zaq, :message_trace_artifact_max_bytes, @default_max_bytes,
+               config: Map.get(context, :config)
+             ) do
+          max_bytes when is_integer(max_bytes) and max_bytes > 0 -> max_bytes
+          _ -> @default_max_bytes
+        end
     end
   end
 end

@@ -161,7 +161,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - `event.assigns["agent_selection"]` is produced upstream by Engine incoming routing. It may come from transient BO Chat explicit selection (`source: "bo_explicit"`) or persisted routing policy (`source: "channel"`, `"topic"`, `"provider"`, `"global"`, etc.). Agent API consumes both the same way.
 - Both `prompt_guard:` and `status_module:` are injectable via event opts for testing
 - `Zaq.Agent.Executor` loads the configured agent (or default answering agent), ensures server presence, broadcasts `:answering`, delegates dispatch to `Factory`, then consumes stream events through `StreamEvents`
-- **Auditability rule (mandatory):** channel delivery is allowed only after persistence succeeds. In `Zaq.Agent.Api`, `persist_from_incoming` must complete successfully before scheduling the `:deliver_outgoing` return hop. If persistence fails, the API must return `{:error, {:persist_failed, reason}}` and must not dispatch to Channels.
+- **Auditability rule (mandatory):** channel delivery is allowed only after persistence succeeds. In `Zaq.Agent.Api`, `persist_from_incoming` must complete successfully before scheduling the `:deliver_outgoing` return hop. If persistence fails, the API must return `{:error, {:persist_failed, reason}}`, log a sanitized internal reason, and must not dispatch the generated answer to Channels. It may still update the in-flight status message with a safe user-facing failure.
 - Runtime sync actions also enter through `Zaq.Agent.Api` and call `Zaq.Agent.RuntimeSync`:
   - `:configured_agent_updated`
   - `:configured_agent_deleted`

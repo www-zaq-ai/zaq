@@ -512,6 +512,46 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
+  test "pipeline_result finalizes streaming message preserving timestamp", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "req-final")
+    end)
+
+    send(view.pid, {:status_update, "req-final", :answering, "partial", :stream_delta})
+
+    streaming_message =
+      eventually_value(fn ->
+        state = :sys.get_state(view.pid)
+        Enum.find(state.socket.assigns.messages, &(&1.id == "stream-req-final"))
+      end)
+
+    send(view.pid, {
+      :pipeline_result,
+      "req-final",
+      %{
+        body: "  Final answer [[source:guide.md]]  ",
+        sources: ["guide.md"],
+        metadata: %{confidence_score: 0.9, error: false}
+      },
+      "question"
+    })
+
+    assert_eventually(fn ->
+      assigns = :sys.get_state(view.pid).socket.assigns
+      [final_message] = Enum.filter(assigns.messages, &(&1.id == "stream-req-final"))
+
+      final_message.body == "Final answer [1]" and
+        final_message.timestamp == streaming_message.timestamp and
+        final_message.streaming == false and
+        Enum.count(assigns.messages, &Map.get(&1, :welcome, false)) == 1 and
+        assigns.status == :idle and
+        assigns.streaming_response_active == false and
+        assigns.current_request_id == nil
+    end)
+  end
+
   test "status_update unknown stage atom does not crash", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
@@ -1144,6 +1184,51 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     refute render(view) =~ "[source:"
   end
 
+  test "send_message propagates person and team permissions", %{conn: conn} do
+    caller = self()
+
+    NodeRouterFake.put_dispatch(fn %Event{} = event ->
+      send(caller, {:person_dispatch, event})
+      %{event | response: :ok}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      update_in(state.socket.assigns.current_user, fn user ->
+        user |> Map.put(:person_id, 42) |> Map.put(:team_ids, [7, 9])
+      end)
+    end)
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
+
+    assert_receive {:person_dispatch, %Event{} = event}, 1_000
+    assert event.request.person == %{id: 42, full_name: "testadmin", team_ids: [7, 9]}
+    assert event.opts[:pipeline_opts][:skip_permissions] == false
+  end
+
+  test "send_message defaults nil team ids to an empty list", %{conn: conn} do
+    caller = self()
+
+    NodeRouterFake.put_dispatch(fn %Event{} = event ->
+      send(caller, {:person_dispatch, event})
+      %{event | response: :ok}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      update_in(state.socket.assigns.current_user, fn user ->
+        user |> Map.put(:person_id, 42) |> Map.put(:team_ids, nil)
+      end)
+    end)
+
+    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
+
+    assert_receive {:person_dispatch, %Event{} = event}, 1_000
+    assert event.request.person == %{id: 42, full_name: "testadmin", team_ids: []}
+  end
+
   test "assistant markdown is rendered with numbered references", %{conn: conn} do
     NodeRouterFake.put(
       :agent,
@@ -1383,6 +1468,49 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         assistant_message.sources == [
           %{"index" => 1, "type" => "document", "path" => "atom-path.md"}
         ]
+    end)
+  end
+
+  test "load_conversation normalizes atom and legacy persisted source forms", %{conn: conn} do
+    {:ok, conversation} =
+      Conversations.create_conversation(%{
+        user_id: nil,
+        channel_user_id: "memory-source-test",
+        channel_type: "bo"
+      })
+
+    {:ok, _user} = Conversations.add_message(conversation, %{role: "user", content: "Question"})
+
+    {:ok, atom_source_message} =
+      Conversations.add_message(conversation, %{
+        role: "assistant",
+        content: "Atom source",
+        sources: [%{path: "atom-path.md"}, %{path: "legacy.md"}]
+      })
+
+    {:ok, invalid_source_message} =
+      Conversations.add_message(conversation, %{
+        role: "assistant",
+        content: "Unexpected source",
+        sources: [%{unexpected: "non-list"}]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    render_hook(view, "load_conversation", %{"id" => conversation.id})
+
+    assert_eventually(fn ->
+      assigns = :sys.get_state(view.pid).socket.assigns
+      atom_source = Enum.find(assigns.messages, &(Map.get(&1, :db_id) == atom_source_message.id))
+
+      map_source =
+        Enum.find(assigns.messages, &(Map.get(&1, :db_id) == invalid_source_message.id))
+
+      atom_source != nil and
+        atom_source.sources == [
+          %{"index" => 1, "type" => "document", "path" => "atom-path.md"},
+          %{"index" => 2, "type" => "document", "path" => "legacy.md"}
+        ] and
+        map_source != nil and map_source.sources == []
     end)
   end
 
@@ -2013,6 +2141,62 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     view |> element("#chat-form") |> render_submit(%{"message" => "question"})
 
     assert_eventually(fn -> render(view) =~ "Sorry, something went wrong. Please try again." end)
+  end
+
+  test "pipeline dispatch returning an error outgoing from the request delivers its error", %{
+    conn: conn
+  } do
+    NodeRouterFake.put_dispatch(fn %Event{} = event ->
+      %{
+        event
+        | request: %Outgoing{
+            body: "Request failed",
+            channel_id: "bo",
+            provider: :web,
+            metadata: %{error: true}
+          },
+          response: :ok
+      }
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
+
+    assert_eventually(fn -> render(view) =~ "Request failed" end)
+  end
+
+  test "pipeline dispatch with nil outgoing metadata does not duplicate a final bot message", %{
+    conn: conn
+  } do
+    caller = self()
+
+    NodeRouterFake.put_dispatch(fn %Event{} = event ->
+      send(caller, :nil_metadata_dispatch_done)
+
+      %{
+        event
+        | response: %Outgoing{
+            body: "already delivered",
+            channel_id: "bo",
+            provider: :web,
+            metadata: nil
+          }
+      }
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    view |> element("#chat-form") |> render_submit(%{"message" => "question"})
+
+    assert_receive :nil_metadata_dispatch_done, 1_000
+
+    assert_eventually(fn ->
+      assigns = :sys.get_state(view.pid).socket.assigns
+
+      not Enum.any?(assigns.messages, fn message ->
+        message.role == :bot and not Map.get(message, :welcome, false) and
+          message.body == "already delivered"
+      end)
+    end)
   end
 
   test "mcp tool timeout inside ask/3 returns clean UI error", %{conn: conn, user: user} do

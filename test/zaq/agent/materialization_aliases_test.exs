@@ -153,6 +153,14 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     refute first_alias == second_alias
   end
 
+  test "propagates missing alias scope errors through the Factory interceptor" do
+    tool_call = %{id: "call-1", name: "direct", arguments: %{}, action_module: DirectHandleAction}
+    result = {:ok, %{record: record("file-1", handle!("file-1"))}, []}
+
+    assert {:error, :missing_materialization_alias_scope} =
+             Factory.after_tool_call(tool_call, result, %{})
+  end
+
   test "unknown aliases fail before tool execution", %{scope: scope} do
     tool_call = %{
       id: "call-1",
