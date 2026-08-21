@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-ic9.10"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-ic9",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-ic9.11] Review fix: attachment metadata docs",
   "type": "task",
-  "updated_at": "2026-08-21T08:05:25Z"
+  "updated_at": "2026-08-21T08:09:45Z"
 }
