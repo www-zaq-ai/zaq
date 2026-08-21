@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-21T15:35:23Z",
+  "description": "Implement lazy IMAP attachment Records using the existing communication_media materialization path.",
+  "id": "zaq-f94",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[lazy-imap-attachments] Lazy IMAP email attachments",
+  "type": "epic",
+  "updated_at": "2026-08-21T15:35:23Z"
+}
