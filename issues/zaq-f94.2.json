@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-21T15:35:23Z",
+  "description": "Replace RFC822 ingress with BODYSTRUCTURE plus BODY.PEEK text sections.",
+  "id": "zaq-f94.2",
+  "labels": [],
+  "parent": "zaq-f94",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-f94] Selective IMAP ingress fetch",
+  "type": "task",
+  "updated_at": "2026-08-21T15:35:23Z"
+}
