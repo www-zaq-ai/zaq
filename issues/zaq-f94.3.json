@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-f94.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-f94.4"
+  ],
   "created": "2026-08-21T15:35:23Z",
   "description": "Create email attachment Records with communication_media handles and pass them through Incoming.attachments.",
   "id": "zaq-f94.3",

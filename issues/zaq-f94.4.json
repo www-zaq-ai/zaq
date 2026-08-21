@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-f94.3"
+  ],
   "blocks": [],
   "created": "2026-08-21T15:35:23Z",
   "description": "Route communication_media materialization through signed exact ChannelConfig ID when present.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-f94] Exact config materialization routing",
   "type": "task",
-  "updated_at": "2026-08-21T15:35:23Z"
+  "updated_at": "2026-08-21T15:35:24Z"
 }
