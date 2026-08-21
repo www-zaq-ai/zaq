@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-21T08:05:14Z",
+  "description": "Fix PR #694 review finding by treating message_trace_artifact_max_bytes as a per-artifact limit, not a cumulative exchange limit. Add regression and property coverage.",
+  "id": "zaq-ic9.8",
+  "labels": [],
+  "parent": "zaq-ic9",
+  "priority": 2,
+  "status": "open",
+  "title": "Review fix: per-artifact trace artifact limits",
+  "type": "task",
+  "updated_at": "2026-08-21T08:05:14Z"
+}
