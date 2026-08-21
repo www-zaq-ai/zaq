@@ -4,14 +4,15 @@
     "zaq-ic9.10"
   ],
   "blocks": [],
+  "closed_at": "2026-08-21T08:10:35Z",
   "created": "2026-08-21T08:05:14Z",
   "description": "Fix PR #694 review finding by documenting the actual persisted attachment metadata contract: JSON-safe provider attributes and signed handles are retained, bytes/raw/events/secrets are excluded.",
   "id": "zaq-ic9.11",
   "labels": [],
   "parent": "zaq-ic9",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-ic9.11] Review fix: attachment metadata docs",
   "type": "task",
-  "updated_at": "2026-08-21T08:09:45Z"
+  "updated_at": "2026-08-21T08:10:35Z"
 }
