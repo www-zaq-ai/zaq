@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-xvc"
+  ],
   "blocks": [],
   "created": "2026-08-21T07:33:19Z",
   "description": "",

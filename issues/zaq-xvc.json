@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-ppd"
+  ],
   "created": "2026-08-21T07:33:19Z",
   "description": "",
   "id": "zaq-xvc",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-xvc] Implement BO user notification API",
   "type": "task",
-  "updated_at": "2026-08-21T07:33:35Z"
+  "updated_at": "2026-08-21T07:33:36Z"
 }
