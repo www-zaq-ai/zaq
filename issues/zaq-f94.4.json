@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-f94.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-f94.5"
+  ],
   "created": "2026-08-21T15:35:23Z",
   "description": "Route communication_media materialization through signed exact ChannelConfig ID when present.",
   "id": "zaq-f94.4",
