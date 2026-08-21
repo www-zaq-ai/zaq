@@ -14,7 +14,7 @@ defmodule Zaq.Ingestion.FileExplorer do
   Returns the configured base path for ingestion files.
   """
   def base_path do
-    Application.get_env(:zaq, Zaq.Ingestion)[:base_path] || "priv/documents"
+    Zaq.Config.get(:zaq, Zaq.Ingestion, [])[:base_path] || "priv/documents"
   end
 
   @doc """
@@ -24,7 +24,7 @@ defmodule Zaq.Ingestion.FileExplorer do
   Otherwise derives a `"default"` volume from `base_path`.
   """
   def list_volumes do
-    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+    config = Zaq.Config.get(:zaq, Zaq.Ingestion, [])
     volumes = Keyword.get(config, :volumes, %{})
 
     if map_size(volumes) > 0 do
@@ -60,7 +60,7 @@ defmodule Zaq.Ingestion.FileExplorer do
   to work correctly when `documents` is a configured volume.
   """
   def resolve_path(relative_path) do
-    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+    config = Zaq.Config.get(:zaq, Zaq.Ingestion, [])
     configured_volumes = Keyword.get(config, :volumes, %{})
 
     if map_size(configured_volumes) > 0 do
@@ -379,13 +379,13 @@ defmodule Zaq.Ingestion.FileExplorer do
   defp file_stats_concurrency do
     default = default_file_stats_concurrency()
 
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+    Zaq.Config.get(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:file_stats_concurrency, default)
     |> normalize_concurrency(default)
   end
 
   defp file_stats_timeout do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+    Zaq.Config.get(:zaq, Zaq.Ingestion, [])
     |> Keyword.get(:file_stats_timeout, 10_000)
   end
 

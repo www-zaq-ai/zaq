@@ -1,4 +1,8 @@
 defmodule Zaq.NodeRouterTest do
+  # Not async: the PubSub side-channel tests subscribe to the global
+  # "node_router:events" topic and refute_receive on it, so any concurrent test
+  # dispatching an event delivers a message here and fails the refute. The
+  # :telemetry.attach handlers below are VM-global for the same reason.
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog

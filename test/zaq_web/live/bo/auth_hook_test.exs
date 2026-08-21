@@ -1,5 +1,9 @@
 defmodule ZaqWeb.Live.BO.AuthHookTest do
-  use ZaqWeb.ConnCase, async: true
+  # Not async: broadcasts :addons_updated on the global "addons:updated" topic,
+  # which crashes concurrently-mounted BO LiveViews that lack a clause for it.
+  # Async on main already, but harmless there — this branch mounts far more
+  # LiveViews concurrently, so the collision now fires regularly.
+  use ZaqWeb.ConnCase, async: false
 
   import Zaq.AccountsFixtures
   import Phoenix.LiveViewTest

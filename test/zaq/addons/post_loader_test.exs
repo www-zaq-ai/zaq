@@ -1,4 +1,8 @@
 defmodule Zaq.Addons.PostLoaderTest do
+  # Not async: these tests call Logger.configure/1, which moves the VM-wide log
+  # level off the :warning set in config/test.exs and corrupts any concurrent
+  # capture_log, and File.rm_rf!/1 on the shared priv/licenses dir that
+  # addons_live_test.exs also writes to.
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog

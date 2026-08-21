@@ -125,7 +125,7 @@ defmodule Zaq.System.SecretConfig do
   def validate_encryption_key(_), do: {:error, :missing_encryption_key}
 
   defp fetch_key_material do
-    config = Application.get_env(:zaq, __MODULE__, [])
+    config = Zaq.Config.get(:zaq, __MODULE__, [])
     key_id = Keyword.get(config, :key_id, @default_key_id)
 
     case Keyword.get(config, :encryption_key) do

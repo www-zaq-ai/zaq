@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.RetrievalCoverageTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Agent.{PromptTemplate, Retrieval}
   alias Zaq.SystemConfigFixtures

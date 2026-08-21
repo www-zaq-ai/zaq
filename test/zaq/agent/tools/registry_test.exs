@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.Tools.RegistryTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Jido.Action.Schema
   alias Zaq.Agent.Tools.Registry

@@ -1,5 +1,5 @@
 defmodule Zaq.UserPortal.ProvisionerTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.System
   alias Zaq.UserPortal.Provisioner

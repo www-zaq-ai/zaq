@@ -840,7 +840,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp mcp_endpoint_for_action(_, _), do: %MCP.Endpoint{}
 
   defp mcp_module do
-    Application.get_env(:zaq, :mcp_test_module, MCP)
+    Zaq.Config.get(:zaq, :mcp_test_module, MCP)
   end
 
   defp load_llm_form(socket) do

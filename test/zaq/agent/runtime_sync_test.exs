@@ -1,5 +1,5 @@
 defmodule Zaq.Agent.RuntimeSyncTest do
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Jido.MCP.JidoAI.ProxyRegistry
   alias Zaq.Agent.ConfiguredAgent
