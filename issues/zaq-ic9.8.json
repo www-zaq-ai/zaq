@@ -9,7 +9,7 @@
   "parent": "zaq-ic9",
   "priority": 2,
   "status": "open",
-  "title": "Review fix: per-artifact trace artifact limits",
+  "title": "[zaq-ic9.8] Review fix: per-artifact trace artifact limits",
   "type": "task",
-  "updated_at": "2026-08-21T08:05:14Z"
+  "updated_at": "2026-08-21T08:05:25Z"
 }
