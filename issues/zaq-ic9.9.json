@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-ic9.8"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ic9.10"
+  ],
   "created": "2026-08-21T08:05:14Z",
   "description": "Fix PR #694 review finding by keeping persist-before-deliver semantics while logging persistence failures and surfacing a safe user-facing status update.",
   "id": "zaq-ic9.9",
