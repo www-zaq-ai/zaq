@@ -4,14 +4,16 @@
     "zaq-f94.5"
   ],
   "blocks": [],
+  "closed_at": "2026-08-21T16:07:29Z",
+  "close_reason": "completed",
   "created": "2026-08-21T15:35:23Z",
   "description": "Update materialization-handle tool wording and add integration/security coverage.",
   "id": "zaq-f94.6",
   "labels": [],
   "parent": "zaq-f94",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-f94] Agent docs and hardening tests",
   "type": "task",
-  "updated_at": "2026-08-21T15:35:24Z"
+  "updated_at": "2026-08-21T16:07:29Z"
 }
