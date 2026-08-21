@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-f94.4"
   ],
+  "closed_at": "2026-08-21T16:07:29Z",
+  "close_reason": "completed",
   "created": "2026-08-21T15:35:23Z",
   "description": "Create email attachment Records with communication_media handles and pass them through Incoming.attachments.",
   "id": "zaq-f94.3",
   "labels": [],
   "parent": "zaq-f94",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-f94] Email attachment Records",
   "type": "task",
-  "updated_at": "2026-08-21T15:35:24Z"
+  "updated_at": "2026-08-21T16:07:29Z"
 }
