@@ -367,6 +367,15 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.Workflow.DispatchEvent
     },
     %{
+      key: "workflow.validate_workflow_input",
+      label: "Validate workflow input",
+      description:
+        "Check a candidate event input against a workflow's steps before dispatching it — " <>
+          "returns the payload paths the workflow reads, the ones the input is missing, and " <>
+          "whether it would satisfy every step",
+      module: Zaq.Agent.Tools.Workflow.ValidateWorkflowInput
+    },
+    %{
       key: "web.browsing",
       label: "Web browsing",
       description:
