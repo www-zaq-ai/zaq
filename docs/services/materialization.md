@@ -87,7 +87,7 @@ Per-redemption options:
   otherwise answer as text. Representation state, not identity, so it stays out of the
   signed locator.
 
-The handler always dispatches `:materialize_record` to the Ingestion role via
+The handler always dispatches `:materialize_document` to the Ingestion role via
 `Zaq.Ingestion.Events`. Disk records are handed out unmaterialized by a Channels bridge, so
 they redeem as a nested handle: the Channels hop returns a record still carrying its disk
 handle, and `Zaq.Materialization` redeems that second handle and merges the bytes into the

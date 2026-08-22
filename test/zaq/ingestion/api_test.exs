@@ -82,13 +82,13 @@ defmodule Zaq.Ingestion.ApiTest do
       assert document.source in Enum.map(entries, & &1.id)
     end
 
-    test "materialize_record delegates and passes the whole request through", %{root: root} do
+    test "materialize_document delegates and passes the whole request through", %{root: root} do
       document = seed_file(root, "guide.md", "# guide")
 
       assert {:ok, %{content: content, encoding: "base64"}} =
                handle(
                  %{"encoding" => "base64", file_id: document.source},
-                 :materialize_record
+                 :materialize_document
                )
 
       assert Base.decode64!(content) == "# guide"
@@ -155,8 +155,15 @@ defmodule Zaq.Ingestion.ApiTest do
                {:error, {:unsupported_action, :describe_document}}
     end
 
-    test "materialize_record with a non-binary file_id falls through to the catch-all" do
-      assert handle(%{file_id: 123}, :materialize_record) ==
+    test "materialize_document with a non-binary file_id falls through to the catch-all" do
+      assert handle(%{file_id: 123}, :materialize_document) ==
+               {:error, {:unsupported_action, :materialize_document}}
+    end
+
+    test "the retired :materialize_record action fails loudly rather than silently" do
+      # A handle signed before the rename names the old action. It must not resolve to
+      # anything — a stale handle has to fail where it is redeemed, not read a file.
+      assert handle(%{file_id: "archives/guide.md"}, :materialize_record) ==
                {:error, {:unsupported_action, :materialize_record}}
     end
 
@@ -197,7 +204,7 @@ defmodule Zaq.Ingestion.ApiTest do
       actions = [
         {%{file_id: "1"}, :describe_document},
         {%{params: %{}}, :list_documents},
-        {%{file_id: "99999999"}, :materialize_record},
+        {%{file_id: "99999999"}, :materialize_document},
         {%{}, :persist_document},
         {%{}, :update_document},
         {%{file_id: "99999999"}, :delete_document},

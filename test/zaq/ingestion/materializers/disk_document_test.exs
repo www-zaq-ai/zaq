@@ -29,7 +29,7 @@ defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
     assert {:ok, %{content: "# guide", encoding: nil}} =
              DiskDocument.materialize(%{"file_id" => "guide.md"}, %{node_router: StubNodeRouter})
 
-    assert_received {:dispatch, :ingestion, :materialize_record, %{file_id: "guide.md"}}
+    assert_received {:dispatch, :ingestion, :materialize_document, %{file_id: "guide.md"}}
   end
 
   test "passes the encoding runtime option through to ingestion" do
@@ -40,7 +40,7 @@ defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
                %{"encoding" => "base64"}
              )
 
-    assert_received {:dispatch, :ingestion, :materialize_record,
+    assert_received {:dispatch, :ingestion, :materialize_document,
                      %{file_id: "guide.md", encoding: "base64"}}
   end
 
@@ -83,6 +83,27 @@ defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
              DiskDocument.materialize(%{"file_id" => 42}, %{node_router: StubNodeRouter})
   end
 
+  test "refuses a redemption whose locator, context, or options is not a map" do
+    assert {:error, :invalid_materialization_locator} =
+             DiskDocument.materialize("disk:archives:guide.md", %{node_router: StubNodeRouter})
+
+    assert {:error, :invalid_materialization_locator} =
+             DiskDocument.materialize(%{"file_id" => "guide.md"}, nil)
+
+    assert {:error, :invalid_materialization_locator} =
+             DiskDocument.materialize(%{"file_id" => "guide.md"}, %{}, "base64")
+
+    refute_received {:dispatch, _destination, _action, _request}
+  end
+
+  test "falls back to the real router when the context names none" do
+    # `:enoent` can only come from ingestion reading the volume, so the fallback reached the
+    # role rather than raising on a missing router.
+    assert {:error, :enoent} = DiskDocument.materialize(%{"file_id" => "disk:missing.md"}, %{})
+
+    refute_received {:dispatch, _destination, _action, _request}
+  end
+
   property "only the signed source reaches ingestion, whatever else the locator carries" do
     check all(
             file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
@@ -94,7 +115,7 @@ defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
                  %{node_router: StubNodeRouter}
                )
 
-      assert_received {:dispatch, :ingestion, :materialize_record, request}
+      assert_received {:dispatch, :ingestion, :materialize_document, request}
       assert request == %{file_id: file_id}
     end
   end

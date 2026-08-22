@@ -10,13 +10,13 @@ defmodule Zaq.Channels.DiskBridge do
   its own shapes — `Zaq.Ingestion.FileExplorer.Entry` values and flat permission grants — and
   mapping those onto `Zaq.Contracts.Record` is this module's job, the same way
   `Zaq.Channels.JidoConnectBridge` maps provider payloads. Ingestion never shapes a record:
-  `materialize_record` answers with the bytes alone, and the caller merges them into the
+  `materialize_document` answers with the bytes alone, and the caller merges them into the
   record this module already gave it.
 
   Records come back **unmaterialized**: `content: nil` plus a `materialization_handle`, so a
   listing does not drag file bytes across a node boundary for a caller that only wanted
   metadata. Redeeming that handle runs `Zaq.Ingestion.Materializers.DiskDocument`, which goes
-  straight to ingestion rather than back through here — which is why `materialize_record`
+  straight to ingestion rather than back through here — which is why `materialize_document`
   answers with the bytes alone rather than a record.
 
   A file is named by its source — volume plus relative path — which is the id `list_files/2`

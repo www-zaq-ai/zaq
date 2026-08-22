@@ -277,7 +277,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
       assert_received {:first_hop, :channels, :data_source_download_document,
                        %{"file_id" => "guide.md"}}
 
-      assert_received {:second_hop, :ingestion, :materialize_record, "guide.md"}
+      assert_received {:second_hop, :ingestion, :materialize_document, "guide.md"}
     end
 
     test "returns base64 content for a binary file, flagged in attributes" do

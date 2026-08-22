@@ -590,13 +590,13 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     end
   end
 
-  # ── materialize_record/1 ────────────────────────────────────────────────────
+  # ── materialize_document/1 ────────────────────────────────────────────────────
 
-  describe "materialize_record/1" do
+  describe "materialize_document/1" do
     test "returns markdown as a plain string with no encoding", %{root: root} do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
-      assert {:ok, answer} = Ingestion.materialize_record(%{"file_id" => document.source})
+      assert {:ok, answer} = Ingestion.materialize_document(%{"file_id" => document.source})
 
       assert answer == %{content: "# guide", encoding: nil}
     end
@@ -607,7 +607,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       # file.
       document = seed_file(root, @volume, "guide.md", "# guide")
 
-      assert {:ok, answer} = Ingestion.materialize_record(%{"file_id" => document.source})
+      assert {:ok, answer} = Ingestion.materialize_document(%{"file_id" => document.source})
 
       refute Map.has_key?(answer, :record)
       assert Map.keys(answer) |> Enum.sort() == [:content, :encoding]
@@ -618,7 +618,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "deck.pdf", bytes)
 
       assert {:ok, %{content: content, encoding: "base64"}} =
-               Ingestion.materialize_record(%{"file_id" => document.source})
+               Ingestion.materialize_document(%{"file_id" => document.source})
 
       assert Base.decode64!(content) == bytes
     end
@@ -627,7 +627,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "guide.md", "# guide")
 
       assert {:ok, %{content: content, encoding: "base64"}} =
-               Ingestion.materialize_record(%{
+               Ingestion.materialize_document(%{
                  "file_id" => document.source,
                  "encoding" => "base64"
                })
@@ -640,7 +640,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       document = seed_file(root, @volume, "broken.md", bytes)
 
       assert {:ok, %{content: content, encoding: "base64"}} =
-               Ingestion.materialize_record(%{"file_id" => document.source})
+               Ingestion.materialize_document(%{"file_id" => document.source})
 
       assert Base.decode64!(content) == bytes
     end
@@ -654,7 +654,7 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
           ] do
         document = seed_file(root, @volume, name, content)
 
-        assert {:ok, answer} = Ingestion.materialize_record(%{"file_id" => document.source})
+        assert {:ok, answer} = Ingestion.materialize_document(%{"file_id" => document.source})
 
         assert answer.content == content, "expected #{name} to come back as text"
         assert answer.encoding == nil
@@ -662,18 +662,18 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
     end
 
     test "reports the filesystem error for a source naming no file" do
-      assert {:error, :enoent} = Ingestion.materialize_record(%{"file_id" => "99999999"})
+      assert {:error, :enoent} = Ingestion.materialize_document(%{"file_id" => "99999999"})
     end
 
     test "refuses a request with no file_id" do
-      assert {:error, :file_id_required} = Ingestion.materialize_record(%{})
+      assert {:error, :file_id_required} = Ingestion.materialize_document(%{})
     end
 
     test "reports :enoent for a stale row" do
       document = seed_stale_row(@volume, "deleted.md")
 
       assert {:error, :enoent} =
-               Ingestion.materialize_record(%{"file_id" => document.source})
+               Ingestion.materialize_document(%{"file_id" => document.source})
     end
 
     test "materializes a file that was never ingested", %{root: root} do
@@ -682,12 +682,12 @@ defmodule Zaq.Ingestion.DiskRecordsTest do
       File.write!(Path.join(root, "unindexed.md"), "# never ingested")
 
       assert {:ok, %{content: "# never ingested", encoding: nil}} =
-               Ingestion.materialize_record(%{"file_id" => "#{@volume}/unindexed.md"})
+               Ingestion.materialize_document(%{"file_id" => "#{@volume}/unindexed.md"})
     end
 
     test "reports :enoent for a source naming no file" do
       assert {:error, :enoent} =
-               Ingestion.materialize_record(%{"file_id" => "#{@volume}/gone.md"})
+               Ingestion.materialize_document(%{"file_id" => "#{@volume}/gone.md"})
     end
   end
 

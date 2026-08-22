@@ -25,7 +25,7 @@ defmodule Zaq.Ingestion.Materializers.DiskDocument do
 
   def issue(_file_id, _opts), do: {:error, :invalid_materialization_locator}
 
-  @doc "Reads the bytes by dispatching the fixed `:materialize_record` action to Ingestion."
+  @doc "Reads the bytes by dispatching the fixed `:materialize_document` action to Ingestion."
   @impl true
   def materialize(locator, context, options \\ %{})
 
@@ -34,7 +34,7 @@ defmodule Zaq.Ingestion.Materializers.DiskDocument do
     with {:ok, file_id} <- validate_locator(locator),
          {:ok, request} <- merge_options(%{file_id: file_id}, options) do
       request
-      |> Events.build_and_dispatch_materialize_record_event(node_router_opts(context))
+      |> Events.build_and_dispatch_materialize_document_event(node_router_opts(context))
       |> Map.fetch!(:response)
     end
   end

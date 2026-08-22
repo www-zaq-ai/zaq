@@ -38,11 +38,11 @@ defmodule Zaq.Ingestion.Api do
 
   def handle_event(
         %Event{request: %{file_id: file_id} = request} = event,
-        :materialize_record,
+        :materialize_document,
         _context
       )
       when is_binary(file_id) do
-    %{event | response: Ingestion.materialize_record(request)}
+    %{event | response: Ingestion.materialize_document(request)}
   end
 
   def handle_event(%Event{request: request} = event, :persist_document, _context)

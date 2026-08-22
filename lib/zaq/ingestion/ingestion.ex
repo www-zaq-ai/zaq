@@ -14,7 +14,7 @@ defmodule Zaq.Ingestion do
   The data-source read path answers with ingestion's own shapes —
   `Zaq.Ingestion.FileExplorer.Entry` values and flat permission grants. Mapping those onto
   `Zaq.Contracts.Record` belongs to `Zaq.Channels.DiskBridge`, the same way every other
-  provider's bridge maps that provider's payloads. `materialize_record/1` answers with the
+  provider's bridge maps that provider's payloads. `materialize_document/1` answers with the
   bytes alone for the same reason: the caller already holds the record the bridge built.
 
   Ingestion still *consumes* records — `ingest_records/2` takes them from any bridge — and
@@ -523,8 +523,8 @@ defmodule Zaq.Ingestion do
   The source is enough to reach the bytes — no document row is read, so a file that was never
   ingested materializes exactly like one that was.
   """
-  @spec materialize_record(map()) :: {:ok, map()} | {:error, term()}
-  def materialize_record(request) when is_map(request) do
+  @spec materialize_document(map()) :: {:ok, map()} | {:error, term()}
+  def materialize_document(request) when is_map(request) do
     with {:ok, source} <- required(request, "file_id", :file_id_required) do
       materialize_source(source, request)
     end
