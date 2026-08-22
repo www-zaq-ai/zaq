@@ -10,6 +10,12 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   Every element of both sets is a `"node.field"` string, so two nodes needing a
   field of the same name stay distinct and the sets are directly comparable.
+
+  The graph states routing; the action modules it names state requirements
+  (`schema/0`) and guarantees (`output_schema/0`). Both are read, so a field is
+  fed whenever a predecessor declares it — `StepRunner` passes the whole fact
+  down the edge, so an unmapped edge still carries the predecessor's output.
+  What satisfies neither is not unknown, it is `unsatisfiable_inputs/1`.
   """
 
   alias Zaq.Engine.Workflows.Action
@@ -103,21 +109,27 @@ defmodule Zaq.Engine.Workflows.InputContract do
   end
 
   @doc """
-  Inputs whose provenance the graph does not state.
+  Inputs no step can feed and no payload can supply, as `%{node:, field:, source:}`.
 
-  A mid-DAG node reads its predecessor's output at the fact root, so a required
-  field with no mapping, no param reference, and no pinned default cannot be
-  traced statically. Reported rather than folded into `missing/1`, which would
-  claim the payload must supply something it may not.
+  A field is unsatisfiable when nothing local writes it, no predecessor's output
+  schema declares it, and it is not rooted in `start` — so the graph names a
+  source that has no producer. `source` is that dangling reference, or `nil` when
+  the field is schema-required and the graph names nothing at all.
+
+  This is an authoring error, not a payload gap: the run reads `nil` and fails
+  silently. Folding it into `missing/1` would instead claim the payload must
+  supply something no node would ever read.
   """
-  @spec unknown_inputs(Workflow.t() | map()) :: [String.t()]
-  def unknown_inputs(workflow) do
+  @spec unsatisfiable_inputs(Workflow.t() | map()) :: [
+          %{node: String.t(), field: String.t(), source: String.t() | nil}
+        ]
+  def unsatisfiable_inputs(workflow) do
     workflow
     |> needs()
-    |> Enum.filter(&(&1.kind == :unknown))
-    |> Enum.map(&qualify/1)
+    |> Enum.filter(&(&1.kind == :unsatisfiable))
+    |> Enum.map(&Map.take(&1, [:node, :field, :source]))
     |> Enum.uniq()
-    |> Enum.sort()
+    |> Enum.sort_by(&{&1.node, &1.field, &1.source || ""})
   end
 
   @doc """
@@ -156,8 +168,9 @@ defmodule Zaq.Engine.Workflows.InputContract do
   defp needs(workflow) do
     %{nodes: nodes, edges: edges} = graph(workflow)
     names = MapSet.new(nodes, & &1["name"])
+    emits = Map.new(nodes, &{&1["name"], MapSet.new(emitted_schema_fields(&1["module"]))})
 
-    Enum.flat_map(nodes, &node_needs(&1, edges, names)) ++
+    Enum.flat_map(nodes, &node_needs(&1, edges, names, emits)) ++
       Enum.flat_map(edges, &condition_needs/1)
   end
 
@@ -190,74 +203,104 @@ defmodule Zaq.Engine.Workflows.InputContract do
     end
   end
 
-  defp node_needs(node, edges, names) do
+  defp node_needs(node, edges, names, emits) do
     name = node["name"]
     incoming = Enum.filter(edges, &(&1["to"] == name))
 
     mapped = incoming |> Enum.flat_map(&Map.keys(&1["mapping"])) |> MapSet.new()
-    pinned = node["params"] |> Map.keys() |> MapSet.new()
-    local = MapSet.union(mapped, pinned)
+    pinned = pinned_params(node["params"])
 
-    edge_needs(incoming, name, names, local) ++
-      param_needs(node, name, names, local) ++
-      schema_needs(node, name, incoming, local)
+    scope = %{
+      names: names,
+      local: MapSet.union(mapped, pinned),
+      upstream: upstream_emits(incoming, emits)
+    }
+
+    edge_needs(incoming, name, scope) ++
+      param_needs(node, name, scope) ++
+      schema_needs(node, name, incoming, scope)
   end
 
-  defp edge_needs(incoming, name, names, local) do
+  # A param pins a field only when it carries a value. `nil` is never one, so a key
+  # present with `nil` leaves the field unwritten rather than silently satisfying a
+  # required field the run would then read as `nil`. An empty string, map or list is
+  # left alone — those are values an author can mean.
+  defp pinned_params(params) do
+    params
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> MapSet.new(fn {key, _value} -> key end)
+  end
+
+  # What the steps feeding this node declare they return. `StepRunner` passes the
+  # whole fact down the edge, so a predecessor's output key is readable at the
+  # fact root whether or not a mapping names it.
+  defp upstream_emits(incoming, emits) do
+    incoming
+    |> Enum.map(& &1["from"])
+    |> Enum.reject(&(&1 == @start))
+    |> Enum.reduce(MapSet.new(), &MapSet.union(&2, Map.get(emits, &1, MapSet.new())))
+  end
+
+  defp edge_needs(incoming, name, scope) do
     incoming
     |> Enum.flat_map(&Map.to_list(&1["mapping"]))
-    |> Enum.map(fn {target, source} -> need(name, target, source, names, local) end)
+    |> Enum.map(fn {target, source} -> need(name, target, source, scope) end)
   end
 
-  defp param_needs(node, name, names, local) do
-    Enum.map(param_references(node), fn {field, source} ->
-      need(name, field, source, names, local)
+  defp param_needs(node, name, scope) do
+    Enum.map(param_references(node, scope.names), fn {field, source} ->
+      need(name, field, source, scope)
     end)
   end
 
   # Only fields nothing else writes fall through to the schema. An entry node
   # reads the trigger payload flat at the fact root, so its unwritten required
-  # fields come from `start`; a mid-DAG node's provenance is untraceable.
+  # fields come from `start`; a mid-DAG node's come from the predecessor whose
+  # output schema declares them, and are unsatisfiable when none does.
   #
   # `start` is not a step, so an edge leaving it does not make the target mid-DAG:
   # a node fed only from `start` is still an entry node.
-  defp schema_needs(node, name, incoming, local) do
+  defp schema_needs(node, name, incoming, scope) do
     entry? = Enum.all?(incoming, &(&1["from"] == @start))
 
     node["module"]
     |> required_schema_fields()
-    |> Enum.reject(&MapSet.member?(local, &1))
+    |> Enum.reject(&MapSet.member?(scope.local, &1))
     |> Enum.map(fn field ->
-      if entry?,
-        do: %{node: name, field: field, source: qualified_start(field), kind: :start},
-        else: %{node: name, field: field, source: nil, kind: :unknown}
+      cond do
+        entry? ->
+          %{node: name, field: field, source: qualified_start(field), kind: :start}
+
+        MapSet.member?(scope.upstream, field) ->
+          %{node: name, field: field, source: field, kind: :step}
+
+        true ->
+          %{node: name, field: field, source: nil, kind: :unsatisfiable}
+      end
     end)
   end
 
-  # Classifies where a source reads from. A leading `start` is the trigger
-  # payload; a leading node name is that step's output; a bare or otherwise-rooted
-  # reference is a key of this node's own fact, satisfied when something local
-  # writes it and untraceable otherwise.
-  defp need(node, field, source, names, local) do
+  # Classifies where a source reads from. A leading `start` is the trigger payload;
+  # anything else is resolved against the graph by its root.
+  defp need(node, field, source, scope) do
     kind =
       case String.split(source, ".") do
-        [@start | [_ | _]] ->
-          :start
-
-        [root | [_ | _]] ->
-          if MapSet.member?(names, root), do: :step, else: local_kind(root, local)
-
-        [root] ->
-          local_kind(root, local)
+        [@start | [_ | _]] -> :start
+        [root | _] -> root_kind(root, scope)
       end
 
     %{node: node, field: field, source: source, kind: kind}
   end
 
-  # A local reference is fed by whatever writes that key on this node — which is
-  # itself a need, already counted. Treating it as `:step` keeps it from being
-  # double-reported as something the payload must supply.
-  defp local_kind(root, local), do: if(MapSet.member?(local, root), do: :step, else: :unknown)
+  # A root names a step when it is a node, when something local writes that key —
+  # itself a need, already counted — or when a predecessor's output schema declares
+  # it. Nothing left names a source the graph has no producer for.
+  defp root_kind(root, %{names: names, local: local, upstream: upstream}) do
+    if MapSet.member?(names, root) or MapSet.member?(local, root) or
+         MapSet.member?(upstream, root),
+       do: :step,
+       else: :unsatisfiable
+  end
 
   defp qualify(%{node: node, field: field}), do: "#{node}.#{field}"
   defp qualified_start(field), do: "#{@start}.#{field}"
@@ -282,7 +325,7 @@ defmodule Zaq.Engine.Workflows.InputContract do
   # Returns `{field, source}` pairs, where `field` is the param the reference sits
   # in — several references may share one field, and the field is unfed unless all
   # of them are step-sourced.
-  defp param_references(%{"module" => module, "params" => params}) do
+  defp param_references(%{"module" => module, "params" => params}, names) do
     sites = Map.get(@placeholder_sites, module, [])
 
     placeholders =
@@ -290,13 +333,12 @@ defmodule Zaq.Engine.Workflows.InputContract do
         params |> Map.get(field) |> placeholders() |> Enum.map(&{field, &1})
       end)
 
-    placeholders ++ bare_references(module, params)
+    placeholders ++ bare_references(module, params, names)
   end
 
-  # `Condition` resolves a bare dotted `input` against the cascade, and evaluates
-  # each `conditions[].key` against a map carrying `__cascade__` — both are
-  # references without any `{{}}`.
-  defp bare_references(@condition_module, params) do
+  # `Condition` resolves a bare dotted `input` against the cascade — a reference
+  # without any `{{}}`.
+  defp bare_references(@condition_module, params, names) do
     input =
       case Map.get(params, "input") do
         ref when is_binary(ref) -> [{"input", ref}]
@@ -313,11 +355,24 @@ defmodule Zaq.Engine.Workflows.InputContract do
           _ -> []
         end
       end)
+      |> Enum.filter(fn {_field, key} -> graph_reference?(key, names) end)
 
     input ++ keys
   end
 
-  defp bare_references(_module, _params), do: []
+  defp bare_references(_module, _params, _names), do: []
+
+  # `Condition` evaluates each `conditions[].key` against the *resolved input map*
+  # with `__cascade__` merged in, so only a key rooted at `start` or a node name
+  # reaches the graph. Every other key is a path inside the input value — run-time
+  # data the graph says nothing about, and not an input of the workflow.
+  defp graph_reference?(key, names) do
+    case String.split(key, ".") do
+      [@start | [_ | _]] -> true
+      [root | [_ | _]] -> MapSet.member?(names, root)
+      _ -> false
+    end
+  end
 
   defp placeholders(value) when is_binary(value),
     do: @placeholder |> Regex.scan(value) |> Enum.map(fn [_full, ref] -> ref end)
@@ -338,6 +393,22 @@ defmodule Zaq.Engine.Workflows.InputContract do
     with {:ok, mod} <- Action.resolve(module || ""),
          true <- function_exported?(mod, :schema, 0) do
       mod.schema() |> schema_fields() |> Enum.filter(&elem(&1, 1)) |> Enum.map(&elem(&1, 0))
+    else
+      _ -> []
+    end
+  end
+
+  @doc """
+  Field names an action module's output schema declares, as strings.
+
+  Optional output fields count: the graph states a producer exists, and whether it
+  returns the key on a given run is the action's own branch, not a gap in the graph.
+  """
+  @spec emitted_schema_fields(String.t() | nil) :: [String.t()]
+  def emitted_schema_fields(module) do
+    with {:ok, mod} <- Action.resolve(module || ""),
+         true <- function_exported?(mod, :output_schema, 0) do
+      mod.output_schema() |> schema_fields() |> Enum.map(&elem(&1, 0))
     else
       _ -> []
     end

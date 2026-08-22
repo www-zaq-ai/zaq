@@ -153,6 +153,78 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == []
     end
 
+    test "a Condition key that is a path inside the input value is not an input" do
+      g =
+        graph(
+          [
+            step("a"),
+            step("b",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "input" => "a.metadata",
+                "conditions" => [%{"key" => "total.last_message_date", "op" => "gte"}]
+              }
+            )
+          ],
+          [edge("a", "b")]
+        )
+
+      # `Condition` evaluates each key against the *resolved input* — here
+      # `a.metadata` — with `__cascade__` merged in. `total` is a key of that value,
+      # so it is run-time data the graph says nothing about, not an input.
+      assert sorted(InputContract.all_inputs(g)) == ["b.input"]
+      assert InputContract.required_inputs(g) == []
+      assert InputContract.unsatisfiable_inputs(g) == []
+    end
+
+    test "a bare Condition key is a top-level key of the input value, not an input" do
+      g =
+        graph(
+          [
+            step("a"),
+            step("b",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "input" => "a.metadata",
+                "conditions" => [%{"key" => "active", "value" => true}]
+              }
+            )
+          ],
+          [edge("a", "b")]
+        )
+
+      # The commonest real shape: `active` is a plain key of the map being
+      # evaluated. It never reaches the graph, so it is neither required nor
+      # unsatisfiable.
+      assert sorted(InputContract.all_inputs(g)) == ["b.input"]
+      assert InputContract.required_inputs(g) == []
+      assert InputContract.unsatisfiable_inputs(g) == []
+    end
+
+    test "a Condition key rooted at a node or at start is still a reference" do
+      g =
+        graph(
+          [
+            step("a"),
+            step("b",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "input" => "a.metadata",
+                "conditions" => [
+                  %{"key" => "a.messages", "value" => 1},
+                  %{"key" => "start.sequence", "value" => 4}
+                ]
+              }
+            )
+          ],
+          [edge("a", "b")]
+        )
+
+      # Only these two roots reach past the input value into the cascade.
+      assert sorted(InputContract.all_inputs(g)) == ["b.conditions", "b.input"]
+      assert InputContract.required_inputs(g) == ["sequence"]
+    end
+
     test "a Condition input reading start is required from the payload" do
       g =
         graph(
@@ -190,7 +262,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
         )
 
       assert InputContract.required_inputs(g) == []
-      assert InputContract.unknown_inputs(g) == []
+      assert InputContract.unsatisfiable_inputs(g) == []
     end
   end
 
@@ -202,15 +274,88 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["parts"]
     end
 
-    test "a mid-DAG node's unwritten required field has unknown provenance" do
+    test "a mid-DAG required field no predecessor emits is unsatisfiable" do
       g =
         graph(
           [step("a"), step("b", module: "Zaq.Agent.Tools.Workflow.Concat")],
           [edge("a", "b")]
         )
 
-      assert InputContract.unknown_inputs(g) == ["b.parts"]
+      # `History` declares no `parts` in its output schema, so nothing feeds it and
+      # no payload can either — a mid-DAG node never reads `start` at the fact root.
+      assert InputContract.unsatisfiable_inputs(g) == [
+               %{node: "b", field: "parts", source: nil}
+             ]
+
       assert InputContract.required_inputs(g) == []
+    end
+
+    test "a mid-DAG required field the predecessor's output schema declares is fed" do
+      g =
+        graph(
+          [
+            step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet"),
+            step("b", module: "Zaq.Agent.Tools.Sheets.ExtractRows")
+          ],
+          [edge("a", "b")]
+        )
+
+      # `GetSheet` declares `record`, `ExtractRows` requires it, and `StepRunner`
+      # passes the whole fact down the edge — so the unmapped edge is complete.
+      assert "record" in InputContract.emitted_schema_fields("Zaq.Agent.Tools.Sheets.GetSheet")
+      assert sorted(InputContract.fed_by_steps(g)) == ["b.record"]
+      assert InputContract.unsatisfiable_inputs(g) == []
+
+      # `a` is the entry node, so its own required params still come from the
+      # payload — but `record` never does.
+      assert InputContract.required_inputs(g) == ["provider", "spreadsheet_id"]
+    end
+
+    test "a mapping source naming a predecessor's declared output key is fed" do
+      g =
+        graph(
+          [
+            step("a", module: "Zaq.Agent.Tools.Sheets.ExtractRows"),
+            step("b")
+          ],
+          [edge("a", "b", %{"items" => "rows"})]
+        )
+
+      # A bare source is a key of the incoming fact; `ExtractRows` declares `rows`.
+      assert sorted(InputContract.fed_by_steps(g)) == ["b.items"]
+      assert InputContract.unsatisfiable_inputs(g) == []
+    end
+
+    test "a mapping source no predecessor declares is unsatisfiable, and names itself" do
+      g =
+        graph(
+          [
+            step("a", module: "Zaq.Agent.Tools.Sheets.ExtractRows"),
+            step("b")
+          ],
+          [edge("a", "b", %{"items" => "zzz.rows"})]
+        )
+
+      assert InputContract.unsatisfiable_inputs(g) == [
+               %{node: "b", field: "items", source: "zzz.rows"}
+             ]
+    end
+
+    test "a param pinned to nil does not satisfy a required field" do
+      pinned = fn value ->
+        graph([step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet", params: value)], [])
+      end
+
+      # A key present with `nil` is not a value — the run would read `nil` and fail
+      # exactly the way the contract exists to catch.
+      assert InputContract.required_inputs(pinned.(%{"provider" => nil})) ==
+               ["provider", "spreadsheet_id"]
+
+      # An empty string is a value an author can mean, so it still pins.
+      assert InputContract.required_inputs(pinned.(%{"provider" => ""})) == ["spreadsheet_id"]
+
+      assert InputContract.required_inputs(pinned.(%{"provider" => "google_drive"})) ==
+               ["spreadsheet_id"]
     end
 
     test "an optional schema field is never an input" do
@@ -411,7 +556,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           %{"from" => "start", "to" => "entry", "mapping" => %{}}
         ])
 
-      assert InputContract.unknown_inputs(g) == []
+      assert InputContract.unsatisfiable_inputs(g) == []
     end
   end
 

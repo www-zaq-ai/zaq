@@ -95,7 +95,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
     end
 
     test "every input's provenance is stated by the graph" do
-      assert InputContract.unknown_inputs(graph("generate_company_context.json")) == []
+      assert InputContract.unsatisfiable_inputs(graph("generate_company_context.json")) == []
     end
 
     test "the expected input satisfies every step" do
@@ -217,10 +217,32 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
                InputContract.check(g, Map.delete(@send_leads_email_input, "email"))
     end
 
-    test "check_last_message_date's conditions have no statically traceable source" do
+    test "check_last_message_date's condition key is a path inside its input value" do
       g = graph("send_leads_email.json")
 
-      assert InputContract.unknown_inputs(g) == ["check_last_message_date.conditions"]
+      # `input` is `build_history.metadata` and the key is `total.last_message_date`,
+      # which `Condition` resolves *inside* that value. `total` is data the step
+      # returns, not a node — so the graph owes nothing here.
+      node = Enum.find(g["nodes"], &(&1["name"] == "check_last_message_date"))
+      assert node["params"]["input"] == "build_history.metadata"
+      assert [%{"key" => "total.last_message_date"}] = node["params"]["conditions"]
+
+      refute MapSet.member?(InputContract.all_inputs(g), "check_last_message_date.conditions")
+      assert InputContract.unsatisfiable_inputs(g) == []
+    end
+
+    test "every real workflow derives a complete contract" do
+      # Nothing in the three exported graphs names a source without a producer:
+      # each field is fed by a predecessor's declared output or required from the
+      # payload. An empty list here is what makes a `valid: true` verdict complete.
+      for file <- [
+            "generate_company_context.json",
+            "identify_leads_from_google_sheet.json",
+            "send_leads_email.json"
+          ] do
+        assert InputContract.unsatisfiable_inputs(graph(file)) == [],
+               "#{file} has a dangling source"
+      end
     end
   end
 
@@ -245,7 +267,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       assert verdict.valid
       assert verdict.missing_inputs == []
       assert verdict.required_inputs == @generate_company_context_required
-      assert verdict.unknown_inputs == []
+      assert verdict.unsatisfiable_inputs == []
       assert verdict.input == @generate_company_context_input
     end
 

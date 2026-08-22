@@ -114,7 +114,7 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     test "reports inputs the graph cannot trace as unknown, not as required" do
       workflow = workflow_fixture()
 
-      assert {:ok, %{unknown_inputs: []}} =
+      assert {:ok, %{unsatisfiable_inputs: []}} =
                ValidateWorkflowInput.run(%{workflow_id: workflow.id}, %{})
     end
 

@@ -24,11 +24,12 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
 
   ## Coverage
 
-  `unknown_inputs` names `"node.field"` inputs whose provenance the graph does not
-  state — a mid-DAG node's required field with no mapping, no param reference, and
-  no pinned default reads its predecessor's output at the fact root, which cannot
-  be traced statically. A `valid: true` verdict does not cover those, so an empty
-  `unknown_inputs` is what makes it complete.
+  `unsatisfiable_inputs` names the fields no step can feed and no payload can
+  supply — nothing local writes them, no predecessor's `output_schema` declares
+  them, and they are not rooted in `start`. That is a broken graph, not a payload
+  gap: the run reads `nil` and fails silently, and no input the agent sends can
+  fix it. A `valid: true` verdict does not cover those, so an empty
+  `unsatisfiable_inputs` is what makes it complete.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -83,10 +84,12 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
               "`required_inputs` as the payload itself — a nested skeleton with null leaves. " <>
                 "Fill in the values and send this; do not send a dotted path as a flat key."
           ),
-        unknown_inputs:
-          Zoi.array(Zoi.string(),
+        unsatisfiable_inputs:
+          Zoi.array(Zoi.map([]),
             description:
-              "`node.field` inputs whose provenance the graph does not state — not covered by the verdict"
+              "Fields no step feeds and no payload can supply, as `{node, field, source}` — " <>
+                "`source` is the dangling reference, null when the graph names none. A broken " <>
+                "graph, not a payload gap: fix the workflow, do not retry with a bigger input."
           )
       })
 
@@ -108,7 +111,7 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
            missing_inputs: verdict.missing_inputs,
            required_inputs: InputContract.required_inputs(workflow),
            required_input_shape: InputContract.required_input_shape(workflow),
-           unknown_inputs: InputContract.unknown_inputs(workflow)
+           unsatisfiable_inputs: InputContract.unsatisfiable_inputs(workflow)
          }}
 
       {:error, reason} ->
