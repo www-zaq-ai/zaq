@@ -385,6 +385,10 @@ defmodule Zaq.Engine.Workflows do
     end)
   end
 
+  @doc "Gets a workflow by id, returning nil if not found."
+  @spec get_workflow(term()) :: Workflow.t() | nil
+  def get_workflow(id), do: Repo.get(Workflow, id)
+
   @doc "Gets a workflow by id, raising if not found."
   @spec get_workflow!(term()) :: Workflow.t()
   def get_workflow!(id), do: Repo.get!(Workflow, id)
