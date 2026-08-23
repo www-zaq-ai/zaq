@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-23T07:45:49Z",
+  "description": "Implement bounded-memory, cursor-based Storage directory pagination backed by OS directory calls where available, preserving RecordPage pagination metadata.",
+  "id": "zaq-8o8.5",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8o8] Add OS-backed paginated directory listing",
+  "type": "task",
+  "updated_at": "2026-08-23T07:45:49Z"
+}
