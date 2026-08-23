@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-23T07:45:48Z",
+  "description": "Extract pure volume listing/stat/read/write/rename/delete from Ingestion into Storage with no Document table references.",
+  "id": "zaq-8o8.2",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8o8] Move disk filesystem operations to Storage",
+  "type": "task",
+  "updated_at": "2026-08-23T07:45:48Z"
+}
