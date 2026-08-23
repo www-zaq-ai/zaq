@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-23T07:45:39Z",
@@ -7,8 +7,8 @@
   "id": "zaq-8o8",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[storage-disk-separation] Move disk volumes to Storage role",
   "type": "epic",
-  "updated_at": "2026-08-23T07:45:39Z"
+  "updated_at": "2026-08-23T07:45:53Z"
 }
