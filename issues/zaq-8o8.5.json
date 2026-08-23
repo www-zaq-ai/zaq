@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-23T07:45:49Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-8o8",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-8o8] Add OS-backed paginated directory listing",
   "type": "task",
-  "updated_at": "2026-08-23T07:45:49Z"
+  "updated_at": "2026-08-23T08:18:24Z"
 }
