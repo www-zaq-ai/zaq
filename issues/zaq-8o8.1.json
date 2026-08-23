@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-23T07:45:48Z",
+  "description": "Add Zaq.Storage boundary modules, supervisor, role registration, config/test coverage, and make NodeRouter return service_unavailable when a role is absent instead of executing locally.",
+  "id": "zaq-8o8.1",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8o8] Add Storage role and fail-closed routing",
+  "type": "task",
+  "updated_at": "2026-08-23T07:45:48Z"
+}
