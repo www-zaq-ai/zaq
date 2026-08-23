@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-23T07:45:39Z",
+  "description": "Separate disk volume/filesystem concerns from Ingestion by introducing a Storage role, routing DiskBridge and materialization to Storage, keeping Ingestion focused on indexing/vectorizing/retrieval, and adding OS-backed paginated directory listing.",
+  "id": "zaq-8o8",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[storage-disk-separation] Move disk volumes to Storage role",
+  "type": "epic",
+  "updated_at": "2026-08-23T07:45:39Z"
+}
