@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-23T07:45:49Z",
+  "description": "Retarget DiskBridge events and disk materialization handles to Storage while preserving canonical records and direct byte fetches.",
+  "id": "zaq-8o8.3",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8o8] Route DiskBridge and materialization to Storage",
+  "type": "task",
+  "updated_at": "2026-08-23T07:45:49Z"
+}
