@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-23T07:45:49Z",
+  "description": "Move BO/provider indexed-state enrichment into Ingestion API and reuse for Disk without leaking Document state into bridges.",
+  "id": "zaq-8o8.6",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8o8] Extract provider-neutral ingestion enrichment",
+  "type": "task",
+  "updated_at": "2026-08-23T07:45:49Z"
+}
