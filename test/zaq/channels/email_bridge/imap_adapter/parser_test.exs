@@ -109,6 +109,46 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
     assert incoming.metadata["email"]["reply_from"] == "julien@eweev.com"
   end
 
+  test "prepends subject to incoming content when subject is present" do
+    payload = %{
+      body_text: "plain body",
+      subject: "  Need help  ",
+      from: %{address: "sender@example.com", name: "Sender"}
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.content == "Subject: Need help\n\nplain body"
+    assert incoming.metadata["subject"] == "  Need help  "
+    assert incoming.metadata["email"]["subject"] == "  Need help  "
+  end
+
+  test "keeps incoming content unchanged when subject is blank or missing" do
+    for subject <- [nil, "", "   "] do
+      payload = %{
+        body_text: "plain body",
+        subject: subject,
+        from: %{address: "sender@example.com", name: "Sender"}
+      }
+
+      incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+      assert incoming.content == "plain body"
+    end
+  end
+
+  test "uses subject-only content when email body is empty" do
+    payload = %{
+      body_text: "",
+      subject: "Need help",
+      from: %{address: "sender@example.com", name: "Sender"}
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.content == "Subject: Need help"
+  end
+
   test "returns tagged error for non-map payload" do
     assert {:error, :invalid_email_payload} = Parser.to_incoming("not-a-map", %{})
   end
@@ -141,7 +181,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
 
     incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
 
-    assert incoming.content == "fallback plain"
+    assert incoming.content == "Subject: Fallback subject\n\nfallback plain"
     assert incoming.message_id == "<raw-msg@example.com>"
     assert incoming.metadata["email"]["html_body"] == "<p>fallback html</p>"
     assert incoming.metadata["email"]["subject"] == "Fallback subject"

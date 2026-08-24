@@ -25,7 +25,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
     from = sender(raw_email)
 
     %{
-      content: bodies.text,
+      content: content_with_subject(subject, bodies.text),
       channel_id: from.address,
       author_id: from.address,
       author_name: from.name,
@@ -144,6 +144,18 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
   defp extract_subject(raw_email, parsed_email) do
     parsed_header(parsed_email, "subject") || get(raw_email, "subject", :subject)
   end
+
+  defp content_with_subject(subject, body) when is_binary(subject) do
+    case String.trim(subject) do
+      "" -> body
+      trimmed_subject -> join_subject_and_body(trimmed_subject, body)
+    end
+  end
+
+  defp content_with_subject(_subject, body), do: body
+
+  defp join_subject_and_body(subject, ""), do: "Subject: #{subject}"
+  defp join_subject_and_body(subject, body), do: "Subject: #{subject}\n\n#{body}"
 
   defp extract_reply_from(raw_email, parsed_email) do
     parsed_header(parsed_email, "delivered-to")
