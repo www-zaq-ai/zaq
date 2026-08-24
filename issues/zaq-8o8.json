@@ -6,9 +6,15 @@
   "description": "Separate disk volume/filesystem concerns from Ingestion by introducing a Storage role, routing DiskBridge and materialization to Storage, keeping Ingestion focused on indexing/vectorizing/retrieval, and adding OS-backed paginated directory listing.",
   "id": "zaq-8o8",
   "labels": [],
+  "comments": [
+    {
+      "text": "Revised implementation direction: Storage must behave as a normal data-source provider. No Storage-specific columns on documents. Storage owns stable entry UUIDs and live file metadata. DiskBridge emits canonical data-source records with provider disk/config/record-id and Storage materialization handles. Ingestion consumes disk records through existing materialization, permission import, watch, change, and enrichment flows like every other provider.",
+      "timestamp": "2026-08-24T09:46:14Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[storage-disk-separation] Move disk volumes to Storage role",
   "type": "epic",
-  "updated_at": "2026-08-23T07:45:53Z"
+  "updated_at": "2026-08-24T09:46:14Z"
 }
