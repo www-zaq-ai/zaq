@@ -35,7 +35,9 @@ defmodule Zaq.Engine.Workflows.InputContract do
   endpoint, so it is keyed by the edge (`"from->to.field"`) rather than by a node.
   """
   @spec all_inputs(Workflow.t() | map()) :: MapSet.t(String.t())
-  def all_inputs(workflow), do: workflow |> needs() |> MapSet.new(&qualify/1)
+  def all_inputs(workflow), do: workflow |> needs() |> all_inputs_from()
+
+  defp all_inputs_from(needs), do: MapSet.new(needs, &qualify/1)
 
   @doc """
   The inputs fed by the output of a previous step, as `"node.field"`.
@@ -46,9 +48,10 @@ defmodule Zaq.Engine.Workflows.InputContract do
   "except start" clause.
   """
   @spec fed_by_steps(Workflow.t() | map()) :: MapSet.t(String.t())
-  def fed_by_steps(workflow) do
-    workflow
-    |> needs()
+  def fed_by_steps(workflow), do: workflow |> needs() |> fed_by_steps_from()
+
+  defp fed_by_steps_from(needs) do
+    needs
     |> Enum.group_by(&qualify/1)
     |> Enum.filter(fn {_field, needs} -> Enum.all?(needs, &(&1.kind == :step)) end)
     |> MapSet.new(fn {field, _needs} -> field end)
@@ -56,8 +59,10 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   @doc "`all_inputs/1` minus `fed_by_steps/1` — the inputs no previous step feeds."
   @spec missing(Workflow.t() | map()) :: MapSet.t(String.t())
-  def missing(workflow),
-    do: MapSet.difference(all_inputs(workflow), fed_by_steps(workflow))
+  def missing(workflow), do: workflow |> needs() |> missing_from()
+
+  defp missing_from(needs),
+    do: MapSet.difference(all_inputs_from(needs), fed_by_steps_from(needs))
 
   @doc """
   The paths the trigger payload must carry, as dotted strings.
@@ -67,11 +72,12 @@ defmodule Zaq.Engine.Workflows.InputContract do
   prefix stripped and duplicates collapsed.
   """
   @spec required_inputs(Workflow.t() | map()) :: [String.t()]
-  def required_inputs(workflow) do
-    unfed = missing(workflow)
+  def required_inputs(workflow), do: workflow |> needs() |> required_inputs_from()
 
-    workflow
-    |> needs()
+  defp required_inputs_from(needs) do
+    unfed = missing_from(needs)
+
+    needs
     |> Enum.filter(&(&1.kind == :start and qualify(&1) in unfed))
     |> Enum.map(&String.replace_prefix(&1.source, @start <> ".", ""))
     |> Enum.uniq()
@@ -93,11 +99,10 @@ defmodule Zaq.Engine.Workflows.InputContract do
   `"input.name"`), the nested form wins — it satisfies both.
   """
   @spec required_input_shape(Workflow.t() | map()) :: map()
-  def required_input_shape(workflow) do
-    workflow
-    |> required_inputs()
-    |> Enum.reduce(%{}, &put_path(&2, String.split(&1, ".")))
-  end
+  def required_input_shape(workflow), do: workflow |> required_inputs() |> shape()
+
+  defp shape(required),
+    do: Enum.reduce(required, %{}, &put_path(&2, String.split(&1, ".")))
 
   # A leaf never overwrites a branch already placed at the same key, and a branch
   # always replaces a leaf — so the deeper path wins whichever order they arrive.
@@ -123,9 +128,10 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @spec unsatisfiable_inputs(Workflow.t() | map()) :: [
           %{node: String.t(), field: String.t(), source: String.t() | nil}
         ]
-  def unsatisfiable_inputs(workflow) do
-    workflow
-    |> needs()
+  def unsatisfiable_inputs(workflow), do: workflow |> needs() |> unsatisfiable_from()
+
+  defp unsatisfiable_from(needs) do
+    needs
     |> Enum.filter(&(&1.kind == :unsatisfiable))
     |> Enum.map(&Map.take(&1, [:node, :field, :source]))
     |> Enum.uniq()
@@ -156,6 +162,38 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   def check(workflow, payload), do: workflow |> required_inputs() |> check(payload)
 
+  @doc """
+  The whole contract for one workflow in a single pass — verdict, requirements,
+  and authoring errors.
+
+  Every field here is derivable from the public functions above, but each of those
+  rebuilds the graph and re-resolves every action module's schema. This derives
+  `needs/1` once and reads all five off it, so a caller that wants the full picture
+  pays for one traversal instead of one per field.
+  """
+  @spec contract(Workflow.t() | map(), term()) :: %{
+          valid: boolean(),
+          missing_inputs: [String.t()],
+          required_inputs: [String.t()],
+          required_input_shape: map(),
+          unsatisfiable_inputs: [
+            %{node: String.t(), field: String.t(), source: String.t() | nil}
+          ]
+        }
+  def contract(workflow, payload) do
+    needs = needs(workflow)
+    required = required_inputs_from(needs)
+    verdict = check(required, payload)
+
+    %{
+      valid: verdict.valid,
+      missing_inputs: verdict.missing_inputs,
+      required_inputs: required,
+      required_input_shape: shape(required),
+      unsatisfiable_inputs: unsatisfiable_from(needs)
+    }
+  end
+
   # -- needs --------------------------------------------------------------------
 
   # One need is "node.field is written from source". Three things write a field:
@@ -185,18 +223,24 @@ defmodule Zaq.Engine.Workflows.InputContract do
         node: "#{edge["from"]}->#{edge["to"]}",
         field: field,
         source: field,
-        kind: condition_kind(field)
+        kind: condition_kind(field, edge["from"])
       }
     ]
   end
 
   defp condition_needs(_edge), do: []
 
-  # `EdgeStep` resolves the condition field through `FactLookup` against the fact
-  # flowing along the edge, so anything not rooted in `start` reads that fact —
+  # Nothing has run when a `from: "start"` edge is evaluated: the cascade holds only
+  # `start` and the raw payload also sits at the fact root, so every field such an
+  # edge reads — bare, dotted, or `start.`-prefixed — resolves to the trigger
+  # payload. There is no step to attribute it to.
+  defp condition_kind(_field, @start), do: :start
+
+  # On every other edge `EdgeStep` resolves the field through `FactLookup` against
+  # the fact flowing along it, so anything not rooted in `start` reads that fact —
   # the source node's own output, or a step named in the cascade. Unlike `need/5`,
   # a bare root here is never untraceable: the step the edge leaves feeds it.
-  defp condition_kind(field) do
+  defp condition_kind(field, _from) do
     case String.split(field, ".") do
       [@start | [_ | _]] -> :start
       _ -> :step
@@ -310,14 +354,19 @@ defmodule Zaq.Engine.Workflows.InputContract do
   # Same placeholder class as `Concat` and `DispatchEvent`.
   @placeholder ~r/\{\{\s*([\w.][\w.\s-]*?)\s*\}\}/
 
-  # Params of these modules are read for references; every other action receives
+  # Params of these modules are scanned for `{{...}}`; every other action receives
   # its params literally (`StepRunner` resolves edge mappings, never node params),
   # so a dotted string elsewhere is data, not a reference.
+  #
+  # `Condition` is deliberately absent: it substitutes no `{{...}}` at all. It
+  # resolves a bare dotted `input` and each `conditions[].key` through
+  # `FactLookup`, which `bare_references/3` covers. Listing it here could only
+  # invent a requirement — a `{{x}}` in a Condition param stays a literal string
+  # at run time, so no payload the agent sends would make the node work.
   @placeholder_sites %{
     "Zaq.Agent.Tools.Workflow.Concat" => ["parts"],
     "Zaq.Agent.Tools.Workflow.DispatchEvent" => ["input"],
-    "Zaq.Agent.Tools.Workflow.RunAgent" => ["input", "context"],
-    "Zaq.Agent.Tools.Workflow.Condition" => ["input", "conditions"]
+    "Zaq.Agent.Tools.Workflow.RunAgent" => ["input", "context"]
   }
 
   @condition_module "Zaq.Agent.Tools.Workflow.Condition"

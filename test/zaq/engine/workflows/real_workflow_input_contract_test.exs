@@ -33,10 +33,10 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
   # extract/summarise cascade, non-empty dispatches `craft_email_direct` straight
   # away. Both branches read it, so the payload must carry it either way.
   @generate_company_context_input %{
-    "company website" => "https://www.oilicraft.com/",
-    "company official name" => "Oilicraft",
+    "company website" => "https://www.google.com/",
+    "company official name" => "Google",
     "company context content" => "",
-    "email topic" => "Instant AI label mockups for Oilicraft",
+    "email topic" => "Instant AI label mockups for Google",
     "row_index" => 3
   }
 
@@ -56,12 +56,12 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
   # in this payload because it is what the real run sent, not because the contract
   # demands it.
   @send_leads_email_input %{
-    "email" => "lead@oilicraft.com",
-    "name" => "Saraluna",
-    "input" => %{"name" => "Saraluna"},
-    "email topic" => "Instant AI label mockups for Oilicraft",
-    "company official name" => "Oilicraft",
-    "company context content" => "Oilicraft makes custom essential-oil labels.",
+    "email" => "lead@google.com",
+    "name" => "person_name",
+    "input" => %{"name" => "person_name"},
+    "email topic" => "Instant AI label mockups for Google",
+    "company official name" => "Google",
+    "company context content" => "Google.",
     "language" => "French",
     "sequence" => 0,
     "row_index" => 3
@@ -134,7 +134,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
     test "the nested path only resolves against a nested payload" do
       g = graph("send_leads_email.json")
 
-      flat = @send_leads_email_input |> Map.delete("input") |> Map.put("name", "Saraluna")
+      flat = @send_leads_email_input |> Map.delete("input") |> Map.put("name", "person_name")
 
       assert %{valid: false, missing_inputs: ["input.name"]} = InputContract.check(g, flat)
     end

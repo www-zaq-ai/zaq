@@ -240,6 +240,29 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["row"]
     end
 
+    test "a `{{...}}` in a Condition param invents no requirement" do
+      # `Condition` substitutes no placeholders — it resolves a bare dotted `input`
+      # and each `conditions[].key` through `FactLookup`. A `{{...}}` there stays a
+      # literal string at run time, so demanding `tier` from the payload would send
+      # the agent chasing a field that cannot make the node work.
+      g =
+        graph(
+          [
+            step("a",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "input" => "{{start.tier}}",
+                "conditions" => [%{"key" => "{{start.plan}}", "value" => true}]
+              }
+            )
+          ],
+          []
+        )
+
+      refute "tier" in InputContract.required_inputs(g)
+      refute "plan" in InputContract.required_inputs(g)
+    end
+
     test "a dotted param on a module that does not resolve references is data" do
       g = graph([step("a", params: %{"query" => "start.email topic"})], [])
 
@@ -525,6 +548,102 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
         ])
 
       assert InputContract.required_inputs(g) == []
+    end
+  end
+
+  describe "a condition on a `from: \"start\"` edge always reads the payload" do
+    # Nothing has run when a start edge is evaluated: `seed_start_namespace/1`
+    # leaves the raw payload at the fact root and the cascade holds only `start`,
+    # so every reference such an edge makes resolves to the trigger payload. A
+    # bare field there is not step-fed — classifying it `:step` dropped it from
+    # both `required_inputs` and `unsatisfiable_inputs`, so the payload validated
+    # clean and the branch pruned at run time.
+    defp start_edge(condition_field) do
+      graph([step("a")], [
+        %{
+          "from" => "start",
+          "to" => "a",
+          "mapping" => %{},
+          "condition" => %{"field" => condition_field, "op" => "eq", "value" => "gold"}
+        }
+      ])
+    end
+
+    test "a bare field is a payload requirement, not a step output" do
+      g = start_edge("tier")
+
+      assert InputContract.required_inputs(g) == ["tier"]
+      assert InputContract.unsatisfiable_inputs(g) == []
+      assert %{valid: false, missing_inputs: ["tier"]} = InputContract.check(g, %{})
+      assert %{valid: true} = InputContract.check(g, %{"tier" => "gold"})
+    end
+
+    test "a dotted non-start field is a nested payload path" do
+      g = start_edge("user.email")
+
+      assert InputContract.required_inputs(g) == ["user.email"]
+      assert InputContract.required_input_shape(g) == %{"user" => %{"email" => nil}}
+    end
+
+    test "an explicitly `start.`-prefixed field is unchanged" do
+      g = start_edge("start.tier")
+
+      assert InputContract.required_inputs(g) == ["tier"]
+    end
+
+    test "a bare field on an ordinary edge is still step-fed" do
+      g =
+        graph([step("a"), step("b")], [
+          %{
+            "from" => "a",
+            "to" => "b",
+            "mapping" => %{},
+            "condition" => %{"field" => "tier", "op" => "eq", "value" => "gold"}
+          }
+        ])
+
+      assert InputContract.required_inputs(g) == []
+      assert %{valid: true} = InputContract.check(g, %{})
+    end
+  end
+
+  describe "contract/2 derives the whole contract in one pass" do
+    # `contract/2` reads five fields off a single `needs/1` traversal instead of
+    # rebuilding the graph per field. It must stay identical to the piecewise
+    # functions — this pins them together so the batch path cannot drift.
+    test "every field equals its individually-derived value" do
+      g =
+        graph(
+          [
+            step("a"),
+            step("b", params: %{"query" => "start.topic"}),
+            step("c", params: %{"query" => "nowhere.field"})
+          ],
+          [
+            edge("a", "b", %{"query" => "start.email topic"}),
+            edge("b", "c", %{"input" => "start.user.name"}),
+            %{
+              "from" => "start",
+              "to" => "a",
+              "mapping" => %{},
+              "condition" => %{"field" => "tier", "op" => "eq", "value" => "gold"}
+            }
+          ]
+        )
+
+      payload = %{"email topic" => "hi"}
+      contract = InputContract.contract(g, payload)
+      verdict = InputContract.check(g, payload)
+
+      assert contract.valid == verdict.valid
+      assert contract.missing_inputs == verdict.missing_inputs
+      assert contract.required_inputs == InputContract.required_inputs(g)
+      assert contract.required_input_shape == InputContract.required_input_shape(g)
+      assert contract.unsatisfiable_inputs == InputContract.unsatisfiable_inputs(g)
+
+      # Not a vacuous fixture: it exercises all three kinds at once.
+      assert contract.valid == false
+      assert "tier" in contract.required_inputs
     end
   end
 

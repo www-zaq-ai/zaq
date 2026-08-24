@@ -470,17 +470,17 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     end
   end
 
-  # The substitution regex is ~r/\{\{(\w+)\}\}/, and \w is [A-Za-z0-9_] — it does
-  # NOT include spaces. So a placeholder must use a single-token name like
-  # `company_summary`; `{{company summary}}` (with a space) never matches and is
-  # left verbatim in the prompt. This pins that contract.
-  describe "run/2 — placeholder tokens cannot contain spaces" do
-    test "{{company summary}} (with a space) is NOT substituted, even when the value is present" do
+  # Substitution runs through `Zaq.Engine.Workflows.Placeholders`, whose key class
+  # allows spaces and hyphens — human-authored sheet headers ("Company Context
+  # Content") are real keys. This used to be RunAgent's own `~r/\{\{(\w+)\}\}/`,
+  # which silently left a spaced placeholder verbatim in the prompt while the same
+  # key substituted fine in `Concat` and `DispatchEvent`.
+  describe "run/2 — placeholder tokens may contain spaces" do
+    test "{{company summary}} (with a space) IS substituted" do
       agent = create_agent()
 
       RunAgent.run(
         %{
-          # Value supplied under the spaced key — it must still NOT be injected.
           "company summary" => "Acme builds rockets.",
           agent_id: agent.id,
           input:
@@ -490,9 +490,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       )
 
       assert_received {:dispatched, event}
-      # The spaced placeholder is left untouched (verbatim), not replaced.
-      assert event.request.content =~ "{{company summary}}"
-      refute event.request.content =~ "Acme builds rockets."
+      assert event.request.content =~ "Acme builds rockets."
+      refute event.request.content =~ "{{company summary}}"
     end
 
     test "{{company_summary}} (underscore) IS substituted" do
@@ -511,6 +510,56 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert_received {:dispatched, event}
       assert event.request.content =~ "company summary: Acme builds rockets., write"
       refute event.request.content =~ "{{"
+    end
+  end
+
+  # Sharing `Placeholders` with `Concat` and `DispatchEvent` gives a RunAgent prompt
+  # the same reach they have. Previously `build_vars/1` was the only source, so a
+  # placeholder could name nothing beyond the node's own params.
+  describe "run/2 — placeholders reach the run cascade" do
+    test "a node-qualified result substitutes" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "Summary: {{extract_summary.output}}"},
+        ok_ctx(%{__cascade__: %{extract_summary: %{output: "Acme builds rockets."}}})
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.content == "Summary: Acme builds rockets."
+    end
+
+    test "the start namespace substitutes" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "Reply in {{start.language}}"},
+        ok_ctx(%{__cascade__: %{start: %{"language" => "French"}}})
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.content == "Reply in French"
+    end
+
+    test "a nested param path substitutes without relying on flattening" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "{{row.email}}", row: %{"email" => "lead@example.com"}},
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert event.request.content == "lead@example.com"
+    end
+
+    test "an unresolved reference still collapses to an empty string" do
+      agent = create_agent()
+
+      RunAgent.run(%{agent_id: agent.id, input: "[{{nope.missing}}]"}, ok_ctx())
+
+      assert_received {:dispatched, event}
+      assert event.request.content == "[]"
     end
   end
 

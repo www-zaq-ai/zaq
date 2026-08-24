@@ -102,17 +102,9 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
 
     case fetch_workflow(workflow_id) do
       {:ok, workflow} ->
-        verdict = InputContract.check(workflow, input)
+        contract = InputContract.contract(workflow, input)
 
-        {:ok,
-         %{
-           valid: verdict.valid,
-           input: input,
-           missing_inputs: verdict.missing_inputs,
-           required_inputs: InputContract.required_inputs(workflow),
-           required_input_shape: InputContract.required_input_shape(workflow),
-           unsatisfiable_inputs: InputContract.unsatisfiable_inputs(workflow)
-         }}
+        {:ok, Map.put(contract, :input, input)}
 
       {:error, reason} ->
         {:error, reason}
