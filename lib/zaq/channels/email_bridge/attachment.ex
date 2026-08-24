@@ -1,5 +1,12 @@
 defmodule Zaq.Channels.EmailBridge.Attachment do
-  @moduledoc false
+  @moduledoc """
+  Builds lazy email attachment records from MIME section descriptors.
+
+  Attachment records persist only metadata and a signed materialization handle.
+  The handle binds the source IMAP config, mailbox, UIDVALIDITY, message UID, and
+  MIME section so later materialization can re-fetch exactly one section without
+  trusting model-visible metadata.
+  """
 
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Contracts.Record

@@ -1,5 +1,12 @@
 defmodule Zaq.Channels.EmailBridge.ImapAdapter.MimeDecoder do
-  @moduledoc false
+  @moduledoc """
+  Decodes MIME body sections fetched from IMAP.
+
+  Bodies and attachments are fetched as encoded section bytes. This module owns
+  transfer-decoding for the encodings ZAQ materializes directly; unknown transfer
+  encodings are passed through unchanged so downstream file handlers can still
+  inspect the original bytes.
+  """
 
   @spec decode_body(binary(), term(), map()) :: {:ok, binary()} | {:error, term()}
   def decode_body(binary, encoding, params \\ %{}) when is_binary(binary) do

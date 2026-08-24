@@ -310,6 +310,40 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
     assert_receive {:imap_fake_command, ^fake, :logout, _}, 1_000
   end
 
+  test "fetch_unseen reads single-part text body from section 1" do
+    fake =
+      start_supervised!(
+        {FakeImapServer,
+         owner: self(),
+         message: %{
+           subject: "Plain only",
+           rfc822: "RAW-EMAIL",
+           body_structure: ~s|("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 11 NIL NIL NIL)|,
+           body_sections: %{"1" => "plain only"}
+         }}
+      )
+
+    config = FakeImapServer.config(fake)
+    assert {:ok, client} = ImapAdapter.connect(config, "INBOX")
+
+    assert :ok =
+             ImapAdapter.fetch_unseen(client, "INBOX", fn payload ->
+               send(self(), {:single_part_payload, payload})
+             end)
+
+    assert_receive {:single_part_payload, payload}, 1_000
+    assert payload["body_text"] == "plain only"
+    assert payload["body_html"] == nil
+
+    assert_receive {:imap_fake_command, ^fake, :fetch, metadata_fetch}, 1_000
+    assert metadata_fetch =~ "BODYSTRUCTURE"
+
+    assert_receive {:imap_fake_command, ^fake, :fetch, text_fetch}, 1_000
+    assert text_fetch =~ "BODY.PEEK[1]"
+
+    assert :ok = ImapAdapter.disconnect(client)
+  end
+
   test "fetch_unseen handles missing envelope and header fields" do
     fake =
       start_supervised!(
@@ -575,11 +609,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
   test "list_mailboxes/1 reports invalid UTF-8 and still logs out" do
     fake = start_supervised!({FakeImapServer, owner: self(), invalid_mailbox: <<0xFF>>})
 
-    assert {:error, {:list_mailboxes_failed, message}} =
+    assert {:error, {:list_mailboxes_failed, :invalid_utf8_mailbox_name}} =
              ImapAdapter.list_mailboxes(FakeImapServer.config(fake))
 
-    assert is_binary(message)
-    assert message =~ "invalid"
     assert_receive {:imap_fake_command, ^fake, :logout, _}, 1_000
   end
 

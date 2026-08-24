@@ -44,10 +44,10 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
         try do
           case imap_call(:list, [client]) do
             {:ok, list} when is_list(list) ->
-              normalize_mailbox_names(list)
+              normalize_mailbox_names_result(list)
 
             list when is_list(list) ->
-              normalize_mailbox_names(list)
+              normalize_mailbox_names_result(list)
 
             other ->
               {:error, {:list_mailboxes_failed, other}}
@@ -195,13 +195,13 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter do
     end
   end
 
-  defp normalize_mailbox_names(list) do
+  defp normalize_mailbox_names_result(list) do
     names = ImapConfigHelpers.normalize_mailbox_names(list)
 
     if Enum.all?(names, &String.valid?/1) do
       {:ok, names}
     else
-      raise ArgumentError, "invalid UTF-8 mailbox name"
+      {:error, {:list_mailboxes_failed, :invalid_utf8_mailbox_name}}
     end
   end
 

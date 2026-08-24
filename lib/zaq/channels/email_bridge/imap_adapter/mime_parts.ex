@@ -1,5 +1,12 @@
 defmodule Zaq.Channels.EmailBridge.ImapAdapter.MimeParts do
-  @moduledoc false
+  @moduledoc """
+  Converts Mailroom BODYSTRUCTURE parts into IMAP section descriptors.
+
+  Descriptors are JSON-safe maps that identify MIME body or attachment parts by
+  their IMAP numeric section. Mailroom assigns `nil` to a single-part root body;
+  IMAP section `1` is used for that root leaf so body fetching still works for
+  non-multipart messages. Other missing or malformed sections are ignored.
+  """
 
   alias Mailroom.IMAP.BodyStructure.Part
 
@@ -48,25 +55,33 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.MimeParts do
     |> Enum.find(&(&1.content_type == content_type))
   end
 
-  defp flatten_parts(%Part{parts: parts} = part) when is_list(parts) and parts != [] do
-    Enum.flat_map(parts, &flatten_parts/1) ++ [part]
+  defp flatten_parts(body_structure), do: flatten_parts(body_structure, root?: true)
+
+  defp flatten_parts(%Part{parts: parts} = part, _opts) when is_list(parts) and parts != [] do
+    Enum.flat_map(parts, &flatten_parts(&1, root?: false)) ++ [{part, nil}]
   end
 
-  defp flatten_parts(%Part{} = part), do: [part]
-  defp flatten_parts(parts) when is_list(parts), do: Enum.flat_map(parts, &flatten_parts/1)
-  defp flatten_parts(_), do: []
+  defp flatten_parts(%Part{} = part, opts) do
+    default_section = if Keyword.get(opts, :root?), do: "1"
+    [{part, default_section}]
+  end
 
-  defp body_part?(%Part{multipart: true}), do: false
+  defp flatten_parts(parts, _opts) when is_list(parts),
+    do: Enum.flat_map(parts, &flatten_parts(&1, root?: false))
 
-  defp body_part?(%Part{} = part) do
+  defp flatten_parts(_, _opts), do: []
+
+  defp body_part?({%Part{multipart: true}, _default_section}), do: false
+
+  defp body_part?({%Part{} = part, default_section}) do
     content_type(part) in ["text/plain", "text/html"] and not file_semantics?(part) and
-      valid_section?(section(part))
+      valid_section?(section(part, default_section))
   end
 
-  defp attachment_part?(%Part{multipart: true}), do: false
+  defp attachment_part?({%Part{multipart: true}, _default_section}), do: false
 
-  defp attachment_part?(%Part{} = part),
-    do: file_semantics?(part) and valid_section?(section(part))
+  defp attachment_part?({%Part{} = part, default_section}),
+    do: file_semantics?(part) and valid_section?(section(part, default_section))
 
   defp file_semantics?(%Part{} = part) do
     disposition = disposition(part)
@@ -76,9 +91,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.MimeParts do
       present?(filename(part))
   end
 
-  defp descriptor(%Part{} = part) do
+  defp descriptor({%Part{} = part, default_section}) do
     %{
-      section: section(part),
+      section: section(part, default_section),
       content_type: content_type(part),
       filename: filename(part),
       encoding: normalize_string(part.encoding),
@@ -89,9 +104,11 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.MimeParts do
     }
   end
 
-  defp section(%Part{section: section}) when is_integer(section), do: Integer.to_string(section)
-  defp section(%Part{section: section}) when is_binary(section), do: section
-  defp section(_part), do: nil
+  defp section(%Part{section: section}, _default_section) when is_integer(section),
+    do: Integer.to_string(section)
+
+  defp section(%Part{section: section}, _default_section) when is_binary(section), do: section
+  defp section(_part, default_section), do: default_section
 
   defp content_type(%Part{type: {major, minor}}),
     do: "#{normalize_string(major) || "application"}/#{normalize_string(minor) || "octet-stream"}"

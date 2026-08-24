@@ -77,6 +77,12 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.MimePartsTest do
                MimeParts.attachment_parts(body_structure)
     end
 
+    test "uses section 1 for a single-part root body with no Mailroom section" do
+      body_structure = part(nil, type: {"text", "plain"})
+
+      assert [%{section: "1", content_type: "text/plain"}] = MimeParts.body_parts(body_structure)
+    end
+
     test "accepts top-level part lists and ignores unsupported entries" do
       body_structure = [part("1", type: {"text", "plain"}), :unsupported, nil]
 
@@ -84,7 +90,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.MimePartsTest do
       assert [] = MimeParts.attachment_parts(body_structure)
     end
 
-    test "normalizes integer sections and rejects missing sections" do
+    test "normalizes integer sections and rejects missing sections in part lists" do
       body_structure = [part(1, type: {"text", "plain"}), part(nil, type: {"text", "html"})]
 
       assert [%{section: "1", content_type: "text/plain"}] = MimeParts.body_parts(body_structure)
