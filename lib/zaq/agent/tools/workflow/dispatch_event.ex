@@ -112,7 +112,6 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
 
   require Logger
 
-  alias Zaq.Engine.Workflows.Placeholders
   alias Zaq.NodeRouter
 
   # Allowlisted node roles a workflow may dispatch to. String-keyed so a
@@ -190,15 +189,10 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   # try_to_atom, leaving a mixed map that the engine rejects as
   # {:invalid_request, ...}.
   defp build_request(input, ctx) do
-    resolved_input = Placeholders.resolve(input || %{}, %{__cascade__: cascade(ctx)})
-
     ctx
     |> prior_step_outputs()
-    |> Map.merge(string_keyed(resolved_input))
+    |> Map.merge(string_keyed(input || %{}))
   end
-
-  defp cascade(ctx),
-    do: Map.get(ctx, :__cascade__, Map.get(ctx, "__cascade__", %{}))
 
   # Flattens the run's cascade (`%{step_name => result}`) into a single
   # string-keyed map of every prior step's output. Internal plumbing keys

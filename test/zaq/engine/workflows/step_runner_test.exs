@@ -15,6 +15,8 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
     ErrorAction,
     OkAction,
     OkWithLogsAction,
+    ParamCapture,
+    ParamProbe,
     WaitingAction
   }
 
@@ -98,6 +100,192 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert [%{"event" => "step_completed"} | action_logs] = ar.logs
       assert length(action_logs) == 1
       assert hd(action_logs)["message"] == "step log"
+    end
+  end
+
+  # Placeholder substitution lives here, not in the actions: `{{...}}` is resolved
+  # once before the wrapped module is called, so every action receives literal
+  # values and none of them implements substitution itself.
+  describe "run/2 — placeholder resolution" do
+    setup do
+      start_supervised!(ParamCapture)
+      :ok
+    end
+
+    # `__placeholder_keys__` is what `DagBuilder.build_action_node/5` stamps on at
+    # build time; these tests supply it directly, the way the DAG would.
+    defp wp_ph(run, step_name, params, keys, cascade \\ %{}) do
+      run
+      |> wp(ParamProbe, step_name, 0)
+      |> Map.merge(params)
+      |> Map.put(:__placeholder_keys__, keys)
+      |> Map.put(:__cascade__, cascade)
+    end
+
+    test "resolves a placeholder from a sibling param" do
+      run = create_run()
+
+      assert {:ok, _} =
+               StepRunner.run(
+                 wp_ph(run, "build", %{input: "Sheet1!{{column}}", column: "L"}, [:input]),
+                 %{}
+               )
+
+      assert ParamCapture.get_params()[:input] == "Sheet1!L"
+    end
+
+    test "resolves a node-qualified reference from the cascade" do
+      run = create_run()
+
+      params = %{input: "Summary: {{extract.output}}"}
+      cascade = %{extract: %{output: "Acme builds rockets."}}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "draft", params, [:input], cascade), %{})
+
+      assert ParamCapture.get_params()[:input] == "Summary: Acme builds rockets."
+    end
+
+    test "resolves the start namespace" do
+      run = create_run()
+
+      params = %{input: "Reply in {{start.language}}"}
+      cascade = %{start: %{"language" => "French"}}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "draft", params, [:input], cascade), %{})
+
+      assert ParamCapture.get_params()[:input] == "Reply in French"
+    end
+
+    test "descends a nested param path — the replacement for var flattening" do
+      run = create_run()
+
+      params = %{input: "Draft for {{row.name}}", row: %{"name" => "John Doe"}}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "draft", params, [:input]), %{})
+
+      assert ParamCapture.get_params()[:input] == "Draft for John Doe"
+    end
+
+    test "a bare key is not flattened out of a nested param map" do
+      # `{{name}}` names no top-level key. It resolves to "" rather than reaching
+      # into `row` — the author must write the path.
+      run = create_run()
+
+      params = %{input: "Draft for {{name}}", row: %{"name" => "John Doe"}}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "draft", params, [:input]), %{})
+
+      assert ParamCapture.get_params()[:input] == "Draft for "
+    end
+
+    test "resolves inside nested containers" do
+      run = create_run()
+
+      params = %{input: %{"topic" => ["{{subject}}"]}, subject: "rockets"}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "dispatch", params, [:input]), %{})
+
+      assert ParamCapture.get_params()[:input] == %{"topic" => ["rockets"]}
+    end
+
+    test "a whole-string placeholder keeps the raw value's type" do
+      run = create_run()
+
+      params = %{input: "{{rows}}", rows: [%{"a" => 1}]}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "pass", params, [:input]), %{})
+
+      assert ParamCapture.get_params()[:input] == [%{"a" => 1}]
+    end
+
+    test "an unresolved reference collapses to an empty string" do
+      run = create_run()
+
+      assert {:ok, _} =
+               StepRunner.run(wp_ph(run, "draft", %{input: "[{{nope}}]"}, [:input]), %{})
+
+      assert ParamCapture.get_params()[:input] == "[]"
+    end
+
+    test "only the keys named at build time are resolved" do
+      # `other` carries a placeholder but is not in `__placeholder_keys__`, so it is
+      # never walked — this is what keeps a bulk payload off the resolver's path.
+      run = create_run()
+
+      params = %{input: "{{v}}", other: "{{v}}", v: "x"}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "step", params, [:input]), %{})
+
+      captured = ParamCapture.get_params()
+      assert captured[:input] == "x"
+      assert captured[:other] == "{{v}}"
+    end
+
+    test "a node with no placeholder keys passes its params through untouched" do
+      run = create_run()
+
+      params = %{input: "{{v}}", v: "x"}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "step", params, []), %{})
+
+      assert ParamCapture.get_params()[:input] == "{{v}}"
+    end
+
+    test "engine plumbing is never substitutable" do
+      run = create_run()
+
+      params = %{input: "[{{__cascade__}}][{{run_id}}]"}
+      cascade = %{extract: %{output: "secret"}}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "step", params, [:input], cascade), %{})
+
+      assert ParamCapture.get_params()[:input] == "[][]"
+    end
+
+    test "the StepRun trace records the resolved input, not the template" do
+      run = create_run()
+
+      params = %{input: "Hello {{who}}", who: "world"}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "greet", params, [:input]), %{})
+
+      [step_run] = Workflows.list_step_runs(run.id)
+      assert step_run.input["input"] == "Hello world"
+    end
+
+    test "resolves against string-keyed params — the stored-workflow shape" do
+      # Params loaded from the `steps` JSONB arrive string-keyed, and the build-time
+      # scan names them the same way. `FactLookup` reads either form.
+      run = create_run()
+
+      params = %{"input" => "Sheet1!{{column}}{{row}}", "column" => "L", "row" => 5}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "build", params, ["input"]), %{})
+
+      assert ParamCapture.get_params()["input"] == "Sheet1!L5"
+    end
+
+    test "a sibling param is addressable whatever the action's schema calls it" do
+      # Actions used to exclude their own schema fields from substitution. The fact
+      # is now uniformly every sibling param plus the cascade, and only `__*`
+      # plumbing is off-limits — a field's name carries no special meaning here.
+      run = create_run()
+
+      params = %{input: "{{separator}}", separator: "-"}
+
+      assert {:ok, _} = StepRunner.run(wp_ph(run, "build", params, [:input]), %{})
+
+      assert ParamCapture.get_params()[:input] == "-"
+    end
+
+    test "`__placeholder_keys__` never reaches the action" do
+      run = create_run()
+
+      assert {:ok, _} =
+               StepRunner.run(wp_ph(run, "step", %{input: "{{v}}", v: "x"}, [:input]), %{})
+
+      captured = ParamCapture.get_params()
+      refute Map.has_key?(captured, :__placeholder_keys__)
     end
   end
 

@@ -16,10 +16,16 @@ defmodule Zaq.Engine.Workflows.InputContract do
   fed whenever a predecessor declares it — `StepRunner` passes the whole fact
   down the edge, so an unmapped edge still carries the predecessor's output.
   What satisfies neither is not unknown, it is `unsatisfiable_inputs/1`.
+
+  A `{{...}}` in a node's params is a reference for **every** action, because
+  `StepRunner` resolves them all before calling the action — so this reads them
+  through the same `Placeholders.references/1` the DAG uses to decide what to
+  resolve, and never needs to know which module a node names.
   """
 
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.FactLookup
+  alias Zaq.Engine.Workflows.Placeholders
   alias Zaq.Engine.Workflows.Workflow
 
   @start "start"
@@ -351,35 +357,30 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   # -- param references ---------------------------------------------------------
 
-  # Same placeholder class as `Concat` and `DispatchEvent`.
-  @placeholder ~r/\{\{\s*([\w.][\w.\s-]*?)\s*\}\}/
-
-  # Params of these modules are scanned for `{{...}}`; every other action receives
-  # its params literally (`StepRunner` resolves edge mappings, never node params),
-  # so a dotted string elsewhere is data, not a reference.
+  # The one module still named here. `Condition` resolves its own references, and
+  # they carry no `{{}}` — a bare dotted `input` string and each `conditions[].key`
+  # — so the uniform scan cannot see them. When those params migrate to `{{...}}`,
+  # `StepRunner` resolves them like everything else and this goes away.
   #
-  # `Condition` is deliberately absent: it substitutes no `{{...}}` at all. It
-  # resolves a bare dotted `input` and each `conditions[].key` through
-  # `FactLookup`, which `bare_references/3` covers. Listing it here could only
-  # invent a requirement — a `{{x}}` in a Condition param stays a literal string
-  # at run time, so no payload the agent sends would make the node work.
-  @placeholder_sites %{
-    "Zaq.Agent.Tools.Workflow.Concat" => ["parts"],
-    "Zaq.Agent.Tools.Workflow.DispatchEvent" => ["input"],
-    "Zaq.Agent.Tools.Workflow.RunAgent" => ["input", "context"]
-  }
-
+  # The end state is specified by skipped tests that fail on today's behaviour:
+  #   test/zaq/engine/workflows/input_contract_test.exs:314
+  #   test/zaq/agent/tools/workflow/condition_test.exs:655 (describe)
+  # Run them with `mix test --include skip`.
   @condition_module "Zaq.Agent.Tools.Workflow.Condition"
 
+  # `StepRunner` resolves `{{...}}` in a node's params before calling the action —
+  # for every action alike — so which params carry a reference is a property of the
+  # graph, not of the module. Scan them all, through the same `Placeholders`
+  # function `DagBuilder` uses to decide what to resolve, so the contract and the
+  # runtime cannot disagree about what a reference is.
+  #
   # Returns `{field, source}` pairs, where `field` is the param the reference sits
   # in — several references may share one field, and the field is unfed unless all
   # of them are step-sourced.
   defp param_references(%{"module" => module, "params" => params}, names) do
-    sites = Map.get(@placeholder_sites, module, [])
-
     placeholders =
-      Enum.flat_map(sites, fn field ->
-        params |> Map.get(field) |> placeholders() |> Enum.map(&{field, &1})
+      Enum.flat_map(params, fn {field, value} ->
+        value |> Placeholders.references() |> Enum.map(&{field, &1})
       end)
 
     placeholders ++ bare_references(module, params, names)
@@ -422,17 +423,6 @@ defmodule Zaq.Engine.Workflows.InputContract do
       _ -> false
     end
   end
-
-  defp placeholders(value) when is_binary(value),
-    do: @placeholder |> Regex.scan(value) |> Enum.map(fn [_full, ref] -> ref end)
-
-  defp placeholders(value) when is_struct(value), do: []
-  defp placeholders(value) when is_list(value), do: Enum.flat_map(value, &placeholders/1)
-
-  defp placeholders(value) when is_map(value),
-    do: Enum.flat_map(value, fn {_k, v} -> placeholders(v) end)
-
-  defp placeholders(_value), do: []
 
   # -- schema -------------------------------------------------------------------
 

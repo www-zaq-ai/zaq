@@ -51,6 +51,33 @@ defmodule Zaq.Engine.Workflows.Placeholders do
 
   def resolve(other, _fact, _opts), do: other
 
+  @doc """
+  Every `{{key}}` reference inside `value`, in order, with duplicates kept.
+
+  Walks the same containers `resolve/3` does, so what this reports is exactly what
+  that would look up. Reserved `__*` keys are omitted — `resolve/3` refuses them, so
+  they are not references anything can satisfy.
+
+  Read-only: unlike `resolve/3` it never rebuilds the term, which is what makes it
+  cheap enough to scan a node's params at DAG-build time.
+  """
+  @spec references(term()) :: [String.t()]
+  def references(value) when is_struct(value), do: []
+
+  def references(map) when is_map(map),
+    do: Enum.flat_map(map, fn {_k, v} -> references(v) end)
+
+  def references(list) when is_list(list), do: Enum.flat_map(list, &references/1)
+
+  def references(string) when is_binary(string) do
+    @placeholder
+    |> Regex.scan(string)
+    |> Enum.map(fn [_full, key] -> key end)
+    |> Enum.reject(&String.starts_with?(&1, "__"))
+  end
+
+  def references(_other), do: []
+
   # A whole-string placeholder keeps the raw value; an embedded one is stringified.
   defp substitute_preserving_type(string, fact) do
     case Regex.run(@sole_placeholder, string) do

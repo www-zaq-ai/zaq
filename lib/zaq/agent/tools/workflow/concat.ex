@@ -96,23 +96,16 @@ defmodule Zaq.Agent.Tools.Workflow.Concat do
       ]
     ]
 
-  alias Zaq.Engine.Workflows.Placeholders
-
-  @reserved_keys [:parts, :separator, :as_matrix, "parts", "separator", "as_matrix"]
-
   @impl Jido.Action
-  def run(params, context) do
+  def run(params, _context) do
     parts = Map.get(params, :parts, Map.get(params, "parts"))
 
     case parts do
       list when is_list(list) ->
-        fact = lookup_fact(params, context)
-        resolved = Enum.map(list, &Placeholders.resolve(&1, fact, preserve_type: true))
-
-        if Enum.any?(resolved, &is_list/1) do
-          {:ok, %{list: concat_lists(resolved)}}
+        if Enum.any?(list, &is_list/1) do
+          {:ok, %{list: concat_lists(list)}}
         else
-          string_result(resolved, params)
+          string_result(list, params)
         end
 
       _ ->
@@ -147,18 +140,4 @@ defmodule Zaq.Agent.Tools.Workflow.Concat do
     end)
     |> Enum.concat()
   end
-
-  # ── Cascade-aware, type-preserving substitution ──────────────────────────────
-
-  # The lookup fact is the node's non-reserved params augmented with the run's
-  # `__cascade__` (handed through `context` by `StepRunner`), so a `{{key}}` can
-  # reference a plain param, a node-qualified result, or the `start.*` namespace.
-  defp lookup_fact(params, context) do
-    params
-    |> Map.drop(@reserved_keys)
-    |> Map.put(:__cascade__, cascade(context))
-  end
-
-  defp cascade(context),
-    do: Map.get(context, :__cascade__) || Map.get(context, "__cascade__") || %{}
 end

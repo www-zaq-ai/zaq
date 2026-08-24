@@ -22,6 +22,27 @@ defmodule Zaq.Engine.Workflows.PlaceholdersTest do
       assert Placeholders.resolve("{{  name  }}", fact(%{"name" => "Ada"})) == "Ada"
     end
 
+    # The spaced-key class has to survive a dot: this is one dotted reference whose
+    # final segment is a sheet header, not a key that stops at the first space.
+    test "a dotted key may carry spaces in its final segment" do
+      f = fact(%{}, %{start: %{"company context content" => "ACME summary"}})
+
+      assert Placeholders.resolve("ctx: {{start.company context content}}", f) ==
+               "ctx: ACME summary"
+    end
+
+    # A bare key reads the fact root only, so a same-named node result can neither
+    # shadow a sibling nor stand in for a missing one.
+    test "a bare key reads the fact root, never the cascade" do
+      assert Placeholders.resolve(
+               "{{column}}",
+               fact(%{"column" => "J"}, %{start: %{"column" => "Z"}})
+             ) ==
+               "J"
+
+      assert Placeholders.resolve("{{row}}", fact(%{}, %{start: %{"row" => 5}})) == ""
+    end
+
     test "a node-qualified result and the start namespace resolve through the cascade" do
       f = fact(%{}, %{step_a: %{output: "done"}, start: %{"language" => "French"}})
 
@@ -30,6 +51,14 @@ defmodule Zaq.Engine.Workflows.PlaceholdersTest do
 
     test "an unresolved reference collapses to an empty string" do
       assert Placeholders.resolve("[{{nope}}]", fact()) == "[]"
+    end
+
+    # `FactLookup` tries a key's atom form first. A key whose atom was never created
+    # has to miss, not raise on `String.to_existing_atom/1`.
+    test "a key whose atom was never interned resolves to an empty string" do
+      key = "ph_never_interned_#{System.unique_integer([:positive])}"
+
+      assert Placeholders.resolve("[{{#{key}}}]", fact()) == "[]"
     end
   end
 
@@ -100,6 +129,23 @@ defmodule Zaq.Engine.Workflows.PlaceholdersTest do
       f = fact(%{"n" => 42})
 
       assert Placeholders.resolve("n is {{n}}", f, preserve_type: true) == "n is 42"
+    end
+
+    # A struct has no `to_string/1` and would be inspected into unusable text, so a
+    # whole-string placeholder has to hand back the value itself.
+    test "a whole-string placeholder keeps a struct" do
+      dt = ~U[2026-07-06 12:00:00Z]
+
+      assert Placeholders.resolve("{{when}}", fact(%{"when" => dt}), preserve_type: true) == dt
+    end
+
+    test "type preservation reaches placeholders nested in containers" do
+      dt = ~U[2026-07-06 12:00:00Z]
+      f = fact(%{"when" => dt, "rows" => [%{"a" => 1}]})
+
+      assert Placeholders.resolve([%{"ts" => "{{when}}", "r" => "{{rows}}"}], f,
+               preserve_type: true
+             ) == [%{"ts" => dt, "r" => [%{"a" => 1}]}]
     end
 
     test "without preserve_type a whole-string placeholder is stringified" do

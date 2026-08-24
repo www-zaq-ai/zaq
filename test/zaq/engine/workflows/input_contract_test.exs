@@ -2,6 +2,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Engine.Workflows.InputContract
+  alias Zaq.Engine.Workflows.Placeholders
   alias Zaq.Engine.Workflows.Step.Edge, as: StepEdge
   alias Zaq.Engine.Workflows.Step.Node, as: StepNode
   alias Zaq.Engine.Workflows.Workflow
@@ -52,9 +53,11 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           [edge("a", "b", %{"parts" => "a.messages"})]
         )
 
-      # `parts` also carries a start placeholder, so the field is not fully fed.
+      # A placeholder in any param is a reference — `StepRunner` resolves them all —
+      # but it is keyed by its own field, so it does not unfeed the mapped `parts`.
       g = put_in(g, ["nodes", Access.at(1), "params"], %{"other" => "{{start.topic}}"})
-      assert InputContract.required_inputs(g) == []
+      assert sorted(InputContract.fed_by_steps(g)) == ["b.parts"]
+      assert InputContract.required_inputs(g) == ["topic"]
 
       g = put_in(g, ["nodes", Access.at(1), "params"], %{"parts" => "{{start.topic}}"})
       assert sorted(InputContract.fed_by_steps(g)) == []
@@ -240,11 +243,10 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["row"]
     end
 
-    test "a `{{...}}` in a Condition param invents no requirement" do
-      # `Condition` substitutes no placeholders — it resolves a bare dotted `input`
-      # and each `conditions[].key` through `FactLookup`. A `{{...}}` there stays a
-      # literal string at run time, so demanding `tier` from the payload would send
-      # the agent chasing a field that cannot make the node work.
+    test "a `{{...}}` in a Condition param is a requirement like any other" do
+      # `StepRunner` resolves placeholders for every action alike, `Condition`
+      # included, so a `{{...}}` in its params is a real reference the payload must
+      # satisfy — not the phantom it was when each action substituted its own.
       g =
         graph(
           [
@@ -259,8 +261,69 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           []
         )
 
-      refute "tier" in InputContract.required_inputs(g)
-      refute "plan" in InputContract.required_inputs(g)
+      assert InputContract.required_inputs(g) == ["plan", "tier"]
+    end
+
+    test "any action's params are scanned — no module list decides it" do
+      # The old `@placeholder_sites` table named which modules/params to scan, so a
+      # new placeholder-resolving action was silently missed. `StepRunner` now
+      # resolves every action's params, so the contract scans every action's params.
+      g =
+        graph(
+          [
+            step("a",
+              module: "Zaq.Agent.Tools.Accounts.History",
+              params: %{"q" => "{{start.a}}"}
+            ),
+            step("b",
+              module: "Zaq.Agent.Tools.Workflow.Concat",
+              params: %{"parts" => ["x"], "sep" => "{{start.b}}"}
+            )
+          ],
+          []
+        )
+
+      assert InputContract.required_inputs(g) == ["a", "b"]
+    end
+
+    test "the contract reads a reference exactly as DagBuilder decides to resolve one" do
+      # Both go through `Placeholders.references/1`. If they ever diverged, the
+      # contract would demand a payload key the run never reads, or miss one it does.
+      params = %{
+        "parts" => ["a literal, so Concat's required field is pinned"],
+        "input" => "{{start.topic}}",
+        "nested" => %{"deep" => ["{{start.name}}"]},
+        "literal" => "no reference here",
+        "plumbing" => "{{__cascade__}}"
+      }
+
+      g = graph([step("a", module: "Zaq.Agent.Tools.Workflow.Concat", params: params)], [])
+
+      scanned =
+        for {key, value} <- params, Placeholders.references(value) != [], do: key
+
+      assert Enum.sort(scanned) == ["input", "nested"]
+      assert InputContract.required_inputs(g) == ["name", "topic"]
+    end
+
+    # Pending, with `condition_test.exs`: `@condition_module` is the only module name
+    # left in `InputContract`, and it exists solely because `Condition` resolves bare
+    # references the uniform `{{...}}` scan cannot see. This FAILS today and passes
+    # once those params migrate to `{{...}}` and the special case is deleted.
+    @tag :skip
+    test "a bare dotted Condition param needs no module-specific knowledge (pending)" do
+      g =
+        graph(
+          [
+            step("a",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{"input" => "start.row"}
+            )
+          ],
+          []
+        )
+
+      assert InputContract.required_inputs(g) == []
     end
 
     test "a dotted param on a module that does not resolve references is data" do

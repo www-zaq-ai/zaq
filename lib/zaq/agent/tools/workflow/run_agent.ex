@@ -121,7 +121,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   alias Zaq.Agent.StreamEvents
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
-  alias Zaq.Engine.Workflows.Placeholders
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.NodeRouter
@@ -129,20 +128,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # Default seed-context token budget when a run does not set `context_max_size`.
   # Kept in step with `HistoryLoader`'s default so both context paths share a ceiling.
   @default_context_max_size 5_000
-
-  # Params that configure the action itself, never substitution sources.
-  @action_keys [
-    :agent_id,
-    :input,
-    :context,
-    :context_max_size,
-    :__cascade__,
-    "agent_id",
-    "input",
-    "context",
-    "context_max_size",
-    "__cascade__"
-  ]
 
   @impl Jido.Action
   # Params may arrive atom- OR string-keyed. The workflow DAG builder atomizes a
@@ -161,12 +146,10 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   defp dispatch_agent_run(agent_id, input, params, context) do
     node_router = node_router(context)
-    fact = lookup_fact(params, context)
-    resolved_input = Placeholders.resolve(input, fact)
-    ai_context = build_context(params, fact)
+    ai_context = build_context(params)
     context_max_size = context_max_size(params)
 
-    resolved_input
+    input
     |> build_incoming(context, context_max_size)
     |> build_event(agent_id, context, ai_context)
     |> node_router.dispatch()
@@ -334,8 +317,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # `Factory.build_initial_context/3` uses it as-is, applying no further budget — so
   # the token budget is enforced here, before assembly, by dropping the oldest turns
   # that overflow `context_max_size` (default 5000).
-  defp build_context(params, fact) do
-    case build_context_messages(params, fact) do
+  defp build_context(params) do
+    case build_context_messages(params) do
       [] ->
         nil
 
@@ -372,15 +355,15 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # vocabulary shared with `Zaq.Agent.History`, ReqLLM, and Jido.AI. `content` gets
   # the same {{variable}} substitution as `input`; entries with an unsupported/missing
   # role, or non-map entries, are dropped rather than failing the run.
-  defp build_context_messages(params, fact) do
+  defp build_context_messages(params) do
     params
     |> fetch_param(:context, [])
     |> List.wrap()
-    |> Enum.flat_map(&normalize_context_entry(&1, fact))
+    |> Enum.flat_map(&normalize_context_entry/1)
   end
 
-  defp normalize_context_entry(entry, fact) when is_map(entry) do
-    content = entry |> entry_field(:content) |> to_string_safe() |> Placeholders.resolve(fact)
+  defp normalize_context_entry(entry) when is_map(entry) do
+    content = entry |> entry_field(:content) |> to_string_safe()
 
     case normalize_role(entry_field(entry, :role)) do
       "user" ->
@@ -408,7 +391,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     end
   end
 
-  defp normalize_context_entry(other, _vars) do
+  defp normalize_context_entry(other) do
     Logger.warning("[RunAgent] dropping non-map context turn: #{inspect(other)}")
     []
   end
@@ -444,50 +427,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   defp fetch_param(params, key, default) when is_atom(key),
     do: Map.get(params, key) || Map.get(params, Atom.to_string(key)) || default
-
-  # The lookup fact a `{{variable}}` resolves against: the node's own params, the
-  # one-level spread of any nested param map (see `build_vars/1`), and the run's
-  # `__cascade__`. So a placeholder reads a plain param, a nested param path
-  # (`{{row.email}}`), a node-qualified result (`{{extract_summary.output}}`), or
-  # the trigger namespace (`{{start.language}}`) — the same reach `Concat` and
-  # `DispatchEvent` give. Raw params win over the flattened copies of themselves.
-  defp lookup_fact(params, context) do
-    params
-    |> build_vars()
-    |> Map.merge(Map.drop(params, @action_keys))
-    |> Map.put(:__cascade__, cascade(context))
-  end
-
-  defp cascade(context),
-    do: Map.get(context, :__cascade__) || Map.get(context, "__cascade__") || %{}
-
-  # Build substitution vars from all params except the action-level ones.
-  #
-  # Nested maps (e.g. `row` as set by EnsurePerson) are spread one level deep
-  # so their keys become top-level {{variable}} substitutions. Flat keys always
-  # win over keys that came from a nested map. Internal workflow keys
-  # (__cascade__) and the structured `context` param are excluded entirely.
-  defp build_vars(params) do
-    dropped = Map.drop(params, @action_keys)
-
-    nested_vars =
-      dropped
-      |> Enum.flat_map(fn
-        {_k, v} when is_map(v) ->
-          Enum.map(v, fn {nk, nv} -> {to_string(nk), to_string_safe(nv)} end)
-
-        _ ->
-          []
-      end)
-      |> Map.new()
-
-    flat_vars =
-      dropped
-      |> Enum.reject(fn {_k, v} -> is_map(v) end)
-      |> Map.new(fn {k, v} -> {to_string(k), to_string_safe(v)} end)
-
-    Map.merge(nested_vars, flat_vars)
-  end
 
   defp to_string_safe(v) when is_binary(v), do: v
   defp to_string_safe(v) when is_integer(v), do: Integer.to_string(v)

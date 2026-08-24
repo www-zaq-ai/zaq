@@ -85,6 +85,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.EdgeCondition
   alias Zaq.Engine.Workflows.MapNodeBuilder
+  alias Zaq.Engine.Workflows.Placeholders
   alias Zaq.Engine.Workflows.StepRunner
 
   @type steps :: map()
@@ -184,7 +185,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
         wrapped_module: mod,
         run_id: run_id,
         step_name: name,
-        step_index: step_index
+        step_index: step_index,
+        __placeholder_keys__: placeholder_keys(params)
       })
 
     ActionNode.new(StepRunner, wrapper_params, name: node_atom(name), max_retries: 0)
@@ -192,6 +194,14 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
 
   def build_action_node(mod, params, name, _step_index, _run_id) do
     ActionNode.new(mod, params, name: node_atom(name))
+  end
+
+  # Which static params carry a `{{...}}` token, scanned once here rather than on
+  # every execution. A placeholder is always author-written, so only a node's own
+  # params can hold one — data arriving later through an edge mapping is runtime
+  # data and is never scanned, which keeps a bulk payload off the resolver's path.
+  defp placeholder_keys(params) do
+    for {key, value} <- params, Placeholders.references(value) != [], do: key
   end
 
   defp validate_edges(edges, node_map) do
