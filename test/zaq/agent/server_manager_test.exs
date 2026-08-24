@@ -48,6 +48,16 @@ defmodule Zaq.Agent.ServerManagerTest do
     def sync_agent_runtime(_agent, _server_ref, _opts \\ []), do: {:ok, %{unexpected: true}}
   end
 
+  defmodule HistoricalAttachmentAction do
+    alias Zaq.Materialization.Handle
+
+    def schema do
+      Zoi.object(%{
+        materialization_handle: Handle.zoi_type()
+      })
+    end
+  end
+
   defmodule StubRuntimeSyncError do
     def sync_agent_runtime(_agent, _server_ref, _opts \\ []), do: {:error, :runtime_sync_failed}
   end
@@ -1258,7 +1268,7 @@ defmodule Zaq.Agent.ServerManagerTest do
         advanced_options: %{}
       })
 
-    server_id = "agent:mattermost:person:#{configured_agent.id}"
+    server_id = "agent:scope:mattermost:person:#{configured_agent.id}"
 
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(configured_agent, server_id)
@@ -1401,6 +1411,7 @@ defmodule Zaq.Agent.ServerManagerTest do
   describe "history context injection on cold spawn" do
     alias Jido.AI.Context, as: AIContext
     alias Zaq.Accounts.Person
+    alias Zaq.Agent.MaterializationAliases
     alias Zaq.Engine.Conversations.{Conversation, Message}
     alias Zaq.Repo
 
@@ -1422,12 +1433,13 @@ defmodule Zaq.Agent.ServerManagerTest do
       |> Repo.insert!()
     end
 
-    defp insert_message_for_sm(conversation, role, content) do
+    defp insert_message_for_sm(conversation, role, content, metadata \\ %{}) do
       Repo.insert!(
         struct(Message, %{
           conversation_id: conversation.id,
           role: role,
           content: content,
+          metadata: metadata,
           inserted_at: DateTime.utc_now()
         })
       )
@@ -1465,7 +1477,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       insert_message_for_sm(conv, "user", "hello from this conversation")
 
       configured_agent = make_agent_for_routing("HistConv")
-      server_id = "routing_conv_test_:bo:conv:#{conv.id}"
+      server_id = "routing_conv_test_:scope:bo:conv:#{conv.id}"
 
       assert {:ok, server_ref} =
                ServerManager.ensure_server(configured_agent, server_id)
@@ -1484,7 +1496,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       insert_message_for_sm(conv, "user", "person-channel message")
 
       configured_agent = make_agent_for_routing("HistPerson")
-      server_id = "routing_person_test_:bo:person:#{person.id}"
+      server_id = "routing_person_test_:scope:bo:person:#{person.id}"
 
       assert {:ok, server_ref} =
                ServerManager.ensure_server(configured_agent, server_id)
@@ -1495,6 +1507,80 @@ defmodule Zaq.Agent.ServerManagerTest do
       assert Enum.any?(messages, fn m ->
                String.ends_with?(m.content, "person-channel message")
              end)
+    end
+
+    test "injects email history using decoded provider scope on cold spawn" do
+      person = insert_person_for_sm()
+      email_conv = insert_conversation_for_sm(person.id, "email:imap")
+      other_conv = insert_conversation_for_sm(person.id, "mattermost")
+
+      insert_message_for_sm(email_conv, "user", "old email user turn")
+      insert_message_for_sm(email_conv, "assistant", "old email assistant turn")
+      insert_message_for_sm(other_conv, "user", "wrong provider turn")
+
+      configured_agent = make_agent_for_routing("HistEmail")
+      server_id = "routing_email_test_:scope:email%3Aimap:person:#{person.id}"
+
+      assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent, server_id)
+
+      assert {:ok, status} = Jido.AgentServer.status(server_ref)
+      messages = AIContext.to_messages(status.raw_state.context)
+
+      assert Enum.any?(messages, &String.ends_with?(&1.content, "old email user turn"))
+      assert Enum.any?(messages, &String.ends_with?(&1.content, "old email assistant turn"))
+      refute Enum.any?(messages, &String.contains?(&1.content, "wrong provider turn"))
+    end
+
+    test "aliases historical email attachment handles in cold-start context" do
+      person = insert_person_for_sm()
+      email_conv = insert_conversation_for_sm(person.id, "email:imap")
+      canonical = "signed-handle-#{System.unique_integer([:positive])}"
+      server_id = "routing_email_attach_test_:scope:email%3Aimap:person:#{person.id}"
+
+      MaterializationAliases.clear_scope(server_id)
+      on_exit(fn -> MaterializationAliases.clear_scope(server_id) end)
+
+      insert_message_for_sm(email_conv, "user", "see attached", %{
+        "attachments" => [
+          %{
+            "name" => "invoice.pdf",
+            "mime_type" => "application/pdf",
+            "materialization_handle" => canonical,
+            "content" => "bytes",
+            "raw" => %{"token" => "secret"}
+          }
+        ]
+      })
+
+      configured_agent = make_agent_for_routing("HistEmailAttach")
+
+      assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent, server_id)
+
+      assert {:ok, status} = Jido.AgentServer.status(server_ref)
+
+      attachment_message =
+        status.raw_state.context
+        |> AIContext.to_messages()
+        |> Enum.find(&String.contains?(&1.content, "Attachments:"))
+
+      assert attachment_message.content =~ "invoice.pdf"
+      assert attachment_message.content =~ "application/pdf"
+      assert [alias] = Regex.run(~r/mat_[A-Za-z0-9_-]+/, attachment_message.content)
+      refute attachment_message.content =~ canonical
+      refute attachment_message.content =~ "bytes"
+      refute attachment_message.content =~ "secret"
+
+      tool_call = %{
+        id: "call-1",
+        name: "historical_attachment",
+        arguments: %{materialization_handle: alias},
+        action_module: HistoricalAttachmentAction
+      }
+
+      assert {:ok, expanded} =
+               Factory.before_tool_call(tool_call, %{materialization_alias_scope: server_id})
+
+      assert expanded.arguments.materialization_handle == canonical
     end
   end
 

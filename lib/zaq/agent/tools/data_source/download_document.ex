@@ -1,10 +1,10 @@
 defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
   @moduledoc """
-  ReAct tool: downloads datasource document content.
+  ReAct tool: materializes Record content.
 
-  Pass either a `materialization_handle` returned by browse/list/search/get, or a
-  `provider` + `document_id` pair. The provider pair may include `config_id` to select an
-  explicit data-source configuration.
+  Pass either a `materialization_handle` returned by a Record, or a `provider` +
+  `document_id` pair. The provider pair may include `config_id` to select an explicit
+  data-source configuration.
 
   Delegates to Channels through `NodeRouter.dispatch/1`.
   """
@@ -13,7 +13,8 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
             %{
               materialization_handle:
                 Zaq.Materialization.Handle.zoi_type(
-                  description: "Signed materialization handle returned by a record."
+                  description:
+                    "Signed materialization handle returned by any supported unmaterialized Record, including data-source documents and communication-channel attachments."
                 )
                 |> Zoi.optional(),
               provider:
@@ -59,8 +60,9 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
     description: """
     Materialize a record to retrieve its full content.
 
-    Pass either a materialization_handle, or a provider plus document_id. Include config_id
-    when the provider has multiple configurations and a specific source must be used.
+    Pass either a materialization_handle, or a data-source provider plus document_id.
+    Handles can materialize any supported Record, including communication-channel attachments.
+    Include config_id with provider/document_id when a specific data-source config is required.
 
     Returns the normalized record including its materialized content.
     """,
@@ -113,7 +115,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
     Materialization.materialize(
       handle,
       context,
-      "Data source document download failed",
+      "Record materialization failed",
       materialization_options(params)
     )
   end

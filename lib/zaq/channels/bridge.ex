@@ -106,6 +106,8 @@ defmodule Zaq.Channels.Bridge do
       defdelegate resolve_bridge(provider), to: Zaq.Channels.Bridge
       defdelegate fetch_connection_details(provider), to: Zaq.Channels.Bridge
       defdelegate fetch_channel_config(provider), to: Zaq.Channels.Bridge
+      defdelegate fetch_channel_config_by_id(id), to: Zaq.Channels.Bridge
+      defdelegate fetch_connection_details_for_config(config), to: Zaq.Channels.Bridge
       defdelegate fetch_any_channel_config(provider), to: Zaq.Channels.Bridge
 
       defdelegate dispatch_provider_runtime_sync(bridge, config),
@@ -323,12 +325,35 @@ defmodule Zaq.Channels.Bridge do
     end
   end
 
+  @doc "Fetches connection details from an already selected channel config."
+  @spec fetch_connection_details_for_config(map() | nil) :: map()
+  def fetch_connection_details_for_config(nil), do: %{}
+
+  def fetch_connection_details_for_config(config) when is_map(config) do
+    runtime_config = ChannelConfig.to_runtime_config(config)
+
+    %{
+      url: Map.get(runtime_config, :url) || Map.get(runtime_config, "url"),
+      token: Map.get(runtime_config, :token) || Map.get(runtime_config, "token")
+    }
+  end
+
   @doc "Fetches enabled channel config by provider."
   @spec fetch_channel_config(atom() | String.t()) :: {:ok, map()} | {:error, term()}
   def fetch_channel_config(provider) do
     case ChannelConfig.get_by_provider(to_string(provider)) do
       nil -> {:error, {:channel_not_configured, provider}}
       config -> {:ok, normalize_channel_config(config)}
+    end
+  end
+
+  @doc "Fetches enabled channel config by exact ID."
+  @spec fetch_channel_config_by_id(integer() | String.t()) :: {:ok, map()} | {:error, term()}
+  def fetch_channel_config_by_id(id) do
+    case ChannelConfig.get(id) do
+      nil -> {:error, :channel_config_not_found}
+      %{enabled: false} -> {:error, :channel_disabled}
+      config -> {:ok, config |> ChannelConfig.to_runtime_config() |> normalize_channel_config()}
     end
   end
 

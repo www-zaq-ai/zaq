@@ -28,6 +28,13 @@ defmodule Zaq.Channels.EmailBridgeTest do
     end
   end
 
+  defmodule MaterializationAdapterStub do
+    def download_attachment(config, request) do
+      send(self(), {:download_attachment, config, request})
+      Process.get(:email_materialization_download_result, {:ok, "downloaded-bytes"})
+    end
+  end
+
   defmodule MailboxTupleAdapterStub do
     def list_mailboxes(_config) do
       {:ok,
@@ -205,7 +212,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
             }
 
           :deliver_outgoing ->
-            :ok
+            {:ok, %{message_id: "delivered@zaq.test"}}
 
           _ ->
             {:error, :unsupported}
@@ -340,8 +347,197 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert incoming.routing_context.channel_config_id == 42
       assert incoming.metadata["email"]["html_body"] == "<p>hello from imap</p>"
 
-      assert [%{"filename" => "manual.pdf", "download_ref" => "att-1"}] =
-               incoming.metadata["email"]["attachments"]
+      assert incoming.attachments == []
+      refute Map.has_key?(incoming.metadata["email"], "attachments")
+    end
+
+    test "materializes email attachments through configured IMAP adapter" do
+      previous = Application.get_env(:zaq, :channels)
+
+      Application.put_env(:zaq, :channels, %{
+        email: %{adapter: MaterializationAdapterStub}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{id: 3, provider: "email:imap"}
+
+      request = %{
+        "reference" => "email:3:10:42:2.1",
+        "mailbox" => "INBOX",
+        "uid_validity" => 10,
+        "uid" => 42,
+        "section" => "2.1",
+        "name" => "invoice.pdf",
+        "mime_type" => "application/pdf"
+      }
+
+      assert {:ok, %{record: record}} = EmailBridge.materialize_record(config, request, %{})
+      assert record.id == "email:3:10:42:2.1"
+      assert record.content == "downloaded-bytes"
+      assert record.name == "invoice.pdf"
+      assert record.mime_type == "application/pdf"
+      assert record.attributes["encoding"] == "binary"
+
+      assert_received {:download_attachment, ^config, ^request}
+    end
+
+    test "rejects invalid adapter download content" do
+      previous = Application.get_env(:zaq, :channels)
+      Application.put_env(:zaq, :channels, %{email: %{adapter: MaterializationAdapterStub}})
+      Process.put(:email_materialization_download_result, {:ok, :not_binary})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:email_materialization_download_result)
+      end)
+
+      config = %{id: 3, provider: "email:imap"}
+      request = %{"mailbox" => "INBOX", "uid_validity" => 10, "uid" => 42, "section" => "2.1"}
+
+      assert {:error, :invalid_media_content} =
+               EmailBridge.materialize_record(config, request, %{})
+
+      assert_received {:download_attachment, ^config, ^request}
+    end
+
+    test "returns unexpected adapter download result" do
+      previous = Application.get_env(:zaq, :channels)
+      Application.put_env(:zaq, :channels, %{email: %{adapter: MaterializationAdapterStub}})
+      Process.put(:email_materialization_download_result, :unexpected_download_result)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:email_materialization_download_result)
+      end)
+
+      config = %{id: 3, provider: "email:imap"}
+      request = %{"mailbox" => "INBOX", "uid_validity" => 10, "uid" => 42, "section" => "2.1"}
+
+      assert {:error, :unexpected_download_result} =
+               EmailBridge.materialize_record(config, request, %{})
+    end
+
+    test "rejects invalid materialization argument shapes without resolving an adapter" do
+      assert {:error, :invalid_media_request} = EmailBridge.materialize_record(:bad, %{}, %{})
+      assert {:error, :invalid_media_request} = EmailBridge.materialize_record(%{}, :bad, %{})
+      assert {:error, :invalid_media_request} = EmailBridge.materialize_record(%{}, %{}, :bad)
+      refute_received {:download_attachment, _, _}
+    end
+
+    test "returns unsupported for an adapter without attachment downloads" do
+      previous = Application.get_env(:zaq, :channels)
+      Application.put_env(:zaq, :channels, %{email: %{adapter: DynamicAdapterStub}})
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:error, :unsupported} =
+               EmailBridge.materialize_record(
+                 %{provider: "email:imap"},
+                 %{"mailbox" => "INBOX"},
+                 %{}
+               )
+    end
+
+    test "generates attachment id when reference is absent" do
+      previous = Application.get_env(:zaq, :channels)
+      Application.put_env(:zaq, :channels, %{email: %{adapter: MaterializationAdapterStub}})
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{id: 7, provider: "email:imap"}
+      request = %{"channel_config_id" => 7, "uid_validity" => 10, "uid" => 42, "section" => "2.1"}
+
+      assert {:ok, %{record: %{id: "email:7:10:42:2.1"}}} =
+               EmailBridge.materialize_record(config, request, %{})
+    end
+
+    test "accepts string attachment size at the configured limit" do
+      previous = Application.get_env(:zaq, :channels)
+      Application.put_env(:zaq, :channels, %{email: %{adapter: MaterializationAdapterStub}})
+      Process.put(:email_materialization_download_result, {:ok, "1234567"})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:email_materialization_download_result)
+      end)
+
+      config = %{id: 3, provider: "email:imap"}
+      request = %{"size" => "7", "uid_validity" => 10, "uid" => 42, "section" => "2.1"}
+
+      assert {:ok, %{record: %{content: "1234567"}}} =
+               EmailBridge.materialize_record(config, request, %{
+                 config_opts: [max_media_bytes: 7]
+               })
+
+      assert_received {:download_attachment, ^config, ^request}
+    end
+
+    test "ignores invalid attachment size strings" do
+      previous = Application.get_env(:zaq, :channels)
+      Application.put_env(:zaq, :channels, %{email: %{adapter: MaterializationAdapterStub}})
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{id: 3, provider: "email:imap"}
+
+      for size <- ["7bytes", "-1"] do
+        request = %{"size" => size, "uid_validity" => 10, "uid" => 42, "section" => "2.1"}
+
+        assert {:ok, _} =
+                 EmailBridge.materialize_record(config, request, %{
+                   config_opts: [max_media_bytes: 20]
+                 })
+      end
+    end
+
+    test "allows attachment content when no size limit is configured" do
+      previous = Application.get_env(:zaq, :channels)
+      Application.put_env(:zaq, :channels, %{email: %{adapter: MaterializationAdapterStub}})
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:ok, _} =
+               EmailBridge.materialize_record(
+                 %{id: 3, provider: "email:imap"},
+                 %{"size" => 999, "uid_validity" => 10, "uid" => 42, "section" => "2.1"},
+                 %{config_opts: [max_media_bytes: nil]}
+               )
+    end
+
+    test "rejects oversized declared and downloaded attachment content" do
+      previous = Application.get_env(:zaq, :channels)
+      Application.put_env(:zaq, :channels, %{email: %{adapter: MaterializationAdapterStub}})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, :channels, previous)
+        Process.delete(:email_materialization_download_result)
+      end)
+
+      config = %{id: 3, provider: "email:imap"}
+      request = %{"size" => 8, "uid_validity" => 10, "uid" => 42, "section" => "2.1"}
+
+      assert {:error, :media_too_large} =
+               EmailBridge.materialize_record(config, request, %{
+                 config_opts: [max_media_bytes: 7]
+               })
+
+      refute_received {:download_attachment, _, _}
+
+      Process.put(:email_materialization_download_result, {:ok, "12345678"})
+      request = Map.put(request, "size", 7)
+
+      assert {:error, :media_too_large} =
+               EmailBridge.materialize_record(config, request, %{
+                 config_opts: [max_media_bytes: 7]
+               })
+
+      assert_received {:download_attachment, ^config, ^request}
+    end
+
+    test "rejects non-IMAP configs for email attachment materialization" do
+      assert {:error, :invalid_email_attachment_provider} =
+               EmailBridge.materialize_record(%{provider: "email:smtp"}, %{}, %{})
     end
 
     test "dispatches to adapter passed through connection details" do
@@ -961,10 +1157,12 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       refute Enum.any?(email.headers, fn {k, _} -> k in ["In-Reply-To", "References"] end)
+      assert receipt.anchor["in_reply_to"] == nil
+      assert receipt.anchor["references"] == []
     end
 
     test "send_reply with nil in_reply_to omits threading headers" do
@@ -1117,6 +1315,17 @@ defmodule Zaq.Channels.EmailBridgeTest do
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
 
       assert {:error, :imap_unreachable} =
+               EmailBridge.list_mailboxes(%{provider: "email:imap"}, %{})
+    end
+
+    test "falls back to the real IMAP adapter when email config is absent" do
+      previous = Application.get_env(:zaq, :channels)
+      channels = if is_map(previous), do: Map.delete(previous, :email), else: %{}
+      Application.put_env(:zaq, :channels, channels)
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      assert {:error, :invalid_imap_url} =
                EmailBridge.list_mailboxes(%{provider: "email:imap"}, %{})
     end
 

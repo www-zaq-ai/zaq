@@ -10,7 +10,7 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
   alias Zaq.MapUtils
 
   @type_key "communication_media"
-  @locator_fields ~w(provider reference name mime_type media_kind size channel_config_id source_author_id source_channel_id source_message_id)
+  @locator_fields ~w(provider reference name mime_type media_kind size channel_config_id source_author_id source_channel_id source_message_id mailbox uid_validity uid section encoding disposition content_id)
   @option_fields []
 
   @spec issue(atom() | String.t(), String.t(), map(), keyword()) ::

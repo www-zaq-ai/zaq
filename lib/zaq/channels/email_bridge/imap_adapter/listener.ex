@@ -114,7 +114,8 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
            state_adapter(state),
            state.client,
            state.mailbox,
-           &handle_message(state, &1)
+           &handle_message(state, &1),
+           config: state.config
          ) do
       :ok ->
         state
@@ -155,8 +156,12 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Listener do
 
   defp maybe_reenter_idle(state), do: state
 
-  defp safe_fetch_unseen(adapter, client, mailbox, on_message) do
-    adapter.fetch_unseen(client, mailbox, on_message)
+  defp safe_fetch_unseen(adapter, client, mailbox, on_message, opts) do
+    if function_exported?(adapter, :fetch_unseen, 4) do
+      adapter.fetch_unseen(client, mailbox, on_message, opts)
+    else
+      adapter.fetch_unseen(client, mailbox, on_message)
+    end
   rescue
     error -> {:error, {:imap_fetch_failed, Exception.message(error)}}
   catch

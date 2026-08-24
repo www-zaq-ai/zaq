@@ -111,15 +111,51 @@ defmodule Zaq.Channels.CommunicationBridge do
     with :ok <- verified_materialization(opts),
          {:ok, provider} <- request_provider(request),
          {:ok, bridge} <- configured_bridge(provider, opts),
-         {:ok, config} <- Bridge.fetch_channel_config(provider),
+         {:ok, config} <- fetch_materialization_config(provider, request),
          true <- bridge_supports?(bridge, :materialize_record, 3) || {:error, :unsupported} do
       details =
-        provider
-        |> Bridge.fetch_connection_details()
+        config
+        |> materialization_connection_details(provider)
         |> Map.put(:config_opts, opts)
 
       bridge.materialize_record(config, request, details)
     end
+  end
+
+  defp fetch_materialization_config(provider, request) do
+    case request_channel_config_id(request) do
+      nil ->
+        Bridge.fetch_channel_config(provider)
+
+      id ->
+        with {:ok, config} <- Bridge.fetch_channel_config_by_id(id),
+             :ok <- ensure_materialization_provider(config, provider) do
+          {:ok, config}
+        end
+    end
+  end
+
+  defp materialization_connection_details(config, provider) do
+    if Map.get(config, :id) || Map.get(config, "id") do
+      Bridge.fetch_connection_details_for_config(config)
+    else
+      Bridge.fetch_connection_details(provider)
+    end
+  end
+
+  defp request_channel_config_id(request) do
+    case Map.get(request, :channel_config_id) || Map.get(request, "channel_config_id") do
+      value when value in [nil, ""] -> nil
+      value -> value
+    end
+  end
+
+  defp ensure_materialization_provider(config, provider) do
+    config_provider = Map.get(config, :provider) || Map.get(config, "provider")
+
+    if to_string(config_provider) == to_string(provider),
+      do: :ok,
+      else: {:error, :invalid_email_attachment_provider}
   end
 
   defp verified_materialization(opts) do

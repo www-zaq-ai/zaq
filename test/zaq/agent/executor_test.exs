@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.ExecutorTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   doctest Zaq.Agent.Executor
 
@@ -127,9 +128,9 @@ defmodule Zaq.Agent.ExecutorTest do
   @base_incoming %Incoming{content: "q", channel_id: "c", provider: :web}
 
   describe "derive_scope/1" do
-    test "returns bo:conv:<id> when metadata.conversation_id is set on :web provider" do
+    test "returns bo conversation scope when metadata.conversation_id is set on :web provider" do
       incoming = %{@base_incoming | provider: :web, metadata: %{conversation_id: "conv-42"}}
-      assert Executor.derive_scope(incoming) == "bo:conv:conv-42"
+      assert Executor.derive_scope(incoming) == "scope:bo:conv:conv-42"
     end
 
     test "conversation_id takes priority over person for :web provider" do
@@ -140,7 +141,7 @@ defmodule Zaq.Agent.ExecutorTest do
           metadata: %{conversation_id: "conv-99"}
       }
 
-      assert Executor.derive_scope(incoming) == "bo:conv:conv-99"
+      assert Executor.derive_scope(incoming) == "scope:bo:conv:conv-99"
     end
 
     test "ignores conversation_id for non-web providers (falls through to person)" do
@@ -151,7 +152,7 @@ defmodule Zaq.Agent.ExecutorTest do
           metadata: %{conversation_id: "conv-1"}
       }
 
-      assert Executor.derive_scope(incoming) == "mattermost:person:3"
+      assert Executor.derive_scope(incoming) == "scope:mattermost:person:3"
     end
 
     test "empty conversation_id falls through to person for :web" do
@@ -162,21 +163,54 @@ defmodule Zaq.Agent.ExecutorTest do
           metadata: %{conversation_id: ""}
       }
 
-      assert Executor.derive_scope(incoming) == "bo:person:5"
+      assert Executor.derive_scope(incoming) == "scope:bo:person:5"
     end
 
     test "includes channel and person" do
-      assert Executor.derive_scope(%{@base_incoming | person: %{id: 42}}) == "bo:person:42"
+      assert Executor.derive_scope(%{@base_incoming | person: %{id: 42}}) ==
+               "scope:bo:person:42"
     end
 
     test "normalizes mattermost provider" do
       assert Executor.derive_scope(%{@base_incoming | person: %{id: 2}, provider: :mattermost}) ==
-               "mattermost:person:2"
+               "scope:mattermost:person:2"
     end
 
-    test "normalizes colon-containing provider (email:imap → email_imap)" do
+    test "encodes colon-containing providers without losing the canonical value" do
       assert Executor.derive_scope(%{@base_incoming | person: %{id: 5}, provider: :"email:imap"}) ==
-               "email_imap:person:5"
+               "scope:email%3Aimap:person:5"
+
+      assert Executor.derive_scope(%{@base_incoming | person: %{id: 5}, provider: "email:imap"}) ==
+               "scope:email%3Aimap:person:5"
+    end
+
+    test "keeps email:imap distinct from email_imap in serialized scopes" do
+      assert Executor.derive_scope(%{@base_incoming | person: %{id: 5}, provider: :"email:imap"}) ==
+               "scope:email%3Aimap:person:5"
+
+      assert Executor.derive_scope(%{@base_incoming | person: %{id: 5}, provider: :email_imap}) ==
+               "scope:email_imap:person:5"
+    end
+
+    property "provider scopes round-trip through Factory parsing" do
+      check all(
+              provider <-
+                string(:printable, min_length: 1, max_length: 24)
+                |> filter(&valid_provider_scope_input?/1),
+              person_id <- positive_integer()
+            ) do
+        scope =
+          Executor.derive_scope(%{@base_incoming | person: %{id: person_id}, provider: provider})
+
+        assert ["scope", encoded_provider, "person", encoded_person_id] = String.split(scope, ":")
+        refute encoded_provider =~ ":"
+
+        assert Factory.spawn_opts_from_server_id("Agent:#{scope}") == %{
+                 conversation_id: nil,
+                 person_id: encoded_person_id,
+                 channel_type: provider
+               }
+      end
     end
 
     test "falls back to bo:<session_id> when person is nil" do
@@ -238,7 +272,7 @@ defmodule Zaq.Agent.ExecutorTest do
           metadata: %{run_id: ""}
       }
 
-      assert Executor.derive_scope(incoming) == "bo:person:5"
+      assert Executor.derive_scope(incoming) == "scope:bo:person:5"
     end
 
     test "metadata.execution_scope is ignored (no scope backdoor)" do
@@ -248,7 +282,7 @@ defmodule Zaq.Agent.ExecutorTest do
           metadata: %{execution_scope: "workflow:run:injected"}
       }
 
-      assert Executor.derive_scope(incoming) == "bo:person:5"
+      assert Executor.derive_scope(incoming) == "scope:bo:person:5"
     end
   end
 
@@ -310,7 +344,7 @@ defmodule Zaq.Agent.ExecutorTest do
         )
 
       assert %Zaq.Engine.Messages.Outgoing{} = result
-      assert_received {:ensure_server, "answering:bo:person:5"}
+      assert_received {:ensure_server, "answering:scope:bo:person:5"}
     end
 
     test "uses 'anonymous' scope when person and session_id are absent" do
@@ -440,7 +474,7 @@ defmodule Zaq.Agent.ExecutorTest do
         person: %{id: 5}
       }
 
-      assert Executor.derive_scope(incoming) == "email_imap:person:5"
+      assert Executor.derive_scope(incoming) == "scope:email%3Aimap:person:5"
     end
 
     test "system_prompt override replaces configured_agent.job when non-empty binary" do
@@ -730,5 +764,9 @@ defmodule Zaq.Agent.ExecutorTest do
                  materialization_alias_scope: logical_server_id
                })
     end
+  end
+
+  defp valid_provider_scope_input?(provider) do
+    String.valid?(provider) and String.trim(provider) != ""
   end
 end

@@ -596,7 +596,7 @@ defmodule Zaq.Agent.FactoryTest do
 
   describe "spawn_opts_from_server_id/1" do
     test "parses conversation-scoped ids" do
-      assert Factory.spawn_opts_from_server_id("agent:web:conv:123") == %{
+      assert Factory.spawn_opts_from_server_id("agent:scope:web:conv:123") == %{
                conversation_id: "123",
                person_id: nil,
                channel_type: "web"
@@ -604,16 +604,41 @@ defmodule Zaq.Agent.FactoryTest do
     end
 
     test "parses person-scoped ids" do
-      assert Factory.spawn_opts_from_server_id("agent:web:person:42") == %{
+      assert Factory.spawn_opts_from_server_id("agent:scope:web:person:42") == %{
                conversation_id: nil,
                person_id: "42",
                channel_type: "web"
              }
     end
 
+    test "decodes escaped provider scopes before history lookup" do
+      assert Factory.spawn_opts_from_server_id("agent:scope:email%3Aimap:person:5") == %{
+               conversation_id: nil,
+               person_id: "5",
+               channel_type: "email:imap"
+             }
+
+      assert Factory.spawn_opts_from_server_id("agent:scope:email_imap:person:5") == %{
+               conversation_id: nil,
+               person_id: "5",
+               channel_type: "email_imap"
+             }
+    end
+
+    test "parses scoped ids when agent names contain colons" do
+      assert Factory.spawn_opts_from_server_id("Customer:Support:scope:email%3Aimap:conv:abc") ==
+               %{
+                 conversation_id: "abc",
+                 person_id: nil,
+                 channel_type: "email:imap"
+               }
+    end
+
     test "returns empty map for malformed binary ids" do
       assert Factory.spawn_opts_from_server_id("configured_agent_123") == %{}
-      assert Factory.spawn_opts_from_server_id("agent::conv:") == %{}
+      assert Factory.spawn_opts_from_server_id("agent:scope::conv:") == %{}
+      assert Factory.spawn_opts_from_server_id("agent:scope:email%ZZimap:person:5") == %{}
+      assert Factory.spawn_opts_from_server_id("agent:email:imap:person:5") == %{}
     end
 
     test "returns nil for non-binary ids" do

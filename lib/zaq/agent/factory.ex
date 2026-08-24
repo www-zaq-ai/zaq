@@ -146,18 +146,24 @@ defmodule Zaq.Agent.Factory do
   end
 
   def spawn_opts_from_server_id(server_id) when is_binary(server_id) do
-    case String.split(server_id, ":") do
-      [_agent, provider, "conv", id] when provider != "" and id != "" ->
-        %{conversation_id: id, person_id: nil, channel_type: provider}
+    case String.split(server_id, ":") |> Enum.reverse() do
+      [id, "conv", encoded_provider, "scope" | [_agent | _]] when id != "" ->
+        case decode_scope_provider(encoded_provider) do
+          {:ok, provider} -> %{conversation_id: id, person_id: nil, channel_type: provider}
+          :error -> %{}
+        end
 
-      [_agent, provider, "person", id] when provider != "" and id != "" ->
-        %{conversation_id: nil, person_id: id, channel_type: provider}
+      [id, "person", encoded_provider, "scope" | [_agent | _]] when id != "" ->
+        case decode_scope_provider(encoded_provider) do
+          {:ok, provider} -> %{conversation_id: nil, person_id: id, channel_type: provider}
+          :error -> %{}
+        end
 
       # Per-run scope `workflow:run:<id>` (derived by Executor.derive_scope/2 from
       # the incoming's run_id) has no prior conversation/person to load — a
       # workflow-run agent starts fresh. Matched explicitly so this is
       # intentional, not a fall-through.
-      ["" <> _agent, "workflow", "run", _id] ->
+      [_id, "run", "workflow" | [_agent | _]] ->
         %{}
 
       _ ->
@@ -166,6 +172,20 @@ defmodule Zaq.Agent.Factory do
   end
 
   def spawn_opts_from_server_id(_server_id), do: nil
+
+  defp decode_scope_provider(encoded_provider) when is_binary(encoded_provider) do
+    if encoded_provider != "" and valid_percent_encoding?(encoded_provider) do
+      decoded = URI.decode(encoded_provider)
+
+      if decoded == "", do: :error, else: {:ok, decoded}
+    else
+      :error
+    end
+  end
+
+  defp valid_percent_encoding?(value) do
+    not Regex.match?(~r/%(?![0-9A-Fa-f]{2})/, value)
+  end
 
   @doc """
   Sends a query to a running agent server with the configured agent's LLM and tool settings.

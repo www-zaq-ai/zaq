@@ -278,6 +278,20 @@ defmodule Zaq.Channels.ChannelConfig do
     Zaq.Repo.get_by(__MODULE__, provider: provider, enabled: true)
   end
 
+  @doc "Returns a config by primary key, including disabled entries."
+  def get(id) when is_integer(id) and id > 0 do
+    Zaq.Repo.get(__MODULE__, id)
+  end
+
+  def get(id) when is_binary(id) do
+    case Integer.parse(String.trim(id)) do
+      {parsed, ""} when parsed > 0 -> get(parsed)
+      _ -> nil
+    end
+  end
+
+  def get(_id), do: nil
+
   @doc "Returns a config for `provider`, including disabled entries."
   def get_any_by_provider(provider) do
     Zaq.Repo.get_by(__MODULE__, provider: provider)

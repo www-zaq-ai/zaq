@@ -2,6 +2,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Channels.EmailBridge.ImapAdapter.Parser
+  alias Zaq.Contracts.Record
 
   test "uses plain text body for incoming content and preserves html in metadata" do
     payload = %{
@@ -10,7 +11,14 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
       from: %{address: "sender@example.com", name: "Sender"},
       message_id: "<msg@example.com>",
       references: "<root@example.com>",
-      attachments: [%{filename: "report.csv", download_ref: "ref-1"}]
+      attachments: [
+        %Record{
+          id: "email:1:2:3:4",
+          kind: :file,
+          name: "report.csv",
+          materialization_handle: "signed"
+        }
+      ]
     }
 
     incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
@@ -23,8 +31,8 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
     assert incoming.metadata["email"]["thread_key"] == "root@example.com"
     assert incoming.metadata["email"]["html_body"] == "<p>html body</p>"
 
-    assert [%{"filename" => "report.csv", "download_ref" => "ref-1"}] =
-             incoming.metadata["email"]["attachments"]
+    assert [%Record{name: "report.csv", materialization_handle: "signed"}] = incoming.attachments
+    refute Map.has_key?(incoming.metadata["email"], "attachments")
   end
 
   test "extracts text and html parts from raw multipart rfc822" do
@@ -165,6 +173,39 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
     assert incoming.metadata["email"]["reply_from"] == "support@example.com"
   end
 
+  test "uses fetched header-only payload for alias reply identity and threading" do
+    raw_header =
+      [
+        "Delivered-To: alias@example.com",
+        "Message-ID: <HeaderMsg@Example.COM>",
+        "In-Reply-To: <Root@Example.com>",
+        "References: <Root@Example.com>",
+        "Subject: Alias thread",
+        "To: Main Inbox <main@example.com>"
+      ]
+      |> Enum.join("\r\n")
+
+    payload = %{
+      raw_header: raw_header,
+      body_text: "body",
+      from: %{address: "sender@example.com", name: "Sender"},
+      message_id: "<wrong@example.com>",
+      in_reply_to: "<wrong-root@example.com>",
+      references: "<wrong-root@example.com>",
+      subject: "Wrong subject"
+    }
+
+    incoming = Parser.to_incoming(payload, %{}, mailbox: "Support")
+
+    assert incoming.message_id == "<HeaderMsg@Example.COM>"
+    assert incoming.thread_id == "Root@Example.com"
+    assert incoming.metadata["email"]["reply_from"] == "alias@example.com"
+    assert incoming.metadata["email"]["subject"] == "Alias thread"
+    assert incoming.metadata["email"]["headers"]["message_id"] == "<HeaderMsg@Example.COM>"
+    assert incoming.metadata["email"]["headers"]["in_reply_to"] == "<Root@Example.com>"
+    assert incoming.metadata["email"]["headers"]["references"] == "<Root@Example.com>"
+  end
+
   test "supports To fallback variants from payload" do
     cases = [
       {{"Support", "support@example.com"}, "support@example.com"},
@@ -233,14 +274,16 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
     assert incoming.metadata["email"]["reply_from"] == nil
   end
 
-  test "supports sender variants and filters nil attachment fields" do
+  test "supports sender variants and keeps only canonical Record attachments" do
+    record = %Record{id: "email:1:2:3:4", kind: :file, name: "report.csv"}
+
     payload = %{
       body_text: "plain body",
       from: "sender@example.com",
       attachments: [
         %{filename: "report.csv", size: 12},
-        %{"content_type" => "application/pdf", "download_ref" => "ref-2"},
-        %{filename: nil, download_ref: nil}
+        record,
+        %{"content_type" => "application/pdf", "download_ref" => "ref-2"}
       ]
     }
 
@@ -249,11 +292,8 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ParserTest do
     assert incoming.channel_id == "sender@example.com"
     assert incoming.author_name == nil
 
-    assert incoming.metadata["email"]["attachments"] == [
-             %{"filename" => "report.csv", "size" => 12},
-             %{"content_type" => "application/pdf", "download_ref" => "ref-2"},
-             %{}
-           ]
+    assert incoming.attachments == [record]
+    refute Map.has_key?(incoming.metadata["email"], "attachments")
   end
 
   describe "channel-agnostic threading anchor" do

@@ -59,10 +59,12 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
       provider: Map.get(overrides, :provider, :"email:smtp"),
       in_reply_to: Map.get(overrides, :in_reply_to),
       thread_id: Map.get(overrides, :thread_id),
-      metadata: %{
-        "subject" => Map.get(overrides, :subject, "Topic A"),
-        "threading" => threading
-      }
+      metadata:
+        %{
+          "subject" => Map.get(overrides, :subject, "Topic A"),
+          "threading" => threading
+        }
+        |> Map.merge(Map.get(overrides, :metadata, %{}))
     }
   end
 
@@ -184,6 +186,7 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
           outgoing(%{
             provider: :"email:imap",
             in_reply_to: "inbound@sender.test",
+            metadata: %{"email" => %{"reply_from" => "alias@example.com"}},
             threading: %{
               "in_reply_to" => "inbound@sender.test",
               "references" => ["inbound@sender.test"]
@@ -192,6 +195,7 @@ defmodule Zaq.Channels.EmailBridge.ThreadingHeadersTest do
         )
 
       assert payload["subject"] == "Re: Topic A"
+      assert payload["from_email"] == "alias@example.com"
       assert payload["headers"]["In-Reply-To"] == "<inbound@sender.test>"
       assert payload["headers"]["References"] == "<inbound@sender.test>"
       assert payload["headers"]["Message-ID"] == "<new@zaq.local>"

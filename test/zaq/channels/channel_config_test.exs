@@ -130,6 +130,32 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert hd(errors_on(failed_changeset).token) =~ "could not be encrypted"
   end
 
+  test "changeset returns generic error when token encryption fails unexpectedly" do
+    with_encrypted_string_stub(fn ->
+      changeset =
+        ChannelConfig.changeset(%ChannelConfig{}, %{
+          name: "Unexpected Encryption Failure",
+          provider: "mattermost",
+          kind: "retrieval",
+          url: "https://example.com",
+          token: "token-that-must-fail"
+        })
+
+      assert {:error, failed_changeset} = Repo.insert(changeset)
+      assert hd(errors_on(failed_changeset).token) == "could not be encrypted"
+    end)
+  end
+
+  test "changing a loaded config with a non-binary token does not encrypt it" do
+    config = insert_channel_config(%{token: "existing-token"})
+    loaded = Repo.get!(ChannelConfig, config.id) |> Map.put(:token, :unexpected)
+
+    changeset = ChannelConfig.changeset(loaded, %{name: "Updated"})
+
+    assert Ecto.Changeset.get_change(changeset, :token) == :unexpected
+    refute Enum.any?(Map.get(errors_on(changeset), :token, []), &(&1 =~ "could not be encrypted"))
+  end
+
   test "insert returns changeset error when token encryption key is missing" do
     previous_secret_config = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
     Application.delete_env(:zaq, Zaq.System.SecretConfig)
@@ -240,14 +266,15 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert "imap.selected_mailboxes is required" in errors_on(malformed_selected_mailboxes).settings
 
     non_map_settings =
-      ChannelConfig.changeset(%ChannelConfig{}, %{
-        name: "Email IMAP Non Map",
-        provider: "email:imap",
-        kind: "retrieval",
-        token: "imap-secret",
-        enabled: false,
-        settings: "bad"
-      })
+      ChannelConfig.changeset(
+        %ChannelConfig{provider: "email:imap", settings: :unexpected},
+        %{
+          name: "Email IMAP Non Map",
+          kind: "retrieval",
+          token: "imap-secret",
+          enabled: false
+        }
+      )
 
     refute non_map_settings.valid?
     assert "imap.selected_mailboxes is required" in errors_on(non_map_settings).settings
@@ -366,6 +393,12 @@ defmodule Zaq.Channels.ChannelConfigTest do
     refute "email:imap" in result_providers
   end
 
+  test "list_enabled_by_kind/2 excludes disabled configs without provider filter" do
+    insert_channel_config(%{provider: "mattermost", kind: "retrieval", enabled: false})
+
+    assert ChannelConfig.list_enabled_by_kind(:retrieval, nil) == []
+  end
+
   test "list_incoming_routing_configs_for_platform/1 maps email to enabled imap config only" do
     assert {:ok, _smtp} =
              ChannelConfig.upsert_by_provider("email:smtp", %{
@@ -465,6 +498,18 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert nil == ChannelConfig.get_by_channel_id("slack", "chan-disabled")
   end
 
+  test "get/1 returns nil for invalid ids and finds configs by integer or trimmed string id" do
+    config = insert_channel_config(%{provider: "mattermost", enabled: false})
+
+    for id <- ["", " ", "abc", "12x", "0", "-1", nil, :invalid, 0, -1, %{}] do
+      assert ChannelConfig.get(id) == nil
+    end
+
+    assert %ChannelConfig{id: id} = ChannelConfig.get(config.id)
+    assert id == config.id
+    assert %ChannelConfig{id: ^id} = ChannelConfig.get(" #{config.id} ")
+  end
+
   test "jido_chat_settings/1 returns empty map for non-struct config without settings key" do
     assert %{} == ChannelConfig.jido_chat_settings(%{})
   end
@@ -522,6 +567,15 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
     assert %{routing_mode: :none, configured_agent_id: nil} =
              IncomingMessageRouting.get_rule(%{channel_config_id: config.id})
+  end
+
+  test "set_provider_default_agent_id/2 rejects agents without conversations enabled" do
+    config = insert_channel_config(%{provider: "mattermost", settings: %{}})
+    agent = insert_configured_agent(%{conversation_enabled: false})
+
+    assert {:error, changeset} = ChannelConfig.set_provider_default_agent_id(config, agent.id)
+    assert "must be conversation-enabled" in errors_on(changeset).configured_agent_id
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: config.id}) == nil
   end
 
   test "get_provider_default_agent_id/1 returns nil for invalid value" do
@@ -647,27 +701,75 @@ defmodule Zaq.Channels.ChannelConfigTest do
     end
   end
 
-  defp insert_configured_agent do
+  defp insert_configured_agent(overrides \\ %{}) do
     credential =
       SystemConfigFixtures.ai_credential_fixture(%{
         provider: "openai",
         endpoint: "https://api.openai.com/v1"
       })
 
-    {:ok, agent} =
-      Zaq.Agent.create_agent(%{
-        name: "Provider Default Agent #{System.unique_integer([:positive, :monotonic])}",
-        description: "",
-        job: "Route provider traffic",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        enabled_tool_keys: [],
-        conversation_enabled: true,
-        active: true,
-        advanced_options: %{}
-      })
+    attrs =
+      Map.merge(
+        %{
+          name: "Provider Default Agent #{System.unique_integer([:positive, :monotonic])}",
+          description: "",
+          job: "Route provider traffic",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          conversation_enabled: true,
+          active: true,
+          advanced_options: %{}
+        },
+        overrides
+      )
+
+    {:ok, agent} = Zaq.Agent.create_agent(attrs)
 
     agent
+  end
+
+  defp with_encrypted_string_stub(fun) when is_function(fun, 0) do
+    {_, original_binary, original_path} = :code.get_object_code(Zaq.Types.EncryptedString)
+
+    :code.purge(Zaq.Types.EncryptedString)
+    :code.delete(Zaq.Types.EncryptedString)
+
+    Code.compiler_options(ignore_module_conflict: true)
+
+    Code.compile_string("""
+    defmodule Zaq.Types.EncryptedString do
+      use Ecto.Type
+
+      def encrypt(_value), do: {:error, :boom}
+      def decrypt(value), do: {:ok, value}
+      def encrypted?(_value), do: false
+      def type, do: :string
+
+      def cast(nil), do: {:ok, nil}
+      def cast(value) when is_binary(value), do: {:ok, value}
+      def cast(_), do: :error
+
+      def load(value), do: {:ok, value}
+      def dump(nil), do: {:ok, nil}
+      def dump(value) when is_binary(value), do: {:ok, value}
+      def dump(_), do: :error
+    end
+    """)
+
+    Code.compiler_options(ignore_module_conflict: false)
+
+    try do
+      fun.()
+    after
+      :code.purge(Zaq.Types.EncryptedString)
+      :code.delete(Zaq.Types.EncryptedString)
+
+      {:module, Zaq.Types.EncryptedString} =
+        :code.load_binary(Zaq.Types.EncryptedString, original_path, original_binary)
+
+      Code.compiler_options(ignore_module_conflict: false)
+    end
   end
 end

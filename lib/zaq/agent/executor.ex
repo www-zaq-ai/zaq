@@ -63,8 +63,8 @@ defmodule Zaq.Agent.Executor do
      node-internal callers such as `RunAgent`; overrides identity-derived scopes so each
      workflow run gets its own agent server). The caller only carries the run id (and
      step index) as data — this function owns the scope policy.
-  3. `:web` provider + `metadata.conversation_id` — `"bo:conv:<id>"` (BO per-conversation isolation)
-  4. `actor.person.id` — `"<channel>:person:<person_id>"` when present
+  3. `:web` provider + `metadata.conversation_id` — `"scope:bo:conv:<id>"` (BO per-conversation isolation)
+  4. `actor.person.id` — `"scope:<encoded_channel>:person:<person_id>"` when present
   5. `metadata.session_id` — `"bo:session:<session_id>"` when actor person is nil and session ID is a non-empty string
   6. `"anonymous"` — fallback for all other cases
 
@@ -73,12 +73,12 @@ defmodule Zaq.Agent.Executor do
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :web}
       iex> Zaq.Agent.Executor.derive_scope(%{base | metadata: %{conversation_id: "conv-42"}})
-      "bo:conv:conv-42"
+      "scope:bo:conv:conv-42"
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
       iex> Zaq.Agent.Executor.derive_scope(base, %{person: %{id: 7}})
-      "test:person:7"
+      "scope:test:person:7"
 
       iex> alias Zaq.Engine.Messages.Incoming
       iex> base = %Incoming{content: "hi", channel_id: "c1", provider: :test}
@@ -116,12 +116,12 @@ defmodule Zaq.Agent.Executor do
 
   def derive_scope(%Incoming{provider: :web, metadata: %{conversation_id: id}}, _actor)
       when is_binary(id) and id != "",
-      do: "bo:conv:#{id}"
+      do: scoped_id(:web, :conv, id)
 
   def derive_scope(%Incoming{provider: provider} = incoming, actor) do
     case ActorNormalizer.person_id(actor) do
       nil -> derive_scope_without_person(incoming)
-      person_id -> "#{normalize_provider(provider)}:person:#{person_id}"
+      person_id -> scoped_id(provider, :person, person_id)
     end
   end
 
@@ -323,10 +323,18 @@ defmodule Zaq.Agent.Executor do
   def normalize_provider(:web), do: "bo"
 
   def normalize_provider(provider) when is_atom(provider),
-    do: provider |> Atom.to_string() |> String.replace(":", "_")
+    do: Atom.to_string(provider)
 
   def normalize_provider(provider) when is_binary(provider),
-    do: String.replace(provider, ":", "_")
+    do: provider
+
+  defp scoped_id(provider, kind, id) when kind in [:conv, :person] do
+    "scope:#{encode_scope_segment(normalize_provider(provider))}:#{kind}:#{id}"
+  end
+
+  defp encode_scope_segment(value) when is_binary(value) do
+    URI.encode(value, &URI.char_unreserved?/1)
+  end
 
   defp apply_system_prompt_override(configured_agent, opts) do
     case Keyword.get(opts, :system_prompt) do

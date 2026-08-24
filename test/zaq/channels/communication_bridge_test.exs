@@ -231,6 +231,8 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       defdelegate provider_to_bridge_key(provider), to: Zaq.Channels.BridgeBase
       defdelegate resolve_bridge(provider), to: Zaq.Channels.BridgeBase
       defdelegate fetch_connection_details(provider), to: Zaq.Channels.BridgeBase
+      defdelegate fetch_connection_details_for_config(config), to: Zaq.Channels.BridgeBase
+      defdelegate fetch_channel_config_by_id(id), to: Zaq.Channels.BridgeBase
       defdelegate fetch_any_channel_config(provider), to: Zaq.Channels.BridgeBase
       defdelegate dispatch_provider_runtime_sync(bridge, config), to: Zaq.Channels.BridgeBase
       defdelegate capability_snapshot(provider), to: Zaq.Channels.BridgeBase
@@ -294,6 +296,10 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     |> Repo.insert!()
   end
 
+  defp imap_settings do
+    %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+  end
+
   describe "provider normalization and bridge resolution" do
     test "maps provider atom and string to same bridge" do
       assert Bridge.bridge_for(:mattermost) == StubBridge
@@ -331,6 +337,34 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
 
       assert_received {:materialize_record, %{provider: "mattermost"}, ^request, details}
       assert details.url == "https://mattermost.example.com"
+    end
+
+    test "uses signed channel_config_id when present" do
+      exact = ChannelConfig.get_by_provider("mattermost")
+      request = %{provider: "mattermost", reference: "media-1", channel_config_id: exact.id}
+
+      assert {:ok, %{record: %Record{content: "media-bytes"}}} =
+               CommunicationBridge.materialize_record(request, materialization_verified: true)
+
+      assert_received {:materialize_record, config, ^request, details}
+      assert config.id == exact.id
+      assert details.url == exact.url
+    end
+
+    test "rejects disabled exact configs" do
+      config = insert_config("email:imap", %{enabled: false, settings: imap_settings()})
+      request = %{provider: "email:imap", reference: "media-1", channel_config_id: config.id}
+
+      assert {:error, :channel_disabled} =
+               CommunicationBridge.materialize_record(request, materialization_verified: true)
+    end
+
+    test "rejects exact config provider mismatches" do
+      config = insert_config("slack")
+      request = %{provider: "mattermost", reference: "media-1", channel_config_id: config.id}
+
+      assert {:error, :invalid_email_attachment_provider} =
+               CommunicationBridge.materialize_record(request, materialization_verified: true)
     end
 
     test "rejects unverified materialization payloads" do

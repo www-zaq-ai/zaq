@@ -18,6 +18,7 @@ defmodule Zaq.Channels.EmailBridge do
 
   alias Zaq.Channels.{Bridge, ChannelConfig}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.NodeRouter
   alias Zaq.Utils.EmailUtils
@@ -156,6 +157,38 @@ defmodule Zaq.Channels.EmailBridge do
     end)
   end
 
+  @doc "Materializes an email attachment Record through the configured IMAP adapter."
+  @impl true
+  def materialize_record(config, request, details)
+      when is_map(config) and is_map(request) and is_map(details) do
+    with :ok <- ensure_imap_provider(config),
+         :ok <- enforce_media_size(request_size(request), max_media_bytes(details)),
+         {:ok, adapter} <- adapter_for(config_provider(config)),
+         true <- adapter_supports?(adapter, :download_attachment, 2) || {:error, :unsupported},
+         {:ok, content} when is_binary(content) <- adapter.download_attachment(config, request),
+         :ok <- enforce_media_size(byte_size(content), max_media_bytes(details)) do
+      {:ok,
+       %{
+         record: %Record{
+           id: request_value(request, :reference) || attachment_id(request),
+           kind: :file,
+           content: content,
+           name: request_value(request, :name),
+           mime_type: request_value(request, :mime_type) || "application/octet-stream",
+           size: byte_size(content),
+           attributes: materialized_attachment_attributes(request)
+         }
+       }}
+    else
+      {:ok, _other} -> {:error, :invalid_media_content}
+      {:error, reason} -> {:error, reason}
+      false -> {:error, :unsupported}
+      other -> {:error, other}
+    end
+  end
+
+  def materialize_record(_config, _request, _details), do: {:error, :invalid_media_request}
+
   @doc """
   Delivers `%Outgoing{}` as an email to `outgoing.channel_id` (the recipient address).
 
@@ -255,11 +288,15 @@ defmodule Zaq.Channels.EmailBridge do
 
   defp adapter_for(provider) do
     with key when not is_nil(key) <- provider_key(provider),
-         adapter when is_atom(adapter) <-
+         adapter when is_atom(adapter) and not is_nil(adapter) <-
            Application.get_env(:zaq, :channels, %{}) |> get_in([key, :adapter]) do
       {:ok, adapter}
     else
-      _ -> {:error, {:unsupported_provider, provider}}
+      nil when provider in ["email:imap", :"email:imap", :email] ->
+        {:ok, Zaq.Channels.EmailBridge.ImapAdapter}
+
+      _ ->
+        {:error, {:unsupported_provider, provider}}
     end
   end
 
@@ -268,6 +305,12 @@ defmodule Zaq.Channels.EmailBridge do
   end
 
   defp provider_key(provider), do: Bridge.provider_to_bridge_key(provider)
+
+  defp config_provider(config), do: Map.get(config, :provider) || Map.get(config, "provider")
+
+  defp adapter_supports?(adapter, fun, arity) do
+    Code.ensure_loaded?(adapter) and function_exported?(adapter, fun, arity)
+  end
 
   # person is resolved by Engine before routing to the final destination.
   defp actor_from_incoming(%Incoming{} = incoming) do
@@ -525,5 +568,74 @@ defmodule Zaq.Channels.EmailBridge do
 
   defp normalize_imap_config(config) when is_map(config) do
     {:ok, ImapConfigHelpers.normalize_bridge_config(config)}
+  end
+
+  defp ensure_imap_provider(config) do
+    if config_provider(config) == "email:imap",
+      do: :ok,
+      else: {:error, :invalid_email_attachment_provider}
+  end
+
+  defp request_value(request, key),
+    do: Map.get(request, key) || Map.get(request, Atom.to_string(key))
+
+  defp attachment_id(request) do
+    [
+      "email",
+      request_value(request, :channel_config_id),
+      request_value(request, :uid_validity),
+      request_value(request, :uid),
+      request_value(request, :section)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(":")
+  end
+
+  defp materialized_attachment_attributes(request) do
+    %{
+      "source_type" => "communication_media",
+      "source" => "email",
+      "provider" => "email:imap",
+      "source_id" => request_value(request, :reference),
+      "mailbox" => request_value(request, :mailbox),
+      "message_uid" => request_value(request, :uid),
+      "uid_validity" => request_value(request, :uid_validity),
+      "mime_section" => request_value(request, :section),
+      "disposition" => request_value(request, :disposition),
+      "content_id" => request_value(request, :content_id),
+      "channel_config_id" => request_value(request, :channel_config_id),
+      "encoding" => "binary"
+    }
+    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+    |> Map.new()
+  end
+
+  defp request_size(request) do
+    case request_value(request, :size) do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_binary(value) -> parse_non_negative_int(value)
+      _ -> nil
+    end
+  end
+
+  defp parse_non_negative_int(value) do
+    case Integer.parse(value) do
+      {parsed, ""} when parsed >= 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp enforce_media_size(nil, _max_bytes), do: :ok
+  defp enforce_media_size(_size, nil), do: :ok
+  defp enforce_media_size(size, max_bytes) when size <= max_bytes, do: :ok
+  defp enforce_media_size(_size, _max_bytes), do: {:error, :media_too_large}
+
+  defp max_media_bytes(details) do
+    details
+    |> Map.get(:config_opts, [])
+    |> Keyword.get(
+      :max_media_bytes,
+      Application.get_env(:zaq, :message_trace_artifact_max_bytes, 100 * 1024 * 1024)
+    )
   end
 end

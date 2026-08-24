@@ -3,6 +3,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
 
   alias Mail
   alias Zaq.Channels.EmailBridge.ImapAdapter.Threading
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Utils.EmailUtils
 
@@ -11,7 +12,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
 
   def to_incoming(raw_email, config, opts) when is_map(raw_email) and is_list(opts) do
     mailbox = Keyword.get(opts, :mailbox)
-    parsed_email = parse_email(maybe_string(get(raw_email, "raw_rfc822", :raw_rfc822)))
+    parsed_email = parse_email(parsed_email_source(raw_email))
     bodies = extract_bodies(raw_email, parsed_email)
     headers = extract_headers(raw_email, parsed_email)
     subject = extract_subject(raw_email, parsed_email)
@@ -31,9 +32,9 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
       thread_id: thread_key,
       message_id: message_id,
       provider: :"email:imap",
+      attachments: attachments(raw_email),
       metadata:
         build_metadata(
-          raw_email,
           mailbox,
           subject,
           headers,
@@ -66,16 +67,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
       end
   end
 
-  defp build_metadata(
-         raw_email,
-         mailbox,
-         subject,
-         headers,
-         thread_id,
-         thread_key,
-         reply_from,
-         html_body
-       ) do
+  defp build_metadata(mailbox, subject, headers, thread_id, thread_key, reply_from, html_body) do
     %{
       "subject" => subject,
       "email" => %{
@@ -85,8 +77,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
         "html_body" => html_body,
         "thread_id" => thread_id,
         "thread_key" => thread_key,
-        "headers" => headers,
-        "attachments" => attachment_refs(raw_email)
+        "headers" => headers
       }
     }
     |> put_thread_anchor(headers)
@@ -209,6 +200,17 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
     _ -> :error
   end
 
+  defp parsed_email_source(raw_email) do
+    maybe_string(get(raw_email, "raw_rfc822", :raw_rfc822)) ||
+      raw_header_source(get(raw_email, "raw_header", :raw_header))
+  end
+
+  defp raw_header_source(header) when is_binary(header) and header != "" do
+    header <> "\r\n\r\n"
+  end
+
+  defp raw_header_source(_header), do: nil
+
   defp normalize_line_endings(raw_email) do
     if String.contains?(raw_email, "\r\n") do
       raw_email
@@ -260,20 +262,11 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
 
   defp normalize_email(_), do: nil
 
-  defp attachment_refs(raw_email) do
+  defp attachments(raw_email) do
     raw_email
     |> get("attachments", :attachments)
     |> List.wrap()
-    |> Enum.map(fn attachment ->
-      %{
-        "filename" => get(attachment, "filename", :filename),
-        "content_type" => get(attachment, "content_type", :content_type),
-        "size" => get(attachment, "size", :size),
-        "download_ref" => get(attachment, "download_ref", :download_ref)
-      }
-      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-      |> Map.new()
-    end)
+    |> Enum.filter(&match?(%Record{}, &1))
   end
 
   defp get(map, string_key, atom_key) when is_map(map) do

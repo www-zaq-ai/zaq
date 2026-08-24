@@ -345,7 +345,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     # distinct spawned servers — different names, so they cannot collide.
     assert [x_server] = server_ids_for(agent_x.name)
     assert [y_server] = server_ids_for(agent_y.name)
-    assert x_server == "#{agent_x.name}:bo:person:7"
+    assert x_server == "#{agent_x.name}:scope:bo:person:7"
     assert x_server != y_server
   end
 
