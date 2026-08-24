@@ -337,7 +337,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
                  adapter: Zaq.Channels.EmailBridge.ImapAdapter
                })
 
-      assert incoming.content == "hello from imap"
+      assert incoming.content == "Subject: Hello\n\nhello from imap"
       assert incoming.channel_id == "alice@example.com"
       assert incoming.author_id == "alice@example.com"
       assert incoming.author_name == "Alice"
