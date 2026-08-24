@@ -2,11 +2,14 @@ defmodule Zaq.Channels.EmailBridge do
   @moduledoc """
   Bridge for the email channel.
 
-  Delivers `%Outgoing{}` via SMTP using `Zaq.Channels.EmailBridge.SmtpSender`.
-  Connection details are not required — SMTP settings are read from
+  Handles IMAP ingress, SMTP delivery, and lazy IMAP attachment materialization.
+  Outbound `%Outgoing{}` values are delivered via
+  `Zaq.Channels.EmailBridge.SmtpSender`; SMTP settings are read from
   `channel_configs.settings` under provider `email:smtp`.
 
-  `to_internal/2` is a stub for future inbound email parsing.
+  Inbound `email:imap` payloads are normalized by the configured adapter into
+  `%Incoming{}` values, including lazy attachment `Record`s in
+  `Incoming.attachments`.
   """
 
   @behaviour Zaq.Channels.Bridge

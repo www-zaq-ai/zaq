@@ -30,7 +30,7 @@ lib/
 │   ├── agent/            # RAG, LLM, answering, retrieval
 │   ├── channels/         # Shared infra + adapter implementations
 │   │   ├── ingestion/    # Google Drive, SharePoint (not yet implemented)
-│   │   └── retrieval/    # Mattermost ✅, Slack/Email planned
+│   │   └── retrieval/    # Mattermost, Email; Slack planned
 │   ├── embedding/        # Embedding client (standalone)
 │   ├── engine/           # Orchestrator — adapter contracts + supervisors + Conversations context
 │   ├── ingestion/        # Document processing, chunking, Oban jobs
@@ -56,7 +56,7 @@ lib/
 |---|---|
 | `accounts` | Users, roles, authentication |
 | `agent` | LLM calls, query rewriting, answering, prompt security |
-| `channels` | Shared infra, channel configs, Mattermost adapter |
+| `channels` | Shared infra, channel configs, Mattermost and Email adapters |
 | `embedding` | Standalone embedding HTTP client |
 | `engine` | Adapter contracts, supervisors, conversations |
 | `ingestion` | Document processing, chunking, Oban jobs, hybrid search |

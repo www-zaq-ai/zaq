@@ -42,9 +42,14 @@ Before writing any new agent-service code, verify which entry point already cove
 
 If the existing entry point does not cover your case, **extend it** — do not create a parallel path.
 
-Datasource file tools may return records with signed `materialization_handle` values. Tools
-that need document content should redeem those handles through `Zaq.Materialization` rather
-than accepting records with embedded events or constructing cross-service events inline.
+Datasource file tools and communication attachments may return records with signed
+`materialization_handle` values. Tools that need content should redeem those
+handles through `Zaq.Materialization` rather than accepting records with embedded
+events or constructing cross-service events inline. For communication media,
+including IMAP email attachments, persisted conversation history stores
+descriptors and signed handles, not bytes. Agent context may expose server-scoped
+materialization aliases; tool calls expand those aliases and materialize only the
+requested record.
 
 ---
 

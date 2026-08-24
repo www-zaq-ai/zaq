@@ -57,8 +57,8 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 │  │ Channels │  │  Back Office (LiveView)      │  │
 │  │          │  │                              │  │
 │  │Mattermost│  │ Admin panel                  │  │
-│  │ Slack *  │  │ Ontology management          │  │
-│  │ Email *  │  │ Document management          │  │
+│  │ Email    │  │ Ontology management          │  │
+│  │ Slack *  │  │ Document management          │  │
 │  └──────────┘  └──────────────────────────────┘  │
 │                                                  │
 │  * planned                                       │
@@ -72,7 +72,7 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 | **Engine**    | Central orchestrator. Sessions, ontology, API routing, conversation workflows. |
 | **Agent**     | AI layer. RAG retrieval, LLM interaction, classifier, knowledge gap.           |
 | **Ingestion** | Document processing pipeline. Chunking, embedding generation, PGVector writes. |
-| **Channels**  | Multi-channel communication adapter. Currently supports Mattermost.            |
+| **Channels**  | Multi-channel communication adapter. Supports Mattermost and Email via IMAP/SMTP. |
 | **BO**        | Back Office admin panel built with Phoenix LiveView.                           |
 
 ### Data Layer

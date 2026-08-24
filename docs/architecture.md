@@ -22,8 +22,8 @@ role-based configuration.
 │  │ Channels │  │  Back Office (LiveView)      │  │
 │  │          │  │                              │  │
 │  │Mattermost│  │ Admin panel                  │  │
-│  │ Slack *  │  │ Document management          │  │
-│  │ Email *  │  │ Telemetry dashboards         │  │
+│  │ Email    │  │ Document management          │  │
+│  │ Slack *  │  │ Telemetry dashboards         │  │
 │  └──────────┘  └──────────────────────────────┘  │
 │  * planned                                       │
 └──────────────────────────────────────────────────┘

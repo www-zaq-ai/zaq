@@ -61,9 +61,16 @@ Locator fields include `provider`, `reference`, optional display metadata
 `source_channel_id`, `source_message_id`). The handler validates the current
 actor against `source_author_id` unless the trusted runtime context sets
 `skip_permissions: true`, then dispatches the generic `:materialize_record`
-Channels action. The remaining provenance fields are signed with the handle so
-future redemption code can validate source config/channel/message scope or route
-more specifically without trusting model-supplied arguments.
+Channels action. Signed provenance is available to bridges for exact source
+routing and validation; callers cannot override it with model-supplied
+arguments.
+
+IMAP email attachments use the same `communication_media` materializer. Their
+locator additionally binds `mailbox`, `uid_validity`, `uid`, MIME `section`, and
+transfer `encoding`. Email redemption routes to the exact enabled
+`channel_config_id`, verifies it is an `email:imap` config, rechecks current
+`UIDVALIDITY`, fetches one `BODY.PEEK[section]`, decodes supported transfer
+encodings, and returns a materialized file `Record`.
 
 ## Extension Rules
 

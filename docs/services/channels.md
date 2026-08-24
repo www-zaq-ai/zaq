@@ -24,7 +24,7 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters          |
 | `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources   |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
-| `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email (SMTP) delivery                |
+| `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email IMAP ingress, SMTP delivery, and attachment materialization |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
 | `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | DynamicSupervisor — process lifecycle           |
 | `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs                 |
@@ -132,7 +132,7 @@ defstruct [
 
 ### Communication media attachments
 
-JidoChat bridges map inbound media to lazy `Zaq.Contracts.Record` values in
+Communication bridges map inbound media to lazy `Zaq.Contracts.Record` values in
 `Incoming.attachments`. Persisted metadata stores the `Record.metadata/1` view:
 canonical JSON-safe descriptor fields, the signed `materialization_handle`, and
 provider-specific JSON-safe `attributes`. Attachment bytes (`content`), raw
@@ -148,15 +148,18 @@ event actor's matching transport ID unless trusted internal code explicitly sets
 
 The handle also carries signed source provenance such as `channel_config_id`,
 `source_channel_id`, and `source_message_id` when the adapter provides them.
-Current fetching routes by provider, while preserving these values lets future
-code validate or route by the exact source config/channel/message without
-trusting model-visible attachment metadata.
+Bridges may use those signed fields for exact source routing. IMAP attachment
+redemption requires the exact enabled `email:imap` `channel_config_id`, then
+rechecks `UIDVALIDITY` before fetching the requested MIME section.
 
 When an agent accesses a persisted attachment, `CommunicationBridge` uses the
-verified request's provider to route to the correct bridge, and `JidoChatBridge`
-calls the provider adapter's `fetch_media/2`. The 100 MiB default byte limit is configurable through
-`:message_trace_artifact_max_bytes`; communication media without a known declared
-size, or with a declared size above that limit, is rejected before provider fetch.
+verified request's provider and, when present, exact config id to route to the
+correct bridge. Jido chat providers call their adapter's `fetch_media/2`; email
+calls `EmailBridge.materialize_record/3`, which delegates to
+`ImapAdapter.download_attachment/2`. The 100 MiB default byte limit is
+configurable through `:message_trace_artifact_max_bytes`; declared sizes above
+that limit are rejected before provider fetch and downloaded bytes are checked
+again before returning content.
 
 ---
 
@@ -553,11 +556,18 @@ Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 ## Email Bridge
 
-`Zaq.Channels.EmailBridge` delivers `%Outgoing{}` via SMTP using `Zaq.Channels.EmailBridge.SmtpSender` (Swoosh/Mailer; SSL/STARTTLS, `verify_peer`/`verify_none`, custom CA cert path; password decrypted via `Zaq.Types.EncryptedString.decrypt/1`). Connection details are not required — SMTP settings are read from `channel_configs.settings` for provider `"email:smtp"`.
+`Zaq.Channels.EmailBridge` owns email communication behavior: IMAP listener
+ingress, SMTP delivery, and lazy attachment materialization. SMTP sends use
+`Zaq.Channels.EmailBridge.SmtpSender` (Swoosh/Mailer; SSL/STARTTLS,
+`verify_peer`/`verify_none`, custom CA cert path; password decrypted via
+`Zaq.Types.EncryptedString.decrypt/1`). Connection details are not required for
+outbound sends — SMTP settings are read from `channel_configs.settings` for
+provider `"email:smtp"`.
 
 - `send_reply/2` — sends to `outgoing.channel_id` (the recipient address). Subject and html_body are read from `outgoing.metadata` (supports both atom and string keys).
 - `from_listener/3` — generic sink callback for inbound email listeners; orchestration is bridge-owned.
 - `to_internal/2` — resolves the provider adapter and delegates payload normalization to the adapter.
+- `materialize_record/3` — materializes lazy IMAP attachment records from the exact source config.
 - `start_runtime/1` and `stop_runtime/1` — resolve adapter runtime specs and delegate runtime lifecycle to `Channels.Supervisor`.
 
 ### Email IMAP Adapter
@@ -568,10 +578,17 @@ Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 - Config shape: reads IMAP values from top-level config and `settings["imap"]` (`url`, `username`, `token`/`password`, `port`, `ssl`, `ssl_depth`, `timeout`, `idle_timeout`, `poll_interval`, `mark_as_read`, `load_initial_unread`, `selected_mailboxes`).
 - Mailbox selection: if `selected_mailboxes` is empty, runtime can start but no listener children are created, so no inbound messages are consumed.
 - Lifecycle: listener boot is `:connect -> optional initial unread fetch -> IDLE`; each `:idle_notify` fetches unseen messages, dispatches sink callback, optionally marks as read, then re-enters IDLE.
+- Ingress fetch shape: metadata fetch requests `UID`, `ENVELOPE`, `BODYSTRUCTURE`, and `BODY.PEEK[HEADER]`. It does not fetch full `RFC822` and does not fetch attachment bytes during ingress.
+- Body loading: after `BODYSTRUCTURE` parsing, the adapter fetches only the selected plain-text and HTML body sections with `BODY.PEEK[section]`, then decodes transfer encoding and charset for message content.
+- Attachments: MIME parts that are explicit attachments, filename-bearing inline parts, or filename-bearing textual parts become lazy `Record` values in `Incoming.attachments`. Attachment bytes remain on the IMAP server until the signed handle is redeemed.
+- Attachment identity: email attachment handles bind `provider: "email:imap"`, `channel_config_id`, `mailbox`, `uid_validity`, `uid`, `section`, transfer `encoding`, `source_author_id`, and display metadata such as name, MIME type, content id, and size.
+- Attachment redemption: `CommunicationMedia` verifies the signed handle and actor, dispatches `:materialize_record`, and `EmailBridge` requires an enabled exact `email:imap` config. `ImapAdapter.download_attachment/2` validates locator fields, rechecks current `UIDVALIDITY`, fetches one `BODY.PEEK[section]`, decodes `base64` or quoted-printable bodies, and returns a materialized file `Record`.
+- Attachment failures: deleted/disabled configs, provider mismatches, stale `UIDVALIDITY`, invalid or missing MIME sections, decode failures, and size-limit violations surface as materialization errors.
 - Error handling: connect/fetch/IDLE re-entry failures and IMAP client exits are logged, client state is cleared, and reconnect is scheduled with `poll_interval` fallback (`30_000ms` default).
 - IDLE timeout: `idle_timeout` defaults to `1_500_000ms` (25 minutes) when missing/invalid and is reused for each IDLE re-entry.
 - Security: IMAP auth uses stored connector credentials (encrypted `channel_configs.token`), TLS is on by default (`ssl != false`), and logs avoid credential values.
 - Security: parser stores `incoming.metadata["email"]["html_body"]` as raw, untrusted email HTML for fidelity. Renderers must treat it as untrusted content and only display it through explicit sanitization or strict isolation/sandboxing.
+- Security: filenames, MIME types, text attachments, and HTML email content are attacker-controlled provider input. Treat materialized bytes and metadata as untrusted unless a downstream sanitizer or parser explicitly validates them.
 
 #### Email Threading Semantics
 
@@ -703,7 +720,7 @@ On startup, `load_initial_listeners/0` queries `ChannelConfig.list_enabled_by_ki
 | Field      | Type            | Notes                                                                                                     |
 | ---------- | --------------- | --------------------------------------------------------------------------------------------------------- |
 | `name`     | string          | Human label                                                                                               |
-| `provider` | string          | One of: `mattermost`, `slack`, `teams`, `google_drive`, `sharepoint`, `email:smtp`, `telegram`, `discord` |
+| `provider` | string          | One of: `mattermost`, `slack`, `teams`, `google_drive`, `sharepoint`, `email:imap`, `email:smtp`, `telegram`, `discord` |
 | `kind`     | string          | `"ingestion"` or `"retrieval"`                                                                            |
 | `url`      | string          | Base URL for the platform API                                                                             |
 | `token`    | EncryptedString | Bot token — stored encrypted via `Zaq.Types.EncryptedString`                                              |
@@ -775,7 +792,7 @@ When `list_active_by_config/1` returns non-empty results, the listener is starte
 - Communication bridge helpers with full provider API: `send_typing`, `add_reaction`, `remove_reaction`, `subscribe_thread_reply`, `unsubscribe_thread_reply`, `sync_config_runtime`, `test_connection`
 - `JidoChatBridge` with ingress via `from_listener` / `sink_mfa`, outbound via `send_reply`, thread watch management, configurable ingress modes, and Oban-based on_reply dispatch
 - `JidoChatBridge.State` GenServer with serialized message processing, config refresh preserving runtime state, and full reaction/typing delegation
-- `EmailBridge` for SMTP delivery
+- `EmailBridge` for IMAP ingress, SMTP delivery, and lazy email attachment materialization
 - `WebBridge` for LiveView sessions via PubSub (with status callback support)
 - `Supervisor` with ETS-backed runtime tracking and bootstrap on startup
 - `ChannelConfig` with encrypted token storage, jido_chat settings helpers, and full query API
