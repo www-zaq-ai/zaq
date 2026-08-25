@@ -28,7 +28,7 @@
     }
   ],
   "priority": 0,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8o8] Harden Storage path and Disk ACLs",
   "type": "task",
   "updated_at": "2026-08-25T16:32:16Z"
