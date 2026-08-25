@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-8o8.7"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-8o8.10"
+  ],
   "created": "2026-08-25T07:37:31Z",
   "description": "Route Disk to the data-source provider screen, show Storage base_path, and manage ChannelConfig-backed volume declarations with add/edit/delete and enable gating.",
   "id": "zaq-8o8.9",
