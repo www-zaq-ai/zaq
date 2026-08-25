@@ -106,7 +106,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     nodes_list = Map.get(steps, "nodes", [])
     edges_list = Map.get(steps, "edges", [])
 
-    with :ok <- validate_keys(steps),
+    with :ok <- validate_run_id(run_id),
+         :ok <- validate_keys(steps),
          :ok <- validate_non_empty(nodes_list),
          {:ok, enriched_nodes} <- enrich_nodes(nodes_list),
          {:ok, node_map} <- build_node_map(enriched_nodes, run_id),
@@ -118,6 +119,12 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   def build(_, _), do: {:error, :invalid_steps}
 
   # --- Private ---
+
+  # Every node is threaded through `StepRunner`, which keys its `StepRun` rows and its
+  # cascade on the run. A DAG without one is not executable, so it is rejected here
+  # rather than silently built into nodes that persist nothing.
+  defp validate_run_id(run_id) when is_binary(run_id), do: :ok
+  defp validate_run_id(_run_id), do: {:error, :missing_run_id}
 
   defp validate_keys(steps) do
     if Map.has_key?(steps, "nodes") and Map.has_key?(steps, "edges") do
@@ -174,26 +181,39 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   defp resolve_module(module_string), do: Action.resolve(module_string)
 
   @doc """
-  Wraps an action module in a Runic `ActionNode`. With a binary `run_id` the node is
-  wrapped in `StepRunner` (writes a `StepRun` row per execution); otherwise the bare
-  module is used. Public so `MapNodeBuilder` builds the map's aggregate `MapCollect`
-  node the same way as a regular node.
+  Wraps an action module in a Runic `ActionNode` threaded through `StepRunner`, which
+  writes a `StepRun` row per execution and resolves the node's `{{...}}` references
+  before the action is called. Public so `MapNodeBuilder` builds the map's aggregate
+  `MapCollect` node the same way as a regular node.
+
+  `run_id` is required: there is one way to build an executable node, so a node
+  cannot exist that skips persistence or runs on unresolved params.
   """
   def build_action_node(mod, params, name, step_index, run_id) when is_binary(run_id) do
-    wrapper_params =
-      Map.merge(params, %{
-        wrapped_module: mod,
-        run_id: run_id,
-        step_name: name,
-        step_index: step_index,
-        __placeholder_keys__: placeholder_keys(params)
-      })
-
-    ActionNode.new(StepRunner, wrapper_params, name: node_atom(name), max_retries: 0)
+    ActionNode.new(StepRunner, wrapper_params(mod, params, name, step_index, run_id),
+      name: node_atom(name),
+      max_retries: 0
+    )
   end
 
-  def build_action_node(mod, params, name, _step_index, _run_id) do
-    ActionNode.new(mod, params, name: node_atom(name))
+  @doc """
+  The `StepRunner` wrapper params for one step: the action's own params plus the
+  plumbing `StepRunner` reads off them (`@wrapper_keys` there strips it all back out
+  before the action is called).
+
+  Public because a `map` fork sub-step is threaded through `StepRunner` without an
+  `ActionNode` around it — `MapNodeBuilder.build_fork_spec/4` needs the same map,
+  not a node. One producer, so a key added here cannot be missed there.
+  """
+  @spec wrapper_params(module(), map(), String.t(), non_neg_integer(), String.t()) :: map()
+  def wrapper_params(mod, params, step_name, step_index, run_id) do
+    Map.merge(params, %{
+      wrapped_module: mod,
+      run_id: run_id,
+      step_name: step_name,
+      step_index: step_index,
+      __placeholder_keys__: placeholder_keys(params)
+    })
   end
 
   # Which static params carry a `{{...}}` token, scanned once here rather than on

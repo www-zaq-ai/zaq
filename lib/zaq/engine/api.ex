@@ -573,6 +573,19 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  # `%{workflow_id: term(), input: map()}` — derives a workflow's trigger input
+  # contract. Handled here so the workflow read and the derivation stay on the
+  # Engine node; only the derived contract map crosses the boundary.
+  def handle_event(%Event{} = event, :workflow_input_contract, _context) do
+    case event.request do
+      %{workflow_id: workflow_id, input: input} ->
+        %{event | response: Workflows.input_contract(workflow_id, input)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :rate_message, _context) do
     case event.request do
       %{message_ref: message_ref, rater_attrs: rater_attrs} when is_map(rater_attrs) ->

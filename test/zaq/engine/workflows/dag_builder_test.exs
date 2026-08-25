@@ -1,8 +1,50 @@
 defmodule Zaq.Engine.Workflows.DagBuilderTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: true
   use ExUnitProperties
 
+  alias Jido.Runic.ActionNode
+  alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.DagBuilder
+  alias Zaq.Engine.Workflows.StepRunner
+
+  setup do
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
+    :ok
+  end
+
+  # `build/2` requires a run: every action node is threaded through `StepRunner`,
+  # which keys its `StepRun` rows on it. A structural assertion only needs the id to
+  # be a binary, so it uses a generated one and never touches the database.
+  defp run_id, do: Ecto.UUID.generate()
+
+  # A test that actually *reacts* over the DAG runs `StepRunner` for real, so it needs
+  # a persisted run for the `StepRun` rows to hang off.
+  defp live_run_id do
+    {:ok, wf} =
+      Workflows.create_workflow(%{
+        name: "DagBuilder Test Workflow #{System.unique_integer([:positive])}",
+        status: "draft",
+        nodes: [
+          %{
+            name: "n",
+            type: "action",
+            module: "Zaq.Engine.Workflows.Test.OkAction",
+            params: %{},
+            index: 0
+          }
+        ],
+        edges: []
+      })
+
+    {:ok, run} =
+      Workflows.create_run(wf, %{
+        "request" => nil,
+        "assigns" => %{"trigger_type" => "manual"},
+        "trace_id" => Ecto.UUID.generate()
+      })
+
+    run.id
+  end
 
   @fetch_module "Zaq.Engine.Workflows.Test.InboxWithResults"
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
@@ -104,7 +146,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
 
     test "gender=male: C runs (receives person_name, not name); F is pruned; run completes" do
-      {:ok, dag} = DagBuilder.build(user_scenario_steps("male"))
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("male"), run_id: live_run_id())
       result = Runic.Workflow.react_until_satisfied(dag, %{})
       productions = Runic.Workflow.raw_productions(result)
 
@@ -116,7 +158,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
 
     test "gender=female: F runs (receives first_name, not name); C is pruned; run completes" do
-      {:ok, dag} = DagBuilder.build(user_scenario_steps("female"))
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("female"), run_id: live_run_id())
       result = Runic.Workflow.react_until_satisfied(dag, %{})
       productions = Runic.Workflow.raw_productions(result)
 
@@ -128,7 +170,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
 
     test "gender=other: neither C nor F runs; run still completes without error" do
-      {:ok, dag} = DagBuilder.build(user_scenario_steps("other"))
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("other"), run_id: live_run_id())
       result = Runic.Workflow.react_until_satisfied(dag, %{})
       productions = Runic.Workflow.raw_productions(result)
 
@@ -137,14 +179,14 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
 
     test "mapping isolation: C receives person_name but NOT the raw name key" do
-      {:ok, dag} = DagBuilder.build(user_scenario_steps("male"))
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("male"), run_id: live_run_id())
 
       # RequirePersonName.run/2 raises if it receives :name — test passes only if mapping isolated.
       assert %Runic.Workflow{} = Runic.Workflow.react_until_satisfied(dag, %{})
     end
 
     test "mapping isolation: F receives first_name but NOT the raw name key" do
-      {:ok, dag} = DagBuilder.build(user_scenario_steps("female"))
+      {:ok, dag} = DagBuilder.build(user_scenario_steps("female"), run_id: live_run_id())
       assert %Runic.Workflow{} = Runic.Workflow.react_until_satisfied(dag, %{})
     end
   end
@@ -219,7 +261,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
 
     test "overdue date (term-order trap: 2020-12-31 < 2021-01-01) routes to C; F pruned" do
-      {:ok, dag} = DagBuilder.build(date_scenario_steps("2020-12-31"))
+      {:ok, dag} = DagBuilder.build(date_scenario_steps("2020-12-31"), run_id: live_run_id())
 
       productions =
         dag |> Runic.Workflow.react_until_satisfied(%{}) |> Runic.Workflow.raw_productions()
@@ -232,7 +274,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
 
     test "future date routes to F; C pruned" do
-      {:ok, dag} = DagBuilder.build(date_scenario_steps("2021-06-01"))
+      {:ok, dag} = DagBuilder.build(date_scenario_steps("2021-06-01"), run_id: live_run_id())
 
       productions =
         dag |> Runic.Workflow.react_until_satisfied(%{}) |> Runic.Workflow.raw_productions()
@@ -245,7 +287,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
     end
 
     test "a date edge condition passes build-time validation" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(date_scenario_steps("2020-12-31"))
+      assert {:ok, %Runic.Workflow{}} =
+               DagBuilder.build(date_scenario_steps("2020-12-31"), run_id: run_id())
     end
 
     test "an edge condition with an unparseable date value is rejected at build time" do
@@ -264,7 +307,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
           }
         ])
 
-      assert {:error, _reason} = DagBuilder.build(steps)
+      assert {:error, _reason} = DagBuilder.build(steps, run_id: run_id())
     end
   end
 
@@ -272,23 +315,41 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
   # build/2 — run_id instrumentation
   # ---------------------------------------------------------------------------
 
-  describe "build/2 — run_id instrumentation" do
-    test "action nodes are wrapped in StepRunner when run_id is provided" do
-      {:ok, workflow} = DagBuilder.build(single_action_steps(), run_id: "some-uuid")
-      assert %Runic.Workflow{} = workflow
+  describe "build/2 — run_id is required" do
+    test "every action node is threaded through StepRunner, carrying the run" do
+      id = run_id()
+      {:ok, workflow} = DagBuilder.build(single_action_steps(), run_id: id)
+
+      assert [node] =
+               workflow.graph.vertices
+               |> Map.values()
+               |> Enum.filter(&match?(%ActionNode{}, &1))
+
+      assert node.action_mod == StepRunner
+      assert node.params.wrapped_module == Zaq.Engine.Workflows.Test.OkAction
+      assert node.params.run_id == id
+      assert node.params.step_name == "step"
     end
 
-    test "build/1 with no opts preserves existing behaviour (no StepRunner)" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps())
+    # There is one way to build an executable node. A DAG with no run cannot write
+    # `StepRun` rows and cannot resolve `{{...}}` references, so it is rejected up
+    # front rather than silently built into nodes that do neither.
+    test "a missing run_id is an error, not a quietly unwrapped DAG" do
+      for bad <- [nil, :not_a_binary, 42] do
+        assert {:error, :missing_run_id} =
+                 DagBuilder.build(single_action_steps(), run_id: bad)
+      end
+
+      assert {:error, :missing_run_id} = DagBuilder.build(single_action_steps())
     end
 
-    test "build/2 with nil run_id behaves like build/1 (no wrapping)" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps(), run_id: nil)
+    test "the run_id check runs before shape validation" do
+      assert {:error, :missing_run_id} = DagBuilder.build(%{"nodes" => [], "edges" => []})
     end
 
     test "error cases still return errors when run_id provided" do
       assert {:error, {:unknown_module, "Does.Not.Exist"}} =
-               DagBuilder.build(single_action_steps("Does.Not.Exist"), run_id: "some-uuid")
+               DagBuilder.build(single_action_steps("Does.Not.Exist"), run_id: run_id())
     end
   end
 
@@ -298,7 +359,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
 
   describe "build/1 — happy path" do
     test "returns a Runic.Workflow for a linear DAG" do
-      assert {:ok, workflow} = DagBuilder.build(linear_steps())
+      assert {:ok, workflow} = DagBuilder.build(linear_steps(), run_id: run_id())
       assert %Runic.Workflow{} = workflow
     end
 
@@ -316,7 +377,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "builds a branching DAG using edge conditions (no condition nodes)" do
@@ -358,7 +419,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         ]
       }
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "mapping-only edge (no condition) builds and routes" do
@@ -382,7 +443,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => [%{"from" => "src", "to" => "dst", "mapping" => %{"output" => "value"}}]
       }
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
   end
 
@@ -392,7 +453,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
 
   describe "build/1 — error cases" do
     test "returns error for empty nodes and edges" do
-      assert {:error, :empty_dag} = DagBuilder.build(%{"nodes" => [], "edges" => []})
+      assert {:error, :empty_dag} =
+               DagBuilder.build(%{"nodes" => [], "edges" => []}, run_id: run_id())
     end
 
     test "returns error for unknown action module" do
@@ -409,7 +471,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:error, {:unknown_module, "Does.Not.Exist"}} = DagBuilder.build(steps)
+      assert {:error, {:unknown_module, "Does.Not.Exist"}} =
+               DagBuilder.build(steps, run_id: run_id())
     end
 
     test "condition node type now returns unknown_node_type error" do
@@ -426,7 +489,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:error, {:unknown_node_type, "condition"}} = DagBuilder.build(steps)
+      assert {:error, {:unknown_node_type, "condition"}} =
+               DagBuilder.build(steps, run_id: run_id())
     end
 
     test "returns error when edge references unknown node" do
@@ -443,7 +507,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => [%{"from" => "fetch", "to" => "ghost"}]
       }
 
-      assert {:error, {:unknown_node, "ghost"}} = DagBuilder.build(steps)
+      assert {:error, {:unknown_node, "ghost"}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "conditional edge with unknown op returns {:error, {:invalid_edge_condition, condition}}" do
@@ -469,7 +533,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         ]
       }
 
-      assert {:error, {:invalid_edge_condition, _condition}} = DagBuilder.build(steps)
+      assert {:error, {:invalid_edge_condition, _condition}} =
+               DagBuilder.build(steps, run_id: run_id())
     end
 
     test "conditional edge to unknown node returns {:error, {:unknown_node, target}}" do
@@ -492,15 +557,15 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         ]
       }
 
-      assert {:error, {:unknown_node, "ghost"}} = DagBuilder.build(steps)
+      assert {:error, {:unknown_node, "ghost"}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "returns error for missing nodes key" do
-      assert {:error, :invalid_steps} = DagBuilder.build(%{"edges" => []})
+      assert {:error, :invalid_steps} = DagBuilder.build(%{"edges" => []}, run_id: run_id())
     end
 
     test "returns error for missing edges key" do
-      assert {:error, :invalid_steps} = DagBuilder.build(%{"nodes" => []})
+      assert {:error, :invalid_steps} = DagBuilder.build(%{"nodes" => []}, run_id: run_id())
     end
   end
 
@@ -533,7 +598,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
           %{"from" => "start", "to" => "a", "mapping" => %{"x" => "start.position"}}
         ])
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "builds when a start edge carries only a condition" do
@@ -546,13 +611,13 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
           }
         ])
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "rejects a no-op start edge (no mapping, no condition)" do
       steps = start_edge_steps([%{"from" => "start", "to" => "a"}])
 
-      assert {:error, {:invalid_start_edge, "a"}} = DagBuilder.build(steps)
+      assert {:error, {:invalid_start_edge, "a"}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "rejects duplicate start edges to the same node" do
@@ -562,7 +627,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
           %{"from" => "start", "to" => "a", "mapping" => %{"y" => "start.two"}}
         ])
 
-      assert {:error, {:duplicate_start_edge, "a"}} = DagBuilder.build(steps)
+      assert {:error, {:duplicate_start_edge, "a"}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "allows start fan-out to different nodes" do
@@ -572,7 +637,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
           %{"from" => "start", "to" => "b", "mapping" => %{"y" => "start.two"}}
         ])
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
   end
 
@@ -591,7 +656,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
                   constant(nil)
                 ])
             ) do
-        assert DagBuilder.build(input) == {:error, :invalid_steps}
+        assert DagBuilder.build(input, run_id: run_id()) == {:error, :invalid_steps}
       end
     end
 
@@ -619,7 +684,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
               %{}
           end
 
-        assert DagBuilder.build(steps) == {:error, :invalid_steps}
+        assert DagBuilder.build(steps, run_id: run_id()) == {:error, :invalid_steps}
       end
     end
 
@@ -635,7 +700,8 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
                   max_length: 5
                 )
             ) do
-        assert DagBuilder.build(%{"nodes" => [], "edges" => edges}) == {:error, :empty_dag}
+        assert DagBuilder.build(%{"nodes" => [], "edges" => edges}, run_id: run_id()) ==
+                 {:error, :empty_dag}
       end
     end
 
@@ -658,7 +724,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
           "edges" => [%{"from" => node_name, "to" => target}]
         }
 
-        assert DagBuilder.build(steps) == {:error, {:unknown_node, target}}
+        assert DagBuilder.build(steps, run_id: run_id()) == {:error, {:unknown_node, target}}
       end
     end
   end
@@ -682,7 +748,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
   end
 
@@ -712,7 +778,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "atom-keyed params pass through atomize_keys unchanged" do
@@ -729,7 +795,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
 
     test "nil params are passed through atomize_keys as-is" do
@@ -746,7 +812,7 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps)
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(steps, run_id: run_id())
     end
   end
 
@@ -759,17 +825,17 @@ defmodule Zaq.Engine.Workflows.DagBuilderTest do
         "edges" => []
       }
 
-      assert {:error, {:unknown_module, nil}} = DagBuilder.build(steps)
+      assert {:error, {:unknown_module, nil}} = DagBuilder.build(steps, run_id: run_id())
     end
   end
 
   describe "build/1 — regression: plain edges unchanged" do
     test "linear DAG with plain edges produces same Runic.Workflow structure" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(linear_steps())
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(linear_steps(), run_id: run_id())
     end
 
     test "single-node DAG with no edges builds correctly" do
-      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps())
+      assert {:ok, %Runic.Workflow{}} = DagBuilder.build(single_action_steps(), run_id: run_id())
     end
   end
 

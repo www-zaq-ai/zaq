@@ -212,12 +212,120 @@ defmodule Zaq.Engine.Workflows.InputContract do
     }
   end
 
+  # -- iteration bodies ---------------------------------------------------------
+
+  # An iteration node (`Batch`, or the `map` it lowers to) declares its sub-pipeline
+  # inline, as params rather than as nodes. `Batch` itself has no `schema/0` and no
+  # `output_schema/0`, so read as authored it needs nothing and promises nothing —
+  # everything the iteration actually requires is declared by the body modules.
+  #
+  # So the body is lifted into the graph before anything is derived: one node per
+  # sub-step, named `"<node>/<sub>"` exactly as `MapNodeBuilder` names its StepRuns,
+  # chained by synthetic edges that mirror `run_fork/2`. Nothing below this point
+  # knows an iteration node from a plain one.
+  @body_keys ["process", "body"]
+  @post_key "post_process"
+
+  defp expand_bodies(%{nodes: nodes, edges: edges}) do
+    expanded = Enum.map(nodes, &expand_node/1)
+
+    %{
+      nodes: Enum.flat_map(expanded, fn {node, subs, _edges} -> [node | subs] end),
+      edges: edges ++ Enum.flat_map(expanded, fn {_node, _subs, es} -> es end)
+    }
+  end
+
+  # Returns `{node, sub_nodes, sub_edges}`. The body params are dropped from the node
+  # itself: they are nodes now, and leaving them would count every reference twice —
+  # once against the iteration node, once against the sub-step that actually reads it.
+  defp expand_node(node) do
+    case body_chain(node["params"]) do
+      [] ->
+        {node, [], []}
+
+      chain ->
+        name = node["name"]
+        subs = Enum.map(chain, &sub_node(&1, name))
+
+        stripped =
+          node
+          |> Map.update!("params", &Map.drop(&1, @body_keys ++ [@post_key]))
+          |> Map.put("iterates", over(node))
+
+        {stripped, subs, chain_edges(subs, node)}
+    end
+  end
+
+  defp over(node), do: node["params"]["over"] || "items"
+
+  defp body_chain(%{} = params) do
+    body = Enum.find_value(@body_keys, [], &params[&1])
+
+    (List.wrap(body) ++ List.wrap(params[@post_key]))
+    |> Enum.filter(&(is_map(&1) and is_binary(&1["name"])))
+  end
+
+  defp body_chain(_params), do: []
+
+  defp sub_node(sub, parent) do
+    %{
+      "name" => "#{parent}/#{sub["name"]}",
+      "module" => sub["module"],
+      "params" => sub["params"] || %{}
+    }
+  end
+
+  # `run_fork/2` threads the fan-out unit through the sub-steps in order, each one
+  # receiving only the previous one's result. So the head is fed by the iteration
+  # node and every other link by its predecessor — a plain chain of unmapped edges,
+  # which is already how `upstream_emits/2` reads a predecessor's output schema.
+  defp chain_edges([head | rest], node) do
+    pairs = Enum.zip([head | rest], rest)
+
+    [edge(node["name"], head["name"], head_mapping(head, node))] ++
+      Enum.map(pairs, fn {from, to} -> edge(from["name"], to["name"], %{}) end)
+  end
+
+  defp chain_edges([], _node), do: []
+
+  defp edge(from, to, mapping),
+    do: %{"from" => from, "to" => to, "mapping" => mapping, "condition" => nil}
+
+  # What the fan-out delivers into the first sub-step, and under which key. The unit
+  # is wrapped under the delivery `field` — authored on a `map` node, detected from
+  # the first body module on a `Batch`. When neither states it the unit is merged in
+  # flat, so every required field of that module is what arrives.
+  defp head_mapping(head, node) do
+    fields =
+      case node["params"]["field"] || batch_field(head["module"]) do
+        nil -> required_schema_fields(head["module"])
+        field -> [field]
+      end
+
+    Map.new(fields, &{&1, "#{node["name"]}.#{over(node)}"})
+  end
+
+  defp batch_field(module) do
+    with {:ok, mod} <- Action.resolve(module || ""),
+         {:ok, {field, _mode}} <- Action.batch_field(mod) do
+      to_string(field)
+    else
+      _ -> nil
+    end
+  end
+
+  # An iteration node reads its collection from `over` (`"items"` for a `Batch`).
+  # Nothing declares it — `Batch` has no schema — so it is stated here, and then
+  # travels the same path as any schema-required field: satisfied by a mapping, by a
+  # predecessor's output, or by the payload, and unsatisfiable when by none of them.
+  defp iterated_field(node), do: List.wrap(node["iterates"])
+
   # -- needs --------------------------------------------------------------------
 
   # Every input need in the graph, as `%{node:, field:, source:, kind:}` — one per
   # edge mapping, param reference, unwritten schema-required field, and condition.
   defp needs(workflow) do
-    %{nodes: nodes, edges: edges} = graph(workflow)
+    %{nodes: nodes, edges: edges} = workflow |> graph() |> expand_bodies()
     names = MapSet.new(nodes, & &1["name"])
     emits = Map.new(nodes, &{&1["name"], MapSet.new(emitted_schema_fields(&1["module"]))})
 
@@ -300,13 +408,14 @@ defmodule Zaq.Engine.Workflows.InputContract do
     end)
   end
 
-  # Needs for the schema-required fields nothing else writes: from `start` on a
-  # node fed only by `start`, from a predecessor emitting them otherwise.
+  # Needs for the required fields nothing else writes: from `start` on a node fed
+  # only by `start`, from a predecessor emitting them otherwise. A node's own module
+  # states most of them; an iteration node's collection is the one the graph states.
   defp schema_needs(node, name, incoming, scope) do
     entry? = Enum.all?(incoming, &(&1["from"] == @start))
 
-    node["module"]
-    |> required_schema_fields()
+    (required_schema_fields(node["module"]) ++ iterated_field(node))
+    |> Enum.uniq()
     |> Enum.reject(&MapSet.member?(scope.local, &1))
     |> Enum.map(fn field ->
       cond do
@@ -453,10 +562,22 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   # Stringifies both sides of an edge mapping: the target field name and the
   # dotted source reference.
-  defp mapping(mapping) when is_map(mapping),
-    do: Map.new(mapping, fn {target, source} -> {to_string(target), to_string(source)} end)
+  defp mapping(mapping) when is_map(mapping) do
+    for {target, source} <- mapping,
+        reference?(source),
+        into: %{},
+        do: {to_string(target), to_string(source)}
+  end
 
   defp mapping(_mapping), do: %{}
+
+  # A mapping source is a dotted reference, so anything non-scalar in the persisted
+  # JSONB is a malformed edge. Dropping it leaves the target field unfed, which the
+  # derivation then reports as a gap — the point of this module is to be runnable
+  # against a graph that is wrong, not to raise `Protocol.UndefinedError` on one.
+  defp reference?(source) when is_binary(source) or is_number(source), do: true
+  defp reference?(source) when is_atom(source), do: not is_nil(source)
+  defp reference?(_source), do: false
 
   defp stringify(%{__struct__: _} = value), do: value
 

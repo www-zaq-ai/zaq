@@ -77,8 +77,9 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
             "upstream result instead, write a placeholder — `\"{{build_history.metadata}}\"` " <>
             "— which `StepRunner` resolves to the map before this action runs. When absent " <>
             "— e.g. a Condition that is the first node off a trigger — `run/2` falls back " <>
-            "to the incoming fact at root; `start.<field>` dotted keys reach the trigger " <>
-            "payload."
+            "to the incoming fact at root. To read the trigger payload explicitly, write " <>
+            "`\"{{start.language}}\"` or bring the field in through the edge mapping that " <>
+            "feeds this node."
       ],
       conditions: [
         type: {:list, :map},
@@ -211,8 +212,6 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   #     data — a string `input` is a string, never a reference;
   #   - absent → the incoming fact at root (first node off a trigger), minus this
   #     action's own config keys.
-  # The persistent `start` namespace rides along via the cascade in every case and is
-  # reachable through `start.<field>` dotted keys.
   defp resolve_input(params) do
     case Map.fetch(params, :input) do
       {:ok, input} -> input

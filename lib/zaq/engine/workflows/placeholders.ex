@@ -8,10 +8,10 @@ defmodule Zaq.Engine.Workflows.Placeholders do
   (`{{extract_summary.output}}`) or the trigger namespace (`{{start.language}}`).
 
   This module owns the *syntax* — the key class, the walk into nested containers,
-  and what an unresolved reference collapses to. Each caller owns the *fact*: what
-  a bare key may name is a per-action decision (`Concat` exposes its own params,
-  `DispatchEvent` exposes only the cascade), so the fact is passed in rather than
-  built here.
+  and what an unresolved reference collapses to. The *fact* is supplied by
+  `Zaq.Engine.Workflows.StepRunner`, which builds one fact for every action: the
+  node's own params plus the run cascade. So a bare key names a sibling param and a
+  node-qualified key reaches an upstream result, identically whatever the action is.
   """
 
   alias Zaq.Engine.Workflows.FactLookup

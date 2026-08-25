@@ -19,6 +19,7 @@ defmodule Zaq.Engine.Workflows do
     Composition,
     CronTriggerWorker,
     DagBuilder,
+    InputContract,
     StepApproval,
     Trigger,
     Workflow,
@@ -392,6 +393,32 @@ defmodule Zaq.Engine.Workflows do
   @doc "Gets a workflow by id, raising if not found."
   @spec get_workflow!(term()) :: Workflow.t()
   def get_workflow!(id), do: Repo.get!(Workflow, id)
+
+  @doc """
+  Derives a stored workflow's trigger input contract against a candidate payload.
+
+  `workflow_id` reaches here from an LLM tool call, so it is cast before the
+  query — a non-uuid string would otherwise raise `Ecto.Query.CastError` instead
+  of returning a message the caller can correct.
+
+  `input` is any term: a scalar payload is reported as invalid by the contract
+  rather than rejected here.
+  """
+  @spec input_contract(term(), term()) :: {:ok, map()} | {:error, String.t()}
+  def input_contract(workflow_id, input) do
+    with {:ok, id} <- cast_workflow_id(workflow_id),
+         %Workflow{} = workflow <- get_workflow(id) do
+      {:ok, InputContract.contract(workflow, input)}
+    else
+      nil -> {:error, "workflow not found: #{inspect(workflow_id)}"}
+      :error -> {:error, "workflow_id is not a valid uuid: #{inspect(workflow_id)}"}
+    end
+  end
+
+  defp cast_workflow_id(workflow_id) when is_binary(workflow_id),
+    do: Ecto.UUID.cast(workflow_id)
+
+  defp cast_workflow_id(_workflow_id), do: :error
 
   @doc """
   Creates a workflow.

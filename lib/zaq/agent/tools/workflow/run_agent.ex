@@ -68,6 +68,10 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   the trigger namespace (`{{start.language}}`), and a key may carry spaces or
   hyphens (`{{company official name}}`). An unresolved reference becomes `""`.
 
+  > **Changed:** a bare key is a flat lookup at the fact root. Nested map params are
+  > no longer spread one level deep, so `{{email}}` against a `row` param resolves to
+  > `""` — write the path, `{{row.email}}`.
+
   ## Example
 
       RunAgent.run(

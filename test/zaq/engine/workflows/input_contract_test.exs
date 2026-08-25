@@ -576,6 +576,38 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert sorted(InputContract.all_inputs(graph([], []))) == []
       assert InputContract.required_inputs(graph([], [])) == []
     end
+
+    # A mapping source is a dotted reference. A persisted edge holding anything else
+    # is malformed — deriving against it must report the gap, since the whole point
+    # of this module is to be runnable on a graph that is wrong.
+    test "a malformed mapping source is dropped, not raised on" do
+      for bad <- [%{"x" => 1}, ["a", "b"], nil] do
+        g = graph([step("a"), step("b")], [edge("a", "b", %{"query" => bad})])
+
+        assert sorted(InputContract.all_inputs(g)) == []
+        assert sorted(InputContract.missing(g)) == []
+        assert InputContract.required_inputs(g) == []
+      end
+    end
+
+    test "a dropped source leaves a schema-required field reported as unsatisfiable" do
+      g =
+        graph(
+          [
+            step("a"),
+            step("b", module: "Zaq.Agent.Tools.Workflow.DispatchEvent")
+          ],
+          [edge("a", "b", %{"event_name" => %{"broken" => true}})]
+        )
+
+      assert [%{node: "b", field: "event_name"}] = InputContract.unsatisfiable_inputs(g)
+    end
+
+    test "scalar mapping sources other than strings still resolve" do
+      g = graph([step("a"), step("b")], [edge("a", "b", %{"query" => :"start.topic"})])
+
+      assert InputContract.required_inputs(g) == ["topic"]
+    end
   end
 
   # ── Edge conditions and start-fed entry nodes ───────────────────────────────
@@ -817,6 +849,118 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
                Map.keys(payload) |> Enum.sort()
 
       assert %{valid: true, missing_inputs: []} = InputContract.check(g, payload)
+    end
+  end
+
+  # `Batch` is a build-time translator: `DagBuilder.enrich_nodes/1` lowers it into a
+  # `map` node whose body sub-steps become real `StepRunner` steps, each with its own
+  # module, schema and StepRun row (`"<batch>/<sub>"`). It declares no `schema/0` and
+  # no `output_schema/0` of its own, so everything an iteration needs is declared by
+  # the body modules — the contract lifts them into the graph and reads them there.
+  describe "a Batch node's body sub-steps" do
+    @batch "Zaq.Agent.Tools.Workflow.Batch"
+    @concat "Zaq.Agent.Tools.Workflow.Concat"
+    @dispatch "Zaq.Agent.Tools.Workflow.DispatchEvent"
+
+    defp batch(name, body, params \\ %{}),
+      do: %{"name" => name, "module" => @batch, "params" => Map.put(params, "process", body)}
+
+    defp body_node(name, module, params \\ %{}),
+      do: %{"name" => name, "type" => "action", "module" => module, "params" => params}
+
+    defp two_step_body,
+      do: [body_node("join", @concat), body_node("dispatch", @dispatch)]
+
+    test "Batch itself declares no requirement and no output" do
+      # Nothing about the node's own module can stand in for reading its body.
+      assert InputContract.required_schema_fields(@batch) == []
+      assert InputContract.emitted_schema_fields(@batch) == []
+    end
+
+    test "each body sub-step is a node, named as its StepRun is" do
+      g =
+        graph([batch("batch", two_step_body())], [
+          edge("start", "batch", %{"items" => "start.rows"})
+        ])
+
+      assert sorted(InputContract.all_inputs(g)) == [
+               "batch.items",
+               "batch/dispatch.event_name",
+               "batch/join.parts"
+             ]
+    end
+
+    test "the fan-out feeds the first sub-step under its batch field" do
+      # `Concat`'s batch field is `parts`, so the chunk arrives there — it is fed by
+      # the iteration, not demanded of the payload.
+      g =
+        graph([batch("batch", two_step_body())], [
+          edge("start", "batch", %{"items" => "start.rows"})
+        ])
+
+      assert sorted(InputContract.fed_by_steps(g)) == ["batch/join.parts"]
+      assert InputContract.required_inputs(g) == ["rows"]
+    end
+
+    test "a sub-step's required field no predecessor emits is unsatisfiable" do
+      # `dispatch` requires `event_name`. Nothing pins it, the fan-out delivers under
+      # `parts`, and `join` emits only result/list/matrix — at run time it reads `nil`
+      # and the dispatch goes nowhere. That is the authoring error, not a payload gap.
+      g =
+        graph([batch("batch", two_step_body())], [
+          edge("start", "batch", %{"items" => "start.rows"})
+        ])
+
+      assert InputContract.unsatisfiable_inputs(g) == [
+               %{node: "batch/dispatch", field: "event_name", source: nil}
+             ]
+    end
+
+    test "a sub-step's own params satisfy it" do
+      body = [
+        body_node("join", @concat),
+        body_node("dispatch", @dispatch, %{"event_name" => "lead"})
+      ]
+
+      g = graph([batch("batch", body)], [edge("start", "batch", %{"items" => "start.rows"})])
+
+      assert InputContract.unsatisfiable_inputs(g) == []
+    end
+
+    test "a `{{...}}` in a sub-step is attributed to the sub-step, not to the Batch node" do
+      body = [body_node("join", @concat, %{"parts" => ["{{start.language}}"]})]
+      g = graph([batch("batch", body)], [edge("start", "batch", %{"items" => "start.rows"})])
+
+      assert InputContract.required_inputs(g) == ["language", "rows"]
+      assert MapSet.member?(InputContract.all_inputs(g), "batch/join.parts")
+      refute MapSet.member?(InputContract.all_inputs(g), "batch.process")
+    end
+
+    test "`post_process` continues the same chain" do
+      body = [body_node("join", @concat)]
+      params = %{"post_process" => [body_node("dispatch", @dispatch)]}
+
+      g =
+        graph([batch("batch", body, params)], [edge("start", "batch", %{"items" => "start.rows"})])
+
+      assert InputContract.unsatisfiable_inputs(g) == [
+               %{node: "batch/dispatch", field: "event_name", source: nil}
+             ]
+    end
+
+    test "the iterated collection is a need of the Batch node itself" do
+      # `Batch` reads `items` off the incoming fact but declares it nowhere. Fed only
+      # by `start`, it is a payload requirement; fed by nothing at all, an error.
+      g =
+        graph([batch("batch", two_step_body())], [edge("start", "batch", %{"other" => "start.x"})])
+
+      assert "items" in InputContract.required_inputs(g)
+
+      orphan = graph([step("a"), batch("batch", two_step_body())], [edge("a", "batch")])
+
+      assert %{node: "batch", field: "items", source: nil} in InputContract.unsatisfiable_inputs(
+               orphan
+             )
     end
   end
 end

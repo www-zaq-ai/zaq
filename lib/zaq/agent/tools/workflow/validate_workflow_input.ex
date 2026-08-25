@@ -30,6 +30,11 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
   gap: the run reads `nil` and fails silently, and no input the agent sends can
   fix it. A `valid: true` verdict does not cover those, so an empty
   `unsatisfiable_inputs` is what makes it complete.
+
+  The action is agent-callable, so it may execute on the Agent node. Both the
+  workflow read and the derivation are delegated to the Engine through
+  `NodeRouter.dispatch/1` (`:workflow_input_contract`); only the derived contract
+  crosses back.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -93,37 +98,37 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
           )
       })
 
-  alias Zaq.Engine.Workflows
-  alias Zaq.Engine.Workflows.InputContract
+  alias Zaq.Event
+  alias Zaq.NodeRouter
 
   @impl Jido.Action
-  def run(%{workflow_id: workflow_id} = params, _context) do
-    input = Map.get(params, :input) || %{}
+  def run(%{workflow_id: workflow_id} = params, context) do
+    # Default only the *omitted* key: `false`, `0` and `""` are payloads an agent
+    # can send, and the contract must report them invalid rather than silently
+    # replace them with an empty map and echo that back.
+    input = Map.get(params, :input, %{})
+    node_router = Map.get(context, :node_router, NodeRouter)
 
-    case fetch_workflow(workflow_id) do
-      {:ok, workflow} ->
-        contract = InputContract.contract(workflow, input)
-
+    case derive_contract(node_router, workflow_id, input) do
+      {:ok, contract} when is_map(contract) ->
         {:ok, Map.put(contract, :input, input)}
 
       {:error, reason} ->
         {:error, reason}
+
+      other ->
+        {:error, "Unexpected workflow contract response: #{inspect(other)}"}
     end
   end
 
-  # The id arrives from an LLM tool call, so it is cast before it reaches the
-  # query — a non-uuid string would otherwise raise `Ecto.Query.CastError`
-  # instead of returning a correctable error to the agent.
-  defp fetch_workflow(workflow_id) do
-    with {:ok, id} <- cast_id(workflow_id),
-         %{} = workflow <- Workflows.get_workflow(id) do
-      {:ok, workflow}
-    else
-      nil -> {:error, "workflow not found: #{inspect(workflow_id)}"}
-      :error -> {:error, "workflow_id is not a valid uuid: #{inspect(workflow_id)}"}
-    end
+  # The tool is agent-callable, so it may run on the Agent node while the
+  # workflow lives on the Engine. Dispatching a named Engine action keeps both
+  # the read and the derivation on the Engine node; only the contract map
+  # crosses back.
+  defp derive_contract(node_router, workflow_id, input) do
+    %{workflow_id: workflow_id, input: input}
+    |> Event.new(:engine, opts: [action: :workflow_input_contract])
+    |> node_router.dispatch()
+    |> Map.fetch!(:response)
   end
-
-  defp cast_id(workflow_id) when is_binary(workflow_id), do: Ecto.UUID.cast(workflow_id)
-  defp cast_id(_workflow_id), do: :error
 end

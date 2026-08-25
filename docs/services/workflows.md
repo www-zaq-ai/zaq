@@ -126,6 +126,8 @@ implements substitution itself.
   edge mapping delivered). A dotted key is resolved by `FactLookup`: a leading
   segment naming an upstream node descends that node's result, `start.*` reaches the
   persistent trigger payload, and anything else descends the params as a nested path.
+  A bare key is a *flat* lookup: it does not reach into a nested param map, so a
+  field inside `row` is `{{row.email}}`, never `{{email}}`.
 - **Types** — a param that is *only* a placeholder keeps the raw value, so a list or
   map survives as itself (`"input": "{{build_history.rows}}"` arrives as the list).
   An embedded reference is stringified.

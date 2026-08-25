@@ -4,7 +4,28 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
   alias Zaq.Agent.Tools.Workflow.ValidateWorkflowInput
   alias Zaq.Engine.Workflows.InputContract
   alias Zaq.Engine.Workflows.Workflow
+  alias Zaq.Event
   alias Zaq.Repo
+
+  # Captures the dispatched event instead of routing it, so the boundary the tool
+  # crosses is asserted rather than the contract it gets back.
+  defmodule RecordingNodeRouter do
+    @moduledoc false
+    def dispatch(%Event{} = event) do
+      send(self(), {:dispatched, event})
+      %{event | response: {:ok, %{valid: true}}}
+    end
+  end
+
+  defmodule FailingNodeRouter do
+    @moduledoc false
+    def dispatch(%Event{} = event), do: %{event | response: {:error, :engine_unreachable}}
+  end
+
+  defmodule GarbageNodeRouter do
+    @moduledoc false
+    def dispatch(%Event{} = event), do: %{event | response: :who_knows}
+  end
 
   # Inserted through the changeset rather than `Workflows.create_workflow/2` so
   # the fixture does not have to stub the `workflow.created` NodeRouter dispatch.
@@ -180,6 +201,75 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
                  %{workflow_id: workflow.id, input: "not a map"},
                  %{}
                )
+    end
+
+    # Only an *omitted* `input` defaults to `%{}`. A falsy payload is something the
+    # agent actually sent: it has to come back as an invalid verdict on what it sent,
+    # not be silently replaced and echoed as an empty map.
+    test "a falsy payload is reported against the contract, not coerced to an empty map" do
+      workflow = workflow_fixture()
+
+      for payload <- [false, 0, "", nil] do
+        assert {:ok, %{valid: false, input: echoed}} =
+                 ValidateWorkflowInput.run(
+                   %{workflow_id: workflow.id, input: payload},
+                   %{}
+                 )
+
+        assert echoed === payload
+      end
+    end
+
+    test "an omitted payload still defaults to an empty map" do
+      workflow = workflow_fixture()
+
+      assert {:ok, %{input: %{}}} = ValidateWorkflowInput.run(%{workflow_id: workflow.id}, %{})
+    end
+  end
+
+  # The tool is agent-callable, so it may execute on the Agent node while the
+  # workflow row lives on the Engine. It must reach it through a named Engine
+  # action rather than reading the Repo where it happens to run.
+  describe "node boundary" do
+    test "dispatches a named engine action instead of reading the workflow locally" do
+      id = Ecto.UUID.generate()
+
+      assert {:ok, _contract} =
+               ValidateWorkflowInput.run(
+                 %{workflow_id: id, input: %{"name" => "Ada"}},
+                 %{node_router: RecordingNodeRouter}
+               )
+
+      assert_received {:dispatched, %Event{} = event}
+      assert event.next_hop.destination == :engine
+      assert event.opts[:action] == :workflow_input_contract
+      assert event.request == %{workflow_id: id, input: %{"name" => "Ada"}}
+    end
+
+    test "the echoed input comes from the caller, not from the routed response" do
+      assert {:ok, %{input: %{"name" => "Ada"}}} =
+               ValidateWorkflowInput.run(
+                 %{workflow_id: Ecto.UUID.generate(), input: %{"name" => "Ada"}},
+                 %{node_router: RecordingNodeRouter}
+               )
+    end
+
+    test "an unreachable engine surfaces as an error, not a false verdict" do
+      assert {:error, :engine_unreachable} =
+               ValidateWorkflowInput.run(
+                 %{workflow_id: Ecto.UUID.generate()},
+                 %{node_router: FailingNodeRouter}
+               )
+    end
+
+    test "an unexpected response shape is reported rather than matched blindly" do
+      assert {:error, message} =
+               ValidateWorkflowInput.run(
+                 %{workflow_id: Ecto.UUID.generate()},
+                 %{node_router: GarbageNodeRouter}
+               )
+
+      assert message =~ "who_knows"
     end
   end
 end
