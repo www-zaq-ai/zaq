@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "zaq-8o8.8"
+    "zaq-8o8.8",
+    "zaq-8o8.9"
   ],
   "created": "2026-08-25T07:37:30Z",
   "description": "Migrate configured Storage/Ingestion volumes into the disk data-source ChannelConfig settings, validate volume declarations through Storage-owned checks, and ensure disabled/missing disk configs fail closed.",
