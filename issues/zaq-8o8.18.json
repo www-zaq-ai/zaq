@@ -11,9 +11,15 @@
   "id": "zaq-8o8.18",
   "labels": [],
   "parent": "zaq-8o8",
+  "comments": [
+    {
+      "text": "Path containment fixed and covered by FileExplorer regression/property tests. Pausing before Disk ACL implementation: Storage receives actor context only for materialization after additional wiring, and raw Storage files currently lack a clear public/private marker. Need decision on whether Disk raw file listing/materialization should default to public, require imported Document permissions, or use Storage ResourcePermission rows.",
+      "timestamp": "2026-08-25T14:24:14Z"
+    }
+  ],
   "priority": 0,
   "status": "in_progress",
   "title": "[zaq-8o8] Harden Storage path and Disk ACLs",
   "type": "task",
-  "updated_at": "2026-08-25T14:21:14Z"
+  "updated_at": "2026-08-25T14:24:14Z"
 }
