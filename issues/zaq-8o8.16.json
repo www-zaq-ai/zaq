@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-8o8.15"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-8o8.17"
+  ],
   "created": "2026-08-25T13:52:31Z",
   "description": "Move filesystem runtime config to Zaq.Storage, keep INGESTION_* only as legacy env input, persist relative volume paths, preserve legacy zaq_local IDs by renaming to disk, and cover fresh/existing/migration paths with tests.",
   "id": "zaq-8o8.16",
