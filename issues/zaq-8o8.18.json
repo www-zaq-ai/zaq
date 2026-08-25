@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-8o8.19"
   ],
+  "closed_at": "2026-08-25T15:06:12Z",
+  "close_reason": "Storage path containment is exact, Disk listing/materialization enforce shared ResourcePermission rows, trusted actors are forwarded through BO/Channels/Disk materialization paths, and focused plus full IngestionLive tests pass.",
   "created": "2026-08-25T13:52:31Z",
   "description": "Fix exact path containment, add traversal/sibling-prefix property tests, and enforce Disk list/materialization permissions so nil person_id is public-only unless skip_permissions is explicit.",
   "id": "zaq-8o8.18",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 0,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8o8] Harden Storage path and Disk ACLs",
   "type": "task",
-  "updated_at": "2026-08-25T14:24:14Z"
+  "updated_at": "2026-08-25T15:06:12Z"
 }
