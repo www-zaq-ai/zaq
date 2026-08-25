@@ -17,6 +17,10 @@
     {
       "text": "Path containment fixed and covered by FileExplorer regression/property tests. Pausing before Disk ACL implementation: Storage receives actor context only for materialization after additional wiring, and raw Storage files currently lack a clear public/private marker. Need decision on whether Disk raw file listing/materialization should default to public, require imported Document permissions, or use Storage ResourcePermission rows.",
       "timestamp": "2026-08-25T14:24:14Z"
+    },
+    {
+      "text": "Reopened after review: Storage ACL must match ZAQ permission semantics. No resource_permission rows means private/admin-only, not public. StorageEntry access must require skip_permissions:true or matching read grant.",
+      "timestamp": "2026-08-25T15:44:47Z"
     }
   ],
   "priority": 0,
