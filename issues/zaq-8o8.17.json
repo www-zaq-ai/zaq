@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-8o8.16"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-8o8.18"
+  ],
   "created": "2026-08-25T13:52:31Z",
   "description": "DiskBridge must pass ChannelConfig identity, not resolved filesystem paths, across NodeRouter. Storage resolves current enabled Disk ChannelConfig for all Disk operations. Record attributes config_id is the ChannelConfig id; volume stays separate.",
   "id": "zaq-8o8.17",
