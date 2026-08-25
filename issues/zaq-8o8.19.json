@@ -18,7 +18,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8o8] Move Skills resources off Ingestion filesystem API",
   "type": "task",
   "updated_at": "2026-08-25T16:32:16Z"
