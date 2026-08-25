@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-25T13:52:31Z",
+  "description": "Fix the full test/zaq_web/live/bo/ai/ingestion_live_test.exs regressions found after Disk preview/materialization work. Acceptance: failing preview/delete/current_volume cases pass; no nil current_volume crash; local delete uses one local_record lookup and dispatches a safe file_id fallback.",
+  "id": "zaq-8o8.15",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 0,
+  "status": "open",
+  "title": "[zaq-8o8] Restore Disk/IngestionLive regression baseline",
+  "type": "task",
+  "updated_at": "2026-08-25T13:52:31Z"
+}
