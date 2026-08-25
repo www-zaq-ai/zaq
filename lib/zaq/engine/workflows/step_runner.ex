@@ -266,20 +266,14 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     end
   end
 
-  # One refusal line, phrased as `InputContract` phrases the same mismatch.
+  # One refusal line, phrased as `InputContract` phrases the same mismatch —
+  # `Action.explain/2` is where both read the same `Zoi.parse/2` verdict.
   defp violation({name, spec, _required?}, params) do
-    case fetch_param(params, name) do
-      {:ok, value} when not is_nil(value) ->
-        case Zoi.parse(spec, value) do
-          {:ok, _} ->
-            []
-
-          {:error, _} ->
-            ["#{name}: expected #{Action.schema_kind(spec)}, got #{Action.value_kind(value)}"]
-        end
-
-      _ ->
-        []
+    with {:ok, value} when not is_nil(value) <- fetch_param(params, name),
+         explanation when is_binary(explanation) <- Action.explain(spec, value) do
+      ["#{name}: #{explanation}"]
+    else
+      _ -> []
     end
   end
 

@@ -1259,3 +1259,51 @@ defmodule Zaq.Engine.Workflows.Test.TypedParamAction do
     {:ok, %{count: params[:count], label: params[:label], extra: params[:extra]}}
   end
 end
+
+defmodule Zaq.Engine.Workflows.Test.OptionalTypedParamAction do
+  @moduledoc """
+  `TypedParamAction`'s schema on a module that satisfies the workflow action
+  contract, so it can be a node in a real workflow rather than only a direct
+  `StepRunner.run/2` call.
+
+  Declares one required typed field and one **optional** typed field — the pair
+  `InputContract` and `StepRunner` must agree about: optional means the payload
+  may omit `label`, not that any value will do for it.
+  """
+  use Jido.Action,
+    name: "optional_typed_param_action",
+    description: "Declares a required typed param and an optional typed one",
+    schema: [
+      count: [type: :integer, required: true, doc: "An integer, and only an integer"],
+      label: [type: :string, required: false, doc: "A string, and only a string"]
+    ],
+    output_schema: [
+      count: [type: :integer, required: true, doc: "The count it received"],
+      label: [type: :string, required: false, doc: "The label it received"]
+    ]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context), do: {:ok, %{count: params[:count], label: params[:label]}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.CredentialAction do
+  @moduledoc false
+  # Declares Zoi *refinements*, not only types: a well-typed string can still be
+  # refused. `email` must contain `@`, `password` must be 8..12 characters, and the
+  # optional `nickname` must be at least 3 — so an optional field carries a rule too.
+  use Zaq.Engine.Workflows.Action,
+    name: "test_credential_action",
+    description: "Test action declaring Zoi refinements on top of its field types.",
+    schema:
+      Zoi.object(%{
+        email: Zoi.string() |> Zoi.regex(~r/@/, message: "must contain @"),
+        password: Zoi.string() |> Zoi.min(8) |> Zoi.max(12),
+        nickname: Zoi.string() |> Zoi.min(3) |> Zoi.optional()
+      }),
+    output_schema: Zoi.object(%{accepted: Zoi.boolean()})
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{accepted: true}}
+end

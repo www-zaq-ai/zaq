@@ -124,7 +124,10 @@ defmodule Zaq.Engine.Workflows.CascadeReachabilityE2ETest do
       [seen] = seen_all(step_runs, "probe")
 
       # `a` emitted only `x.b`, so the whole `x` was replaced: root `x.a` is lost.
-      assert Zaq.MapUtils.fetch_either(seen, :unqualified, "unqualified") == ""
+      # A lone `{{...}}` that resolves to nothing is `nil` — there is no string for it
+      # to be interpolated into, so `""` would be a value invented for a reference
+      # that found none.
+      assert Zaq.MapUtils.fetch_either(seen, :unqualified, "unqualified") == nil
       # …but the node-qualified path still resolves it.
       assert Zaq.MapUtils.fetch_either(seen, :from_start, "from_start") == 1
       assert Zaq.MapUtils.fetch_either(seen, :from_node, "from_node") == 3

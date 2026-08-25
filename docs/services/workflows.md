@@ -131,8 +131,13 @@ implements substitution itself.
 - **Types** — a param that is *only* a placeholder keeps the raw value, so a list or
   map survives as itself (`"input": "{{build_history.rows}}"` arrives as the list).
   An embedded reference is stringified.
-- **Unresolved** — a reference that resolves to nothing becomes `""`. Engine
-  plumbing (`__cascade__` and friends) is never substitutable.
+- **Unresolved** — a reference interpolated into a larger string and resolving to
+  nothing becomes `""`; a *lone* `{{...}}` resolving to nothing is `nil`. There is no
+  string for it to render into there, so `""` would be a value invented for a
+  reference that found none — and an optional field wired that way and then omitted
+  would be handed `""`, which its schema refuses for any type but a string. `nil` is
+  a param the step skips, which is what "not supplied" means. Engine plumbing
+  (`__cascade__` and friends) is never substitutable.
 - **Cost control** — `DagBuilder` scans each node's params once at build time and
   stamps the referencing keys onto the wrapper, so a bulk payload param is never
   walked at run time.
@@ -141,6 +146,42 @@ implements substitution itself.
 so what the contract calls a reference and what the runtime resolves cannot drift.
 Every reference is visible to it — there is no module-specific reference syntax.
 
+**Required and optional are two lists.** A payload path is *required* when it
+reaches a field some action's schema declares required, and *optional* when every
+field it reaches is declared optional — `required_inputs/1` and `optional_inputs/1`.
+A path reaching a required field on one node and an optional one on another is
+required: every node in the graph runs. Wiring an optional field does not make the
+payload owe it; the step runs without it, and demanding it would make an agent
+invent a value for a field the action has its own default or branch for.
+
+**Optional is about presence, not type.** `StepRunner` validates every declared
+field it is handed a value for, required or not, so an optional field given the
+wrong *kind* of value fails the run. `check/2` therefore type-checks the optional
+paths a payload actually supplies and reports them in `invalid_inputs` — it only
+skips the ones the payload omits. Absence is the only thing optional forgives.
+`required_input_shape/1` stays required-only: it is the skeleton a caller fills in,
+and an optional leaf in it reads as one more gap to invent a value for.
+
+**A declared type is not the whole contract.** A field may carry Zoi refinements —
+a pattern, a length, an enum — and a value of exactly the right kind can still be
+refused. `check/2` runs `Zoi.parse/2`, the same judge `StepRunner` runs, so it sees
+every rule the author declared; there is no schema feature the pre-flight is blind to.
+
+**One judge, one phrasing.** Both sides read that verdict through
+`Action.explain/2`, so neither can phrase a mismatch its own way. Zoi's error `code`
+decides how it reads: `:invalid_type` at the value itself is a bare kind mismatch,
+phrased `"expected integer, got string"` — Zoi names what was wanted but never what
+arrived, which is the half a caller needs. Every other code is a rule the value
+broke, or a failure Zoi located inside the value, and Zoi has already phrased it
+against the rule the author wrote — `"too small: must have at least 8 character(s)"`,
+`"invalid enum value: expected one of active, inactive, at status"` — so its own
+rendering is used verbatim.
+
+An `invalid_inputs` entry carries both: `expected`/`got` for the path itself, and
+`message` for the reason. **For a refinement or a nested failure `expected` and `got`
+are both the same kind** — `"expected string, got string"` for an email that does not
+match its pattern — and `message` is the only actionable part. Read `message` first.
+
 **A required path present but `nil` is missing.** `check/2` counts a path as
 supplied only when it resolves to a value, the same rule the authoring side applies
 to a node's params (`pinned_params/1`: a `nil` param pins nothing). So
@@ -148,6 +189,31 @@ to a node's params (`pinned_params/1`: a `nil` param pins nothing). So
 it names until the leaves are filled, and an agent looping on
 `validate_workflow_input` cannot converge by echoing the skeleton back. `false`,
 `0` and `""` are values a caller can mean, and they supply.
+
+**The verdict types every path it names.** `input_types` gives the declared kind of
+every path in `required_inputs` and `optional_inputs`, untyped ones included (as
+`any`). It exists because an agent asked what a workflow expects answers for every
+path it can see: given a bare name it supplies a type from the field's name and
+presents it as fact, then builds an example payload around the guess — one the
+workflow rejects. Reporting a kind for every path leaves no gap for a guess to fill,
+and `any` is an answer rather than a silence. This is the only source of types: an
+agent must never state one that is not in the map.
+
+**An empty input is refused, not judged.** `%{}`, `nil` and an omitted key carry
+nothing to check, so `validate_workflow_input` returns `{:error, "input is required"}`
+before the workflow is read — no contract is derived for a call that proposes nothing.
+`false`, `0` and `""` are payloads a caller can mean, and they are judged like any
+other.
+
+Everything a failing verdict owes the agent travels as a field of the result map, never
+inside its message. The contract was once returned as `{:error, _}` with the paths named
+in prose, an instruction not to invent them, and the skeleton rendered as JSON on the
+end — and the transport truncated the message past its instruction, leaving the agent
+four bare path names and an explicit note that no types were reported. It answered by
+writing a payload template out of what was left, quoting two integer paths as strings.
+Steering a reader with wording it may never finish reading is not a contract; a map
+cannot be truncated into something that still reads as an answer, and
+`required_input_shape` and `input_types` travel in it as fields.
 
 **A required path is type-checked where its value reaches a schema-declared field
 whole.** `required_schema_field_specs/1` reads each required field's declared type

@@ -1,53 +1,30 @@
 defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
   @moduledoc """
-  Workflow action: pre-flight check that a candidate event input carries
-  everything a workflow's steps need.
+  Workflow action: checks a candidate event input against a workflow's steps
+  before it is dispatched.
 
-  Answers one question: *if this payload were dispatched now, would every step
-  have the data it needs?* The contract is derived from the graph — every input
-  every node needs, minus the inputs an upstream step feeds
-  (`Zaq.Engine.Workflows.InputContract`) — and the candidate payload is resolved
-  against it through `Zaq.Engine.Workflows.FactLookup`, so a key matches exactly
-  the way it will at run time.
+  The contract is derived from the graph — every input every node needs, minus the
+  inputs an upstream step feeds (`Zaq.Engine.Workflows.InputContract`) — and the
+  payload is resolved against it through `Zaq.Engine.Workflows.FactLookup`, so a
+  key matches exactly the way it will at run time. The verdict names what is
+  absent (`missing_inputs`), what is wrong-kinded (`invalid_inputs`) and what the
+  graph itself cannot satisfy (`unsatisfiable_inputs`), and carries the payload to
+  build (`required_input_shape`) and the declared type of every path
+  (`input_types`) as fields rather than as prose — a map cannot be truncated into
+  something that still reads as an answer, and a sentence carrying a contract was.
 
-  An agent loops on the result: read `missing_inputs`, fill the gaps, call again,
-  and dispatch once `valid` is true. The gaps are filled into
-  `required_input_shape` — a dotted path is a shape, not a key, and an agent
-  handed only the flat list reliably sends `"input.name"` as a literal key, which
-  `FactLookup` cannot resolve.
+  An input is required: `%{}`, `nil` and an omitted key are refused with
+  `{:error, "input is required"}` before the workflow is read. `false`, `0` and
+  `""` are payloads a caller can mean, and are judged like any other.
 
-  Filling a gap means sending a value. `required_input_shape` is a skeleton with
-  null leaves, and a required path present but null is reported missing exactly
-  like an absent one — otherwise the loop could converge on the skeleton itself
-  and dispatch a payload the run reads as `nil`. `false`, `0` and `""` are values
-  an agent can mean, and they satisfy their path.
+  A failing verdict is `{:ok, %{valid: false}}`, never `{:error, _}` — an error
+  prunes the downstream subgraph, and a bad payload has to stay routable to a
+  remediation branch. `{:error, _}` is for the calls that produce no verdict at
+  all: an unreadable workflow, and no input to judge.
 
-  `invalid_inputs` is the other half of a failing verdict: the path was supplied,
-  but with a kind of value the step's schema refuses — `"42"` where an integer is
-  declared. Its remediation is a different *kind* of value, not another value, so
-  it is reported apart from `missing_inputs` and each entry names what was expected
-  and what arrived. A path is type-checked only where the payload value reaches a
-  schema-declared field whole; where it does not, the check stays presence-only.
-
-  The action never returns `{:error, _}` for a failing verdict — that would prune
-  the downstream subgraph and make it impossible to route a bad payload to a
-  remediation branch. A `valid: false` result is `{:ok, _}` so an edge condition
-  on `valid` can send the run to `HumanInTheLoop` or back to the agent.
-  `{:error, _}` is reserved for a workflow that cannot be read at all.
-
-  ## Coverage
-
-  `unsatisfiable_inputs` names the fields no step can feed and no payload can
-  supply — nothing local writes them, no predecessor's `output_schema` declares
-  them, and they are not rooted in `start`. That is a broken graph, not a payload
-  gap: the run reads `nil` and fails silently, and no input the agent sends can
-  fix it. A `valid: true` verdict does not cover those, so an empty
-  `unsatisfiable_inputs` is what makes it complete.
-
-  The action is agent-callable, so it may execute on the Agent node. Both the
-  workflow read and the derivation are delegated to the Engine through
-  `NodeRouter.dispatch/1` (`:workflow_input_contract`); only the derived contract
-  crosses back.
+  Agent-callable, so it may run on the Agent node: both the workflow read and the
+  derivation are delegated to the Engine through `NodeRouter.dispatch/1`
+  (`:workflow_input_contract`), and only the contract crosses back.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -56,32 +33,42 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
     Check whether a candidate event input satisfies every step of a workflow
     before dispatching it.
 
-    A path in `required_inputs` / `missing_inputs` is a shape, not a key: a dot
-    means nesting, so `input.name` is `{"input": {"name": ...}}` and never a flat
-    key literally called `"input.name"`. Build the payload from
-    `required_input_shape`, which is that structure already assembled with null
-    leaves — fill in the values and send it back. A leaf left null counts as
-    missing, so sending the skeleton back unchanged is never valid, and a value of
-    the wrong kind is reported in `invalid_inputs` rather than accepted.
+    `input` is required: send the payload you mean to dispatch. `{}` and null are
+    refused rather than answered — there is no verdict on a payload you did not
+    send. Ask the user for the values you do not have; never invent one, and never
+    show a placeholder payload with made-up values or types in place of asking.
+
+    The verdict names every unsupplied path in `missing_inputs` and every
+    wrong-kinded one in `invalid_inputs`, and gives `required_input_shape` to fill
+    and `input_types` to fill it correctly. Fill the gaps and call again until
+    `valid` is true.
+
+    `required_inputs` must all be supplied. `optional_inputs` may be omitted, but
+    anything sent for one is type-checked like the rest — never invent a value to
+    fill one in.
+
+    `input_types` gives the declared kind of every path in both lists and is the
+    only source of types: one guessed from a field's name is wrong as often as it
+    is right, and an example payload built from a guess is one the workflow
+    rejects. A path listed as `any` is untyped — say `any` rather than narrowing
+    it.
+
+    A path is a shape, not a key: a dot means nesting, so `input.name` is
+    `{"input": {"name": ...}}` and never a flat key literally called
+    `"input.name"`. Build the payload from `required_input_shape`, that structure
+    already assembled with null leaves. A leaf left null counts as missing, so
+    sending the skeleton back unchanged is never valid.
     """,
     schema:
       Zoi.object(%{
         workflow_id:
           Zoi.string(description: "Id of the workflow the input is intended to trigger"),
-        # `Zoi.any()` — a candidate trigger payload is string-keyed (it arrives
-        # from an LLM tool call or another workflow's DispatchEvent), and a
-        # scalar payload must be reportable as invalid rather than rejected at
-        # schema validation.
-        #
-        # `Zoi.optional/1` after the default is what makes the field optional:
-        # `Zoi.default/2` alone leaves `meta.required` true, and
-        # `InputContract.required_schema_fields/1` reads exactly that — so
-        # without it this action would contribute a phantom required `input` to
-        # the contract of every workflow that uses it as a node.
         input:
-          Zoi.any(description: "Candidate event input to check against the workflow's steps")
-          |> Zoi.default(%{})
-          |> Zoi.optional()
+          Zoi.any(
+            description:
+              "The event payload you intend to dispatch to this workflow. Must be " <>
+                "non-empty: `{}` and null are refused"
+          )
       }),
     output_schema:
       Zoi.object(%{
@@ -100,14 +87,36 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
           ),
         required_inputs:
           Zoi.array(Zoi.string(),
-            description: "Every payload path the workflow reads from the trigger event"
+            description:
+              "Every payload path the workflow reads from the trigger event and cannot " <>
+                "run without"
+          ),
+        input_types:
+          Zoi.map(
+            description:
+              "The declared kind of every path in `required_inputs` and " <>
+                "`optional_inputs`, as `{path: kind}`. This is the ONLY source of " <>
+                "types: state a type for a path only if it appears here, and never " <>
+                "guess one from the path's name. A path whose kind is `any` is " <>
+                "genuinely untyped — say `any`, do not invent something narrower."
+          ),
+        optional_inputs:
+          Zoi.array(Zoi.string(),
+            description:
+              "Payload paths the workflow reads but whose fields its steps declare " <>
+                "optional. Leaving one out is valid; sending one of the wrong kind is " <>
+                "not, and is reported in `invalid_inputs`. Do not invent values for " <>
+                "these — send one only if the user gave it."
           ),
         invalid_inputs:
           Zoi.array(Zoi.map([]),
             description:
-              "Paths supplied with the wrong kind of value, as `{path, expected, got}` — " <>
-                "send a value of the expected kind. Distinct from `missing_inputs`: the " <>
-                "path was supplied, it is the kind that is wrong."
+              "Paths supplied with a value the step refuses, as " <>
+                "`{path, expected, got, message}` — send a value of the expected kind. " <>
+                "Distinct from `missing_inputs`: the path was supplied, it is the value " <>
+                "that is wrong. When the failure is inside a nested value, `expected` and " <>
+                "`got` are both the outer kind and `message` names the offending key — " <>
+                "read `message` first."
           ),
         required_input_shape:
           Zoi.map(
@@ -139,16 +148,20 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
     end
   end
 
+  # An empty input carries nothing to judge, so it is refused before the workflow
+  # is read. `false`, `0` and `""` are payloads an agent can mean and go through:
+  # the contract reports them invalid rather than silently replacing them.
   defp validate(workflow_id, params, context) do
-    # Default only the *omitted* key: `false`, `0` and `""` are payloads an agent
-    # can send, and the contract must report them invalid rather than silently
-    # replace them with an empty map and echo that back.
-    input =
-      case fetch_param(params, :input) do
-        {:ok, input} -> input
-        :error -> %{}
-      end
+    case fetch_param(params, :input) do
+      {:ok, input} when input != %{} and not is_nil(input) ->
+        judge(workflow_id, input, context)
 
+      _empty ->
+        {:error, "input is required"}
+    end
+  end
+
+  defp judge(workflow_id, input, context) do
     node_router = Map.get(context, :node_router, NodeRouter)
 
     case derive_contract(node_router, workflow_id, input) do

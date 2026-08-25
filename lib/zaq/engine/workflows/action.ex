@@ -321,6 +321,55 @@ defmodule Zaq.Engine.Workflows.Action do
   defp specs_from(_schema), do: []
 
   @doc """
+  Why `value` fails `spec`, in one line — or `nil` when it does not fail.
+
+  `Zoi.parse/2` is the judge on both sides of the contract (`InputContract.check/2`
+  before the run, `StepRunner` during it), so the explanation is derived here once
+  and both phrase the same mismatch the same way.
+
+  What kind of failure it is decides how it reads, and Zoi's own `code` says which:
+
+    * **`:invalid_type` at the value itself** — the value is the wrong kind, and
+      nothing more specific can be said. Zoi names what was expected but never what
+      arrived, so this one case is phrased from `schema_kind/1` and `value_kind/1`:
+      `"expected integer, got string"`. What arrived is the half that tells a caller
+      what to change.
+    * **everything else** — a declared rule the value broke (a pattern, a length, an
+      enum), or a failure Zoi located inside the value at a key or list index. Zoi
+      has already phrased it against the rule the author wrote, so its own rendering
+      is used verbatim: `"too small: must have at least 8 character(s)"`,
+      `"invalid enum value: expected one of active, inactive, at status"`.
+
+  The second case is why this is not `schema_kind/1` alone. A well-typed value can
+  still be refused — `"nope"` is a string where a string is declared, and refused for
+  not matching `~r/@/` — and reporting that as `"expected string, got string"` names
+  neither the rule nor anything a caller can act on.
+
+  Every such failure is reported: a caller fixing one at a time round-trips once per
+  rule. `Zoi.prettify_errors/1` separates them with newlines; they are joined with
+  `"; "` here so the result stays one line.
+  """
+  @spec explain(term(), term()) :: String.t() | nil
+  def explain(spec, value) do
+    case Zoi.parse(spec, value) do
+      {:ok, _} -> nil
+      {:error, errors} -> phrase(errors, spec, value)
+    end
+  end
+
+  defp phrase(errors, spec, value) do
+    case Enum.reject(errors, &wrong_kind?/1) do
+      [] -> "expected #{schema_kind(spec)}, got #{value_kind(value)}"
+      rest -> rest |> Zoi.prettify_errors() |> String.replace("\n", "; ")
+    end
+  end
+
+  # Only a type failure *at* the value is a bare kind mismatch. The same code deeper
+  # in (`path: [:email]`) is one Zoi has located, and it keeps its own message.
+  defp wrong_kind?(%{code: :invalid_type, path: []}), do: true
+  defp wrong_kind?(_error), do: false
+
+  @doc """
   The kind a schema declares, named the way a caller would say it: `"integer"`.
 
   The mirror of `value_kind/1` — together they phrase a mismatch in one vocabulary,

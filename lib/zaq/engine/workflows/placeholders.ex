@@ -25,10 +25,15 @@ defmodule Zaq.Engine.Workflows.Placeholders do
   Resolves every `{{key}}` in `value` against `fact`.
 
   Walks maps (values only), lists, and strings; a struct is a domain value, not a
-  container, so it is never walked into. An unresolved reference becomes `""`.
+  container, so it is never walked into. An unresolved reference becomes `""` — it
+  was being interpolated into a larger string, and nothing renders as nothing.
 
   With `preserve_type: true`, a string that is *only* a placeholder returns the raw
-  resolved value instead of its string form — so a list or map survives as itself.
+  resolved value instead of its string form — so a list or map survives as itself,
+  and an unresolved one is `nil`. There is no string to interpolate into there, so
+  `""` would be a value invented for a reference that found none: an optional field
+  wired that way and then omitted would be handed `""`, which its schema refuses for
+  any type but a string — a param the run rejects where nothing was supplied at all.
   """
   @spec resolve(term(), map(), keyword()) :: term()
   def resolve(value, fact, opts \\ [])
@@ -93,7 +98,7 @@ defmodule Zaq.Engine.Workflows.Placeholders do
   # A whole-string placeholder keeps the raw value; an embedded one is stringified.
   defp substitute_preserving_type(string, fact) do
     case Regex.run(@sole_placeholder, string) do
-      [_full, key] -> lookup(fact, key)
+      [_full, key] -> lookup(fact, key, nil)
       _ -> substitute(string, fact)
     end
   end
@@ -104,12 +109,17 @@ defmodule Zaq.Engine.Workflows.Placeholders do
   # `__cascade__` and friends sit at the fact root because `FactLookup` needs them
   # there, but they are engine plumbing — never a variable an author may print.
   # `FactLookup` already refuses to fuzzy-match them; this refuses them outright.
-  defp lookup(_fact, "__" <> _reserved), do: ""
+  # `unresolved` is what a reference that finds nothing becomes, and it differs by
+  # caller: `""` when the value is being rendered into a larger string, `nil` when it
+  # *is* the value.
+  defp lookup(fact, key, unresolved \\ "")
 
-  defp lookup(fact, key) when is_binary(key) do
+  defp lookup(_fact, "__" <> _reserved, unresolved), do: unresolved
+
+  defp lookup(fact, key, unresolved) when is_binary(key) do
     case FactLookup.fetch(fact, key) do
       {:ok, value} -> value
-      :error -> ""
+      :error -> unresolved
     end
   end
 

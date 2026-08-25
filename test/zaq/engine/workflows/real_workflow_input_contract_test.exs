@@ -44,9 +44,15 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
     "company context content",
     "company official name",
     "company website",
-    "email topic",
     "row_index"
   ]
+
+  # `email topic` reaches one field in this graph: the `input` map of the two
+  # `DispatchEvent` nodes, which `DispatchEvent` declares optional. So the
+  # dispatcher runs to completion without it — what breaks is the *receiver*, whose
+  # own contract requires it. One graph cannot state the other's requirements, so
+  # the dispatcher names it and does not demand it.
+  @generate_company_context_optional ["email topic"]
 
   # ── Send Leads Email — 44f9d42f ─────────────────────────────────────────────
 
@@ -88,10 +94,11 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
     do: @fixtures_dir |> Path.join(filename) |> File.read!() |> Jason.decode!()
 
   describe "Generate Company Context (28036805) — derived contract" do
-    test "reads five fields off the trigger payload" do
+    test "reads five fields off the trigger payload, four of them required" do
       g = graph("generate_company_context.json")
 
       assert InputContract.required_inputs(g) == @generate_company_context_required
+      assert InputContract.optional_inputs(g) == @generate_company_context_optional
     end
 
     test "every input's provenance is stated by the graph" do
@@ -105,14 +112,25 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
                InputContract.check(g, @generate_company_context_input)
     end
 
-    test "dropping any single field breaks the run" do
+    test "dropping any required field breaks the run" do
       g = graph("generate_company_context.json")
 
-      for field <- Map.keys(@generate_company_context_input) do
+      for field <- @generate_company_context_required do
         payload = Map.delete(@generate_company_context_input, field)
 
         assert %{valid: false, missing_inputs: [^field]} = InputContract.check(g, payload),
                "removing #{inspect(field)} should be reported missing"
+      end
+    end
+
+    test "dropping the optional field does not" do
+      g = graph("generate_company_context.json")
+
+      for field <- @generate_company_context_optional do
+        payload = Map.delete(@generate_company_context_input, field)
+
+        assert %{valid: true, missing_inputs: []} = InputContract.check(g, payload),
+               "removing #{inspect(field)} should not be reported missing"
       end
     end
   end
@@ -267,6 +285,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       assert verdict.valid
       assert verdict.missing_inputs == []
       assert verdict.required_inputs == @generate_company_context_required
+      assert verdict.optional_inputs == @generate_company_context_optional
       assert verdict.unsatisfiable_inputs == []
       assert verdict.input == @generate_company_context_input
     end
@@ -379,6 +398,10 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
 
       assert Map.keys(shape) |> Enum.sort() == @generate_company_context_required
       assert Enum.all?(Map.values(shape), &is_nil/1)
+
+      # The skeleton is the required paths only — a caller filling it in is being
+      # asked for what the run cannot do without, not for everything it reads.
+      refute Enum.any?(@generate_company_context_optional, &Map.has_key?(shape, &1))
     end
   end
 end

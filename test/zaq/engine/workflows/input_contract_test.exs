@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.Workflows.InputContractTest do
   use ExUnit.Case, async: true
 
+  alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.InputContract
   alias Zaq.Engine.Workflows.Placeholders
   alias Zaq.Engine.Workflows.Step.Edge, as: StepEdge
@@ -37,7 +38,24 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert sorted(InputContract.all_inputs(g)) == ["b.query"]
       assert sorted(InputContract.fed_by_steps(g)) == []
       assert sorted(InputContract.missing(g)) == ["b.query"]
+
+      # The subtraction is where it comes from; required vs optional is what the
+      # target field declares. `History.query` is optional, so the payload may
+      # omit it — it is still a path the workflow reads.
+      assert InputContract.required_inputs(g) == []
+      assert InputContract.optional_inputs(g) == ["email topic"]
+    end
+
+    test "a start source reaching a required field is a required input" do
+      g =
+        graph(
+          [step("a"), step("b", module: "Zaq.Agent.Tools.Workflow.Concat")],
+          [edge("a", "b", %{"parts" => "start.email topic"})]
+        )
+
+      assert sorted(InputContract.missing(g)) == ["b.parts"]
       assert InputContract.required_inputs(g) == ["email topic"]
+      assert InputContract.optional_inputs(g) == []
     end
 
     test "only the 'to' side of an edge names the node being fed" do
@@ -105,7 +123,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
         )
 
       assert sorted(InputContract.all_inputs(g)) == ["b.query"]
-      assert InputContract.required_inputs(g) == ["email topic"]
+      assert InputContract.optional_inputs(g) == ["email topic"]
     end
 
     test "a Concat placeholder is a reference" do
@@ -249,7 +267,10 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
         )
 
       assert sorted(InputContract.all_inputs(g)) == ["a.conditions"]
-      assert InputContract.required_inputs(g) == ["tier"]
+
+      # `conditions` is optional on `Condition`, so the path it reaches is optional
+      # too — read by the graph, not owed by the payload.
+      assert InputContract.optional_inputs(g) == ["tier"]
     end
 
     test "a Condition input reading start is required from the payload" do
@@ -285,7 +306,10 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           []
         )
 
-      assert InputContract.required_inputs(g) == ["plan", "tier"]
+      # `input` is required on `Condition` and `conditions` is not, so the two
+      # placeholders land in different buckets — both are read, only one must be sent.
+      assert InputContract.required_inputs(g) == ["tier"]
+      assert InputContract.optional_inputs(g) == ["plan"]
     end
 
     test "any action's params are scanned — no module list decides it" do
@@ -532,11 +556,11 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
     test "an optional field is not a spec — only required fields are contract material" do
       names =
-        "Zaq.Agent.Tools.Workflow.ValidateWorkflowInput"
+        "Zaq.Agent.Tools.DataSource.SearchDocuments"
         |> InputContract.required_schema_field_specs()
         |> Enum.map(&elem(&1, 0))
 
-      assert names == ["workflow_id"]
+      assert names == ["provider", "query"]
     end
   end
 
@@ -867,6 +891,91 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     end
   end
 
+  # `AddSheetTab` is the shape the question asks about: three required fields
+  # (`provider`, `spreadsheet_id`, `title`) plus an optional `index` the schema
+  # declares as an integer. The field is optional in the sense that it may be
+  # absent — not in the sense that any value will do, which is why `StepRunner`
+  # refuses a wrong-kinded one at run time whether or not it was required.
+  describe "an optional field the graph wires is type-checked too" do
+    @add_tab "Zaq.Agent.Tools.Sheets.AddSheetTab"
+
+    defp required_tab_params,
+      do: %{"provider" => "google_drive", "spreadsheet_id" => "s", "title" => "Q3"}
+
+    defp wired_optional(source) do
+      graph(
+        [step("a", module: @add_tab)],
+        [edge("start", "a", %{"index" => source})]
+      )
+    end
+
+    test "wiring it from the payload makes it an optional input, not a required one" do
+      g = wired_optional("start.index")
+
+      assert InputContract.required_inputs(g) == ["provider", "spreadsheet_id", "title"]
+      assert InputContract.optional_inputs(g) == ["index"]
+    end
+
+    test "omitting the wired optional field is valid" do
+      assert %{valid: true, missing_inputs: [], invalid_inputs: []} =
+               InputContract.check(wired_optional("start.index"), required_tab_params())
+    end
+
+    test "an integer satisfies the wired optional field" do
+      assert %{valid: true, invalid_inputs: []} =
+               InputContract.check(
+                 wired_optional("start.index"),
+                 Map.put(required_tab_params(), "index", 3)
+               )
+    end
+
+    test "a string where the optional field declares an integer is invalid" do
+      result =
+        InputContract.check(
+          wired_optional("start.index"),
+          Map.put(required_tab_params(), "index", "3")
+        )
+
+      assert %{valid: false, missing_inputs: []} = result
+      assert [%{path: "index", expected: "integer", got: "string"}] = result.invalid_inputs
+    end
+
+    test "the same field reached as a lone param reference is judged the same way" do
+      g =
+        graph(
+          [
+            step("a",
+              module: @add_tab,
+              params: Map.put(required_tab_params(), "index", "{{start.index}}")
+            )
+          ],
+          []
+        )
+
+      assert %{valid: false, invalid_inputs: [%{path: "index", got: "string"}]} =
+               InputContract.check(g, %{"index" => "3"})
+
+      assert %{valid: true, invalid_inputs: []} = InputContract.check(g, %{"index" => 3})
+    end
+
+    # The agreement the contract exists to make: what it calls valid is what the
+    # run accepts. `StepRunner` validates every declared field, required or not,
+    # so a verdict the contract reaches on an optional field must match it.
+    test "the contract's verdict matches what StepRunner would do with the same value" do
+      [{"index", spec, false}] =
+        Enum.filter(Action.field_specs(@add_tab), &(elem(&1, 0) == "index"))
+
+      refute InputContract.spec_accepts?(spec, "3")
+      assert InputContract.spec_accepts?(spec, 3)
+
+      assert %{valid: false} =
+               InputContract.check(
+                 wired_optional("start.index"),
+                 Map.put(required_tab_params(), "index", "3")
+               )
+    end
+  end
+
   describe "normalisation" do
     test "a Workflow struct derives identically to its snapshot" do
       nodes = [
@@ -933,7 +1042,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     test "scalar mapping sources other than strings still resolve" do
       g = graph([step("a"), step("b")], [edge("a", "b", %{"query" => :"start.topic"})])
 
-      assert InputContract.required_inputs(g) == ["topic"]
+      assert InputContract.optional_inputs(g) == ["topic"]
     end
   end
 
