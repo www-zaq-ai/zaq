@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-8o8.18"
+  ],
   "blocks": [],
   "created": "2026-08-25T13:52:31Z",
   "description": "Replace SkillsLive ingestion filesystem invokes with Storage/Disk data-source events for volume listing, uploads, resource listing, and deletion. Cover resource upload/list/delete and disabled Disk config behavior.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8o8] Move Skills resources off Ingestion filesystem API",
   "type": "task",
-  "updated_at": "2026-08-25T13:52:31Z"
+  "updated_at": "2026-08-25T13:52:40Z"
 }

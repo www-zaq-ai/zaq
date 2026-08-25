@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-8o8.17"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-8o8.19"
+  ],
   "created": "2026-08-25T13:52:31Z",
   "description": "Fix exact path containment, add traversal/sibling-prefix property tests, and enforce Disk list/materialization permissions so nil person_id is public-only unless skip_permissions is explicit.",
   "id": "zaq-8o8.18",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-8o8] Harden Storage path and Disk ACLs",
   "type": "task",
-  "updated_at": "2026-08-25T13:52:39Z"
+  "updated_at": "2026-08-25T13:52:40Z"
 }
