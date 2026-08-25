@@ -13,11 +13,15 @@
     {
       "text": "Reopened for regression: JidoConnect create_item capability can resolve to composite true when file.create/file.upload/folder.create all exist; resolve_capability_ref assumed an action map and raised BadMapError, hiding ingestion creation CTAs.",
       "timestamp": "2026-08-25T17:21:43Z"
+    },
+    {
+      "text": "Fixed JidoConnect create_item CTA regression. capability_snapshot now preserves composite true capability markers instead of assuming every resolved capability is an action map id. Added regression coverage for the composite create_item contract. Validation: focused JidoConnect/Ingress/ProviderLive tests passed; full jido_connect_bridge_test passed; legacy audit clean; mix q passed.",
+      "timestamp": "2026-08-25T17:27:37Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8o8.14] Rewire ingestion creation CTAs to capabilities",
   "type": "task",
-  "updated_at": "2026-08-25T17:21:43Z"
+  "updated_at": "2026-08-25T17:27:37Z"
 }
