@@ -9,6 +9,12 @@
   "id": "zaq-8o8.14",
   "labels": [],
   "parent": "zaq-8o8",
+  "comments": [
+    {
+      "text": "Reopened for regression: JidoConnect create_item capability can resolve to composite true when file.create/file.upload/folder.create all exist; resolve_capability_ref assumed an action map and raised BadMapError, hiding ingestion creation CTAs.",
+      "timestamp": "2026-08-25T17:21:43Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8o8.14] Rewire ingestion creation CTAs to capabilities",
