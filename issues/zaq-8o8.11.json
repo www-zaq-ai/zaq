@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-8o8.12"
+  ],
   "created": "2026-08-25T09:14:11Z",
   "description": "Restore Disk records to Storage-owned disk_document handles and make Storage resolve current Disk ChannelConfig at redemption.",
   "id": "zaq-8o8.11",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8o8] Restore handle-first Disk materialization",
   "type": "task",
-  "updated_at": "2026-08-25T09:14:11Z"
+  "updated_at": "2026-08-25T09:14:17Z"
 }

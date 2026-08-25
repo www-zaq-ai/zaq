@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-8o8.11"
+  ],
   "blocks": [],
   "created": "2026-08-25T09:14:11Z",
   "description": "Make ingestion, chat, full preview, and raw file responses resolve through generic materialization instead of path-only filesystem lookup.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8o8] Migrate BO previews to materialization handles",
   "type": "task",
-  "updated_at": "2026-08-25T09:14:11Z"
+  "updated_at": "2026-08-25T09:14:17Z"
 }
