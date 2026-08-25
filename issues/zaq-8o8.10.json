@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-25T07:37:31Z",
+  "description": "Remove Disk/local-specific volume management from ingestion; query generic source scopes and capabilities from enabled data-source configs and render tabs/actions from those responses.",
+  "id": "zaq-8o8.10",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8o8] Refactor ingestion to source scopes",
+  "type": "task",
+  "updated_at": "2026-08-25T07:37:31Z"
+}
