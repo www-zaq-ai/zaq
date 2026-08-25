@@ -393,28 +393,54 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
     end
   end
 
-  describe "run/2 — cascade-aware resolution (FactLookup parity with edges)" do
-    test "resolves a node-qualified key from context.__cascade__" do
+  # A `key` selects inside `input` and never reaches the run cascade, so what a key
+  # means does not change when a node elsewhere in the graph is renamed. Upstream
+  # data is brought in first — by `input: "{{node.field}}"` or by the edge mapping
+  # that feeds this node — and then addressed locally.
+  describe "run/2 — a key is a selector into the input, not a cascade reference" do
+    test "a dotted key descends the input map" do
+      input = %{"record" => %{"id" => 7}}
+      conditions = [%{"key" => "record.id", "op" => "eq", "value" => 7}]
+
+      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, %{})
+    end
+
+    test "a key whose root names a node does not reach that node's result" do
+      # `store_context` is a node, and its result is in the cascade. The key still
+      # reads `input`, so it misses — a node rename cannot change a key's meaning.
       ctx = %{__cascade__: %{"store_context" => %{record: %{id: 7}}}}
       conditions = [%{"key" => "store_context.record.id", "op" => "eq", "value" => 7}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+      assert {:ok, %{passed: false}} =
+               Condition.run(
+                 %{input: %{"other" => 1}, conditions: conditions, on_fail: :continue},
+                 ctx
+               )
     end
 
-    test "resolves the persistent start.* namespace from the cascade" do
+    test "a `start.*` key does not reach the trigger namespace either" do
       ctx = %{__cascade__: %{start: %{"company context file" => "drive-123"}}}
       conditions = [%{"key" => "start.company context file", "op" => "not_empty"}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+      assert {:ok, %{passed: false}} =
+               Condition.run(%{input: %{}, conditions: conditions, on_fail: :continue}, ctx)
     end
 
-    test "the original input is returned unchanged (cascade only augments the lookup view)" do
+    test "the same trigger field reads fine once the edge mapping delivers it" do
+      # The migration path: the edge maps `start.company context file` into the
+      # node's params, and the key addresses it locally.
+      input = %{"company context file" => "drive-123"}
+      conditions = [%{"key" => "company context file", "op" => "not_empty"}]
+
+      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, %{})
+    end
+
+    test "the input is returned unchanged" do
       input = %{"company context file" => ""}
-      ctx = %{__cascade__: %{start: input}}
       conditions = [%{"key" => "company context file", "op" => "empty"}]
 
       assert {:ok, %{passed: true, input: ^input}} =
-               Condition.run(%{input: input, conditions: conditions}, ctx)
+               Condition.run(%{input: input, conditions: conditions}, %{})
     end
   end
 
@@ -558,40 +584,35 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
                Condition.run(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
     end
 
-    test "resolves a node-qualified date key from the cascade" do
-      ctx = %{__cascade__: %{"store_context" => %{record: %{created_at: "2026-01-01"}}}}
+    test "a dotted date key descends the input map" do
+      input = %{"record" => %{"created_at" => "2026-01-01"}}
 
       conditions = [
         %{
-          "key" => "store_context.record.created_at",
+          "key" => "record.created_at",
           "type" => "date",
           "op" => "lt",
           "value" => "2026-06-01"
         }
       ]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, %{})
     end
   end
 
-  describe "run/2 — string input as a cascade reference" do
+  # The `check_last_message_date` node of send_leads_email: the reference lives in
+  # `input` as `"{{build_history.metadata}}"`, `StepRunner` resolves it, and this
+  # action reads a dotted key into the map it was handed.
+  describe "run/2 — input delivered by the engine" do
     setup do
       # Relative to now so the fixture never drifts out of the condition's
       # `today - 10 days` window as wall-clock time moves on.
-      last_message_date =
-        DateTime.utc_now() |> DateTime.add(2, :day) |> DateTime.to_iso8601()
+      last_message_date = DateTime.utc_now() |> DateTime.add(2, :day) |> DateTime.to_iso8601()
 
-      cascade = %{
-        "build_history" => %{
-          "metadata" => %{"total" => %{"last_message_date" => last_message_date}}
-        }
-      }
-
-      {:ok, ctx: %{__cascade__: cascade}}
+      {:ok, metadata: %{"total" => %{"last_message_date" => last_message_date}}}
     end
 
-    test "resolves a dotted string input to the referenced map, then reads keys from it",
-         %{ctx: ctx} do
+    test "reads a dotted key into the resolved input map", %{metadata: metadata} do
       conditions = [
         %{
           "key" => "total.last_message_date",
@@ -601,31 +622,18 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         }
       ]
 
-      # last_message_date is within the allowed window → passes. Without reference
-      # resolution the string input would make the key miss and pin passed to false.
       assert {:ok, %{passed: true}} =
-               Condition.run(
-                 %{input: "build_history.metadata", conditions: conditions, on_fail: :continue},
-                 ctx
-               )
+               Condition.run(%{input: metadata, conditions: conditions, on_fail: :continue}, %{})
     end
 
-    test "an unresolvable reference falls back to the raw string (keys miss, no crash)",
-         %{ctx: ctx} do
-      conditions = [%{"key" => "total.last_message_date", "op" => "not_empty"}]
-
-      assert {:ok, %{passed: false, failed_conditions: [_]}} =
-               Condition.run(
-                 %{input: "does_not.exist", conditions: conditions, on_fail: :continue},
-                 ctx
-               )
-    end
-
-    test "a map input is still used directly (regression)", %{ctx: ctx} do
-      conditions = [%{"key" => "flag", "value" => true}]
+    test "a map input is used directly whatever the cascade holds", %{metadata: metadata} do
+      ctx = %{__cascade__: %{"build_history" => %{"metadata" => metadata}}}
 
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: %{"flag" => true}, conditions: conditions}, ctx)
+               Condition.run(
+                 %{input: %{"flag" => true}, conditions: [%{"key" => "flag", "value" => true}]},
+                 ctx
+               )
     end
   end
 
@@ -633,6 +641,103 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
     test "on_success passes the result through and on_failure returns :ok" do
       assert {:ok, %{a: 1}} = Condition.on_success(%{a: 1}, %{})
       assert :ok = Condition.on_failure(:boom, %{})
+    end
+  end
+
+  # `StepRunner` resolves `{{...}}` in every action's params before `run/2`, and this
+  # action is no longer the exception: `input` uses that syntax like every other
+  # param, and a `key` selects inside the resolved input. Nothing here reads the
+  # cascade, which is why `InputContract` names no module.
+  describe "run/2 — references are resolved by the engine, not here" do
+    test "a bare dotted input is data, not a reference" do
+      ctx = %{__cascade__: %{build_history: %{metadata: %{"total" => 7}}}}
+
+      # The string stays a string, so the key misses and the branch fails.
+      assert {:ok, %{passed: false}} =
+               Condition.run(
+                 %{
+                   input: "build_history.metadata",
+                   conditions: [%{"key" => "total", "value" => 7}],
+                   on_fail: :continue
+                 },
+                 ctx
+               )
+    end
+
+    test "a `{{...}}` input arrives as the resolved map" do
+      # What the migration produces: `StepRunner` resolved the placeholder, so this
+      # action sees the map itself.
+      assert {:ok, %{passed: true}} =
+               Condition.run(
+                 %{
+                   input: %{"total" => 7},
+                   conditions: [%{"key" => "total", "value" => 7}],
+                   on_fail: :continue
+                 },
+                 %{}
+               )
+    end
+
+    test "an unresolved placeholder collapses to an empty string and every key misses" do
+      # `StepRunner` renders an unresolvable reference as `""`. Conditions miss
+      # against it rather than crashing on a non-map input.
+      assert {:ok, %{passed: false, failed_conditions: [_]}} =
+               Condition.run(
+                 %{
+                   input: "",
+                   conditions: [%{"key" => "total", "value" => 7}],
+                   on_fail: :continue
+                 },
+                 %{__cascade__: %{build_history: %{metadata: %{"total" => 7}}}}
+               )
+    end
+
+    test "a bare dotted string that resolves to nothing is data too" do
+      # No `{{}}`, so nothing resolves it and it never crashes the run — the keys
+      # simply miss against a non-map input.
+      assert {:ok, %{passed: false, failed_conditions: [_]}} =
+               Condition.run(
+                 %{
+                   input: "does_not.exist",
+                   conditions: [%{"key" => "total.last_message_date", "op" => "not_empty"}],
+                   on_fail: :continue
+                 },
+                 %{__cascade__: %{"does_not" => %{"exist" => %{"total" => 1}}}}
+               )
+    end
+
+    test "an absent input still falls back to the incoming params at root" do
+      assert {:ok, %{passed: true}} =
+               Condition.run(%{total: 7, conditions: [%{"key" => "total", "value" => 7}]}, %{})
+    end
+
+    test "a bare dotted conditions[].key is data, not a reference" do
+      ctx = %{__cascade__: %{start: %{"sequence" => 4}}}
+
+      # `start.sequence` is read from the input map, not the cascade.
+      assert {:ok, %{passed: false}} =
+               Condition.run(
+                 %{
+                   input: %{"other" => 1},
+                   conditions: [%{"key" => "start.sequence", "value" => 4}],
+                   on_fail: :continue
+                 },
+                 ctx
+               )
+    end
+
+    test "a `{{...}}` input is the one supported reference syntax" do
+      # This is what the migration produces. It already works — `StepRunner`
+      # resolves the placeholder, so `Condition` receives the map literally.
+      assert {:ok, %{passed: true}} =
+               Condition.run(
+                 %{
+                   input: %{"total" => 7},
+                   conditions: [%{"key" => "total", "value" => 7}],
+                   on_fail: :continue
+                 },
+                 %{}
+               )
     end
   end
 end

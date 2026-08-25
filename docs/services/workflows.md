@@ -112,6 +112,42 @@ Iteration is **not** an authorable node type. Authors express it through the `Ba
 
 ---
 
+## Param References (`{{...}}`)
+
+A node param may reference a value produced elsewhere in the run by writing
+`{{key}}`. `StepRunner` resolves every reference in a node's params **before**
+calling the action, so an action always receives literal values — no action
+implements substitution itself.
+
+- **Key class** — `{{name}}`, `{{extract_summary.output}}`, `{{start.language}}`.
+  Segments may carry spaces or hyphens, so a human-authored sheet header reads
+  naturally: `{{start.company context content}}`.
+- **What a key names** — a bare key reads the node's own params (what the incoming
+  edge mapping delivered). A dotted key is resolved by `FactLookup`: a leading
+  segment naming an upstream node descends that node's result, `start.*` reaches the
+  persistent trigger payload, and anything else descends the params as a nested path.
+- **Types** — a param that is *only* a placeholder keeps the raw value, so a list or
+  map survives as itself (`"input": "{{build_history.rows}}"` arrives as the list).
+  An embedded reference is stringified.
+- **Unresolved** — a reference that resolves to nothing becomes `""`. Engine
+  plumbing (`__cascade__` and friends) is never substitutable.
+- **Cost control** — `DagBuilder` scans each node's params once at build time and
+  stamps the referencing keys onto the wrapper, so a bulk payload param is never
+  walked at run time.
+
+`Zaq.Engine.Workflows.InputContract` scans the same params with the same function,
+so what the contract calls a reference and what the runtime resolves cannot drift.
+Every reference is visible to it — there is no module-specific reference syntax.
+
+**Condition keys are not references.** A `Condition` node's `conditions[].key`
+selects a field *inside* `input` (`"record.id"` reads `input["record"]["id"]`) and
+never reaches the run cascade, so a key means the same thing however the graph
+around it is named. To evaluate an upstream result, bring it in first — with
+`"input": "{{build_history.metadata}}"` or via the edge mapping — then address it
+locally.
+
+---
+
 ## Fact Flow
 
 For **event-driven triggers** (e.g., email received, webhook posted):

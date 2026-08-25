@@ -224,7 +224,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       # which `Condition` resolves *inside* that value. `total` is data the step
       # returns, not a node — so the graph owes nothing here.
       node = Enum.find(g["nodes"], &(&1["name"] == "check_last_message_date"))
-      assert node["params"]["input"] == "build_history.metadata"
+      assert node["params"]["input"] == "{{build_history.metadata}}"
       assert [%{"key" => "total.last_message_date"}] = node["params"]["conditions"]
 
       refute MapSet.member?(InputContract.all_inputs(g), "check_last_message_date.conditions")

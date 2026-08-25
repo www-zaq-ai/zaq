@@ -41,11 +41,20 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
       %{"key" => "last_sent_at", "type" => "datetime", "op" => "lt",
         "value" => %{"from" => "now", "days" => -7}}
 
-  Keys are resolved through `Zaq.Engine.Workflows.FactLookup` — the same cascade-aware
-  resolver edges use — so besides plain top-level keys a `"key"` may reference a
-  node-qualified result (`"store_context.record.id"`) or the persistent trigger
-  namespace (`"start.company website"`). Both atom and string key forms resolve, so
-  the tool works against in-memory and JSONB-rehydrated facts transparently.
+  A `"key"` is a **selector into `input`** — nothing else. A plain key names a
+  top-level field and a dotted key descends nested maps
+  (`"record.id"` reads `input["record"]["id"]`). It never reaches the run cascade,
+  so a key means the same thing whatever the graph around it is named. Both atom and
+  string forms resolve through `Zaq.Engine.Workflows.FactLookup`, so the tool works
+  against in-memory and JSONB-rehydrated maps transparently.
+
+  ## References
+
+  Everything a condition reads has to be *in* `input`. Bring an upstream result in
+  through `input` — `"{{build_history.metadata}}"`, which
+  `Zaq.Engine.Workflows.StepRunner` resolves to the map before `run/2` — or through
+  the edge mapping that feeds this node, then address it locally. A bare string is
+  data, not a reference.
 
   ## Example
 
@@ -64,19 +73,19 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
         required: true,
         doc:
           "Map to evaluate conditions against. Normally delivered by the upstream node " <>
-            "or by Batch/Iterate (this is the batch delivery field). May also be a dotted " <>
-            "reference string (e.g. \"build_history.metadata\") resolved against the run " <>
-            "cascade — useful because node params are not engine-resolved and a Condition " <>
-            "must keep its own `input` to fire. When absent — e.g. a Condition that is the " <>
-            "first node off a trigger — `run/2` falls back to the incoming fact at root; " <>
-            "`start.<field>` dotted keys reach the trigger payload."
+            "or by Batch/Iterate (this is the batch delivery field). To evaluate an " <>
+            "upstream result instead, write a placeholder — `\"{{build_history.metadata}}\"` " <>
+            "— which `StepRunner` resolves to the map before this action runs. When absent " <>
+            "— e.g. a Condition that is the first node off a trigger — `run/2` falls back " <>
+            "to the incoming fact at root; `start.<field>` dotted keys reach the trigger " <>
+            "payload."
       ],
       conditions: [
         type: {:list, :map},
         required: false,
         default: [],
         doc:
-          ~s|List of conditions. Each must have "key" and "value"; optional "op" defaults to "eq". Supported ops: eq, neq, gt, lt, gte, lte, not_empty, empty, in. Optional "type" ("date"/"datetime") compares chronologically; "value" then accepts an ISO8601 string, "today"/"now", or a relative map like %{"from" => "now", "days" => -7}.|
+          ~s|List of conditions. Each must have "key" (a selector into `input`; dotted keys descend nested maps) and "value"; optional "op" defaults to "eq". Supported ops: eq, neq, gt, lt, gte, lte, not_empty, empty, in. Optional "type" ("date"/"datetime") compares chronologically; "value" then accepts an ISO8601 string, "today"/"now", or a relative map like %{"from" => "now", "days" => -7}.|
       ],
       on_fail: [
         type: {:in, [:halt, :continue]},
@@ -112,10 +121,9 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   def run(params, context) do
     conditions = Map.get(params, :conditions, [])
     on_fail = normalize_on_fail(Map.get(params, :on_fail))
-    input = resolve_input(params, context)
-    eval_map = eval_map(input, context)
+    input = resolve_input(params)
 
-    failed = Enum.reject(conditions, &condition_passes?(&1, eval_map))
+    failed = Enum.reject(conditions, &condition_passes?(&1, input))
 
     Logger.debug("[condition] evaluated",
       run_id: Map.get(context, :run_id),
@@ -137,7 +145,7 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
 
       true ->
         {:error,
-         "Condition not met: " <> Enum.map_join(failed, "; ", &describe_failure(&1, eval_map))}
+         "Condition not met: " <> Enum.map_join(failed, "; ", &describe_failure(&1, input))}
     end
   end
 
@@ -147,12 +155,12 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   # Builds one human-readable clause per failed condition, e.g.
   # `position must equal "CFO" but was "CTO"`. Names the field, what was expected,
   # and the actual value, so the run-view error is self-explanatory.
-  defp describe_failure(condition, eval_map) do
+  defp describe_failure(condition, input) do
     field = get_field(condition, "key") || "field"
     op = (get_field(condition, "op") || "eq") |> to_op()
     type = get_field(condition, "type")
     expected = get_field(condition, "value")
-    actual = actual_value(condition, eval_map)
+    actual = actual_value(condition, input)
 
     if type in ["date", "datetime"] and op not in [:empty, :not_empty] do
       "#{field} #{date_op_phrase(op)} #{render(expected)} but was #{render(actual)}"
@@ -161,8 +169,8 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     end
   end
 
-  defp actual_value(condition, eval_map) do
-    case FactLookup.fetch(eval_map, get_field(condition, "key")) do
+  defp actual_value(condition, input) do
+    case FactLookup.fetch(input, get_field(condition, "key")) do
       {:ok, value} -> value
       :error -> get_field(condition, "default")
     end
@@ -198,55 +206,19 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   defp render(value), do: inspect(value)
 
   # The map to evaluate conditions against:
-  #   - an explicit `:input` map (mid-DAG: the upstream node delivered it), used as-is;
-  #   - an explicit `:input` **string** — a dotted reference (e.g.
-  #     `"build_history.metadata"`) resolved against the run cascade. Node params are
-  #     NOT resolved by the engine (only edge mappings are), and a Condition must keep
-  #     its own `input` param to be scheduled/fire, so a reference authored on the node
-  #     lands here as a raw string; resolve it so keys read the real map instead of
-  #     missing against the bare string (which pins `passed` to false);
+  #   - an explicit `:input`, used as-is. A reference is written `{{a.b}}` and is
+  #     already resolved to its value by `StepRunner`, so whatever arrives here is
+  #     data — a string `input` is a string, never a reference;
   #   - absent → the incoming fact at root (first node off a trigger), minus this
   #     action's own config keys.
   # The persistent `start` namespace rides along via the cascade in every case and is
   # reachable through `start.<field>` dotted keys.
-  defp resolve_input(params, context) do
+  defp resolve_input(params) do
     case Map.fetch(params, :input) do
-      {:ok, ref} when is_binary(ref) -> resolve_reference(ref, context)
       {:ok, input} -> input
       :error -> Map.drop(params, [:conditions, :on_fail])
     end
   end
-
-  # Resolve a dotted `input` reference against the run cascade. Falls back to the raw
-  # string when it does not resolve, so an unrelated literal never crashes the run
-  # (its conditions simply miss, as before).
-  defp resolve_reference(ref, context) do
-    case FactLookup.fetch(%{__cascade__: cascade(context)}, ref) do
-      {:ok, value} -> value
-      :error -> ref
-    end
-  end
-
-  # The evaluation map is the resolved input augmented with the run's `__cascade__`
-  # (handed through `context` by `StepRunner`), so a condition `key` can reference a
-  # node-qualified result (`store_context.record.id`) or the persistent `start.*`
-  # namespace — not just a top-level key. The original `input` is returned to callers
-  # unchanged; only this lookup view carries the cascade.
-  defp eval_map(input, context) when is_map(input) do
-    case cascade(context) do
-      cascade when is_map(cascade) and map_size(cascade) > 0 ->
-        Map.put(input, :__cascade__, cascade)
-
-      _ ->
-        input
-    end
-  end
-
-  defp eval_map(input, _context), do: input
-
-  # `context` is always the action context map injected by `StepRunner` (or `%{}`).
-  defp cascade(context),
-    do: Map.get(context, :__cascade__) || Map.get(context, "__cascade__") || %{}
 
   # `on_fail` arrives as an atom (direct calls / tests) or a string (authored in
   # JSONB — `DagBuilder.atomize_keys` atomizes keys but leaves values as strings).
@@ -254,13 +226,13 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   defp normalize_on_fail(value) when value in [:continue, "continue"], do: :continue
   defp normalize_on_fail(_value), do: :halt
 
-  defp condition_passes?(condition, eval_map) do
+  defp condition_passes?(condition, input) do
     key = get_field(condition, "key")
     value = get_field(condition, "value")
     op = (get_field(condition, "op") || "eq") |> to_op()
     opts = [type: get_field(condition, "type")]
 
-    case FactLookup.fetch(eval_map, key) do
+    case FactLookup.fetch(input, key) do
       {:ok, actual} ->
         EdgeCondition.evaluate(op, actual, value, opts)
 

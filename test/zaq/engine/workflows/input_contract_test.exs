@@ -139,14 +139,14 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["company context content"]
     end
 
-    test "a Condition resolves a bare dotted input against the cascade" do
+    test "a Condition input is a reference like any other action's" do
       g =
         graph(
           [
             step("a"),
             step("b",
               module: "Zaq.Agent.Tools.Workflow.Condition",
-              params: %{"input" => "a.metadata"}
+              params: %{"input" => "{{a.metadata}}"}
             )
           ],
           [edge("a", "b")]
@@ -164,7 +164,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
             step("b",
               module: "Zaq.Agent.Tools.Workflow.Condition",
               params: %{
-                "input" => "a.metadata",
+                "input" => "{{a.metadata}}",
                 "conditions" => [%{"key" => "total.last_message_date", "op" => "gte"}]
               }
             )
@@ -172,9 +172,9 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           [edge("a", "b")]
         )
 
-      # `Condition` evaluates each key against the *resolved input* — here
-      # `a.metadata` — with `__cascade__` merged in. `total` is a key of that value,
-      # so it is run-time data the graph says nothing about, not an input.
+      # `Condition` evaluates each key against the input `StepRunner` resolved —
+      # here `a.metadata` — with `__cascade__` merged in. `total` is a key of that
+      # value, so it is run-time data the graph says nothing about, not an input.
       assert sorted(InputContract.all_inputs(g)) == ["b.input"]
       assert InputContract.required_inputs(g) == []
       assert InputContract.unsatisfiable_inputs(g) == []
@@ -188,7 +188,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
             step("b",
               module: "Zaq.Agent.Tools.Workflow.Condition",
               params: %{
-                "input" => "a.metadata",
+                "input" => "{{a.metadata}}",
                 "conditions" => [%{"key" => "active", "value" => true}]
               }
             )
@@ -204,7 +204,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.unsatisfiable_inputs(g) == []
     end
 
-    test "a Condition key rooted at a node or at start is still a reference" do
+    test "a Condition key is never a reference, whatever its root names" do
       g =
         graph(
           [
@@ -212,7 +212,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
             step("b",
               module: "Zaq.Agent.Tools.Workflow.Condition",
               params: %{
-                "input" => "a.metadata",
+                "input" => "{{a.metadata}}",
                 "conditions" => [
                   %{"key" => "a.messages", "value" => 1},
                   %{"key" => "start.sequence", "value" => 4}
@@ -223,9 +223,33 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           [edge("a", "b")]
         )
 
-      # Only these two roots reach past the input value into the cascade.
-      assert sorted(InputContract.all_inputs(g)) == ["b.conditions", "b.input"]
-      assert InputContract.required_inputs(g) == ["sequence"]
+      # Both roots name something in the graph — a node and the trigger namespace —
+      # and neither makes the key a reference. A key selects inside `input`, so
+      # renaming node `a` cannot turn `a.messages` into a payload requirement.
+      assert sorted(InputContract.all_inputs(g)) == ["b.input"]
+      assert InputContract.required_inputs(g) == []
+      assert InputContract.unsatisfiable_inputs(g) == []
+    end
+
+    test "a `{{...}}` inside a condition value is a requirement like any other" do
+      # `StepRunner` walks list and map params alike, so a placeholder nested in
+      # `conditions[].value` resolves — and the contract sees it.
+      g =
+        graph(
+          [
+            step("a",
+              module: "Zaq.Agent.Tools.Workflow.Condition",
+              params: %{
+                "input" => %{"tier" => "gold"},
+                "conditions" => [%{"key" => "tier", "value" => "{{start.tier}}"}]
+              }
+            )
+          ],
+          []
+        )
+
+      assert sorted(InputContract.all_inputs(g)) == ["a.conditions"]
+      assert InputContract.required_inputs(g) == ["tier"]
     end
 
     test "a Condition input reading start is required from the payload" do
@@ -234,7 +258,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           [
             step("a",
               module: "Zaq.Agent.Tools.Workflow.Condition",
-              params: %{"input" => "start.row"}
+              params: %{"input" => "{{start.row}}"}
             )
           ],
           []
@@ -306,12 +330,10 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["name", "topic"]
     end
 
-    # Pending, with `condition_test.exs`: `@condition_module` is the only module name
-    # left in `InputContract`, and it exists solely because `Condition` resolves bare
-    # references the uniform `{{...}}` scan cannot see. This FAILS today and passes
-    # once those params migrate to `{{...}}` and the special case is deleted.
-    @tag :skip
-    test "a bare dotted Condition param needs no module-specific knowledge (pending)" do
+    # `InputContract` names no module. A bare dotted string is data whatever module
+    # it sits on — `Condition` included, now that its `input` uses `{{...}}` and its
+    # `conditions[].key` is a selector into that input.
+    test "a bare dotted Condition param needs no module-specific knowledge" do
       g =
         graph(
           [
