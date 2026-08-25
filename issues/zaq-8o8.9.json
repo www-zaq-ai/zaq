@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-25T07:37:31Z",
+  "description": "Route Disk to the data-source provider screen, show Storage base_path, and manage ChannelConfig-backed volume declarations with add/edit/delete and enable gating.",
+  "id": "zaq-8o8.9",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8o8] Move Disk volume editing into data-source config UI",
+  "type": "task",
+  "updated_at": "2026-08-25T07:37:31Z"
+}
