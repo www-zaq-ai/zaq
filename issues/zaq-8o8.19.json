@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-8o8.18"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-8o8.20"
+  ],
   "created": "2026-08-25T13:52:31Z",
   "description": "Replace SkillsLive ingestion filesystem invokes with Storage/Disk data-source events for volume listing, uploads, resource listing, and deletion. Cover resource upload/list/delete and disabled Disk config behavior.",
   "id": "zaq-8o8.19",
