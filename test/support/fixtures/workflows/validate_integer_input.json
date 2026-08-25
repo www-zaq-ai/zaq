@@ -1,0 +1,53 @@
+{
+  "description": "Smallest workflow that exercises the typed input contract: one required integer declared in each schema dialect, plus one path no schema can type.",
+  "edges": [
+    {
+      "from": "update_person",
+      "mapping": {
+        "value": "start.sequence"
+      },
+      "to": "bump_sequence"
+    },
+    {
+      "from": "bump_sequence",
+      "to": "summarize"
+    }
+  ],
+  "name": "Validate Integer Input",
+  "nodes": [
+    {
+      "index": 0,
+      "module": "Zaq.Agent.Tools.People.UpdatePerson",
+      "name": "update_person",
+      "params": {},
+      "type": "action"
+    },
+    {
+      "index": 1,
+      "module": "Zaq.Agent.Tools.Workflow.Increment",
+      "name": "bump_sequence",
+      "params": {},
+      "type": "action"
+    },
+    {
+      "index": 2,
+      "module": "Zaq.Agent.Tools.Workflow.Concat",
+      "name": "summarize",
+      "params": {
+        "parts": [
+          "Lead {{start.name}} is now at step {{bump_sequence.value}}"
+        ],
+        "separator": " "
+      },
+      "type": "action"
+    }
+  ],
+  "settings": {},
+  "status": "active",
+  "trigger": {
+    "cron_schedule": null,
+    "enabled": true,
+    "event_name": "engine:validate_integer_input",
+    "trigger_type": "event"
+  }
+}

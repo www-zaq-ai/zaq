@@ -485,6 +485,174 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     end
   end
 
+  describe "required_schema_field_specs/1" do
+    test "a Zoi-declared required field comes back with a spec that judges its type" do
+      specs = InputContract.required_schema_field_specs("Zaq.Agent.Tools.People.UpdatePerson")
+
+      assert {"person_id", spec} = List.keyfind(specs, "person_id", 0)
+      assert InputContract.spec_accepts?(spec, 42)
+      refute InputContract.spec_accepts?(spec, "42")
+    end
+
+    test "a keyword-declared required field does too — both dialects are read" do
+      specs = InputContract.required_schema_field_specs("Zaq.Agent.Tools.Sheets.GetSheet")
+
+      assert {"provider", spec} = List.keyfind(specs, "provider", 0)
+      assert InputContract.spec_accepts?(spec, "google_drive")
+      refute InputContract.spec_accepts?(spec, 42)
+    end
+
+    test "a structured keyword type is judged structurally, not by name" do
+      specs =
+        InputContract.required_schema_field_specs("Zaq.Agent.Tools.Sheets.UpdateSheetValues")
+
+      assert {"values", spec} = List.keyfind(specs, "values", 0)
+      assert InputContract.spec_accepts?(spec, [["a", "b"], ["c"]])
+      refute InputContract.spec_accepts?(spec, "a,b")
+    end
+
+    test "a module that declares nothing readable yields no specs" do
+      for module <- [nil, "", "Not.A.Module", "Zaq.Engine.Workflows.InputContract"] do
+        assert InputContract.required_schema_field_specs(module) == []
+      end
+    end
+
+    # One producer for both views, so the names and the specs cannot drift apart.
+    test "required_schema_fields/1 is exactly the names of the specs" do
+      for module <- [
+            "Zaq.Agent.Tools.People.UpdatePerson",
+            "Zaq.Agent.Tools.Sheets.GetSheet",
+            "Zaq.Agent.Tools.Accounts.History",
+            "Not.A.Module"
+          ] do
+        assert InputContract.required_schema_fields(module) ==
+                 module |> InputContract.required_schema_field_specs() |> Enum.map(&elem(&1, 0))
+      end
+    end
+
+    test "an optional field is not a spec — only required fields are contract material" do
+      names =
+        "Zaq.Agent.Tools.Workflow.ValidateWorkflowInput"
+        |> InputContract.required_schema_field_specs()
+        |> Enum.map(&elem(&1, 0))
+
+      assert names == ["workflow_id"]
+    end
+  end
+
+  describe "spec_accepts?/2" do
+    test "nil is never judged here — presence is check/2's question, not the spec's" do
+      [{"person_id", spec}] =
+        InputContract.required_schema_field_specs("Zaq.Agent.Tools.People.UpdatePerson")
+
+      refute InputContract.spec_accepts?(spec, nil)
+    end
+
+    test "an :any-typed field accepts anything" do
+      specs = InputContract.required_schema_field_specs("Zaq.Agent.Tools.Workflow.Concat")
+
+      assert {"parts", spec} = List.keyfind(specs, "parts", 0)
+      assert InputContract.spec_accepts?(spec, ["a", "b"])
+    end
+  end
+
+  # A payload path is type-checked only where its value reaches a schema-typed field
+  # whole. Everything else keeps presence-only semantics, and says so by carrying no
+  # expectation at all.
+  describe "expectations/1 — which required paths carry a type" do
+    test "a schema-required field of an entry node types its payload path" do
+      g = graph([step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet")], [])
+
+      assert %{"provider" => [_ | _], "spreadsheet_id" => [_ | _]} =
+               InputContract.expectations(g)
+    end
+
+    test "a mapping delivers its source whole, so the target field types the path" do
+      g =
+        graph(
+          [step("a"), step("b", module: "Zaq.Agent.Tools.Sheets.GetSheet")],
+          [edge("a", "b", %{"provider" => "start.which provider"})]
+        )
+
+      assert [spec] = InputContract.expectations(g)["which provider"]
+      assert InputContract.spec_accepts?(spec, "google_drive")
+      refute InputContract.spec_accepts?(spec, 42)
+    end
+
+    test "a lone placeholder param types its path" do
+      g =
+        graph(
+          [
+            step("a",
+              module: "Zaq.Agent.Tools.Sheets.GetSheet",
+              params: %{"provider" => "{{start.which provider}}", "spreadsheet_id" => "s"}
+            )
+          ],
+          []
+        )
+
+      assert [spec] = InputContract.expectations(g)["which provider"]
+      refute InputContract.spec_accepts?(spec, 42)
+    end
+
+    # `"sheet {{start.which provider}}"` resolves to a string whatever the payload
+    # holds, so the field's declared type says nothing about the payload's.
+    test "an interpolated placeholder types nothing" do
+      g =
+        graph(
+          [
+            step("a",
+              module: "Zaq.Agent.Tools.Sheets.GetSheet",
+              params: %{
+                "provider" => "sheet {{start.which provider}}",
+                "spreadsheet_id" => "s"
+              }
+            )
+          ],
+          []
+        )
+
+      assert InputContract.expectations(g)["which provider"] == nil
+    end
+
+    test "a condition field types nothing — a condition has no schema" do
+      g =
+        graph(
+          [step("a"), step("b")],
+          [%{"from" => "start", "to" => "a", "mapping" => %{}, "condition" => %{"field" => "go"}}]
+        )
+
+      assert InputContract.expectations(g)["go"] == nil
+    end
+
+    test "two nodes needing one path with different types collect both" do
+      g =
+        graph(
+          [
+            step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet"),
+            step("b", module: "Zaq.Agent.Tools.People.UpdatePerson")
+          ],
+          [
+            edge("start", "a", %{"provider" => "start.shared"}),
+            edge("start", "b", %{"person_id" => "start.shared"})
+          ]
+        )
+
+      assert [_, _] = InputContract.expectations(g)["shared"]
+    end
+
+    test "every typed path is a required input — the two views agree" do
+      g = graph([step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet")], [])
+      required = InputContract.required_inputs(g)
+
+      assert g
+             |> InputContract.expectations()
+             |> Map.keys()
+             |> Enum.sort()
+             |> Enum.all?(&(&1 in required))
+    end
+  end
+
   describe "check/2" do
     test "reports a payload that supplies everything as valid" do
       assert %{valid: true, missing_inputs: []} =
@@ -580,11 +748,10 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     end
   end
 
-  # `required_schema_fields/1` reads a schema's field *names* and drops its types, so
-  # the contract answers "is this path supplied?" and never "is this the right kind of
-  # value?". `UpdatePerson.person_id` is `Zoi.integer()` and required, which makes it
-  # the case where the two questions disagree.
-  describe "a required field's type is not part of the contract" do
+  # The contract reads a schema's field names *and* its types, so it answers both
+  # "is this path supplied?" and "is it the right kind of value?". A wrong-typed value
+  # is reported apart from a missing one: the remediation differs.
+  describe "a required field's declared type is part of the contract" do
     defp updates_person,
       do: graph([step("a", module: "Zaq.Agent.Tools.People.UpdatePerson")], [])
 
@@ -593,36 +760,110 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     end
 
     test "an integer satisfies it" do
-      assert %{valid: true, missing_inputs: []} =
+      assert %{valid: true, missing_inputs: [], invalid_inputs: []} =
                InputContract.check(updates_person(), %{"person_id" => 42})
     end
 
-    # Known gap, asserted so a change of heart is deliberate: the path resolves, so the
-    # contract calls it supplied. The run then rejects it — `Zoi.parse/2` on the action's
-    # own schema answers `"invalid type: expected integer"` for `"42"` — which is the
-    # same shape of footgun as a `nil` leaf, one level down. Closing it means carrying
-    # types through `required_schema_fields/1`, not patching `check/2`.
-    test "a string where the schema wants an integer passes anyway" do
-      assert %{valid: true, missing_inputs: [], supplied: ["person_id"]} =
-               InputContract.check(updates_person(), %{"person_id" => "42"})
+    test "a string where the schema wants an integer is invalid, not supplied" do
+      assert %{valid: false, missing_inputs: [], supplied: []} =
+               result = InputContract.check(updates_person(), %{"person_id" => "42"})
+
+      assert [%{path: "person_id", expected: "integer", got: "string"}] = result.invalid_inputs
     end
 
-    test "any other wrong-typed value passes too — it is presence that is checked" do
-      for wrong <- [%{"id" => 42}, ["42"], true, 4.2] do
-        assert %{valid: true} = InputContract.check(updates_person(), %{"person_id" => wrong})
+    test "every other wrong-typed value is invalid too" do
+      for wrong <- [%{"id" => 42}, ["42"], true, 4.2, "42"] do
+        assert %{valid: false, invalid_inputs: [%{path: "person_id"}]} =
+                 InputContract.check(updates_person(), %{"person_id" => wrong})
       end
     end
 
-    # The `nil` rule is orthogonal to type: it is the absence of a value, not a wrong
-    # one, so it is missing whatever the field's declared type is.
-    test "null does not pass, integer field or otherwise" do
-      assert %{valid: false, missing_inputs: ["person_id"], supplied: []} =
+    # The two buckets never mix: `nil` is the absence of a value, not a wrong one, and
+    # its remediation is "send a value" rather than "send the right kind of value".
+    test "null is missing, never invalid" do
+      assert %{valid: false, missing_inputs: ["person_id"], invalid_inputs: [], supplied: []} =
                InputContract.check(updates_person(), %{"person_id" => nil})
     end
 
-    test "the same verdicts through contract/2, the way the tool calls it" do
-      assert %{valid: true} = InputContract.contract(updates_person(), %{"person_id" => "42"})
-      assert %{valid: false} = InputContract.contract(updates_person(), %{"person_id" => nil})
+    test "a payload can be missing one path and wrong-typed on another" do
+      g =
+        graph(
+          [
+            step("a", module: "Zaq.Agent.Tools.People.UpdatePerson"),
+            step("b", module: "Zaq.Agent.Tools.Sheets.GetSheet")
+          ],
+          []
+        )
+
+      result = InputContract.check(g, %{"person_id" => "42", "provider" => "google_drive"})
+
+      assert result.valid == false
+      assert result.missing_inputs == ["spreadsheet_id"]
+      assert [%{path: "person_id"}] = result.invalid_inputs
+      assert result.supplied == ["provider"]
+    end
+
+    test "a keyword-declared string field is judged too — both dialects" do
+      g = graph([step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet")], [])
+
+      assert %{valid: false, invalid_inputs: [%{path: "provider", got: "integer"}]} =
+               InputContract.check(g, %{"provider" => 42, "spreadsheet_id" => "s"})
+
+      assert %{valid: true} =
+               InputContract.check(g, %{"provider" => "google_drive", "spreadsheet_id" => "s"})
+    end
+
+    test "a path two nodes read must satisfy both of their types" do
+      g =
+        graph(
+          [
+            step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet"),
+            step("b", module: "Zaq.Agent.Tools.People.UpdatePerson")
+          ],
+          [
+            edge("start", "a", %{"provider" => "start.shared"}),
+            edge("start", "b", %{"person_id" => "start.shared"})
+          ]
+        )
+
+      # No value is both a string and an integer, so either type refuses one of them.
+      assert %{valid: false, invalid_inputs: [%{path: "shared"}]} =
+               InputContract.check(g, %{"shared" => "google_drive", "spreadsheet_id" => "s"})
+
+      assert %{valid: false, invalid_inputs: [%{path: "shared"}]} =
+               InputContract.check(g, %{"shared" => 42, "spreadsheet_id" => "s"})
+    end
+
+    # Narrowing only where a type is actually knowable: an interpolated reference
+    # resolves to a string whatever the payload holds, so nothing is claimed about it.
+    test "a path reached only through an interpolated placeholder keeps presence-only" do
+      g =
+        graph(
+          [
+            step("a",
+              module: "Zaq.Agent.Tools.Sheets.GetSheet",
+              params: %{"provider" => "sheet {{start.which}}", "spreadsheet_id" => "s"}
+            )
+          ],
+          []
+        )
+
+      assert %{valid: true, invalid_inputs: []} = InputContract.check(g, %{"which" => 42})
+    end
+
+    # Without a graph there are no modules and so no types — the list arity keeps the
+    # presence-only semantics it has always had, and says so.
+    test "check/2 on a bare list of paths type-checks nothing" do
+      assert %{valid: true, invalid_inputs: []} =
+               InputContract.check(["person_id"], %{"person_id" => "42"})
+    end
+
+    test "contract/2 reports both buckets in one pass" do
+      assert %{valid: false, missing_inputs: [], invalid_inputs: [%{path: "person_id"}]} =
+               InputContract.contract(updates_person(), %{"person_id" => "42"})
+
+      assert %{valid: true, invalid_inputs: []} =
+               InputContract.contract(updates_person(), %{"person_id" => 42})
     end
   end
 

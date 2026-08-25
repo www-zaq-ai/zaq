@@ -205,6 +205,49 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     end
   end
 
+  # Enforces the action's input schema once, ahead of the strategy — a wrong-kinded
+  # param is not something a retry can fix.
+  defp run_action(mod, params, context, timeout, strategy) do
+    case validate_params(mod, params) do
+      {:ok, validated} -> call_with_strategy(mod, validated, context, timeout, strategy)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Judges the params that are present, under either key form, and returns them
+  # unchanged — presence is `InputContract`'s question, not this one.
+  defp validate_params(mod, params) do
+    case Enum.flat_map(Action.field_specs(mod), &violation(&1, params)) do
+      [] -> {:ok, params}
+      violations -> {:error, "Invalid parameters: " <> Enum.join(violations, "; ")}
+    end
+  end
+
+  # One refusal line, phrased as `InputContract` phrases the same mismatch.
+  defp violation({name, spec, _required?}, params) do
+    case fetch_param(params, name) do
+      {:ok, value} when not is_nil(value) ->
+        case Zoi.parse(spec, value) do
+          {:ok, _} ->
+            []
+
+          {:error, _} ->
+            ["#{name}: expected #{Action.schema_kind(spec)}, got #{Action.value_kind(value)}"]
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp fetch_param(params, name) do
+    with :error <- Map.fetch(params, name) do
+      Map.fetch(params, String.to_existing_atom(name))
+    end
+  rescue
+    ArgumentError -> :error
+  end
+
   # Under the :retry strategy a failing map fork is re-run up to @max_retries total
   # attempts before its outcome is written. Mirrors the old Batch/Iterate retry.
   defp call_with_strategy(mod, params, context, timeout, strategy)
@@ -308,7 +351,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     enriched_context = enrich_context(context, run_id, step_name, step_index, prev_cascade)
 
     try do
-      case call_with_strategy(mod, action_params, enriched_context, timeout_ms, strategy) do
+      case run_action(mod, action_params, enriched_context, timeout_ms, strategy) do
         {:ok, result, logs: action_logs} ->
           cascaded = result |> inject_cascade(prev_cascade, step_name) |> put_map_index(map_index)
           step_log = Action.log_entry(:step_completed, t0)

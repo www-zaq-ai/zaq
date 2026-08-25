@@ -29,34 +29,56 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
 
   # Inserted through the changeset rather than `Workflows.create_workflow/2` so
   # the fixture does not have to stub the `workflow.created` NodeRouter dispatch.
-  defp workflow_fixture do
+  # `person_id` is `Zoi.integer()` and required on `UpdatePerson`, which makes it the
+  # one field in this graph whose declared type the payload can get wrong.
+  defp full_payload(extra),
+    do: Map.merge(%{"email topic" => "Q3", "company context content" => "ctx"}, extra)
+
+  defp workflow_fixture(opts \\ []) do
+    extra_nodes =
+      if Keyword.get(opts, :person_id_node, false) do
+        [
+          %{
+            "name" => "update_person",
+            "type" => "action",
+            "module" => "Zaq.Agent.Tools.People.UpdatePerson",
+            "index" => 3,
+            "params" => %{}
+          }
+        ]
+      else
+        []
+      end
+
     Repo.insert!(
       Workflow.changeset(%Workflow{}, %{
         "name" => "Send Leads Email",
         "status" => "draft",
-        "nodes" => [
-          %{
-            "name" => "ensure_person",
-            "type" => "action",
-            "module" => "Zaq.Agent.Tools.People.EnsurePerson",
-            "index" => 0,
-            "params" => %{"platform" => "email"}
-          },
-          %{
-            "name" => "build_history",
-            "type" => "action",
-            "module" => "Zaq.Agent.Tools.Accounts.History",
-            "index" => 1,
-            "params" => %{"query" => "a default", "search_in" => "title"}
-          },
-          %{
-            "name" => "build_agent_context",
-            "type" => "action",
-            "module" => "Zaq.Agent.Tools.Workflow.Concat",
-            "index" => 2,
-            "params" => %{"parts" => ["{{start.company context content}}"]}
-          }
-        ],
+        "nodes" =>
+          extra_nodes ++
+            [
+              %{
+                "name" => "ensure_person",
+                "type" => "action",
+                "module" => "Zaq.Agent.Tools.People.EnsurePerson",
+                "index" => 0,
+                "params" => %{"platform" => "email"}
+              },
+              %{
+                "name" => "build_history",
+                "type" => "action",
+                "module" => "Zaq.Agent.Tools.Accounts.History",
+                "index" => 1,
+                "params" => %{"query" => "a default", "search_in" => "title"}
+              },
+              %{
+                "name" => "build_agent_context",
+                "type" => "action",
+                "module" => "Zaq.Agent.Tools.Workflow.Concat",
+                "index" => 2,
+                "params" => %{"parts" => ["{{start.company context content}}"]}
+              }
+            ],
         "edges" => [
           %{
             "from" => "ensure_person",
@@ -149,6 +171,59 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
 
       assert {:ok, %{valid: true, missing_inputs: []}} =
                ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: filled}, %{})
+    end
+
+    # A wrong-typed value is not a gap: the caller sent something, it is the wrong
+    # kind of something, and the remediation is a different kind of value rather than
+    # a value. It gets its own bucket so an agent can tell the two apart.
+    test "reports a wrong-typed required field as invalid, not missing" do
+      workflow = workflow_fixture(person_id_node: true)
+
+      assert {:ok, result} =
+               ValidateWorkflowInput.run(
+                 %{workflow_id: workflow.id, input: full_payload(%{"person_id" => "42"})},
+                 %{}
+               )
+
+      refute result.valid
+      assert [%{path: "person_id", expected: "integer", got: "string"}] = result.invalid_inputs
+      refute "person_id" in result.missing_inputs
+    end
+
+    test "a wrong-typed field still routes as {:ok, _} so a remediation edge stays reachable" do
+      workflow = workflow_fixture(person_id_node: true)
+
+      assert {:ok, %{valid: false}} =
+               ValidateWorkflowInput.run(
+                 %{workflow_id: workflow.id, input: full_payload(%{"person_id" => "42"})},
+                 %{}
+               )
+    end
+
+    test "a payload can populate both buckets at once" do
+      workflow = workflow_fixture(person_id_node: true)
+
+      assert {:ok, result} =
+               ValidateWorkflowInput.run(
+                 %{
+                   workflow_id: workflow.id,
+                   input: %{"email topic" => "Q3", "person_id" => "42"}
+                 },
+                 %{}
+               )
+
+      assert result.missing_inputs == ["company context content"]
+      assert [%{path: "person_id"}] = result.invalid_inputs
+    end
+
+    test "a correctly-typed payload has both buckets empty" do
+      workflow = workflow_fixture(person_id_node: true)
+
+      assert {:ok, %{valid: true, missing_inputs: [], invalid_inputs: []}} =
+               ValidateWorkflowInput.run(
+                 %{workflow_id: workflow.id, input: full_payload(%{"person_id" => 42})},
+                 %{}
+               )
     end
 
     test "accepts a payload supplying every required field" do

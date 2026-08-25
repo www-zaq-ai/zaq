@@ -154,4 +154,53 @@ defmodule Zaq.Engine.Workflows.PlaceholdersTest do
       assert Placeholders.resolve("{{n}}", f) == "42"
     end
   end
+
+  describe "lone_reference?/1" do
+    test "a string that is only a placeholder is a lone reference" do
+      assert Placeholders.lone_reference?("{{n}}")
+      assert Placeholders.lone_reference?("  {{ start.email topic }}  ")
+    end
+
+    test "an interpolated or repeated placeholder is not" do
+      refute Placeholders.lone_reference?("n is {{n}}")
+      refute Placeholders.lone_reference?("{{a}}{{b}}")
+      refute Placeholders.lone_reference?("{{a}} and {{b}}")
+    end
+
+    test "a value carrying no placeholder at all is not" do
+      refute Placeholders.lone_reference?("plain")
+      refute Placeholders.lone_reference?("")
+    end
+
+    test "a non-binary is not — only an authored string can be one" do
+      for value <- [42, nil, ["{{a}}"], %{"k" => "{{a}}"}, :atom, ~U[2026-07-06 12:00:00Z]] do
+        refute Placeholders.lone_reference?(value)
+      end
+    end
+
+    # The predicate exists to tell callers whether `resolve/3` hands back the raw value
+    # or a string of it. If the two disagree, a caller reasoning about a param's type
+    # from this predicate is reasoning about the wrong thing. Every value in the fact
+    # is non-binary here, so "survived as itself" and "was stringified" are decidable.
+    test "it agrees with resolve/3 about which values survive as themselves" do
+      f = fact(%{"n" => 42, "rows" => [%{"a" => 1}]})
+
+      for lone <- ["{{n}}", "  {{n}}  ", "{{rows}}"] do
+        assert Placeholders.lone_reference?(lone)
+        refute is_binary(Placeholders.resolve(lone, f, preserve_type: true))
+      end
+
+      for not_lone <- ["n is {{n}}", "{{n}}{{n}}", "{{n}} and {{rows}}", "plain", ""] do
+        refute Placeholders.lone_reference?(not_lone)
+        assert is_binary(Placeholders.resolve(not_lone, f, preserve_type: true))
+      end
+    end
+
+    test "a lone reference to a string value still resolves to that exact value" do
+      f = fact(%{"s" => "text"})
+
+      assert Placeholders.lone_reference?("{{s}}")
+      assert Placeholders.resolve("{{s}}", f, preserve_type: true) == "text"
+    end
+  end
 end

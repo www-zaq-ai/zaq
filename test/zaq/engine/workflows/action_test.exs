@@ -484,4 +484,134 @@ defmodule Zaq.Engine.Workflows.ActionTest do
       assert :ok = LegacyBehaviourAction.on_failure(:x, %{})
     end
   end
+
+  # Both schema dialects are read into one vocabulary — Zoi — so a value is judged
+  # the same way wherever it is judged. The values being judged arrive as JSON from
+  # an agent or a JSONB workflow definition, so the translation is JSON-shaped:
+  # a JSON object is string-keyed, a JSON number may stand in for a float, and an
+  # enum an author spells as atoms reaches us as strings.
+  describe "field_specs/1" do
+    defmodule KeywordSchemaAction do
+      @moduledoc false
+      use Jido.Action,
+        name: "keyword_schema_action",
+        schema: [
+          name: [type: :string, required: true],
+          count: [type: :integer, required: true],
+          ratio: [type: :float, required: false],
+          rows: [type: {:list, {:list, :any}}, required: false],
+          payload: [type: :map, required: false],
+          conditions: [type: {:list, :map}, required: false],
+          mode: [type: {:in, [:halt, :continue]}, required: false],
+          either: [type: {:or, [:map, :string]}, required: false],
+          anything: [type: :any, required: false],
+          positive: [type: :pos_integer, required: false]
+        ],
+        output_schema: [result: [type: :any, required: true]]
+
+      @impl Jido.Action
+      def run(params, _ctx), do: {:ok, %{result: params}}
+    end
+
+    defp spec_for(module, field) do
+      {_name, schema, _required?} =
+        module |> inspect() |> Action.field_specs() |> List.keyfind(field, 0)
+
+      schema
+    end
+
+    defp accepts?(module, field, value),
+      do: match?({:ok, _}, Zoi.parse(spec_for(module, field), value))
+
+    test "every field is read, with its required flag" do
+      specs = Action.field_specs(inspect(KeywordSchemaAction))
+
+      assert {"name", _, true} = List.keyfind(specs, "name", 0)
+      assert {"ratio", _, false} = List.keyfind(specs, "ratio", 0)
+      assert length(specs) == 10
+    end
+
+    test "scalar types judge scalars" do
+      assert accepts?(KeywordSchemaAction, "name", "Ada")
+      refute accepts?(KeywordSchemaAction, "name", 42)
+
+      assert accepts?(KeywordSchemaAction, "count", 42)
+      refute accepts?(KeywordSchemaAction, "count", "42")
+
+      assert accepts?(KeywordSchemaAction, "positive", 3)
+      refute accepts?(KeywordSchemaAction, "positive", -3)
+    end
+
+    # JSON has one number type: `4` and `4.0` are the same literal, so a float field
+    # must take the integer form or every whole-numbered float would be refused.
+    test "a float field accepts a JSON whole number" do
+      assert accepts?(KeywordSchemaAction, "ratio", 4.2)
+      assert accepts?(KeywordSchemaAction, "ratio", 4)
+      refute accepts?(KeywordSchemaAction, "ratio", "4.2")
+    end
+
+    # A JSON object is string-keyed. NimbleOptions' `:map` demands atom keys, which
+    # no JSON payload can satisfy — the reason this translation exists.
+    test "a map field accepts a string-keyed JSON object" do
+      assert accepts?(KeywordSchemaAction, "payload", %{"key" => "value"})
+      assert accepts?(KeywordSchemaAction, "payload", %{key: "value"})
+      refute accepts?(KeywordSchemaAction, "payload", "not an object")
+    end
+
+    test "a list-of-maps field accepts string-keyed elements" do
+      assert accepts?(KeywordSchemaAction, "conditions", [%{"key" => "a", "op" => "eq"}])
+      refute accepts?(KeywordSchemaAction, "conditions", %{"key" => "a"})
+    end
+
+    test "a nested list type is judged structurally" do
+      assert accepts?(KeywordSchemaAction, "rows", [["a", "b"], ["c"]])
+      refute accepts?(KeywordSchemaAction, "rows", ["a", "b"])
+    end
+
+    # An author spells the choices as atoms; an agent can only send strings.
+    test "an enum field accepts either the atom or its string form" do
+      assert accepts?(KeywordSchemaAction, "mode", :halt)
+      assert accepts?(KeywordSchemaAction, "mode", "halt")
+      refute accepts?(KeywordSchemaAction, "mode", "explode")
+    end
+
+    test "a union field accepts any of its branches" do
+      assert accepts?(KeywordSchemaAction, "either", %{"a" => 1})
+      assert accepts?(KeywordSchemaAction, "either", "a string")
+      refute accepts?(KeywordSchemaAction, "either", 42)
+    end
+
+    test "an :any field accepts anything JSON can carry" do
+      for value <- ["s", 42, 4.2, true, ["a"], %{"k" => "v"}] do
+        assert accepts?(KeywordSchemaAction, "anything", value)
+      end
+    end
+
+    test "a Zoi-declared schema is read as itself" do
+      specs = Action.field_specs("Zaq.Agent.Tools.People.UpdatePerson")
+
+      assert {"person_id", schema, true} = List.keyfind(specs, "person_id", 0)
+      assert {:ok, _} = Zoi.parse(schema, 42)
+      assert {:error, _} = Zoi.parse(schema, "42")
+    end
+
+    test "a module with nothing readable yields no specs" do
+      for module <- [nil, "", "Not.A.Module"] do
+        assert Action.field_specs(module) == []
+      end
+    end
+
+    # Every production action must survive translation — a type this cannot express
+    # would silently become `any` and stop judging anything.
+    test "every registered tool's schema translates" do
+      for %{module: mod} <- Zaq.Agent.Tools.Registry.tools(),
+          Code.ensure_loaded?(mod),
+          function_exported?(mod, :schema, 0) do
+        specs = Action.field_specs(inspect(mod))
+        declared = if is_list(mod.schema()), do: length(mod.schema()), else: length(specs)
+
+        assert length(specs) == declared, "#{inspect(mod)} lost fields in translation"
+      end
+    end
+  end
 end

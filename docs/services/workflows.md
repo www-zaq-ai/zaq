@@ -149,6 +149,18 @@ it names until the leaves are filled, and an agent looping on
 `validate_workflow_input` cannot converge by echoing the skeleton back. `false`,
 `0` and `""` are values a caller can mean, and they supply.
 
+**A required path is type-checked where its value reaches a schema-declared field
+whole.** `required_schema_field_specs/1` reads each required field's declared type
+out of the action's own schema — both dialects, NimbleOptions and Zoi — and
+`check/2` runs the payload value through `Jido.Action.Schema`, the same validator
+the step itself uses. A path supplied with the wrong kind of value lands in
+`invalid_inputs` (`%{path:, expected:, got:}`), never in `missing_inputs`: the
+remediation is a different *kind* of value, not another value. A path is typed only
+where the value arrives whole — a mapping target, a schema-required field of an
+entry node, or a param written as a lone `{{...}}`. An interpolated reference
+resolves to a string whatever the payload holds, and a condition field has no
+schema, so neither is typed and both keep presence-only semantics.
+
 **Condition keys are not references.** A `Condition` node's `conditions[].key`
 selects a field *inside* `input` (`"record.id"` reads `input["record"]["id"]`) and
 never reaches the run cascade, so a key means the same thing however the graph

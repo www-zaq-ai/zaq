@@ -600,7 +600,7 @@ defmodule Zaq.Engine.Workflows.Test.ListClients do
   use Jido.Action,
     name: "test_list_clients",
     schema: [source: [type: :string, required: false]],
-    output_schema: [clients: [type: :list, required: true]]
+    output_schema: [clients: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -625,8 +625,8 @@ defmodule Zaq.Engine.Workflows.Test.CategorizeBySize do
   @moduledoc false
   use Jido.Action,
     name: "test_categorize_by_size",
-    schema: [items: [type: :list, required: true]],
-    output_schema: [results: [type: :list, required: true]]
+    schema: [items: [type: {:list, :any}, required: true]],
+    output_schema: [results: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -655,10 +655,10 @@ defmodule Zaq.Engine.Workflows.Test.Sleep do
   use Jido.Action,
     name: "test_sleep",
     schema: [
-      results: [type: :list, required: true],
+      results: [type: {:list, :any}, required: true],
       duration_ms: [type: :integer, required: false, default: 200]
     ],
-    output_schema: [results: [type: :list, required: true]]
+    output_schema: [results: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -724,8 +724,8 @@ defmodule Zaq.Engine.Workflows.Test.FlattenClients do
   @moduledoc false
   use Jido.Action,
     name: "test_flatten_clients",
-    schema: [results: [type: :list, required: true]],
-    output_schema: [clients: [type: :list, required: true]]
+    schema: [results: [type: {:list, :any}, required: true]],
+    output_schema: [clients: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -750,7 +750,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitItems do
   use Jido.Action,
     name: "test_emit_items",
     schema: [input: [type: :any]],
-    output_schema: [items: [type: :list, required: true]]
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -859,7 +859,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitNumbers do
   use Jido.Action,
     name: "test_emit_numbers",
     schema: [input: [type: :any]],
-    output_schema: [nums: [type: :list, required: true]]
+    output_schema: [nums: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -925,7 +925,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitIndexedItems do
   use Jido.Action,
     name: "test_emit_indexed_items",
     schema: [count: [type: :integer, required: false, default: 3]],
-    output_schema: [items: [type: :list, required: true]]
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -946,8 +946,8 @@ defmodule Zaq.Engine.Workflows.Test.RecordItemTime do
   """
   use Jido.Action,
     name: "test_record_item_time",
-    schema: [items: [type: :list, required: true]],
-    output_schema: [items: [type: :list, required: true]]
+    schema: [items: [type: {:list, :any}, required: true]],
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -1233,4 +1233,29 @@ defmodule Zaq.Engine.Workflows.Test.EmitPartialX do
 
   @impl Jido.Action
   def run(_params, _context), do: {:ok, %{x: %{"b" => 3}}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.TypedParamAction do
+  @moduledoc """
+  Declares a typed required param and records whether `run/2` was ever entered.
+
+  Exists to prove that `StepRunner` enforces an action's declared schema *before*
+  calling it: a wrong-typed param must fail the step without the action running.
+  """
+  use Jido.Action,
+    name: "typed_param_action",
+    description: "Records entry; declares a typed required param",
+    schema: [
+      count: [type: :integer, required: true, doc: "An integer, and only an integer"],
+      label: [type: :string, required: false, default: "unset", doc: "Optional label"]
+    ],
+    output_schema: [
+      count: [type: :integer, required: true, doc: "The count it received"]
+    ]
+
+  @impl Jido.Action
+  def run(params, _context) do
+    send(self(), {:typed_param_action_ran, params})
+    {:ok, %{count: params[:count], label: params[:label], extra: params[:extra]}}
+  end
 end

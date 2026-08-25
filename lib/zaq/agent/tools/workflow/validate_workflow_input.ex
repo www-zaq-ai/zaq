@@ -22,6 +22,13 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
   and dispatch a payload the run reads as `nil`. `false`, `0` and `""` are values
   an agent can mean, and they satisfy their path.
 
+  `invalid_inputs` is the other half of a failing verdict: the path was supplied,
+  but with a kind of value the step's schema refuses — `"42"` where an integer is
+  declared. Its remediation is a different *kind* of value, not another value, so
+  it is reported apart from `missing_inputs` and each entry names what was expected
+  and what arrived. A path is type-checked only where the payload value reaches a
+  schema-declared field whole; where it does not, the check stays presence-only.
+
   The action never returns `{:error, _}` for a failing verdict — that would prune
   the downstream subgraph and make it impossible to route a bad payload to a
   remediation branch. A `valid: false` result is `{:ok, _}` so an edge condition
@@ -54,7 +61,8 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
     key literally called `"input.name"`. Build the payload from
     `required_input_shape`, which is that structure already assembled with null
     leaves — fill in the values and send it back. A leaf left null counts as
-    missing, so sending the skeleton back unchanged is never valid.
+    missing, so sending the skeleton back unchanged is never valid, and a value of
+    the wrong kind is reported in `invalid_inputs` rather than accepted.
     """,
     schema:
       Zoi.object(%{
@@ -93,6 +101,13 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
         required_inputs:
           Zoi.array(Zoi.string(),
             description: "Every payload path the workflow reads from the trigger event"
+          ),
+        invalid_inputs:
+          Zoi.array(Zoi.map([]),
+            description:
+              "Paths supplied with the wrong kind of value, as `{path, expected, got}` — " <>
+                "send a value of the expected kind. Distinct from `missing_inputs`: the " <>
+                "path was supplied, it is the kind that is wrong."
           ),
         required_input_shape:
           Zoi.map(

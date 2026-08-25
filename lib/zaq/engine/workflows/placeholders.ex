@@ -52,6 +52,18 @@ defmodule Zaq.Engine.Workflows.Placeholders do
   def resolve(other, _fact, _opts), do: other
 
   @doc """
+  Whether `value` is a string holding exactly one `{{...}}` and nothing else.
+
+  This is the shape `resolve/3` hands back raw under `preserve_type: true`, so it is
+  also the shape whose resolved type is the referenced value's own. Anything else —
+  an interpolated reference, two references, a plain string, a non-binary — resolves
+  to a string whatever the reference holds.
+  """
+  @spec lone_reference?(term()) :: boolean()
+  def lone_reference?(value) when is_binary(value), do: Regex.match?(@sole_placeholder, value)
+  def lone_reference?(_value), do: false
+
+  @doc """
   Every `{{key}}` reference inside `value`, in order, with duplicates kept.
 
   Walks the same containers `resolve/3` does, so what this reports is exactly what

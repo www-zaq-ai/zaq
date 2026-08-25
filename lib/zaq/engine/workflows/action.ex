@@ -262,6 +262,115 @@ defmodule Zaq.Engine.Workflows.Action do
     end
   end
 
+  @doc """
+  Every field of an action's input schema as `{name, zoi_schema, required?}`.
+
+  Both dialects are read into one vocabulary — Zoi — so a value is judged the same
+  way wherever it is judged: by the contract before a run and by `StepRunner` during
+  one. A NimbleOptions type is translated; a Zoi schema is already itself.
+
+  The translation is **JSON-shaped**, because that is what the values are. A payload
+  arrives from an agent's tool call or a JSONB workflow definition, so:
+
+    * a JSON object is string-keyed — NimbleOptions' `:map` demands atom keys, which
+      no JSON payload can satisfy;
+    * JSON has one number type, so a `:float` field takes `4` as readily as `4.0`;
+    * an author spells `{:in, [...]}` choices as atoms, but an agent can only send
+      their string form, so both are accepted.
+
+  A type with no faithful translation becomes `Zoi.any()` — it judges nothing rather
+  than judging wrongly.
+  """
+  @spec field_specs(String.t() | module() | nil) :: [{String.t(), term(), boolean()}]
+  def field_specs(module) when is_atom(module) and not is_nil(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :schema, 0),
+      do: specs_from(module.schema()),
+      else: []
+  end
+
+  def field_specs(module) do
+    case resolve(module || "") do
+      {:ok, mod} -> field_specs(mod)
+      _ -> []
+    end
+  end
+
+  defp specs_from(%Zoi.Types.Map{fields: fields}) when is_list(fields),
+    do: Enum.map(fields, fn {name, sub} -> {to_string(name), sub, Meta.required?(sub.meta)} end)
+
+  defp specs_from(schema) when is_list(schema) do
+    Enum.map(schema, fn {name, opts} ->
+      {to_string(name), zoi_type(Keyword.get(opts, :type, :any)),
+       Keyword.get(opts, :required) == true}
+    end)
+  end
+
+  defp specs_from(_schema), do: []
+
+  @doc """
+  The kind a schema declares, named the way a caller would say it: `"integer"`.
+
+  The mirror of `value_kind/1` — together they phrase a mismatch in one vocabulary,
+  wherever it is found. Every spec `field_specs/1` returns is a Zoi schema, whichever
+  dialect the action declared, so one reading covers both.
+  """
+  @spec schema_kind(term()) :: String.t()
+  def schema_kind(%{__struct__: struct}),
+    do: struct |> Module.split() |> List.last() |> String.downcase()
+
+  def schema_kind(_schema), do: "any"
+
+  @doc """
+  The kind of a runtime value, in the same vocabulary `schema_kind/1` uses.
+
+  A struct is named by its module — `"DateTime"` says more than `"map"` when a step
+  refuses one.
+  """
+  @spec value_kind(term()) :: String.t()
+  def value_kind(value) when is_binary(value), do: "string"
+  def value_kind(value) when is_boolean(value), do: "boolean"
+  def value_kind(value) when is_integer(value), do: "integer"
+  def value_kind(value) when is_float(value), do: "float"
+  def value_kind(value) when is_list(value), do: "list"
+  def value_kind(value) when is_atom(value), do: "atom"
+  def value_kind(value) when is_struct(value), do: inspect(value.__struct__)
+  def value_kind(value) when is_map(value), do: "map"
+  def value_kind(_value), do: "unknown"
+
+  # -- NimbleOptions type -> Zoi ------------------------------------------------
+
+  defp zoi_type(:string), do: Zoi.string()
+  defp zoi_type(:boolean), do: Zoi.boolean()
+  defp zoi_type(:integer), do: Zoi.integer()
+  defp zoi_type(:non_neg_integer), do: Zoi.integer(gte: 0)
+  defp zoi_type(:pos_integer), do: Zoi.integer(gt: 0)
+  defp zoi_type(:atom), do: Zoi.atom()
+
+  # One JSON number type: `4` and `4.0` are the same literal, so refusing the integer
+  # form would refuse every whole-numbered float an agent sends.
+  defp zoi_type(:float), do: Zoi.union([Zoi.float(), Zoi.integer()])
+
+  # A JSON object is string-keyed; `Zoi.map/0` is key-agnostic where NimbleOptions'
+  # `:map` is not.
+  defp zoi_type(:map), do: Zoi.map()
+  defp zoi_type(:keyword_list), do: Zoi.any()
+  defp zoi_type({:list, inner}), do: Zoi.array(zoi_type(inner))
+  defp zoi_type({:or, types}), do: Zoi.union(Enum.map(types, &zoi_type/1))
+
+  # An author writes the choices as atoms and an agent sends strings, so both forms
+  # of every choice are in the enum.
+  defp zoi_type({:in, choices}) do
+    choices
+    |> Enum.flat_map(fn
+      choice when is_atom(choice) and not is_nil(choice) -> [choice, to_string(choice)]
+      choice -> [choice]
+    end)
+    |> Zoi.enum()
+  end
+
+  defp zoi_type({:custom, _mod, _fun, _args}), do: Zoi.any()
+  defp zoi_type(_type), do: Zoi.any()
+
   defp required_schema_fields(schema) when is_list(schema) do
     Enum.filter(schema, fn {_field, opts} -> opts[:required] == true end)
   end

@@ -930,6 +930,44 @@ defmodule Zaq.Engine.ApiTest do
       assert contract.required_inputs == ["name"]
     end
 
+    # The bucket has to survive the node hop: the tool runs on the Agent node and only
+    # the derived contract crosses back, so a key the Engine adds is invisible to an
+    # agent unless it travels.
+    test "a wrong-typed payload field crosses back as invalid_inputs", %{workflow: workflow} do
+      workflow =
+        Repo.insert!(
+          Workflows.Workflow.changeset(%Workflows.Workflow{}, %{
+            "name" => "Update",
+            "status" => "draft",
+            "nodes" => [
+              %{
+                "name" => "update",
+                "type" => "action",
+                "module" => "Zaq.Agent.Tools.People.UpdatePerson",
+                "index" => 0,
+                "params" => %{}
+              }
+            ],
+            "edges" => []
+          })
+        )
+
+      event = Event.new(%{workflow_id: workflow.id, input: %{"person_id" => "42"}}, :engine)
+
+      assert %Event{response: {:ok, contract}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+
+      refute contract.valid
+      assert [%{path: "person_id", expected: "integer", got: "string"}] = contract.invalid_inputs
+    end
+
+    test "a valid payload crosses back with both buckets empty", %{workflow: workflow} do
+      event = Event.new(%{workflow_id: workflow.id, input: %{"name" => "Ada"}}, :engine)
+
+      assert %Event{response: {:ok, %{valid: true, missing_inputs: [], invalid_inputs: []}}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+    end
+
     test "a missing payload field is reported, not raised", %{workflow: workflow} do
       event = Event.new(%{workflow_id: workflow.id, input: %{}}, :engine)
 
