@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-8o8.17"
   ],
+  "closed_at": "2026-08-25T14:12:58Z",
+  "close_reason": "Storage volume config is canonicalized, legacy env vars are import-only fallbacks, migration normalizes relative paths and preserves zaq_local ids with tests.",
   "created": "2026-08-25T13:52:31Z",
   "description": "Move filesystem runtime config to Zaq.Storage, keep INGESTION_* only as legacy env input, persist relative volume paths, preserve legacy zaq_local IDs by renaming to disk, and cover fresh/existing/migration paths with tests.",
   "id": "zaq-8o8.16",
   "labels": [],
   "parent": "zaq-8o8",
   "priority": 0,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8o8] Normalize Storage volume config migration",
   "type": "task",
-  "updated_at": "2026-08-25T14:08:45Z"
+  "updated_at": "2026-08-25T14:12:58Z"
 }
