@@ -9,6 +9,12 @@
   "id": "zaq-8o8.20",
   "labels": [],
   "parent": "zaq-8o8",
+  "comments": [
+    {
+      "text": "Removed runtime zaq_local/local_filesystem aliases. zaq_local remains only in compatibility migration/tests; local_filesystem and ingestion_invoke are gone. Public docs now advertise STORAGE_*; INGESTION_VOLUMES* remain only as config/migration fallbacks.",
+      "timestamp": "2026-08-25T16:32:16Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-8o8] Remove legacy Disk aliases and stale docs",
