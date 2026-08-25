@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-8o8.18"
   ],
+  "closed_at": "2026-08-25T14:21:14Z",
+  "close_reason": "DiskBridge now sends only config_id across Storage events, Storage resolves current enabled Disk config for document operations, and scoped disabled configs are rejected with tests.",
   "created": "2026-08-25T13:52:31Z",
   "description": "DiskBridge must pass ChannelConfig identity, not resolved filesystem paths, across NodeRouter. Storage resolves current enabled Disk ChannelConfig for all Disk operations. Record attributes config_id is the ChannelConfig id; volume stays separate.",
   "id": "zaq-8o8.17",
   "labels": [],
   "parent": "zaq-8o8",
   "priority": 0,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8o8] Enforce Disk config_id role boundary",
   "type": "task",
-  "updated_at": "2026-08-25T14:12:58Z"
+  "updated_at": "2026-08-25T14:21:14Z"
 }
