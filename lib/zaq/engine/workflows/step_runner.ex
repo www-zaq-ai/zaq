@@ -62,7 +62,8 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     :step_name,
     :step_index,
     :timeout_ms,
-    :__placeholder_params__
+    :__placeholder_params__,
+    :__field_specs__
   ]
 
   # Keys carried only to support `map` fan-out fork identity (see `Steps.MapExtract`).
@@ -207,19 +208,61 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   # Enforces the action's input schema once, ahead of the strategy — a wrong-kinded
   # param is not something a retry can fix.
-  defp run_action(mod, params, context, timeout, strategy) do
-    case validate_params(mod, params) do
-      {:ok, validated} -> call_with_strategy(mod, validated, context, timeout, strategy)
-      {:error, reason} -> {:error, reason}
+  #
+  # Until this, no action's declared schema was ever enforced at run time: this module
+  # calls `mod.run/2` directly and never goes through `Jido.Exec`. So enforcement is
+  # new for *every* action, judged through the NimbleOptions→Zoi translation in
+  # `Action.field_specs/1` — which means a workflow authored against the old tolerance
+  # can start failing on a value it used to survive, and a gap in the translation
+  # becomes a failed run rather than a mis-reported contract.
+  #
+  # Refusing is the default, because a wrong-kinded param is a bug the run should not
+  # paper over. `param_validation: :warn` is the escape hatch for a fleet whose stored
+  # workflows have not been swept yet: the violation is logged with everything needed
+  # to find the node, and the step runs as it did before.
+  defp run_action(mod, params, context, timeout, strategy, step) do
+    case validate_params(params, step.field_specs) do
+      :ok ->
+        call_with_strategy(mod, params, context, timeout, strategy)
+
+      {:violations, reason} ->
+        refuse_or_warn(mod, params, context, timeout, strategy, reason, step)
     end
   end
 
-  # Judges the params that are present, under either key form, and returns them
-  # unchanged — presence is `InputContract`'s question, not this one.
-  defp validate_params(mod, params) do
-    case Enum.flat_map(Action.field_specs(mod), &violation(&1, params)) do
-      [] -> {:ok, params}
-      violations -> {:error, "Invalid parameters: " <> Enum.join(violations, "; ")}
+  defp refuse_or_warn(mod, params, context, timeout, strategy, reason, step) do
+    case param_validation() do
+      :warn ->
+        Logger.warning("[workflow] #{reason}",
+          run_id: step.run_id,
+          step_name: step.step_name,
+          module: inspect(mod)
+        )
+
+        call_with_strategy(mod, params, context, timeout, strategy)
+
+      _error ->
+        {:error, reason}
+    end
+  end
+
+  defp param_validation do
+    :zaq
+    |> Application.get_env(Zaq.Engine.Workflows, [])
+    |> Keyword.get(:param_validation, :error)
+  end
+
+  # Judges the params that are present, under either key form. Presence is
+  # `InputContract`'s question, not this one.
+  #
+  # `specs` is read off the module once at DAG build time
+  # (`DagBuilder.wrapper_params/5`) rather than here, because a `map` node runs this
+  # for every item of its collection and the schema cannot differ between them. A
+  # direct `StepRunner.run/2` call that carries no stamp falls back to reading it.
+  defp validate_params(params, specs) do
+    case Enum.flat_map(specs, &violation(&1, params)) do
+      [] -> :ok
+      violations -> {:violations, "Invalid parameters: " <> Enum.join(violations, "; ")}
     end
   end
 
@@ -334,6 +377,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     timeout_ms = Map.get(params, :timeout_ms)
     prev_cascade = Map.get(params, :__cascade__, Map.get(params, "__cascade__", %{}))
     placeholder_params = Map.get(params, :__placeholder_params__, %{})
+    field_specs = Map.get(params, :__field_specs__) || Action.field_specs(mod)
 
     action_params =
       params
@@ -349,9 +393,10 @@ defmodule Zaq.Engine.Workflows.StepRunner do
       })
 
     enriched_context = enrich_context(context, run_id, step_name, step_index, prev_cascade)
+    step = %{run_id: run_id, step_name: step_name, field_specs: field_specs}
 
     try do
-      case run_action(mod, action_params, enriched_context, timeout_ms, strategy) do
+      case run_action(mod, action_params, enriched_context, timeout_ms, strategy, step) do
         {:ok, result, logs: action_logs} ->
           cascaded = result |> inject_cascade(prev_cascade, step_name) |> put_map_index(map_index)
           step_log = Action.log_entry(:step_completed, t0)

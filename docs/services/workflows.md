@@ -151,15 +151,28 @@ it names until the leaves are filled, and an agent looping on
 
 **A required path is type-checked where its value reaches a schema-declared field
 whole.** `required_schema_field_specs/1` reads each required field's declared type
-out of the action's own schema — both dialects, NimbleOptions and Zoi — and
-`check/2` runs the payload value through `Jido.Action.Schema`, the same validator
-the step itself uses. A path supplied with the wrong kind of value lands in
+out of the action's own schema through `Action.field_specs/1`, which translates both
+dialects — NimbleOptions and Zoi — into Zoi. `check/2` then runs the payload value
+through `Zoi.parse/2` against that spec, which is exactly what
+`StepRunner.validate_params/2` does to the same field at run time: one reader, one
+validator, so the contract's verdict is the run's verdict. A path supplied with the
+wrong kind of value lands in
 `invalid_inputs` (`%{path:, expected:, got:}`), never in `missing_inputs`: the
 remediation is a different *kind* of value, not another value. A path is typed only
 where the value arrives whole — a mapping target, a schema-required field of an
 entry node, or a param written as a lone `{{...}}`. An interpolated reference
 resolves to a string whatever the payload holds, and a condition field has no
 schema, so neither is typed and both keep presence-only semantics.
+
+**Run-time param validation refuses the step, and has an escape hatch.** `StepRunner`
+calls `mod.run/2` directly and never goes through `Jido.Exec`, so before this check no
+action's declared schema was enforced at run time at all — enforcement is new for every
+action, and a workflow authored against the old tolerance can start failing on a value
+it used to survive. The default is to refuse: `{:error, "Invalid parameters: …"}`, and
+the action is never entered. Set
+`config :zaq, Zaq.Engine.Workflows, param_validation: :warn` to log the violation
+(with `run_id`, `step_name` and module) and run the step anyway — the rollout mode for
+a fleet whose stored workflows have not been swept yet.
 
 **Condition keys are not references.** A `Condition` node's `conditions[].key`
 selects a field *inside* `input` (`"record.id"` reads `input["record"]["id"]`) and

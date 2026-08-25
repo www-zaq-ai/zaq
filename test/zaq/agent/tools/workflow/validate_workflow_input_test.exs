@@ -378,6 +378,27 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
       assert event.request == %{workflow_id: id, input: %{"name" => "Ada"}}
     end
 
+    # Params reach an action atom-keyed from `DagBuilder` but string-keyed from a
+    # direct tool call, and every sibling workflow action reads both.
+    test "string-keyed params are read like atom-keyed ones" do
+      id = Ecto.UUID.generate()
+
+      assert {:ok, %{input: %{"name" => "Ada"}}} =
+               ValidateWorkflowInput.run(
+                 %{"workflow_id" => id, "input" => %{"name" => "Ada"}},
+                 %{node_router: RecordingNodeRouter}
+               )
+
+      assert_received {:dispatched, %Event{request: %{workflow_id: ^id}}}
+    end
+
+    # A params map naming no workflow is a caller error to report, not a
+    # `FunctionClauseError` that crashes the step around it.
+    test "a missing workflow_id is reported rather than raised" do
+      assert {:error, "workflow_id is required"} =
+               ValidateWorkflowInput.run(%{input: %{}}, %{node_router: RecordingNodeRouter})
+    end
+
     test "the echoed input comes from the caller, not from the routed response" do
       assert {:ok, %{input: %{"name" => "Ada"}}} =
                ValidateWorkflowInput.run(

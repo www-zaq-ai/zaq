@@ -3,6 +3,7 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
+  alias Zaq.Engine.Workflows.DagBuilder
   alias Zaq.Engine.Workflows.DateOperand
   alias Zaq.Engine.Workflows.StepRunner
 
@@ -430,6 +431,27 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
       assert {:error, _} = StepRunner.run(params, %{})
       refute_received {:typed_param_action_ran, _}
+    end
+
+    # The specs are stamped onto the wrapper at build time so a `map` body does not
+    # re-read the schema per item. A stamp must judge exactly as the fallback does.
+    test "the build-time spec stamp is used and reaches the same verdict" do
+      run = create_run()
+      stamped = Map.put(typed_params(run, %{count: "42"}), :__field_specs__, [])
+
+      assert {:ok, _} = StepRunner.run(stamped, %{})
+      assert_received {:typed_param_action_ran, _}
+    end
+
+    test "the stamp is stripped before the action is called" do
+      run = create_run()
+      params = DagBuilder.wrapper_params(TypedParamAction, %{count: 1}, "typed", 0, run.id)
+
+      assert params.__field_specs__ != []
+      assert {:ok, _} = StepRunner.run(params, %{})
+
+      assert_received {:typed_param_action_ran, called_with}
+      refute Map.has_key?(called_with, :__field_specs__)
     end
   end
 

@@ -282,15 +282,28 @@ defmodule Zaq.Engine.Workflows.Action do
   than judging wrongly.
   """
   @spec field_specs(String.t() | module() | nil) :: [{String.t(), term(), boolean()}]
-  def field_specs(module) when is_atom(module) and not is_nil(module) do
-    if Code.ensure_loaded?(module) and function_exported?(module, :schema, 0),
-      do: specs_from(module.schema()),
+  def field_specs(module), do: specs_of(module, :schema)
+
+  @doc """
+  Every field of an action's **output** schema, in the same shape `field_specs/1`
+  returns for the input one.
+
+  Same two dialects, so the same reader: a caller asking what a step promises never
+  needs to know whether its author wrote NimbleOptions or Zoi. `InputContract` reads
+  this to decide whether a predecessor already feeds a field.
+  """
+  @spec output_field_specs(String.t() | module() | nil) :: [{String.t(), term(), boolean()}]
+  def output_field_specs(module), do: specs_of(module, :output_schema)
+
+  defp specs_of(module, fun) when is_atom(module) and not is_nil(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, fun, 0),
+      do: specs_from(apply(module, fun, [])),
       else: []
   end
 
-  def field_specs(module) do
+  defp specs_of(module, fun) do
     case resolve(module || "") do
-      {:ok, mod} -> field_specs(mod)
+      {:ok, mod} -> specs_of(mod, fun)
       _ -> []
     end
   end
@@ -313,12 +326,45 @@ defmodule Zaq.Engine.Workflows.Action do
   The mirror of `value_kind/1` — together they phrase a mismatch in one vocabulary,
   wherever it is found. Every spec `field_specs/1` returns is a Zoi schema, whichever
   dialect the action declared, so one reading covers both.
+
+  A composite kind is named by what it accepts, not by its own struct: the caller of
+  a refused field has to know what to send instead, and `"union"` tells them nothing.
+  So a union names its members (`"map or string"`), an enum its values
+  (`"one of: halt, continue"`), and an array its element kind (`"list of string"`).
+  This matters most for the translated NimbleOptions types, where the composite is an
+  artefact of the translation and never something the author wrote: `:float` becomes a
+  `float | integer` union, and `{:in, [...]}` an enum carrying both the atom and
+  string form of every choice.
   """
   @spec schema_kind(term()) :: String.t()
+  def schema_kind(%Zoi.Types.Union{schemas: schemas}) when is_list(schemas) do
+    case schemas |> Enum.map(&schema_kind/1) |> Enum.uniq() do
+      [] -> "any"
+      [kind] -> kind
+      kinds -> Enum.join(kinds, " or ")
+    end
+  end
+
+  def schema_kind(%Zoi.Types.Enum{values: values}) when is_list(values) do
+    case values |> Enum.map(&enum_choice/1) |> Enum.uniq() do
+      [] -> "enum"
+      choices -> "one of: " <> Enum.join(choices, ", ")
+    end
+  end
+
+  def schema_kind(%Zoi.Types.Array{inner: inner}) when not is_nil(inner),
+    do: "list of " <> schema_kind(inner)
+
   def schema_kind(%{__struct__: struct}),
     do: struct |> Module.split() |> List.last() |> String.downcase()
 
   def schema_kind(_schema), do: "any"
+
+  # A Zoi enum stores `{key, value}` pairs, and the translation puts both the atom and
+  # the string form of a choice in — so render the value and let `uniq` collapse the
+  # pair back into the one choice an author wrote.
+  defp enum_choice({_key, value}), do: to_string(value)
+  defp enum_choice(value), do: to_string(value)
 
   @doc """
   The kind of a runtime value, in the same vocabulary `schema_kind/1` uses.

@@ -204,6 +204,11 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   Public because a `map` fork sub-step is threaded through `StepRunner` without an
   `ActionNode` around it — `MapNodeBuilder.build_fork_spec/4` needs the same map,
   not a node. One producer, so a key added here cannot be missed there.
+
+  Both `__*__` keys are derived from the module and the *static* params, so they are
+  computed here once per build rather than on every execution: a `map` node runs its
+  body once per item, and neither the placeholder scan nor the schema read can differ
+  between those runs.
   """
   @spec wrapper_params(module(), map(), String.t(), non_neg_integer(), String.t()) :: map()
   def wrapper_params(mod, params, step_name, step_index, run_id) do
@@ -212,7 +217,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       run_id: run_id,
       step_name: step_name,
       step_index: step_index,
-      __placeholder_params__: placeholder_params(params)
+      __placeholder_params__: placeholder_params(params),
+      __field_specs__: Action.field_specs(mod)
     })
   end
 

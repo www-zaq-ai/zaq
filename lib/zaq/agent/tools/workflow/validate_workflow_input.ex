@@ -129,11 +129,26 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
   alias Zaq.NodeRouter
 
   @impl Jido.Action
-  def run(%{workflow_id: workflow_id} = params, context) do
+  def run(params, context) do
+    # Params reach an action atom-keyed from `DagBuilder`, but string-keyed from a
+    # direct tool call, so both forms are read — and a params map carrying neither is
+    # a caller error to report, not a `FunctionClauseError` to crash the step with.
+    case fetch_param(params, :workflow_id) do
+      {:ok, workflow_id} -> validate(workflow_id, params, context)
+      :error -> {:error, "workflow_id is required"}
+    end
+  end
+
+  defp validate(workflow_id, params, context) do
     # Default only the *omitted* key: `false`, `0` and `""` are payloads an agent
     # can send, and the contract must report them invalid rather than silently
     # replace them with an empty map and echo that back.
-    input = Map.get(params, :input, %{})
+    input =
+      case fetch_param(params, :input) do
+        {:ok, input} -> input
+        :error -> %{}
+      end
+
     node_router = Map.get(context, :node_router, NodeRouter)
 
     case derive_contract(node_router, workflow_id, input) do
@@ -145,6 +160,12 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
 
       other ->
         {:error, "Unexpected workflow contract response: #{inspect(other)}"}
+    end
+  end
+
+  defp fetch_param(params, key) do
+    with :error <- Map.fetch(params, key) do
+      Map.fetch(params, Atom.to_string(key))
     end
   end
 

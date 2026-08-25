@@ -119,6 +119,18 @@ defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiList do
   def run(_, _), do: {:ok, %{out: true}}
 end
 
+defmodule Zaq.Engine.Workflows.ActionTest.FloatParam do
+  @moduledoc false
+  use Jido.Action,
+    name: "action_test_float_param",
+    schema: [score: [type: :float, required: true, doc: "A JSON number"]],
+    output_schema: [out: [type: :boolean, required: true, doc: "Done"]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
 defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiMap do
   @moduledoc false
   use Jido.Action,
@@ -612,6 +624,72 @@ defmodule Zaq.Engine.Workflows.ActionTest do
 
         assert length(specs) == declared, "#{inspect(mod)} lost fields in translation"
       end
+    end
+  end
+
+  describe "output_field_specs/1" do
+    test "reads a NimbleOptions output schema" do
+      specs = Action.output_field_specs("Zaq.Agent.Tools.Workflow.Condition")
+
+      assert {"passed", _spec, true} = List.keyfind(specs, "passed", 0)
+    end
+
+    test "reads a Zoi output schema" do
+      specs = Action.output_field_specs("Zaq.Agent.Tools.Workflow.ValidateWorkflowInput")
+
+      assert {"valid", _spec, true} = List.keyfind(specs, "valid", 0)
+    end
+
+    test "a module with no output schema yields no specs" do
+      for module <- [nil, "", "Not.A.Module"] do
+        assert Action.output_field_specs(module) == []
+      end
+    end
+  end
+
+  # `invalid_inputs` and the run-time refusal both exist to tell a caller what kind of
+  # value to send instead, so a composite must name what it accepts — not itself.
+  describe "schema_kind/1" do
+    test "a scalar is named by its type" do
+      assert Action.schema_kind(Zoi.string()) == "string"
+      assert Action.schema_kind(Zoi.integer()) == "integer"
+    end
+
+    test "a union names its members, not \"union\"" do
+      assert Action.schema_kind(Zoi.union([Zoi.map(), Zoi.string()])) == "map or string"
+    end
+
+    test "a union of one distinct kind collapses to that kind" do
+      assert Action.schema_kind(Zoi.union([Zoi.string(), Zoi.string()])) == "string"
+    end
+
+    test "an array names its element kind" do
+      assert Action.schema_kind(Zoi.array(Zoi.string())) == "list of string"
+    end
+
+    test "an enum names its values, collapsing the atom and string form of each" do
+      assert Action.schema_kind(Zoi.enum([:halt, "halt", :continue, "continue"])) ==
+               "one of: halt, continue"
+    end
+
+    # The translated NimbleOptions types are where this matters most: the composite is
+    # an artefact of the translation, never something the author wrote.
+    test "a translated :float field reads as the numbers it accepts" do
+      specs = Action.field_specs("Zaq.Engine.Workflows.ActionTest.FloatParam")
+
+      assert {"score", spec, true} = List.keyfind(specs, "score", 0)
+      assert Action.schema_kind(spec) == "float or integer"
+    end
+
+    test "a translated {:in, choices} field reads as its choices" do
+      specs = Action.field_specs("Zaq.Agent.Tools.Workflow.Condition")
+
+      assert {"on_fail", spec, false} = List.keyfind(specs, "on_fail", 0)
+      assert Action.schema_kind(spec) == "one of: halt, continue"
+    end
+
+    test "an unreadable spec is \"any\"" do
+      assert Action.schema_kind(:not_a_schema) == "any"
     end
   end
 end

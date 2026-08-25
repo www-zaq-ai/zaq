@@ -579,14 +579,14 @@ defmodule Zaq.Engine.Workflows.InputContract do
   Required fields of an action module's input schema, each with a spec that judges
   a candidate value for it — `[{name, spec}]`.
 
-  A spec is a one-field schema in the field's own dialect, so `spec_accepts?/2` can
-  hand it to the same validator the action itself declares. Treat it as opaque.
+  A spec is a Zoi schema for that one field, whichever dialect the action declared —
+  `Action.field_specs/1` reads both into that one vocabulary. Treat it as opaque.
 
   `required_schema_fields/1` is the names-only projection of this, so what the
   contract requires and what it type-checks cannot drift.
   """
-  @spec required_schema_field_specs(String.t() | nil, keyword()) :: [{String.t(), term()}]
-  def required_schema_field_specs(module, _opts \\ []) do
+  @spec required_schema_field_specs(String.t() | nil) :: [{String.t(), term()}]
+  def required_schema_field_specs(module) do
     module
     |> Action.field_specs()
     |> Enum.filter(&elem(&1, 2))
@@ -596,8 +596,9 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   Whether `value` satisfies a spec from `required_schema_field_specs/1`.
 
-  Runs the value through `Jido.Action.Schema`, the same validator the action's own
-  `validate_params/1` uses, so a verdict here is the verdict the run would reach.
+  Runs the value through `Zoi.parse/2` against the spec `Action.field_specs/1` read
+  off the action, which is exactly what `StepRunner.validate_params/2` does to the
+  same field at run time — so a verdict here is the verdict the run would reach.
   A `nil` value never satisfies a spec: presence is `check/2`'s question, and a
   field that reads `nil` at run time has no value at all.
   """
@@ -610,28 +611,13 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   Optional output fields count: the graph states a producer exists, and whether it
   returns the key on a given run is the action's own branch, not a gap in the graph.
+
+  Read through `Action.output_field_specs/1`, the mirror of the reader the input side
+  uses, so this module holds no schema-dialect knowledge of its own.
   """
   @spec emitted_schema_fields(String.t() | nil) :: [String.t()]
-  def emitted_schema_fields(module) do
-    with {:ok, mod} <- Action.resolve(module || ""),
-         true <- function_exported?(mod, :output_schema, 0) do
-      mod.output_schema() |> schema_fields() |> Enum.map(&elem(&1, 0))
-    else
-      _ -> []
-    end
-  end
-
-  # Reads `{name, required?}` pairs out of either schema dialect, names only.
-  defp schema_fields(%{fields: fields}) when is_list(fields),
-    do: Enum.map(fields, fn {name, type} -> {to_string(name), type.meta.required == true} end)
-
-  defp schema_fields(schema) when is_list(schema),
-    do:
-      Enum.map(schema, fn {name, opts} ->
-        {to_string(name), Keyword.get(opts, :required) == true}
-      end)
-
-  defp schema_fields(_schema), do: []
+  def emitted_schema_fields(module),
+    do: module |> Action.output_field_specs() |> Enum.map(&elem(&1, 0))
 
   # -- normalisation ------------------------------------------------------------
 
