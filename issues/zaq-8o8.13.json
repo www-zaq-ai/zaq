@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-25T12:11:12Z",
+  "description": "Complete the shared CreateDocument/create_item contract for text, binary, empty file, and folder creation across Disk and JidoConnect.",
+  "id": "zaq-8o8.13",
+  "labels": [],
+  "parent": "zaq-8o8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8o8.13] Complete create_item document contract",
+  "type": "task",
+  "updated_at": "2026-08-25T12:11:12Z"
+}
