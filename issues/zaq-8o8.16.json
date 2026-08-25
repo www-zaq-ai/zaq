@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-8o8.15"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-8o8",
   "priority": 0,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-8o8] Normalize Storage volume config migration",
   "type": "task",
-  "updated_at": "2026-08-25T13:52:39Z"
+  "updated_at": "2026-08-25T14:08:45Z"
 }
