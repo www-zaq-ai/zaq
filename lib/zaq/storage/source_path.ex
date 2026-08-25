@@ -1,12 +1,13 @@
-defmodule Zaq.Ingestion.SourcePath do
+defmodule Zaq.Storage.SourcePath do
   @moduledoc """
-  Shared helpers for converting between filesystem paths and document sources.
+  Shared helpers for converting between filesystem paths and storage sources.
 
   Keeps source normalization and volume-aware path mapping consistent across
-  ingestion, LiveView, and pipeline modules.
+  storage, LiveView, and pipeline modules.
   """
 
-  alias Zaq.Ingestion.FileExplorer
+  alias Zaq.Config
+  alias Zaq.Storage.FileExplorer
 
   @doc """
   Normalizes relative paths produced by the UI (e.g. strips leading "./").
@@ -61,9 +62,9 @@ defmodule Zaq.Ingestion.SourcePath do
 
   Falls back to `fallback_volume` when source is not explicitly volume-prefixed.
   """
-  def split_source(source, fallback_volume, volumes \\ nil) do
+  def split_source(source, fallback_volume, volumes \\ nil, opts \\ []) do
     normalized = normalize_relative(source)
-    volumes = volumes || FileExplorer.list_volumes()
+    volumes = volumes || FileExplorer.list_volumes(opts)
 
     case String.split(normalized, "/", parts: 2) do
       [volume, rest] when rest != "" and is_map_key(volumes, volume) ->
@@ -75,18 +76,18 @@ defmodule Zaq.Ingestion.SourcePath do
   end
 
   @doc """
-  Converts an absolute file path to a document source.
+  Converts an absolute file path to a storage source.
 
   In multi-volume mode, returns a volume-prefixed source.
   In single-volume mode, returns a path relative to base path.
   Falls back to basename if path is outside known roots.
   """
-  def absolute_to_source(file_path) do
+  def absolute_to_source(file_path, opts \\ []) do
     expanded = Path.expand(file_path)
-    configured_volumes = configured_volumes()
+    configured_volumes = configured_volumes(opts)
 
     if map_size(configured_volumes) > 0 do
-      volumes = FileExplorer.list_volumes()
+      volumes = FileExplorer.list_volumes(opts)
 
       case find_volume_for_path(volumes, expanded) do
         {volume_name, root} ->
@@ -96,7 +97,7 @@ defmodule Zaq.Ingestion.SourcePath do
           {:ok, Path.basename(file_path)}
       end
     else
-      base = FileExplorer.base_path() |> Path.expand()
+      base = opts |> FileExplorer.base_path() |> Path.expand()
 
       relative =
         case relative_to_root(expanded, base) do
@@ -114,15 +115,15 @@ defmodule Zaq.Ingestion.SourcePath do
 
   Falls back to configured base path for backward compatibility.
   """
-  def volume_root_for_absolute(path) do
+  def volume_root_for_absolute(path, opts \\ []) do
     expanded = Path.expand(path)
 
-    FileExplorer.list_volumes()
+    FileExplorer.list_volumes(opts)
     |> Enum.find_value(fn {_name, root} ->
       if path_under_root?(expanded, root), do: root
     end)
     |> case do
-      nil -> FileExplorer.base_path()
+      nil -> FileExplorer.base_path(opts)
       root -> root
     end
   end
@@ -147,8 +148,8 @@ defmodule Zaq.Ingestion.SourcePath do
     end
   end
 
-  defp configured_volumes do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+  defp configured_volumes(opts) do
+    Config.get(:zaq, Zaq.Storage, [], opts)
     |> Keyword.get(:volumes, %{})
   end
 

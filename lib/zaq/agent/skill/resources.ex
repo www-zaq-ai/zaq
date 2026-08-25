@@ -11,7 +11,7 @@ defmodule Zaq.Agent.Skill.Resources do
   It derives *path strings* and nothing else. It never touches the filesystem, never
   resolves against a volume root, and never decides whether a path exists. Resolution and
   the authoritative containment check belong to the `:ingestion` role — the only node
-  guaranteed to have the volume mounted (see `Zaq.Ingestion.FileExplorer.resolve_path/2`,
+  guaranteed to have the volume mounted (see `Zaq.Storage.FileExplorer.resolve_path/2`,
   which re-checks containment against the real volume root). Keeping this separate is
   what lets the BO node compute a destination for a volume it cannot itself see.
 

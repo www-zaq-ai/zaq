@@ -16,7 +16,6 @@ defmodule Zaq.Ingestion.IngestWorker do
   alias Zaq.Ingestion.{
     Chunk,
     ExternalPermissions,
-    FileExplorer,
     IngestChunkJob,
     IngestChunkWorker,
     IngestJob,
@@ -108,7 +107,7 @@ defmodule Zaq.Ingestion.IngestWorker do
     proc = processor()
     opts = Keyword.merge(opts, on_progress: progress_reporter(job))
 
-    if function_exported?(proc, :prepare_file_chunks, 2) do
+    if Code.ensure_loaded?(proc) and function_exported?(proc, :prepare_file_chunks, 2) do
       proc.prepare_file_chunks(file_path, opts)
     else
       case proc.process_single_file(file_path) do
@@ -160,29 +159,19 @@ defmodule Zaq.Ingestion.IngestWorker do
   defp cleanup_materialized(_), do: :ok
 
   defp cleanup_materialized_path(path) do
-    case File.rm(path) do
-      :ok ->
+    case File.rm_rf(path) do
+      {:ok, _removed} ->
         :ok
 
-      {:error, :enoent} ->
-        # Cleanup is best-effort; another process may have already removed it.
-        :ok
-
-      {:error, reason} ->
+      {:error, reason, _path} ->
         Logger.warning("Failed to remove materialized ingestion file #{path}: #{inspect(reason)}")
         :ok
     end
   end
 
-  defp import_external_permissions(%{record: record, processor_opts: opts}, document) do
-    sidecar_source = Keyword.get(opts, :sidecar_source_override)
-
-    docs =
-      [document, sidecar_source && Repo.get_by(Zaq.Ingestion.Document, source: sidecar_source)]
-      |> Enum.reject(&is_nil/1)
-
-    if docs != [] and record do
-      ExternalPermissions.apply(record, docs)
+  defp import_external_permissions(%{record: record}, document) do
+    if document && record do
+      ExternalPermissions.apply(record, [document])
     end
   end
 
@@ -282,36 +271,10 @@ defmodule Zaq.Ingestion.IngestWorker do
   end
 
   defp resolve_file_path(%IngestJob{source_record: source_record}) when is_map(source_record) do
-    # DB persistence stores source records as maps; runtime source resolution
-    # only accepts canonical %Record{} values.
-    with {:ok, record} <- RecordSource.from_storage_map(source_record),
-         {:ok, full_path} <- RecordSource.resolve_path(record) do
-      full_path
-    else
-      _ ->
-        resolve_file_path(source_record["path"], get_in(source_record, ["attributes", "volume"]))
-    end
+    source_record["path"] || source_record["file_path"]
   end
 
-  defp resolve_file_path(%IngestJob{file_path: path, volume_name: volume_name}),
-    do: resolve_file_path(path, volume_name)
-
-  defp resolve_file_path(path, nil) do
-    case FileExplorer.resolve_path(path) do
-      {:ok, full_path} ->
-        full_path
-
-      _ ->
-        path
-    end
-  end
-
-  defp resolve_file_path(path, volume_name) do
-    case FileExplorer.resolve_path(volume_name, path) do
-      {:ok, full_path} -> full_path
-      _ -> path
-    end
-  end
+  defp resolve_file_path(%IngestJob{file_path: path}), do: path
 
   defp structural_error?(reason) when is_binary(reason) do
     String.contains?(reason, "Structural error")

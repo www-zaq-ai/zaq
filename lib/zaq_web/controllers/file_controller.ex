@@ -4,7 +4,7 @@ defmodule ZaqWeb.FileController do
   use ZaqWeb, :controller
 
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.FileExplorer
+  alias Zaq.Storage.FileExplorer
 
   @mime_types %{
     ".md" => "text/markdown",

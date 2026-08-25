@@ -7,7 +7,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
-  alias Zaq.Ingestion.{ExternalSource, RecordSource}
+  alias Zaq.Ingestion.RecordSource
 
   setup do
     {Zaq.NodeRouter, node_router_binary, node_router_path} =
@@ -81,52 +81,19 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     }
   end
 
-  test "normalizes record kinds and resolves paths from volume attributes", %{tmp_dir: tmp_dir} do
+  test "normalizes record kinds without resolving provider paths" do
     record = %Record{
       id: "r1",
       kind: "directory",
-      attributes: %{"volume" => "docs", "relative_path" => "readme.md"}
+      attributes: %{"provider" => "disk", "config_id" => "docs", "provider_record_id" => "r1"}
     }
 
     assert RecordSource.kind(record) == :folder
-    assert RecordSource.volume(record) == "docs"
-    assert RecordSource.relative_path(record) == "readme.md"
-    assert RecordSource.resolve_path(record) == {:ok, Path.join([tmp_dir, "docs", "readme.md"])}
+    assert RecordSource.job_path(record) == "data_source/disk/docs/r1"
   end
 
-  test "falls back to atom attributes, record path, and unsupported source errors" do
-    atom_attrs = %Record{id: "r2", kind: :file, attributes: %{relative_path: "docs/readme.md"}}
-    assert RecordSource.relative_path(atom_attrs) == "docs/readme.md"
-    assert {:ok, _path} = RecordSource.resolve_path(atom_attrs)
-
-    path_record = %Record{id: "r3", kind: :file, path: "docs/readme.md", attributes: nil}
-    assert RecordSource.relative_path(path_record) == "docs/readme.md"
-
-    unsupported = %Record{id: "r4", kind: :file, attributes: %{}}
-    assert RecordSource.resolve_path(unsupported) == {:error, :unsupported_record_source}
-  end
-
-  test "lists folder children with local-volume record attributes" do
-    record = %Record{
-      id: "folder",
-      kind: :folder,
-      attributes: %{"volume" => "docs", "relative_path" => "."}
-    }
-
-    assert {:ok, [child]} = RecordSource.list_children(record)
-    assert child.name == "readme.md"
-    assert child.kind == :file
-    assert child.attributes["volume"] == "docs"
-    assert child.attributes["relative_path"] == "readme.md"
-  end
-
-  test "lists folder children without an explicit volume and returns nil without a path" do
-    record = %Record{id: "folder", kind: :folder, path: "docs"}
-
-    assert {:ok, [child]} = RecordSource.list_children(record)
-    assert child.name == "readme.md"
-
-    assert RecordSource.list_children(%Record{id: "empty", kind: :folder}) == nil
+  test "records without provider config are unsupported as ingestion sources" do
+    assert RecordSource.job_path(%Record{id: "r4", kind: :file, attributes: %{}}) == nil
   end
 
   test "list_children/1 dispatches external list request and inherits external attrs" do
@@ -173,7 +140,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert RecordSource.list_children(parent) == {:error, :connector_unavailable}
   end
 
-  test "materialize/1 stores downloaded row records as markdown sidecars" do
+  test "materialize/1 stores downloaded row records as temporary markdown" do
     record = external_record(%{"provider_record_id" => "sheet-1"})
 
     downloaded = %Record{
@@ -197,7 +164,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
     assert {:ok, materialized} = RecordSource.materialize(record)
     assert materialized.record == record
-    assert materialized.cleanup_paths == []
+    assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
     assert File.read!(materialized.path) =~ "| Name | Score |"
     assert File.read!(materialized.path) =~ "| --- | --- |"
     assert File.read!(materialized.path) =~ "| Ada | 10 |"
@@ -205,14 +172,10 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert materialized.processor_opts[:source_override] ==
              "data_source/google_drive/cfg-1/sheet-1"
 
-    assert materialized.processor_opts[:sidecar_source_override] ==
-             "data_source/google_drive/cfg-1/sheet-1.md"
-
     assert materialized.processor_opts[:document_title] == "Report.pdf"
     assert materialized.processor_opts[:document_metadata]["provider"] == "google_drive"
-
-    assert materialized.processor_opts[:sidecar_metadata]["sidecar_file_path"] ==
-             ExternalSource.sidecar_relative_path(record)
+    refute Keyword.has_key?(materialized.processor_opts, :sidecar_source_override)
+    refute Keyword.has_key?(materialized.processor_opts, :sidecar_metadata)
   end
 
   test "materialize/1 handles empty row downloads as empty markdown" do
@@ -226,7 +189,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
     assert {:ok, materialized} = RecordSource.materialize(record)
     assert File.read!(materialized.path) == ""
-    assert materialized.cleanup_paths == []
+    assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
   end
 
   test "materialize/1 converts non-map row downloads without Elixir inspect syntax" do
@@ -240,24 +203,6 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
     assert {:ok, materialized} = RecordSource.materialize(record)
     assert File.read!(materialized.path) == "alpha\n123\n{\"bad\":\"shape\"}"
-  end
-
-  test "materialize/1 propagates sidecar markdown write errors", %{tmp_dir: tmp_dir} do
-    bad_base = Path.join(tmp_dir, "not-a-dir")
-    File.write!(bad_base, "not a directory")
-
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: bad_base, volumes: %{})
-
-    record = external_record(%{"provider_record_id" => "md"})
-
-    downloaded = %Record{id: "md", kind: :file, content: "markdown"}
-
-    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
-      %{event | response: {:ok, %{record: downloaded}}}
-    end)
-
-    assert {:error, reason} = RecordSource.materialize(record)
-    assert reason in [:enotdir, :enoent, :eacces]
   end
 
   test "materialize/1 renders nullable and nested row values as json-safe markdown" do
@@ -329,7 +274,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert {:ok, materialized} = RecordSource.materialize(pdf_record)
     assert String.ends_with?(materialized.path, ".pdf")
     assert File.read!(materialized.path) == "PDF bytes"
-    assert materialized.cleanup_paths == [materialized.path]
+    assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
 
     blob_record = external_record(%{"provider_record_id" => "blob"})
 
@@ -347,7 +292,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
     assert {:ok, materialized} = RecordSource.materialize(blob_record)
     assert String.ends_with?(materialized.path, ".bin")
-    assert materialized.cleanup_paths == [materialized.path]
+    assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
   end
 
   test "materialize/1 uses bin extension for unnamed non-pdf base64 downloads" do
@@ -369,7 +314,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert {:ok, materialized} = RecordSource.materialize(record)
     assert String.ends_with?(materialized.path, ".bin")
     assert File.read!(materialized.path) == "raw bytes"
-    assert materialized.cleanup_paths == [materialized.path]
+    assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
   end
 
   test "materialize/1 returns unsupported downloaded record errors" do

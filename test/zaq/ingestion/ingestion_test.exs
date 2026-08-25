@@ -15,13 +15,10 @@ defmodule Zaq.IngestionTest do
     Document,
     DocumentAccess,
     DocumentChunker,
-    ExternalSource,
-    FileExplorer,
     IngestChunkJob,
     IngestJob,
     IngestWorker,
-    RecordSource,
-    SourcePath
+    RecordSource
   }
 
   alias Zaq.Repo
@@ -69,6 +66,7 @@ defmodule Zaq.IngestionTest do
 
   setup do
     SystemConfigFixtures.seed_embedding_config(%{model: "test-model", dimension: "1536"})
+    stub_embedding_success()
     Mox.set_mox_global()
     :ok
   end
@@ -86,25 +84,20 @@ defmodule Zaq.IngestionTest do
   defp restore_ingestion_env(nil), do: Application.delete_env(:zaq, Zaq.Ingestion)
   defp restore_ingestion_env(original), do: Application.put_env(:zaq, Zaq.Ingestion, original)
 
-  defp create_linked_documents(source_source, sidecar_source) do
-    {:ok, _source_doc} =
-      Document.create(%{
-        source: source_source,
-        content: "source content",
-        metadata: %{"sidecar_source" => sidecar_source}
-      })
+  defp stub_embedding_success do
+    Req.Test.stub(Zaq.Embedding.Client, fn conn ->
+      body = Jason.encode!(%{"data" => [%{"embedding" => List.duplicate(0.1, 1536)}]})
 
-    {:ok, _sidecar_doc} =
-      Document.create(%{
-        source: sidecar_source,
-        content: "sidecar content",
-        metadata: %{"source_document_source" => source_source}
-      })
-
-    :ok
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(200, body)
+    end)
   end
 
-  defp create_document_with_chunks(source, chunk_count \\ 2, metadata \\ %{}) do
+  defp create_document_with_chunks(source, chunk_count),
+    do: create_document_with_chunks(source, chunk_count, %{})
+
+  defp create_document_with_chunks(source, chunk_count, metadata) do
     {:ok, document} =
       Document.create(%{
         source: source,
@@ -163,16 +156,6 @@ defmodule Zaq.IngestionTest do
   test "process_data_source_changes rejects invalid requests" do
     assert {:error, :invalid_request} = Ingestion.process_data_source_changes(nil)
     assert {:error, :invalid_request} = Ingestion.process_data_source_changes([])
-  end
-
-  test "file_info/2 delegates to FileExplorer" do
-    path = "file_info_#{System.unique_integer([:positive])}.md"
-    assert {:ok, _full_path} = FileExplorer.upload(path, "# info")
-
-    on_exit(fn -> FileExplorer.delete(path) end)
-
-    assert {:ok, info} = Ingestion.file_info("default", path)
-    assert info.name == Path.basename(path)
   end
 
   test "watch helpers return neutral values for invalid inputs" do
@@ -292,112 +275,6 @@ defmodule Zaq.IngestionTest do
     assert Document.get(child_doc.id) == nil
   end
 
-  test "process_data_source_changes deletes a source and tolerates missing external sidecar files" do
-    source_id = "sidecar-missing-#{System.unique_integer([:positive])}"
-    source = "data_source/google_drive/42/#{source_id}"
-    sidecar_path = Path.join([".external-sidecars", "google_drive", "42", "sidecar.md"])
-
-    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
-
-    {:ok, sidecar_doc} =
-      Document.insert_new(%{
-        source: source <> ".md",
-        metadata: %{"source_document_source" => source, "sidecar_file_path" => sidecar_path}
-      })
-
-    request = %{
-      provider: "google_drive",
-      config_id: 42,
-      signals: [%{provider_record_id: source_id, removed: true, record: %{id: source_id}}]
-    }
-
-    assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
-    assert Document.get(source_doc.id) == nil
-    assert Document.get(sidecar_doc.id) == nil
-  end
-
-  test "process_data_source_changes tolerates sidecars without a file path" do
-    source_id = "sidecar-nil-#{System.unique_integer([:positive])}"
-    source = "data_source/google_drive/42/#{source_id}"
-
-    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
-
-    {:ok, sidecar_doc} =
-      Document.insert_new(%{
-        source: source <> ".md",
-        metadata: %{"source_document_source" => source}
-      })
-
-    request = %{
-      provider: "google_drive",
-      config_id: 42,
-      signals: [%{provider_record_id: source_id, removed: true, record: %{id: source_id}}]
-    }
-
-    assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
-    assert Document.get(source_doc.id) == nil
-    assert Document.get(sidecar_doc.id) == nil
-  end
-
-  test "process_data_source_changes tolerates external sidecar delete errors other than enoent" do
-    source_id = "sidecar-error-#{System.unique_integer([:positive])}"
-    source = "data_source/google_drive/42/#{source_id}"
-    sidecar_path = Path.join([".external-sidecars", "google_drive", "42", source_id])
-
-    assert :ok = FileExplorer.create_directory(sidecar_path)
-
-    on_exit(fn ->
-      _ = File.rm_rf(Path.join(FileExplorer.base_path(), ".external-sidecars"))
-    end)
-
-    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
-
-    {:ok, sidecar_doc} =
-      Document.insert_new(%{
-        source: source <> ".md",
-        metadata: %{
-          "source_document_source" => source,
-          "sidecar_file_path" => sidecar_path
-        }
-      })
-
-    request = %{
-      provider: "google_drive",
-      config_id: 42,
-      signals: [%{provider_record_id: source_id, removed: true, record: %{id: source_id}}]
-    }
-
-    assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
-    assert Document.get(source_doc.id) == nil
-    assert Document.get(sidecar_doc.id) == nil
-  end
-
-  test "process_data_source_changes tolerates non-binary external sidecar paths" do
-    source_id = "sidecar-list-#{System.unique_integer([:positive])}"
-    source = "data_source/google_drive/42/#{source_id}"
-
-    {:ok, source_doc} = Document.insert_new(%{source: source, watch_status: "watched"})
-
-    {:ok, sidecar_doc} =
-      Document.insert_new(%{
-        source: source <> ".md",
-        metadata: %{
-          "source_document_source" => source,
-          "sidecar_file_path" => ["bad"]
-        }
-      })
-
-    request = %{
-      provider: "google_drive",
-      config_id: 42,
-      signals: [%{provider_record_id: source_id, removed: true, record: %{id: source_id}}]
-    }
-
-    assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
-    assert Document.get(source_doc.id) == nil
-    assert Document.get(sidecar_doc.id) == nil
-  end
-
   test "process_data_source_changes stringifies atom and integer request identifiers" do
     source_id = "123"
     source = "data_source/google_drive/42/#{source_id}"
@@ -488,9 +365,7 @@ defmodule Zaq.IngestionTest do
       {:ok, tmp_dir: tmp_dir}
     end
 
-    test "materializes a ZAQ sidecar, stores canonical sources, and imports permissions", %{
-      tmp_dir: tmp_dir
-    } do
+    test "stores converted content on the canonical source and imports permissions" do
       record = %Record{
         id: "file-123",
         kind: :file,
@@ -538,22 +413,14 @@ defmodule Zaq.IngestionTest do
                        }}
 
       source = "data_source/google_drive/42/file-123"
-      sidecar_source = source <> ".md"
 
       assert %Document{} = source_doc = Document.get_by_source(source)
-      assert %Document{} = sidecar_doc = Document.get_by_source(sidecar_source)
+      refute Document.get_by_source(source <> ".md")
       assert source_doc.title == "External Doc"
-      assert source_doc.metadata["sidecar_source"] == sidecar_source
-      assert sidecar_doc.metadata["source_document_source"] == source
+      assert source_doc.content =~ "Generated markdown"
       assert source_doc.metadata["provider_url"] == "https://drive.example/file-123"
       assert source_doc.metadata["provider_parent_id"] == "folder-123"
       assert source_doc.metadata["provider_parent_ids"] == ["folder-123"]
-
-      sidecar_path = ExternalSource.sidecar_relative_path(record)
-
-      assert sidecar_doc.metadata["sidecar_file_path"] == sidecar_path
-
-      assert File.read!(Path.join(tmp_dir, sidecar_path)) =~ "Generated markdown"
 
       assert Repo.get!(IngestJob, job.id).document_id == source_doc.id
 
@@ -565,15 +432,13 @@ defmodule Zaq.IngestionTest do
       refute Map.has_key?(stored_record, "raw")
 
       source_perms = Ingestion.list_document_permissions(source_doc.id)
-      sidecar_perms = Ingestion.list_document_permissions(sidecar_doc.id)
 
       assert permission_rights(source_perms, "owner@example.com") == ["read", "write"]
       assert permission_rights(source_perms, "reader@example.com") == ["read"]
       assert permission_rights(source_perms, "writer@example.com") == ["read", "write"]
-      assert permission_rights(sidecar_perms, "owner@example.com") == ["read", "write"]
     end
 
-    test "base64 external originals keep markdown sidecar metadata" do
+    test "base64 external originals use job-scoped temporary artifacts" do
       record = %Record{
         id: "pdf-123",
         kind: :file,
@@ -587,11 +452,10 @@ defmodule Zaq.IngestionTest do
 
       assert {:ok, materialized} = RecordSource.materialize(record)
       assert String.ends_with?(materialized.path, ".pdf")
-      assert [materialized.path] == materialized.cleanup_paths
-      assert materialized.processor_opts[:force_sidecar] == true
-
-      assert materialized.processor_opts[:sidecar_metadata]["sidecar_file_path"] ==
-               ExternalSource.sidecar_relative_path(record)
+      assert [cleanup_path] = materialized.cleanup_paths
+      assert cleanup_path == Path.dirname(materialized.path)
+      refute Keyword.has_key?(materialized.processor_opts, :force_sidecar)
+      refute Keyword.has_key?(materialized.processor_opts, :sidecar_metadata)
     end
 
     test "process_data_source_changes only enqueues watched records and watched folder children" do
@@ -642,8 +506,7 @@ defmodule Zaq.IngestionTest do
       end)
     end
 
-    test "process_data_source_changes deletes removed watched-folder children from persisted parent metadata",
-         %{tmp_dir: tmp_dir} do
+    test "process_data_source_changes deletes removed watched-folder children from persisted parent metadata" do
       {:ok, _folder_doc} =
         Document.insert_new(%{
           source: "data_source/google_drive/42/folder-1",
@@ -652,24 +515,11 @@ defmodule Zaq.IngestionTest do
         })
 
       source = "data_source/google_drive/42/child-1"
-      sidecar_source = source <> ".md"
-      sidecar_path = Path.join([".external-sidecars", "google_drive", "42", "child-1.md"])
 
       source_doc =
         create_document_with_chunks(source, 2, %{
-          "provider_parent_ids" => ["folder-1"],
-          "sidecar_source" => sidecar_source
+          "provider_parent_ids" => ["folder-1"]
         })
-
-      sidecar_doc =
-        create_document_with_chunks(sidecar_source, 2, %{
-          "source_document_source" => source,
-          "sidecar_file_path" => sidecar_path
-        })
-
-      absolute_sidecar_path = Path.join(tmp_dir, sidecar_path)
-      File.mkdir_p!(Path.dirname(absolute_sidecar_path))
-      File.write!(absolute_sidecar_path, "# stale sidecar")
 
       request = %{
         provider: "google_drive",
@@ -678,14 +528,11 @@ defmodule Zaq.IngestionTest do
       }
 
       Oban.Testing.with_testing_mode(:manual, fn ->
-        assert {:ok, %{jobs: [], removed: 2}} = Ingestion.process_data_source_changes(request)
+        assert {:ok, %{jobs: [], removed: 1}} = Ingestion.process_data_source_changes(request)
       end)
 
       assert Document.get(source_doc.id) == nil
-      assert Document.get(sidecar_doc.id) == nil
       assert Chunk.count_by_document(source_doc.id) == 0
-      assert Chunk.count_by_document(sidecar_doc.id) == 0
-      refute File.exists?(absolute_sidecar_path)
     end
 
     test "process_data_source_changes treats removed? tombstones as deletions without reingestion" do
@@ -748,14 +595,12 @@ defmodule Zaq.IngestionTest do
       end)
 
       source = "data_source/google_drive/42/pdf-123"
-      sidecar_source = source <> ".md"
 
       assert %Document{} = source_doc = Document.get_by_source(source)
-      assert %Document{} = sidecar_doc = Document.get_by_source(sidecar_source)
+      refute Document.get_by_source(source <> ".md")
       assert source_doc.title == "External Deck.pdf"
-      assert source_doc.metadata["sidecar_source"] == sidecar_source
+      assert source_doc.content =~ "Generated PDF markdown"
       assert source_doc.metadata["provider_url"] == "https://drive.example/pdf-123"
-      assert sidecar_doc.metadata["source_document_source"] == source
 
       refute Repo.exists?(
                from d in Document,
@@ -787,144 +632,7 @@ defmodule Zaq.IngestionTest do
     end
   end
 
-  describe "local volume records" do
-    defp volume_entry do
-      %Zaq.Ingestion.FileExplorer.Entry{
-        name: "file.md",
-        type: :file,
-        size: 12,
-        modified_at: DateTime.utc_now(),
-        volume: "default",
-        relative_path: "docs/file.md"
-      }
-    end
-
-    test "converts local volume entries into canonical records" do
-      assert [record] = RecordSource.from_entries([volume_entry()])
-
-      assert record.kind == :file
-      assert record.name == "file.md"
-      assert record.path == "docs/file.md"
-      assert record.attributes["provider"] == "disk"
-      assert record.attributes["volume"] == "default"
-      assert record.attributes["relative_path"] == "docs/file.md"
-    end
-
-    test "storage maps round-trip back into records" do
-      assert [record] = RecordSource.from_entries([volume_entry()])
-
-      assert {:ok, decoded} =
-               record |> RecordSource.to_storage_map() |> RecordSource.from_storage_map()
-
-      assert decoded.id == record.id
-      assert decoded.kind == record.kind
-      assert decoded.path == record.path
-      assert decoded.attributes == record.attributes
-    end
-
-    test "runtime source helpers only accept record structs" do
-      assert_raise FunctionClauseError, fn -> RecordSource.kind(%{"kind" => "file"}) end
-    end
-  end
-
   describe "ingest_records/2" do
-    test "creates a source_record job from a local file record" do
-      path = "record_file_#{System.unique_integer([:positive])}.md"
-      assert {:ok, _full_path} = FileExplorer.upload(path, "# record")
-
-      on_exit(fn -> FileExplorer.delete(path) end)
-
-      {:ok, entries} = FileExplorer.list(".")
-
-      record =
-        entries |> RecordSource.from_entries() |> Enum.find(&(&1.path == path))
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "inline"})
-      assert job.file_path == path
-      # Listed through the volume-less explorer path, so there is no volume to name.
-      assert job.volume_name == nil
-      assert job.source_record["id"] == record.id
-      assert job.source_record["attributes"]["relative_path"] == path
-    end
-
-    test "stores the volume on a job created from a record on a named volume" do
-      base_dir = FileExplorer.base_path() |> Path.expand()
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-
-      Application.put_env(
-        :zaq,
-        Zaq.Ingestion,
-        Keyword.merge(original || [], volumes: %{"docs" => base_dir})
-      )
-
-      on_exit(fn -> restore_ingestion_env(original) end)
-
-      path = "record_volume_#{System.unique_integer([:positive])}.md"
-      assert {:ok, _full_path} = FileExplorer.upload("docs", path, "# record")
-      on_exit(fn -> FileExplorer.delete("docs", path) end)
-
-      {:ok, entries} = FileExplorer.list("docs", ".")
-      record = entries |> RecordSource.from_entries() |> Enum.find(&(&1.path == path))
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "inline"})
-      assert job.volume_name == "docs"
-      assert job.source_record["attributes"]["volume"] == "docs"
-    end
-
-    test "expands folder records inside the ingestion service" do
-      folder = "record_folder_#{System.unique_integer([:positive])}"
-      assert :ok = FileExplorer.create_directory(folder)
-      assert {:ok, _full_path} = FileExplorer.upload(Path.join(folder, "one.md"), "# one")
-
-      on_exit(fn -> FileExplorer.delete_directory(folder) end)
-
-      {:ok, entries} = FileExplorer.list(".")
-
-      record =
-        entries |> RecordSource.from_entries() |> Enum.find(&(&1.path == folder))
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "inline"})
-      assert job.file_path == Path.join(folder, "one.md")
-      assert job.source_record["attributes"]["relative_path"] == Path.join(folder, "one.md")
-    end
-
-    test "returns partial failure details instead of dropping failed records" do
-      path = "record_partial_#{System.unique_integer([:positive])}.md"
-      assert {:ok, _full_path} = FileExplorer.upload(path, "# record")
-
-      on_exit(fn -> FileExplorer.delete(path) end)
-
-      {:ok, entries} = FileExplorer.list(".")
-
-      record =
-        entries |> RecordSource.from_entries() |> Enum.find(&(&1.path == path))
-
-      bad_record = %Record{id: "bad", kind: :unsupported, name: "bad"}
-
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
-        {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
-      end)
-
-      assert {:error, {:partial_failure, [job], [error]}} =
-               Ingestion.ingest_records([record, bad_record], %{mode: "inline"})
-
-      assert job.file_path == path
-      assert error.reason == :unsupported_record_kind
-      assert error.record == %{id: "bad", name: "bad"}
-    end
-
     test "ingestion api accepts record dispatch events" do
       event =
         Event.new(%{records: [], params: %{"mode" => "async"}}, :ingestion,
@@ -1223,404 +931,6 @@ defmodule Zaq.IngestionTest do
       assert {:error, %Ecto.Changeset{} = changeset} = Ingestion.cancel_job(id)
       assert "can't be blank" in errors_on(changeset).file_path
       assert Repo.get!(IngestJob, id).status == "processing"
-    end
-  end
-
-  describe "save_file/3" do
-    test "writes content and returns ok with the full path" do
-      volume = "default"
-      path = "save_file_new_#{System.unique_integer([:positive])}.md"
-      root = FileExplorer.list_volumes()[volume]
-
-      assert {:ok, full_path} = Ingestion.save_file(volume, path, "# content")
-      assert File.exists?(full_path)
-      assert File.read!(full_path) == "# content"
-      assert full_path == Path.join(root, path)
-
-      on_exit(fn -> File.rm(full_path) end)
-    end
-
-    test "overwrites an existing file without deduplicating" do
-      volume = "default"
-      path = "save_file_overwrite_#{System.unique_integer([:positive])}.md"
-      root = FileExplorer.list_volumes()[volume]
-      full_path = Path.join(root, path)
-
-      assert {:ok, ^full_path} = Ingestion.save_file(volume, path, "# v1")
-      assert {:ok, ^full_path} = Ingestion.save_file(volume, path, "# v2")
-      assert File.read!(full_path) == "# v2"
-      refute File.exists?(Path.join(root, String.replace(path, ".md", "(1).md")))
-
-      on_exit(fn -> File.rm(full_path) end)
-    end
-  end
-
-  describe "track_upload/2" do
-    test "creates a document record with canonical source from absolute path" do
-      volume = "default"
-      filename = "file_#{System.unique_integer([:positive])}.md"
-      root = FileExplorer.list_volumes()[volume]
-      abs_path = Path.join(root, filename)
-
-      assert {:ok, doc} = Ingestion.track_upload(volume, abs_path)
-      {:ok, expected_source} = SourcePath.absolute_to_source(abs_path)
-      assert doc.source == expected_source
-      assert doc.content == nil
-    end
-
-    test "upserts: does not duplicate when called again for the same absolute path" do
-      volume = "default"
-      filename = "file_#{System.unique_integer([:positive])}.md"
-      root = FileExplorer.list_volumes()[volume]
-      abs_path = Path.join(root, filename)
-
-      assert {:ok, _} = Ingestion.track_upload(volume, abs_path)
-      assert {:ok, _doc} = Ingestion.track_upload(volume, abs_path)
-      assert Repo.aggregate(Document, :count) >= 1
-    end
-
-    test "does not wipe content when called again after a document has been ingested" do
-      volume = "default"
-      filename = "file_#{System.unique_integer([:positive])}.md"
-      root = FileExplorer.list_volumes()[volume]
-      abs_path = Path.join(root, filename)
-
-      {:ok, expected_source} = SourcePath.absolute_to_source(abs_path)
-
-      # Simulate ingestion: document exists with content
-      {:ok, ingested_doc} = Document.upsert(%{source: expected_source, content: "# Ingested"})
-      assert ingested_doc.content == "# Ingested"
-
-      # Re-upload (e.g. "Add Raw MD" overwrites the file) — must not wipe content
-      assert {:ok, _} = Ingestion.track_upload(volume, abs_path)
-
-      reloaded = Repo.get_by!(Document, source: expected_source)
-
-      assert reloaded.content == "# Ingested",
-             "track_upload must not overwrite content of an already-ingested document"
-    end
-
-    test "list_document_sources shows file only once after double upload" do
-      volume = "default"
-      filename = "dedup_sources_#{System.unique_integer([:positive])}.md"
-      root = FileExplorer.list_volumes()[volume]
-      abs_path = Path.join(root, filename)
-
-      assert {:ok, _} = Ingestion.track_upload(volume, abs_path)
-      assert {:ok, _} = Ingestion.track_upload(volume, abs_path)
-
-      results = Ingestion.list_document_sources(filename)
-      labels = Enum.map(results, & &1.label)
-
-      assert Enum.count(labels, &(&1 == filename)) <= 1,
-             "File '#{filename}' must appear at most once in suggestions after double upload"
-    end
-  end
-
-  describe "delete_path/4" do
-    test "recursively deletes nested directories and cleans linked records" do
-      unique = System.unique_integer([:positive])
-      folder = "delete_recursive_#{unique}"
-      nested = Path.join(folder, "nested")
-      source_path = Path.join(nested, "report.pdf")
-      sidecar_path = Path.join(nested, "report.md")
-      source_source = Path.join("default", source_path)
-      sidecar_source = Path.join("default", sidecar_path)
-
-      assert :ok = FileExplorer.create_directory("default", nested)
-      assert {:ok, _} = FileExplorer.upload("default", source_path, "%PDF")
-      assert {:ok, _} = FileExplorer.upload("default", sidecar_path, "# sidecar")
-      assert :ok = create_linked_documents(source_source, sidecar_source)
-
-      source_doc = Document.get_by_source(source_source)
-      sidecar_doc = Document.get_by_source(sidecar_source)
-
-      assert {:ok, _} =
-               Chunk.create(%{document_id: source_doc.id, content: "source", chunk_index: 0})
-
-      assert {:ok, _} =
-               Chunk.create(%{document_id: sidecar_doc.id, content: "sidecar", chunk_index: 0})
-
-      assert :ok = Ingestion.delete_path("default", folder, "directory")
-
-      root = FileExplorer.list_volumes()["default"]
-
-      refute File.exists?(Path.join(root, folder))
-      assert Document.get_by_source(source_source) == nil
-      assert Document.get_by_source(sidecar_source) == nil
-      assert Chunk.count_by_document(source_doc.id) == 0
-      assert Chunk.count_by_document(sidecar_doc.id) == 0
-    end
-
-    test "normalizes already-missing sidecar files while deleting directories" do
-      unique = System.unique_integer([:positive])
-      folder = "delete_missing_sidecar_#{unique}"
-      source_path = Path.join(folder, "report.pdf")
-      sidecar_path = Path.join(folder, "report.md")
-      source_source = Path.join("default", source_path)
-      sidecar_source = Path.join("default", sidecar_path)
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert {:ok, _} = FileExplorer.upload("default", source_path, "%PDF")
-
-      {:ok, _} =
-        Document.create(%{
-          source: source_source,
-          content: "source content",
-          metadata: %{"sidecar_source" => sidecar_source}
-        })
-
-      assert :ok = Ingestion.delete_path("default", folder, "directory")
-      assert Document.get_by_source(source_source) == nil
-    end
-
-    test "preserves missing single-file delete behavior" do
-      unique = System.unique_integer([:positive])
-      missing_file = "missing_file_#{unique}.txt"
-
-      assert {:error, :enoent} = Ingestion.delete_path("default", missing_file, "file")
-    end
-  end
-
-  describe "rename_entry/3 sidecar sync" do
-    test "renaming source co-renames sidecar and updates metadata links" do
-      unique = System.unique_integer([:positive])
-      folder = "rename_sync_#{unique}"
-      source_path = Path.join(folder, "report.pdf")
-      sidecar_path = Path.join(folder, "report.md")
-      renamed_source = Path.join(folder, "report-v2.pdf")
-      renamed_sidecar = Path.join(folder, "report-v2.md")
-      source_source = Path.join("default", source_path)
-      sidecar_source = Path.join("default", sidecar_path)
-      renamed_source_source = Path.join("default", renamed_source)
-      renamed_sidecar_source = Path.join("default", renamed_sidecar)
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert {:ok, _} = FileExplorer.upload("default", source_path, "%PDF")
-      assert {:ok, _} = FileExplorer.upload("default", sidecar_path, "# sidecar")
-      assert :ok = create_linked_documents(source_source, sidecar_source)
-
-      on_exit(fn ->
-        _ = FileExplorer.delete_directory("default", folder)
-      end)
-
-      assert :ok = Ingestion.rename_entry("default", source_path, renamed_source)
-
-      root = FileExplorer.list_volumes()["default"]
-
-      refute File.exists?(Path.join(root, source_path))
-      refute File.exists?(Path.join(root, sidecar_path))
-      assert File.exists?(Path.join(root, renamed_source))
-      assert File.exists?(Path.join(root, renamed_sidecar))
-
-      assert Document.get_by_source(source_source) == nil
-      assert Document.get_by_source(sidecar_source) == nil
-
-      assert %Document{} = source_doc = Document.get_by_source(renamed_source_source)
-      assert source_doc.metadata["sidecar_source"] == renamed_sidecar_source
-
-      assert %Document{} = sidecar_doc = Document.get_by_source(renamed_sidecar_source)
-      assert sidecar_doc.metadata["source_document_source"] == renamed_source_source
-    end
-
-    test "moving source co-moves sidecar and updates metadata links" do
-      unique = System.unique_integer([:positive])
-      folder = "move_sync_#{unique}"
-      source_path = Path.join(folder, "report.pdf")
-      sidecar_path = Path.join(folder, "report.md")
-      target_dir = Path.join(folder, "target")
-      moved_source = Path.join(target_dir, "report.pdf")
-      moved_sidecar = Path.join(target_dir, "report.md")
-      source_source = Path.join("default", source_path)
-      sidecar_source = Path.join("default", sidecar_path)
-      moved_source_source = Path.join("default", moved_source)
-      moved_sidecar_source = Path.join("default", moved_sidecar)
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert :ok = FileExplorer.create_directory("default", target_dir)
-      assert {:ok, _} = FileExplorer.upload("default", source_path, "%PDF")
-      assert {:ok, _} = FileExplorer.upload("default", sidecar_path, "# sidecar")
-      assert :ok = create_linked_documents(source_source, sidecar_source)
-
-      on_exit(fn ->
-        _ = FileExplorer.delete_directory("default", folder)
-      end)
-
-      assert :ok = Ingestion.rename_entry("default", source_path, moved_source)
-
-      root = FileExplorer.list_volumes()["default"]
-
-      refute File.exists?(Path.join(root, source_path))
-      refute File.exists?(Path.join(root, sidecar_path))
-      assert File.exists?(Path.join(root, moved_source))
-      assert File.exists?(Path.join(root, moved_sidecar))
-
-      assert Document.get_by_source(source_source) == nil
-      assert Document.get_by_source(sidecar_source) == nil
-
-      assert %Document{} = source_doc = Document.get_by_source(moved_source_source)
-      assert source_doc.metadata["sidecar_source"] == moved_sidecar_source
-
-      assert %Document{} = sidecar_doc = Document.get_by_source(moved_sidecar_source)
-      assert sidecar_doc.metadata["source_document_source"] == moved_source_source
-    end
-  end
-
-  describe "delete_path/4 and delete_paths/3 recursive cleanup" do
-    test "deleting a directory removes nested documents and chunks" do
-      unique = System.unique_integer([:positive])
-      folder = "delete_recursive_#{unique}"
-      nested_dir = Path.join(folder, "nested")
-      root_file = Path.join(folder, "root.md")
-      nested_file = Path.join(nested_dir, "deep.md")
-      root_source = Path.join("default", root_file)
-      nested_source = Path.join("default", nested_file)
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert :ok = FileExplorer.create_directory("default", nested_dir)
-      assert {:ok, _} = FileExplorer.upload("default", root_file, "# root")
-      assert {:ok, _} = FileExplorer.upload("default", nested_file, "# deep")
-
-      root_doc = create_document_with_chunks(root_source)
-      nested_doc = create_document_with_chunks(nested_source)
-
-      assert Chunk.count_by_document(root_doc.id) == 2
-      assert Chunk.count_by_document(nested_doc.id) == 2
-
-      on_exit(fn ->
-        _ = FileExplorer.delete_directory("default", folder)
-      end)
-
-      assert :ok = Ingestion.delete_path("default", folder, "directory")
-
-      assert Document.get(root_doc.id) == nil
-      assert Document.get(nested_doc.id) == nil
-      assert Chunk.count_by_document(root_doc.id) == 0
-      assert Chunk.count_by_document(nested_doc.id) == 0
-      assert Document.get_by_source(root_source) == nil
-      assert Document.get_by_source(nested_source) == nil
-    end
-
-    test "bulk delete with a directory removes nested documents and chunks" do
-      unique = System.unique_integer([:positive])
-      folder = "bulk_delete_recursive_#{unique}"
-      nested_dir = Path.join(folder, "nested")
-      nested_file = Path.join(nested_dir, "deep.md")
-      nested_source = Path.join("default", nested_file)
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert :ok = FileExplorer.create_directory("default", nested_dir)
-      assert {:ok, _} = FileExplorer.upload("default", nested_file, "# deep")
-
-      nested_doc = create_document_with_chunks(nested_source)
-
-      assert Chunk.count_by_document(nested_doc.id) == 2
-
-      on_exit(fn ->
-        _ = FileExplorer.delete_directory("default", folder)
-      end)
-
-      assert [{^folder, :ok}] = Ingestion.delete_paths("default", [folder])
-
-      assert Document.get(nested_doc.id) == nil
-      assert Chunk.count_by_document(nested_doc.id) == 0
-      assert Document.get_by_source(nested_source) == nil
-    end
-
-    test "deleting a directory removes linked sidecar outside that directory" do
-      unique = System.unique_integer([:positive])
-      folder = "delete_sidecar_recursive_#{unique}"
-      source_file = Path.join(folder, "diagram.png")
-      outside_dir = "outside_sidecar_#{unique}"
-      sidecar_file = Path.join(outside_dir, "diagram.md")
-      source_source = Path.join("default", source_file)
-      sidecar_source = Path.join("default", sidecar_file)
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert :ok = FileExplorer.create_directory("default", outside_dir)
-      assert {:ok, _} = FileExplorer.upload("default", source_file, "binary")
-      assert {:ok, _} = FileExplorer.upload("default", sidecar_file, "# sidecar")
-
-      source_doc =
-        create_document_with_chunks(source_source, 2, %{"sidecar_source" => sidecar_source})
-
-      sidecar_doc =
-        create_document_with_chunks(sidecar_source, 2, %{
-          "source_document_source" => source_source
-        })
-
-      root = FileExplorer.list_volumes()["default"]
-      assert File.exists?(Path.join(root, sidecar_file))
-
-      on_exit(fn ->
-        _ = FileExplorer.delete_directory("default", folder)
-        _ = FileExplorer.delete_directory("default", outside_dir)
-      end)
-
-      assert :ok = Ingestion.delete_path("default", folder, "directory")
-
-      assert Document.get(source_doc.id) == nil
-      assert Document.get(sidecar_doc.id) == nil
-      assert Chunk.count_by_document(source_doc.id) == 0
-      assert Chunk.count_by_document(sidecar_doc.id) == 0
-      assert Document.get_by_source(source_source) == nil
-      assert Document.get_by_source(sidecar_source) == nil
-      refute File.exists?(Path.join(root, sidecar_file))
-    end
-
-    test "deleting a directory also removes DB records for files already gone from disk (orphan cleanup)" do
-      unique = System.unique_integer([:positive])
-      folder = "delete_orphan_#{unique}"
-      live_file = Path.join(folder, "live.md")
-      ghost_file = Path.join(folder, "ghost.md")
-      live_source = Path.join("default", live_file)
-      ghost_source = Path.join("default", ghost_file)
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert {:ok, _} = FileExplorer.upload("default", live_file, "# live")
-      assert {:ok, _} = FileExplorer.upload("default", ghost_file, "# ghost")
-
-      live_doc = create_document_with_chunks(live_source)
-      ghost_doc = create_document_with_chunks(ghost_source)
-
-      # Simulate file deleted directly from disk (bypassing ZAQ UI)
-      root = FileExplorer.list_volumes()["default"]
-      File.rm!(Path.join(root, ghost_file))
-
-      on_exit(fn -> FileExplorer.delete_directory("default", folder) end)
-
-      assert :ok = Ingestion.delete_path("default", folder, "directory")
-
-      assert Document.get(live_doc.id) == nil, "live file document must be deleted"
-      assert Document.get(ghost_doc.id) == nil, "orphaned document must be cleaned up"
-      assert Chunk.count_by_document(live_doc.id) == 0
-      assert Chunk.count_by_document(ghost_doc.id) == 0
-      assert Document.get_by_source(live_source) == nil
-      assert Document.get_by_source(ghost_source) == nil
-    end
-
-    test "deleting a directory also removes legacy absolute-path document sources" do
-      unique = System.unique_integer([:positive])
-      folder = "delete_legacy_#{unique}"
-      root = FileExplorer.list_volumes()["default"] |> Path.expand()
-
-      canonical_source = "default/#{folder}/file.md"
-      legacy_prefix = "default/" <> String.trim_leading(Path.join(root, folder), "/")
-      legacy_source = legacy_prefix <> "/file.md"
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert {:ok, _} = FileExplorer.upload("default", "#{folder}/file.md", "# content")
-
-      {:ok, _} = Document.create(%{source: canonical_source, content: "canonical"})
-      {:ok, _} = Document.create(%{source: legacy_source, content: "legacy"})
-
-      assert :ok = Ingestion.delete_path("default", folder, "directory")
-
-      assert Document.get_by_source(canonical_source) == nil,
-             "Canonical source must be deleted"
-
-      assert Document.get_by_source(legacy_source) == nil,
-             "Legacy absolute-path source must also be deleted"
     end
   end
 
@@ -1972,25 +1282,6 @@ defmodule Zaq.IngestionTest do
     end
   end
 
-  describe "source_for/2" do
-    test "returns document source when document exists for the path" do
-      source = "vol/file.md"
-      _doc = create_doc_with_source(source)
-
-      result = Ingestion.source_for("vol", "file.md")
-      assert result == source
-    end
-
-    test "returns normalized relative path when no document exists" do
-      result = Ingestion.source_for("vol", "missing-#{System.unique_integer()}.md")
-      assert is_binary(result)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Public tag — document-level
-  # ---------------------------------------------------------------------------
-
   describe "add_document_tag/2 and remove_document_tag/2" do
     test "adds a tag to a document" do
       doc = create_doc_with_source("tag-add-#{System.unique_integer()}.md")
@@ -2093,112 +1384,6 @@ defmodule Zaq.IngestionTest do
 
   # ── Delete + list_document_sources integration ───────────────────────────────
 
-  describe "list_document_sources/1 after folder delete" do
-    test "suggestions no longer include deleted folder name" do
-      unique = System.unique_integer([:positive])
-      folder = "delsug_#{unique}"
-      source = "default/#{folder}/guide.md"
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert {:ok, _} = FileExplorer.upload("default", "#{folder}/guide.md", "# guide")
-      {:ok, _} = Document.create(%{source: source, content: "content"})
-
-      assert :ok = Ingestion.delete_path("default", folder, "directory")
-
-      results = Ingestion.list_document_sources(folder)
-
-      refute Enum.any?(results, &(&1.label == folder)),
-             "Deleted folder '#{folder}' must not appear as a suggestion after delete"
-
-      refute Enum.any?(results, &String.contains?(&1.label, folder)),
-             "No suggestion label should reference the deleted folder '#{folder}'"
-    end
-
-    test "suggestions no longer include deleted folder when only legacy sources existed" do
-      unique = System.unique_integer([:positive])
-      folder = "delsug_legacy_#{unique}"
-      root = FileExplorer.list_volumes()["default"] |> Path.expand()
-
-      legacy_prefix = "default/" <> String.trim_leading(Path.join(root, folder), "/")
-      legacy_source = legacy_prefix <> "/file.md"
-
-      assert :ok = FileExplorer.create_directory("default", folder)
-      assert {:ok, _} = FileExplorer.upload("default", "#{folder}/file.md", "# content")
-      {:ok, _} = Document.create(%{source: legacy_source, content: "legacy"})
-
-      assert :ok = Ingestion.delete_path("default", folder, "directory")
-
-      results = Ingestion.list_document_sources(folder)
-
-      refute Enum.any?(results, &String.contains?(&1.label, folder)),
-             "No suggestion for deleted folder '#{folder}' should remain after legacy-only delete"
-    end
-  end
-
-  # ── Rename + list_document_sources integration ────────────────────────────────
-
-  describe "list_document_sources/1 after folder rename" do
-    test "suggestions reflect the new folder name immediately after rename_entry" do
-      unique = System.unique_integer([:positive])
-      old_folder = "rename_suggestions_#{unique}_old"
-      new_folder = "rename_suggestions_#{unique}_new"
-      file_path = Path.join(old_folder, "guide.pdf")
-      old_source = Path.join("default", file_path)
-      new_source = Path.join("default", Path.join(new_folder, "guide.pdf"))
-
-      :ok = FileExplorer.create_directory("default", old_folder)
-      {:ok, _} = FileExplorer.upload("default", file_path, "%PDF")
-      {:ok, _doc} = Document.create(%{source: old_source, content: "content"})
-
-      on_exit(fn -> FileExplorer.delete_directory("default", new_folder) end)
-
-      assert :ok = Ingestion.rename_entry("default", old_folder, new_folder)
-
-      assert Document.get_by_source(new_source) != nil,
-             "DB source must be updated to new path after rename"
-
-      assert Document.get_by_source(old_source) == nil,
-             "Old DB source must not exist after rename"
-
-      new_results = Ingestion.list_document_sources(new_folder)
-
-      assert Enum.any?(new_results, &(&1.label == new_folder)),
-             "Expected suggestion for '#{new_folder}', got: #{inspect(Enum.map(new_results, & &1.label))}"
-
-      old_results = Ingestion.list_document_sources(old_folder)
-
-      refute Enum.any?(old_results, &(&1.label == old_folder)),
-             "Old folder name '#{old_folder}' must not appear in suggestions after rename"
-    end
-
-    test "browse suggestions (query with trailing slash) work for the new folder name after rename" do
-      unique = System.unique_integer([:positive])
-      old_folder = "rename_browse_#{unique}_old"
-      new_folder = "rename_browse_#{unique}_new"
-      file_path = Path.join(old_folder, "report.pdf")
-      old_source = Path.join("default", file_path)
-
-      :ok = FileExplorer.create_directory("default", old_folder)
-      {:ok, _} = FileExplorer.upload("default", file_path, "%PDF")
-      {:ok, _doc} = Document.create(%{source: old_source, content: "content"})
-
-      on_exit(fn -> FileExplorer.delete_directory("default", new_folder) end)
-
-      assert :ok = Ingestion.rename_entry("default", old_folder, new_folder)
-
-      browse_results = Ingestion.list_document_sources("#{new_folder}/")
-
-      assert Enum.any?(browse_results, &(&1.type == :current_folder and &1.label == new_folder)),
-             "Expected :current_folder entry for '#{new_folder}' after rename"
-
-      assert Enum.any?(browse_results, &(&1.label == "report.pdf")),
-             "Expected file 'report.pdf' to appear when browsing renamed folder"
-    end
-  end
-
-  # Lines 84, 99, 105, 106, 125, 139, 147 —
-  # list_document_sources with nil/empty query exercises the :all parse branch
-  # and the name=nil paths inside name_search_sources
   describe "list_document_sources/1 — nil and empty query" do
     test "returns sources for all documents when query is nil" do
       unique = System.unique_integer([:positive])

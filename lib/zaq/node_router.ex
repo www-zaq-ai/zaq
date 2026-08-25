@@ -35,6 +35,7 @@ defmodule Zaq.NodeRouter do
   @supervisor_map %{
     agent: Zaq.Agent.Supervisor,
     ingestion: Zaq.Ingestion.Supervisor,
+    storage: Zaq.Storage.Supervisor,
     channels: Zaq.Channels.Supervisor,
     engine: Zaq.Engine.Supervisor,
     bo: ZaqWeb.Endpoint
@@ -43,6 +44,7 @@ defmodule Zaq.NodeRouter do
   @role_api_map %{
     agent: Zaq.Agent.Api,
     ingestion: Zaq.Ingestion.Api,
+    storage: Zaq.Storage.Api,
     channels: Zaq.Channels.Api,
     engine: Zaq.Engine.Api,
     bo: Zaq.Bo.Api
@@ -85,7 +87,7 @@ defmodule Zaq.NodeRouter do
 
   @doc """
   Calls mod.fun(args) on the node running the given service role.
-  Falls back to a local call if the service runs locally or no peer has it.
+  Returns `{:error, {:service_unavailable, role}}` when no node owns the role.
 
   Temporary compatibility wrapper for existing implementations while migrating
   to `dispatch/1`.
@@ -110,7 +112,7 @@ defmodule Zaq.NodeRouter do
 
   @doc """
   Calls mod.fun(args) on the node running the given service role.
-  Falls back to a local call if the service runs locally or no peer has it.
+  Returns `{:error, {:service_unavailable, role}}` when no node owns the role.
 
   Deprecated: use `dispatch/1` with `%Zaq.Event{}`.
   """
@@ -140,7 +142,7 @@ defmodule Zaq.NodeRouter do
   def find_node(supervisor, runtime) when is_map(runtime) do
     current = current_node(runtime)
     all_nodes = [current | node_list(runtime)]
-    Enum.find(all_nodes, current, &supervisor_running?(&1, supervisor, runtime))
+    Enum.find(all_nodes, &supervisor_running?(&1, supervisor, runtime))
   end
 
   defp supervisor_running?(n, supervisor, runtime) do
@@ -198,6 +200,7 @@ defmodule Zaq.NodeRouter do
     {event, hop_type} = consume_current_hop(event)
     supervisor = Map.fetch!(@supervisor_map, role)
     current = current_node(runtime)
+    target = find_node(supervisor, runtime)
 
     {:ok,
      %{
@@ -206,9 +209,14 @@ defmodule Zaq.NodeRouter do
        hop_type: hop_type,
        api_module: Map.fetch!(@role_api_map, role),
        current: current,
-       target: find_node(supervisor, runtime) || current,
+       target: target,
+       role: role,
        runtime: runtime
      }}
+  end
+
+  defp do_dispatch(%{target: nil, event: event, role: role}) do
+    %{event | response: {:error, {:service_unavailable, role}}}
   end
 
   defp do_dispatch(%{hop_type: :sync} = dispatch_ctx) do

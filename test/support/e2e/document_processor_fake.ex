@@ -6,8 +6,9 @@ defmodule Zaq.E2E.DocumentProcessorFake do
   import Ecto.Query
 
   alias Zaq.E2E.ProcessorState
-  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, FileExplorer, Sidecar}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, Sidecar}
   alias Zaq.Repo
+  alias Zaq.Storage.FileExplorer
 
   @impl true
   def process_single_file(file_path) do

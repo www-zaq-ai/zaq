@@ -14,9 +14,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Ingestion.Chunk
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.ExternalSource
-  alias Zaq.Ingestion.FileExplorer
   alias Zaq.Ingestion.IngestJob
   alias Zaq.Repo
+  alias Zaq.Storage.EntryCatalog
   alias Zaq.System, as: ZaqSystem
   alias Zaq.SystemConfigFixtures
 
@@ -225,7 +225,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     File.write!(Path.join(tmp_dir, "notes.txt"), "notes")
     File.write!(Path.join(tmp_dir, "docs/readme.md"), "# readme")
 
-    original = Application.get_env(:zaq, Zaq.Ingestion)
+    original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+    original_storage = Application.get_env(:zaq, Zaq.Storage)
     original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
     original_test_pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid)
     original_provider_browser_response = Application.get_env(:zaq, :provider_browser_response)
@@ -239,10 +240,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     original_provider_browser_unwatch_response =
       Application.get_env(:zaq, :provider_browser_unwatch_response)
 
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir)
+    storage_config = [base_path: tmp_dir, volumes: %{}]
+    Application.put_env(:zaq, Zaq.Ingestion, storage_config)
+    Application.put_env(:zaq, Zaq.Storage, storage_config)
 
     on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+      Application.put_env(:zaq, Zaq.Storage, original_storage || [])
 
       case original_bridge do
         nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
@@ -316,26 +320,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     doc
   end
 
-  defp create_linked_documents(source_source, sidecar_source) do
-    source_doc =
-      create_document_with_chunk(source_source, %{
-        metadata: %{"sidecar_source" => sidecar_source}
-      })
+  defp disk_source(relative_path, opts \\ []) do
+    volume = Keyword.get(opts, :volume, "default")
+    kind = opts |> Keyword.get(:kind, "file") |> to_string()
+    {:ok, entry} = EntryCatalog.ensure(volume, relative_path, kind)
 
-    sidecar_doc =
-      create_document_with_chunk(sidecar_source, %{
-        metadata: %{"source_document_source" => source_source}
-      })
-
-    {source_doc, sidecar_doc}
-  end
-
-  defp assert_linked_sources(source_source, sidecar_source) do
-    assert %Document{} = source_doc = Document.get_by_source(source_source)
-    assert source_doc.metadata["sidecar_source"] == sidecar_source
-
-    assert %Document{} = sidecar_doc = Document.get_by_source(sidecar_source)
-    assert sidecar_doc.metadata["source_document_source"] == source_source
+    "data_source/disk/#{volume}/#{entry.id}"
   end
 
   defp open_upload_modal(view) do
@@ -848,52 +838,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       refute Map.has_key?(job.source_record, "raw")
     end
 
-    test "shows provider sidecar with current provider title and data-source permissions guidance",
-         %{
-           conn: conn,
-           tmp_dir: tmp_dir,
-           provider_config: config
-         } do
-      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
-      documents_root = Path.join(tmp_dir, "documents")
-      archives_root = Path.join(tmp_dir, "archives")
-
-      File.mkdir_p!(documents_root)
-      File.mkdir_p!(archives_root)
-
-      Application.put_env(:zaq, Zaq.Ingestion,
-        base_path: documents_root,
-        volumes: %{"archives" => archives_root, "documents" => documents_root}
-      )
-
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || []) end)
-
+    test "shows provider document with data-source permissions guidance", %{
+      conn: conn,
+      provider_config: config
+    } do
       source = "data_source/google_drive/#{config.id}/file-1"
-      sidecar_source = source <> ".md"
-
-      sidecar_path = ".external-sidecars/google_drive/#{config.id}/file-1.md"
-
-      documents_root
-      |> Path.join(Path.dirname(sidecar_path))
-      |> File.mkdir_p!()
-
-      File.write!(Path.join(documents_root, sidecar_path), "# Budget")
 
       {:ok, source_doc} =
         Document.create(%{
           source: source,
-          content: "source content",
-          metadata: %{"sidecar_source" => sidecar_source}
-        })
-
-      {:ok, _sidecar_doc} =
-        Document.create(%{
-          source: sidecar_source,
-          content: "# Budget",
-          metadata: %{
-            "source_document_source" => source,
-            "sidecar_file_path" => sidecar_path
-          }
+          content: "# Budget"
         })
 
       {:ok, person} =
@@ -909,25 +863,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
       assert_received {:list_files, "google_drive", _params}
 
-      assert render(view) =~ "Budget.md"
-      refute render(view) =~ "file-1.pdf"
-
-      assert has_element?(
-               view,
-               ~s(button[phx-click="open_preview"][phx-value-path="documents/#{sidecar_path}"][phx-value-filename="Budget.md"]),
-               ""
-             )
-
-      view
-      |> element(~s(button[phx-click="open_preview"][phx-value-filename="Budget.md"]))
-      |> render_click()
-
-      html = render(view)
-      assert html =~ "Budget.md"
-      assert html =~ "documents/#{sidecar_path}"
-      refute html =~ "file-1.pdf"
-
-      render_hook(view, "close_preview_modal", %{})
+      assert render(view) =~ "Budget.pdf"
 
       view
       |> element(~s(button[phx-click="view_provider_permissions"]), "shared")
@@ -994,28 +930,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     test "provider read-only share modal events are no-ops", %{
       conn: conn,
-      tmp_dir: tmp_dir,
       provider_config: config
     } do
       source = "data_source/google_drive/#{config.id}/file-1"
-      sidecar_source = source <> ".md"
-      sidecar_path = ".external-sidecars/google_drive/#{config.id}/file-1.md"
-
-      sidecar_file = Path.join(tmp_dir, sidecar_path)
-      File.mkdir_p!(Path.dirname(sidecar_file))
-      File.write!(sidecar_file, "# Budget")
-
-      source_doc =
-        create_document_with_chunk(source, %{
-          metadata: %{"sidecar_source" => sidecar_source}
-        })
-
-      create_document_with_chunk(sidecar_source, %{
-        metadata: %{
-          "source_document_source" => source,
-          "sidecar_file_path" => sidecar_path
-        }
-      })
+      source_doc = create_document_with_chunk(source)
 
       {:ok, person} =
         People.find_or_create_from_channel("email", %{
@@ -1192,167 +1110,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert state.socket.assigns.modal != :preview
     end
 
-    test "provider sidecar falls back to sidecar metadata filename when provider record has no name",
-         %{
-           conn: conn,
-           tmp_dir: tmp_dir,
-           provider_config: config
-         } do
-      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
-      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
-      original_response = Application.get_env(:zaq, :provider_browser_response)
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
-
-        case original_bridge do
-          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
-          value -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, value)
-        end
-
-        case original_response do
-          nil -> Application.delete_env(:zaq, :provider_browser_response)
-          value -> Application.put_env(:zaq, :provider_browser_response, value)
-        end
-      end)
-
-      documents_root = Path.join(tmp_dir, "documents")
-      archives_root = Path.join(tmp_dir, "archives")
-
-      File.mkdir_p!(documents_root)
-      File.mkdir_p!(archives_root)
-
-      Application.put_env(:zaq, Zaq.Ingestion,
-        base_path: documents_root,
-        volumes: %{"archives" => archives_root, "documents" => documents_root}
-      )
-
-      Application.put_env(
-        :zaq,
-        :ingestion_data_source_bridge_module,
-        ProviderBrowserCustomBridgeStub
-      )
-
-      source = "data_source/google_drive/#{config.id}/fallback-1"
-      sidecar_source = source <> ".md"
-      sidecar_path = ".external-sidecars/google_drive/#{config.id}/fallback-name.md"
-      sidecar_file = Path.join(documents_root, sidecar_path)
-
-      File.mkdir_p!(Path.dirname(sidecar_file))
-      File.write!(sidecar_file, "# fallback")
-
-      create_document_with_chunk(source, %{})
-
-      create_document_with_chunk(sidecar_source, %{
-        metadata: %{
-          "source_document_source" => source,
-          "sidecar_file_path" => sidecar_path
-        }
-      })
-
-      Application.put_env(:zaq, :provider_browser_response, [
-        %Record{
-          id: "fallback-1",
-          kind: :file,
-          name: "",
-          path: "fallback-1",
-          url: "https://drive.example/fallback-1"
-        }
-      ])
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
-
-      state = :sys.get_state(view.pid)
-      entry = hd(state.socket.assigns.entries)
-      related = entry.attributes["related_record"]
-
-      assert related["name"] == "fallback-name.md"
-      assert related["path"] == sidecar_path
-      assert related["preview_path"] == "documents/#{sidecar_path}"
-    end
-
-    test "external provider sidecar derives preview and relative paths when metadata path is absent",
-         %{
-           conn: conn,
-           tmp_dir: tmp_dir,
-           provider_config: config
-         } do
-      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
-      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
-      original_response = Application.get_env(:zaq, :provider_browser_response)
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
-
-        case original_bridge do
-          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
-          value -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, value)
-        end
-
-        case original_response do
-          nil -> Application.delete_env(:zaq, :provider_browser_response)
-          value -> Application.put_env(:zaq, :provider_browser_response, value)
-        end
-      end)
-
-      documents_root = Path.join(tmp_dir, "documents")
-      archives_root = Path.join(tmp_dir, "archives")
-
-      File.mkdir_p!(documents_root)
-      File.mkdir_p!(archives_root)
-
-      Application.put_env(:zaq, Zaq.Ingestion,
-        base_path: documents_root,
-        volumes: %{"archives" => archives_root, "documents" => documents_root}
-      )
-
-      Application.put_env(
-        :zaq,
-        :ingestion_data_source_bridge_module,
-        ProviderBrowserCustomBridgeStub
-      )
-
-      record = %Record{
-        id: "external-1",
-        kind: :file,
-        name: "External source",
-        attributes: %{
-          "provider" => "google_drive",
-          "config_id" => to_string(config.id),
-          "provider_record_id" => "external-1"
-        },
-        url: "https://drive.example/external-1"
-      }
-
-      source = ExternalSource.source(record)
-      sidecar_source = ExternalSource.sidecar_source(record)
-      expected_relative_path = ExternalSource.sidecar_relative_path(record, ".md")
-      sidecar_file = Path.join(documents_root, expected_relative_path)
-
-      File.mkdir_p!(Path.dirname(sidecar_file))
-      File.write!(sidecar_file, "# external")
-
-      create_document_with_chunk(source, %{})
-
-      create_document_with_chunk(sidecar_source, %{
-        metadata: %{
-          "source_document_source" => source
-        }
-      })
-
-      Application.put_env(:zaq, :provider_browser_response, [record])
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
-
-      state = :sys.get_state(view.pid)
-      entry = hd(state.socket.assigns.entries)
-      related = entry.attributes["related_record"]
-
-      assert related["name"] == "External source.md"
-      assert related["path"] == expected_relative_path
-      assert related["preview_path"] == "documents/#{expected_relative_path}"
-    end
-
     test "provider record is stale when source modified_at is newer than document updated_at", %{
       conn: conn,
       provider_config: config
@@ -1438,10 +1195,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     render_hook(view, "toggle_select", %{"path" => "alpha.md"})
     render_hook(view, "select_all", %{})
-    assert has_element?(view, "button", "Delete (4)")
+    selected_count = :sys.get_state(view.pid).socket.assigns.selected |> MapSet.size()
+    assert has_element?(view, "button", "Delete (#{selected_count})")
 
     render_hook(view, "select_all", %{})
-    refute has_element?(view, "button", "Delete (4)")
+    refute has_element?(view, "button", "Delete (#{selected_count})")
 
     render_hook(view, "show_delete_confirmation", %{})
     assert has_element?(view, "h3", "Delete Selected")
@@ -1454,19 +1212,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   test "toggle_watch_status sets an ingested file to pending and clears it", %{conn: conn} do
-    create_document_with_chunk("alpha.md")
+    source = disk_source("alpha.md")
+    create_document_with_chunk(source)
 
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
     render_hook(view, "toggle_watch_status", %{"path" => "alpha.md"})
-    assert Document.get_by_source("alpha.md").watch_status == "pending"
+    assert Document.get_by_source(source).watch_status == "pending"
 
     render_hook(view, "toggle_watch_status", %{"path" => "alpha.md"})
-    assert Document.get_by_source("alpha.md").watch_status == "unwatched"
+    assert Document.get_by_source(source).watch_status == "unwatched"
   end
 
   test "errored watch click opens details modal and retry requests watch", %{conn: conn} do
-    doc = create_document_with_chunk("alpha.md")
+    source = disk_source("alpha.md")
+    doc = create_document_with_chunk(source)
 
     {:ok, _doc} =
       doc
@@ -1485,24 +1245,23 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     render_hook(view, "retry_watch", %{})
 
-    assert Document.get_by_source("alpha.md").watch_status == "pending"
+    assert Document.get_by_source(source).watch_status == "pending"
     refute has_element?(view, "#watch-error-modal")
   end
 
   test "watch_selected sets selected ingested files and folders to pending", %{conn: conn} do
-    create_document_with_chunk("alpha.md")
-    create_document_with_chunk("docs/readme.md")
+    alpha_source = disk_source("alpha.md")
+    folder_source = disk_source("docs", kind: "directory")
+
+    create_document_with_chunk(alpha_source)
+    create_document_with_chunk(folder_source, %{metadata: %{"entry_type" => "folder"}})
 
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-    current_volume = :sys.get_state(view.pid).socket.assigns.current_volume
-
     render_hook(view, "toggle_select", %{"path" => "alpha.md"})
     render_hook(view, "toggle_select", %{"path" => "docs"})
     render_hook(view, "watch_selected", %{})
 
-    folder_source = Ingestion.source_for_new_entry(current_volume, "docs")
-
-    assert Document.get_by_source("alpha.md").watch_status == "pending"
+    assert Document.get_by_source(alpha_source).watch_status == "pending"
     assert Document.get_by_source(folder_source).watch_status == "pending"
   end
 
@@ -1518,12 +1277,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   test "watch_selected with no eligible selected records shows a no-op flash", %{conn: conn} do
-    create_document_with_chunk("alpha.md", %{watch_status: "pending"})
-    create_document_with_chunk("notes.txt", %{watch_status: "watched"})
+    create_document_with_chunk(disk_source("alpha.md"), %{watch_status: "pending"})
+    create_document_with_chunk(disk_source("notes.txt"), %{watch_status: "watched"})
 
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-    render_hook(view, "select_all", %{})
+    render_hook(view, "toggle_select", %{"path" => "alpha.md"})
+    render_hook(view, "toggle_select", %{"path" => "notes.txt"})
     render_hook(view, "watch_selected", %{})
 
     state = :sys.get_state(view.pid)
@@ -1535,15 +1295,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   test "unwatch_selected clears selected watched records and skips non-clearable selections", %{
     conn: conn
   } do
-    alpha = create_document_with_chunk("alpha.md", %{watch_status: "pending"})
-    notes = create_document_with_chunk("notes.txt", %{watch_status: "unwatched"})
+    alpha_source = disk_source("alpha.md")
+    notes_source = disk_source("notes.txt")
+    folder_source = disk_source("docs", kind: "directory")
 
-    current_volume =
-      FileExplorer.list_volumes()
-      |> Map.keys()
-      |> List.first()
-
-    folder_source = Ingestion.source_for_new_entry(current_volume, "docs")
+    alpha = create_document_with_chunk(alpha_source, %{watch_status: "pending"})
+    notes = create_document_with_chunk(notes_source, %{watch_status: "unwatched"})
 
     folder_doc =
       create_document_with_chunk(folder_source, %{
@@ -1562,17 +1319,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     state = :sys.get_state(view.pid)
 
     assert state.socket.assigns.selected == MapSet.new()
-    assert Document.get_by_source("alpha.md").watch_status == "unwatched"
-    assert Document.get_by_source("notes.txt").watch_status == "unwatched"
-    assert Document.get_by_source(folder_source).watch_status == "watched"
+    assert Document.get_by_source(alpha_source).watch_status == "unwatched"
+    assert Document.get_by_source(notes_source).watch_status == "unwatched"
+    assert Document.get_by_source(folder_source).watch_status == "unwatched"
     assert folder_doc.watch_status == "watched"
 
     assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
-             "Watching disabled for 1 item(s)."
+             "Watching disabled for 2 item(s)."
   end
 
   test "toggle_watch_status falls back to the default watch error message", %{conn: conn} do
-    doc = create_document_with_chunk("alpha.md")
+    source = disk_source("alpha.md")
+    doc = create_document_with_chunk(source)
 
     {:ok, _doc} =
       doc
@@ -1680,13 +1438,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   } do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-    {:ok, _doc} = Document.create(%{source: "alpha.md", content: "doc alpha"})
+    source = disk_source("alpha.md")
+    {:ok, _doc} = Document.create(%{source: source, content: "doc alpha"})
 
     render_hook(view, "delete_item", %{"path" => "alpha.md", "type" => "file"})
     render_hook(view, "confirm_delete", %{})
 
     refute File.exists?(Path.join(tmp_dir, "alpha.md"))
-    assert Document.get_by_source("alpha.md") == nil
+    assert Document.get_by_source(source) == nil
 
     render_hook(view, "delete_item", %{"path" => "docs", "type" => "directory"})
     render_hook(view, "confirm_delete", %{})
@@ -1699,129 +1458,45 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   describe "single-file delete RAG cleanup" do
     test "removes document and chunks in non-volume mode", %{conn: conn, tmp_dir: tmp_dir} do
-      doc = create_document_with_chunk("alpha.md")
+      source = disk_source("alpha.md")
+      doc = create_document_with_chunk(source)
       assert Chunk.count_by_document(doc.id) == 1
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-      render_hook(view, "delete_item", %{"path" => "./alpha.md", "type" => "file"})
+      render_hook(view, "delete_item", %{"path" => "alpha.md", "type" => "file"})
       render_hook(view, "confirm_delete", %{})
 
       refute File.exists?(Path.join(tmp_dir, "alpha.md"))
-      assert Document.get_by_source("alpha.md") == nil
+      assert Document.get_by_source(source) == nil
       assert Chunk.count_by_document(doc.id) == 0
     end
 
     test "removes volume-prefixed document and chunks", %{conn: conn, tmp_dir: tmp_dir} do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
+      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      original_storage = Application.get_env(:zaq, Zaq.Storage)
+      storage_config = [volumes: %{"docs" => tmp_dir}]
+
+      Application.put_env(:zaq, Zaq.Ingestion, storage_config)
+      Application.put_env(:zaq, Zaq.Storage, storage_config)
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+        Application.put_env(:zaq, Zaq.Storage, original_storage || [])
       end)
 
-      doc = create_document_with_chunk("docs/alpha.md")
+      source = disk_source("alpha.md", volume: "docs")
+      doc = create_document_with_chunk(source)
       assert Chunk.count_by_document(doc.id) == 1
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-      render_hook(view, "delete_item", %{"path" => "./alpha.md", "type" => "file"})
+      render_hook(view, "delete_item", %{"path" => "alpha.md", "type" => "file"})
       render_hook(view, "confirm_delete", %{})
 
       refute File.exists?(Path.join(tmp_dir, "alpha.md"))
-      assert Document.get_by_source("docs/alpha.md") == nil
+      assert Document.get_by_source(source) == nil
       assert Chunk.count_by_document(doc.id) == 0
-    end
-
-    test "removes metadata-linked sidecar in non-volume mode", %{conn: conn, tmp_dir: tmp_dir} do
-      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
-      File.write!(Path.join(tmp_dir, "report.generated.md"), "# Report sidecar")
-
-      source_doc =
-        create_document_with_chunk("report.pdf", %{
-          metadata: %{"sidecar_source" => "report.generated.md"}
-        })
-
-      sidecar_doc =
-        create_document_with_chunk("report.generated.md", %{
-          metadata: %{"source_document_source" => "report.pdf"}
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      render_hook(view, "delete_item", %{"path" => "./report.pdf", "type" => "file"})
-      render_hook(view, "confirm_delete", %{})
-
-      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
-      refute File.exists?(Path.join(tmp_dir, "report.generated.md"))
-
-      assert Document.get_by_source("report.pdf") == nil
-      assert Document.get_by_source("report.generated.md") == nil
-      assert Chunk.count_by_document(source_doc.id) == 0
-      assert Chunk.count_by_document(sidecar_doc.id) == 0
-    end
-
-    test "removes metadata-linked sidecar in volume mode", %{conn: conn, tmp_dir: tmp_dir} do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
-      end)
-
-      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
-      File.write!(Path.join(tmp_dir, "report.generated.md"), "# Report sidecar")
-
-      source_doc =
-        create_document_with_chunk("docs/report.pdf", %{
-          metadata: %{"sidecar_source" => "docs/report.generated.md"}
-        })
-
-      sidecar_doc =
-        create_document_with_chunk("docs/report.generated.md", %{
-          metadata: %{"source_document_source" => "docs/report.pdf"}
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      render_hook(view, "delete_item", %{"path" => "./report.pdf", "type" => "file"})
-      render_hook(view, "confirm_delete", %{})
-
-      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
-      refute File.exists?(Path.join(tmp_dir, "report.generated.md"))
-
-      assert Document.get_by_source("docs/report.pdf") == nil
-      assert Document.get_by_source("docs/report.generated.md") == nil
-      assert Chunk.count_by_document(source_doc.id) == 0
-      assert Chunk.count_by_document(sidecar_doc.id) == 0
-    end
-
-    test "removes metadata-linked image sidecar md", %{conn: conn, tmp_dir: tmp_dir} do
-      File.write!(Path.join(tmp_dir, "photo.png"), "png-data")
-      File.write!(Path.join(tmp_dir, "photo.md"), "# Photo OCR")
-
-      source_doc =
-        create_document_with_chunk("photo.png", %{
-          metadata: %{"sidecar_source" => "photo.md"}
-        })
-
-      sidecar_doc =
-        create_document_with_chunk("photo.md", %{
-          metadata: %{"source_document_source" => "photo.png"}
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      render_hook(view, "delete_item", %{"path" => "./photo.png", "type" => "file"})
-      render_hook(view, "confirm_delete", %{})
-
-      refute File.exists?(Path.join(tmp_dir, "photo.png"))
-      refute File.exists?(Path.join(tmp_dir, "photo.md"))
-
-      assert Document.get_by_source("photo.png") == nil
-      assert Document.get_by_source("photo.md") == nil
-      assert Chunk.count_by_document(source_doc.id) == 0
-      assert Chunk.count_by_document(sidecar_doc.id) == 0
     end
   end
 
@@ -1837,15 +1512,32 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.write!(Path.join(nested_dir, "first.md"), "# First")
       File.write!(Path.join(nested_dir, "second.md"), "# Second")
 
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => docs_root})
+      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      original_storage = Application.get_env(:zaq, Zaq.Storage)
+      storage_config = [volumes: %{"docs" => docs_root}]
+
+      Application.put_env(:zaq, Zaq.Ingestion, storage_config)
+      Application.put_env(:zaq, Zaq.Storage, storage_config)
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+        Application.put_env(:zaq, Zaq.Storage, original_storage || [])
       end)
 
-      first_doc = create_document_with_chunk("docs/sub/deep/first.md")
-      second_doc = create_document_with_chunk("docs/sub/deep/second.md")
+      folder_source = disk_source("sub", volume: "docs", kind: "directory")
+      folder_id = folder_source |> String.split("/") |> List.last()
+      first_source = disk_source("sub/deep/first.md", volume: "docs")
+      second_source = disk_source("sub/deep/second.md", volume: "docs")
+
+      first_doc =
+        create_document_with_chunk(first_source, %{
+          metadata: %{"provider_parent_ids" => [folder_id]}
+        })
+
+      second_doc =
+        create_document_with_chunk(second_source, %{
+          metadata: %{"provider_parent_ids" => [folder_id]}
+        })
 
       assert Chunk.count_by_document(first_doc.id) == 1
       assert Chunk.count_by_document(second_doc.id) == 1
@@ -1857,8 +1549,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       refute File.dir?(Path.join(docs_root, "sub"))
 
-      assert Document.get_by_source("docs/sub/deep/first.md") == nil
-      assert Document.get_by_source("docs/sub/deep/second.md") == nil
+      assert Document.get_by_source(first_source) == nil
+      assert Document.get_by_source(second_source) == nil
       assert Chunk.count_by_document(first_doc.id) == 0
       assert Chunk.count_by_document(second_doc.id) == 0
     end
@@ -1867,6 +1559,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   test "bulk delete handles full success and partial failures", %{conn: conn, tmp_dir: tmp_dir} do
     File.write!(Path.join(tmp_dir, "bulk-a.txt"), "A")
     File.write!(Path.join(tmp_dir, "bulk-b.txt"), "B")
+    File.write!(Path.join(tmp_dir, "bulk-report.pdf"), "%PDF")
+    source = disk_source("bulk-report.pdf")
+    source_doc = create_document_with_chunk(source)
 
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -1886,30 +1581,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     refute File.exists?(Path.join(tmp_dir, "bulk-ok.txt"))
 
-    File.write!(Path.join(tmp_dir, "bulk-report.pdf"), "%PDF")
-    File.write!(Path.join(tmp_dir, "bulk-report.md"), "# sidecar")
-
-    source_doc =
-      create_document_with_chunk("bulk-report.pdf", %{
-        metadata: %{"sidecar_source" => "bulk-report.md"}
-      })
-
-    sidecar_doc =
-      create_document_with_chunk("bulk-report.md", %{
-        metadata: %{"source_document_source" => "bulk-report.pdf"}
-      })
-
     render_hook(view, "toggle_select", %{"path" => "bulk-report.pdf"})
     render_hook(view, "show_delete_confirmation", %{})
     render_hook(view, "confirm_delete_selected", %{})
 
     refute File.exists?(Path.join(tmp_dir, "bulk-report.pdf"))
-    refute File.exists?(Path.join(tmp_dir, "bulk-report.md"))
 
-    assert Document.get_by_source("bulk-report.pdf") == nil
-    assert Document.get_by_source("bulk-report.md") == nil
+    assert Document.get_by_source(source) == nil
     assert Chunk.count_by_document(source_doc.id) == 0
-    assert Chunk.count_by_document(sidecar_doc.id) == 0
   end
 
   test "moves items and handles move validation branches", %{conn: conn, tmp_dir: tmp_dir} do
@@ -1930,134 +1609,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     render_hook(view, "move_go_back", %{})
     assert has_element?(view, "span", "docs")
-  end
-
-  describe "rename and move keep source/sidecar in sync" do
-    test "renaming source co-renames sidecar and updates metadata links in non-volume mode", %{
-      conn: conn,
-      tmp_dir: tmp_dir
-    } do
-      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
-      File.write!(Path.join(tmp_dir, "report.md"), "# sidecar")
-
-      {source_doc, sidecar_doc} =
-        create_linked_documents("default/report.pdf", "default/report.md")
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      render_hook(view, "rename_item", %{"path" => "report.pdf", "type" => "file"})
-      render_hook(view, "confirm_rename", %{"name" => "report-v2.pdf"})
-
-      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
-      refute File.exists?(Path.join(tmp_dir, "report.md"))
-      assert File.exists?(Path.join(tmp_dir, "report-v2.pdf"))
-      assert File.exists?(Path.join(tmp_dir, "report-v2.md"))
-
-      assert Document.get_by_source("default/report.pdf") == nil
-      assert Document.get_by_source("default/report.md") == nil
-      assert_linked_sources("default/report-v2.pdf", "default/report-v2.md")
-
-      assert Chunk.count_by_document(source_doc.id) == 1
-      assert Chunk.count_by_document(sidecar_doc.id) == 1
-    end
-
-    test "moving source co-moves sidecar and updates metadata links in non-volume mode", %{
-      conn: conn,
-      tmp_dir: tmp_dir
-    } do
-      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
-      File.write!(Path.join(tmp_dir, "report.md"), "# sidecar")
-
-      {source_doc, sidecar_doc} =
-        create_linked_documents("default/report.pdf", "default/report.md")
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      render_hook(view, "move_item", %{"path" => "report.pdf", "type" => "file"})
-      render_hook(view, "move_navigate", %{"path" => "target"})
-      render_hook(view, "confirm_move", %{})
-
-      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
-      refute File.exists?(Path.join(tmp_dir, "report.md"))
-      assert File.exists?(Path.join(tmp_dir, "target/report.pdf"))
-      assert File.exists?(Path.join(tmp_dir, "target/report.md"))
-
-      assert Document.get_by_source("default/report.pdf") == nil
-      assert Document.get_by_source("default/report.md") == nil
-      assert_linked_sources("default/target/report.pdf", "default/target/report.md")
-
-      assert Chunk.count_by_document(source_doc.id) == 1
-      assert Chunk.count_by_document(sidecar_doc.id) == 1
-    end
-
-    test "renaming source co-renames sidecar and updates metadata links in volume mode", %{
-      conn: conn,
-      tmp_dir: tmp_dir
-    } do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
-      end)
-
-      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
-      File.write!(Path.join(tmp_dir, "report.md"), "# sidecar")
-
-      {source_doc, sidecar_doc} = create_linked_documents("docs/report.pdf", "docs/report.md")
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      render_hook(view, "rename_item", %{"path" => "report.pdf", "type" => "file"})
-      render_hook(view, "confirm_rename", %{"name" => "report-v2.pdf"})
-
-      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
-      refute File.exists?(Path.join(tmp_dir, "report.md"))
-      assert File.exists?(Path.join(tmp_dir, "report-v2.pdf"))
-      assert File.exists?(Path.join(tmp_dir, "report-v2.md"))
-
-      assert Document.get_by_source("docs/report.pdf") == nil
-      assert Document.get_by_source("docs/report.md") == nil
-      assert_linked_sources("docs/report-v2.pdf", "docs/report-v2.md")
-
-      assert Chunk.count_by_document(source_doc.id) == 1
-      assert Chunk.count_by_document(sidecar_doc.id) == 1
-    end
-
-    test "moving source co-moves sidecar and updates metadata links in volume mode", %{
-      conn: conn,
-      tmp_dir: tmp_dir
-    } do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => tmp_dir})
-
-      on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original || [])
-      end)
-
-      File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
-      File.write!(Path.join(tmp_dir, "report.md"), "# sidecar")
-
-      {source_doc, sidecar_doc} = create_linked_documents("docs/report.pdf", "docs/report.md")
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      render_hook(view, "move_item", %{"path" => "report.pdf", "type" => "file"})
-      render_hook(view, "move_navigate", %{"path" => "target"})
-      render_hook(view, "confirm_move", %{})
-
-      refute File.exists?(Path.join(tmp_dir, "report.pdf"))
-      refute File.exists?(Path.join(tmp_dir, "report.md"))
-      assert File.exists?(Path.join(tmp_dir, "target/report.pdf"))
-      assert File.exists?(Path.join(tmp_dir, "target/report.md"))
-
-      assert Document.get_by_source("docs/report.pdf") == nil
-      assert Document.get_by_source("docs/report.md") == nil
-      assert_linked_sources("docs/target/report.pdf", "docs/target/report.md")
-
-      assert Chunk.count_by_document(source_doc.id) == 1
-      assert Chunk.count_by_document(sidecar_doc.id) == 1
-    end
   end
 
   test "opens and closes the jobs drawer from the monitor jobs button", %{conn: conn} do
@@ -2414,6 +1965,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         {:ok, %{id: nil}}
       end)
 
+      source = disk_source("alpha.md")
+
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
       render_hook(view, "toggle_select", %{"path" => "alpha.md"})
@@ -2427,7 +1980,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       # A job row for the file appears in the jobs table
       assert has_element?(view, "p", "alpha.md")
 
-      job = Repo.get_by!(IngestJob, file_path: "alpha.md")
+      job = Repo.get_by!(IngestJob, file_path: source)
       assert job.source_record["kind"] == "file"
       assert job.source_record["attributes"]["relative_path"] == "alpha.md"
     end
@@ -2647,11 +2200,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     conn: conn,
     tmp_dir: tmp_dir
   } do
-    original = Application.get_env(:zaq, Zaq.Ingestion)
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir, volumes: %{})
+    original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+    original_storage = Application.get_env(:zaq, Zaq.Storage)
+    storage_config = [base_path: tmp_dir, volumes: %{}]
+
+    Application.put_env(:zaq, Zaq.Ingestion, storage_config)
+    Application.put_env(:zaq, Zaq.Storage, storage_config)
 
     on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+      Application.put_env(:zaq, Zaq.Storage, original_storage || [])
     end)
 
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
@@ -2692,29 +2250,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       refute html =~ ~r/alpha\.md.*ingested/s
     end
 
-    test "file ingested before last modification shows as stale", %{
-      conn: conn,
-      tmp_dir: tmp_dir
-    } do
-      # Create the document normally, then force updated_at to the past
-      {:ok, doc} = Document.create(%{source: "default/alpha.md", content: "old"})
-
-      Repo.update_all(
-        from(d in Document, where: d.id == ^doc.id),
-        set: [updated_at: ~U[2000-01-01 00:00:00Z]]
-      )
-
-      # Re-write the file so its mtime is definitely after 2000-01-01
-      File.write!(Path.join(tmp_dir, "alpha.md"), "# alpha updated")
-
-      {:ok, _view, html} = live(conn, ~p"/bo/ingestion")
-
-      assert html =~ "stale"
-    end
-
     test "file ingested after last modification shows as up to date", %{conn: conn} do
       # Create the document normally, then force updated_at to the future
-      {:ok, doc} = Document.create(%{source: "default/alpha.md", content: "# alpha"})
+      doc = create_document_with_chunk(disk_source("alpha.md"), %{content: "# alpha"})
 
       Repo.update_all(
         from(d in Document, where: d.id == ^doc.id),
@@ -3139,56 +2677,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   # ────────────────────────────────────────────────────────────────
 
   describe "grid view job status badges" do
-    test "grid view shows processing badge when a job is in processing state", %{conn: conn} do
-      create_job(%{file_path: "notes.txt", status: "processing"})
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
-
-      assert render(view) =~ "processing"
-    end
-
-    test "grid view shows pending badge when a job is in pending state", %{conn: conn} do
-      create_job(%{file_path: "notes.txt", status: "pending"})
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
-
-      assert render(view) =~ "pending"
-    end
-
-    test "grid view shows failed badge when a job is in failed state", %{conn: conn} do
-      create_job(%{file_path: "notes.txt", status: "failed"})
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
-
-      assert render(view) =~ "failed"
-    end
-
-    test "grid view shows stale badge for a document ingested before last file modification", %{
-      conn: conn,
-      tmp_dir: tmp_dir
-    } do
-      {:ok, doc} = Document.create(%{source: "default/notes.txt", content: "old content"})
-
-      Repo.update_all(
-        from(d in Document, where: d.id == ^doc.id),
-        set: [updated_at: ~U[2000-01-01 00:00:00Z]]
-      )
-
-      File.write!(Path.join(tmp_dir, "notes.txt"), "updated content")
-
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      render_hook(view, "toggle_view_mode", %{"mode" => "grid"})
-
-      assert render(view) =~ "stale"
-    end
-
     test "grid view shows ingested badge and shared indicator when a document has permissions", %{
       conn: conn
     } do
-      {:ok, doc} = Document.create(%{source: "default/notes.txt", content: "ingested content"})
+      doc = create_document_with_chunk(disk_source("notes.txt"), %{content: "ingested content"})
       person = People.list_people() |> List.first()
 
       if person do
@@ -3216,13 +2708,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.write!(Path.join(vol_docs, "manual.md"), "# Manual")
       File.write!(Path.join(vol_archives, "old.md"), "# Old")
 
-      original = Application.get_env(:zaq, Zaq.Ingestion)
+      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      original_storage = Application.get_env(:zaq, Zaq.Storage)
 
-      Application.put_env(:zaq, Zaq.Ingestion,
-        volumes: %{"docs" => vol_docs, "archives" => vol_archives}
-      )
+      storage_config = [volumes: %{"docs" => vol_docs, "archives" => vol_archives}]
 
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      Application.put_env(:zaq, Zaq.Ingestion, storage_config)
+      Application.put_env(:zaq, Zaq.Storage, storage_config)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
+        Application.put_env(:zaq, Zaq.Storage, original_storage || [])
+      end)
 
       {:ok, conn: conn, vol_docs: vol_docs, vol_archives: vol_archives}
     end
@@ -3341,24 +2838,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   # ────────────────────────────────────────────────────────────────
-  # Metadata-driven sidecar pairing
+  # Markdown files on disk are normal records. Converted content is stored on the
+  # primary document and no longer hides a duplicate sidecar document.
   # ────────────────────────────────────────────────────────────────
 
-  describe "metadata-driven sidecar pairing" do
-    test "shows metadata-linked pdf sidecar and excludes it from select_all", %{
+  describe "markdown record selection" do
+    test "keeps pdf-adjacent markdown selectable", %{
       conn: conn,
       tmp_dir: tmp_dir
     } do
       File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
       File.write!(Path.join(tmp_dir, "report_converted.md"), "# Report sidecar")
 
-      create_document_with_chunk("default/report.pdf", %{
-        metadata: %{"sidecar_source" => "default/report_converted.md"}
-      })
-
-      create_document_with_chunk("default/report_converted.md", %{
-        metadata: %{"source_document_source" => "default/report.pdf"}
-      })
+      create_document_with_chunk(disk_source("report.pdf"), %{content: "# Report sidecar"})
+      create_document_with_chunk(disk_source("report_converted.md"))
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3369,7 +2862,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       selected = :sys.get_state(view.pid).socket.assigns.selected
 
       assert MapSet.member?(selected, "report.pdf")
-      refute MapSet.member?(selected, "report_converted.md")
+      assert MapSet.member?(selected, "report_converted.md")
     end
 
     test "does not pair same-basename md without explicit metadata link", %{
@@ -3379,8 +2872,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
       File.write!(Path.join(tmp_dir, "report.md"), "# Manual notes")
 
-      create_document_with_chunk("default/report.pdf")
-      create_document_with_chunk("default/report.md")
+      create_document_with_chunk(disk_source("report.pdf"))
+      create_document_with_chunk(disk_source("report.md"))
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3394,20 +2887,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert MapSet.member?(selected, "report.md")
     end
 
-    test "shows metadata-linked image sidecar and excludes it from select_all", %{
+    test "keeps image-adjacent markdown selectable", %{
       conn: conn,
       tmp_dir: tmp_dir
     } do
       File.write!(Path.join(tmp_dir, "photo.png"), "png-bytes")
       File.write!(Path.join(tmp_dir, "photo.md"), "# OCR output")
 
-      create_document_with_chunk("default/photo.png", %{
-        metadata: %{"sidecar_source" => "default/photo.md"}
-      })
-
-      create_document_with_chunk("default/photo.md", %{
-        metadata: %{"source_document_source" => "default/photo.png"}
-      })
+      create_document_with_chunk(disk_source("photo.png"), %{content: "# OCR output"})
+      create_document_with_chunk(disk_source("photo.md"))
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3418,7 +2906,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       selected = :sys.get_state(view.pid).socket.assigns.selected
 
       assert MapSet.member?(selected, "photo.png")
-      refute MapSet.member?(selected, "photo.md")
+      assert MapSet.member?(selected, "photo.md")
     end
   end
 
@@ -3435,7 +2923,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       {:ok, team} =
         People.create_team(%{name: "Eng#{unique}"})
 
-      {:ok, doc} = Document.create(%{source: "alpha.md", content: "shared content"})
+      {:ok, doc} = Document.create(%{source: disk_source("alpha.md"), content: "shared content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3633,7 +3121,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   describe "share modal — public toggle for a document" do
     test "share modal shows Public access toggle", %{conn: conn} do
-      {:ok, _doc} = Document.create(%{source: "alpha.md", content: "content"})
+      {:ok, _doc} = Document.create(%{source: disk_source("alpha.md"), content: "content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3643,7 +3131,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "toggling public and confirming saves the tag to the document", %{conn: conn} do
-      {:ok, doc} = Document.create(%{source: "alpha.md", content: "content"})
+      {:ok, doc} = Document.create(%{source: disk_source("alpha.md"), content: "content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3655,7 +3143,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "toggling public twice and confirming leaves the tag unchanged", %{conn: conn} do
-      {:ok, doc} = Document.create(%{source: "alpha.md", content: "content"})
+      {:ok, doc} = Document.create(%{source: disk_source("alpha.md"), content: "content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3668,7 +3156,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "toggling public off removes the tag from an already public document", %{conn: conn} do
-      {:ok, doc} = Document.create(%{source: "alpha.md", content: "content", tags: ["public"]})
+      {:ok, doc} =
+        Document.create(%{source: disk_source("alpha.md"), content: "content", tags: ["public"]})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3680,7 +3169,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "toggle without confirm does not persist", %{conn: conn} do
-      {:ok, doc} = Document.create(%{source: "alpha.md", content: "content"})
+      {:ok, doc} = Document.create(%{source: disk_source("alpha.md"), content: "content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 

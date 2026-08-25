@@ -10,14 +10,14 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   ## Skill resources
 
-  A skill's reference files are uploaded here but stored by **ingestion**, under
+  A skill's reference files are uploaded here but stored on the configured storage volume, under
   `.agents/skills/{slug}/references/` on a volume — so they appear in the ingestion
   browser like any other file and need no separate storage. Every filesystem hop goes
-  through `NodeRouter` to the `:ingestion` role: the BO node is not guaranteed to have
+  through `NodeRouter`: the BO node is not guaranteed to have
   the volume mounted. Path derivation is `Zaq.Agent.Skill.Resources`' job, not this
   module's.
 
-  Uploading requires an explicitly configured volume (`Ingestion.volumes_configured?/0`),
+  Uploading requires an explicitly configured storage volume,
   not merely a non-empty `list_volumes/0` — that call synthesizes a `"default"` entry and
   can never be empty.
   """

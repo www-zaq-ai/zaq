@@ -49,23 +49,15 @@ Canonical records (from any data-source bridge)
 - `cancel_job/1` — cancel a pending job
 - `subscribe/0` — subscribe to `"ingestion:jobs"` PubSub topic for real-time updates
 
-**Filesystem operations**
-- `list_volumes/0` — returns configured volumes map. **Never empty**: when no `volumes:` are configured it synthesizes `%{"default" => base_path}`, so it cannot be used to test whether a volume is connected
-- `volumes_configured?/0` — `true` only when `volumes:` is explicitly configured and non-empty. Use this (not `list_volumes/0`) to gate actions that require a connected volume
-- `list_entries/2` — list directory entries for a volume + path
-- `create_directory/2` — create a directory in a volume
-- `upload_file/3` — write file content into a volume
-- `file_info/2` — stat a file in a volume
-- `rename_entry/4` — rename/move a file within a volume (delegates to `RenameService`)
-- `delete_path/4` — delete a file or directory and its DB records
-- `delete_paths/3` — batch delete
-- `directory_snapshot/3` — lists entries and combines with DB document/job state (delegates to `DirectorySnapshot.build/4`)
-
-**Disk data source** (backing `Zaq.Channels.DiskBridge`, dispatched as Ingestion role actions)
-- `list_documents/1`, `search_documents/1`, `describe_document/1` — volume entries, never records; the bridge shapes records
-- `persist_document/1`, `update_document/1`, `delete_document/1` — write, rewrite/rename/move, and remove a file plus its rows
-- `materialize_document/1` — reads a file's bytes off its volume and answers `%{content:, encoding:}` alone. Redeemed through `Zaq.Ingestion.Materializers.DiskDocument`, the `disk_document` materializer; see `docs/services/materialization.md`
-- `volume_stats/1`, `list_document_grants/1` — counts and per-document access grants
+**Data-source record consumption**
+- Ingestion consumes canonical `%Zaq.Contracts.Record{}` values from Channels bridges.
+- Disk is treated like any other data source: `Zaq.Channels.DiskBridge` returns stable
+  provider records and Storage-owned materialization handles.
+- Ingestion identifies indexed records by the generic source convention
+  `data_source/<provider>/<config>/<record-id>` and imports canonical record permissions
+  into ordinary document permissions during ingestion.
+- Mounted volumes, file paths, bytes, rename/delete, and live file metadata are Storage
+  concerns, not Ingestion concerns.
 
 **Content filter / source search**
 - `list_document_sources/1` — builds @-mention source choices from configured connectors + indexed document sources; supports name search and folder browse semantics

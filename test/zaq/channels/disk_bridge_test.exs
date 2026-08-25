@@ -1,14 +1,14 @@
 defmodule Zaq.Channels.DiskBridgeTest do
   # Unit-level: the router is stubbed through `config["node_router"]`, so these assert what
-  # the bridge asks ingestion for and what it maps the answer into — never ingestion itself.
+  # the bridge asks storage for and what it maps the answer into — never storage itself.
   use ExUnit.Case, async: true
 
   alias Zaq.Channels.DiskBridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
-  alias Zaq.Ingestion.FileExplorer.Entry
   alias Zaq.Materialization.Handle
+  alias Zaq.Storage.FileExplorer.Entry
 
   defmodule StubRouter do
     @moduledoc false
@@ -71,6 +71,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       assert record.attributes == %{
                "provider" => "disk",
+               "config_id" => "archives",
+               "provider_record_id" => "42",
                "volume" => "archives",
                "relative_path" => "guide.md",
                "source" => "guide.md"
@@ -78,7 +80,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "translates the entry's :directory into the record's :folder, with no mime type" do
-      # The two vocabularies meet here: ingestion says :directory, the record contract says
+      # The two vocabularies meet here: storage says :directory, the record contract says
       # :folder.
       stub_response({:ok, entry_page([entry("d1", %{type: :directory, name: "manuals"})])})
 
@@ -95,8 +97,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert record.raw == %{local_entry: volume_entry}
     end
 
-    test "reports the scanned count ingestion gave alongside what was returned" do
-      # `scanned` differs from `returned` when ingestion dropped rows whose file is gone.
+    test "reports the scanned count storage gave alongside what was returned" do
+      # `scanned` differs from `returned` when storage dropped rows whose file is gone.
       stub_response({:ok, %{entries: [entry("42")], scanned: 5}})
 
       assert {:ok, %RecordPage{stats: stats, resource_type: :item}} =
@@ -145,15 +147,15 @@ defmodule Zaq.Channels.DiskBridgeTest do
   # ── request shapes, one per callback ────────────────────────────────────────
 
   describe "list_files/2" do
-    test "dispatches :list_documents to ingestion, passing filters through untouched" do
+    test "dispatches :list_documents to storage, passing filters through untouched" do
       params = %{"filters" => %{"parent" => "archives/manuals"}, "page_size" => 50}
       stub_response({:ok, entry_page([])})
 
       assert {:ok, %RecordPage{}} = DiskBridge.list_files(config(), params)
-      assert_received {:dispatch, :ingestion, :list_documents, %{params: ^params}}
+      assert_received {:dispatch, :storage, :list_documents, %{params: ^params}}
     end
 
-    test "passes an ingestion error back unchanged" do
+    test "passes an storage error back unchanged" do
       stub_response({:error, :unknown_volume})
 
       assert {:error, :unknown_volume} = DiskBridge.list_files(config(), %{})
@@ -167,17 +169,17 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert {:ok, %{record: %Record{id: "42"}}} =
                DiskBridge.get_file(config(), %{"file_id" => "42"})
 
-      assert_received {:dispatch, :ingestion, :describe_document, %{file_id: "42"}}
+      assert_received {:dispatch, :storage, :describe_document, %{file_id: "42"}}
     end
 
     test "stringifies an integer file_id" do
       stub_response({:ok, entry("42")})
 
       assert {:ok, %{record: %Record{id: "42"}}} = DiskBridge.get_file(config(), %{file_id: 42})
-      assert_received {:dispatch, :ingestion, :describe_document, %{file_id: "42"}}
+      assert_received {:dispatch, :storage, :describe_document, %{file_id: "42"}}
     end
 
-    test "passes an ingestion error back unchanged" do
+    test "passes an storage error back unchanged" do
       stub_response({:error, :not_found})
 
       assert {:error, :not_found} = DiskBridge.get_file(config(), %{"file_id" => "42"})
@@ -205,7 +207,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
                  "encoding" => "base64"
                })
 
-      assert_received {:dispatch, :ingestion, :persist_document, request}
+      assert_received {:dispatch, :storage, :persist_document, request}
 
       assert request == %{
                "name" => "notes.md",
@@ -220,12 +222,12 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       DiskBridge.create_file(config(), %{"name" => "notes.md", "path" => "archives"})
 
-      assert_received {:dispatch, :ingestion, :persist_document, request}
+      assert_received {:dispatch, :storage, :persist_document, request}
       assert request["content"] == ""
       assert request["encoding"] == nil
     end
 
-    test "passes an ingestion error back unchanged" do
+    test "passes an storage error back unchanged" do
       stub_response({:error, :volume_required})
 
       assert {:error, :volume_required} =
@@ -246,7 +248,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
                  "encoding" => "base64"
                })
 
-      assert_received {:dispatch, :ingestion, :update_document, request}
+      assert_received {:dispatch, :storage, :update_document, request}
 
       assert request == %{
                "file_id" => "42",
@@ -258,13 +260,13 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
 
     test "omits keys the caller did not send" do
-      # An absent `content` must not reach ingestion as an empty one — that would truncate
+      # An absent `content` must not reach storage as an empty one — that would truncate
       # the file on every rename.
       stub_response({:ok, %{status: "updated", entry: entry("42")}})
 
       DiskBridge.update_file(config(), %{"file_id" => "42", "name" => "renamed.md"})
 
-      assert_received {:dispatch, :ingestion, :update_document, request}
+      assert_received {:dispatch, :storage, :update_document, request}
       assert request == %{"file_id" => "42", "name" => "renamed.md"}
       refute Map.has_key?(request, "content")
       refute Map.has_key?(request, "path")
@@ -276,7 +278,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       DiskBridge.update_file(config(), %{"file_id" => "42", "content" => nil})
 
-      assert_received {:dispatch, :ingestion, :update_document, request}
+      assert_received {:dispatch, :storage, :update_document, request}
       assert request == %{"file_id" => "42"}
     end
 
@@ -285,23 +287,23 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       DiskBridge.update_file(config(), %{file_id: "42", content: "new"})
 
-      assert_received {:dispatch, :ingestion, :update_document, request}
+      assert_received {:dispatch, :storage, :update_document, request}
       assert request == %{"file_id" => "42", "content" => "new"}
     end
   end
 
   describe "delete_file/2" do
     test "dispatches :delete_document and answers with the status alone" do
-      # No record comes back: the file is gone by the time ingestion returns, so there is
+      # No record comes back: the file is gone by the time storage returns, so there is
       # nothing left to describe. Same answer JidoConnectBridge.delete_file/2 gives.
       stub_response({:ok, %{status: "deleted"}})
 
       assert {:ok, %{status: "deleted"}} = DiskBridge.delete_file(config(), %{"file_id" => "42"})
 
-      assert_received {:dispatch, :ingestion, :delete_document, %{file_id: "42"}}
+      assert_received {:dispatch, :storage, :delete_document, %{file_id: "42"}}
     end
 
-    test "passes an ingestion error back unchanged" do
+    test "passes an storage error back unchanged" do
       stub_response({:error, :not_found})
 
       assert {:error, :not_found} = DiskBridge.delete_file(config(), %{"file_id" => "42"})
@@ -316,10 +318,10 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert {:ok, %RecordPage{records: [%Record{id: "42"}]}} =
                DiskBridge.search_files(config(), params)
 
-      assert_received {:dispatch, :ingestion, :search_documents, %{params: ^params}}
+      assert_received {:dispatch, :storage, :search_documents, %{params: ^params}}
     end
 
-    test "passes an ingestion error back unchanged" do
+    test "passes an storage error back unchanged" do
       stub_response({:error, :query_required})
 
       assert {:error, :query_required} = DiskBridge.search_files(config(), %{})
@@ -333,11 +335,11 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert {:ok, %{record: %Record{id: "42", content: nil}}} =
                DiskBridge.download_document(config(), %{"file_id" => "42"})
 
-      assert_received {:dispatch, :ingestion, :describe_document, %{file_id: "42"}}
-      refute_received {:dispatch, :ingestion, _action, _request}
+      assert_received {:dispatch, :storage, :describe_document, %{file_id: "42"}}
+      refute_received {:dispatch, :storage, _action, _request}
     end
 
-    test "passes an ingestion error back, like get_file/2" do
+    test "passes an storage error back, like get_file/2" do
       stub_response({:error, :not_found})
 
       assert {:error, :not_found} = DiskBridge.download_document(config(), %{"file_id" => "42"})
@@ -359,7 +361,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
                "access_rights" => ["read"]
              }
 
-      assert_received {:dispatch, :ingestion, :list_document_grants, %{file_id: "42"}}
+      assert_received {:dispatch, :storage, :list_document_grants, %{file_id: "42"}}
     end
 
     test "synthesizes the public grant, since it has no permission row to name" do
@@ -401,7 +403,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert record.attributes["access_rights"] == []
     end
 
-    test "passes an ingestion error back unchanged" do
+    test "passes an storage error back unchanged" do
       stub_response({:error, :not_found})
 
       assert {:error, :not_found} = DiskBridge.list_permissions(config(), %{"file_id" => "42"})
@@ -413,7 +415,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
       stub_response({:ok, %{files_count: 3}})
 
       assert {:ok, %{files_count: 3}} = DiskBridge.channel_stats(config(), %{})
-      assert_received {:dispatch, :ingestion, :volume_stats, %{params: %{}}}
+      assert_received {:dispatch, :storage, :volume_stats, %{params: %{}}}
     end
   end
 
@@ -424,10 +426,10 @@ defmodule Zaq.Channels.DiskBridgeTest do
       stub_response({:ok, %{status: "deleted"}})
 
       DiskBridge.delete_file(config(), %{"file_id" => "42"})
-      assert_received {:dispatch, :ingestion, :delete_document, string_request}
+      assert_received {:dispatch, :storage, :delete_document, string_request}
 
       DiskBridge.delete_file(config(), %{file_id: "42"})
-      assert_received {:dispatch, :ingestion, :delete_document, atom_request}
+      assert_received {:dispatch, :storage, :delete_document, atom_request}
 
       assert string_request == atom_request
     end
@@ -437,7 +439,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       DiskBridge.create_file(config(), %{"name" => nil, :name => "notes.md", "path" => "archives"})
 
-      assert_received {:dispatch, :ingestion, :persist_document, request}
+      assert_received {:dispatch, :storage, :persist_document, request}
       assert request["name"] == "notes.md"
     end
   end
@@ -451,7 +453,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert {:ok, %RecordPage{}} =
                DiskBridge.list_files(config(), %{"node_router" => ExplodingRouter})
 
-      assert_received {:dispatch, :ingestion, :list_documents, _request}
+      assert_received {:dispatch, :storage, :list_documents, _request}
     end
 
     test "accepts an atom-keyed router on config" do
@@ -459,7 +461,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       assert {:ok, %RecordPage{}} = DiskBridge.list_files(%{node_router: StubRouter}, %{})
 
-      assert_received {:dispatch, :ingestion, :list_documents, _request}
+      assert_received {:dispatch, :storage, :list_documents, _request}
     end
   end
 

@@ -1097,9 +1097,20 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                DataSourceBridge.export_options(:disk, %{})
     end
 
-    test "a provider with no channel_configs row errors rather than getting a synthetic one" do
-      assert {:error, {:channel_not_configured, :disk}} =
-               DataSourceBridge.list_files(:disk, %{})
+    test "disk uses its built-in config without a channel_configs row" do
+      original_storage = Application.get_env(:zaq, Zaq.Storage, [])
+      root = Path.join(System.tmp_dir!(), "zaq-disk-bridge-#{System.unique_integer([:positive])}")
+      docs = Path.join(root, "docs")
+      File.mkdir_p!(docs)
+
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => docs})
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Storage, original_storage)
+        File.rm_rf!(root)
+      end)
+
+      assert {:ok, %Zaq.Contracts.RecordPage{}} = DataSourceBridge.list_files(:disk, %{})
     end
   end
 end

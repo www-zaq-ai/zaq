@@ -489,9 +489,15 @@ defmodule Zaq.Channels.DataSourceBridge do
   defp resolve_data_source_config(provider, params) do
     case normalize_config_id(params) do
       {:ok, id} -> fetch_scoped_data_source_config(provider, id)
-      :error -> Bridge.fetch_channel_config(provider)
+      :error -> fetch_unscoped_data_source_config(provider)
     end
   end
+
+  defp fetch_unscoped_data_source_config(provider) when provider in [:disk, "disk"] do
+    {:ok, %{"provider" => "disk"}}
+  end
+
+  defp fetch_unscoped_data_source_config(provider), do: Bridge.fetch_channel_config(provider)
 
   defp normalize_config_id(params) do
     case Map.get(params, "config_id") || Map.get(params, :config_id) do

@@ -921,15 +921,13 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         assert doc.source == "diagram.png"
         assert doc.content =~ "[Image: diagram.png]"
         assert doc.content =~ "Detected text from diagram.png"
-        assert doc.metadata["sidecar_source"] == "diagram.md"
+        refute Map.has_key?(doc.metadata, "sidecar_source")
 
         assert File.exists?(sidecar_path)
         assert {:ok, sidecar_content} = File.read(sidecar_path)
         assert sidecar_content =~ "[Image: diagram.png]"
 
-        assert %Document{} = sidecar_doc = Document.get_by_source("diagram.md")
-        assert sidecar_doc.metadata["source_document_source"] == "diagram.png"
-        assert sidecar_doc.content =~ "Detected text from diagram.png"
+        assert Document.get_by_source("diagram.md") == nil
       end)
     end
 
@@ -1105,16 +1103,12 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         assert File.exists?(Path.join(tmp_dir, "banner.md"))
 
         assert %Document{} = photo_doc = Document.get_by_source("photo.png")
-        assert photo_doc.metadata["sidecar_source"] == "photo.md"
-
-        assert %Document{} = photo_sidecar = Document.get_by_source("photo.md")
-        assert photo_sidecar.metadata["source_document_source"] == "photo.png"
+        refute Map.has_key?(photo_doc.metadata, "sidecar_source")
+        assert Document.get_by_source("photo.md") == nil
 
         assert %Document{} = banner_doc = Document.get_by_source("banner.jpg")
-        assert banner_doc.metadata["sidecar_source"] == "banner.md"
-
-        assert %Document{} = banner_sidecar = Document.get_by_source("banner.md")
-        assert banner_sidecar.metadata["source_document_source"] == "banner.jpg"
+        refute Map.has_key?(banner_doc.metadata, "sidecar_source")
+        assert Document.get_by_source("banner.md") == nil
       end)
     end
   end
@@ -1391,26 +1385,30 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       {:ok, tmp_dir: tmp_dir}
     end
 
-    test "reads existing markdown sidecars for pdf/docx/pptx/xlsx without conversion", %{
+    test "ignores existing markdown sidecars for pdf/docx/pptx/xlsx", %{
       tmp_dir: tmp_dir
     } do
-      for ext <- [".pdf", ".docx", ".pptx", ".xlsx"] do
-        source_name = "sidecar#{ext}"
-        source_path = create_test_md_file(tmp_dir, source_name, "raw-bytes")
-        sidecar_path = Path.rootname(source_path) <> ".md"
-        File.write!(sidecar_path, "# Sidecar\n\nLoaded from #{ext} sidecar.")
+      cases = [
+        {:pdf_pipeline_module, PdfPipelineStub, "sidecar.pdf", "Converted PDF content."},
+        {:docx_to_md_module, DocxToMdStub, "sidecar.docx", "Converted DOCX content."},
+        {:pptx_to_md_module, Zaq.Ingestion.PptxToMdStub, "sidecar.pptx",
+         "Converted PPTX content."},
+        {:xlsx_to_md_module, XlsxToMdStub, "sidecar.xlsx", "Converted XLSX content."}
+      ]
 
-        assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(source_path)
-        assert doc.source == source_name
-        assert doc.content =~ "Loaded from #{ext} sidecar."
+      for {app_key, stub_module, source_name, expected_content} <- cases do
+        with_converter_stub(app_key, stub_module, fn ->
+          source_path = create_test_md_file(tmp_dir, source_name, "raw-bytes")
+          sidecar_path = Path.rootname(source_path) <> ".md"
+          File.write!(sidecar_path, "# Sidecar\n\nLoaded from existing sidecar.")
 
-        assert (doc.metadata["sidecar_source"] || doc.metadata[:sidecar_source]) ==
-                 Path.basename(sidecar_path)
-
-        assert %Document{} = sidecar_doc = Document.get_by_source(Path.basename(sidecar_path))
-
-        assert (sidecar_doc.metadata["source_document_source"] ||
-                  sidecar_doc.metadata[:source_document_source]) == source_name
+          assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(source_path)
+          assert doc.source == source_name
+          assert doc.content =~ expected_content
+          refute doc.content =~ "Loaded from existing sidecar."
+          refute Map.has_key?(doc.metadata, "sidecar_source")
+          assert Document.get_by_source(Path.basename(sidecar_path)) == nil
+        end)
       end
     end
 

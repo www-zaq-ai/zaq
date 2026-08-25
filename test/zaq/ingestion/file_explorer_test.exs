@@ -1,8 +1,8 @@
-defmodule Zaq.Ingestion.FileExplorerTest do
-  use ExUnit.Case, async: false
+defmodule Zaq.Storage.FileExplorerTest do
+  use Zaq.DataCase, async: false
 
-  alias Zaq.Ingestion.FileExplorer
-  alias Zaq.Ingestion.FileExplorer.Entry
+  alias Zaq.Storage.FileExplorer
+  alias Zaq.Storage.FileExplorer.Entry
 
   @test_base "test/tmp/file_explorer"
 
@@ -11,11 +11,11 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     File.mkdir_p!(@test_base)
 
     # Override config to use test directory
-    original = Application.get_env(:zaq, Zaq.Ingestion)
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
+    original = Application.get_env(:zaq, Zaq.Storage)
+    Application.put_env(:zaq, Zaq.Storage, base_path: @test_base)
 
     on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      Application.put_env(:zaq, Zaq.Storage, original || [])
       File.rm_rf!(@test_base)
     end)
 
@@ -69,9 +69,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       vol = Path.join(@test_base, "vol_docs")
       File.mkdir_p!(Path.join(vol, "sub"))
       File.write!(Path.join(vol, "sub/note.md"), "note")
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       :ok
     end
 
@@ -108,9 +108,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     setup do
       vol = Path.join(@test_base, "vol_resolve1")
       File.mkdir_p!(vol)
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, base_path: @test_base, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol}
     end
 
@@ -167,13 +167,13 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       File.mkdir_p!(Path.join(@test_base, "nested"))
       File.write!(Path.join(@test_base, "a.txt"), "a")
 
-      original = Application.get_env(:zaq, Zaq.Ingestion, [])
+      original = Application.get_env(:zaq, Zaq.Storage, [])
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original)
+        Application.put_env(:zaq, Zaq.Storage, original)
       end)
 
-      Application.put_env(:zaq, Zaq.Ingestion, Keyword.put(original, :file_stats_concurrency, 1))
+      Application.put_env(:zaq, Zaq.Storage, Keyword.put(original, :file_stats_concurrency, 1))
 
       assert {:ok, entries} = FileExplorer.list(".")
       assert Enum.any?(entries, &(&1.name == "a.txt"))
@@ -183,13 +183,13 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     test "falls back to default file_stats_concurrency when configured value is invalid" do
       File.write!(Path.join(@test_base, "b.txt"), "b")
 
-      original = Application.get_env(:zaq, Zaq.Ingestion, [])
+      original = Application.get_env(:zaq, Zaq.Storage, [])
 
       on_exit(fn ->
-        Application.put_env(:zaq, Zaq.Ingestion, original)
+        Application.put_env(:zaq, Zaq.Storage, original)
       end)
 
-      Application.put_env(:zaq, Zaq.Ingestion, Keyword.put(original, :file_stats_concurrency, 0))
+      Application.put_env(:zaq, Zaq.Storage, Keyword.put(original, :file_stats_concurrency, 0))
 
       assert {:ok, entries} = FileExplorer.list(".")
       assert Enum.any?(entries, &(&1.name == "b.txt"))
@@ -307,7 +307,7 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     test "empty volumes expose base_path as the default volume root" do
       base = Path.join(@test_base, "volume_base")
       File.mkdir_p!(base)
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: base, volumes: %{})
+      Application.put_env(:zaq, Zaq.Storage, base_path: base, volumes: %{})
 
       assert FileExplorer.list_volumes() == %{"default" => Path.expand(base)}
       assert {:ok, path} = FileExplorer.resolve_path("docs/readme.md")
@@ -317,7 +317,7 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     test "default-prefixed paths resolve against base_path when no volumes are configured" do
       base = Path.join(@test_base, "default_volume_base")
       File.mkdir_p!(base)
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: base, volumes: %{})
+      Application.put_env(:zaq, Zaq.Storage, base_path: base, volumes: %{})
 
       assert {:ok, path} = FileExplorer.resolve_path("default/docs/readme.md")
       assert path == Path.join(Path.expand(base), "docs/readme.md")
@@ -329,9 +329,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       vol_b = Path.join(@test_base, "vol_b")
       File.mkdir_p!(vol_a)
       File.mkdir_p!(vol_b)
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol_a, "archives" => vol_b})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol_a, "archives" => vol_b})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       volumes = FileExplorer.list_volumes()
       assert Map.has_key?(volumes, "docs")
       assert Map.has_key?(volumes, "archives")
@@ -341,13 +341,13 @@ defmodule Zaq.Ingestion.FileExplorerTest do
 
   describe "volumes_configured?/0" do
     test "is false when no volumes key is configured" do
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
+      Application.put_env(:zaq, Zaq.Storage, base_path: @test_base)
 
       refute FileExplorer.volumes_configured?()
     end
 
     test "is false when the volumes map is configured but empty" do
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base, volumes: %{})
+      Application.put_env(:zaq, Zaq.Storage, base_path: @test_base, volumes: %{})
 
       refute FileExplorer.volumes_configured?()
     end
@@ -355,7 +355,7 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     test "is false when base_path is set but no volumes are" do
       base = Path.join(@test_base, "only_base")
       File.mkdir_p!(base)
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: base)
+      Application.put_env(:zaq, Zaq.Storage, base_path: base)
 
       # `list_volumes/0` still synthesizes a "default" volume here — that synthesized
       # entry must NOT be read as "a volume is connected".
@@ -366,7 +366,7 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     test "is true with a single configured volume" do
       vol = Path.join(@test_base, "vol_one")
       File.mkdir_p!(vol)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
 
       assert FileExplorer.volumes_configured?()
     end
@@ -376,13 +376,13 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       vol_b = Path.join(@test_base, "vol_many_b")
       File.mkdir_p!(vol_a)
       File.mkdir_p!(vol_b)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol_a, "archives" => vol_b})
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol_a, "archives" => vol_b})
 
       assert FileExplorer.volumes_configured?()
     end
 
     test "is false when the ingestion config is absent entirely" do
-      Application.delete_env(:zaq, Zaq.Ingestion)
+      Application.delete_env(:zaq, Zaq.Storage)
 
       refute FileExplorer.volumes_configured?()
     end
@@ -392,9 +392,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     setup do
       vol = Path.join(@test_base, "vol_resolve")
       File.mkdir_p!(vol)
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol}
     end
 
@@ -423,9 +423,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       File.mkdir_p!(vol)
       File.write!(Path.join(vol, "hello.txt"), "world")
       File.mkdir_p!(Path.join(vol, "subdir"))
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       :ok
     end
 
@@ -454,9 +454,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       vol = Path.join(@test_base, "vol_info")
       File.mkdir_p!(vol)
       File.write!(Path.join(vol, "doc.md"), "# Title")
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       :ok
     end
 
@@ -480,9 +480,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     setup do
       vol = Path.join(@test_base, "vol_upload")
       File.mkdir_p!(vol)
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol}
     end
 
@@ -510,9 +510,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       vol = Path.join(@test_base, "vol_delete")
       File.mkdir_p!(vol)
       File.write!(Path.join(vol, "remove.txt"), "content")
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol}
     end
 
@@ -536,9 +536,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       dir = Path.join(vol, "to_remove")
       File.mkdir_p!(dir)
       File.write!(Path.join(dir, "file.md"), "content")
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol, dir: dir}
     end
 
@@ -563,9 +563,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
       vol = Path.join(@test_base, "vol_rename")
       File.mkdir_p!(vol)
       File.write!(Path.join(vol, "old.txt"), "value")
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol}
     end
 
@@ -590,9 +590,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     setup do
       vol = Path.join(@test_base, "vol_size")
       File.mkdir_p!(vol)
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol}
     end
 
@@ -619,9 +619,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     setup do
       vol = Path.join(@test_base, "vol_mkdir")
       File.mkdir_p!(vol)
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol}
     end
 
@@ -701,9 +701,9 @@ defmodule Zaq.Ingestion.FileExplorerTest do
     setup do
       vol = Path.join(@test_base, "vol_unique")
       File.mkdir_p!(vol)
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol})
-      on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, original || []) end)
+      original = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
       %{vol: vol}
     end
 

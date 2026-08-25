@@ -16,7 +16,6 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   require Logger
 
   alias Zaq.Agent.PromptTemplate
-  alias Zaq.Ingestion.SourcePath
 
   alias Zaq.Ingestion.Python.Steps.{
     CleanMd,
@@ -89,7 +88,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   # --- Private ---
 
   defp resolve_volume_base(pdf_path) do
-    SourcePath.volume_root_for_absolute(pdf_path)
+    Path.dirname(pdf_path)
   end
 
   defp resolve_api_key(opts) do

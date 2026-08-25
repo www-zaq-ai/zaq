@@ -11,49 +11,37 @@ defmodule Zaq.Ingestion do
 
   ## Records are not produced here
 
-  The data-source read path answers with ingestion's own shapes —
-  `Zaq.Ingestion.FileExplorer.Entry` values and flat permission grants. Mapping those onto
-  `Zaq.Contracts.Record` belongs to `Zaq.Channels.DiskBridge`, the same way every other
-  provider's bridge maps that provider's payloads. `materialize_document/1` answers with the
-  bytes alone for the same reason: the caller already holds the record the bridge built.
+  Disk data-source records are produced by `Zaq.Channels.DiskBridge` over the Storage role.
+  Ingestion still consumes records — `ingest_records/2` takes them from any bridge — and that
+  knowledge is confined to `Zaq.Ingestion.RecordSource` and `Zaq.Ingestion.ExternalSource`.
 
-  Ingestion still *consumes* records — `ingest_records/2` takes them from any bridge — and
-  that knowledge is confined to `Zaq.Ingestion.RecordSource` and
-  `Zaq.Ingestion.ExternalSource`. `RecordSource.from_entries/1` produces records too, but
+  `RecordSource.from_entries/1` produces records too, but
   only as ingest-pipeline input, which is why they carry no `materialization_handle`.
 
   ## A file is named by its source
 
-  Every action here takes a `Document.source` — volume plus relative path — not a
-  `documents.id`. A source names a file on a mounted volume, so reading one never depends on
-  it having been ingested. The `documents` table is consulted only where the answer genuinely
-  lives on the row: `document_id` on a listed entry reports whether that source was ingested,
-  and update, delete, and grants resolve the row by source before touching it.
+  Every indexed document keeps a `Document.source` — provider or storage identity plus relative
+  path — not a filesystem handle. Storage-owned entries do not carry `documents.id`; indexed
+  state is reported through provider-neutral enrichment queries instead of being embedded in
+  bridge payloads.
 
-  `directory_snapshot/3` also still returns records, for BO's local browse branch. That is
-  temporary: BO moves to `Zaq.Channels.DiskBridge` in a follow-up.
+  BO local browsing goes through `Zaq.Channels.DiskBridge`; Ingestion only enriches and
+  ingests canonical records.
   """
 
   alias Zaq.Ingestion.{
-    ConnectorRegistry,
     ContentSource,
-    DeleteService,
-    DirectorySnapshot,
     Document,
-    FileExplorer,
+    ExternalSource,
     FolderSetting,
     IngestChunkJob,
     IngestJob,
     IngestWorker,
     JobLifecycle,
-    RecordSource,
-    RenameService,
-    Sidecar,
-    SourcePath
+    RecordSource
   }
 
   alias Zaq.Contracts.Record
-  alias Zaq.Ingestion.FileExplorer.Entry
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
   alias Zaq.Repo
@@ -65,14 +53,6 @@ defmodule Zaq.Ingestion do
 
   @pubsub Zaq.PubSub
   @topic "ingestion:jobs"
-
-  @typedoc """
-  A page of volume entries.
-
-  `scanned` is what the underlying listing held before entries whose file is gone were
-  dropped, so a caller can tell a short page from a complete one.
-  """
-  @type entry_page :: %{entries: [Entry.t()], scanned: non_neg_integer()}
 
   # --- Ingestion triggers ---
 
@@ -140,30 +120,60 @@ defmodule Zaq.Ingestion do
   @doc """
   Returns up to 50 `%ContentSource{}` structs for the @ mention autocomplete.
 
-  Connector-level entries (one per configured connector) are always included first.
-  When `query` is given, only document sources matching the query string are returned.
+  When `query` is given, only indexed document sources matching the query string are returned.
 
   Called via `NodeRouter.dispatch/1` with `%Zaq.Event{}` targeting ingestion role.
   Never call this directly from BO — use the NodeRouter boundary.
   """
   def list_document_sources(query \\ nil) do
-    connector_sources =
-      ConnectorRegistry.list_connectors()
-      |> then(fn connectors ->
-        if is_binary(query) and query != "",
-          do: Enum.filter(connectors, &String.contains?(&1.id, query)),
-          else: connectors
-      end)
-      |> Enum.map(fn %{id: id, label: label} ->
-        %ContentSource{connector: id, source_prefix: id, label: label, type: :connector}
-      end)
-
-    db_sources = list_db_sources(query)
-
-    (connector_sources ++ db_sources)
+    query
+    |> list_db_sources()
     |> Enum.uniq_by(& &1.source_prefix)
     |> Enum.take(50)
   end
+
+  @doc "Returns provider-neutral indexed-state enrichment for canonical data-source records."
+  @spec enrich_records([Record.t()]) :: {:ok, map()}
+  def enrich_records(records) when is_list(records) do
+    statuses =
+      records
+      |> Enum.map(&record_source_key/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Map.new(fn source -> {source, record_status(source)} end)
+
+    {:ok, statuses}
+  end
+
+  defp record_source_key(%Record{} = record) do
+    if ExternalSource.external?(record) do
+      ExternalSource.source(record)
+    else
+      attr(record, "source") || attr(record, :source) || record.id
+    end
+  end
+
+  defp record_status(source) do
+    case Document.get_by_source(source) do
+      %Document{} = document ->
+        indexed? =
+          Repo.exists?(from c in Zaq.Ingestion.Chunk, where: c.document_id == ^document.id)
+
+        %{
+          document_id: document.id,
+          indexed?: indexed?,
+          ingested_at: if(indexed?, do: document.updated_at),
+          watch_status: document.watch_status,
+          public?: "public" in (document.tags || [])
+        }
+
+      nil ->
+        %{document_id: nil, indexed?: false, ingested_at: nil, watch_status: nil, public?: false}
+    end
+  end
+
+  defp attr(%Record{attributes: attrs}, key) when is_map(attrs), do: Map.get(attrs, key)
+  defp attr(%Record{}, _key), do: nil
 
   defp list_db_sources(query) do
     case parse_query(query) do
@@ -334,7 +344,7 @@ defmodule Zaq.Ingestion do
   - Otherwise: person must have a direct permission or a team permission.
   """
   def can_access_file?(relative_path, current_user) do
-    source = SourcePath.normalize_relative(relative_path)
+    source = normalize_source_path(relative_path)
 
     case Document.get_by_source(source) do
       nil ->
@@ -352,525 +362,6 @@ defmodule Zaq.Ingestion do
               (not is_nil(p.team_id) and p.team_id in team_ids)
           end)
     end
-  end
-
-  # --- Upload tracking ---
-
-  def list_volumes, do: FileExplorer.list_volumes()
-
-  @doc """
-  Returns `true` when at least one ingestion volume is explicitly configured.
-
-  Callers must use this rather than inspecting `list_volumes/0`, which never returns an
-  empty map — see `Zaq.Ingestion.FileExplorer.volumes_configured?/0`.
-  """
-  def volumes_configured?, do: FileExplorer.volumes_configured?()
-
-  def list_entries(nil, path), do: FileExplorer.list(path)
-  def list_entries(volume_name, path), do: FileExplorer.list(volume_name, path)
-
-  def create_directory(volume_name, path), do: FileExplorer.create_directory(volume_name, path)
-
-  def rename_entry(volume_name, old_path, new_path),
-    do: RenameService.rename_entry(volume_name, old_path, new_path)
-
-  def upload_file(volume_name, path, content),
-    do: FileExplorer.upload_unique(volume_name, path, content)
-
-  def save_file(volume_name, path, content),
-    do: FileExplorer.upload(volume_name, path, content)
-
-  def file_info(nil, path), do: FileExplorer.file_info(path)
-  def file_info(volume_name, path), do: FileExplorer.file_info(volume_name, path)
-
-  @doc """
-  Returns the volume entry for a source.
-
-  A source names a file on a mounted volume, so this reads the filesystem and answers the
-  filesystem's error when nothing is there. Having been ingested is not a precondition — an
-  entry for a file with no document row is a normal answer, with `document_id` left `nil`.
-  """
-  @spec describe_document(String.t()) :: {:ok, Entry.t()} | {:error, term()}
-  def describe_document(source), do: entry_from_source(source)
-
-  # The actions that write — update, delete, grants — do need the row, since what they change
-  # or report lives on it rather than on the volume.
-  defp fetch_document(source) do
-    source
-    |> SourcePath.split_source(nil)
-    |> then(fn {volume_name, path} -> candidates_for(volume_name, path) end)
-    |> Enum.find_value(&Document.get_by_source/1)
-    |> case do
-      %Document{} = document -> {:ok, document}
-      nil -> {:error, :not_found}
-    end
-  end
-
-  defp candidates_for(nil, path), do: [SourcePath.normalize_relative(path)]
-  defp candidates_for(volume_name, path), do: SourcePath.source_candidates(volume_name, path)
-
-  # A move rewrites the source, so the row is re-read by id rather than by the source that
-  # just stopped being true.
-  defp reload_document(id) do
-    case Document.get(id) do
-      %Document{} = document -> {:ok, document}
-      nil -> {:error, :not_found}
-    end
-  end
-
-  @doc """
-  Returns a page of volume entries.
-
-  With no `filters["parent"]`, answers every file the deployment holds across all mounted
-  volumes. With one, answers that directory's entries — folders alongside files, so a caller
-  can walk the tree the way `RecordSource.list_children/1` does for a folder record. A parent
-  is a volume-prefixed source, the same form `Document.source` carries.
-
-  Every entry answers with its source as its id, which is the handle `describe_document/1`
-  accepts. `document_id` is filled where that source has been ingested and left `nil` where
-  it has not — the file is listed and reachable either way.
-  """
-  @spec list_documents(map()) :: {:ok, entry_page()} | {:error, term()}
-  def list_documents(params \\ %{}) when is_map(params) do
-    case parent_source(params) do
-      nil -> list_all_entries()
-      parent -> list_directory_entries(split_parent(parent))
-    end
-  end
-
-  # Document rows already span every volume, so listing them needs no walk across the mounts.
-  defp list_all_entries do
-    documents = Document.list()
-    {:ok, entry_page(entries_for(documents), length(documents))}
-  end
-
-  defp list_directory_entries({volume_name, path}) do
-    with {:ok, entries} <- list_entries(volume_name, path) do
-      {:ok, entries |> put_document_ids() |> entry_page(length(entries))}
-    end
-  end
-
-  # Whether a file has been ingested is one query for the whole page, not one per entry. A
-  # source stored before volumes were introduced has no volume prefix, so both spellings are
-  # looked up and whichever the row carries wins.
-  defp put_document_ids(entries) do
-    ids =
-      entries
-      |> Enum.flat_map(&source_candidates/1)
-      |> Document.ids_by_source()
-
-    Enum.map(entries, fn %Entry{} = entry ->
-      %{entry | document_id: Enum.find_value(source_candidates(entry), &Map.get(ids, &1))}
-    end)
-  end
-
-  defp put_document_id(%Entry{} = entry) do
-    %{entry | document_id: Enum.find_value(source_candidates(entry), &document_id_for_source/1)}
-  end
-
-  defp document_id_for_source(source) do
-    case Document.get_by_source(source) do
-      %Document{id: id} -> id
-      _ -> nil
-    end
-  end
-
-  defp source_candidates(%Entry{volume: volume, relative_path: relative_path}),
-    do: candidates_for(volume, relative_path)
-
-  defp entry_page(entries, scanned) do
-    %{entries: entries, scanned: scanned}
-  end
-
-  @doc """
-  Writes a file onto a mounted volume and registers its document row.
-
-  `path` is the destination directory and must name a volume — a bare relative path has no
-  volume to write to and is refused rather than silently landing on the default one. The
-  file is deduplicated the way a BO upload is, so a name already taken yields
-  `notes (1).md`; the returned entry carries the name that was actually written.
-
-  Creating is not ingesting: the document row exists immediately, but chunking and
-  embedding still happen through the normal ingest flow.
-  """
-  @spec persist_document(map()) :: {:ok, map()} | {:error, term()}
-  def persist_document(request) when is_map(request) do
-    with {:ok, {volume_name, dir}} <- destination(request),
-         {:ok, name} <- required(request, "name", :name_required),
-         {:ok, content} <- decode_content(request),
-         dest = dir |> Path.join(name) |> SourcePath.normalize_relative(),
-         {:ok, absolute_path} <- upload_file(volume_name, dest, content),
-         {:ok, %Document{} = document} <- track_upload(volume_name, absolute_path),
-         {:ok, entry} <- document_entry(document) do
-      {:ok, %{status: "created", entry: entry}}
-    end
-  end
-
-  @doc """
-  Reads a file's bytes off its volume.
-
-  This is the far end of the `materialization_handle` a disk record carries: the record
-  travels without content so a listing does not read every file it names, and a caller that
-  wants the bytes redeems the handle through `Zaq.Ingestion.Materializers.DiskDocument` to
-  land here. It answers with the bytes alone —
-  `%{content: ..., encoding: ...}` — never a record. Shaping a record is
-  `Zaq.Channels.DiskBridge`'s job, and the caller already holds the one it built.
-
-  A textual file comes back as text, so a caller reading markdown does not have to decode it
-  first. Anything else is base64 with `encoding` saying so. Send `encoding: "base64"` in the
-  request to force it, which is how a caller asks for the raw bytes of a text file.
-
-  The source is enough to reach the bytes — no document row is read, so a file that was never
-  ingested materializes exactly like one that was.
-  """
-  @spec materialize_document(map()) :: {:ok, map()} | {:error, term()}
-  def materialize_document(request) when is_map(request) do
-    with {:ok, source} <- required(request, "file_id", :file_id_required) do
-      materialize_source(source, request)
-    end
-  end
-
-  defp materialize_source(source, request) do
-    {volume_name, path} = SourcePath.split_source(source, nil)
-
-    with {:ok, %Entry{} = entry} <- file_info(volume_name, path),
-         {:ok, absolute_path} <- resolve_path(volume_name, entry.relative_path),
-         {:ok, binary} <- File.read(absolute_path) do
-      {:ok, content_answer(entry, binary, request)}
-    end
-  end
-
-  defp resolve_path(nil, path), do: FileExplorer.resolve_path(path)
-  defp resolve_path(volume_name, path), do: FileExplorer.resolve_path(volume_name, path)
-
-  defp content_answer(%Entry{} = entry, binary, request) do
-    if base64?(entry, binary, request) do
-      %{content: Base.encode64(binary), encoding: "base64"}
-    else
-      %{content: binary, encoding: nil}
-    end
-  end
-
-  # `String.valid?/1` is not redundant with the mime check: an extension says what a file is
-  # meant to be, not what it holds. A `.md` carrying invalid UTF-8 would otherwise come back
-  # as a broken string, so it falls to base64 instead.
-  defp base64?(%Entry{name: name}, binary, request) do
-    MapUtils.present_value(request, "encoding") == "base64" or
-      not (textual_mime?(MIME.from_path(name)) and String.valid?(binary))
-  end
-
-  @textual_mime_types ~w(
-    application/json application/xml application/javascript
-    application/yaml application/x-yaml application/x-sh
-  )
-
-  defp textual_mime?(mime) when is_binary(mime),
-    do: String.starts_with?(mime, "text/") or mime in @textual_mime_types
-
-  @doc """
-  Returns volume entries for documents whose source or title matches `query`.
-
-  Matching is a case-insensitive substring over the stored source and title — there is no
-  index behind it, so the page is capped. Chunk and sidecar rows are excluded; they are not
-  files a caller can act on.
-  """
-  @spec search_documents(map()) :: {:ok, entry_page()} | {:error, term()}
-  def search_documents(params) when is_map(params) do
-    with {:ok, query} <- required(params, "query", :query_required) do
-      documents = matching_documents(query)
-      {:ok, entry_page(entries_for(documents), length(documents))}
-    end
-  end
-
-  # A document whose file is gone from its volume is dropped rather than failing the page —
-  # one missing file does not hide the rest.
-  defp entries_for(documents) do
-    Enum.flat_map(documents, fn document ->
-      case document_entry(document) do
-        {:ok, entry} -> [entry]
-        {:error, _reason} -> []
-      end
-    end)
-  end
-
-  defp matching_documents(query) do
-    pattern = "%#{query}%"
-
-    from(d in Document,
-      where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
-      where: ilike(d.source, ^pattern) or ilike(d.title, ^pattern),
-      order_by: [asc: d.source],
-      limit: 100
-    )
-    |> Repo.all()
-  end
-
-  @doc """
-  Reports what the mounted volumes hold.
-
-  `root_folders` are the mounted volume names — a volume is the root a caller browses from.
-  `folders_count` is derived from document sources rather than walked on disk, so it counts
-  directories that hold at least one document.
-  """
-  @spec volume_stats() :: {:ok, map()}
-  def volume_stats do
-    sources =
-      from(d in Document,
-        where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
-        select: d.source
-      )
-      |> Repo.all()
-
-    folders =
-      sources
-      |> Enum.map(&Path.dirname/1)
-      |> Enum.reject(&(&1 in [".", "", "/"]))
-      |> Enum.uniq()
-
-    {:ok,
-     %{
-       files_count: length(sources),
-       folders_count: length(folders),
-       principals_count: count_principals(),
-       root_folders: FileExplorer.list_volumes() |> Map.keys() |> Enum.sort()
-     }}
-  end
-
-  # A principal is whoever a grant names, counted once no matter how many documents it
-  # covers. Public access names nobody, so it is not a principal.
-  defp count_principals do
-    from(p in Permission,
-      where: p.resource_type == "document",
-      distinct: true,
-      select: {p.person_id, p.team_id}
-    )
-    |> Repo.all()
-    |> Enum.reject(&(&1 == {nil, nil}))
-    |> length()
-  end
-
-  @doc """
-  Returns who can read a document, one flat map per grant.
-
-  A grant names a person or a team; `public?` reports the `"public"` tag on the document
-  itself, which grants read access to everyone and has no `resource_permissions` row to
-  name. Both are grants — the caller shaping them into a page is `Zaq.Channels.DiskBridge`,
-  which does not have to know ZAQ stores the two differently.
-
-  Grants are flattened rather than returned as `Zaq.Permissions.DocumentPermission` structs
-  so the bridge never reaches into an Ecto schema or depends on which associations were
-  preloaded.
-  """
-  @spec list_document_grants(String.t() | integer()) ::
-          {:ok, %{permissions: [map()], public?: boolean()}} | {:error, term()}
-  def list_document_grants(file_id) do
-    with {:ok, document} <- fetch_document(file_id) do
-      {:ok,
-       %{
-         permissions: Enum.map(list_document_permissions(document.id), &permission_grant/1),
-         public?: "public" in (document.tags || [])
-       }}
-    end
-  end
-
-  defp permission_grant(%Permission{} = permission) do
-    {type, target_id, name} = permission_target(permission)
-
-    %{
-      id: to_string(permission.id),
-      type: type,
-      target_id: target_id,
-      name: name,
-      access_rights: permission.access_rights || []
-    }
-  end
-
-  defp permission_target(%Permission{person: %{} = person}),
-    do: {"person", to_string(person.id), person.full_name || person.email}
-
-  defp permission_target(%Permission{team: %{} = team}),
-    do: {"team", to_string(team.id), team.name}
-
-  defp permission_target(%Permission{}), do: {"unknown", nil, nil}
-
-  @doc """
-  Updates a file in place: rewrites its content, renames it, or moves it within its volume.
-
-  Every field is optional and applied to whatever the document already is — `name` renames,
-  `path` moves to another directory, `content` overwrites the bytes. Moves go through the
-  same `rename_entry/3` a BO rename runs, so the document source and any linked sidecar move
-  with the file in one transaction and the id stays stable.
-  """
-  @spec update_document(map()) :: {:ok, map()} | {:error, term()}
-  def update_document(request) when is_map(request) do
-    # Content is written at the current location before any move, so a request that both
-    # rewrites and renames lands the new bytes under the new name.
-    with {:ok, file_id} <- required(request, "file_id", :file_id_required),
-         {:ok, document} <- fetch_document(file_id),
-         {volume_name, path} = SourcePath.split_source(document.source, nil),
-         :ok <- write_content(volume_name, path, request),
-         {:ok, target} <- move_target(volume_name, path, request),
-         :ok <- move(volume_name, path, target),
-         {:ok, updated} <- reload_document(document.id),
-         {:ok, entry} <- document_entry(updated) do
-      {:ok, %{status: "updated", entry: entry}}
-    end
-  end
-
-  defp write_content(volume_name, path, request) do
-    case MapUtils.present_value(request, "content") do
-      nil ->
-        :ok
-
-      _content ->
-        with {:ok, content} <- decode_content(request),
-             {:ok, _absolute_path} <- save_file(volume_name, path, content) do
-          :ok
-        end
-    end
-  end
-
-  defp move_target(volume_name, path, request) do
-    name = MapUtils.present_value(request, "name") || Path.basename(path)
-
-    case MapUtils.present_value(request, "path") do
-      nil ->
-        {:ok, path |> Path.dirname() |> Path.join(name) |> SourcePath.normalize_relative()}
-
-      new_path ->
-        case split_parent(new_path) do
-          # A move names its volume the way a create does. Crossing volumes is refused rather
-          # than half-done: `rename_entry/3` renames within one volume, so a cross-volume move
-          # would leave the file moved and the sidecar behind.
-          {^volume_name, dir} ->
-            {:ok, dir |> Path.join(name) |> SourcePath.normalize_relative()}
-
-          {nil, _dir} ->
-            {:error, :volume_required}
-
-          {_other_volume, _dir} ->
-            {:error, :cross_volume_move_unsupported}
-        end
-    end
-  end
-
-  defp move(_volume_name, path, path), do: :ok
-  defp move(volume_name, path, target), do: rename_entry(volume_name, path, target)
-
-  @doc """
-  Removes a document row and the file behind it.
-
-  Delegates to the same `delete_path/4` a BO delete runs, so chunks and linked sidecars go
-  with it. Answers with the status alone: the file is gone by the time this returns, so
-  there is nothing left on the volume to describe.
-  """
-  @spec delete_document(String.t() | integer()) :: {:ok, map()} | {:error, term()}
-  def delete_document(file_id) do
-    with {:ok, document} <- fetch_document(file_id),
-         {volume_name, path} = SourcePath.split_source(document.source, nil),
-         :ok <- delete_path(volume_name, path, "file") do
-      {:ok, %{status: "deleted"}}
-    end
-  end
-
-  defp destination(request) do
-    with {:ok, path} <- required(request, "path", :path_required) do
-      case split_parent(path) do
-        {nil, _dir} -> {:error, :volume_required}
-        {volume_name, dir} -> {:ok, {volume_name, dir}}
-      end
-    end
-  end
-
-  # Binary uploads arrive base64-encoded because the request travels as JSON from agent
-  # tools; anything else is written through as the text it already is.
-  defp decode_content(request) do
-    content = MapUtils.present_value(request, "content") || ""
-
-    case MapUtils.present_value(request, "encoding") do
-      "base64" ->
-        case Base.decode64(content) do
-          {:ok, binary} -> {:ok, binary}
-          :error -> {:error, :invalid_base64}
-        end
-
-      _ ->
-        {:ok, content}
-    end
-  end
-
-  defp required(request, key, error) do
-    case MapUtils.present_value(request, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _ -> {:error, error}
-    end
-  end
-
-  # `split_source/2` splits a file source, so it needs a "volume/rest" shape and leaves a bare
-  # volume name untouched — which would then resolve against the default volume and answer
-  # `:not_a_directory`. A parent naming a whole volume is that volume's root.
-  defp split_parent(parent) do
-    volumes = FileExplorer.list_volumes()
-
-    if Map.has_key?(volumes, parent) do
-      {parent, "."}
-    else
-      SourcePath.split_source(parent, nil, volumes)
-    end
-  end
-
-  defp parent_source(params) do
-    filters = MapUtils.present_value(params, "filters") || %{}
-
-    case MapUtils.present_value(filters, "parent") do
-      parent when is_binary(parent) and parent != "" -> parent
-      _ -> nil
-    end
-  end
-
-  # A source names a file on a volume, which is all it takes to read it — the document row is
-  # attached only so a caller can tell an ingested file from one that merely sits there.
-  defp entry_from_source(source) do
-    {volume_name, path} = SourcePath.split_source(source, nil)
-
-    with {:ok, %Entry{} = entry} <- file_info(volume_name, path) do
-      {:ok, put_document_id(entry)}
-    end
-  end
-
-  defp document_entry(%Document{} = document) do
-    {volume_name, path} = SourcePath.split_source(document.source, nil)
-
-    with {:ok, %Entry{} = entry} <- file_info(volume_name, path) do
-      {:ok, %{entry | document_id: document.id}}
-    end
-  end
-
-  def directory_snapshot(volume_name, current_dir, current_user) do
-    with {:ok, entries} <- list_entries(volume_name, current_dir) do
-      sorted =
-        entries
-        |> Enum.sort_by(fn e -> {if(e.type == :directory, do: 0, else: 1), e.name} end)
-        |> RecordSource.from_entries()
-
-      {:ok, DirectorySnapshot.build(sorted, volume_name, current_dir, current_user)}
-    end
-  end
-
-  def source_for(volume_name, path) do
-    normalized = SourcePath.normalize_relative(path)
-    candidates = SourcePath.source_candidates(volume_name, normalized)
-
-    case Enum.find_value(candidates, &Document.get_by_source/1) do
-      %Document{} = doc -> doc.source
-      nil -> normalized
-    end
-  end
-
-  @doc "Builds a stable source for a new local entry that may not have a document yet."
-  def source_for_new_entry(volume_name, path) do
-    path = SourcePath.normalize_relative(path)
-    SourcePath.build_source(volume_name, path)
   end
 
   @doc "Marks local or provider document targets as pending watch requests."
@@ -1051,23 +542,6 @@ defmodule Zaq.Ingestion do
     }
   end
 
-  @doc """
-  Records a newly uploaded file in the documents table.
-  Called immediately at upload time so the file browser sees it right away.
-  """
-  def track_upload(_volume_name, path) do
-    {:ok, source} = SourcePath.absolute_to_source(path)
-    Document.insert_new(%{source: source})
-  end
-
-  def delete_path(volume_name, path, type, volumes \\ nil) do
-    DeleteService.delete_path(volume_name, path, type, volumes)
-  end
-
-  def delete_paths(volume_name, paths, volumes \\ nil) do
-    DeleteService.delete_paths(volume_name, paths, volumes)
-  end
-
   # --- Permissions ---
 
   def list_document_permissions(document_id) do
@@ -1211,7 +685,7 @@ defmodule Zaq.Ingestion do
   documents matching any of them.
   """
   def list_documents_under_folder(volume_name, folder_path) do
-    prefixes = SourcePath.source_candidates(volume_name, folder_path)
+    prefixes = source_candidates(volume_name, folder_path)
     conditions = Document.source_prefix_conditions(prefixes)
 
     from(d in Document, where: ^conditions)
@@ -1259,9 +733,7 @@ defmodule Zaq.Ingestion do
           })
 
         conditions =
-          Document.source_prefix_conditions(
-            SourcePath.source_candidates(volume_name, folder_path)
-          )
+          Document.source_prefix_conditions(source_candidates(volume_name, folder_path))
 
         from(d in Document,
           where: ^conditions,
@@ -1285,9 +757,7 @@ defmodule Zaq.Ingestion do
           FolderSetting.upsert(%{volume_name: volume_name, folder_path: folder_path, tags: []})
 
         conditions =
-          Document.source_prefix_conditions(
-            SourcePath.source_candidates(volume_name, folder_path)
-          )
+          Document.source_prefix_conditions(source_candidates(volume_name, folder_path))
 
         from(d in Document,
           where: ^conditions,
@@ -1312,6 +782,27 @@ defmodule Zaq.Ingestion do
     Document.get_by_source(source) ||
       raise "Document not found for source: #{source}"
   end
+
+  defp source_candidates(nil, folder_path), do: [normalize_source_path(folder_path)]
+
+  defp source_candidates(volume_name, folder_path) do
+    normalized = normalize_source_path(folder_path)
+
+    [normalized, Path.join(to_string(volume_name), normalized)]
+    |> Enum.uniq()
+  end
+
+  defp normalize_source_path(path) when is_binary(path) do
+    path
+    |> Path.expand("/")
+    |> Path.relative_to("/")
+    |> case do
+      "" -> "."
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_source_path(_path), do: "."
 
   # --- Job queries ---
 
@@ -1424,10 +915,8 @@ defmodule Zaq.Ingestion do
   # --- Private ---
 
   defp ingest_file_record(record, mode) do
-    volume = RecordSource.volume(record)
-
     with path when is_binary(path) <- RecordSource.job_path(record),
-         {:ok, job} <- create_job(path, mode, volume, RecordSource.to_storage_map(record)) do
+         {:ok, job} <- create_job(path, mode, nil, RecordSource.to_storage_map(record)) do
       run_job(job, mode)
     else
       _ -> {:error, :unsupported_record_source}
@@ -1548,79 +1037,30 @@ defmodule Zaq.Ingestion do
 
   defp delete_data_source_documents(provider, config_id, %Record{} = record)
        when is_binary(provider) and is_binary(config_id) do
-    source = data_source_record_source(provider, config_id, record.id)
+    source = ExternalSource.source(record)
     doc = Document.get_by_source(source)
 
-    parent_ids = data_source_document_parent_ids(doc, record.parent_ids)
-    inherited_watch = inherited_watch_for_parent_ids(provider, config_id, parent_ids)
-    state = data_source_record_watch_state(doc, inherited_watch)
-
-    if data_source_record_watch_active?(state) do
-      delete_data_source_document_sources(source, doc)
-    else
-      0
-    end
+    delete_data_source_document_sources(source, doc, record)
   end
 
   defp delete_data_source_documents(_provider, _config_id, _record), do: 0
 
-  defp delete_data_source_document_sources(_source, nil), do: 0
-
-  defp delete_data_source_document_sources(source, %Document{} = doc) do
-    sidecar_source = Sidecar.sidecar_source(doc) || source <> ".md"
-    sidecar_doc = Document.get_by_source(sidecar_source)
-
-    delete_external_sidecar_file(sidecar_doc)
-
-    [doc, sidecar_doc]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq_by(& &1.id)
+  defp delete_data_source_document_sources(_source, nil, %Record{id: parent_id})
+       when is_binary(parent_id) do
+    Document
+    |> where(
+      [d],
+      fragment("? @> ?", d.metadata, ^%{"provider_parent_ids" => [parent_id]}) or
+        fragment("? @> ?", d.metadata, ^%{"provider_parent_id" => parent_id})
+    )
+    |> Repo.all()
     |> Enum.reduce(0, fn doc, count -> count + delete_existing_data_source_document(doc) end)
   end
 
-  defp data_source_document_parent_ids(%Document{metadata: metadata}, fallback_parent_ids) do
-    persisted_parent_ids =
-      case read_any(metadata || %{}, ["provider_parent_ids", :provider_parent_ids]) do
-        parent_ids when is_list(parent_ids) -> Enum.filter(parent_ids, &is_binary/1)
-        _ -> []
-      end
+  defp delete_data_source_document_sources(_source, nil, _record), do: 0
 
-    persisted_parent_id =
-      read_stringish(metadata || %{}, ["provider_parent_id", :provider_parent_id])
-
-    (persisted_parent_ids ++ List.wrap(persisted_parent_id) ++ List.wrap(fallback_parent_ids))
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.uniq()
-  end
-
-  defp data_source_document_parent_ids(nil, fallback_parent_ids) do
-    fallback_parent_ids
-    |> List.wrap()
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.uniq()
-  end
-
-  defp delete_external_sidecar_file(nil), do: :ok
-
-  defp delete_external_sidecar_file(%Document{} = sidecar_doc) do
-    sidecar_doc.metadata
-    |> read_stringish(["sidecar_file_path", :sidecar_file_path])
-    |> delete_external_sidecar_relative_path()
-  end
-
-  defp delete_external_sidecar_relative_path(path) when is_binary(path) do
-    if path |> Path.split() |> Enum.member?(".external-sidecars") do
-      case FileExplorer.delete(path) do
-        :ok -> :ok
-        {:error, :enoent} -> :ok
-        _ -> :ok
-      end
-    else
-      :ok
-    end
-  end
-
-  defp delete_external_sidecar_relative_path(_path), do: :ok
+  defp delete_data_source_document_sources(_source, %Document{} = doc, _record),
+    do: delete_existing_data_source_document(doc)
 
   defp delete_existing_data_source_document(%Document{} = doc) do
     case Document.delete(doc) do

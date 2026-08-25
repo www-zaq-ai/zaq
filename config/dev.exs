@@ -22,7 +22,7 @@ config :zaq, Zaq.Repo,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
 
-config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
+config :zaq, roles: [:bo, :agent, :ingestion, :storage, :channels, :engine]
 # config :zaq, roles: [:bo]
 
 # In a worktree, .git is a file (gitdir pointer), not a directory.
@@ -81,6 +81,13 @@ config :zaq, Zaq.System.SecretConfig,
   key_id: "v1"
 
 config :zaq, Zaq.Ingestion,
+  base_path: "priv/documents",
+  volumes: %{
+    "documents" => "priv/documents",
+    "archives" => "priv/archives"
+  }
+
+config :zaq, Zaq.Storage,
   base_path: "priv/documents",
   volumes: %{
     "documents" => "priv/documents",

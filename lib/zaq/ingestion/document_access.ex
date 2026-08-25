@@ -17,7 +17,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
   (BO admin) can access them.
   """
 
-  alias Zaq.Ingestion.{Chunk, Document, FileExplorer, SourcePath}
+  alias Zaq.Ingestion.{Chunk, Document}
   alias Zaq.Permissions.DocumentPermission, as: Permission
   alias Zaq.Repo
 
@@ -173,92 +173,19 @@ defmodule Zaq.Ingestion.DocumentAccess do
   end
 
   @doc """
-  Returns all files visible to the caller, each tagged `ingested: true/false`.
+  Returns accessible indexed documents, each tagged `ingested: true/false`.
 
-  For `skip_permissions: true` callers, the filesystem is walked recursively
-  and cross-referenced against the DB — every file on disk appears in the
-  result.  Ingested files carry `ingested: true` plus a `title`; unindexed
-  files carry `ingested: false`.
-
-  For permission-scoped callers, only accessible ingested documents are
-  returned (unindexed files have no permission record to check against), each
-  tagged `ingested: true`.
+  Mounted files that have not been ingested are Storage/data-source browsing
+  concerns and are not discovered by Ingestion.
 
   Accepts the same `opts` as `list_accessible_documents/1`.
   """
   def list_files_with_ingestion_status(opts \\ []) do
-    skip_permissions = Keyword.get(opts, :skip_permissions, false)
-    source_filter = Keyword.get(opts, :source_filter)
-
-    doc_map = list_accessible_documents(opts) |> Map.new(fn doc -> {doc.source, doc} end)
     ingested_set = list_ingested_source_set()
 
-    if skip_permissions do
-      walk_file_sources(source_filter)
-      |> Enum.map(&tag_ingestion_status(&1, doc_map, ingested_set))
-    else
-      doc_map
-      |> Map.values()
-      |> Enum.map(&Map.put(&1, :ingested, MapSet.member?(ingested_set, &1.source)))
-    end
-  end
-
-  defp walk_file_sources(source_filter) do
-    volumes = FileExplorer.list_volumes()
-
-    roots =
-      if map_size(volumes) > 0 do
-        Enum.map(volumes, fn {_name, root} -> root end)
-      else
-        [FileExplorer.base_path()]
-      end
-
-    roots
-    |> Enum.flat_map(&list_files_recursive/1)
-    |> Enum.map(&abs_path_to_source/1)
-    |> Enum.reject(&is_nil/1)
-    |> reject_sidecar_sources()
-    |> filter_by_source_filter(source_filter)
-  end
-
-  defp reject_sidecar_sources(sources) do
-    confirmed_sidecars =
-      from(d in Document, select: {d.source, d.metadata})
-      |> Repo.all()
-      |> Enum.filter(fn {_src, meta} -> Map.has_key?(meta || %{}, "source_document_source") end)
-      |> Enum.map(fn {src, _} -> src end)
-      |> MapSet.new()
-
-    Enum.reject(sources, fn source -> source in confirmed_sidecars end)
-  end
-
-  defp list_files_recursive(dir) do
-    case File.ls(dir) do
-      {:ok, entries} -> Enum.flat_map(entries, &expand_entry(dir, &1))
-      {:error, _} -> []
-    end
-  end
-
-  defp expand_entry(dir, entry) do
-    full_path = Path.join(dir, entry)
-    if File.dir?(full_path), do: list_files_recursive(full_path), else: [full_path]
-  end
-
-  defp filter_by_source_filter(sources, nil), do: sources
-  defp filter_by_source_filter(sources, []), do: sources
-
-  defp filter_by_source_filter(sources, source_filter) do
-    Enum.filter(sources, fn source ->
-      Enum.any?(source_filter, &source_matches_prefix?(source, &1))
-    end)
-  end
-
-  defp source_matches_prefix?(source, prefix) do
-    if String.contains?(Path.basename(prefix), ".") do
-      source == prefix
-    else
-      String.starts_with?(source, prefix <> "/")
-    end
+    opts
+    |> list_accessible_documents()
+    |> Enum.map(&Map.put(&1, :ingested, MapSet.member?(ingested_set, &1.source)))
   end
 
   defp list_ingested_source_set do
@@ -271,18 +198,6 @@ defmodule Zaq.Ingestion.DocumentAccess do
     )
     |> Repo.all()
     |> MapSet.new()
-  end
-
-  defp tag_ingestion_status(source, doc_map, ingested_set) do
-    doc = Map.get(doc_map, source, %{source: source})
-    Map.put(doc, :ingested, MapSet.member?(ingested_set, source))
-  end
-
-  defp abs_path_to_source(abs_path) do
-    case SourcePath.absolute_to_source(abs_path) do
-      {:ok, source} -> source
-      _ -> nil
-    end
   end
 
   @doc """

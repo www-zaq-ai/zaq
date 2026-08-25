@@ -1,6 +1,6 @@
 defmodule Zaq.Ingestion.ExternalPermissions do
   @moduledoc """
-  Imports provider record permissions into ZAQ document permissions.
+  Imports canonical provider record permissions into ZAQ document permissions.
   """
 
   alias Zaq.Accounts.People
@@ -11,26 +11,58 @@ defmodule Zaq.Ingestion.ExternalPermissions do
 
   @spec apply(Record.t(), [map() | struct()]) :: :ok
   def apply(%Record{} = record, documents) when is_list(documents) do
-    record
-    |> principals()
-    |> Enum.each(fn principal ->
-      with {:ok, person} <- ensure_person(record, principal),
-           rights when rights != [] <- rights_for(principal) do
-        Enum.each(
-          documents,
-          &Ingestion.set_document_permission(&1.id, :person, person.id, rights)
-        )
-      else
-        {:error, reason} ->
-          log_skipped_principal(record, principal, reason)
+    desired = desired_permissions(record)
 
-        [] ->
-          log_skipped_principal(record, principal, :no_rights)
+    Enum.each(documents, fn document ->
+      Enum.each(desired, fn {target_type, target_id, rights} ->
+        Ingestion.set_document_permission(document.id, target_type, target_id, rights)
+      end)
+
+      if complete_snapshot?(record) do
+        prune_stale_permissions(document.id, desired)
       end
     end)
 
     :ok
   end
+
+  defp desired_permissions(%Record{} = record) do
+    record
+    |> principals()
+    |> Enum.flat_map(fn principal ->
+      with {:ok, target_type, target_id} <- ensure_target(record, principal),
+           rights when rights != [] <- rights_for(principal) do
+        [{target_type, to_string(target_id), rights}]
+      else
+        {:error, reason} ->
+          log_skipped_principal(record, principal, reason)
+          []
+
+        [] ->
+          log_skipped_principal(record, principal, :no_rights)
+          []
+      end
+    end)
+    |> Enum.uniq_by(fn {target_type, target_id, _rights} -> {target_type, target_id} end)
+  end
+
+  defp complete_snapshot?(%Record{permissions: permissions}) when is_list(permissions), do: true
+  defp complete_snapshot?(_record), do: false
+
+  defp prune_stale_permissions(document_id, desired) do
+    desired_keys = MapSet.new(desired, fn {type, target_id, _rights} -> {type, target_id} end)
+
+    document_id
+    |> Ingestion.list_document_permissions()
+    |> Enum.reject(fn permission -> permission_key(permission) in desired_keys end)
+    |> Enum.each(&Ingestion.delete_document_permission(&1.id))
+  end
+
+  defp permission_key(%{person_id: person_id}) when not is_nil(person_id),
+    do: {:person, to_string(person_id)}
+
+  defp permission_key(%{team_id: team_id}) when not is_nil(team_id),
+    do: {:team, to_string(team_id)}
 
   defp log_skipped_principal(%Record{} = record, principal, reason) do
     role = principal["role"] || principal[:role]
@@ -58,10 +90,20 @@ defmodule Zaq.Ingestion.ExternalPermissions do
 
   defp permission_principal(permission), do: normalize_map(permission)
 
-  defp ensure_person(%Record{} = record, principal) do
+  defp ensure_target(%Record{} = _record, %{"type" => type, "target_id" => target_id})
+       when type in ["person", "team"] and is_binary(target_id) and target_id != "" do
+    {:ok, String.to_existing_atom(type), target_id}
+  rescue
+    ArgumentError -> {:error, :unsupported_target_type}
+  end
+
+  defp ensure_target(%Record{} = record, principal) do
     case principal_identity(record, principal) do
       {:ok, channel_provider, channel_id, display_name, attrs} ->
-        ensure_channel_person(channel_provider, channel_id, display_name, attrs)
+        with {:ok, person} <-
+               ensure_channel_person(channel_provider, channel_id, display_name, attrs) do
+          {:ok, :person, person.id}
+        end
 
       :error ->
         {:error, :unmappable_principal}
@@ -98,6 +140,13 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   end
 
   defp rights_for(principal) do
+    case principal["access_rights"] || principal[:access_rights] do
+      rights when is_list(rights) -> Enum.map(rights, &to_string/1)
+      _ -> rights_for_role(principal)
+    end
+  end
+
+  defp rights_for_role(principal) do
     case principal["role"] || principal[:role] do
       role when role in ["owner", "writer", "organizer", "fileOrganizer"] -> ["read", "write"]
       role when role in ["reader", "commenter"] -> ["read"]

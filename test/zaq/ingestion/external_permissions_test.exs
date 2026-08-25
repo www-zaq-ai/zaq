@@ -1,7 +1,7 @@
 defmodule Zaq.Ingestion.ExternalPermissionsTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Accounts.PersonChannel
+  alias Zaq.Accounts.{PersonChannel, Team}
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
@@ -164,5 +164,75 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
     [permission] = permissions_for(doc)
     assert permission.access_rights == ["read"]
     assert permission.person.email == "raw-email@example.com"
+  end
+
+  test "imports direct person and team permission snapshots" do
+    doc = create_document()
+
+    {:ok, team} =
+      %Team{}
+      |> Team.changeset(%{name: "Storage Team #{System.unique_integer([:positive])}"})
+      |> Repo.insert()
+
+    record = %Record{
+      id: "storage-entry-1",
+      kind: :file,
+      attributes: %{"provider" => "disk", "config_id" => "archives"},
+      permissions: [
+        %Record{
+          id: "team-perm",
+          kind: :permission,
+          raw: %{
+            "type" => "team",
+            "target_id" => to_string(team.id),
+            "access_rights" => ["read", "write"]
+          }
+        }
+      ]
+    }
+
+    assert :ok = ExternalPermissions.apply(record, [doc])
+
+    [permission] = permissions_for(doc)
+    assert permission.team_id == team.id
+    assert permission.access_rights == ["read", "write"]
+  end
+
+  test "prunes stale document grants when record carries a complete permission snapshot" do
+    doc = create_document()
+
+    {:ok, stale_team} =
+      %Team{}
+      |> Team.changeset(%{name: "Stale Team #{System.unique_integer([:positive])}"})
+      |> Repo.insert()
+
+    {:ok, keep_team} =
+      %Team{}
+      |> Team.changeset(%{name: "Keep Team #{System.unique_integer([:positive])}"})
+      |> Repo.insert()
+
+    {:ok, _} = Ingestion.set_document_permission(doc.id, :team, stale_team.id, ["read"])
+
+    record = %Record{
+      id: "storage-entry-2",
+      kind: :file,
+      permissions: [
+        %Record{
+          id: "keep-team-perm",
+          kind: :permission,
+          raw: %{
+            "type" => "team",
+            "target_id" => to_string(keep_team.id),
+            "access_rights" => ["read"]
+          }
+        }
+      ]
+    }
+
+    assert :ok = ExternalPermissions.apply(record, [doc])
+
+    permissions = permissions_for(doc)
+    refute Enum.any?(permissions, &(&1.team_id == stale_team.id))
+    assert Enum.any?(permissions, &(&1.team_id == keep_team.id))
   end
 end

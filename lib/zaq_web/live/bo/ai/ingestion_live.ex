@@ -16,7 +16,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Channels.WebhookUrl
   alias Zaq.Event
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, ExternalSource, FileExplorer}
+  alias Zaq.Ingestion.{Document, ExternalSource}
   alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.System
@@ -196,8 +196,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("share_item", %{"path" => path}, socket) do
-    source = ingestion_call(:source_for, [socket.assigns.current_volume, path])
-    doc = Ingestion.get_document_by_source!(source)
+    {:ok, record} = local_record(socket, path)
+    doc = Ingestion.get_document_by_source!(ExternalSource.source(record))
     permissions = ingestion_call(:list_document_permissions, [doc.id])
 
     all_targets = socket.assigns.share_modal_all_targets
@@ -572,7 +572,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     else
       path = Path.join(socket.assigns.current_dir, name)
 
-      case ingestion_call(:create_directory, [socket.assigns.current_volume, path]) do
+      case storage_call(:create_directory, %{volume: socket.assigns.current_volume, path: path}) do
         :ok ->
           {:noreply,
            socket
@@ -640,16 +640,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("confirm_delete", _params, socket) do
-    result =
-      ingestion_call(:delete_path, [
-        socket.assigns.current_volume,
-        socket.assigns.modal_path,
-        socket.assigns.modal_type,
-        socket.assigns.volumes
-      ])
+    result = delete_local_path(socket, socket.assigns.modal_path)
 
     case result do
       :ok ->
+        {:noreply,
+         socket
+         |> assign(modal: nil, selected: MapSet.new(), modal_error: nil)
+         |> load_entries()
+         |> put_flash(:info, "\"#{socket.assigns.modal_name}\" deleted.")}
+
+      {:ok, _result} ->
         {:noreply,
          socket
          |> assign(modal: nil, selected: MapSet.new(), modal_error: nil)
@@ -677,12 +678,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("confirm_delete_selected", _params, socket) do
-    volume = socket.assigns.current_volume
-
     results =
-      ingestion_call(:delete_paths, [volume, socket.assigns.selected, socket.assigns.volumes])
+      Enum.map(socket.assigns.selected, fn path -> {path, delete_local_path(socket, path)} end)
 
-    errors = Enum.filter(results, fn {_p, res} -> res != :ok end)
+    errors = Enum.reject(results, fn {_p, res} -> delete_success?(res) end)
 
     socket =
       if errors == [] do
@@ -769,9 +768,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       provider_mode?(socket) and Map.has_key?(socket.assigns.records_by_path, path) ->
         {:noreply, open_provider_preview(socket, path)}
 
-      provider_mode?(socket) and external_sidecar_preview?(path) ->
-        {:noreply, open_local_preview(socket, path, filename)}
-
       provider_mode?(socket) ->
         {:noreply, put_flash(socket, :error, "Preview is unavailable for this provider record.")}
 
@@ -784,9 +780,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     cond do
       provider_mode?(socket) and Map.has_key?(socket.assigns.records_by_path, path) ->
         {:noreply, open_provider_preview(socket, path)}
-
-      provider_mode?(socket) and external_sidecar_preview?(path) ->
-        {:noreply, PreviewHelpers.open_preview(socket, path, :modal)}
 
       provider_mode?(socket) ->
         {:noreply, put_flash(socket, :error, "Preview is unavailable for this provider record.")}
@@ -846,14 +839,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
       true ->
         filename = ensure_md_extension(filename)
-        dest = Path.join(socket.assigns.current_dir, filename)
-
         volume = socket.assigns.current_volume
 
-        case ingestion_call(:save_file, [volume, dest, content]) do
-          {:ok, actual_dest} ->
-            ingestion_call(:track_upload, [volume, actual_dest])
-
+        case create_local_file(volume, socket.assigns.current_dir, filename, content) do
+          {:ok, _result} ->
             {:noreply,
              socket
              |> assign(modal: nil, modal_error: nil, raw_filename: "", raw_content: "")
@@ -982,13 +971,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         _ -> entry.client_name
       end
 
-    dest = Path.join(current_dir, relative)
     binary = File.read!(tmp_path)
 
-    case ingestion_call(:upload_file, [volume, dest, binary]) do
-      {:ok, actual_dest} ->
-        ingestion_call(:track_upload, [volume, actual_dest])
-        {:ok, {:ok, actual_dest}}
+    case create_local_file(volume, current_dir, relative, binary) do
+      {:ok, %{record: record}} ->
+        {:ok, {:ok, record.path || relative}}
+
+      {:ok, _result} ->
+        {:ok, {:ok, relative}}
 
       {:error, reason} ->
         {:ok, {:error, reason}}
@@ -1081,11 +1071,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp parent_dir(path), do: Path.dirname(path)
 
-  defp do_rename(socket, old_path, new_path, new_name) do
-    volume = socket.assigns.current_volume
-
-    case ingestion_call(:rename_entry, [volume, old_path, new_path]) do
-      :ok ->
+  defp do_rename(socket, old_path, _new_path, new_name) do
+    case update_local_file(socket, old_path, %{"name" => new_name}) do
+      {:ok, _result} ->
         {:noreply,
          socket
          |> assign(modal: nil, selected: MapSet.new(), modal_error: nil)
@@ -1097,11 +1085,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp do_move(socket, source, dest, name, dest_dir) do
-    volume = socket.assigns.current_volume
-
-    case ingestion_call(:rename_entry, [volume, source, dest]) do
-      :ok ->
+  defp do_move(socket, source, _dest, name, dest_dir) do
+    case update_local_file(socket, source, %{
+           "path" => local_parent_source(socket.assigns.current_volume, dest_dir)
+         }) do
+      {:ok, _result} ->
         {:noreply,
          socket
          |> assign(modal: nil, selected: MapSet.new(), modal_error: nil)
@@ -1121,18 +1109,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp load_local_entries(socket) do
-    volume = socket.assigns.current_volume
+    case dispatch_list_files("disk", local_list_params(socket)) do
+      {:ok, %Zaq.Contracts.RecordPage{} = page} ->
+        records = page.records || []
+        {records, ingestion_map} = enrich_local_records(records)
 
-    case ingestion_call(:directory_snapshot, [
-           volume,
-           socket.assigns.current_dir,
-           socket.assigns.current_user
-         ]) do
-      {:ok, snapshot} ->
         socket
-        |> assign(entries: snapshot.entries)
-        |> assign(records_by_path: records_by_path(snapshot.entries))
-        |> assign(ingestion_map: snapshot.ingestion_map)
+        |> assign(entries: records)
+        |> assign(records_by_path: records_by_path(records))
+        |> assign(ingestion_map: ingestion_map)
 
       {:error, _} ->
         socket
@@ -1355,7 +1340,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp maybe_refresh_entries_after_job(socket, _job), do: socket
 
   defp fetch_volumes do
-    case ingestion_call(:list_volumes, []) do
+    case storage_call(:list_volumes, %{}) do
       volumes when is_map(volumes) and map_size(volumes) > 0 -> volumes
       _ -> %{"default" => "priv/documents"}
     end
@@ -1380,6 +1365,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     NodeRouter.invoke(:ingestion, Ingestion, fun, args)
   end
 
+  defp storage_call(action, request) do
+    request
+    |> Event.new(:storage, opts: [action: action])
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
   defp dispatch_list_files(provider, params) do
     opts = [action: :data_source_list_files]
     opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
@@ -1387,6 +1379,92 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     Event.new(%{provider: provider, params: params}, :channels, opts: opts)
     |> NodeRouter.dispatch()
     |> Map.get(:response)
+  end
+
+  defp dispatch_data_source_action(action, provider, params) do
+    opts = [action: action]
+    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
+
+    Event.new(%{provider: provider, params: params}, :channels, opts: opts)
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
+  defp local_list_params(socket) do
+    %{
+      "filters" => %{
+        "parent" => local_parent_source(socket.assigns.current_volume, socket.assigns.current_dir)
+      },
+      "include_permissions" => true
+    }
+  end
+
+  defp local_parent_source(volume, dir) when dir in [nil, "", "."], do: volume
+  defp local_parent_source(volume, dir), do: Path.join(volume, dir)
+
+  defp create_local_file(volume, current_dir, name, content) do
+    dispatch_data_source_action(:data_source_create_file, "disk", %{
+      "name" => name,
+      "path" => local_parent_source(volume, current_dir),
+      "content" => content
+    })
+  end
+
+  defp update_local_file(socket, path, attrs) do
+    with {:ok, record} <- local_record(socket, path) do
+      params = Map.put(attrs, "file_id", record.id)
+      dispatch_data_source_action(:data_source_update_file, "disk", params)
+    end
+  end
+
+  defp delete_local_path(socket, path) do
+    record =
+      case local_record(socket, path) do
+        {:ok, record} -> record
+        {:error, _reason} -> nil
+      end
+
+    file_id =
+      case local_record(socket, path) do
+        {:ok, record} -> record.id
+        {:error, _reason} -> local_path_source(socket.assigns.current_volume, path)
+      end
+
+    result =
+      dispatch_data_source_action(:data_source_delete_file, "disk", %{"file_id" => file_id})
+
+    if delete_success?(result) and record do
+      dispatch_data_source_removed(record)
+    end
+
+    result
+  end
+
+  defp delete_success?(:ok), do: true
+  defp delete_success?({:ok, _result}), do: true
+  defp delete_success?(_result), do: false
+
+  defp local_record(socket, path) do
+    case Map.get(socket.assigns.records_by_path, path) do
+      nil -> {:error, :not_found}
+      record -> {:ok, record}
+    end
+  end
+
+  defp local_path_source(volume, path) do
+    path = path |> Path.expand("/") |> Path.relative_to("/")
+    Path.join(volume, path)
+  end
+
+  defp dispatch_data_source_removed(record) do
+    request = %{
+      provider: ExternalSource.provider(record),
+      config_id: ExternalSource.config_id(record),
+      signals: [%{removed: true, record: record}]
+    }
+
+    Event.new(request, :ingestion, opts: [action: :process_data_source_changes])
+    |> NodeRouter.dispatch()
   end
 
   defp data_source_bridge_module do
@@ -1412,6 +1490,51 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp records_by_path(entries), do: Map.new(entries, &{record_path(&1), &1})
+
+  defp enrich_local_records(records) do
+    statuses =
+      case Ingestion.enrich_records(records) do
+        {:ok, statuses} -> statuses
+        _ -> %{}
+      end
+
+    ingestion_map =
+      Map.new(records, fn record ->
+        source = ExternalSource.source(record)
+        status = Map.get(statuses, source, %{})
+        {record.name, local_record_status(record, status)}
+      end)
+
+    {records, ingestion_map}
+  end
+
+  defp local_record_status(%{kind: kind}, status) when kind in [:folder, "folder"] do
+    %{
+      type: :directory,
+      total_size: 0,
+      file_count: 0,
+      ingested_count: 0,
+      is_public: false,
+      watch_status: Map.get(status, :watch_status),
+      watch_error: nil,
+      watch_inherited?: false,
+      watchable?: true
+    }
+  end
+
+  defp local_record_status(_record, status) do
+    %{
+      ingested_at: Map.get(status, :ingested_at),
+      stale?: false,
+      permissions_count: 0,
+      is_public: Map.get(status, :public?, false),
+      can_share?: false,
+      watch_status: Map.get(status, :watch_status),
+      watch_error: nil,
+      watch_inherited?: false,
+      watchable?: Map.get(status, :indexed?, false)
+    }
+  end
 
   defp selected_watchable_count(selected, records_by_path, ingestion_map) do
     selected
@@ -1496,13 +1619,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp watch_support_error(_socket), do: {:error, :unsupported}
 
-  defp local_watch_source(socket, entry, :folder) do
-    Ingestion.source_for_new_entry(socket.assigns.current_volume, record_path(entry))
-  end
-
-  defp local_watch_source(socket, entry, :file) do
-    Ingestion.source_for(socket.assigns.current_volume, record_path(entry))
-  end
+  defp local_watch_source(_socket, entry, _kind), do: ExternalSource.source(entry)
 
   defp apply_watch_update(socket, targets, :request, message) do
     result = apply_watch_request(socket, targets)
@@ -1740,11 +1857,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     Enum.map_reduce(records, %{}, fn record, acc ->
       source = ExternalSource.source(record)
-      sidecar_source = ExternalSource.sidecar_source(record)
       doc = Map.get(documents_by_source, source)
-      sidecar_doc = Map.get(documents_by_source, sidecar_source)
 
-      record = maybe_attach_sidecar_record(record, sidecar_doc)
       status = provider_record_status(record, doc, permission_counts, inherited_watch)
 
       {record, Map.put(acc, record.name, status)}
@@ -1764,9 +1878,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp provider_documents_by_source(records) do
     records
-    |> Enum.flat_map(fn record ->
-      [ExternalSource.source(record), ExternalSource.sidecar_source(record)]
-    end)
+    |> Enum.map(&ExternalSource.source/1)
     |> Document.list_by_sources()
     |> Map.new(&{&1.source, &1})
   end
@@ -1777,76 +1889,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     |> Enum.map(& &1.id)
     |> Ingestion.count_document_permissions()
   end
-
-  defp maybe_attach_sidecar_record(record, nil), do: record
-
-  defp maybe_attach_sidecar_record(record, sidecar_doc) do
-    attrs = Map.get(record, :attributes, %{})
-
-    related = %{
-      "name" => sidecar_display_name(record, sidecar_doc),
-      "path" => sidecar_relative_path(record, sidecar_doc),
-      "preview_path" => sidecar_preview_path(record, sidecar_doc),
-      "size" => byte_size(sidecar_doc.content || "")
-    }
-
-    %{record | attributes: Map.put(attrs, "related_record", related)}
-  end
-
-  defp sidecar_display_name(record, sidecar_doc) do
-    case record.name do
-      name when is_binary(name) and name != "" -> Path.rootname(name) <> ".md"
-      _ -> Path.basename(sidecar_doc.metadata["sidecar_file_path"] || sidecar_doc.source)
-    end
-  end
-
-  defp sidecar_preview_path(record, sidecar_doc) do
-    sidecar_file_path = sidecar_doc.metadata["sidecar_file_path"]
-
-    cond do
-      is_binary(sidecar_file_path) and sidecar_file_path != "" ->
-        external_sidecar_preview_path(sidecar_file_path)
-
-      ExternalSource.external?(record) ->
-        record
-        |> ExternalSource.sidecar_relative_path(".md")
-        |> external_sidecar_preview_path()
-
-      true ->
-        sidecar_file_path
-    end
-  end
-
-  defp sidecar_relative_path(record, sidecar_doc) do
-    sidecar_file_path = sidecar_doc.metadata["sidecar_file_path"]
-
-    cond do
-      is_binary(sidecar_file_path) and sidecar_file_path != "" -> sidecar_file_path
-      ExternalSource.external?(record) -> ExternalSource.sidecar_relative_path(record, ".md")
-      true -> sidecar_file_path
-    end
-  end
-
-  defp external_sidecar_preview_path(relative_path) do
-    volumes = FileExplorer.list_volumes()
-    base_path = Path.expand(FileExplorer.base_path())
-
-    existing_volume =
-      Enum.find(volumes, fn {_name, path} -> File.exists?(Path.join(path, relative_path)) end)
-
-    base_volume = Enum.find(volumes, fn {_name, path} -> Path.expand(path) == base_path end)
-
-    case existing_volume || base_volume do
-      {volume, _path} -> Path.join(volume, relative_path)
-      nil -> relative_path
-    end
-  end
-
-  defp external_sidecar_preview?(path) when is_binary(path) do
-    path |> Path.split() |> Enum.member?(".external-sidecars")
-  end
-
-  defp external_sidecar_preview?(_path), do: false
 
   defp open_local_preview(socket, path, filename) do
     socket = PreviewHelpers.open_preview(socket, path, :modal)
@@ -1922,13 +1964,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       record
       |> Map.get(:attributes, %{})
       |> Map.put("provider", socket.assigns.provider)
-      |> Map.put("config_id", socket.assigns.provider_config_id)
-      |> Map.put("provider_record_id", record.id)
+      |> put_present("config_id", socket.assigns.provider_config_id)
+      |> Map.put_new("config_id", Map.get(record.attributes || %{}, "config_id"))
+      |> Map.put_new("provider_record_id", record.id)
       |> Map.put("provider_url", record.url)
       |> Map.put("provider_mime_type", record.mime_type)
 
     %{record | attributes: attrs}
   end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
 
   defp switch_local_volume(socket, volume) do
     socket
@@ -2152,15 +2198,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp load_move_folders(socket, dir) do
-    volume = socket.assigns.current_volume
     moving_path = socket.assigns.modal_path
 
-    case ingestion_call(:list_entries, [volume, dir]) do
-      {:ok, entries} ->
+    params = %{
+      "filters" => %{"parent" => local_parent_source(socket.assigns.current_volume, dir)},
+      "include_permissions" => false
+    }
+
+    case dispatch_list_files("disk", params) do
+      {:ok, %Zaq.Contracts.RecordPage{records: records}} ->
         folders =
-          entries
-          |> Enum.filter(fn e ->
-            e.type == :directory and Path.join(dir, e.name) != moving_path
+          records
+          |> Enum.filter(fn record ->
+            record_folder?(record) and record_path(record) != moving_path
           end)
           |> Enum.sort_by(& &1.name)
 

@@ -74,12 +74,12 @@ encodings, and returns a materialized file `Record`.
 
 ## Disk Documents
 
-`disk_document` is implemented by `Zaq.Ingestion.Materializers.DiskDocument`.
+`disk_document` is implemented by `Zaq.Storage.Materializers.DiskDocument`.
 
 Locator fields:
 
-- `file_id` — the document's volume source (volume plus relative path), the same id
-  `Zaq.Channels.DiskBridge` puts on every record it returns
+- `file_id` — the stable Storage entry id, the same id `Zaq.Channels.DiskBridge`
+  puts on every disk record it returns
 
 Per-redemption options:
 
@@ -87,8 +87,8 @@ Per-redemption options:
   otherwise answer as text. Representation state, not identity, so it stays out of the
   signed locator.
 
-The handler always dispatches `:materialize_document` to the Ingestion role via
-`Zaq.Ingestion.Events`. Disk records are handed out unmaterialized by a Channels bridge, so
+The handler always dispatches `:materialize_document` to the Storage role via
+`Zaq.Storage.Events`. Disk records are handed out unmaterialized by a Channels bridge, so
 they redeem as a nested handle: the Channels hop returns a record still carrying its disk
 handle, and `Zaq.Materialization` redeems that second handle and merges the bytes into the
 record the bridge already built.

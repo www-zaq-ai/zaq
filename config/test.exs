@@ -69,7 +69,7 @@ config :zaq, Zaq.System.SecretConfig,
   encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
   key_id: "test-v1"
 
-config :zaq, roles: [:bo, :ingestion, :agent, :channels, :engine]
+config :zaq, roles: [:bo, :ingestion, :storage, :agent, :channels, :engine]
 
 config :zaq,
   license_runtime_key: true,
@@ -112,6 +112,7 @@ if e2e? do
     pipeline_document_processor_module: Zaq.E2E.DocumentProcessorFake
 
   config :zaq, Zaq.Ingestion, base_path: "tmp/e2e_documents"
+  config :zaq, Zaq.Storage, base_path: "tmp/e2e_documents"
   config :zaq, e2e_routes: true
 end
 

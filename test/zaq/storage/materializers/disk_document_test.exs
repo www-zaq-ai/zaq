@@ -1,11 +1,11 @@
-defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
+defmodule Zaq.Storage.Materializers.DiskDocumentTest do
   use Zaq.DataCase, async: true
   use ExUnitProperties
 
   alias Zaq.Event
-  alias Zaq.Ingestion.Materializers.DiskDocument
   alias Zaq.Materialization
   alias Zaq.Materialization.Handle
+  alias Zaq.Storage.Materializers.DiskDocument
 
   defmodule StubNodeRouter do
     def dispatch(%Event{request: request, opts: opts} = event) do
@@ -25,14 +25,14 @@ defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
     assert {:error, :invalid_materialization_locator} = DiskDocument.issue(nil)
   end
 
-  test "materializes through the fixed Ingestion materialize action" do
+  test "materializes through the fixed Storage materialize action" do
     assert {:ok, %{content: "# guide", encoding: nil}} =
              DiskDocument.materialize(%{"file_id" => "guide.md"}, %{node_router: StubNodeRouter})
 
-    assert_received {:dispatch, :ingestion, :materialize_document, %{file_id: "guide.md"}}
+    assert_received {:dispatch, :storage, :materialize_document, %{file_id: "guide.md"}}
   end
 
-  test "passes the encoding runtime option through to ingestion" do
+  test "passes the encoding runtime option through to storage" do
     assert {:ok, _answer} =
              DiskDocument.materialize(
                %{"file_id" => "guide.md"},
@@ -40,7 +40,7 @@ defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
                %{"encoding" => "base64"}
              )
 
-    assert_received {:dispatch, :ingestion, :materialize_document,
+    assert_received {:dispatch, :storage, :materialize_document,
                      %{file_id: "guide.md", encoding: "base64"}}
   end
 
@@ -97,14 +97,14 @@ defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
   end
 
   test "falls back to the real router when the context names none" do
-    # `:enoent` can only come from ingestion reading the volume, so the fallback reached the
+    # `:enoent` can only come from storage reading the volume, so the fallback reached the
     # role rather than raising on a missing router.
     assert {:error, :enoent} = DiskDocument.materialize(%{"file_id" => "disk:missing.md"}, %{})
 
     refute_received {:dispatch, _destination, _action, _request}
   end
 
-  property "only the signed source reaches ingestion, whatever else the locator carries" do
+  property "only the signed source reaches storage, whatever else the locator carries" do
     check all(
             file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
             smuggled <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20)
@@ -115,7 +115,7 @@ defmodule Zaq.Ingestion.Materializers.DiskDocumentTest do
                  %{node_router: StubNodeRouter}
                )
 
-      assert_received {:dispatch, :ingestion, :materialize_document, request}
+      assert_received {:dispatch, :storage, :materialize_document, request}
       assert request == %{file_id: file_id}
     end
   end

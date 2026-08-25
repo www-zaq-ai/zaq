@@ -19,36 +19,35 @@ defmodule Zaq.Ingestion.ExternalSourceTest do
     refute ExternalSource.external?(record)
   end
 
-  test "sidecar paths remain distinct for similarly sanitized provider file ids" do
+  test "source keeps distinct provider file ids" do
     attrs = %{"provider" => "google_drive", "config_id" => "cfg"}
 
-    path_a =
-      ExternalSource.sidecar_relative_path(%Record{
+    source_a =
+      ExternalSource.source(%Record{
         id: "a",
         kind: :file,
         attributes: Map.put(attrs, "provider_record_id", "file/1")
       })
 
-    path_b =
-      ExternalSource.sidecar_relative_path(%Record{
+    source_b =
+      ExternalSource.source(%Record{
         id: "b",
         kind: :file,
         attributes: Map.put(attrs, "provider_record_id", "file:1")
       })
 
-    assert path_a != path_b
-    assert String.starts_with?(path_a, ".external-sidecars/google_drive-")
-    assert String.ends_with?(path_a, ".md")
+    assert source_a != source_b
+    assert source_a == "data_source/google_drive/cfg/file/1"
   end
 
-  property "sidecar paths are relative and do not expose raw separators from identifiers" do
+  property "source preserves the data source namespace and record identity" do
     check all(
             provider <- StreamData.string(:printable, min_length: 1, max_length: 20),
             config_id <- StreamData.string(:printable, min_length: 1, max_length: 20),
             file_id <- StreamData.string(:printable, min_length: 1, max_length: 20)
           ) do
-      path =
-        ExternalSource.sidecar_relative_path(%Record{
+      source =
+        ExternalSource.source(%Record{
           id: file_id,
           kind: :file,
           attributes: %{
@@ -58,11 +57,8 @@ defmodule Zaq.Ingestion.ExternalSourceTest do
           }
         })
 
-      assert String.starts_with?(path, ".external-sidecars/")
-      assert String.ends_with?(path, ".md")
-      refute Path.type(path) == :absolute
-      refute ".." in Path.split(path)
-      assert length(Path.split(path)) == 4
+      assert String.starts_with?(source, "data_source/")
+      assert source == Enum.join(["data_source", provider, config_id, file_id], "/")
     end
   end
 end

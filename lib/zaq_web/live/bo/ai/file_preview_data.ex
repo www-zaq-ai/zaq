@@ -4,8 +4,8 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
   """
 
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.FileExplorer
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, XlsxToMd}
+  alias Zaq.Storage.FileExplorer
   alias ZaqWeb.Helpers.Markdown
 
   @markdown_extension ".md"

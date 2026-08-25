@@ -1,22 +1,21 @@
 defmodule Zaq.Channels.DiskBridge do
   @moduledoc """
-  Data-source bridge over the ingestion volumes mounted on this install.
+  Data-source bridge over the storage volumes mounted on this install.
 
   Unlike a bridge fronting a remote provider, the files here are already inside ZAQ. That
   changes two things.
 
   Nothing is read on the channels node: every callback dispatches a `%Zaq.Event{}` to
-  `:ingestion`, which owns `FileExplorer` and the `documents` table. Ingestion answers with
-  its own shapes — `Zaq.Ingestion.FileExplorer.Entry` values and flat permission grants — and
-  mapping those onto `Zaq.Contracts.Record` is this module's job, the same way
-  `Zaq.Channels.JidoConnectBridge` maps provider payloads. Ingestion never shapes a record:
-  `materialize_document` answers with the bytes alone, and the caller merges them into the
-  record this module already gave it.
+  `:storage`, which owns mounted filesystem access. Storage answers with its own shapes —
+  `Zaq.Storage.FileExplorer.Entry` values and flat permission grants — and mapping those
+  onto `Zaq.Contracts.Record` is this module's job, the same way `Zaq.Channels.JidoConnectBridge`
+  maps provider payloads. Storage never shapes a record: `materialize_document` answers with
+  the bytes alone, and the caller merges them into the record this module already gave it.
 
   Records come back **unmaterialized**: `content: nil` plus a `materialization_handle`, so a
   listing does not drag file bytes across a node boundary for a caller that only wanted
-  metadata. Redeeming that handle runs `Zaq.Ingestion.Materializers.DiskDocument`, which goes
-  straight to ingestion rather than back through here — which is why `materialize_document`
+  metadata. Redeeming that handle runs `Zaq.Storage.Materializers.DiskDocument`, which goes
+  straight to storage rather than back through here — which is why `materialize_document`
   answers with the bytes alone rather than a record.
 
   A file is named by its source — volume plus relative path — which is the id `list_files/2`
@@ -25,17 +24,52 @@ defmodule Zaq.Channels.DiskBridge do
   ever ingested, so identity cannot depend on a document row existing.
   """
 
+  @behaviour Zaq.Channels.Bridge
   @behaviour Zaq.Channels.DataSourceBridge
 
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
-  alias Zaq.Ingestion.FileExplorer.Entry
-  alias Zaq.Ingestion.Materializers.DiskDocument
   alias Zaq.NodeRouter
+  alias Zaq.Storage.FileExplorer.Entry
+  alias Zaq.Storage.Materializers.DiskDocument
   alias Zaq.Utils
 
   @provider "disk"
+
+  @resolved_capabilities %{
+    list_items: true,
+    count_items: true,
+    list_principals: true,
+    count_principals: true,
+    get_item_metadata: true,
+    download_items: true,
+    create_item: true,
+    update_item: true,
+    delete_item: true,
+    search_items: true
+  }
+
+  @impl Zaq.Channels.Bridge
+  def to_internal(_payload, _config), do: {:error, :unsupported}
+
+  @impl Zaq.Channels.Bridge
+  def capability_snapshot(_config) do
+    resolved =
+      DataSourceBridge.required_capabilities()
+      |> Map.new(&{&1, Map.get(@resolved_capabilities, &1, false)})
+
+    unsupported = for {capability, false} <- resolved, do: capability
+
+    {:ok,
+     %{
+       required: DataSourceBridge.required_capabilities(),
+       resolved: resolved,
+       unsupported: unsupported,
+       labels: DataSourceBridge.capability_meta()
+     }}
+  end
 
   @doc "Reports what the mounted volumes hold — file, folder, and principal counts."
   @impl true
@@ -146,19 +180,28 @@ defmodule Zaq.Channels.DiskBridge do
   # entry's `:directory` becomes the record's `:folder` — the two vocabularies meet at this
   # function and nowhere else.
   defp map_entry(%Entry{} = entry) do
+    map_entry(entry, nil)
+  end
+
+  defp map_entry(%Entry{} = entry, permissions) do
     kind = kind(entry.type)
 
     %Record{
       id: entry.id,
       kind: kind,
       name: entry.name,
+      parent_id: entry.parent_id,
+      parent_ids: Enum.reject([entry.parent_id], &is_nil/1),
       path: entry.relative_path,
       mime_type: mime_type(kind, entry.name),
       materialization_handle: materialization_handle(kind, entry.id),
+      permissions: permissions,
       size: entry.size,
       modified_at: entry.modified_at,
       attributes: %{
         "provider" => @provider,
+        "config_id" => entry.volume,
+        "provider_record_id" => entry.id,
         "volume" => entry.volume,
         "relative_path" => entry.relative_path,
         "source" => entry.source
@@ -188,12 +231,17 @@ defmodule Zaq.Channels.DiskBridge do
 
   defp materialization_handle(_kind, _id), do: nil
 
-  defp record_page(%{entries: entries, scanned: scanned}) do
-    records = Enum.map(entries, &map_entry/1)
+  defp record_page(%{entries: entries, scanned: scanned} = page) do
+    records = Enum.map(entries, &map_entry(&1, entry_permissions(&1, page)))
 
     %RecordPage{
       resource_type: :item,
       records: records,
+      pagination:
+        Map.merge(
+          %RecordPage{resource_type: :item, records: []}.pagination,
+          Map.get(page, :pagination, %{})
+        ),
       stats: %{scanned: scanned, returned: length(records)}
     }
   end
@@ -235,9 +283,23 @@ defmodule Zaq.Channels.DiskBridge do
         "type" => grant.type,
         "target_id" => grant.target_id,
         "access_rights" => grant.access_rights || []
+      },
+      raw: %{
+        "type" => grant.type,
+        "target_id" => grant.target_id,
+        "id" => grant.target_id,
+        "display_name" => grant.name,
+        "access_rights" => grant.access_rights || []
       }
     }
   end
+
+  defp entry_permissions(%Entry{id: id}, %{permissions_by_id: permissions_by_id})
+       when is_map(permissions_by_id) do
+    Map.get(permissions_by_id, id)
+  end
+
+  defp entry_permissions(_entry, _page), do: nil
 
   # -- requests --
 
@@ -270,12 +332,16 @@ defmodule Zaq.Channels.DiskBridge do
   # would make what runs a function of what the caller sent.
   defp dispatch(action, request, config) do
     node_router = fetch(config, "node_router") || NodeRouter
+    event_opts = [action: action] |> maybe_put(:config, fetch(config, "config"))
 
     request
-    |> Event.new(:ingestion, opts: [action: action])
+    |> Event.new(:storage, opts: event_opts)
     |> node_router.dispatch()
     |> Map.fetch!(:response)
   end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
   # Params arrive from agent tools with string keys and from internal callers with atom keys;
   # accept either rather than forcing every caller to normalise first.

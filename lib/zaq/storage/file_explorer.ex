@@ -1,6 +1,6 @@
-defmodule Zaq.Ingestion.FileExplorer do
+defmodule Zaq.Storage.FileExplorer do
   @moduledoc """
-  Interacts with the server filesystem for the ingestion pipeline.
+  Interacts with mounted storage volumes.
   Lists directories/files, gets file info, and handles uploads to the base path.
 
   Supports both single-volume (legacy `base_path`) and multi-volume (`volumes` map)
@@ -10,15 +10,15 @@ defmodule Zaq.Ingestion.FileExplorer do
 
   require Logger
 
-  alias Zaq.Ingestion.FileExplorer.Entry
-  alias Zaq.Ingestion.SourcePath
+  alias Zaq.Config
+  alias Zaq.Storage.EntryCatalog
+  alias Zaq.Storage.FileExplorer.Entry
+  alias Zaq.Storage.SourcePath
 
   @doc """
   Returns the configured base path for ingestion files.
   """
-  def base_path do
-    Application.get_env(:zaq, Zaq.Ingestion)[:base_path] || "priv/documents"
-  end
+  def base_path(opts \\ []), do: storage_config(opts)[:base_path] || "priv/documents"
 
   @doc """
   Returns all configured volumes as `%{name => abs_path}`.
@@ -26,14 +26,14 @@ defmodule Zaq.Ingestion.FileExplorer do
   If a `volumes` map is configured and non-empty, returns it (with expanded paths).
   Otherwise derives a `"default"` volume from `base_path`.
   """
-  def list_volumes do
-    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+  def list_volumes(opts \\ []) do
+    config = storage_config(opts)
     volumes = Keyword.get(config, :volumes, %{})
 
     if map_size(volumes) > 0 do
       Map.new(volumes, fn {k, v} -> {k, Path.expand(v)} end)
     else
-      %{"default" => Path.expand(base_path())}
+      %{"default" => Path.expand(base_path(opts))}
     end
   end
 
@@ -46,9 +46,8 @@ defmodule Zaq.Ingestion.FileExplorer do
   connected a volume. Callers that must refuse an action when nothing is mounted (the BO
   skill-resources upload) need this predicate, not the map.
   """
-  def volumes_configured? do
-    :zaq
-    |> Application.get_env(Zaq.Ingestion, [])
+  def volumes_configured?(opts \\ []) do
+    storage_config(opts)
     |> Keyword.get(:volumes, %{})
     |> map_size() > 0
   end
@@ -62,35 +61,26 @@ defmodule Zaq.Ingestion.FileExplorer do
   This allows preview and file-serving URLs like `/bo/preview/documents/file.pdf`
   to work correctly when `documents` is a configured volume.
   """
-  def resolve_path(relative_path) do
-    config = Application.get_env(:zaq, Zaq.Ingestion, [])
+  def resolve_path(relative_path), do: resolve_path(relative_path, [])
+
+  def resolve_path(relative_path, opts) when is_list(opts) do
+    config = storage_config(opts)
     configured_volumes = Keyword.get(config, :volumes, %{})
 
     if map_size(configured_volumes) > 0 do
       case Path.split(relative_path) do
         [vol | rest] when rest != [] and is_map_key(configured_volumes, vol) ->
-          resolve_path(vol, Path.join(rest))
+          resolve_path(vol, Path.join(rest), opts)
 
         _ ->
-          resolve_path_against_base(relative_path)
+          resolve_path_against_base(relative_path, opts)
       end
     else
       # list_volumes() synthesizes "default" when no volumes are configured; strip it here so paths resolve correctly.
       case Path.split(relative_path) do
-        ["default" | rest] when rest != [] -> resolve_path_against_base(Path.join(rest))
-        _ -> resolve_path_against_base(relative_path)
+        ["default" | rest] when rest != [] -> resolve_path_against_base(Path.join(rest), opts)
+        _ -> resolve_path_against_base(relative_path, opts)
       end
-    end
-  end
-
-  defp resolve_path_against_base(relative_path) do
-    base = Path.expand(base_path())
-    full = Path.expand(Path.join(base, relative_path))
-
-    if String.starts_with?(full, base) do
-      {:ok, full}
-    else
-      {:error, :path_traversal}
     end
   end
 
@@ -98,8 +88,11 @@ defmodule Zaq.Ingestion.FileExplorer do
   Volume-aware path resolution. Resolves `relative_path` against the named volume root.
   Returns `{:ok, abs_path}`, `{:error, :unknown_volume}`, or `{:error, :path_traversal}`.
   """
-  def resolve_path(volume_name, relative_path) when is_binary(volume_name) do
-    volumes = list_volumes()
+  def resolve_path(volume_name, relative_path) when is_binary(volume_name),
+    do: resolve_path(volume_name, relative_path, [])
+
+  def resolve_path(volume_name, relative_path, opts) when is_binary(volume_name) do
+    volumes = list_volumes(opts)
 
     case Map.fetch(volumes, volume_name) do
       {:ok, vol_root} ->
@@ -116,14 +109,31 @@ defmodule Zaq.Ingestion.FileExplorer do
     end
   end
 
+  defp resolve_path_against_base(relative_path, opts) do
+    base = Path.expand(base_path(opts))
+    full = Path.expand(Path.join(base, relative_path))
+
+    if String.starts_with?(full, base) do
+      {:ok, full}
+    else
+      {:error, :path_traversal}
+    end
+  end
+
   @doc """
   Lists files and folders in the given directory relative to base path.
-  Returns `{:ok, [%Zaq.Ingestion.FileExplorer.Entry{}]}`.
+  Returns `{:ok, [%Zaq.Storage.FileExplorer.Entry{}]}`.
   """
-  def list(relative_path \\ ".") do
-    with {:ok, full_path} <- resolve_path(relative_path),
+  def list(relative_path \\ ".")
+
+  def list(relative_path) do
+    list(relative_path, [])
+  end
+
+  def list(relative_path, opts) when is_list(opts) do
+    with {:ok, full_path} <- resolve_path(relative_path, opts),
          true <- File.dir?(full_path) do
-      {:ok, list_entries(full_path, nil, relative_path)}
+      {:ok, list_entries(full_path, nil, relative_path, opts)}
     else
       false -> {:error, :not_a_directory}
       error -> error
@@ -133,10 +143,13 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Volume-aware variant of `list/1`. Lists entries under `relative_path` within the named volume.
   """
-  def list(volume_name, relative_path) when is_binary(volume_name) do
-    with {:ok, full_path} <- resolve_path(volume_name, relative_path),
+  def list(volume_name, relative_path) when is_binary(volume_name),
+    do: list(volume_name, relative_path, [])
+
+  def list(volume_name, relative_path, opts) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path, opts),
          true <- File.dir?(full_path) do
-      {:ok, list_entries(full_path, volume_name, relative_path)}
+      {:ok, list_entries(full_path, volume_name, relative_path, opts)}
     else
       false -> {:error, :not_a_directory}
       error -> error
@@ -146,28 +159,38 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Returns metadata for a single file relative to base path.
   """
-  def file_info(relative_path) do
-    with {:ok, full_path} <- resolve_path(relative_path),
+  def file_info(relative_path), do: file_info(relative_path, [])
+
+  def file_info(relative_path, opts) when is_list(opts) do
+    with {:ok, full_path} <- resolve_path(relative_path, opts),
          {:ok, stat} <- File.stat(full_path, time: :posix) do
-      {:ok, build_entry(Path.basename(full_path), stat, nil, relative_path)}
+      {:ok, Path.basename(full_path) |> build_entry(stat, nil, relative_path) |> attach_catalog()}
     end
   end
 
   @doc """
   Volume-aware variant of `file_info/1`.
   """
-  def file_info(volume_name, relative_path) when is_binary(volume_name) do
-    with {:ok, full_path} <- resolve_path(volume_name, relative_path),
+  def file_info(volume_name, relative_path) when is_binary(volume_name),
+    do: file_info(volume_name, relative_path, [])
+
+  def file_info(volume_name, relative_path, opts) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path, opts),
          {:ok, stat} <- File.stat(full_path, time: :posix) do
-      {:ok, build_entry(Path.basename(full_path), stat, volume_name, relative_path)}
+      {:ok,
+       Path.basename(full_path)
+       |> build_entry(stat, volume_name, relative_path)
+       |> attach_catalog()}
     end
   end
 
   @doc """
   Writes a file to the base path. Returns `{:ok, full_path}`.
   """
-  def upload(filename, binary) do
-    with {:ok, full_path} <- resolve_path(filename),
+  def upload(filename, binary), do: upload(filename, binary, [])
+
+  def upload(filename, binary, opts) when is_list(opts) do
+    with {:ok, full_path} <- resolve_path(filename, opts),
          :ok <- full_path |> Path.dirname() |> File.mkdir_p(),
          :ok <- File.write(full_path, binary) do
       {:ok, full_path}
@@ -177,8 +200,11 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Volume-aware variant of `upload/2`. Writes `binary` to `filename` within the named volume.
   """
-  def upload(volume_name, filename, binary) when is_binary(volume_name) do
-    with {:ok, full_path} <- resolve_path(volume_name, filename),
+  def upload(volume_name, filename, binary) when is_binary(volume_name) and is_binary(binary),
+    do: upload(volume_name, filename, binary, [])
+
+  def upload(volume_name, filename, binary, opts) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, filename, opts),
          :ok <- full_path |> Path.dirname() |> File.mkdir_p(),
          :ok <- File.write(full_path, binary) do
       {:ok, full_path}
@@ -190,8 +216,10 @@ defmodule Zaq.Ingestion.FileExplorer do
   If `filename` already exists, writes to `stem(1).ext`, `stem(2).ext`, etc.
   Returns `{:ok, actual_full_path}`.
   """
-  def upload_unique(filename, binary) do
-    with {:ok, full_path} <- resolve_path(filename),
+  def upload_unique(filename, binary), do: upload_unique(filename, binary, [])
+
+  def upload_unique(filename, binary, opts) when is_list(opts) do
+    with {:ok, full_path} <- resolve_path(filename, opts),
          :ok <- full_path |> Path.dirname() |> File.mkdir_p() do
       unique = deduplicate_path(full_path)
 
@@ -205,8 +233,12 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Volume-aware variant of `upload_unique/2`.
   """
-  def upload_unique(volume_name, filename, binary) when is_binary(volume_name) do
-    with {:ok, full_path} <- resolve_path(volume_name, filename),
+  def upload_unique(volume_name, filename, binary)
+      when is_binary(volume_name) and is_binary(binary),
+      do: upload_unique(volume_name, filename, binary, [])
+
+  def upload_unique(volume_name, filename, binary, opts) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, filename, opts),
          :ok <- full_path |> Path.dirname() |> File.mkdir_p() do
       unique = deduplicate_path(full_path)
 
@@ -220,8 +252,10 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Deletes a single file relative to base path.
   """
-  def delete(relative_path) do
-    with {:ok, full_path} <- resolve_path(relative_path) do
+  def delete(relative_path), do: delete(relative_path, [])
+
+  def delete(relative_path, opts) when is_list(opts) do
+    with {:ok, full_path} <- resolve_path(relative_path, opts) do
       File.rm(full_path)
     end
   end
@@ -229,17 +263,24 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Volume-aware variant of `delete/1`.
   """
-  def delete(volume_name, relative_path) when is_binary(volume_name) do
-    with {:ok, full_path} <- resolve_path(volume_name, relative_path) do
-      File.rm(full_path)
+  def delete(volume_name, relative_path) when is_binary(volume_name),
+    do: delete(volume_name, relative_path, [])
+
+  def delete(volume_name, relative_path, opts) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path, opts) do
+      with :ok <- File.rm(full_path) do
+        EntryCatalog.tombstone(volume_name, relative_path)
+      end
     end
   end
 
   @doc """
   Recursively deletes a directory and all its contents relative to base path.
   """
-  def delete_directory(relative_path) do
-    with {:ok, full_path} <- resolve_path(relative_path),
+  def delete_directory(relative_path), do: delete_directory(relative_path, [])
+
+  def delete_directory(relative_path, opts) when is_list(opts) do
+    with {:ok, full_path} <- resolve_path(relative_path, opts),
          true <- File.dir?(full_path) do
       File.rm_rf(full_path)
       :ok
@@ -252,10 +293,14 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Volume-aware variant of `delete_directory/1`.
   """
-  def delete_directory(volume_name, relative_path) when is_binary(volume_name) do
-    with {:ok, full_path} <- resolve_path(volume_name, relative_path),
+  def delete_directory(volume_name, relative_path) when is_binary(volume_name),
+    do: delete_directory(volume_name, relative_path, [])
+
+  def delete_directory(volume_name, relative_path, opts) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path, opts),
          true <- File.dir?(full_path) do
       File.rm_rf(full_path)
+      EntryCatalog.tombstone(volume_name, relative_path)
       :ok
     else
       false -> {:error, :not_a_directory}
@@ -266,28 +311,40 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Renames (moves) a file or directory. Both paths are relative to base path.
   """
-  def rename(old_relative, new_relative) do
-    with {:ok, old_full} <- resolve_path(old_relative),
-         {:ok, new_full} <- resolve_path(new_relative) do
-      File.rename(old_full, new_full)
+  def rename(old_relative, new_relative), do: rename(old_relative, new_relative, [])
+
+  def rename(old_relative, new_relative, opts) when is_list(opts) do
+    with {:ok, old_full} <- resolve_path(old_relative, opts),
+         {:ok, new_full} <- resolve_path(new_relative, opts) do
+      with :ok <- File.rename(old_full, new_full) do
+        rename_catalog(nil, old_relative, new_relative)
+      end
     end
   end
 
   @doc """
   Volume-aware variant of `rename/2`. Both paths are relative to the named volume.
   """
-  def rename(volume_name, old_relative, new_relative) when is_binary(volume_name) do
-    with {:ok, old_full} <- resolve_path(volume_name, old_relative),
-         {:ok, new_full} <- resolve_path(volume_name, new_relative) do
-      File.rename(old_full, new_full)
+  def rename(volume_name, old_relative, new_relative)
+      when is_binary(volume_name) and is_binary(new_relative),
+      do: rename(volume_name, old_relative, new_relative, [])
+
+  def rename(volume_name, old_relative, new_relative, opts) when is_binary(volume_name) do
+    with {:ok, old_full} <- resolve_path(volume_name, old_relative, opts),
+         {:ok, new_full} <- resolve_path(volume_name, new_relative, opts) do
+      with :ok <- File.rename(old_full, new_full) do
+        rename_catalog(volume_name, old_relative, new_relative)
+      end
     end
   end
 
   @doc """
   Creates a directory (including parents) relative to base path.
   """
-  def create_directory(relative_path) do
-    with {:ok, full_path} <- resolve_path(relative_path) do
+  def create_directory(relative_path), do: create_directory(relative_path, [])
+
+  def create_directory(relative_path, opts) when is_list(opts) do
+    with {:ok, full_path} <- resolve_path(relative_path, opts) do
       File.mkdir_p(full_path)
     end
   end
@@ -295,8 +352,11 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Volume-aware variant of `create_directory/1`.
   """
-  def create_directory(volume_name, relative_path) when is_binary(volume_name) do
-    with {:ok, full_path} <- resolve_path(volume_name, relative_path) do
+  def create_directory(volume_name, relative_path) when is_binary(volume_name),
+    do: create_directory(volume_name, relative_path, [])
+
+  def create_directory(volume_name, relative_path, opts) when is_binary(volume_name) do
+    with {:ok, full_path} <- resolve_path(volume_name, relative_path, opts) do
       File.mkdir_p(full_path)
     end
   end
@@ -304,8 +364,10 @@ defmodule Zaq.Ingestion.FileExplorer do
   @doc """
   Returns the total size in bytes of all files recursively under the given folder.
   """
-  def folder_size(volume_name, relative_path) do
-    case resolve_path(volume_name, relative_path) do
+  def folder_size(volume_name, relative_path), do: folder_size(volume_name, relative_path, [])
+
+  def folder_size(volume_name, relative_path, opts) do
+    case resolve_path(volume_name, relative_path, opts) do
       {:ok, full_path} -> recursive_size(full_path)
       _ -> 0
     end
@@ -346,7 +408,7 @@ defmodule Zaq.Ingestion.FileExplorer do
     end
   end
 
-  defp list_entries(full_path, volume_name, relative_path) do
+  defp list_entries(full_path, volume_name, relative_path, opts) do
     full_path
     |> File.ls!()
     |> Enum.sort()
@@ -357,9 +419,9 @@ defmodule Zaq.Ingestion.FileExplorer do
 
         build_entry(name, stat, volume_name, child_path(relative_path, name))
       end,
-      max_concurrency: file_stats_concurrency(),
+      max_concurrency: file_stats_concurrency(opts),
       ordered: true,
-      timeout: file_stats_timeout()
+      timeout: file_stats_timeout(opts)
     )
     |> Enum.flat_map(fn
       {:ok, entry} ->
@@ -372,18 +434,19 @@ defmodule Zaq.Ingestion.FileExplorer do
 
         []
     end)
+    |> Enum.map(&attach_catalog/1)
   end
 
-  defp file_stats_concurrency do
+  defp file_stats_concurrency(opts) do
     default = default_file_stats_concurrency()
 
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+    storage_config(opts)
     |> Keyword.get(:file_stats_concurrency, default)
     |> normalize_concurrency(default)
   end
 
-  defp file_stats_timeout do
-    Application.get_env(:zaq, Zaq.Ingestion, [])
+  defp file_stats_timeout(opts) do
+    storage_config(opts)
     |> Keyword.get(:file_stats_timeout, 10_000)
   end
 
@@ -416,6 +479,25 @@ defmodule Zaq.Ingestion.FileExplorer do
     }
   end
 
+  defp attach_catalog(%Entry{volume: nil} = entry), do: entry
+
+  defp attach_catalog(%Entry{volume: volume, relative_path: path, type: type} = entry) do
+    case EntryCatalog.ensure(volume, path, type) do
+      {:ok, catalog_entry} -> %{entry | id: catalog_entry.id, parent_id: catalog_entry.parent_id}
+      {:error, _reason} -> entry
+    end
+  end
+
+  defp rename_catalog(nil, _old_relative, _new_relative), do: :ok
+
+  defp rename_catalog(volume_name, old_relative, new_relative) do
+    case EntryCatalog.rename(volume_name, old_relative, new_relative) do
+      {:ok, _entry} -> :ok
+      {:error, :not_found} -> :ok
+      {:error, _reason} -> :ok
+    end
+  end
+
   # Without a volume there is nothing to prefix — single-volume deployments store the bare
   # relative path.
   defp source_for(nil, relative_path), do: relative_path
@@ -427,4 +509,6 @@ defmodule Zaq.Ingestion.FileExplorer do
   # directory contributes nothing, so entries under the root are named bare.
   defp child_path(dir, name) when dir in [".", "", nil], do: name
   defp child_path(dir, name), do: Path.join(dir, name)
+
+  defp storage_config(opts), do: Config.get(:zaq, Zaq.Storage, [], opts)
 end

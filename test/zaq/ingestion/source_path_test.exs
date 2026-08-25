@@ -1,19 +1,19 @@
-defmodule Zaq.Ingestion.SourcePathTest do
-  # async: false — these tests mutate the global `Application.put_env(:zaq, Zaq.Ingestion,
+defmodule Zaq.Storage.SourcePathTest do
+  # async: false — these tests mutate the global `Application.put_env(:zaq, Zaq.Storage,
   # base_path: ...)`, which the "default" volume resolves at runtime. Running async would leak
   # the transient base_path into concurrent tests (e.g. DirectorySnapshotTest), making them list
   # the wrong directory. Every other base_path-mutating module is async: false for this reason.
   use ExUnit.Case, async: false
 
-  alias Zaq.Ingestion.{FileExplorer, SourcePath}
+  alias Zaq.Storage.{FileExplorer, SourcePath}
 
   @test_base "test/tmp/source_path"
 
   setup do
-    original = Application.get_env(:zaq, Zaq.Ingestion)
+    original = Application.get_env(:zaq, Zaq.Storage)
 
     on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, original || [])
+      Application.put_env(:zaq, Zaq.Storage, original || [])
     end)
 
     :ok
@@ -28,7 +28,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
 
     test "returns legacy prefix when volume is known and prefix differs from candidates" do
       File.mkdir_p!(@test_base)
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
+      Application.put_env(:zaq, Zaq.Storage, base_path: @test_base)
       volumes = %{"default" => @test_base}
 
       result = SourcePath.legacy_folder_prefixes("default", "docs", volumes)
@@ -54,7 +54,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
       vol_path = Path.join(tmp, "zaq_source_path_vol_#{System.unique_integer([:positive])}")
       File.mkdir_p!(vol_path)
 
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"testvol" => vol_path})
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"testvol" => vol_path})
 
       outside_path = Path.join(tmp, "outside_vol/somefile.txt")
 
@@ -67,7 +67,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
 
   describe "absolute_to_source/1 in single-volume mode" do
     test "returns path relative to root base_path" do
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: "/")
+      Application.put_env(:zaq, Zaq.Storage, base_path: "/")
 
       assert {:ok, source} = SourcePath.absolute_to_source("/tmp/root-file.md")
       assert source == "tmp/root-file.md"
@@ -78,7 +78,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
       tmp = System.tmp_dir!()
       base = Path.join(tmp, "zaq_source_path_base_#{System.unique_integer([:positive])}")
       File.mkdir_p!(base)
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: base)
+      Application.put_env(:zaq, Zaq.Storage, base_path: base)
 
       outside_path = Path.join(tmp, "other_dir/myfile.txt")
 
@@ -90,7 +90,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
   describe "volume_root_for_absolute/1" do
     test "returns base_path when path is not under any volume" do
       # line 126: no volume root found -> FileExplorer.base_path()
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
+      Application.put_env(:zaq, Zaq.Storage, base_path: @test_base)
 
       outside = "/tmp/completely_outside/file.txt"
       result = SourcePath.volume_root_for_absolute(outside)
@@ -103,7 +103,7 @@ defmodule Zaq.Ingestion.SourcePathTest do
       tmp = System.tmp_dir!()
       vol = Path.join(tmp, "vol_root_test_#{System.unique_integer([:positive])}")
       File.mkdir_p!(vol)
-      Application.put_env(:zaq, Zaq.Ingestion, base_path: vol)
+      Application.put_env(:zaq, Zaq.Storage, base_path: vol)
 
       inside = Path.join(vol, "subdir/file.txt")
       result = SourcePath.volume_root_for_absolute(inside)

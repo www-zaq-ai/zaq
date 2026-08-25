@@ -5,6 +5,12 @@ defmodule Zaq.NodeRoles do
   `ROLES` env takes precedence over `:zaq, :roles` config.
   """
 
+  @roles [:bo, :agent, :ingestion, :storage, :channels, :engine]
+
+  @doc "Returns every concrete node role ZAQ knows how to route."
+  @spec all() :: [atom()]
+  def all, do: @roles
+
   @spec current() :: [atom()]
   def current do
     case System.get_env("ROLES") do
@@ -23,6 +29,20 @@ defmodule Zaq.NodeRoles do
   def parse(roles_str) when is_binary(roles_str) do
     roles_str
     |> String.split(",")
-    |> Enum.map(&(&1 |> String.trim() |> String.to_atom()))
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&parse_role!/1)
+  end
+
+  defp parse_role!("all"), do: :all
+
+  defp parse_role!(role) do
+    atom = Enum.find(@roles, &(Atom.to_string(&1) == role))
+
+    if atom do
+      atom
+    else
+      raise ArgumentError, "unknown ZAQ node role: #{inspect(role)}"
+    end
   end
 end

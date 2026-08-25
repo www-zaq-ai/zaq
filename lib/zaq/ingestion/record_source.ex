@@ -1,11 +1,9 @@
 defmodule Zaq.Ingestion.RecordSource do
   @moduledoc """
-  Resolves canonical records into content sources usable by ingestion.
+  Resolves canonical data-source records into content sources usable by ingestion.
 
-  Phase 1 supports local volume records by resolving their `attributes` into
-  volume-relative paths. Future external data-source phases should extend this
-  boundary to fetch/export record content through NodeRouter-routed data-source
-  events, without adding provider-specific ingestion logic.
+  Ingestion receives records from Channels bridges and materializes them through
+  signed handles. It does not resolve provider-specific paths or mounted volumes.
   """
 
   alias Zaq.Channels.Materializers.DataSourceDocument
@@ -13,113 +11,30 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Event
   alias Zaq.Materialization
 
-  alias Zaq.Ingestion.{
-    ExternalSidecarStore,
-    ExternalSource,
-    FileExplorer
-  }
-
-  alias Zaq.Ingestion.FileExplorer.Entry
-
+  alias Zaq.Ingestion.{ExternalSidecarStore, ExternalSource}
   alias Zaq.NodeRouter
-
-  @local_provider "disk"
 
   @doc "Returns the normalized ingestion kind for a canonical record."
   @spec kind(Record.t()) :: atom()
   def kind(%Record{kind: kind}), do: normalize_kind(kind)
 
-  @doc "Returns the volume-relative path encoded in a canonical record."
-  @spec relative_path(Record.t()) :: String.t() | nil
-  def relative_path(%Record{} = record),
-    do: attr(record, "relative_path") || attr(record, :relative_path) || record_path(record)
-
-  @doc "Returns the local volume name encoded in a canonical record, when present."
-  @spec volume(Record.t()) :: String.t() | nil
-  def volume(%Record{} = record), do: attr(record, "volume") || attr(record, :volume)
-
   @doc "Returns the path/source reference stored on an ingest job for a record."
   @spec job_path(Record.t()) :: String.t() | nil
   def job_path(%Record{} = record) do
-    if ExternalSource.external?(record),
-      do: ExternalSource.source(record),
-      else: relative_path(record)
-  end
-
-  @doc "Resolves a canonical record into a local filesystem path for processing."
-  @spec resolve_path(Record.t()) :: {:ok, String.t()} | {:error, term()}
-  def resolve_path(%Record{} = record) do
-    case {volume(record), relative_path(record)} do
-      {volume, path} when is_binary(volume) and is_binary(path) ->
-        FileExplorer.resolve_path(volume, path)
-
-      {nil, path} when is_binary(path) ->
-        FileExplorer.resolve_path(path)
-
-      _ ->
-        {:error, :unsupported_record_source}
-    end
+    if ExternalSource.external?(record), do: ExternalSource.source(record)
   end
 
   @doc "Materializes a canonical record into the common ingestion worker input."
   @spec materialize(Record.t()) :: {:ok, map()} | {:error, term()}
   def materialize(%Record{} = record) do
-    if ExternalSource.external?(record) do
-      materialize_external(record)
-    else
-      with {:ok, path} <- resolve_path(record) do
-        {:ok, %{path: path, record: record, processor_opts: [], cleanup_paths: []}}
-      end
-    end
+    materialize_external(record)
   end
 
   @doc "Lists child records for a folder record."
   @spec list_children(Record.t()) :: {:ok, [Record.t()]} | {:error, term()}
   def list_children(%Record{} = record) do
-    if ExternalSource.external?(record) do
-      list_external_children(record)
-    else
-      volume = volume(record)
-
-      with path when is_binary(path) <- relative_path(record),
-           {:ok, entries} <- list_entries(volume, path) do
-        {:ok, from_entries(entries)}
-      end
-    end
+    list_external_children(record)
   end
-
-  @doc """
-  Adapts volume entries into records for the ingest pipeline.
-
-  These are pipeline input, not the outward-facing shape a data-source bridge answers with:
-  they carry no `materialization_handle`, because the worker resolves a local path directly
-  through `resolve_path/1` rather than dispatching for the bytes.
-  """
-  @spec from_entries([Entry.t()]) :: [Record.t()]
-  def from_entries(entries) when is_list(entries), do: Enum.map(entries, &from_entry/1)
-
-  @doc "Adapts one volume entry into a record for the ingest pipeline."
-  @spec from_entry(Entry.t()) :: Record.t()
-  def from_entry(%Entry{} = entry) do
-    %Record{
-      id: entry.id,
-      kind: entry_kind(entry.type),
-      name: entry.name,
-      path: entry.relative_path,
-      size: entry.size,
-      modified_at: entry.modified_at,
-      attributes: %{
-        "provider" => @local_provider,
-        "volume" => entry.volume,
-        "relative_path" => entry.relative_path,
-        "source" => entry.source
-      },
-      raw: %{local_entry: entry}
-    }
-  end
-
-  defp entry_kind(:directory), do: :folder
-  defp entry_kind(_type), do: :file
 
   @doc "Serializes a canonical record into a JSON-safe map for persistence."
   @spec to_storage_map(Record.t()) :: map()
@@ -168,15 +83,10 @@ defmodule Zaq.Ingestion.RecordSource do
 
   def from_storage_map(_), do: {:error, :invalid_source_record}
 
-  defp list_entries(nil, path), do: FileExplorer.list(path)
-  defp list_entries(volume, path), do: FileExplorer.list(volume, path)
-
   defp materialize_external(%Record{} = record) do
     with {:ok, %{record: %Record{} = downloaded}} <- download_external(record),
          {:ok, stored} <- store_download(record, downloaded) do
-      sidecar_source = ExternalSource.sidecar_source(record)
       source = ExternalSource.source(record)
-      sidecar_relative_path = ExternalSource.sidecar_relative_path(record, ".md")
 
       {:ok,
        %{
@@ -185,11 +95,8 @@ defmodule Zaq.Ingestion.RecordSource do
          cleanup_paths: stored[:cleanup_paths] || [],
          processor_opts: [
            source_override: source,
-           sidecar_source_override: sidecar_source,
-           force_sidecar: true,
            document_title: record.name,
-           document_metadata: ExternalSource.metadata(record),
-           sidecar_metadata: ExternalSource.sidecar_metadata(record, sidecar_relative_path)
+           document_metadata: ExternalSource.metadata(record)
          ]
        }}
     end
@@ -229,7 +136,7 @@ defmodule Zaq.Ingestion.RecordSource do
   defp store_download(record, %Record{content: rows}) when is_list(rows) do
     record
     |> ExternalSidecarStore.write_markdown(rows_to_markdown(rows))
-    |> with_cleanup([])
+    |> with_cleanup_root()
   end
 
   defp store_download(record, %Record{content: content} = downloaded)
@@ -240,21 +147,21 @@ defmodule Zaq.Ingestion.RecordSource do
       with {:ok, binary} <- Base.decode64(content),
            {:ok, stored} <-
              ExternalSidecarStore.write_original(record, binary, extension_for(downloaded)) do
-        {:ok, Map.put(stored, :cleanup_paths, [stored.absolute_path])}
+        {:ok, Map.put(stored, :cleanup_paths, [stored.root_path])}
       end
     else
       record
       |> ExternalSidecarStore.write_markdown(content)
-      |> with_cleanup([])
+      |> with_cleanup_root()
     end
   end
 
   defp store_download(_record, _downloaded), do: {:error, :unsupported_downloaded_record}
 
-  defp with_cleanup({:ok, stored}, cleanup_paths),
-    do: {:ok, Map.put(stored, :cleanup_paths, cleanup_paths)}
+  defp with_cleanup_root({:ok, %{root_path: root_path} = stored}),
+    do: {:ok, Map.put(stored, :cleanup_paths, [root_path])}
 
-  defp with_cleanup(error, _cleanup_paths), do: error
+  defp with_cleanup_root(error), do: error
 
   defp list_external_children(%Record{} = record) do
     params = %{
@@ -354,8 +261,6 @@ defmodule Zaq.Ingestion.RecordSource do
 
   defp attributes(%Record{attributes: attrs}) when is_map(attrs), do: attrs
   defp attributes(%Record{}), do: %{}
-
-  defp record_path(%Record{path: path}), do: path
 
   defp normalize_kind(:directory), do: :folder
   defp normalize_kind(:folder), do: :folder

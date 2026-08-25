@@ -21,7 +21,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, DocumentChunker, FTSBackend}
-  alias Zaq.Ingestion.{LanguageDetector, Sidecar, SourcePath}
+  alias Zaq.Ingestion.LanguageDetector
   alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, PptxToMd, XlsxToMd}
   alias Zaq.Repo
@@ -139,24 +139,21 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns `{ :ok, document, indexed_chunk_payloads }` where payloads are
   `{chunk_payload_map, chunk_index}` tuples.
 
-  Pass `force_sidecar: true` when materializing external provider files from a
-  watch delta so binary sidecar Markdown is regenerated from the latest provider
-  content instead of reusing a stale local sidecar file.
+  Converted Markdown is stored on the primary document; any files created while
+  converting are temporary materialization artifacts owned by the caller.
   """
   def prepare_file_chunks(file_path, opts \\ []) do
     Logger.info("Preparing file chunks: #{file_path}")
 
     with {:ok, content} <- read_as_markdown(file_path, opts),
          {:ok, source} <- extract_source(content, file_path, opts),
-         {:ok, sidecar_source} <- extract_sidecar_source(file_path, opts),
          {:ok, document} <-
            store_document(
              content,
              source,
-             source_metadata(sidecar_source, opts),
+             source_metadata(opts),
              document_title(opts)
-           ),
-         :ok <- maybe_store_sidecar_document(content, source, sidecar_source, opts) do
+           ) do
       sections = DocumentChunker.parse_layout(content, format: :markdown)
       chunks = DocumentChunker.chunk_sections(sections)
 
@@ -176,24 +173,20 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   @doc """
   Processes a single file and returns an ingestion report with chunk-level progress.
 
-  The `force_sidecar: true` option forces binary-to-Markdown conversion even when
-  a sidecar file already exists. External provider re-ingestion uses this to keep
-  converted sidecars aligned with the latest downloaded file.
+  Converted Markdown is stored on the primary document.
   """
   def process_single_file_with_report(file_path, opts \\ []) do
     Logger.info("Processing file: #{file_path}")
 
     with {:ok, content} <- read_as_markdown(file_path, opts),
          {:ok, source} <- extract_source(content, file_path, opts),
-         {:ok, sidecar_source} <- extract_sidecar_source(file_path, opts),
          {:ok, document} <-
            store_document(
              content,
              source,
-             source_metadata(sidecar_source, opts),
+             source_metadata(opts),
              document_title(opts)
            ),
-         :ok <- maybe_store_sidecar_document(content, source, sidecar_source, opts),
          {:ok, report} <- process_and_store_chunks_report(content, document.id, opts) do
       Logger.info("Successfully processed: #{source}")
       {:ok, document, report}
@@ -319,12 +312,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp read_sidecar_or_convert(md_path, label, opts, convert_fn) do
-    if File.exists?(md_path) and not Keyword.get(opts, :force_sidecar, false) do
-      Logger.info("[DocumentProcessor] Using existing sidecar for #{label}: #{md_path}")
-      with {:ok, raw} <- File.read(md_path), do: {:ok, FTSBackend.sanitize_utf8_text(raw)}
-    else
-      convert_fn.()
-    end
+    _ = {md_path, label, opts}
+    convert_fn.()
   end
 
   defp read_image_as_markdown(file_path) do
@@ -503,12 +492,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   @doc """
-  Extracts the source as a volume-prefixed relative path.
-  When volumes are configured, returns "<volume_name>/<relative_path_within_volume>".
-  In legacy single-volume mode, returns the path relative to `base_path`.
-  Falls back to basename if the path is not under any known root.
+  Extracts the document source for indexing.
 
-  Example: "/zaq/volumes/docs/guide.md" => "docs/guide.md"
+  Data-source ingestion must pass `:source_override`; the fallback is only for
+  direct processor calls and uses the local artifact basename rather than any
+  mounted-volume knowledge.
   """
   def extract_source(content, file_path, opts) do
     case Keyword.get(opts, :source_override) do
@@ -518,48 +506,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   def extract_source(_content, file_path) do
-    SourcePath.absolute_to_source(file_path)
+    {:ok, Path.basename(file_path)}
   end
 
-  defp extract_sidecar_source(file_path, opts) do
-    case Keyword.get(opts, :sidecar_source_override) do
-      source when is_binary(source) and source != "" ->
-        {:ok, source}
-
-      _ ->
-        case Sidecar.sidecar_path_for(file_path) do
-          nil -> {:ok, nil}
-          path -> extract_source("", path, opts)
-        end
-    end
-  end
-
-  defp maybe_store_sidecar_document(_content, _source, nil, _opts), do: :ok
-
-  defp maybe_store_sidecar_document(content, source, sidecar_source, opts) do
-    attrs = %{
-      source: sidecar_source,
-      content: content,
-      content_type: "markdown",
-      metadata: sidecar_metadata(source, opts)
-    }
-
-    case Document.upsert(attrs) do
-      {:ok, _document} -> :ok
-      {:error, changeset} -> {:error, changeset}
-    end
-  end
-
-  defp source_metadata(sidecar_source, opts) do
+  defp source_metadata(opts) do
     opts
     |> Keyword.get(:document_metadata, %{})
-    |> Map.merge(Sidecar.source_metadata(sidecar_source))
-  end
-
-  defp sidecar_metadata(source, opts) do
-    opts
-    |> Keyword.get(:sidecar_metadata, %{})
-    |> Map.merge(Sidecar.sidecar_metadata(source))
   end
 
   @doc """

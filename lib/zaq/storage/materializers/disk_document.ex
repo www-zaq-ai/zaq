@@ -1,6 +1,6 @@
-defmodule Zaq.Ingestion.Materializers.DiskDocument do
+defmodule Zaq.Storage.Materializers.DiskDocument do
   @moduledoc """
-  Materializes documents held on ingestion volumes through the Ingestion role.
+  Materializes documents held on storage volumes through the Storage role.
 
   The locator names the file by its source — volume plus relative path — which is the id
   `Zaq.Channels.DiskBridge` puts on every record it returns. No document row is read, so a
@@ -10,8 +10,8 @@ defmodule Zaq.Ingestion.Materializers.DiskDocument do
   @behaviour Zaq.Materialization.Handler
 
   alias Zaq.Helpers
-  alias Zaq.Ingestion.Events
   alias Zaq.Materialization
+  alias Zaq.Storage.Events
 
   @type_key "disk_document"
   @option_fields ~w(encoding)
@@ -25,7 +25,7 @@ defmodule Zaq.Ingestion.Materializers.DiskDocument do
 
   def issue(_file_id, _opts), do: {:error, :invalid_materialization_locator}
 
-  @doc "Reads the bytes by dispatching the fixed `:materialize_document` action to Ingestion."
+  @doc "Reads the bytes by dispatching the fixed `:materialize_document` action to Storage."
   @impl true
   def materialize(locator, context, options \\ %{})
 
@@ -71,9 +71,12 @@ defmodule Zaq.Ingestion.Materializers.DiskDocument do
   defp put_encoding(request, _encoding), do: request
 
   defp node_router_opts(context) do
-    case Map.get(context, :node_router) do
-      nil -> []
-      module -> [node_router: module]
-    end
+    []
+    |> maybe_put(:node_router, Map.get(context, :node_router))
+    |> maybe_put(:config, Map.get(context, :config))
+    |> maybe_put(:actor, Map.get(context, :actor))
   end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

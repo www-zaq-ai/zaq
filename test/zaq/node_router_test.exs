@@ -14,6 +14,7 @@ defmodule Zaq.NodeRouterTest do
 
       assert Map.has_key?(map, :agent)
       assert Map.has_key?(map, :ingestion)
+      assert Map.has_key?(map, :storage)
       assert Map.has_key?(map, :channels)
       assert Map.has_key?(map, :engine)
       assert Map.has_key?(map, :bo)
@@ -24,6 +25,7 @@ defmodule Zaq.NodeRouterTest do
 
       assert map[:agent] == Zaq.Agent.Supervisor
       assert map[:ingestion] == Zaq.Ingestion.Supervisor
+      assert map[:storage] == Zaq.Storage.Supervisor
       assert map[:channels] == Zaq.Channels.Supervisor
       assert map[:engine] == Zaq.Engine.Supervisor
       assert map[:bo] == ZaqWeb.Endpoint
@@ -49,7 +51,10 @@ defmodule Zaq.NodeRouterTest do
       runtime = %{
         current_node_fn: fn -> :local@host end,
         node_list_fn: fn -> [:remote@host] end,
-        whereis_fn: fn _ -> nil end,
+        whereis_fn: fn
+          ZaqWeb.Endpoint -> self()
+          _ -> nil
+        end,
         rpc_call_fn: fn
           :remote@host, Process, :whereis, [:my_supervisor] -> spawn(fn -> :ok end)
           _n, Process, :whereis, [_supervisor] -> nil
@@ -59,18 +64,21 @@ defmodule Zaq.NodeRouterTest do
       assert NodeRouter.find_node(:my_supervisor, runtime) == :remote@host
     end
 
-    test "falls back to local node when all remote lookups fail" do
+    test "returns nil when no node owns the supervisor" do
       runtime = %{
         current_node_fn: fn -> :local@host end,
         node_list_fn: fn -> [:down@host, :empty@host] end,
-        whereis_fn: fn _ -> nil end,
+        whereis_fn: fn
+          ZaqWeb.Endpoint -> self()
+          _ -> nil
+        end,
         rpc_call_fn: fn
           :down@host, Process, :whereis, [_supervisor] -> {:badrpc, :nodedown}
           :empty@host, Process, :whereis, [_supervisor] -> nil
         end
       }
 
-      assert NodeRouter.find_node(:my_supervisor, runtime) == :local@host
+      assert NodeRouter.find_node(:my_supervisor, runtime) == nil
     end
   end
 
@@ -85,9 +93,15 @@ defmodule Zaq.NodeRouterTest do
       assert result == node()
     end
 
-    test "falls back to local apply when role supervisor is not found" do
-      result = NodeRouter.call(:agent, String, :replace, ["abc", "a", "z"])
-      assert result == "zbc"
+    test "returns service_unavailable when no node owns the role" do
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [] end,
+        whereis_fn: fn _ -> nil end
+      }
+
+      result = NodeRouter.call(:storage, String, :replace, ["abc", "a", "z"], runtime)
+      assert result == {:error, {:service_unavailable, :storage}}
     end
 
     test "uses rpc for remote target and returns remote result" do
@@ -174,6 +188,28 @@ defmodule Zaq.NodeRouterTest do
       assert hd(result.hops).destination == :agent
     end
 
+    test "returns service_unavailable when dispatch target role has no running supervisor" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :storage,
+          opts: [action: :invoke]
+        )
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn _n, Process, :whereis, [_supervisor] -> nil end
+      }
+
+      result = NodeRouter.dispatch(event, runtime)
+
+      assert %Event{} = result
+      assert result.response == {:error, {:service_unavailable, :storage}}
+      assert result.next_hop == nil
+      assert length(result.hops) == 1
+      assert hd(result.hops).destination == :storage
+    end
+
     test "recursively dispatches when handler returns event with a new next_hop" do
       event =
         Event.new(%{module: String, function: :upcase, args: ["hello"]}, :agent,
@@ -183,7 +219,10 @@ defmodule Zaq.NodeRouterTest do
       runtime = %{
         current_node_fn: fn -> :local@host end,
         node_list_fn: fn -> [:remote@host] end,
-        whereis_fn: fn _ -> nil end,
+        whereis_fn: fn
+          ZaqWeb.Endpoint -> self()
+          _ -> nil
+        end,
         rpc_call_fn: fn
           :remote@host, Process, :whereis, [Zaq.Agent.Supervisor] ->
             spawn(fn -> :ok end)

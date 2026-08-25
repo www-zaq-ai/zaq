@@ -2,8 +2,8 @@ defmodule Zaq.Materialization.RegistryTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Channels.Materializers.DataSourceDocument
-  alias Zaq.Ingestion.Materializers.DiskDocument
   alias Zaq.Materialization.Registry
+  alias Zaq.Storage.Materializers.DiskDocument
 
   test "returns allowlisted materializers" do
     assert {:ok, DataSourceDocument} = Registry.lookup("data_source_document")

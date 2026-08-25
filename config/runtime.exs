@@ -121,27 +121,35 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
-  # -- Ingestion volumes --
+  # -- Storage volumes --
   # LLM, Embedding, Image-to-Text, and Ingestion settings are managed via the
   # back-office UI at /bo/system-config and persisted in the database.
   # Only volume mounts (infrastructure-level) are configured here.
-  ingestion_volumes_env = System.get_env("INGESTION_VOLUMES", "/")
-  ingestion_volumes_base = System.get_env("INGESTION_VOLUMES_BASE", "/zaq/volumes")
+  storage_volumes_env =
+    System.get_env("STORAGE_VOLUMES") || System.get_env("INGESTION_VOLUMES", "/")
 
-  ingestion_volumes =
-    if ingestion_volumes_env != "/" do
-      ingestion_volumes_env
+  storage_volumes_base =
+    System.get_env("STORAGE_VOLUMES_BASE") ||
+      System.get_env("INGESTION_VOLUMES_BASE", "/zaq/volumes")
+
+  storage_volumes =
+    if storage_volumes_env != "/" do
+      storage_volumes_env
       |> String.split(",")
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
-      |> Map.new(fn name -> {name, Path.join(ingestion_volumes_base, name)} end)
+      |> Map.new(fn name -> {name, Path.join(storage_volumes_base, name)} end)
     else
       %{}
     end
 
+  config :zaq, Zaq.Storage,
+    base_path: storage_volumes_base,
+    volumes: storage_volumes
+
   config :zaq, Zaq.Ingestion,
-    base_path: ingestion_volumes_base,
-    volumes: ingestion_volumes
+    base_path: storage_volumes_base,
+    volumes: storage_volumes
 
   # -- Oban --
   config :zaq, Oban,

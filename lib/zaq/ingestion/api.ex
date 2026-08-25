@@ -24,61 +24,9 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.process_data_source_changes(request)}
   end
 
-  # -- documents --
-
-  def handle_event(%Event{request: %{file_id: file_id}} = event, :describe_document, _context)
-      when is_binary(file_id) do
-    %{event | response: Ingestion.describe_document(file_id)}
-  end
-
-  def handle_event(%Event{request: %{params: params}} = event, :list_documents, _context)
-      when is_map(params) do
-    %{event | response: Ingestion.list_documents(params)}
-  end
-
-  def handle_event(
-        %Event{request: %{file_id: file_id} = request} = event,
-        :materialize_document,
-        _context
-      )
-      when is_binary(file_id) do
-    %{event | response: Ingestion.materialize_document(request)}
-  end
-
-  def handle_event(%Event{request: request} = event, :persist_document, _context)
-      when is_map(request) do
-    %{event | response: Ingestion.persist_document(request)}
-  end
-
-  def handle_event(%Event{request: request} = event, :update_document, _context)
-      when is_map(request) do
-    %{event | response: Ingestion.update_document(request)}
-  end
-
-  def handle_event(%Event{request: %{file_id: file_id}} = event, :delete_document, _context)
-      when is_binary(file_id) do
-    %{event | response: Ingestion.delete_document(file_id)}
-  end
-
-  def handle_event(
-        %Event{request: %{file_id: file_id}} = event,
-        :list_document_grants,
-        _context
-      )
-      when is_binary(file_id) do
-    %{event | response: Ingestion.list_document_grants(file_id)}
-  end
-
-  # -- volumes --
-
-  def handle_event(%Event{request: %{params: params}} = event, :search_documents, _context)
-      when is_map(params) do
-    %{event | response: Ingestion.search_documents(params)}
-  end
-
-  def handle_event(%Event{request: request} = event, :volume_stats, _context)
-      when is_map(request) do
-    %{event | response: Ingestion.volume_stats()}
+  def handle_event(%Event{request: %{records: records}} = event, :enrich_records, _context)
+      when is_list(records) do
+    %{event | response: Ingestion.enrich_records(records)}
   end
 
   def handle_event(%Event{} = event, action, _context),
