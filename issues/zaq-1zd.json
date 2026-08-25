@@ -2,13 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-25T18:37:48Z",
+  "close_reason": "completed",
   "created": "2026-08-25T18:18:03Z",
   "description": "Replace hardcoded local/disk watch and share behavior in the ingestion browser with data-source advertised capabilities. Scope excludes implementing filesystem watching.",
   "id": "zaq-1zd",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Capability-drive Disk ingestion browser actions",
   "type": "task",
-  "updated_at": "2026-08-25T18:18:03Z"
+  "updated_at": "2026-08-25T18:37:48Z"
 }
