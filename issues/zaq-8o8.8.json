@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-8o8.7"
+  ],
   "blocks": [],
   "created": "2026-08-25T07:37:31Z",
   "description": "Add optional DataSourceBridge source-scope discovery so ingestion can render provider/config scopes generically; Disk returns one scope per configured volume and other providers default to one scope per config.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8o8] Add generic data-source source scopes",
   "type": "task",
-  "updated_at": "2026-08-25T07:37:31Z"
+  "updated_at": "2026-08-25T07:37:39Z"
 }
