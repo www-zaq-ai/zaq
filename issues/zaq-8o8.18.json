@@ -21,11 +21,15 @@
     {
       "text": "Reopened after review: Storage ACL must match ZAQ permission semantics. No resource_permission rows means private/admin-only, not public. StorageEntry access must require skip_permissions:true or matching read grant.",
       "timestamp": "2026-08-25T15:44:47Z"
+    },
+    {
+      "text": "Corrected Storage ACL semantics: ungranted StorageEntry rows are private by default; access now requires matching read permission or explicit skip_permissions:true. BO admin actor handling extracted to ZaqWeb.Live.BO.AI.BOActor. Validated by focused Storage/Skills tests and final mix q.",
+      "timestamp": "2026-08-25T16:32:16Z"
     }
   ],
   "priority": 0,
   "status": "in_progress",
   "title": "[zaq-8o8] Harden Storage path and Disk ACLs",
   "type": "task",
-  "updated_at": "2026-08-25T15:44:47Z"
+  "updated_at": "2026-08-25T16:32:16Z"
 }
