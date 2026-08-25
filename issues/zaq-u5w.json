@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-25T18:18:03Z",
+  "description": "Ensure Disk materialized binary files preserve original canonical record filename/MIME so converter dispatch sees PDF/DOCX/etc extensions.",
+  "id": "zaq-u5w",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Preserve Disk binary metadata through ingestion staging",
+  "type": "task",
+  "updated_at": "2026-08-25T18:18:03Z"
+}
