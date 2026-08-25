@@ -114,6 +114,9 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   Where a path is both a leaf and a prefix of another (`"input"` and
   `"input.name"`), the nested form wins — it satisfies both.
+
+  The skeleton is not a payload: every leaf is `nil`, and `check/2` counts a `nil`
+  leaf as missing, so returning it unfilled is invalid on every path it names.
   """
   @spec required_input_shape(Workflow.t() | map()) :: map()
   def required_input_shape(workflow), do: workflow |> required_inputs() |> shape()
@@ -162,8 +165,12 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   Resolution goes through `FactLookup` with the payload planted under `start`, so
   a path matches the way it will at run time: nested paths descend, and the
-  canonicalising fallback accepts `"Email_Topic"` for `"email topic"`. A key
-  present but `nil` counts as supplied; only an unresolvable path is missing.
+  canonicalising fallback accepts `"Email_Topic"` for `"email topic"`.
+
+  A path is supplied when it resolves to a value. `nil` is not a value — the run
+  would read it and fail exactly the way this contract exists to catch — so a key
+  present but `nil` is missing, the same rule `pinned_params/1` applies to an
+  author's params. `false`, `0` and `""` are values a caller can mean, and supply.
   """
   @spec check(Workflow.t() | map() | [String.t()], term()) :: %{
           valid: boolean(),
@@ -174,7 +181,10 @@ defmodule Zaq.Engine.Workflows.InputContract do
     fact = %{__cascade__: %{start: payload}}
 
     {supplied, missing} =
-      Enum.split_with(required, &match?({:ok, _}, FactLookup.fetch(fact, qualified_start(&1))))
+      Enum.split_with(
+        required,
+        &match?({:ok, value} when not is_nil(value), FactLookup.fetch(fact, qualified_start(&1)))
+      )
 
     %{valid: missing == [], supplied: Enum.sort(supplied), missing_inputs: Enum.sort(missing)}
   end

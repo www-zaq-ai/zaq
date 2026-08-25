@@ -3,7 +3,7 @@ defmodule Zaq.Engine.Workflows.Steps.MapBodyPlaceholderTest do
   A `{{...}}` in a `map`/`Batch` body sub-step's params must be resolved before the
   sub-step's action runs, exactly as it is for a top-level node.
 
-  `StepRunner.resolve_placeholders/3` is driven by the `__placeholder_keys__` list
+  `StepRunner.resolve_placeholders/3` is driven by the `__placeholder_params__` list
   stamped onto the wrapper params by `DagBuilder.wrapper_params/5`. That function is
   the single producer of the shape: `build_action_node/5` uses it for a regular node
   and `MapNodeBuilder.build_fork_spec/4` for a fork sub-step, so a body node cannot

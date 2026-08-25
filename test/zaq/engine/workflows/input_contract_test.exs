@@ -455,7 +455,8 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       end
 
       # A key present with `nil` is not a value — the run would read `nil` and fail
-      # exactly the way the contract exists to catch.
+      # exactly the way the contract exists to catch. `check/2` applies the same rule
+      # to a payload: see "a key present but nil is missing" below.
       assert InputContract.required_inputs(pinned.(%{"provider" => nil})) ==
                ["provider", "spreadsheet_id"]
 
@@ -523,8 +524,47 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert %{valid: true} = InputContract.check(["topic"], %{topic: "x"})
     end
 
-    test "a key present but nil counts as supplied" do
-      assert %{valid: true} = InputContract.check(["topic"], %{"topic" => nil})
+    # The mirror of "a param pinned to nil does not satisfy a required field" above:
+    # `nil` is not a value on either side of the contract.
+    test "a key present but nil is missing" do
+      assert %{valid: false, missing_inputs: ["topic"], supplied: []} =
+               InputContract.check(["topic"], %{"topic" => nil})
+    end
+
+    test "a value an author can mean still counts as supplied" do
+      assert %{valid: true} = InputContract.check(["topic"], %{"topic" => false})
+      assert %{valid: true} = InputContract.check(["topic"], %{"topic" => 0})
+      assert %{valid: true} = InputContract.check(["topic"], %{"topic" => ""})
+    end
+
+    test "a nested leaf present but nil is missing" do
+      assert %{valid: false, missing_inputs: ["input.name"]} =
+               InputContract.check(["input.name"], %{"input" => %{"name" => nil}})
+
+      assert %{valid: true} = InputContract.check(["input.name"], %{"input" => %{"name" => "x"}})
+    end
+
+    # The path resolves — only then is its value judged. A canonicalising match that
+    # lands on `nil` is missing, not supplied because the key was found.
+    test "a canonicalised key present but nil is missing" do
+      assert %{valid: false, missing_inputs: ["email topic"]} =
+               InputContract.check(["email topic"], %{"Email_Topic" => nil})
+    end
+
+    # The footgun the tool exists to catch: `required_input_shape/1` hands an agent a
+    # skeleton with `nil` leaves, and sending it back unfilled must not read as valid.
+    test "the unfilled required_input_shape satisfies nothing" do
+      g =
+        graph(
+          [step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet")],
+          []
+        )
+
+      shape = InputContract.required_input_shape(g)
+      required = InputContract.required_inputs(g)
+
+      assert %{valid: false, missing_inputs: ^required, supplied: []} =
+               InputContract.check(g, shape)
     end
 
     test "a scalar payload supplies nothing" do
@@ -537,6 +577,52 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
       assert %{valid: true} = InputContract.check(g, %{"topic" => "x"})
       assert %{valid: false, missing_inputs: ["topic"]} = InputContract.check(g, %{})
+    end
+  end
+
+  # `required_schema_fields/1` reads a schema's field *names* and drops its types, so
+  # the contract answers "is this path supplied?" and never "is this the right kind of
+  # value?". `UpdatePerson.person_id` is `Zoi.integer()` and required, which makes it
+  # the case where the two questions disagree.
+  describe "a required field's type is not part of the contract" do
+    defp updates_person,
+      do: graph([step("a", module: "Zaq.Agent.Tools.People.UpdatePerson")], [])
+
+    test "the schema's required integer field is a required input" do
+      assert InputContract.required_inputs(updates_person()) == ["person_id"]
+    end
+
+    test "an integer satisfies it" do
+      assert %{valid: true, missing_inputs: []} =
+               InputContract.check(updates_person(), %{"person_id" => 42})
+    end
+
+    # Known gap, asserted so a change of heart is deliberate: the path resolves, so the
+    # contract calls it supplied. The run then rejects it — `Zoi.parse/2` on the action's
+    # own schema answers `"invalid type: expected integer"` for `"42"` — which is the
+    # same shape of footgun as a `nil` leaf, one level down. Closing it means carrying
+    # types through `required_schema_fields/1`, not patching `check/2`.
+    test "a string where the schema wants an integer passes anyway" do
+      assert %{valid: true, missing_inputs: [], supplied: ["person_id"]} =
+               InputContract.check(updates_person(), %{"person_id" => "42"})
+    end
+
+    test "any other wrong-typed value passes too — it is presence that is checked" do
+      for wrong <- [%{"id" => 42}, ["42"], true, 4.2] do
+        assert %{valid: true} = InputContract.check(updates_person(), %{"person_id" => wrong})
+      end
+    end
+
+    # The `nil` rule is orthogonal to type: it is the absence of a value, not a wrong
+    # one, so it is missing whatever the field's declared type is.
+    test "null does not pass, integer field or otherwise" do
+      assert %{valid: false, missing_inputs: ["person_id"], supplied: []} =
+               InputContract.check(updates_person(), %{"person_id" => nil})
+    end
+
+    test "the same verdicts through contract/2, the way the tool calls it" do
+      assert %{valid: true} = InputContract.contract(updates_person(), %{"person_id" => "42"})
+      assert %{valid: false} = InputContract.contract(updates_person(), %{"person_id" => nil})
     end
   end
 
@@ -934,6 +1020,48 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["language", "rows"]
       assert MapSet.member?(InputContract.all_inputs(g), "batch/join.parts")
       refute MapSet.member?(InputContract.all_inputs(g), "batch.process")
+    end
+
+    # The contract counts a `{{start.X}}` inside a body sub-step as a payload input,
+    # which is only honest if the fan-out unit can actually reach the trigger
+    # namespace at run time. It can: `MapNodeBuilder.extract_items/6` seeds each unit
+    # with the map node's incoming `__cascade__`, so a body step resolves `start.X`
+    # exactly like a top-level node. Without that seeding the fork's fact starts
+    # empty, `{{start.X}}` collapses to `""`, and this verdict would certify a
+    # workflow no payload could ever satisfy. `CascadeReachabilityE2ETest` pins the
+    # run-time half through a real run.
+    test "a payload feeding a sub-step's `{{start.X}}` checks valid" do
+      body = [body_node("join", @concat, %{"parts" => ["{{start.language}}"]})]
+      g = graph([batch("batch", body)], [edge("start", "batch", %{"items" => "start.rows"})])
+
+      assert %{valid: true, missing_inputs: []} =
+               InputContract.check(g, %{"language" => "fr", "rows" => [1, 2]})
+    end
+
+    test "omitting it is missing, named as the payload key the caller must send" do
+      body = [body_node("join", @concat, %{"parts" => ["{{start.language}}"]})]
+      g = graph([batch("batch", body)], [edge("start", "batch", %{"items" => "start.rows"})])
+
+      assert %{valid: false, missing_inputs: ["language"], supplied: ["rows"]} =
+               InputContract.check(g, %{"rows" => [1, 2]})
+    end
+
+    test "a `post_process` sub-step's `{{start.X}}` is a payload input too" do
+      # `post_process` specs run inside the same fork as the body, off the same
+      # seeded unit, so they reach `start` on the same terms.
+      body = [body_node("join", @concat)]
+
+      params = %{
+        "post_process" => [body_node("dispatch", @dispatch, %{"event_name" => "{{start.topic}}"})]
+      }
+
+      g =
+        graph([batch("batch", body, params)], [edge("start", "batch", %{"items" => "start.rows"})])
+
+      assert InputContract.required_inputs(g) == ["rows", "topic"]
+
+      assert %{valid: true, missing_inputs: []} =
+               InputContract.check(g, %{"topic" => "leads", "rows" => [1]})
     end
 
     test "`post_process` continues the same chain" do

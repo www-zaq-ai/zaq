@@ -1128,3 +1128,109 @@ defmodule Zaq.Engine.Workflows.Test.EmitStructRow do
     {:ok, %{row: row, metadata: %{last_message_date: nil}}}
   end
 end
+
+# ---------------------------------------------------------------------------
+# Placeholder / cascade collision test support
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.EmitBracedBody do
+  @moduledoc """
+  Emits runtime content that happens to contain a literal `{{...}}` token — the
+  lead/user-supplied text shape behind the `resolve_placeholders` finding.
+  """
+
+  use Jido.Action,
+    name: "test_emit_braced_body",
+    schema: [input: [type: :any]],
+    output_schema: [body: [type: :string, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{body: "lead wrote {{start.secret}} verbatim"}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitNestedX do
+  @moduledoc """
+  Emits a nested `x` that shadows a trigger payload key of the same name — the
+  `%{x: %{a: 1, b: 3}}` vs `start`'s `%{x: %{a: 1, b: 2}}` shape.
+  """
+
+  use Jido.Action,
+    name: "test_emit_nested_x",
+    schema: [input: [type: :any]],
+    output_schema: [x: [type: :map, required: true]]
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{x: %{"a" => 1, "b" => 3}}}
+
+  use Zaq.Engine.Workflows.Action
+end
+
+defmodule Zaq.Engine.Workflows.Test.EchoResolved do
+  @moduledoc """
+  Echoes the params it was handed back out as `seen`, so a test can assert what
+  `StepRunner` actually passed the action after placeholder resolution.
+  """
+
+  use Jido.Action,
+    name: "test_echo_resolved",
+    schema: [
+      text: [type: :any],
+      from_start: [type: :any],
+      from_node: [type: :any],
+      unqualified: [type: :any]
+    ],
+    output_schema: [seen: [type: :map, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @echoed [:text, :from_start, :from_node, :unqualified]
+
+  @impl Jido.Action
+  def run(params, _context) do
+    seen =
+      Map.new(@echoed, fn key ->
+        {key, Zaq.MapUtils.fetch_either(params, key, Atom.to_string(key))}
+      end)
+
+    {:ok, %{seen: seen}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitTag do
+  @moduledoc """
+  Emits `%{tag: <tag>}` — two of these on parallel branches give two cascade
+  entries that share a field name, so a downstream node can be asked whether it
+  can still reach both by node key.
+  """
+
+  use Jido.Action,
+    name: "test_emit_tag",
+    schema: [tag: [type: :string, required: true]],
+    output_schema: [tag: [type: :string, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context),
+    do: {:ok, %{tag: Zaq.MapUtils.fetch_either(params, :tag, "tag")}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitPartialX do
+  @moduledoc """
+  Emits an `x` carrying only `b` — shadowing a trigger `x` that also had `a`, so
+  a test can show the root merge is shallow (root `x.a` is gone) while
+  `start.x.a` survives.
+  """
+
+  use Jido.Action,
+    name: "test_emit_partial_x",
+    schema: [input: [type: :any]],
+    output_schema: [x: [type: :map, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{x: %{"b" => 3}}}
+end

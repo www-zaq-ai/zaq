@@ -112,13 +112,14 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       :ok
     end
 
-    # `__placeholder_keys__` is what `DagBuilder.build_action_node/5` stamps on at
-    # build time; these tests supply it directly, the way the DAG would.
+    # `__placeholder_params__` is what `DagBuilder.wrapper_params/5` stamps on at
+    # build time — the authored value per placeholder-bearing key. These tests name
+    # the keys and the helper stamps their values, the way the DAG would.
     defp wp_ph(run, step_name, params, keys, cascade \\ %{}) do
       run
       |> wp(ParamProbe, step_name, 0)
       |> Map.merge(params)
-      |> Map.put(:__placeholder_keys__, keys)
+      |> Map.put(:__placeholder_params__, Map.take(params, keys))
       |> Map.put(:__cascade__, cascade)
     end
 
@@ -208,7 +209,7 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
     end
 
     test "only the keys named at build time are resolved" do
-      # `other` carries a placeholder but is not in `__placeholder_keys__`, so it is
+      # `other` carries a placeholder but is not in `__placeholder_params__`, so it is
       # never walked — this is what keeps a bulk payload off the resolver's path.
       run = create_run()
 
@@ -278,14 +279,14 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert ParamCapture.get_params()[:input] == "-"
     end
 
-    test "`__placeholder_keys__` never reaches the action" do
+    test "`__placeholder_params__` never reaches the action" do
       run = create_run()
 
       assert {:ok, _} =
                StepRunner.run(wp_ph(run, "step", %{input: "{{v}}", v: "x"}, [:input]), %{})
 
       captured = ParamCapture.get_params()
-      refute Map.has_key?(captured, :__placeholder_keys__)
+      refute Map.has_key?(captured, :__placeholder_params__)
     end
   end
 

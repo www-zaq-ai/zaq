@@ -16,6 +16,12 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
   handed only the flat list reliably sends `"input.name"` as a literal key, which
   `FactLookup` cannot resolve.
 
+  Filling a gap means sending a value. `required_input_shape` is a skeleton with
+  null leaves, and a required path present but null is reported missing exactly
+  like an absent one — otherwise the loop could converge on the skeleton itself
+  and dispatch a payload the run reads as `nil`. `false`, `0` and `""` are values
+  an agent can mean, and they satisfy their path.
+
   The action never returns `{:error, _}` for a failing verdict — that would prune
   the downstream subgraph and make it impossible to route a bad payload to a
   remediation branch. A `valid: false` result is `{:ok, _}` so an edge condition
@@ -47,7 +53,8 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
     means nesting, so `input.name` is `{"input": {"name": ...}}` and never a flat
     key literally called `"input.name"`. Build the payload from
     `required_input_shape`, which is that structure already assembled with null
-    leaves — fill in the values and send it back.
+    leaves — fill in the values and send it back. A leaf left null counts as
+    missing, so sending the skeleton back unchanged is never valid.
     """,
     schema:
       Zoi.object(%{
@@ -72,12 +79,16 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
       Zoi.object(%{
         valid:
           Zoi.boolean(
-            description: "True when the input satisfies every field the workflow's steps need"
+            description:
+              "True when the input supplies a non-null value for every field the " <>
+                "workflow's steps need"
           ),
         input: Zoi.any(description: "The candidate input, echoed back unchanged"),
         missing_inputs:
           Zoi.array(Zoi.string(),
-            description: "Payload paths the input does not supply — fill these and retry"
+            description:
+              "Payload paths the input does not supply — absent, or present with a null " <>
+                "value. Fill these with real values and retry"
           ),
         required_inputs:
           Zoi.array(Zoi.string(),
@@ -87,7 +98,8 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
           Zoi.map(
             description:
               "`required_inputs` as the payload itself — a nested skeleton with null leaves. " <>
-                "Fill in the values and send this; do not send a dotted path as a flat key."
+                "Fill in the values and send this; do not send a dotted path as a flat key, " <>
+                "and do not send it back with leaves still null — a null leaf is a gap."
           ),
         unsatisfiable_inputs:
           Zoi.array(Zoi.map([]),

@@ -248,14 +248,27 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   defp extract_items(input, name, index, over, opts, run_id) when is_map(input) do
     items = input |> fetch_over(over) |> List.wrap()
     enforce_max_items!(name, index, length(items), opts, run_id)
+    cascade = cascade_of(input)
 
     items
     |> group_units(opts)
     |> Enum.with_index()
-    |> Enum.map(fn {unit, i} -> stamp_unit(unit, i, opts) end)
+    |> Enum.map(fn {unit, i} -> unit |> stamp_unit(i, opts) |> seed_cascade(cascade) end)
   end
 
   defp extract_items(_input, _name, _index, _over, _opts, _run_id), do: []
+
+  defp cascade_of(input),
+    do: Map.get(input, :__cascade__) || Map.get(input, "__cascade__") || %{}
+
+  # A fan-out unit is a bare item, so without this a body step would start from an
+  # empty fact and every `{{start.*}}` / `{{upstream.*}}` would collapse to "".
+  # Seeding the map node's own incoming cascade makes a body node resolve exactly
+  # like a top-level one, which is what `build_fork_spec/4` promises. `StepRunner`
+  # strips the key before the action sees it, and `summarize_map_item/1` strips it
+  # again on the way into the aggregate.
+  defp seed_cascade(unit, cascade) when map_size(cascade) == 0, do: unit
+  defp seed_cascade(unit, cascade), do: Map.put(unit, :__cascade__, cascade)
 
   # Run-time guard: a runtime collection larger than the effective cap must
   # not fan out unbounded. Runic swallows step exceptions and only logs them, so a

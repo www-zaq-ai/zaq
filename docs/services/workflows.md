@@ -141,6 +141,14 @@ implements substitution itself.
 so what the contract calls a reference and what the runtime resolves cannot drift.
 Every reference is visible to it — there is no module-specific reference syntax.
 
+**A required path present but `nil` is missing.** `check/2` counts a path as
+supplied only when it resolves to a value, the same rule the authoring side applies
+to a node's params (`pinned_params/1`: a `nil` param pins nothing). So
+`required_input_shape/1` — a skeleton with `nil` leaves — is invalid on every path
+it names until the leaves are filled, and an agent looping on
+`validate_workflow_input` cannot converge by echoing the skeleton back. `false`,
+`0` and `""` are values a caller can mean, and they supply.
+
 **Condition keys are not references.** A `Condition` node's `conditions[].key`
 selects a field *inside* `input` (`"record.id"` reads `input["record"]["id"]`) and
 never reaches the run cascade, so a key means the same thing however the graph

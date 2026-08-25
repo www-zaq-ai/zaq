@@ -94,6 +94,63 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
       assert result.input == %{"email topic" => "Q3"}
     end
 
+    # A null leaf is a gap, not a value: the run would read `nil` and fail for the
+    # very reason this tool is called. It reports identically to an absent key,
+    # because the remediation is identical — send a value.
+    test "rejects a payload whose required field is present but null" do
+      workflow = workflow_fixture()
+
+      assert {:ok, result} =
+               ValidateWorkflowInput.run(
+                 %{
+                   workflow_id: workflow.id,
+                   input: %{"email topic" => "Q3", "company context content" => nil}
+                 },
+                 %{}
+               )
+
+      refute result.valid
+      assert result.missing_inputs == ["company context content"]
+      assert result.input == %{"email topic" => "Q3", "company context content" => nil}
+    end
+
+    test "a null field routes like a missing one — {:ok, _}, so an edge can branch on it" do
+      workflow = workflow_fixture()
+
+      nulled = %{"email topic" => "Q3", "company context content" => nil}
+      absent = %{"email topic" => "Q3"}
+
+      assert {:ok, %{valid: false, missing_inputs: missing}} =
+               ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: nulled}, %{})
+
+      assert {:ok, %{valid: false, missing_inputs: ^missing}} =
+               ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: absent}, %{})
+    end
+
+    # The loop the moduledoc describes — read the shape, fill it, call again — must
+    # not converge on the skeleton itself.
+    test "the required_input_shape sent straight back is not valid" do
+      workflow = workflow_fixture()
+
+      assert {:ok, %{required_input_shape: shape, required_inputs: required}} =
+               ValidateWorkflowInput.run(%{workflow_id: workflow.id}, %{})
+
+      assert {:ok, %{valid: false, missing_inputs: ^required}} =
+               ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: shape}, %{})
+    end
+
+    test "the shape filled in is valid — the loop still converges" do
+      workflow = workflow_fixture()
+
+      assert {:ok, %{required_input_shape: shape}} =
+               ValidateWorkflowInput.run(%{workflow_id: workflow.id}, %{})
+
+      filled = Map.new(shape, fn {path, nil} -> {path, "a value"} end)
+
+      assert {:ok, %{valid: true, missing_inputs: []}} =
+               ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: filled}, %{})
+    end
+
     test "accepts a payload supplying every required field" do
       workflow = workflow_fixture()
 

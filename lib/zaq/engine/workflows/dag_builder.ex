@@ -212,16 +212,18 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       run_id: run_id,
       step_name: step_name,
       step_index: step_index,
-      __placeholder_keys__: placeholder_keys(params)
+      __placeholder_params__: placeholder_params(params)
     })
   end
 
-  # Which static params carry a `{{...}}` token, scanned once here rather than on
-  # every execution. A placeholder is always author-written, so only a node's own
-  # params can hold one — data arriving later through an edge mapping is runtime
-  # data and is never scanned, which keeps a bulk payload off the resolver's path.
-  defp placeholder_keys(params) do
-    for {key, value} <- params, Placeholders.references(value) != [], do: key
+  # The static params carrying a `{{...}}` token, scanned once here rather than on
+  # every execution, keyed to the value the author actually wrote. A placeholder is
+  # always author-written, so only a node's own params can hold one — bulk data
+  # delivered by an edge mapping is never scanned, which keeps it off the resolver's
+  # path. Keeping the authored value (not just the key) lets `StepRunner` tell a
+  # param still holding it apart from one a mapping has since overwritten.
+  defp placeholder_params(params) do
+    for {key, value} <- params, Placeholders.references(value) != [], into: %{}, do: {key, value}
   end
 
   defp validate_edges(edges, node_map) do

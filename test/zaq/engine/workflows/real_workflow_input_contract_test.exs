@@ -336,6 +336,35 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
              }
     end
 
+    # The shape is a skeleton, not a payload: returning it unfilled must not converge
+    # the loop. Every path it names is still missing, because a `nil` leaf is a gap.
+    test "the shape sent back unfilled satisfies nothing" do
+      g = graph("send_leads_email.json")
+      required = InputContract.required_inputs(g)
+
+      assert %{valid: false, missing_inputs: ^required, supplied: []} =
+               InputContract.check(g, InputContract.required_input_shape(g))
+    end
+
+    test "a shape with one leaf left null reports exactly that leaf" do
+      g = graph("send_leads_email.json")
+
+      partially_filled =
+        g
+        |> InputContract.required_input_shape()
+        |> Map.merge(%{
+          "company context content" => "Acme Corp is ",
+          "company official name" => "Acme Corporation",
+          "email topic" => "Request for a product demo",
+          "input" => %{"name" => "John Doe"},
+          "row_index" => 0,
+          "sequence" => 1
+        })
+
+      assert %{valid: false, missing_inputs: ["language"]} =
+               InputContract.check(g, partially_filled)
+    end
+
     test "the same payload rebuilt from the shape validates" do
       g = graph("send_leads_email.json")
 
