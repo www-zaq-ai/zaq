@@ -2,14 +2,16 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-25T12:38:58Z",
+  "close_reason": "Implemented capability-driven ingestion creation CTAs",
   "created": "2026-08-25T12:11:12Z",
   "description": "Drive Ingestion UI upload/new-folder/raw-MD CTAs from config-scoped data-source capabilities and route callbacks through CreateDocument.",
   "id": "zaq-8o8.14",
   "labels": [],
   "parent": "zaq-8o8",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-8o8.14] Rewire ingestion creation CTAs to capabilities",
   "type": "task",
-  "updated_at": "2026-08-25T12:11:12Z"
+  "updated_at": "2026-08-25T12:38:58Z"
 }
