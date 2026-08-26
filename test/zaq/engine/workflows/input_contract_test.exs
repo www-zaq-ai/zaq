@@ -666,26 +666,28 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
   describe "check/2" do
     test "reports a payload that supplies everything as valid" do
       assert %{valid?: true, errors: []} =
-               InputContract.check(["topic"], %{"topic" => "x"})
+               InputContract.check_presence(["topic"], %{"topic" => "x"})
     end
 
     test "reports the paths a payload does not supply" do
-      verdict = InputContract.check(["topic", "name", "language"], %{"name" => "Saraluna"})
+      verdict =
+        InputContract.check_presence(["topic", "name", "language"], %{"name" => "Saraluna"})
 
       refute verdict.valid?
       assert missing(verdict) == [["language"], ["topic"]]
     end
 
     test "an empty contract is satisfied by any payload" do
-      assert %{valid?: true} = InputContract.check([], %{})
+      assert %{valid?: true} = InputContract.check_presence([], %{})
     end
 
     test "resolves a nested path" do
-      assert %{valid?: true} = InputContract.check(["input.name"], %{"input" => %{"name" => "x"}})
+      assert %{valid?: true} =
+               InputContract.check_presence(["input.name"], %{"input" => %{"name" => "x"}})
     end
 
     test "a nested path missing its parent is reported" do
-      verdict = InputContract.check(["input.name"], %{"name" => "x"})
+      verdict = InputContract.check_presence(["input.name"], %{"name" => "x"})
 
       refute verdict.valid?
       assert missing(verdict) == [["input", "name"]]
@@ -693,47 +695,49 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
     test "accepts a differently-cased key, the way FactLookup will at run time" do
       assert %{valid?: true} =
-               InputContract.check(["company context content"], %{
+               InputContract.check_presence(["company context content"], %{
                  "Company Context Content" => "x"
                })
     end
 
     test "accepts underscores for spaces" do
-      assert %{valid?: true} = InputContract.check(["email topic"], %{"email_topic" => "x"})
+      assert %{valid?: true} =
+               InputContract.check_presence(["email topic"], %{"email_topic" => "x"})
     end
 
     test "accepts an atom-keyed payload" do
-      assert %{valid?: true} = InputContract.check(["topic"], %{topic: "x"})
+      assert %{valid?: true} = InputContract.check_presence(["topic"], %{topic: "x"})
     end
 
     # The mirror of "a param pinned to nil does not satisfy a required field" above:
     # `nil` is not a value on either side of the contract.
     test "a key present but nil is missing" do
-      verdict = InputContract.check(["topic"], %{"topic" => nil})
+      verdict = InputContract.check_presence(["topic"], %{"topic" => nil})
 
       refute verdict.valid?
       assert missing(verdict) == [["topic"]]
     end
 
     test "a value an author can mean still counts as supplied" do
-      assert %{valid?: true} = InputContract.check(["topic"], %{"topic" => false})
-      assert %{valid?: true} = InputContract.check(["topic"], %{"topic" => 0})
-      assert %{valid?: true} = InputContract.check(["topic"], %{"topic" => ""})
+      assert %{valid?: true} = InputContract.check_presence(["topic"], %{"topic" => false})
+      assert %{valid?: true} = InputContract.check_presence(["topic"], %{"topic" => 0})
+      assert %{valid?: true} = InputContract.check_presence(["topic"], %{"topic" => ""})
     end
 
     test "a nested leaf present but nil is missing" do
-      verdict = InputContract.check(["input.name"], %{"input" => %{"name" => nil}})
+      verdict = InputContract.check_presence(["input.name"], %{"input" => %{"name" => nil}})
 
       refute verdict.valid?
       assert missing(verdict) == [["input", "name"]]
 
-      assert %{valid?: true} = InputContract.check(["input.name"], %{"input" => %{"name" => "x"}})
+      assert %{valid?: true} =
+               InputContract.check_presence(["input.name"], %{"input" => %{"name" => "x"}})
     end
 
     # The path resolves — only then is its value judged. A canonicalising match that
     # lands on `nil` is missing, not supplied because the key was found.
     test "a canonicalised key present but nil is missing" do
-      verdict = InputContract.check(["email topic"], %{"Email_Topic" => nil})
+      verdict = InputContract.check_presence(["email topic"], %{"Email_Topic" => nil})
 
       refute verdict.valid?
       assert missing(verdict) == [["email topic"]]
@@ -758,7 +762,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     end
 
     test "a scalar payload supplies nothing" do
-      verdict = InputContract.check(["topic"], "a string")
+      verdict = InputContract.check_presence(["topic"], "a string")
 
       refute verdict.valid?
       assert missing(verdict) == [["topic"]]
@@ -896,7 +900,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     # presence-only semantics it has always had, and says so.
     test "check/2 on a bare list of paths type-checks nothing" do
       assert %{valid?: true, errors: []} =
-               InputContract.check(["person_id"], %{"person_id" => "42"})
+               InputContract.check_presence(["person_id"], %{"person_id" => "42"})
     end
 
     test "contract/2 reports both buckets in one pass" do

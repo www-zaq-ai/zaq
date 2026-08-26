@@ -387,6 +387,8 @@ defmodule Zaq.Engine.Workflows.Action do
   """
   @spec field_errors(term(), term()) :: [Zoi.Error.t()]
   def field_errors(spec, value) do
+    value = json_value(spec, value)
+
     case Zoi.parse(spec, value) do
       {:ok, _} ->
         []
@@ -398,6 +400,47 @@ defmodule Zaq.Engine.Workflows.Action do
         end
     end
   end
+
+  # The JSON-shaped translation, applied to the Zoi dialect as it already is to the
+  # NimbleOptions one. It shapes the *value*, never the spec: widening a spec would
+  # drop the author's refinements on the widened branch — a `Zoi.float() |> Zoi.gt(0)`
+  # union'd with `Zoi.integer()` would accept `0` through the integer side, silently
+  # losing the bound.
+  #
+  # A structured `Zoi.object`
+  # declares atom keys and defaults to `unrecognized_keys: :strip`, so a string-keyed
+  # map — which is every trigger payload, since JSON has no atoms — is stripped to
+  # `%{}` and parses clean against rules that never ran. Widening the spec cannot fix
+  # that: the stripping object accepts the value either way.
+  #
+  # So the keys the schema *declares* are renamed on the value before it is judged.
+  # Only declared names are touched, and only where the value carries the string form,
+  # so an open `Zoi.map()` and any key the author did not declare are left alone. This
+  # is the single place a value is judged, so the contract and `StepRunner` cannot
+  # disagree about it.
+  defp json_value(%Zoi.Types.Default{inner: inner}, value), do: json_value(inner, value)
+
+  defp json_value(%Zoi.Types.Array{inner: inner}, value)
+       when is_list(value) and not is_nil(inner),
+       do: Enum.map(value, &json_value(inner, &1))
+
+  # JSON has one number type, so `3` is what a weight of `3.0` arrives as. Widening to
+  # a float keeps every rule the author declared applying to it.
+  defp json_value(%Zoi.Types.Float{}, value) when is_integer(value), do: value * 1.0
+
+  defp json_value(%Zoi.Types.Map{fields: fields}, value)
+       when is_list(fields) and fields != [] and is_map(value) do
+    Enum.reduce(fields, value, fn {name, sub}, acc ->
+      key = to_string(name)
+
+      case Map.fetch(acc, key) do
+        {:ok, held} -> acc |> Map.delete(key) |> Map.put(name, json_value(sub, held))
+        :error -> acc
+      end
+    end)
+  end
+
+  defp json_value(_spec, value), do: value
 
   defp kind_mismatch(spec, value) do
     Zoi.Error.invalid_type(schema_kind(spec),

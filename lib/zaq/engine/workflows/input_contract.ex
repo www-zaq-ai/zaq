@@ -198,8 +198,7 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   Judges a candidate trigger payload, as `%{valid?:, errors:}`.
 
-  Takes a workflow or an already-computed `required_inputs/1` list. Resolution goes
-  through `FactLookup` with the payload planted under `start`, so a path matches the
+  Resolution goes through `FactLookup` with the payload planted under `start`, so a path matches the
   way it will at run time — nested paths descend, and `"Email_Topic"` resolves
   `"email topic"`.
 
@@ -209,16 +208,14 @@ defmodule Zaq.Engine.Workflows.InputContract do
   `""` are values a caller can mean, and supply. An optional path is an error only
   when it is present and wrong.
 
-  Only the workflow arity type-checks: a bare list carries no modules to read types
-  from, so it is a presence-only check over paths all taken to be required.
+  Takes a workflow. To check a bare list of paths for presence alone, and nothing
+  else, reach for `check_presence/2` — it answers a narrower question and says so in
+  its name.
   """
-  @spec check(Workflow.t() | map() | [String.t()], term()) :: %{
+  @spec check(Workflow.t() | map(), term()) :: %{
           valid?: boolean(),
           errors: [%{path: [String.t() | integer()], code: atom(), message: String.t()}]
         }
-  def check(required, payload) when is_list(required),
-    do: check_against(required, [], %{}, payload)
-
   def check(workflow, payload) do
     needs = needs(workflow)
 
@@ -287,6 +284,23 @@ defmodule Zaq.Engine.Workflows.InputContract do
           errors: [%{path: [String.t() | integer()], code: atom(), message: String.t()}]
         }
   def contract(workflow, payload), do: check(workflow, payload)
+
+  @doc """
+  Whether a payload carries every path in a bare list — presence only.
+
+  A narrower question than `check/2`, and a weaker answer: a list of paths carries no
+  modules, so nothing here knows a path's declared type, its rules, or whether it was
+  optional. Every path is taken to be required and is judged present or absent.
+
+  Use it only where there is no workflow to read. Given one, `check/2` answers the same
+  question and three more.
+  """
+  @spec check_presence([String.t()], term()) :: %{
+          valid?: boolean(),
+          errors: [%{path: [String.t() | integer()], code: atom(), message: String.t()}]
+        }
+  def check_presence(required, payload) when is_list(required),
+    do: check_against(required, [], %{}, payload)
 
   # -- iteration bodies ---------------------------------------------------------
 
@@ -396,6 +410,13 @@ defmodule Zaq.Engine.Workflows.InputContract do
   # schema-required field.
   defp iterated_field(node), do: List.wrap(node["iterates"])
 
+  # No schema declares an iteration node's collection — `Batch` has none, and a `map`
+  # node names its own in `over` — so it is the one required field nothing could type.
+  # It is always a list: `MapNodeBuilder.extract_items/6` wraps whatever it finds with
+  # `List.wrap/1`, so a scalar does not fail there, it silently fans out as one item.
+  defp iterated_specs(node),
+    do: Map.new(iterated_field(node), &{&1, {Zoi.array(Zoi.any()), true}})
+
   # -- needs --------------------------------------------------------------------
 
   # Every input need in the graph, as `%{node:, field:, source:, kind:}` — one per
@@ -483,7 +504,7 @@ defmodule Zaq.Engine.Workflows.InputContract do
       overwritten: overwritten(incoming),
       local: MapSet.union(mapped, pinned),
       upstream: upstream_emits(incoming, emits),
-      specs: declared_field_specs(node["module"]),
+      specs: Map.merge(declared_field_specs(node["module"]), iterated_specs(node)),
       typed?: true
     }
 
