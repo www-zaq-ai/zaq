@@ -11,6 +11,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   alias Zaq.Agent.Skill
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Skills.Limits
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.DiskBridge
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
   alias ZaqWeb.Helpers.SizeFormat
@@ -19,7 +21,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   setup :verify_on_exit!
 
   setup %{conn: conn} do
-    user = user_fixture(%{username: "skills-admin"})
+    user = super_admin_fixture(%{username: "skills-admin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
@@ -80,6 +82,16 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   # test must not be faked. Only the transport is short-circuited.
   defmodule RealRouter do
     alias Zaq.Agent.Skills
+    alias Zaq.Channels.Api, as: ChannelsApi
+    alias Zaq.Storage.Api, as: StorageApi
+
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      ChannelsApi.handle_event(event, Keyword.fetch!(opts, :action), nil)
+    end
+
+    def dispatch(%{next_hop: %{destination: :storage}, opts: opts} = event) do
+      StorageApi.handle_event(event, Keyword.fetch!(opts, :action), nil)
+    end
 
     def dispatch(%{request: %{module: mod, function: fun, args: args}} = event) do
       %{event | response: apply(mod, fun, args)}
@@ -103,24 +115,43 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     end
   end
 
+  defmodule SkillsDiskBridge do
+    alias Zaq.Channels.DiskBridge
+
+    def list_source_scopes("disk", params), do: DiskBridge.list_source_scopes(config(), params)
+    def create_file("disk", params), do: DiskBridge.create_file(config(), params)
+    def get_file("disk", params), do: DiskBridge.get_file(config(), params)
+    def delete_file("disk", params), do: DiskBridge.delete_file(config(), params)
+    def list_files("disk", params), do: DiskBridge.list_files(config(), params)
+
+    defp config do
+      :zaq
+      |> Application.fetch_env!(:skills_live_test_disk_config)
+      |> Map.put(:node_router, RealRouter)
+    end
+  end
+
   # Writes fail, reads succeed — proves a failed upload does not persist `resource_root`.
   defmodule UploadFailureRouter do
-    def dispatch(%{request: %{function: :upload_file}} = event) do
-      %{event | response: {:error, :eacces}}
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :data_source_create_file do
+        %{event | response: {:error, :eacces}}
+      else
+        RealRouter.dispatch(event)
+      end
     end
 
     def dispatch(event), do: RealRouter.dispatch(event)
   end
 
-  # The ingestion node is unreachable, so `list_volumes` yields an error tuple instead of
-  # the expected map.
+  # The data-source path is unreachable, so source-scope discovery yields an error tuple.
   defmodule IngestionDownRouter do
-    def dispatch(%{request: %{function: :list_volumes}} = event) do
-      %{event | response: {:error, :node_down}}
-    end
-
-    def dispatch(%{request: %{function: :volumes_configured?}} = event) do
-      %{event | response: {:error, :node_down}}
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :data_source_list_source_scopes do
+        %{event | response: {:error, :node_down}}
+      else
+        RealRouter.dispatch(event)
+      end
     end
 
     def dispatch(event), do: RealRouter.dispatch(event)
@@ -128,8 +159,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
   # Everything works except removing the resource directory.
   defmodule ResourceDeleteFailureRouter do
-    def dispatch(%{request: %{function: :delete_path}} = event) do
-      %{event | response: {:error, :eperm}}
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :data_source_delete_file do
+        %{event | response: {:error, :eperm}}
+      else
+        RealRouter.dispatch(event)
+      end
     end
 
     def dispatch(event), do: RealRouter.dispatch(event)
@@ -137,7 +172,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
   # Uploads succeed but persisting `resource_root` back onto the skill fails.
   defmodule SkillUpdateFailureRouter do
-    def dispatch(%{request: %{module: _, function: _, args: _}} = event) do
+    def dispatch(%{next_hop: %{destination: destination}} = event)
+        when destination in [:channels, :storage] do
       RealRouter.dispatch(event)
     end
 
@@ -147,10 +183,45 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   end
 
   defp configure_volumes(volumes) do
-    previous = Application.get_env(:zaq, Zaq.Ingestion)
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: "priv/documents", volumes: volumes)
-    on_exit(fn -> Application.put_env(:zaq, Zaq.Ingestion, previous || []) end)
+    previous_bridge = Application.get_env(:zaq, :skills_live_data_source_bridge_module)
+    previous_config = Application.get_env(:zaq, :skills_live_test_disk_config)
+    previous_storage = Application.get_env(:zaq, Zaq.Storage)
+    base_path = System.tmp_dir!()
+
+    Application.put_env(:zaq, Zaq.Storage, base_path: base_path, volumes: %{})
+
+    volume_settings =
+      Enum.map(volumes, fn {name, path} ->
+        %{"name" => to_string(name), "path" => Path.relative_to(path, base_path)}
+      end)
+
+    config =
+      if volume_settings == [] do
+        %{id: nil, provider: "disk", settings: %{"volumes" => []}}
+      else
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Skills Disk",
+          provider: "disk",
+          kind: "data_source",
+          enabled: true,
+          settings: %{"volumes" => volume_settings}
+        })
+        |> Repo.insert!()
+      end
+
+    Application.put_env(:zaq, :skills_live_data_source_bridge_module, SkillsDiskBridge)
+    Application.put_env(:zaq, :skills_live_test_disk_config, config)
+
+    on_exit(fn ->
+      restore_env(:skills_live_data_source_bridge_module, previous_bridge)
+      restore_env(:skills_live_test_disk_config, previous_config)
+      restore_env(Zaq.Storage, previous_storage)
+    end)
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:zaq, key)
+  defp restore_env(key, value), do: Application.put_env(:zaq, key, value)
 
   defp tmp_volume(name) do
     path =
@@ -514,7 +585,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert Skills.get_skill(skill.id) == nil
     end
 
-    test "removes the tracked document rows along with the files", %{conn: conn} do
+    test "does not create ingestion document rows for skill resources", %{conn: conn} do
       volume = tmp_volume("delete_docs")
       configure_volumes(%{"documents" => volume})
       with_skills_live_node_router(RealRouter)
@@ -527,7 +598,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert Repo.aggregate(
                from(d in Document, where: like(d.source, "%tracked-skill%")),
                :count
-             ) > 0
+             ) == 0
 
       view |> element("#delete-skill-button") |> render_click()
 
@@ -611,7 +682,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       html = view |> element("#delete-skill-button") |> render_click()
 
       # The record deletion is the user's intent and already succeeded; orphaned files are
-      # recoverable from the ingestion browser, so warn rather than pretend it all worked.
+      # recoverable from the storage browser, so warn rather than pretend it all worked.
       assert html =~ "resources could not be removed"
       assert Skills.get_skill(skill.id) == nil
     end

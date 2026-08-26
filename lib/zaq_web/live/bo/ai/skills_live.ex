@@ -10,12 +10,10 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   ## Skill resources
 
-  A skill's reference files are uploaded here but stored on the configured storage volume, under
-  `.agents/skills/{slug}/references/` on a volume — so they appear in the ingestion
-  browser like any other file and need no separate storage. Every filesystem hop goes
-  through `NodeRouter`: the BO node is not guaranteed to have
-  the volume mounted. Path derivation is `Zaq.Agent.Skill.Resources`' job, not this
-  module's.
+  A skill's reference files are uploaded here but stored through the Disk data source, under
+  `.agents/skills/{slug}/references/` on a storage volume. Every filesystem hop goes through
+  `NodeRouter`: the BO node is not guaranteed to have the volume mounted. Path derivation is
+  `Zaq.Agent.Skill.Resources`' job, not this module's.
 
   Uploading requires an explicitly configured storage volume,
   not merely a non-empty `list_volumes/0` — that call synthesizes a `"default"` entry and
@@ -36,17 +34,18 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Event
-  alias Zaq.Ingestion
   alias Zaq.NodeRouter
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Components.DesignSystem.ModalUpload
   alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Helpers.SizeFormat
+  alias ZaqWeb.Live.BO.AI.BOActor
 
   # Narrower than IngestionLive's list on purpose: skill resources are reference material
   # the agent reads, so only the formats that make sense in that role are accepted.
   @allowed_extensions ~w(.json .md .pdf .png)
+  @resource_data_source_provider "disk"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -195,7 +194,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
       results =
         consume_uploaded_entries(socket, :skill_resources, fn %{path: tmp_path}, entry ->
-          {:ok, upload_resource(skill, volume, tmp_path, entry)}
+          {:ok, upload_resource(socket, skill, volume, tmp_path, entry)}
         end)
 
       {uploaded, failed} = Enum.split_with(results, &match?({:ok, _}, &1))
@@ -410,16 +409,34 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   defp assign_volumes(socket) do
     volumes =
-      case ingestion_invoke(:list_volumes, []) do
-        volumes when is_map(volumes) -> volumes
+      case data_source_action(:data_source_list_source_scopes, %{}, socket) do
+        {:ok, scopes} when is_list(scopes) -> volumes_from_scopes(scopes)
         _ -> %{}
       end
 
     socket
     |> assign(:volumes, volumes)
-    |> assign(:volumes_connected?, ingestion_invoke(:volumes_configured?, []) == true)
+    |> assign(:volumes_connected?, map_size(volumes) > 0)
     |> assign(:resource_volume, default_volume(volumes))
   end
+
+  defp volumes_from_scopes(scopes) do
+    scopes
+    |> Enum.flat_map(fn scope ->
+      case scope_id(scope) do
+        nil -> []
+        id -> [{id, id}]
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp scope_id(scope) when is_map(scope) do
+    Map.get(scope, :scope_id) || Map.get(scope, "scope_id") ||
+      get_in(scope, [:filters, "parent"]) || get_in(scope, ["filters", "parent"])
+  end
+
+  defp scope_id(_scope), do: nil
 
   # `Map.keys/1` ordering is not guaranteed, so sort rather than take whichever key the
   # map happens to yield first — otherwise the preselected volume could differ per node.
@@ -451,7 +468,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     if is_binary(volume) and entries != [] and Enum.all?(entries, &(&1.progress == 100)) do
       socket
       |> consume_uploaded_entries(:skill_resources, fn %{path: tmp_path}, entry ->
-        {:ok, upload_resource(skill, volume, tmp_path, entry)}
+        {:ok, upload_resource(socket, skill, volume, tmp_path, entry)}
       end)
       |> Enum.split_with(&match?({:ok, _}, &1))
     else
@@ -474,16 +491,22 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     )
   end
 
-  defp upload_resource(skill, volume, tmp_path, entry) do
+  defp upload_resource(socket, skill, volume, tmp_path, entry) do
     destination = Resources.destination(skill, entry.client_name)
 
-    # Both failure shapes are already `{:error, reason}`, so they fall through as-is.
     with {:ok, binary} <- File.read(tmp_path),
-         {:ok, written} <- ingestion_invoke(:upload_file, [volume, destination, binary]) do
-      # Same as IngestionLive: track immediately so the file browser sees the file
-      # without waiting for a filesystem watcher.
-      ingestion_invoke(:track_upload, [volume, written])
-      {:ok, written}
+         {:ok, %{record: record}} <-
+           data_source_action(
+             :data_source_create_file,
+             %{
+               "path" => Path.join(volume, Path.dirname(destination)),
+               "name" => Path.basename(destination),
+               "content" => Base.encode64(binary),
+               "encoding" => "base64"
+             },
+             socket
+           ) do
+      {:ok, record}
     end
   end
 
@@ -512,24 +535,33 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
        )
        when is_binary(volume) do
     entries =
-      case ingestion_invoke(:list_entries, [volume, references_dir(skill)]) do
-        {:ok, entries} when is_list(entries) -> Enum.filter(entries, &(&1.type == :file))
+      case data_source_action(
+             :data_source_list_files,
+             %{"filters" => %{"parent" => Path.join(volume, references_dir(skill))}},
+             socket
+           ) do
+        {:ok, %{records: records}} when is_list(records) ->
+          Enum.filter(records, &(&1.kind == :file))
+
+        {:ok, %{"records" => records}} when is_list(records) ->
+          Enum.filter(records, &(Map.get(&1, :kind) == :file or Map.get(&1, "kind") == :file))
+
         # A skill with no uploads yet has no directory — that is the empty state, not an error.
-        _ -> []
+        _ ->
+          []
       end
 
     assign(socket, :skill_resources, entries)
   end
 
-  # No skill selected, or no volume to read from (nothing configured, or the ingestion node
-  # did not answer). `FileExplorer.list/2` requires a binary volume, so guard rather than
-  # let a degraded ingestion role crash the page.
+  # No skill selected, or no volume to read from (nothing configured, or the data-source node
+  # did not answer). Guard rather than let a degraded data-source path crash the page.
   defp load_skill_resources(socket), do: assign(socket, :skill_resources, [])
 
   defp references_dir(%Skill{} = skill), do: Resources.references_dir(skill)
 
   # Shown in the upload modal so the operator can see where the file will land in the
-  # ingestion browser before committing to it. Template-facing.
+  # storage browser before committing to it. Template-facing.
   defp resource_destination(assigns), do: references_dir(resource_target(assigns))
 
   # Template-facing wrapper — the button's visibility gate.
@@ -553,7 +585,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   # namespaced per skill, and volumes without the directory are skipped.
   #
   # Runs *after* the record is deleted. If it fails, the skill is still gone and the files
-  # remain visible in the ingestion browser — recoverable. The reverse order could strip a
+  # remain visible in the storage browser — recoverable. The reverse order could strip a
   # live skill's resources when the record deletion then failed.
   defp delete_skill_resources(_socket, nil), do: []
 
@@ -562,21 +594,19 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
     socket.assigns.volumes
     |> Map.keys()
-    |> Enum.map(&delete_resource_dir(&1, root))
+    |> Enum.map(&delete_resource_dir(socket, &1, root))
     |> Enum.reject(&(&1 == :absent))
   end
 
-  # A skill that never had a resource uploaded has no directory. `delete_path/3` surfaces
-  # `{:error, :not_a_directory}` for a missing path, so check before asking.
-  defp delete_resource_dir(volume, root) do
-    case ingestion_invoke(:file_info, [volume, root]) do
-      {:ok, %{type: :directory}} ->
-        # `delete_path/4` also clears the tracked `Document` rows under the folder, which
-        # `track_upload/2` created at upload time.
-        ingestion_invoke(:delete_path, [volume, root, "directory"])
+  # A skill that never had a resource uploaded has no directory. Missing paths are absent,
+  # but real delete failures still surface so the operator knows cleanup was partial.
+  defp delete_resource_dir(socket, volume, root) do
+    file_id = Path.join(volume, root)
 
-      _ ->
-        :absent
+    case data_source_action(:data_source_delete_file, %{"file_id" => file_id}, socket) do
+      {:ok, %{status: "deleted"}} -> :ok
+      {:error, reason} when reason in [:enoent, :not_found, :not_a_directory] -> :absent
+      other -> other
     end
   end
 
@@ -630,13 +660,28 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     end
   end
 
-  defp ingestion_invoke(fun, args) do
+  defp data_source_action(action, params, socket) do
     event =
-      Event.new(%{module: Ingestion, function: fun, args: args}, :ingestion,
-        opts: [action: :invoke]
+      Event.new(%{provider: resource_data_source_provider(), params: params}, :channels,
+        opts: [action: action, data_source_bridge_module: data_source_bridge_module()],
+        actor: resource_actor(socket)
       )
 
     node_router().dispatch(event).response
+  end
+
+  # Static annotation for now; intentionally isolated so this can become runtime config.
+  defp resource_data_source_provider, do: @resource_data_source_provider
+
+  defp resource_actor(%{assigns: assigns}), do: BOActor.build(Map.get(assigns, :current_user))
+  defp resource_actor(_), do: %{provider: "bo", skip_permissions: false}
+
+  defp data_source_bridge_module do
+    Application.get_env(
+      :zaq,
+      :skills_live_data_source_bridge_module,
+      Zaq.Channels.DataSourceBridge
+    )
   end
 
   defp form_base_skill(%{assigns: %{mode: :edit, selected_skill: %Skill{} = skill}}), do: skill

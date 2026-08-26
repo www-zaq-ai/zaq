@@ -228,7 +228,7 @@ defmodule Zaq.Agent.Skills.ValidationTest do
 
     test "rejects an absolute path" do
       changeset = Skill.changeset(%Skill{}, Map.put(@valid, :resource_root, "/etc/passwd"))
-      assert "must be relative to an ingestion volume" in errors_on(changeset).resource_root
+      assert "must be relative to a storage volume" in errors_on(changeset).resource_root
     end
 
     test "rejects traversal out of the volume" do

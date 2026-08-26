@@ -115,7 +115,7 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
 
     test "preserves spaces and case in the filename itself" do
       # Only the *path shape* is sanitised — the filename is the operator's to choose,
-      # and the ingestion browser displays it verbatim.
+      # and the storage browser displays it verbatim.
       assert Resources.destination(skill(%{name: "s"}), "Q3 Report.pdf") ==
                ".agents/skills/s/references/Q3 Report.pdf"
     end

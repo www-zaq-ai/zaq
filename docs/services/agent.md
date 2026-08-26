@@ -245,9 +245,9 @@ assembly only. Set it `false` to restore the eager renderer (`effective_system_p
 
 ### Skill resources (`Zaq.Agent.Skill.Resources`)
 
-Pure path derivation for a skill's reference files. Files live on an **ingestion volume**
-under `.agents/skills/{slug}/references/`, so they appear in the BO ingestion browser like
-any other ingested file — there is no separate storage mechanism.
+Pure path derivation for a skill's reference files. Files live on a **storage volume**
+under `.agents/skills/{slug}/references/`, accessed through the Disk data source — there
+is no separate storage mechanism.
 
 - `default_root/1` — `.agents/skills/{slug}` derived from `Skill.name`
 - `root/1` — the skill's effective root: the stored `resource_root` when present and safe,
@@ -318,7 +318,7 @@ volume counts grow.
   the catalog. Part 2 M2 adopts upstream's once it gains caller scoping (upstream U3).
 
 **Skill resources** (`load_skill_resource`, reading bundled `scripts/`/`references/`/`assets/`
-from the ingestion volume) are **Part 2 (M8)** — deferred until a skill ships bundled files. The
+from the storage volume) are **Part 2 (M8)** — deferred until a skill ships bundled files. The
 `resource_root` column and its write-time validation exist from Part 1 but are unused until then.
 
 ### Runtime Sync (`Zaq.Agent.RuntimeSync`)

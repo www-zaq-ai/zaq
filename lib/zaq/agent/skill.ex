@@ -132,14 +132,14 @@ defmodule Zaq.Agent.Skill do
     put_change(changeset, :diagnostics, updated)
   end
 
-  # `resource_root` is a path RELATIVE to an ingestion volume. This is a syntactic guard
+  # `resource_root` is a path RELATIVE to a storage volume. This is a syntactic guard
   # only — it rejects the shapes that could escape a volume, and nothing more.
   #
   # It deliberately does NOT resolve the path against the filesystem. Resolution belongs
-  # to the `:ingestion` role, which is the only node guaranteed to have the volume
+  # to the `:storage` role, which is the only node guaranteed to have the volume
   # mounted (a changeset must not make a cross-service call, and the BO node may not see
   # the volume at all). `Skill.Resources` re-checks containment at read time, on the
-  # ingestion node, which is the authoritative check.
+  # storage node, which is the authoritative check.
   defp validate_resource_root(changeset) do
     case get_field(changeset, :resource_root) do
       nil ->
@@ -151,7 +151,7 @@ defmodule Zaq.Agent.Skill do
       root when is_binary(root) ->
         cond do
           String.starts_with?(root, "/") ->
-            add_error(changeset, :resource_root, "must be relative to an ingestion volume")
+            add_error(changeset, :resource_root, "must be relative to a storage volume")
 
           ".." in Path.split(root) ->
             add_error(changeset, :resource_root, "must not contain \"..\"")

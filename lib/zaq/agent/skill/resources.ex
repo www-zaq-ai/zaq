@@ -1,23 +1,22 @@
 defmodule Zaq.Agent.Skill.Resources do
   @moduledoc """
-  Derives the ingestion-volume paths that hold a skill's reference files.
+  Derives the storage-volume paths that hold a skill's reference files.
 
-  A skill's resources live under `.agents/skills/{slug}/references/` on an ingestion
-  volume, so they show up in the BO ingestion browser like any other ingested file and
-  need no separate storage mechanism.
+  A skill's resources live under `.agents/skills/{slug}/references/` on a storage volume,
+  accessed through the Disk data source, and need no separate storage mechanism.
 
   ## This module is pure
 
   It derives *path strings* and nothing else. It never touches the filesystem, never
   resolves against a volume root, and never decides whether a path exists. Resolution and
-  the authoritative containment check belong to the `:ingestion` role — the only node
+  the authoritative containment check belong to the `:storage` role — the only node
   guaranteed to have the volume mounted (see `Zaq.Storage.FileExplorer.resolve_path/2`,
   which re-checks containment against the real volume root). Keeping this separate is
   what lets the BO node compute a destination for a volume it cannot itself see.
 
   The sanitising here is therefore a *shape* guard, not a security boundary: it
   guarantees the string handed to ingestion is a safe relative path, so a malicious
-  client filename cannot express an escape in the first place. Ingestion still rejects
+  client filename cannot express an escape in the first place. Storage still rejects
   traversal independently.
 
   ## `resource_root` is sticky
@@ -67,7 +66,7 @@ defmodule Zaq.Agent.Skill.Resources do
   def references_dir(%Skill{} = skill), do: Path.join(root(skill), @references_dir)
 
   @doc """
-  The destination path for an uploaded file, relative to an ingestion volume.
+  The destination path for an uploaded file, relative to a storage volume.
 
   `filename` is client-supplied: it is reduced to a bare basename, so directory
   components and traversal segments cannot survive.
