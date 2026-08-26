@@ -148,7 +148,7 @@ Every reference is visible to it — there is no module-specific reference synta
 
 ### The verdict
 
-`check/2` (and `contract/2`, the name the Engine dispatches) returns one thing:
+`contract/2`, the name the Engine dispatches, returns one thing:
 
 ```elixir
 %{
@@ -189,13 +189,13 @@ default or branch for.
 
 **Optional is about presence, not type.** `StepRunner` validates every declared
 field it is handed a value for, required or not, so an optional field given the
-wrong *kind* of value fails the run. `check/2` therefore type-checks the optional
+wrong *kind* of value fails the run. `contract/2` therefore type-checks the optional
 paths a payload actually supplies — it only skips the ones the payload omits.
 Absence is the only thing optional forgives.
 
 **A declared type is not the whole contract.** A field may carry Zoi refinements —
 a pattern, a length, an enum — and a value of exactly the right kind can still be
-refused. `check/2` runs `Zoi.parse/2`, the same judge `StepRunner` runs, so it sees
+refused. `contract/2` runs `Zoi.parse/2`, the same judge `StepRunner` runs, so it sees
 every rule the author declared; there is no schema feature the pre-flight is blind to.
 
 **One judge, one phrasing.** Both sides render errors through `Action.field_errors/2`,
@@ -208,7 +208,7 @@ rule the author wrote — `"too small: must have at least 8 character(s)"` — s
 rendering is used verbatim, with its path lifted onto the payload path so the entry
 points at the offending key rather than describing its container.
 
-**A required path present but `nil` is missing.** `check/2` counts a path as
+**A required path present but `nil` is missing.** `contract/2` counts a path as
 supplied only when it resolves to a value, the same rule the authoring side applies
 to a node's params (`pinned_params/1`: a `nil` param pins nothing). `false`, `0` and
 `""` are values a caller can mean, and they supply.
@@ -230,7 +230,7 @@ values. `path` names the gap without modelling a payload around it.
 
 **A path is type-checked where its value reaches a schema-declared field whole.**
 `Action.field_specs/1` reads each field's declared type out of the action's own
-schema, translating both dialects — NimbleOptions and Zoi — into Zoi. `check/2` runs
+schema, translating both dialects — NimbleOptions and Zoi — into Zoi. `contract/2` runs
 the payload value through `Zoi.parse/2` against that spec, which is exactly what
 `StepRunner.validate_params/2` does to the same field at run time: one reader, one
 validator, so the contract's verdict is the run's verdict. A path is typed only where

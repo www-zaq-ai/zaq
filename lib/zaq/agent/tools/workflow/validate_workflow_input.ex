@@ -73,11 +73,16 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInput do
         errors:
           Zoi.array(Zoi.map([]),
             description:
-              "One entry per problem, as `{path, code, message}`. `path` is the list of " <>
-                "keys to walk into the payload — never join it with dots. `code` is " <>
-                "`required` (not supplied — ask the user), `invalid_type` (send a " <>
-                "different kind of value), or a rule the value broke, which `message` " <>
-                "names. Fix every entry and call again."
+              "One entry per problem, as `{path, code, message, expected}`. `path` is " <>
+                "the list of keys to walk into the payload — never join it with dots. " <>
+                "`code` is `required` (not supplied — ask the user), `invalid_type` " <>
+                "(send a different kind of value), or a rule the value broke, which " <>
+                "`message` names. `expected` is JSON Schema for that path: it carries " <>
+                "the type AND the rules (minLength, maximum, pattern, enum, and a " <>
+                "nested object's properties), so state what a field accepts from it and " <>
+                ~s|never guess from the field's name. `{"type": "any"}` means the | <>
+                "workflow declares no type there — say so rather than inventing one. " <>
+                "Fix every entry and call again."
           )
       })
 

@@ -1,8 +1,6 @@
 defmodule Zaq.Engine.ApiTest do
   use Zaq.DataCase, async: true
 
-  import Zaq.InputContractHelpers
-
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Api
@@ -935,9 +933,7 @@ defmodule Zaq.Engine.ApiTest do
     # The bucket has to survive the node hop: the tool runs on the Agent node and only
     # the derived contract crosses back, so a key the Engine adds is invisible to an
     # agent unless it travels.
-    test "a wrong-typed payload field crosses back as an invalid_type error", %{
-      workflow: workflow
-    } do
+    test "a wrong-typed payload field crosses back as an invalid_type error" do
       workflow =
         Repo.insert!(
           Workflows.Workflow.changeset(%Workflows.Workflow{}, %{

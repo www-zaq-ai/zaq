@@ -231,6 +231,45 @@ defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiUnionList do
   def run(_, _), do: {:ok, %{out: true}}
 end
 
+defmodule Zaq.Engine.Workflows.ActionTest.OpaqueTypesAction do
+  @moduledoc false
+  use Jido.Action,
+    name: "opaque_types_action",
+    schema: [
+      opts: [type: :keyword_list, required: false],
+      picked: [type: {:in, ["alpha", "beta"]}, required: false],
+      ranked: [type: {:in, [1, 2]}, required: false],
+      checked: [type: {:custom, __MODULE__, :ok?, []}, required: false]
+    ],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  def ok?(value), do: {:ok, value}
+
+  @impl Jido.Action
+  def run(_params, _ctx), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.BatchFieldTest.UnknownAtomField do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_unknown_atom_field",
+    schema: [input: [type: :any, required: true]],
+    output_schema: [out: [type: :any, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  defoverridable schema: 0
+
+  # A required field whose name is a *string* that names no existing atom — the one way
+  # `batch_candidate/1` can meet a name it cannot resolve.
+  def schema, do: Zoi.object(%{"zzz_never_an_atom_47f1c9" => Zoi.string()})
+
+  @impl Jido.Action
+  def run(_params, _ctx), do: {:ok, %{out: true}}
+end
+
 defmodule Zaq.Engine.Workflows.ActionTest do
   use ExUnit.Case, async: true
 
@@ -239,6 +278,7 @@ defmodule Zaq.Engine.Workflows.ActionTest do
 
   alias Zaq.Engine.Workflows.ActionTest.BareListAction
   alias Zaq.Engine.Workflows.ActionTest.DefaultedZoiAction
+  alias Zaq.Engine.Workflows.ActionTest.OpaqueTypesAction
 
   alias Zaq.Engine.Workflows.BatchFieldTest.{
     DefaultedZoiList,
@@ -254,6 +294,7 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     RequiredZoiUnionList,
     TwoLists,
     TwoMaps,
+    UnknownAtomField,
     UnsupportedSchemaShape
   }
 
@@ -293,6 +334,13 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     test "unsupported schema shape → {:error, {:no_batch_field, module}}" do
       assert {:error, {:no_batch_field, UnsupportedSchemaShape}} =
                Action.batch_field(UnsupportedSchemaShape)
+    end
+
+    # A field name that names no atom is not a field to fan out over — it means the module
+    # is not a readable action.
+    test "a required field whose name is not an existing atom is not a batch candidate" do
+      assert {:error, {:no_batch_field, UnknownAtomField}} =
+               Action.batch_field(UnknownAtomField)
     end
 
     test "one required Zoi union with list branch → {:ok, {field, :list}}" do
@@ -619,6 +667,31 @@ defmodule Zaq.Engine.Workflows.ActionTest do
       refute accepts?(KeywordSchemaAction, "ratio", "4.2")
     end
 
+    # A NimbleOptions type with no faithful Zoi translation must judge nothing rather
+    # than judge wrongly.
+    test "a :keyword_list field has no faithful translation and judges nothing" do
+      assert Action.schema_kind(spec_for(OpaqueTypesAction, "opts")) == "any"
+      assert accepts?(OpaqueTypesAction, "opts", a: 1)
+      assert accepts?(OpaqueTypesAction, "opts", "not a keyword list at all")
+    end
+
+    test "a {:custom, mod, fun, args} field has no faithful translation and judges nothing" do
+      assert Action.schema_kind(spec_for(OpaqueTypesAction, "checked")) == "any"
+      assert accepts?(OpaqueTypesAction, "checked", %{"anything" => true})
+    end
+
+    # Choices an author already wrote as strings (or numbers) go into the enum as they
+    # are — only atom choices get their string twin added.
+    test "{:in, choices} keeps non-atom choices verbatim" do
+      assert Action.schema_kind(spec_for(OpaqueTypesAction, "picked")) == "one of: alpha, beta"
+      assert accepts?(OpaqueTypesAction, "picked", "alpha")
+      refute accepts?(OpaqueTypesAction, "picked", "gamma")
+
+      assert Action.schema_kind(spec_for(OpaqueTypesAction, "ranked")) == "one of: 1, 2"
+      assert accepts?(OpaqueTypesAction, "ranked", 1)
+      refute accepts?(OpaqueTypesAction, "ranked", 9)
+    end
+
     # A JSON object is string-keyed. NimbleOptions' `:map` demands atom keys, which
     # no JSON payload can satisfy — the reason this translation exists.
     test "a map field accepts a string-keyed JSON object" do
@@ -806,8 +879,81 @@ defmodule Zaq.Engine.Workflows.ActionTest do
                "expected boolean, got integer"
     end
 
+    # `Zoi.union/1` and `Zoi.enum/1` both refuse an empty list, so a degenerate composite
+    # can only arrive from a schema built by something other than the Zoi constructors.
+    # It still has to be named, not crash the caller reading a type off it.
+    test "a union with no members is \"any\"" do
+      assert Action.schema_kind(struct(Zoi.Types.Union, schemas: [])) == "any"
+    end
+
+    test "an enum with no values is \"enum\"" do
+      assert Action.schema_kind(struct(Zoi.Types.Enum, values: [])) == "enum"
+    end
+
+    # `Zoi.enum/1` stores `{key, value}` pairs, but a bare value list must render too.
+    test "an enum holding bare values, not key/value pairs, names them" do
+      assert Action.schema_kind(struct(Zoi.Types.Enum, values: ["x", :y])) == "one of: x, y"
+    end
+
     test "an unreadable spec is \"any\"" do
       assert Action.schema_kind(:not_a_schema) == "any"
+    end
+  end
+
+  # Params reach an action atom-keyed from `DagBuilder` but string-keyed from a direct
+  # tool call. A string key from an LLM must never grow the atom table — an unknown one
+  # is simply absent.
+  describe "fetch_param/2" do
+    test "an atom key falls back to its string form" do
+      assert Action.fetch_param(%{"name" => "Ada"}, :name) == {:ok, "Ada"}
+      assert Action.fetch_param(%{name: "Ada"}, :name) == {:ok, "Ada"}
+    end
+
+    test "a string key falls back to its existing-atom form" do
+      assert Action.fetch_param(%{name: "Ada"}, "name") == {:ok, "Ada"}
+    end
+
+    # Presence, not truthiness.
+    test "an absent key is :error while a nil value is present" do
+      assert Action.fetch_param(%{name: nil}, :name) == {:ok, nil}
+      assert Action.fetch_param(%{name: false}, "name") == {:ok, false}
+    end
+
+    # The line that matters: a string naming no atom must come back `:error`, not raise.
+    test "a string key that names no existing atom is :error, not an ArgumentError" do
+      assert Action.fetch_param(%{"a" => 1}, "zzz_fetch_param_no_such_atom_5c3d") == :error
+    end
+  end
+
+  # The mirror of `schema_kind/1`: a refusal reads in one vocabulary only if what
+  # arrived is named in the same words as what was wanted.
+  describe "value_kind/1" do
+    test "a scalar is named by its type" do
+      assert Action.value_kind("Ada") == "string"
+      assert Action.value_kind(true) == "boolean"
+      assert Action.value_kind(3) == "integer"
+      assert Action.value_kind(3.5) == "float"
+      assert Action.value_kind([1, 2]) == "list"
+      assert Action.value_kind(%{"a" => 1}) == "map"
+    end
+
+    # `true`/`false` are atoms but must read as booleans, so the atom clause is only
+    # reached by every *other* atom — `nil` included.
+    test "a non-boolean atom is \"atom\"" do
+      assert Action.value_kind(:pending) == "atom"
+      assert Action.value_kind(nil) == "atom"
+    end
+
+    # A struct is a map, but "DateTime" says more than "map" when a step refuses one.
+    test "a struct is named by its module" do
+      assert Action.value_kind(~U[2024-01-01 00:00:00Z]) == "DateTime"
+      assert Action.value_kind(Zoi.string()) == "Zoi.Types.String"
+    end
+
+    test "a value with no name in this vocabulary is \"unknown\"" do
+      assert Action.value_kind({:ok, 1}) == "unknown"
+      assert Action.value_kind(self()) == "unknown"
+      assert Action.value_kind(&Action.value_kind/1) == "unknown"
     end
   end
 end

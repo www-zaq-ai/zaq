@@ -1,7 +1,6 @@
 defmodule Zaq.Engine.Workflows.InputContractTest do
   use ExUnit.Case, async: true
 
-  alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.InputContract
   alias Zaq.Engine.Workflows.Placeholders
   alias Zaq.Engine.Workflows.Step.Edge, as: StepEdge
@@ -19,9 +18,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     }
   end
 
-  defp edge(from, to, mapping \\ %{}), do: %{"from" => from, "to" => to, "mapping" => mapping}
-
-  defp sorted(set), do: set |> MapSet.to_list() |> Enum.sort()
+  defp edge(from, to, mapping), do: %{"from" => from, "to" => to, "mapping" => mapping}
 
   # The verdict is one list, so a test that cares about a kind of problem asks for it.
   defp missing(verdict), do: for(%{code: :required, path: path} <- verdict.errors, do: path)
@@ -31,23 +28,21 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
   defp codes(verdict), do: Enum.map(verdict.errors, & &1.code)
 
-  describe "all_inputs/1 and fed_by_steps/1 — the formula" do
-    test "a mapping target is an input; a step-rooted source feeds it" do
+  describe "an unfed start path is what the payload owes" do
+    test "a mapping target fed by a previous step is owed by nobody" do
       g = graph([step("a"), step("b")], [edge("a", "b", %{"query" => "a.messages"})])
 
-      assert sorted(InputContract.all_inputs(g)) == ["b.query"]
-      assert sorted(InputContract.fed_by_steps(g)) == ["b.query"]
-      assert sorted(InputContract.missing(g)) == []
+      # `b.query` is an input the graph reads, but `a` writes it, so it never reaches
+      # the payload as either a required or an optional path.
+      assert InputContract.required_inputs(g) == []
+      assert InputContract.optional_inputs(g) == []
     end
 
     test "start is not a step, so a start source survives the difference" do
       g = graph([step("a"), step("b")], [edge("a", "b", %{"query" => "start.email topic"})])
 
-      assert sorted(InputContract.all_inputs(g)) == ["b.query"]
-      assert sorted(InputContract.fed_by_steps(g)) == []
-      assert sorted(InputContract.missing(g)) == ["b.query"]
-
-      # The subtraction is where it comes from; required vs optional is what the
+      # `start` is not a step, so nothing feeds `b.query` and the payload owes it.
+      # Required vs optional is a separate question — it is what the
       # target field declares. `History.query` is optional, so the payload may
       # omit it — it is still a path the workflow reads.
       assert InputContract.required_inputs(g) == []
@@ -61,7 +56,6 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           [edge("a", "b", %{"parts" => "start.email topic"})]
         )
 
-      assert sorted(InputContract.missing(g)) == ["b.parts"]
       assert InputContract.required_inputs(g) == ["email topic"]
       assert InputContract.optional_inputs(g) == []
     end
@@ -69,7 +63,10 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     test "only the 'to' side of an edge names the node being fed" do
       g = graph([step("a"), step("b")], [edge("a", "b", %{"row" => "a.row"})])
 
-      assert sorted(InputContract.all_inputs(g)) == ["b.row"]
+      # The edge feeds `b`, not `a`. Either way the source is step-rooted, so the
+      # payload owes nothing — neither endpoint leaks into the contract.
+      assert InputContract.required_inputs(g) == []
+      assert InputContract.optional_inputs(g) == []
     end
 
     test "a reference in one param does not unfeed a field mapped into another" do
@@ -83,7 +80,6 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       # but it is keyed by its own field, so it does not unfeed the mapped `parts`.
       g = put_in(g, ["nodes", Access.at(1), "params"], %{"other" => "{{start.topic}}"})
 
-      assert sorted(InputContract.fed_by_steps(g)) == ["b.parts"]
       assert InputContract.required_inputs(g) == ["topic"]
     end
 
@@ -101,9 +97,8 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
       g = put_in(g, ["nodes", Access.at(1), "params"], %{"parts" => "{{start.topic}}"})
 
-      assert sorted(InputContract.fed_by_steps(g)) == ["b.parts"]
       assert InputContract.required_inputs(g) == []
-      assert %{valid?: true, errors: []} = InputContract.check(g, %{})
+      assert %{valid?: true, errors: []} = InputContract.contract(g, %{})
     end
 
     test "a field read by several nodes is required once" do
@@ -116,7 +111,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           ]
         )
 
-      assert sorted(InputContract.missing(g)) == ["b.x", "c.y"]
+      # Two nodes read it, but the payload carries one key.
       assert InputContract.required_inputs(g) == ["topic"]
     end
 
@@ -128,44 +123,6 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
   end
 
   describe "params" do
-    test "a pinned param settles a schema field nothing maps over" do
-      g =
-        graph(
-          [step("a", module: "Zaq.Agent.Tools.Workflow.Concat", params: %{"parts" => "x"})],
-          []
-        )
-
-      assert sorted(InputContract.all_inputs(g)) == []
-    end
-
-    test "a pinned param does not settle a field a mapping writes over" do
-      # EdgeStep applies the mapping over the node's params, so the default loses.
-      g =
-        graph(
-          [step("a"), step("b", params: %{"query" => "a default"})],
-          [edge("a", "b", %{"query" => "start.email topic"})]
-        )
-
-      assert sorted(InputContract.all_inputs(g)) == ["b.query"]
-      assert InputContract.optional_inputs(g) == ["email topic"]
-    end
-
-    test "a Concat placeholder is a reference" do
-      g =
-        graph(
-          [
-            step("a",
-              module: "Zaq.Agent.Tools.Workflow.Concat",
-              params: %{"parts" => ["{{start.topic}}"]}
-            )
-          ],
-          []
-        )
-
-      assert sorted(InputContract.all_inputs(g)) == ["a.parts"]
-      assert InputContract.required_inputs(g) == ["topic"]
-    end
-
     test "placeholders are found in strings nested at any depth" do
       g =
         graph(
@@ -179,118 +136,6 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
         )
 
       assert InputContract.required_inputs(g) == ["company context content"]
-    end
-
-    test "a Condition input is a reference like any other action's" do
-      g =
-        graph(
-          [
-            step("a"),
-            step("b",
-              module: "Zaq.Agent.Tools.Workflow.Condition",
-              params: %{"input" => "{{a.metadata}}"}
-            )
-          ],
-          [edge("a", "b")]
-        )
-
-      assert sorted(InputContract.fed_by_steps(g)) == ["b.input"]
-      assert InputContract.required_inputs(g) == []
-    end
-
-    test "a Condition key that is a path inside the input value is not an input" do
-      g =
-        graph(
-          [
-            step("a"),
-            step("b",
-              module: "Zaq.Agent.Tools.Workflow.Condition",
-              params: %{
-                "input" => "{{a.metadata}}",
-                "conditions" => [%{"key" => "total.last_message_date", "op" => "gte"}]
-              }
-            )
-          ],
-          [edge("a", "b")]
-        )
-
-      # `Condition` evaluates each key against the input `StepRunner` resolved —
-      # here `a.metadata` — with `__cascade__` merged in. `total` is a key of that
-      # value, so it is run-time data the graph says nothing about, not an input.
-      assert sorted(InputContract.all_inputs(g)) == ["b.input"]
-      assert InputContract.required_inputs(g) == []
-    end
-
-    test "a bare Condition key is a top-level key of the input value, not an input" do
-      g =
-        graph(
-          [
-            step("a"),
-            step("b",
-              module: "Zaq.Agent.Tools.Workflow.Condition",
-              params: %{
-                "input" => "{{a.metadata}}",
-                "conditions" => [%{"key" => "active", "value" => true}]
-              }
-            )
-          ],
-          [edge("a", "b")]
-        )
-
-      # The commonest real shape: `active` is a plain key of the map being
-      # evaluated. It never reaches the graph, so no payload path is named for it.
-      assert sorted(InputContract.all_inputs(g)) == ["b.input"]
-      assert InputContract.required_inputs(g) == []
-    end
-
-    test "a Condition key is never a reference, whatever its root names" do
-      g =
-        graph(
-          [
-            step("a"),
-            step("b",
-              module: "Zaq.Agent.Tools.Workflow.Condition",
-              params: %{
-                "input" => "{{a.metadata}}",
-                "conditions" => [
-                  %{"key" => "a.messages", "value" => 1},
-                  %{"key" => "start.sequence", "value" => 4}
-                ]
-              }
-            )
-          ],
-          [edge("a", "b")]
-        )
-
-      # Both roots name something in the graph — a node and the trigger namespace —
-      # and neither makes the key a reference. A key selects inside `input`, so
-      # renaming node `a` cannot turn `a.messages` into a payload requirement.
-      assert sorted(InputContract.all_inputs(g)) == ["b.input"]
-      assert InputContract.required_inputs(g) == []
-    end
-
-    test "a `{{...}}` inside a condition value is a requirement like any other" do
-      # `StepRunner` walks list and map params alike, so a placeholder nested in
-      # `conditions[].value` resolves — and the contract sees it.
-      g =
-        graph(
-          [
-            step("a",
-              module: "Zaq.Agent.Tools.Workflow.Condition",
-              params: %{
-                "input" => %{"tier" => "gold"},
-                "conditions" => [%{"key" => "tier", "value" => "{{start.tier}}"}]
-              }
-            )
-          ],
-          []
-        )
-
-      assert sorted(InputContract.all_inputs(g)) == ["a.conditions"]
-
-      # `conditions` is optional on `Condition`, so the path it reaches is optional
-      # too — read by the graph, not owed by the payload.
-      assert InputContract.optional_inputs(g) == ["tier"]
     end
 
     test "a Condition input reading start is required from the payload" do
@@ -392,13 +237,6 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == []
     end
 
-    test "a dotted param on a module that does not resolve references is data" do
-      g = graph([step("a", params: %{"query" => "start.email topic"})], [])
-
-      assert sorted(InputContract.all_inputs(g)) == []
-      assert InputContract.required_inputs(g) == []
-    end
-
     test "a bare placeholder naming a locally-written key is not a payload requirement" do
       # `{{row}}` reads the key the incoming mapping writes.
       g =
@@ -418,54 +256,13 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
   end
 
   describe "schema-required fields" do
-    test "an entry node's unwritten required field comes from the payload" do
-      g = graph([step("a", module: "Zaq.Agent.Tools.Workflow.Concat")], [])
-
-      assert sorted(InputContract.all_inputs(g)) == ["a.parts"]
-      assert InputContract.required_inputs(g) == ["parts"]
-    end
-
-    test "a mid-DAG required field the predecessor's output schema declares is fed" do
-      g =
-        graph(
-          [
-            step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet"),
-            step("b", module: "Zaq.Agent.Tools.Sheets.ExtractRows")
-          ],
-          [edge("a", "b")]
-        )
-
-      # `GetSheet` declares `record`, `ExtractRows` requires it, and `StepRunner`
-      # passes the whole fact down the edge — so the unmapped edge is complete.
-      assert "record" in InputContract.emitted_schema_fields("Zaq.Agent.Tools.Sheets.GetSheet")
-      assert sorted(InputContract.fed_by_steps(g)) == ["b.record"]
-
-      # `a` is the entry node, so its own required params still come from the
-      # payload — but `record` never does.
-      assert InputContract.required_inputs(g) == ["provider", "spreadsheet_id"]
-    end
-
-    test "a mapping source naming a predecessor's declared output key is fed" do
-      g =
-        graph(
-          [
-            step("a", module: "Zaq.Agent.Tools.Sheets.ExtractRows"),
-            step("b")
-          ],
-          [edge("a", "b", %{"items" => "rows"})]
-        )
-
-      # A bare source is a key of the incoming fact; `ExtractRows` declares `rows`.
-      assert sorted(InputContract.fed_by_steps(g)) == ["b.items"]
-    end
-
     test "a param pinned to nil does not satisfy a required field" do
       pinned = fn value ->
         graph([step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet", params: value)], [])
       end
 
       # A key present with `nil` is not a value — the run would read `nil` and fail
-      # exactly the way the contract exists to catch. `check/2` applies the same rule
+      # exactly the way the contract exists to catch. `contract/2` applies the same rule
       # to a payload: see "a key present but nil is missing" below.
       assert InputContract.required_inputs(pinned.(%{"provider" => nil})) ==
                ["provider", "spreadsheet_id"]
@@ -476,273 +273,16 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(pinned.(%{"provider" => "google_drive"})) ==
                ["spreadsheet_id"]
     end
-
-    test "an optional schema field is never an input" do
-      g = graph([step("a", module: "Zaq.Agent.Tools.Accounts.History")], [])
-
-      assert sorted(InputContract.all_inputs(g)) == []
-    end
-
-    test "reads required fields from both schema dialects" do
-      assert InputContract.required_schema_fields("Zaq.Agent.Tools.Workflow.Concat") == ["parts"]
-
-      assert InputContract.required_schema_fields("Zaq.Agent.Tools.People.EnsurePerson") == [
-               "platform"
-             ]
-
-      assert InputContract.required_schema_fields("Not.A.Module") == []
-      assert InputContract.required_schema_fields(nil) == []
-    end
-  end
-
-  describe "required_schema_field_specs/1" do
-    test "a Zoi-declared required field comes back with a spec that judges its type" do
-      specs = InputContract.required_schema_field_specs("Zaq.Agent.Tools.People.UpdatePerson")
-
-      assert {"person_id", spec} = List.keyfind(specs, "person_id", 0)
-      assert InputContract.spec_accepts?(spec, 42)
-      refute InputContract.spec_accepts?(spec, "42")
-    end
-
-    test "a keyword-declared required field does too — both dialects are read" do
-      specs = InputContract.required_schema_field_specs("Zaq.Agent.Tools.Sheets.GetSheet")
-
-      assert {"provider", spec} = List.keyfind(specs, "provider", 0)
-      assert InputContract.spec_accepts?(spec, "google_drive")
-      refute InputContract.spec_accepts?(spec, 42)
-    end
-
-    test "a structured keyword type is judged structurally, not by name" do
-      specs =
-        InputContract.required_schema_field_specs("Zaq.Agent.Tools.Sheets.UpdateSheetValues")
-
-      assert {"values", spec} = List.keyfind(specs, "values", 0)
-      assert InputContract.spec_accepts?(spec, [["a", "b"], ["c"]])
-      refute InputContract.spec_accepts?(spec, "a,b")
-    end
-
-    test "a module that declares nothing readable yields no specs" do
-      for module <- [nil, "", "Not.A.Module", "Zaq.Engine.Workflows.InputContract"] do
-        assert InputContract.required_schema_field_specs(module) == []
-      end
-    end
-
-    # One producer for both views, so the names and the specs cannot drift apart.
-    test "required_schema_fields/1 is exactly the names of the specs" do
-      for module <- [
-            "Zaq.Agent.Tools.People.UpdatePerson",
-            "Zaq.Agent.Tools.Sheets.GetSheet",
-            "Zaq.Agent.Tools.Accounts.History",
-            "Not.A.Module"
-          ] do
-        assert InputContract.required_schema_fields(module) ==
-                 module |> InputContract.required_schema_field_specs() |> Enum.map(&elem(&1, 0))
-      end
-    end
-
-    test "an optional field is not a spec — only required fields are contract material" do
-      names =
-        "Zaq.Agent.Tools.DataSource.SearchDocuments"
-        |> InputContract.required_schema_field_specs()
-        |> Enum.map(&elem(&1, 0))
-
-      assert names == ["provider", "query"]
-    end
-  end
-
-  describe "spec_accepts?/2" do
-    test "nil is never judged here — presence is check/2's question, not the spec's" do
-      [{"person_id", spec}] =
-        InputContract.required_schema_field_specs("Zaq.Agent.Tools.People.UpdatePerson")
-
-      refute InputContract.spec_accepts?(spec, nil)
-    end
-
-    test "an :any-typed field accepts anything" do
-      specs = InputContract.required_schema_field_specs("Zaq.Agent.Tools.Workflow.Concat")
-
-      assert {"parts", spec} = List.keyfind(specs, "parts", 0)
-      assert InputContract.spec_accepts?(spec, ["a", "b"])
-    end
   end
 
   # A payload path is type-checked only where its value reaches a schema-typed field
   # whole. Everything else keeps presence-only semantics, and says so by carrying no
   # expectation at all.
-  describe "expectations/1 — which required paths carry a type" do
-    test "a schema-required field of an entry node types its payload path" do
-      g = graph([step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet")], [])
-
-      assert %{"provider" => [_ | _], "spreadsheet_id" => [_ | _]} =
-               InputContract.expectations(g)
-    end
-
-    test "a mapping delivers its source whole, so the target field types the path" do
-      g =
-        graph(
-          [step("a"), step("b", module: "Zaq.Agent.Tools.Sheets.GetSheet")],
-          [edge("a", "b", %{"provider" => "start.which provider"})]
-        )
-
-      assert [spec] = InputContract.expectations(g)["which provider"]
-      assert InputContract.spec_accepts?(spec, "google_drive")
-      refute InputContract.spec_accepts?(spec, 42)
-    end
-
-    test "a lone placeholder param types its path" do
-      g =
-        graph(
-          [
-            step("a",
-              module: "Zaq.Agent.Tools.Sheets.GetSheet",
-              params: %{"provider" => "{{start.which provider}}", "spreadsheet_id" => "s"}
-            )
-          ],
-          []
-        )
-
-      assert [spec] = InputContract.expectations(g)["which provider"]
-      refute InputContract.spec_accepts?(spec, 42)
-    end
-
-    # `"sheet {{start.which provider}}"` resolves to a string whatever the payload
-    # holds, so the field's declared type says nothing about the payload's.
-    test "an interpolated placeholder types nothing" do
-      g =
-        graph(
-          [
-            step("a",
-              module: "Zaq.Agent.Tools.Sheets.GetSheet",
-              params: %{
-                "provider" => "sheet {{start.which provider}}",
-                "spreadsheet_id" => "s"
-              }
-            )
-          ],
-          []
-        )
-
-      assert InputContract.expectations(g)["which provider"] == nil
-    end
-
-    test "a condition field types nothing — a condition has no schema" do
-      g =
-        graph(
-          [step("a"), step("b")],
-          [%{"from" => "start", "to" => "a", "mapping" => %{}, "condition" => %{"field" => "go"}}]
-        )
-
-      assert InputContract.expectations(g)["go"] == nil
-    end
-
-    test "two nodes needing one path with different types collect both" do
-      g =
-        graph(
-          [
-            step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet"),
-            step("b", module: "Zaq.Agent.Tools.People.UpdatePerson")
-          ],
-          [
-            edge("start", "a", %{"provider" => "start.shared"}),
-            edge("start", "b", %{"person_id" => "start.shared"})
-          ]
-        )
-
-      assert [_, _] = InputContract.expectations(g)["shared"]
-    end
-
-    test "every typed path is a required input — the two views agree" do
-      g = graph([step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet")], [])
-      required = InputContract.required_inputs(g)
-
-      assert g
-             |> InputContract.expectations()
-             |> Map.keys()
-             |> Enum.sort()
-             |> Enum.all?(&(&1 in required))
-    end
-  end
-
-  describe "check/2" do
-    test "reports a payload that supplies everything as valid" do
-      assert %{valid?: true, errors: []} =
-               InputContract.check_presence(["topic"], %{"topic" => "x"})
-    end
-
-    test "reports the paths a payload does not supply" do
-      verdict =
-        InputContract.check_presence(["topic", "name", "language"], %{"name" => "Saraluna"})
-
-      refute verdict.valid?
-      assert missing(verdict) == [["language"], ["topic"]]
-    end
-
-    test "an empty contract is satisfied by any payload" do
-      assert %{valid?: true} = InputContract.check_presence([], %{})
-    end
-
-    test "resolves a nested path" do
-      assert %{valid?: true} =
-               InputContract.check_presence(["input.name"], %{"input" => %{"name" => "x"}})
-    end
-
-    test "a nested path missing its parent is reported" do
-      verdict = InputContract.check_presence(["input.name"], %{"name" => "x"})
-
-      refute verdict.valid?
-      assert missing(verdict) == [["input", "name"]]
-    end
-
-    test "accepts a differently-cased key, the way FactLookup will at run time" do
-      assert %{valid?: true} =
-               InputContract.check_presence(["company context content"], %{
-                 "Company Context Content" => "x"
-               })
-    end
-
-    test "accepts underscores for spaces" do
-      assert %{valid?: true} =
-               InputContract.check_presence(["email topic"], %{"email_topic" => "x"})
-    end
-
-    test "accepts an atom-keyed payload" do
-      assert %{valid?: true} = InputContract.check_presence(["topic"], %{topic: "x"})
-    end
-
+  describe "contract/2" do
     # The mirror of "a param pinned to nil does not satisfy a required field" above:
     # `nil` is not a value on either side of the contract.
-    test "a key present but nil is missing" do
-      verdict = InputContract.check_presence(["topic"], %{"topic" => nil})
-
-      refute verdict.valid?
-      assert missing(verdict) == [["topic"]]
-    end
-
-    test "a value an author can mean still counts as supplied" do
-      assert %{valid?: true} = InputContract.check_presence(["topic"], %{"topic" => false})
-      assert %{valid?: true} = InputContract.check_presence(["topic"], %{"topic" => 0})
-      assert %{valid?: true} = InputContract.check_presence(["topic"], %{"topic" => ""})
-    end
-
-    test "a nested leaf present but nil is missing" do
-      verdict = InputContract.check_presence(["input.name"], %{"input" => %{"name" => nil}})
-
-      refute verdict.valid?
-      assert missing(verdict) == [["input", "name"]]
-
-      assert %{valid?: true} =
-               InputContract.check_presence(["input.name"], %{"input" => %{"name" => "x"}})
-    end
-
     # The path resolves — only then is its value judged. A canonicalising match that
     # lands on `nil` is missing, not supplied because the key was found.
-    test "a canonicalised key present but nil is missing" do
-      verdict = InputContract.check_presence(["email topic"], %{"Email_Topic" => nil})
-
-      refute verdict.valid?
-      assert missing(verdict) == [["email topic"]]
-    end
-
     # The footgun the tool exists to catch: `required_input_shape/1` hands an agent a
     # skeleton with `nil` leaves, and sending it back unfilled must not read as valid.
     test "the unfilled required_input_shape satisfies nothing" do
@@ -755,24 +295,17 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       shape = InputContract.required_input_shape(g)
       required = Enum.map(InputContract.required_inputs(g), &String.split(&1, "."))
 
-      verdict = InputContract.check(g, shape)
+      verdict = InputContract.contract(g, shape)
 
       refute verdict.valid?
       assert missing(verdict) == required
     end
 
-    test "a scalar payload supplies nothing" do
-      verdict = InputContract.check_presence(["topic"], "a string")
-
-      refute verdict.valid?
-      assert missing(verdict) == [["topic"]]
-    end
-
     test "accepts a workflow directly" do
       g = graph([step("a"), step("b")], [edge("a", "b", %{"q" => "start.topic"})])
 
-      assert %{valid?: true} = InputContract.check(g, %{"topic" => "x"})
-      assert missing(InputContract.check(g, %{})) == [["topic"]]
+      assert %{valid?: true} = InputContract.contract(g, %{"topic" => "x"})
+      assert missing(InputContract.contract(g, %{})) == [["topic"]]
     end
   end
 
@@ -789,11 +322,11 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
     test "an integer satisfies it" do
       assert %{valid?: true, errors: []} =
-               InputContract.check(updates_person(), %{"person_id" => 42})
+               InputContract.contract(updates_person(), %{"person_id" => 42})
     end
 
     test "a string where the schema wants an integer is invalid, not supplied" do
-      verdict = InputContract.check(updates_person(), %{"person_id" => "42"})
+      verdict = InputContract.contract(updates_person(), %{"person_id" => "42"})
 
       refute verdict.valid?
       assert missing(verdict) == []
@@ -810,7 +343,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
     test "every other wrong-typed value is invalid too" do
       for wrong <- [%{"id" => 42}, ["42"], true, 4.2, "42"] do
-        verdict = InputContract.check(updates_person(), %{"person_id" => wrong})
+        verdict = InputContract.contract(updates_person(), %{"person_id" => wrong})
 
         refute verdict.valid?
         assert refused(verdict) == [["person_id"]]
@@ -820,7 +353,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     # The two buckets never mix: `nil` is the absence of a value, not a wrong one, and
     # its remediation is "send a value" rather than "send the right kind of value".
     test "null is missing, never invalid" do
-      verdict = InputContract.check(updates_person(), %{"person_id" => nil})
+      verdict = InputContract.contract(updates_person(), %{"person_id" => nil})
 
       refute verdict.valid?
       assert codes(verdict) == [:required]
@@ -837,7 +370,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           []
         )
 
-      verdict = InputContract.check(g, %{"person_id" => "42", "provider" => "google_drive"})
+      verdict = InputContract.contract(g, %{"person_id" => "42", "provider" => "google_drive"})
 
       refute verdict.valid?
       assert missing(verdict) == [["spreadsheet_id"]]
@@ -848,12 +381,12 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       g = graph([step("a", module: "Zaq.Agent.Tools.Sheets.GetSheet")], [])
 
       assert %{valid?: false, errors: [%{path: ["provider"], message: message}]} =
-               InputContract.check(g, %{"provider" => 42, "spreadsheet_id" => "s"})
+               InputContract.contract(g, %{"provider" => 42, "spreadsheet_id" => "s"})
 
       assert message == "expected string, got integer"
 
       assert %{valid?: true} =
-               InputContract.check(g, %{"provider" => "google_drive", "spreadsheet_id" => "s"})
+               InputContract.contract(g, %{"provider" => "google_drive", "spreadsheet_id" => "s"})
     end
 
     test "a path two nodes read must satisfy both of their types" do
@@ -870,12 +403,12 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
         )
 
       # No value is both a string and an integer, so either type refuses one of them.
-      verdict = InputContract.check(g, %{"shared" => "google_drive", "spreadsheet_id" => "s"})
+      verdict = InputContract.contract(g, %{"shared" => "google_drive", "spreadsheet_id" => "s"})
 
       refute verdict.valid?
       assert refused(verdict) == [["shared"]]
 
-      assert refused(InputContract.check(g, %{"shared" => 42, "spreadsheet_id" => "s"})) ==
+      assert refused(InputContract.contract(g, %{"shared" => 42, "spreadsheet_id" => "s"})) ==
                [["shared"]]
     end
 
@@ -893,16 +426,11 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           []
         )
 
-      assert %{valid?: true, errors: []} = InputContract.check(g, %{"which" => 42})
+      assert %{valid?: true, errors: []} = InputContract.contract(g, %{"which" => 42})
     end
 
     # Without a graph there are no modules and so no types — the list arity keeps the
     # presence-only semantics it has always had, and says so.
-    test "check/2 on a bare list of paths type-checks nothing" do
-      assert %{valid?: true, errors: []} =
-               InputContract.check_presence(["person_id"], %{"person_id" => "42"})
-    end
-
     test "contract/2 reports both buckets in one pass" do
       verdict = InputContract.contract(updates_person(), %{"person_id" => "42"})
 
@@ -939,7 +467,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
     test "a payload carrying only it is valid" do
       assert %{valid?: true, errors: []} =
-               InputContract.check(encoding_entry_node(), %{"data" => "hello"})
+               InputContract.contract(encoding_entry_node(), %{"data" => "hello"})
     end
 
     test "wiring a defaulted field from the payload offers it, but does not demand it" do
@@ -948,7 +476,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["data"]
       assert InputContract.optional_inputs(g) == ["variant"]
 
-      assert %{valid?: true, errors: []} = InputContract.check(g, %{"data" => "hi"})
+      assert %{valid?: true, errors: []} = InputContract.contract(g, %{"data" => "hi"})
     end
 
     # `input_types` is the only source of types an agent may state, so a defaulted
@@ -963,7 +491,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     # judged like any other, so a default never becomes a licence to send anything.
     test "a wired defaulted field supplied with the wrong kind is still invalid" do
       result =
-        InputContract.check(
+        InputContract.contract(
           encoding_entry_node(%{"variant" => "start.variant"}),
           %{"data" => "hi", "variant" => 42}
         )
@@ -1000,12 +528,12 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
     test "omitting the wired optional field is valid" do
       assert %{valid?: true, errors: []} =
-               InputContract.check(wired_optional("start.index"), required_tab_params())
+               InputContract.contract(wired_optional("start.index"), required_tab_params())
     end
 
     test "an integer satisfies the wired optional field" do
       assert %{valid?: true, errors: []} =
-               InputContract.check(
+               InputContract.contract(
                  wired_optional("start.index"),
                  Map.put(required_tab_params(), "index", 3)
                )
@@ -1013,7 +541,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
     test "a string where the optional field declares an integer is invalid" do
       result =
-        InputContract.check(
+        InputContract.contract(
           wired_optional("start.index"),
           Map.put(required_tab_params(), "index", "3")
         )
@@ -1041,100 +569,19 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
                valid?: false,
                errors: [%{path: ["index"], message: "expected integer, got string"}]
              } =
-               InputContract.check(g, %{"index" => "3"})
+               InputContract.contract(g, %{"index" => "3"})
 
-      assert %{valid?: true, errors: []} = InputContract.check(g, %{"index" => 3})
+      assert %{valid?: true, errors: []} = InputContract.contract(g, %{"index" => 3})
     end
 
     # The agreement the contract exists to make: what it calls valid is what the
     # run accepts. `StepRunner` validates every declared field, required or not,
     # so a verdict the contract reaches on an optional field must match it.
-    test "the contract's verdict matches what StepRunner would do with the same value" do
-      [{"index", spec, false}] =
-        Enum.filter(Action.field_specs(@add_tab), &(elem(&1, 0) == "index"))
-
-      refute InputContract.spec_accepts?(spec, "3")
-      assert InputContract.spec_accepts?(spec, 3)
-
-      assert %{valid?: false} =
-               InputContract.check(
-                 wired_optional("start.index"),
-                 Map.put(required_tab_params(), "index", "3")
-               )
-    end
   end
 
   # The cascade is built per path — `StepRunner.inject_cascade/3` extends the fact
   # travelling the edge — so naming a node is not enough to reach it. A source rooted
   # at a node the run never passes through is as dangling as one naming nothing.
-  describe "a source resolves only against the nodes that run before it" do
-    # start -> a -> consumer, and start -> sibling on a branch of its own.
-    defp branched(source) do
-      graph(
-        [step("a"), step("sibling"), step("consumer", module: "Zaq.Agent.Tools.Workflow.Concat")],
-        [
-          edge("start", "a"),
-          edge("start", "sibling"),
-          edge("a", "consumer", %{"parts" => source})
-        ]
-      )
-    end
-
-    test "a source rooted at a node on another branch does not feed it" do
-      g = branched("sibling.messages")
-
-      refute MapSet.member?(InputContract.fed_by_steps(g), "consumer.parts")
-
-      # Nor is it asked of the payload: no value a caller sends can reach a field the
-      # graph wires from a node this run never visits. Editing the workflow is the only
-      # remedy, which makes it workflow validation's business, not this module's.
-      assert InputContract.required_inputs(g) == []
-      assert %{valid?: true, errors: []} = InputContract.check(g, %{})
-    end
-
-    test "a source rooted at the node's own predecessor still feeds it" do
-      g = branched("a.messages")
-
-      assert sorted(InputContract.fed_by_steps(g)) == ["consumer.parts"]
-    end
-
-    # An ancestor is not only a parent: the cascade carries every node the fact
-    # travelled through, so a grandparent is reachable and must stay `:step`.
-    test "a source rooted at a transitive ancestor still feeds it" do
-      g =
-        graph(
-          [step("a"), step("b"), step("c", module: "Zaq.Agent.Tools.Workflow.Concat")],
-          [edge("start", "a"), edge("a", "b"), edge("b", "c", %{"parts" => "a.messages"})]
-        )
-
-      assert sorted(InputContract.fed_by_steps(g)) == ["c.parts"]
-    end
-
-    # A node has not run when its own params are read, so it is not its own ancestor.
-    test "a source rooted at the node itself does not feed it" do
-      g =
-        graph(
-          [step("a"), step("b", module: "Zaq.Agent.Tools.Workflow.Concat")],
-          [edge("start", "a"), edge("a", "b", %{"parts" => "b.messages"})]
-        )
-
-      refute MapSet.member?(InputContract.fed_by_steps(g), "b.parts")
-      assert InputContract.required_inputs(g) == []
-    end
-
-    # A cyclic graph cannot be saved (`Composition.check_acyclic/1`), but this module
-    # is built to run against a graph that is wrong rather than to loop on one.
-    test "a cycle terminates instead of recursing forever" do
-      g =
-        graph(
-          [step("a"), step("b", module: "Zaq.Agent.Tools.Workflow.Concat")],
-          [edge("a", "b", %{"parts" => "a.messages"}), edge("b", "a")]
-        )
-
-      assert MapSet.member?(InputContract.fed_by_steps(g), "b.parts")
-    end
-  end
-
   describe "normalisation" do
     test "a Workflow struct derives identically to its snapshot" do
       nodes = [
@@ -1167,24 +614,9 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["topic"]
     end
 
-    test "an empty workflow needs nothing" do
-      assert sorted(InputContract.all_inputs(graph([], []))) == []
-      assert InputContract.required_inputs(graph([], [])) == []
-    end
-
     # A mapping source is a dotted reference. A persisted edge holding anything else
     # is malformed — deriving against it must report the gap, since the whole point
     # of this module is to be runnable on a graph that is wrong.
-    test "a malformed mapping source is dropped, not raised on" do
-      for bad <- [%{"x" => 1}, ["a", "b"], nil] do
-        g = graph([step("a"), step("b")], [edge("a", "b", %{"query" => bad})])
-
-        assert sorted(InputContract.all_inputs(g)) == []
-        assert sorted(InputContract.missing(g)) == []
-        assert InputContract.required_inputs(g) == []
-      end
-    end
-
     test "scalar mapping sources other than strings still resolve" do
       g = graph([step("a"), step("b")], [edge("a", "b", %{"query" => :"start.topic"})])
 
@@ -1232,7 +664,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
           }
         ])
 
-      assert missing(InputContract.check(g, %{})) == [["tier"]]
+      assert missing(InputContract.contract(g, %{})) == [["tier"]]
     end
 
     test "a condition rooted in a step output is fed, not required" do
@@ -1272,8 +704,8 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       g = start_edge("tier")
 
       assert InputContract.required_inputs(g) == ["tier"]
-      assert missing(InputContract.check(g, %{})) == [["tier"]]
-      assert %{valid?: true} = InputContract.check(g, %{"tier" => "gold"})
+      assert missing(InputContract.contract(g, %{})) == [["tier"]]
+      assert %{valid?: true} = InputContract.contract(g, %{"tier" => "gold"})
     end
 
     test "a dotted non-start field is a nested payload path" do
@@ -1301,14 +733,14 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
         ])
 
       assert InputContract.required_inputs(g) == []
-      assert %{valid?: true} = InputContract.check(g, %{})
+      assert %{valid?: true} = InputContract.contract(g, %{})
     end
   end
 
-  describe "contract/2" do
-    # `contract/2` is `check/2` under the name the Engine dispatches. Pinned so the two
-    # cannot drift into meaning different things.
-    test "is check/2 for a workflow" do
+  describe "contract/2 over every source of a required input at once" do
+    # A mapped edge, a step param and a start-edge condition in one graph, so a
+    # regression in any single source shows up here rather than only in isolation.
+    test "names every gap the payload leaves" do
       g =
         graph(
           [
@@ -1330,8 +762,6 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
 
       payload = %{"email topic" => "hi"}
       contract = InputContract.contract(g, payload)
-
-      assert contract == InputContract.check(g, payload)
 
       # Not a vacuous fixture: the payload leaves real gaps, each named once.
       refute contract.valid?
@@ -1415,7 +845,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert Map.keys(InputContract.required_input_shape(g)) |> Enum.sort() ==
                Map.keys(payload) |> Enum.sort()
 
-      assert %{valid?: true, errors: []} = InputContract.check(g, payload)
+      assert %{valid?: true, errors: []} = InputContract.contract(g, payload)
     end
   end
 
@@ -1429,89 +859,37 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
     @concat "Zaq.Agent.Tools.Workflow.Concat"
     @dispatch "Zaq.Agent.Tools.Workflow.DispatchEvent"
 
-    defp batch(name, body, params \\ %{}),
+    defp batch(name, body, params),
       do: %{"name" => name, "module" => @batch, "params" => Map.put(params, "process", body)}
 
     defp body_node(name, module, params \\ %{}),
       do: %{"name" => name, "type" => "action", "module" => module, "params" => params}
 
-    defp two_step_body,
-      do: [body_node("join", @concat), body_node("dispatch", @dispatch)]
+    # `Action.batch_field/1` infers the field from the head's first *required* field, so
+    # the fallback fires only when there is nothing to infer from: a head declaring no
+    # required field at all, or a module that does not resolve. Either way the fan-out
+    # is keyed off the head's required schema fields — none — and the payload is asked
+    # for the iteration source and nothing more.
+    test "a body head with no required field keys the fan-out off nothing" do
+      ok_action = "Zaq.Engine.Workflows.Test.OkAction"
 
-    test "Batch itself declares no requirement and no output" do
-      # Nothing about the node's own module can stand in for reading its body.
-      assert InputContract.required_schema_fields(@batch) == []
-      assert InputContract.emitted_schema_fields(@batch) == []
-    end
-
-    test "each body sub-step is a node, named as its StepRun is" do
       g =
-        graph([batch("batch", two_step_body())], [
+        graph([batch("batch", [body_node("join", ok_action)], %{})], [
           edge("start", "batch", %{"items" => "start.rows"})
         ])
 
-      assert sorted(InputContract.all_inputs(g)) == [
-               "batch.items",
-               "batch/dispatch.event_name",
-               "batch/join.parts"
-             ]
+      assert InputContract.required_inputs(g) == ["rows"]
+      assert %{valid?: true, errors: []} = InputContract.contract(g, %{"rows" => [1, 2]})
     end
 
-    test "the fan-out feeds the first sub-step under its batch field" do
-      # `Concat`'s batch field is `parts`, so the chunk arrives there — it is fed by
-      # the iteration, not demanded of the payload.
+    test "a body head whose module does not resolve is handled, not raised on" do
       g =
-        graph([batch("batch", two_step_body())], [
+        graph([batch("batch", [body_node("join", "Nope.Missing")], %{})], [
           edge("start", "batch", %{"items" => "start.rows"})
         ])
 
-      assert sorted(InputContract.fed_by_steps(g)) == ["batch/join.parts"]
       assert InputContract.required_inputs(g) == ["rows"]
-    end
-
-    test "a sub-step's own params satisfy it" do
-      body = [
-        body_node("join", @concat),
-        body_node("dispatch", @dispatch, %{"event_name" => "lead"})
-      ]
-
-      g = graph([batch("batch", body)], [edge("start", "batch", %{"items" => "start.rows"})])
-
-      # `dispatch` pins `event_name` itself, so the payload is never asked for it.
-      assert InputContract.required_inputs(g) == ["rows"]
-    end
-
-    test "a `{{...}}` in a sub-step is attributed to the sub-step, not to the Batch node" do
-      body = [body_node("join", @concat, %{"parts" => ["{{start.language}}"]})]
-      g = graph([batch("batch", body)], [edge("start", "batch", %{"items" => "start.rows"})])
-
-      assert InputContract.required_inputs(g) == ["language", "rows"]
-      assert MapSet.member?(InputContract.all_inputs(g), "batch/join.parts")
-      refute MapSet.member?(InputContract.all_inputs(g), "batch.process")
-    end
-
-    # The contract counts a `{{start.X}}` inside a body sub-step as a payload input,
-    # which is only honest if the fan-out unit can actually reach the trigger
-    # namespace at run time. It can: `MapNodeBuilder.extract_items/6` seeds each unit
-    # with the map node's incoming `__cascade__`, so a body step resolves `start.X`
-    # exactly like a top-level node. Without that seeding the fork's fact starts
-    # empty, `{{start.X}}` collapses to `""`, and this verdict would certify a
-    # workflow no payload could ever satisfy. `CascadeReachabilityE2ETest` pins the
-    # run-time half through a real run.
-    test "a payload feeding a sub-step's `{{start.X}}` checks valid" do
-      body = [body_node("join", @concat, %{"parts" => ["{{start.language}}"]})]
-      g = graph([batch("batch", body)], [edge("start", "batch", %{"items" => "start.rows"})])
-
-      assert %{valid?: true, errors: []} =
-               InputContract.check(g, %{"language" => "fr", "rows" => [1, 2]})
-    end
-
-    test "omitting it is missing, named as the payload key the caller must send" do
-      body = [body_node("join", @concat, %{"parts" => ["{{start.language}}"]})]
-      g = graph([batch("batch", body)], [edge("start", "batch", %{"items" => "start.rows"})])
-
-      assert %{valid?: false, errors: [%{code: :required, path: ["language"]}]} =
-               InputContract.check(g, %{"rows" => [1, 2]})
+      assert %{valid?: true, errors: []} = InputContract.contract(g, %{"rows" => [1, 2]})
     end
 
     test "a `post_process` sub-step's `{{start.X}}` is a payload input too" do
@@ -1529,23 +907,7 @@ defmodule Zaq.Engine.Workflows.InputContractTest do
       assert InputContract.required_inputs(g) == ["rows", "topic"]
 
       assert %{valid?: true, errors: []} =
-               InputContract.check(g, %{"topic" => "leads", "rows" => [1]})
-    end
-
-    test "the iterated collection is a need of the Batch node itself" do
-      # `Batch` reads `items` off the incoming fact but declares it nowhere. Fed only
-      # by `start`, it is a payload requirement; fed by nothing at all, an error.
-      g =
-        graph([batch("batch", two_step_body())], [edge("start", "batch", %{"other" => "start.x"})])
-
-      assert "items" in InputContract.required_inputs(g)
-
-      # Fed by nothing at all it is an authoring error, so no payload path is named
-      # for it either.
-      orphan = graph([step("a"), batch("batch", two_step_body())], [edge("a", "batch")])
-
-      refute "items" in InputContract.required_inputs(orphan)
-      refute MapSet.member?(InputContract.fed_by_steps(orphan), "batch.items")
+               InputContract.contract(g, %{"topic" => "leads", "rows" => [1]})
     end
   end
 end

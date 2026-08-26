@@ -107,7 +107,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       g = graph("generate_company_context.json")
 
       assert %{valid?: true, errors: []} =
-               InputContract.check(g, @generate_company_context_input)
+               InputContract.contract(g, @generate_company_context_input)
     end
 
     test "dropping any required field breaks the run" do
@@ -116,7 +116,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       for field <- @generate_company_context_required do
         payload = Map.delete(@generate_company_context_input, field)
 
-        assert missing(InputContract.check(g, payload)) == [String.split(field, ".")],
+        assert missing(InputContract.contract(g, payload)) == [String.split(field, ".")],
                "removing #{inspect(field)} should be reported missing"
       end
     end
@@ -127,7 +127,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       for field <- @generate_company_context_optional do
         payload = Map.delete(@generate_company_context_input, field)
 
-        assert %{valid?: true, errors: []} = InputContract.check(g, payload),
+        assert %{valid?: true, errors: []} = InputContract.contract(g, payload),
                "removing #{inspect(field)} should not be reported missing"
       end
     end
@@ -144,7 +144,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       g = graph("send_leads_email.json")
 
       assert %{valid?: true, errors: []} =
-               InputContract.check(g, @send_leads_email_input)
+               InputContract.contract(g, @send_leads_email_input)
     end
 
     test "the nested path only resolves against a nested payload" do
@@ -152,7 +152,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
 
       flat = @send_leads_email_input |> Map.delete("input") |> Map.put("name", "person_name")
 
-      assert missing(InputContract.check(g, flat)) == [["input", "name"]]
+      assert missing(InputContract.contract(g, flat)) == [["input", "name"]]
     end
 
     test "dropping any single contracted field breaks the run" do
@@ -162,7 +162,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
         key = field |> String.split(".") |> hd()
         payload = Map.delete(@send_leads_email_input, key)
 
-        assert %{valid?: false} = verdict = InputContract.check(g, payload)
+        assert %{valid?: false} = verdict = InputContract.contract(g, payload)
         assert String.split(field, ".") in missing(verdict)
       end
     end
@@ -172,7 +172,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
     test "craft_email's declared input covers two of the receiver's seven fields" do
       g = graph("send_leads_email.json")
 
-      verdict = InputContract.check(g, @craft_email_declared_input)
+      verdict = InputContract.contract(g, @craft_email_declared_input)
 
       refute verdict.valid?
 
@@ -230,7 +230,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       refute "email" in InputContract.required_inputs(g)
 
       assert %{valid?: true, errors: []} =
-               InputContract.check(g, Map.delete(@send_leads_email_input, "email"))
+               InputContract.contract(g, Map.delete(@send_leads_email_input, "email"))
     end
 
     test "check_last_message_date's condition key is a path inside its input value" do
@@ -243,7 +243,8 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       assert node["params"]["input"] == "{{build_history.metadata}}"
       assert [%{"key" => "total.last_message_date"}] = node["params"]["conditions"]
 
-      refute MapSet.member?(InputContract.all_inputs(g), "check_last_message_date.conditions")
+      refute "total.last_message_date" in InputContract.required_inputs(g)
+      refute "total.last_message_date" in InputContract.optional_inputs(g)
     end
   end
 
@@ -318,7 +319,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       g = graph("send_leads_email.json")
 
       assert %{valid?: false, errors: [%{code: :required, path: ["input", "name"]}]} =
-               InputContract.check(g, @agent_flat_payload)
+               InputContract.contract(g, @agent_flat_payload)
     end
 
     test "the shape nests what the flat list only implies" do
@@ -339,7 +340,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       g = graph("send_leads_email.json")
       required = InputContract.required_inputs(g)
 
-      assert missing(InputContract.check(g, InputContract.required_input_shape(g))) ==
+      assert missing(InputContract.contract(g, InputContract.required_input_shape(g))) ==
                Enum.map(required, &String.split(&1, "."))
     end
 
@@ -359,7 +360,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
         })
 
       assert %{valid?: false, errors: [%{code: :required, path: ["language"]}]} =
-               InputContract.check(g, partially_filled)
+               InputContract.contract(g, partially_filled)
     end
 
     test "the same payload rebuilt from the shape validates" do
@@ -368,7 +369,7 @@ defmodule Zaq.Engine.Workflows.RealWorkflowInputContractTest do
       {name, rest} = Map.pop(@agent_flat_payload, "input.name")
       rebuilt = Map.put(rest, "input", %{"name" => name})
 
-      assert %{valid?: true, errors: []} = InputContract.check(g, rebuilt)
+      assert %{valid?: true, errors: []} = InputContract.contract(g, rebuilt)
     end
 
     test "the dispatcher's shape is flat — it has no nested path" do

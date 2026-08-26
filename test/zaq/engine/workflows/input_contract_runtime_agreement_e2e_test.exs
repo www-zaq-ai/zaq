@@ -210,9 +210,9 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
     # claim a type for it.
     test "an untyped path accepts a value of any kind at both ends", %{person: person} do
       workflow = consumer()
-      expectations = InputContract.expectations(workflow)
+      types = InputContract.input_types(workflow)
 
-      untyped = Enum.find(shape_keys(workflow), &(Map.get(expectations, &1) == nil))
+      untyped = Enum.find(shape_keys(workflow), &(Map.get(types, &1) == "any"))
 
       if untyped do
         payload = Map.put(filled_payload(workflow), untyped, 42)

@@ -256,11 +256,11 @@ defmodule Zaq.Engine.Workflows.CascadeReachabilityE2ETest do
     # The contract cannot ask the payload for `parts`: no value a caller sends reaches a
     # field the graph wires from a node this run never visits. Catching the authoring
     # error itself is workflow validation's job, at save time.
-    test "the contract does not count it as fed, and asks the payload for nothing" do
+    test "the contract asks the payload for nothing" do
       wf = cross_branch_workflow()
 
-      refute MapSet.member?(InputContract.fed_by_steps(wf), "consumer.parts")
       assert InputContract.required_inputs(wf) == []
+      assert InputContract.optional_inputs(wf) == []
     end
   end
 

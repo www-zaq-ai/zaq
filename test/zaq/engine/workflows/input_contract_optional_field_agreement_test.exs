@@ -80,7 +80,7 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
 
       assert InputContract.required_inputs(workflow) == ["count"]
       assert InputContract.optional_inputs(workflow) == ["label"]
-      assert Map.has_key?(InputContract.expectations(workflow), "label")
+      assert InputContract.input_types(workflow)["label"] != "any"
     end
 
     test "may be omitted — the contract clears it and the run completes" do

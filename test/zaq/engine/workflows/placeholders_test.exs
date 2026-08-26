@@ -101,6 +101,17 @@ defmodule Zaq.Engine.Workflows.PlaceholdersTest do
       assert Placeholders.resolve("{{n}}|{{f}}|{{b}}|{{nil}}", f) == "42|1.5|true|"
     end
 
+    # `nil` and the booleans are caught by earlier clauses; a plain atom is what an
+    # action returns for a status or enum, and it renders as its own name rather
+    # than being inspected as `:pending`.
+    test "an atom renders as its name, not its inspected form" do
+      f = fact(%{"state" => :pending}, %{step_a: %{status: :ok}})
+
+      assert Placeholders.resolve("status: {{state}}", f) == "status: pending"
+      assert Placeholders.resolve("{{step_a.status}}", f) == "ok"
+      assert Placeholders.resolve("{{state}}", f, preserve_type: true) == :pending
+    end
+
     # `to_string/1` has no implementation for a map (it raises) and silently turns
     # a list into its binary form. Inspecting keeps an embedded reference total and
     # visibly a container.
@@ -201,6 +212,21 @@ defmodule Zaq.Engine.Workflows.PlaceholdersTest do
 
       assert Placeholders.lone_reference?("{{s}}")
       assert Placeholders.resolve("{{s}}", f, preserve_type: true) == "text"
+    end
+  end
+
+  describe "references/1" do
+    # `resolve/3` treats a struct as a domain value and never walks into it, so the
+    # scan has to report nothing for one — otherwise `DagBuilder` would wire an edge
+    # for a reference `StepRunner` will never resolve.
+    test "a struct reports no references, even holding placeholder text" do
+      assert Placeholders.references(~U[2026-07-06 12:00:00Z]) == []
+      assert Placeholders.references(%URI{path: "/{{a}}", query: "q={{b}}"}) == []
+    end
+
+    test "a struct nested in a container is skipped while its siblings still scan" do
+      assert Placeholders.references(%{"u" => %URI{path: "/{{a}}"}, "s" => "{{ok}}"}) == ["ok"]
+      assert Placeholders.references([%URI{path: "/{{a}}"}, "x {{y}}"]) == ["y"]
     end
   end
 end

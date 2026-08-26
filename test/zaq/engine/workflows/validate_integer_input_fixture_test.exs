@@ -27,8 +27,6 @@ defmodule Zaq.Engine.Workflows.ValidateIntegerInputFixtureTest do
   """
   use Zaq.DataCase, async: false
 
-  import Zaq.InputContractHelpers
-
   alias Zaq.Accounts.People
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.InputContract
@@ -78,7 +76,13 @@ defmodule Zaq.Engine.Workflows.ValidateIntegerInputFixtureTest do
 
       # Typed covers both lists: an optional field is typed like any other, because
       # the step validates every declared field it is handed a value for.
-      assert workflow |> InputContract.expectations() |> Map.keys() |> Enum.sort() ==
+      # `input_types/1` names every path, so an untyped one reads "any" — the paths that
+      # actually carry a declared kind are the ones left after dropping those.
+      assert workflow
+             |> InputContract.input_types()
+             |> Enum.reject(&(elem(&1, 1) == "any"))
+             |> Enum.map(&elem(&1, 0))
+             |> Enum.sort() ==
                ["merge_with_person_id", "person_id", "separator", "sequence"]
     end
 
@@ -130,7 +134,8 @@ defmodule Zaq.Engine.Workflows.ValidateIntegerInputFixtureTest do
       assert violation == %{
                path: ["person_id"],
                code: :invalid_type,
-               message: "expected integer, got string"
+               message: "expected integer, got string",
+               expected: %{"type" => "integer", "description" => "Person id to update."}
              }
     end
 
@@ -144,7 +149,8 @@ defmodule Zaq.Engine.Workflows.ValidateIntegerInputFixtureTest do
       assert violation == %{
                path: ["sequence"],
                code: :invalid_type,
-               message: "expected integer, got string"
+               message: "expected integer, got string",
+               expected: %{"type" => "integer"}
              }
     end
 

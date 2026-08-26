@@ -471,6 +471,53 @@ defmodule Zaq.Engine.Workflows.Action do
   defp segment(segment), do: to_string(segment)
 
   @doc """
+  What a field accepts, as a JSON-encodable JSON Schema map.
+
+  Takes the specs a path reaches — the value the contract's expectations hold — and
+  renders them through `Zoi.JSONSchema.encode/1`, so the rules the author declared
+  travel with the refusal rather than only the kind: `minLength`, `maximum`,
+  `pattern`, `enum`, and a nested object's `properties`.
+
+  A path nothing types renders `%{"type" => "any"}` rather than nothing at all. An
+  absent entry reads as a question, and a reader asked what a field accepts answers a
+  question it cannot look up by inventing — which is the failure this exists to
+  prevent.
+
+  A path several nodes read renders `allOf`, because the value has to satisfy each of
+  them: every one of those nodes runs.
+  """
+  @spec schema_json([term()]) :: map()
+  def schema_json([]), do: %{"type" => "any"}
+  def schema_json([spec]), do: json_schema(spec)
+  def schema_json(specs) when is_list(specs), do: %{"allOf" => Enum.map(specs, &json_schema/1)}
+
+  defp json_schema(spec), do: spec |> Zoi.JSONSchema.encode() |> normalise_schema()
+
+  # `Zoi.JSONSchema.encode/1` returns atom keys and atom values, and stamps `$schema`
+  # on every node. A tool result is JSON, so both sides are stringified and the
+  # dialect marker is dropped — twelve copies of it say nothing a reader can use.
+  defp normalise_schema(schema) when is_map(schema) do
+    schema
+    |> Map.drop([:"$schema"])
+    |> Map.new(fn {key, value} -> {to_string(key), schema_value(key, value)} end)
+  end
+
+  # The NimbleOptions `{:in, choices}` translation carries both the atom and the string
+  # form of every choice so either can be sent. That is a fact about the *parser*, not
+  # about what a caller may write — rendered verbatim it reads as twice as many options
+  # as the author declared.
+  defp schema_value(:enum, values), do: values |> Enum.map(&to_string/1) |> Enum.uniq()
+  defp schema_value(:required, names), do: Enum.map(names, &to_string/1)
+
+  defp schema_value(:properties, properties),
+    do: Map.new(properties, fn {name, sub} -> {to_string(name), normalise_schema(sub)} end)
+
+  defp schema_value(:items, sub) when is_map(sub), do: normalise_schema(sub)
+  defp schema_value(_key, value) when is_boolean(value) or is_nil(value), do: value
+  defp schema_value(_key, value) when is_atom(value), do: to_string(value)
+  defp schema_value(_key, value), do: value
+
+  @doc """
   The kind a schema declares, named the way a caller would say it: `"integer"`.
 
   The mirror of `value_kind/1`, so a mismatch reads in one vocabulary wherever it is

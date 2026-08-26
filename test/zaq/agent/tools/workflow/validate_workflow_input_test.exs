@@ -4,7 +4,6 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
   import Zaq.InputContractHelpers
 
   alias Zaq.Agent.Tools.Workflow.ValidateWorkflowInput
-  alias Zaq.Engine.Workflows.InputContract
   alias Zaq.Engine.Workflows.Workflow
   alias Zaq.Event
   alias Zaq.Repo
@@ -35,19 +34,6 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
   # one field in this graph whose declared type the payload can get wrong.
   defp full_payload(extra),
     do: Map.merge(%{"email topic" => "Q3", "company context content" => "ctx"}, extra)
-
-  # The verdict carries the shape as data, so a test can fill it exactly the way
-  # an agent reading the result would. Probed with a payload rather than with
-  # `%{}`, which is refused before any contract is derived.
-  defp shape_for(workflow) do
-    assert {:ok, %{required_input_shape: shape}} =
-             ValidateWorkflowInput.run(
-               %{workflow_id: workflow.id, input: %{"probe" => "probe"}},
-               %{}
-             )
-
-    shape
-  end
 
   # A graph whose single step needs nothing from the trigger event.
   defp triggerless_workflow_fixture do
@@ -394,14 +380,6 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
 
       assert fields[:workflow_id].meta.required
       assert fields[:input].meta.required
-    end
-
-    # A workflow using this action as a node genuinely needs an input for it, so
-    # the field belongs in that workflow's own contract. It is only a phantom
-    # when the action does not in fact need it.
-    test "the action contributes its required fields to a contract" do
-      assert InputContract.required_schema_fields(inspect(ValidateWorkflowInput)) ==
-               ["input", "workflow_id"]
     end
 
     # A scalar payload must reach `run/2` and come back as an invalid verdict, not

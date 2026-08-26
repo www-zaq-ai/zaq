@@ -120,15 +120,94 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     # would put it in the contract; both together must not double-report it.
     test "a path named by both an edge condition and a mapping is reported once",
          %{workflow: workflow} do
-      verdict = InputContract.check(workflow, payload() |> Map.delete("channel"))
+      verdict = InputContract.contract(workflow, payload() |> Map.delete("channel"))
 
       assert missing(verdict) == [["channel"]]
     end
   end
 
+  # Regression cover for a real conversation. Asked to build a payload, an agent called
+  # this tool with `{"weight": 0}` and got eight errors that were identical except for
+  # their path — every `message` was "is required". It answered with a bare list of
+  # field names, and the user had to ask "can you tell me the type of each field?",
+  # which the verdict could not answer. `expected` is what closes that.
+  describe "every error names what the path accepts" do
+    test "a missing key carries its rules, not just its name", %{workflow: workflow} do
+      verdict = InputContract.contract(workflow, %{"weight" => 0})
+
+      refute verdict.valid?
+      assert Enum.all?(verdict.errors, &(&1.code == :required))
+
+      # The sentence is the same on every entry, which is exactly why it cannot be the
+      # only thing a caller gets.
+      assert verdict.errors |> Enum.map(& &1.message) |> Enum.uniq() == ["is required"]
+
+      assert error_at(verdict, ["label"]).expected == %{
+               "type" => "string",
+               "minLength" => 8,
+               "maxLength" => 12,
+               "description" => "Human-readable label, 8 to 12 characters"
+             }
+
+      assert %{"type" => "integer", "minimum" => 1, "maximum" => 500} =
+               error_at(verdict, ["quantity"]).expected
+
+      assert %{"pattern" => "\\A[A-Z]{3}-\\d{4}\\z"} =
+               error_at(verdict, ["reference_code"]).expected
+    end
+
+    # A choice set must read as the choices the author declared. The NimbleOptions
+    # translation carries both the atom and the string form of each so either can be
+    # sent, which would otherwise render as twice as many options.
+    test "a choice set names each option once", %{workflow: workflow} do
+      assert %{"enum" => ["email", "sms", "webhook"]} =
+               workflow
+               |> InputContract.contract(%{"weight" => 0})
+               |> error_at(["channel"])
+               |> Map.fetch!(:expected)
+    end
+
+    # A nested object carries its shape, so a caller building `profile` is not left to
+    # infer that `region` is an enum.
+    test "a nested object carries its properties", %{workflow: workflow} do
+      expected =
+        error_at(InputContract.contract(workflow, %{"weight" => 0}), ["profile"]).expected
+
+      assert expected["type"] == "object"
+      assert expected["required"] == ["region", "fragile"]
+      assert expected["properties"]["region"]["enum"] == ["emea", "amer", "apac"]
+      assert expected["properties"]["fragile"]["type"] == "boolean"
+    end
+
+    # An untyped path says so rather than carrying no key. An absent entry reads as a
+    # question, and a reader answers it by guessing a type from the field's name.
+    test "an untyped path reports any, and is never silent", %{workflow: workflow} do
+      verdict = InputContract.contract(workflow, %{"weight" => 0})
+
+      assert Enum.all?(verdict.errors, &is_map(&1.expected))
+      assert error_at(verdict, ["customer_name"]).expected == %{"type" => "any"}
+    end
+
+    # A path two nodes read must satisfy both, so both are named. Here `notify_email`
+    # feeds `ValidateShipment.notify_email` and `DispatchShipmentNotice.recipient`.
+    test "a path several nodes read names every rule it must satisfy", %{workflow: workflow} do
+      expected =
+        error_at(InputContract.contract(workflow, %{"weight" => 0}), ["notify_email"]).expected
+
+      assert %{"allOf" => [_, _]} = expected
+      assert Enum.any?(expected["allOf"], &(&1["format"] == "email"))
+    end
+
+    # The whole verdict has to survive `Jason.encode!/1` — `ReqLLM.Context` encodes a
+    # tool result, so anything that cannot be encoded never reaches the agent.
+    test "the verdict is JSON-encodable", %{workflow: workflow} do
+      assert {:ok, _} = workflow |> InputContract.contract(%{"weight" => 0}) |> Jason.encode()
+    end
+  end
+
   describe "declared rules are enforced before the run" do
     test "a pattern", %{workflow: workflow} do
-      verdict = InputContract.check(workflow, payload(%{"reference_code" => "abc-1234"}))
+      verdict = InputContract.contract(workflow, payload(%{"reference_code" => "abc-1234"}))
 
       assert %{code: :invalid_format, message: message} =
                error_at(verdict, ["reference_code"])
@@ -139,14 +218,14 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     test "a minimum and a maximum length", %{workflow: workflow} do
       assert %{code: :greater_than_or_equal_to, message: too_small} =
                workflow
-               |> InputContract.check(payload(%{"label" => "no"}))
+               |> InputContract.contract(payload(%{"label" => "no"}))
                |> error_at(["label"])
 
       assert too_small =~ "at least 8 character(s)"
 
       assert %{code: :less_than_or_equal_to, message: too_big} =
                workflow
-               |> InputContract.check(payload(%{"label" => "waaaaaaaytoolong"}))
+               |> InputContract.contract(payload(%{"label" => "waaaaaaaytoolong"}))
                |> error_at(["label"])
 
       assert too_big =~ "at most 12 character(s)"
@@ -158,11 +237,11 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     test "a whole number satisfies a float field without losing its bound", %{
       workflow: workflow
     } do
-      assert InputContract.check(workflow, payload(%{"weight_kg" => 3})).valid?
+      assert InputContract.contract(workflow, payload(%{"weight_kg" => 3})).valid?
 
       assert %{code: :greater_than} =
                workflow
-               |> InputContract.check(payload(%{"weight_kg" => 0}))
+               |> InputContract.contract(payload(%{"weight_kg" => 0}))
                |> error_at(["weight_kg"])
 
       # And the reported kind stays the one the author declared.
@@ -172,19 +251,19 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     test "a numeric bound", %{workflow: workflow} do
       assert %{code: :less_than_or_equal_to} =
                workflow
-               |> InputContract.check(payload(%{"quantity" => 900}))
+               |> InputContract.contract(payload(%{"quantity" => 900}))
                |> error_at(["quantity"])
 
       assert %{code: :greater_than} =
                workflow
-               |> InputContract.check(payload(%{"weight_kg" => 0.0}))
+               |> InputContract.contract(payload(%{"weight_kg" => 0.0}))
                |> error_at(["weight_kg"])
     end
 
     test "a format", %{workflow: workflow} do
       assert %{code: :invalid_format, message: "invalid email format"} =
                workflow
-               |> InputContract.check(payload(%{"notify_email" => "nope"}))
+               |> InputContract.contract(payload(%{"notify_email" => "nope"}))
                |> error_at(["notify_email"])
     end
 
@@ -193,7 +272,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     test "a choice set declared in the NimbleOptions dialect", %{workflow: workflow} do
       assert %{code: :invalid_enum_value} =
                workflow
-               |> InputContract.check(payload(%{"channel" => "carrier-pigeon"}))
+               |> InputContract.contract(payload(%{"channel" => "carrier-pigeon"}))
                |> error_at(["channel"])
     end
 
@@ -202,7 +281,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     # correct. `priority` and `threshold` are lone `{{start.…}}` params; `attempts`
     # is wired by an edge mapping.
     test "omitting every optional path is valid", %{workflow: workflow} do
-      assert InputContract.check(workflow, payload()).valid?
+      assert InputContract.contract(workflow, payload()).valid?
     end
 
     test "supplying every optional path correctly is valid", %{workflow: workflow} do
@@ -214,21 +293,21 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
           "reviewer_email" => "risk@example.com"
         })
 
-      assert InputContract.check(workflow, good).valid?
+      assert InputContract.contract(workflow, good).valid?
     end
 
     test "an optional wired as a lone param is judged when supplied", %{workflow: workflow} do
-      assert refused(InputContract.check(workflow, payload(%{"priority" => "yesterday"}))) ==
+      assert refused(InputContract.contract(workflow, payload(%{"priority" => "yesterday"}))) ==
                [["priority"]]
 
       assert [%{code: :less_than_or_equal_to}] =
-               InputContract.check(workflow, payload(%{"threshold" => 500})).errors
+               InputContract.contract(workflow, payload(%{"threshold" => 500})).errors
     end
 
     test "an optional wired by an edge mapping is judged when supplied", %{workflow: workflow} do
       assert %{code: :invalid_type} =
                workflow
-               |> InputContract.check(payload(%{"attempts" => "three"}))
+               |> InputContract.contract(payload(%{"attempts" => "three"}))
                |> error_at(["attempts"])
     end
 
@@ -242,15 +321,15 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
       refute "reviewer_email" in InputContract.required_inputs(workflow)
       assert "reviewer_email" in InputContract.optional_inputs(workflow)
 
-      assert InputContract.check(workflow, payload()).valid?
+      assert InputContract.contract(workflow, payload()).valid?
     end
 
     test "and is still judged against its rule when supplied", %{workflow: workflow} do
-      assert InputContract.check(workflow, payload(%{"reviewer_email" => "risk@example.com"})).valid?
+      assert InputContract.contract(workflow, payload(%{"reviewer_email" => "risk@example.com"})).valid?
 
       assert %{code: :invalid_format, message: "invalid email format"} =
                workflow
-               |> InputContract.check(payload(%{"reviewer_email" => "not-an-address"}))
+               |> InputContract.contract(payload(%{"reviewer_email" => "not-an-address"}))
                |> error_at(["reviewer_email"])
     end
 
@@ -259,7 +338,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     # omittable, which is the only thing the contract claims.
     test "an omitted Zoi.optional field is absent, where a defaulted one is filled in",
          %{workflow: workflow} do
-      assert InputContract.check(workflow, payload()).valid?
+      assert InputContract.contract(workflow, payload()).valid?
 
       {:ok, parsed} =
         Zoi.parse(ScoreShipmentRisk.schema(), %{
@@ -276,7 +355,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     test "an optional path supplied as nil is neither refused nor demanded", %{
       workflow: workflow
     } do
-      verdict = InputContract.check(workflow, payload(%{"priority" => nil, "attempts" => nil}))
+      verdict = InputContract.contract(workflow, payload(%{"priority" => nil, "attempts" => nil}))
 
       assert verdict.valid?
     end
@@ -314,7 +393,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
         ] do
       test "#{field} = #{inspect(value)} is #{verdict}", %{workflow: workflow} do
         result =
-          InputContract.check(
+          InputContract.contract(
             workflow,
             payload(%{unquote(field) => unquote(Macro.escape(value))})
           ).valid?
@@ -332,13 +411,13 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     # a value with one appended. The schema uses `\\A…\\z` for that reason, and this
     # is the case that proves it.
     test "a trailing newline does not satisfy the reference pattern", %{workflow: workflow} do
-      verdict = InputContract.check(workflow, payload(%{"reference_code" => "ABC-1234\n"}))
+      verdict = InputContract.contract(workflow, payload(%{"reference_code" => "ABC-1234\n"}))
 
       assert %{code: :invalid_format} = error_at(verdict, ["reference_code"])
     end
 
     test "a newline-smuggled suffix does not either", %{workflow: workflow} do
-      verdict = InputContract.check(workflow, payload(%{"reference_code" => "ABC-1234\nEVIL"}))
+      verdict = InputContract.contract(workflow, payload(%{"reference_code" => "ABC-1234\nEVIL"}))
 
       assert %{code: :invalid_format} = error_at(verdict, ["reference_code"])
     end
@@ -361,7 +440,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
       test "#{label} refuses at #{step}", %{runnable: runnable} do
         bad = payload(unquote(Macro.escape(extra)))
 
-        refute InputContract.check(runnable, bad).valid?
+        refute InputContract.contract(runnable, bad).valid?
 
         {finished, step_runs} = run(runnable, bad)
 
@@ -378,7 +457,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
   describe "properties" do
     property "quantity is valid exactly on 1..500", %{workflow: workflow} do
       check all(quantity <- integer(-200..900)) do
-        valid? = InputContract.check(workflow, payload(%{"quantity" => quantity})).valid?
+        valid? = InputContract.contract(workflow, payload(%{"quantity" => quantity})).valid?
 
         assert valid? == (quantity >= 1 and quantity <= 500)
       end
@@ -386,7 +465,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
 
     property "label is valid exactly on lengths 8..12", %{workflow: workflow} do
       check all(label <- string(?a..?z, min_length: 0, max_length: 20)) do
-        valid? = InputContract.check(workflow, payload(%{"label" => label})).valid?
+        valid? = InputContract.contract(workflow, payload(%{"label" => label})).valid?
 
         assert valid? == String.length(label) in 8..12
       end
@@ -396,7 +475,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     # `errors == []`, and every error carries a path the caller can act on.
     property "the verdict is internally consistent for any payload", %{workflow: workflow} do
       check all(extra <- map_of(string(:alphanumeric, min_length: 1), term()), max_runs: 50) do
-        verdict = InputContract.check(workflow, payload(extra))
+        verdict = InputContract.contract(workflow, payload(extra))
 
         assert verdict.valid? == (verdict.errors == [])
         assert Enum.all?(verdict.errors, &(is_list(&1.path) and &1.path != []))
@@ -413,7 +492,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
       # the risk gate opens.
       full = payload(%{"priority" => "express", "threshold" => 40, "attempts" => 3})
 
-      assert InputContract.check(runnable, full).valid?
+      assert InputContract.contract(runnable, full).valid?
 
       {finished, step_runs} = run(runnable, full)
 
@@ -428,8 +507,8 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
       below = payload(%{"threshold" => 40})
       above = payload(%{"threshold" => 80})
 
-      assert InputContract.check(runnable, below).valid?
-      assert InputContract.check(runnable, above).valid?
+      assert InputContract.contract(runnable, below).valid?
+      assert InputContract.contract(runnable, above).valid?
 
       {opened, _} = run(runnable, below)
       {shut, _} = run(runnable, above)
@@ -443,7 +522,7 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     test "a payload the contract refuses is refused by the step too", %{runnable: runnable} do
       bad = payload(%{"label" => "no"})
 
-      refute InputContract.check(runnable, bad).valid?
+      refute InputContract.contract(runnable, bad).valid?
 
       {finished, step_runs} = run(runnable, bad)
 

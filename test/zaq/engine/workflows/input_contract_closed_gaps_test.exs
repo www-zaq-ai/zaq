@@ -62,7 +62,7 @@ defmodule Zaq.Engine.Workflows.InputContractClosedGapsTest do
     test "a nested value that breaks its declared rule is caught", %{workflow: workflow} do
       bogus = payload(%{"profile" => %{"region" => "not-a-region", "fragile" => true}})
 
-      verdict = InputContract.check(workflow, bogus)
+      verdict = InputContract.contract(workflow, bogus)
 
       refute verdict.valid?, "a string-keyed nested map was never judged"
       assert %{code: :invalid_enum_value} = error_at(verdict, ["profile", "region"])
@@ -74,7 +74,7 @@ defmodule Zaq.Engine.Workflows.InputContractClosedGapsTest do
       bogus = payload(%{"profile" => %{region: "not-a-region", fragile: true}})
 
       assert %{code: :invalid_enum_value} =
-               workflow |> InputContract.check(bogus) |> error_at(["profile", "region"])
+               workflow |> InputContract.contract(bogus) |> error_at(["profile", "region"])
     end
   end
 
@@ -85,7 +85,7 @@ defmodule Zaq.Engine.Workflows.InputContractClosedGapsTest do
     test "an integer weight is accepted, since JSON cannot express 3.0", %{
       workflow: workflow
     } do
-      assert InputContract.check(workflow, payload(%{"weight_kg" => 3})).valid?,
+      assert InputContract.contract(workflow, payload(%{"weight_kg" => 3})).valid?,
              "Zoi.float() refused a whole number that JSON cannot spell any other way"
     end
   end
@@ -115,31 +115,30 @@ defmodule Zaq.Engine.Workflows.InputContractClosedGapsTest do
     end
 
     test "a scalar where a collection is required is refused", %{graph: graph} do
-      verdict = InputContract.check(graph, %{"rows" => "not a list at all"})
+      verdict = InputContract.contract(graph, %{"rows" => "not a list at all"})
 
       refute verdict.valid?, "a scalar was accepted, and List.wrap/1 will batch it as one item"
     end
   end
 
   describe "closed (InputContract): two contracts no longer share one name" do
-    # `check/2` used to accept a bare list too, skipping type checking entirely and
+    # `contract/2` used to accept a bare list too, skipping type checking entirely and
     # treating every path as required — a weaker answer with nothing to signal that it
     # was weaker. The weaker question now has its own name, so a caller chooses it.
-    test "check/2 no longer accepts a bare list", %{workflow: workflow} do
+    test "contract/2 no longer accepts a bare list", %{workflow: workflow} do
       assert_raise FunctionClauseError, fn ->
-        InputContract.check(InputContract.required_inputs(workflow), payload())
+        InputContract.contract(InputContract.required_inputs(workflow), payload())
       end
     end
 
-    test "check_presence/2 answers the narrower question, and only that", %{
+    test "a present but wrong-typed value is refused, not counted as supplied", %{
       workflow: workflow
     } do
       bad = payload(%{"quantity" => "twelve"})
 
-      # Present but wrong: presence-only says yes, the full check says no. Both are
-      # right about their own question; the names are what keep them apart.
-      assert InputContract.check_presence(InputContract.required_inputs(workflow), bad).valid?
-      refute InputContract.check(workflow, bad).valid?
+      # The path is present, so this is not a presence gap — the contract still refuses
+      # it on the declared type.
+      refute InputContract.contract(workflow, bad).valid?
     end
   end
 end

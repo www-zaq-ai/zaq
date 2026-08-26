@@ -23,8 +23,6 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
   """
   use Zaq.DataCase, async: true
 
-  import Zaq.InputContractHelpers
-
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.InputContract
   alias Zaq.Engine.Workflows.Test.CredentialAction
