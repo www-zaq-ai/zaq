@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T12:10:34Z",
+  "description": "Removed provider signals must be normalized with provider/config attrs before source lookup and parent metadata fallback deletion.",
+  "id": "zaq-lon",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Fix data-source tombstone deletion identity",
+  "type": "task",
+  "updated_at": "2026-08-26T12:10:34Z"
+}
