@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T14:36:30Z",
+  "description": "Implement global resource_permissions-backed source ACLs for Disk sharing with Everyone public grants, inherited folder permissions, and immediate document permission synchronization.",
+  "id": "zaq-w4c",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[source-acl] Implement source-backed sharing ACLs",
+  "type": "task",
+  "updated_at": "2026-08-26T14:36:30Z"
+}
