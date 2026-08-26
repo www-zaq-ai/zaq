@@ -107,12 +107,11 @@ defmodule Zaq.Ingestion do
   defp ingest_record_with_context(record, mode, context) do
     case RecordSource.kind(record) do
       :file ->
-        ingest_file_record(record, mode)
+        ingest_file_record(record, mode, context)
 
       :folder ->
         with {:ok, children} <- RecordSource.list_children(record) do
-          children
-          |> ingest_records(%{mode: mode})
+          ingest_records(children, Map.put(context, :mode, mode))
         end
 
       _ ->
@@ -140,12 +139,28 @@ defmodule Zaq.Ingestion do
   @doc "Returns provider-neutral indexed-state enrichment for canonical data-source records."
   @spec enrich_records([Record.t()]) :: {:ok, map()}
   def enrich_records(records) when is_list(records) do
+    documents_by_source =
+      records
+      |> Enum.map(&record_source_key/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Document.list_by_sources()
+      |> Map.new(&{&1.source, &1})
+
+    permission_counts =
+      documents_by_source
+      |> Map.values()
+      |> Enum.map(& &1.id)
+      |> count_document_permissions()
+
     statuses =
       records
       |> Enum.map(&record_source_key/1)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
-      |> Map.new(fn source -> {source, record_status(source)} end)
+      |> Map.new(fn source ->
+        {source, record_status(source, Map.get(documents_by_source, source), permission_counts)}
+      end)
 
     {:ok, statuses}
   end
@@ -158,8 +173,8 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  defp record_status(source) do
-    case Document.get_by_source(source) do
+  defp record_status(_source, document, permission_counts) do
+    case document do
       %Document{} = document ->
         indexed? =
           Repo.exists?(from c in Zaq.Ingestion.Chunk, where: c.document_id == ^document.id)
@@ -168,12 +183,22 @@ defmodule Zaq.Ingestion do
           document_id: document.id,
           indexed?: indexed?,
           ingested_at: if(indexed?, do: document.updated_at),
+          permissions_count: Map.get(permission_counts, to_string(document.id), 0),
           watch_status: document.watch_status,
+          watch_error: document.watch_error,
           public?: "public" in (document.tags || [])
         }
 
       nil ->
-        %{document_id: nil, indexed?: false, ingested_at: nil, watch_status: nil, public?: false}
+        %{
+          document_id: nil,
+          indexed?: false,
+          ingested_at: nil,
+          permissions_count: 0,
+          watch_status: nil,
+          watch_error: nil,
+          public?: false
+        }
     end
   end
 
@@ -919,7 +944,7 @@ defmodule Zaq.Ingestion do
 
   # --- Private ---
 
-  defp ingest_file_record(record, mode) do
+  defp ingest_file_record(record, mode, context) do
     with path when is_binary(path) <- RecordSource.job_path(record),
          {:ok, job} <- create_job(path, mode, nil, source_record_for_job(record, context)) do
       run_job(job, mode)
@@ -947,6 +972,24 @@ defmodule Zaq.Ingestion do
   defp record_error_ref(%{id: id, name: name}), do: %{id: id, name: name}
   defp record_error_ref(record), do: inspect(record)
 
+  defp materialization_context(params) do
+    case Map.get(params, :actor) || Map.get(params, "actor") do
+      actor when is_map(actor) -> %{actor: actor}
+      _ -> %{}
+    end
+  end
+
+  defp source_record_for_job(record, context) do
+    record
+    |> RecordSource.to_storage_map()
+    |> maybe_put_materialization_context(context)
+  end
+
+  defp maybe_put_materialization_context(source_record, %{actor: actor}) when is_map(actor),
+    do: Map.put(source_record, "materialization_context", %{"actor" => actor})
+
+  defp maybe_put_materialization_context(source_record, _context), do: source_record
+
   defp changed_records_from_request(request) do
     explicit_records = request |> read_any([:records, "records"]) |> List.wrap()
 
@@ -972,24 +1015,6 @@ defmodule Zaq.Ingestion do
         |> data_source_record_watch_state(
           inherited_watch_for_parent_ids(provider, config_id, record.parent_ids)
         )
-  defp materialization_context(params) do
-    case Map.get(params, :actor) || Map.get(params, "actor") do
-      actor when is_map(actor) -> %{actor: actor}
-      _ -> %{}
-    end
-  end
-
-  defp source_record_for_job(record, context) do
-    record
-    |> RecordSource.to_storage_map()
-    |> maybe_put_materialization_context(context)
-  end
-
-  defp maybe_put_materialization_context(source_record, %{actor: actor}) when is_map(actor),
-    do: Map.put(source_record, "materialization_context", %{"actor" => actor})
-
-  defp maybe_put_materialization_context(source_record, _context), do: source_record
-
 
       data_source_record_watch_active?(state)
     else

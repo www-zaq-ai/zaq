@@ -22,6 +22,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, default: false
+  attr :action_capabilities, :map, default: %{}
   attr :watch_supported, :boolean, default: true
   attr :watch_disabled_reason, :string, default: nil
 
@@ -63,6 +64,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               <.grid_entry_actions
                 entry={entry}
                 provider_mode={@provider_mode}
+                action_capabilities={@action_capabilities}
                 ingestion_map={@ingestion_map}
               />
             </.table_actions>
@@ -290,7 +292,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
             ingested
           </span>
           <.shared_badge
-            provider_mode={@provider_mode}
+            share_editable={@status.can_share?}
             permissions_count={@status.permissions_count}
             path={record_path(@entry)}
           />
@@ -305,7 +307,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       <% true -> %>
         <div class="flex flex-row flex-wrap items-center justify-center gap-1 mt-1">
           <.shared_badge
-            provider_mode={@provider_mode}
+            share_editable={@status.can_share?}
             permissions_count={@status.permissions_count}
             path={record_path(@entry)}
           />
@@ -323,12 +325,13 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
 
   attr :entry, :map, required: true
   attr :provider_mode, :boolean, required: true
+  attr :action_capabilities, :map, required: true
   attr :ingestion_map, :map, required: true
 
   defp grid_entry_actions(assigns) do
     ~H"""
     <button
-      :if={not @provider_mode}
+      :if={Map.get(@action_capabilities, :update, false)}
       phx-click="move_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}
@@ -345,7 +348,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       </svg>
     </button>
     <button
-      :if={not @provider_mode}
+      :if={Map.get(@action_capabilities, :update, false)}
       phx-click="rename_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}
@@ -362,7 +365,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       </svg>
     </button>
     <button
-      :if={grid_shareable?(@entry, @provider_mode, @ingestion_map)}
+      :if={grid_shareable?(@entry, @action_capabilities, @ingestion_map)}
       phx-click="share_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}
@@ -378,7 +381,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       </svg>
     </button>
     <button
-      :if={not @provider_mode}
+      :if={Map.get(@action_capabilities, :delete, false)}
       phx-click="delete_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}
@@ -397,8 +400,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
     """
   end
 
-  defp grid_shareable?(entry, provider_mode, ingestion_map) do
-    not provider_mode and
+  defp grid_shareable?(entry, action_capabilities, ingestion_map) do
+    Map.get(action_capabilities, :share, false) and
       (record_folder?(entry) or
          (record_file?(entry) and file_ingestion_status(ingestion_map, entry.name).can_share?))
   end

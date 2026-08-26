@@ -4,6 +4,11 @@ defmodule ZaqWeb.FileControllerTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Contracts.Record
+  alias Zaq.Repo
+  alias Zaq.Storage.Materializers.DiskDocument
+  alias ZaqWeb.PreviewReference
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "file_controller_admin"})
@@ -17,14 +22,17 @@ defmodule ZaqWeb.FileControllerTest do
     File.mkdir_p!(tmp_dir)
 
     original_ingestion_env = Application.get_env(:zaq, Zaq.Ingestion)
+    original_storage_env = Application.get_env(:zaq, Zaq.Storage)
     Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir)
+    Application.put_env(:zaq, Zaq.Storage, base_path: tmp_dir, volumes: %{})
 
     on_exit(fn ->
       Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_env || [])
+      Application.put_env(:zaq, Zaq.Storage, original_storage_env || [])
       File.rm_rf!(tmp_dir)
     end)
 
-    {:ok, conn: conn, tmp_dir: tmp_dir}
+    {:ok, conn: conn, tmp_dir: tmp_dir, user: user}
   end
 
   describe "GET /bo/files/*path" do
@@ -73,6 +81,70 @@ defmodule ZaqWeb.FileControllerTest do
       conn = get(conn, "/bo/files/restricted.txt")
 
       assert response(conn, 500) == "Could not read file"
+    end
+  end
+
+  describe "GET /bo/files/ref/:token" do
+    test "serves materialized disk bytes from the signed preview reference", %{
+      conn: conn,
+      tmp_dir: tmp_dir,
+      user: user
+    } do
+      File.mkdir_p!(Path.join(tmp_dir, "stored/archive"))
+
+      File.write!(
+        Path.join(tmp_dir, "stored/archive/pixel.png"),
+        <<137, 80, 78, 71, 13, 10, 26, 10>>
+      )
+
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Disk raw preview",
+          provider: "disk",
+          kind: "data_source",
+          enabled: true,
+          settings: %{"volumes" => [%{"name" => "archives", "path" => "stored/archive"}]}
+        })
+        |> Repo.insert!()
+
+      {:ok, handle} = DiskDocument.issue("archives/pixel.png", %{"config_id" => config.id})
+
+      record = %Record{
+        id: "archives/pixel.png",
+        kind: :file,
+        name: "pixel.png",
+        mime_type: "image/png",
+        materialization_handle: handle,
+        attributes: %{"provider" => "disk", "config_id" => "archives"}
+      }
+
+      token = PreviewReference.sign_record(record, user)
+      conn = get(conn, "/bo/files/ref/#{token}")
+
+      assert response(conn, 200) == <<137, 80, 78, 71, 13, 10, 26, 10>>
+      assert List.first(get_resp_header(conn, "content-type")) =~ "image/png"
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+    end
+
+    test "rejects tampered preview references", %{conn: conn, user: user} do
+      {:ok, handle} = DiskDocument.issue("archives/pixel.png", %{"config_id" => 123})
+
+      token =
+        PreviewReference.sign_record(
+          %Record{
+            id: "archives/pixel.png",
+            kind: :file,
+            name: "pixel.png",
+            materialization_handle: handle,
+            attributes: %{"provider" => "disk", "config_id" => "archives"}
+          },
+          user
+        )
+
+      conn = get(conn, "/bo/files/ref/#{token <> "tampered"}")
+
+      assert response(conn, 404) == "File not found"
     end
   end
 end

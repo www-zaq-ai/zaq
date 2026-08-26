@@ -53,6 +53,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
   attr :provider_mode, :boolean, default: false
+  attr :action_capabilities, :map, default: %{}
+  attr :create_item_supported, :boolean, default: false
   attr :selected_watchable_count, :integer, default: 0
   attr :selected_watched_count, :integer, default: 0
   attr :watch_supported, :boolean, default: true
@@ -94,6 +96,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, default: false
+  attr :action_capabilities, :map, default: %{}
   attr :watch_supported, :boolean, default: true
   attr :watch_disabled_reason, :string, default: nil
 
@@ -109,6 +112,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, default: false
+  attr :action_capabilities, :map, default: %{}
   attr :watch_supported, :boolean, default: true
   attr :watch_disabled_reason, :string, default: nil
 

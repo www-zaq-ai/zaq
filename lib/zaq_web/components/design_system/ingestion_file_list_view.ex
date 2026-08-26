@@ -34,6 +34,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
   attr :provider_mode, :boolean, default: false
+  attr :action_capabilities, :map, default: %{}
   attr :watch_supported, :boolean, default: true
   attr :watch_disabled_reason, :string, default: nil
 
@@ -143,6 +144,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <.entry_row_actions
                     entry={entry}
                     provider_mode={@provider_mode}
+                    action_capabilities={@action_capabilities}
                     ingestion_map={@ingestion_map}
                   />
                 </.table_actions>
@@ -225,12 +227,13 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
 
   attr :entry, :map, required: true
   attr :provider_mode, :boolean, required: true
+  attr :action_capabilities, :map, required: true
   attr :ingestion_map, :map, required: true
 
   defp entry_row_actions(assigns) do
     ~H"""
     <button
-      :if={not @provider_mode}
+      :if={Map.get(@action_capabilities, :update, false)}
       phx-click="move_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}
@@ -247,7 +250,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       </svg>
     </button>
     <button
-      :if={not @provider_mode}
+      :if={Map.get(@action_capabilities, :update, false)}
       phx-click="rename_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}
@@ -264,7 +267,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       </svg>
     </button>
     <button
-      :if={shareable?(@entry, @provider_mode, @ingestion_map)}
+      :if={shareable?(@entry, @action_capabilities, @ingestion_map)}
       phx-click="share_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}
@@ -280,7 +283,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       </svg>
     </button>
     <button
-      :if={not @provider_mode}
+      :if={Map.get(@action_capabilities, :delete, false)}
       phx-click="delete_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}
@@ -386,7 +389,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       <% status = file_ingestion_status(@ingestion_map, @entry.name) %>
       <div class="flex items-center gap-1 flex-wrap">
         <.shared_badge
-          provider_mode={@provider_mode}
+          share_editable={status.can_share?}
           permissions_count={status.permissions_count}
           path={record_path(@entry)}
           icon
@@ -447,8 +450,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
     end
   end
 
-  defp shareable?(entry, provider_mode, ingestion_map) do
-    not provider_mode and
+  defp shareable?(entry, action_capabilities, ingestion_map) do
+    Map.get(action_capabilities, :share, false) and
       (record_folder?(entry) or
          (record_file?(entry) and
             Map.get(ingestion_map, entry.name, %{can_share?: false}).can_share?))

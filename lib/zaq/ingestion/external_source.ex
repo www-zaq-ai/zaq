@@ -45,7 +45,8 @@ defmodule Zaq.Ingestion.ExternalSource do
       "provider_parent_ids" => record.parent_ids || [],
       "provider_url" => record.url,
       "provider_mime_type" => record.mime_type,
-      "provider_name" => record.name
+      "provider_name" => record.name,
+      "materialization_handle" => record.materialization_handle
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) or value in ["", []] end)
     |> Map.new()

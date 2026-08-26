@@ -68,6 +68,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
                 url: "https://drive.example/file-1",
                 icon: "https://drive.example/icons/pdf.png",
                 mime_type: "application/pdf",
+                materialization_handle: "provider-handle-that-should-not-be-used-for-url-preview",
                 size: 123
               }
             ]
@@ -93,6 +94,24 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
            name: "Budget.pdf",
            content: "Provider document content",
            mime_type: "text/plain"
+         }
+       }}
+    end
+
+    def create_file(provider, params) do
+      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+        send(pid, {:create_file, provider, params})
+      end
+
+      {:ok,
+       %{
+         status: "created",
+         record: %Record{
+           id: "created-1",
+           kind: if(Map.get(params, "kind") == "folder", do: :folder, else: :file),
+           name: Map.get(params, "name"),
+           path: Map.get(params, "name"),
+           mime_type: Map.get(params, "mime_type")
          }
        }}
     end
@@ -210,7 +229,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   setup :verify_on_exit!
 
   setup %{conn: conn} do
-    user = user_fixture(%{username: "ingestion_live_admin"})
+    user = super_admin_fixture(%{username: "ingestion_live_admin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
     conn = init_test_session(conn, %{user_id: user.id})
@@ -243,6 +262,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     storage_config = [base_path: tmp_dir, volumes: %{}]
     Application.put_env(:zaq, Zaq.Ingestion, storage_config)
     Application.put_env(:zaq, Zaq.Storage, storage_config)
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(%{
+      name: "Disk",
+      provider: "disk",
+      kind: "data_source",
+      enabled: true,
+      settings: %{"volumes" => [%{"name" => "default", "path" => "."}]}
+    })
+    |> Repo.insert!()
 
     on_exit(fn ->
       Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
@@ -322,10 +351,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   defp disk_source(relative_path, opts \\ []) do
     volume = Keyword.get(opts, :volume, "default")
+    config_id = Keyword.get(opts, :config_id) || Repo.get_by!(ChannelConfig, provider: "disk").id
     kind = opts |> Keyword.get(:kind, "file") |> to_string()
     {:ok, entry} = EntryCatalog.ensure(volume, relative_path, kind)
 
-    "data_source/disk/#{volume}/#{entry.id}"
+    "data_source/disk/#{config_id}/#{entry.id}"
   end
 
   defp open_upload_modal(view) do
@@ -379,6 +409,84 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert has_element?(view, "button", "Nested Folder")
       assert has_element?(view, "span", "No Preview.txt")
+    end
+
+    test "shows creation CTAs when provider create_item is supported", %{conn: conn} do
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{create_item: true}}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      assert has_element?(view, "#upload-data-button")
+      assert has_element?(view, "#new-folder-button")
+      assert has_element?(view, "#add-raw-md-button")
+    end
+
+    test "provider new folder routes through create document action", %{conn: conn} do
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{create_item: true}}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "show_new_folder_modal", %{})
+      render_hook(view, "create_folder", %{"name" => "Reports"})
+
+      assert_received {:create_file, "google_drive",
+                       %{"config_id" => _config_id, "kind" => "folder", "name" => "Reports"}}
+    end
+
+    test "provider raw markdown routes through create document action", %{conn: conn} do
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{create_item: true}}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "show_add_raw_modal", %{})
+      render_hook(view, "save_raw_content", %{"filename" => "remote", "content" => "# Remote\n"})
+
+      assert_received {:create_file, "google_drive",
+                       %{
+                         "config_id" => _config_id,
+                         "content" => "# Remote\n",
+                         "mime_type" => "text/markdown",
+                         "name" => "remote.md"
+                       }}
+    end
+
+    test "provider upload routes decoded content through create document action", %{conn: conn} do
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{create_item: true}}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      open_upload_modal(view)
+
+      upload =
+        file_input(view, "#upload-form", :files, [
+          %{name: "upload.txt", content: "hello upload", type: "text/plain"}
+        ])
+
+      assert render_upload(upload, "upload.txt")
+      view |> form("#upload-form") |> render_submit()
+
+      assert_received {:create_file, "google_drive",
+                       %{
+                         "config_id" => _config_id,
+                         "content" => "hello upload",
+                         "mime_type" => "text/plain",
+                         "name" => "upload.txt"
+                       }}
     end
 
     test "provider browsing dispatches root and nested shared filters distinctly", %{conn: conn} do
@@ -817,6 +925,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert has_element?(view, "#file-preview-modal")
       assert has_element?(view, ~s(iframe[src="https://drive.example/file-1"]), "")
       assert has_element?(view, "a", "Open in provider")
+      refute render(view) =~ "Provider document content"
 
       render_hook(view, "close_preview_modal", %{})
       render_hook(view, "toggle_select", %{"path" => "file-1"})
@@ -911,7 +1020,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
 
       for {event, params, expected} <- [
-            {"show_new_folder_modal", %{}, "Provider folders are read-only in this phase."},
+            {"show_new_folder_modal", %{},
+             "This data source does not support document creation."},
             {"rename_item", %{"path" => "file-1", "type" => "file"},
              "Provider records are read-only in this phase."},
             {"delete_item", %{"path" => "file-1", "type" => "file"},
@@ -1211,14 +1321,23 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "th.zaq-ingestion-meta-label", "Select all")
   end
 
-  test "toggle_watch_status sets an ingested file to pending and clears it", %{conn: conn} do
+  test "toggle_watch_status ignores unsupported disk watches and clears existing watches", %{
+    conn: conn
+  } do
     source = disk_source("alpha.md")
     create_document_with_chunk(source)
 
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
     render_hook(view, "toggle_watch_status", %{"path" => "alpha.md"})
-    assert Document.get_by_source(source).watch_status == "pending"
+    assert Document.get_by_source(source).watch_status == "unwatched"
+
+    {:ok, _doc} =
+      Document.get_by_source(source)
+      |> Document.changeset(%{watch_status: "pending"})
+      |> Repo.update()
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
     render_hook(view, "toggle_watch_status", %{"path" => "alpha.md"})
     assert Document.get_by_source(source).watch_status == "unwatched"
@@ -1245,11 +1364,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     render_hook(view, "retry_watch", %{})
 
-    assert Document.get_by_source(source).watch_status == "pending"
+    assert Document.get_by_source(source).watch_status == "error"
     refute has_element?(view, "#watch-error-modal")
   end
 
-  test "watch_selected sets selected ingested files and folders to pending", %{conn: conn} do
+  test "watch_selected skips disk selections when watch capability is not advertised", %{
+    conn: conn
+  } do
     alpha_source = disk_source("alpha.md")
     folder_source = disk_source("docs", kind: "directory")
 
@@ -1261,8 +1382,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     render_hook(view, "toggle_select", %{"path" => "docs"})
     render_hook(view, "watch_selected", %{})
 
-    assert Document.get_by_source(alpha_source).watch_status == "pending"
-    assert Document.get_by_source(folder_source).watch_status == "pending"
+    assert Document.get_by_source(alpha_source).watch_status == "unwatched"
+    assert Document.get_by_source(folder_source).watch_status == "unwatched"
   end
 
   test "retry_watch without an open modal just clears modal state", %{conn: conn} do
@@ -1382,6 +1503,35 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     refute has_element?(view, "#file-preview-modal")
   end
 
+  test "opens preview from a disk ChannelConfig volume whose path differs from its name", %{
+    conn: conn,
+    tmp_dir: tmp_dir
+  } do
+    storage_dir = Path.join(tmp_dir, "stored/archive")
+    File.mkdir_p!(storage_dir)
+    File.write!(Path.join(storage_dir, "report.md"), "# ChannelConfig backed report")
+
+    config = Repo.get_by!(ChannelConfig, provider: "disk")
+
+    config
+    |> ChannelConfig.changeset(%{
+      settings: %{"volumes" => [%{"name" => "archives", "path" => "stored/archive"}]}
+    })
+    |> Repo.update!()
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, ~s(button[phx-click="open_preview"][phx-value-path="report.md"]))
+
+    view
+    |> element(~s(button[phx-click="open_preview"][phx-value-path="report.md"]))
+    |> render_click()
+
+    assert has_element?(view, "#file-preview-modal")
+    assert has_element?(view, "#file-preview-modal .md-content h1", "ChannelConfig backed report")
+    assert render(view) =~ "/bo/files/ref/"
+  end
+
   test "local preview ignores blank filename override", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -1475,10 +1625,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     test "removes volume-prefixed document and chunks", %{conn: conn, tmp_dir: tmp_dir} do
       original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
       original_storage = Application.get_env(:zaq, Zaq.Storage)
-      storage_config = [volumes: %{"docs" => tmp_dir}]
+      storage_config = [base_path: tmp_dir, volumes: %{"docs" => tmp_dir}]
 
       Application.put_env(:zaq, Zaq.Ingestion, storage_config)
       Application.put_env(:zaq, Zaq.Storage, storage_config)
+
+      Repo.get_by!(ChannelConfig, provider: "disk")
+      |> ChannelConfig.changeset(%{
+        settings: %{"volumes" => [%{"name" => "docs", "path" => "."}]}
+      })
+      |> Repo.update!()
 
       on_exit(fn ->
         Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
@@ -1514,10 +1670,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
       original_storage = Application.get_env(:zaq, Zaq.Storage)
-      storage_config = [volumes: %{"docs" => docs_root}]
+      storage_config = [base_path: tmp_dir, volumes: %{"docs" => docs_root}]
 
       Application.put_env(:zaq, Zaq.Ingestion, storage_config)
       Application.put_env(:zaq, Zaq.Storage, storage_config)
+
+      Repo.get_by!(ChannelConfig, provider: "disk")
+      |> ChannelConfig.changeset(%{
+        settings: %{"volumes" => [%{"name" => "docs", "path" => "docs"}]}
+      })
+      |> Repo.update!()
 
       on_exit(fn ->
         Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
@@ -2708,10 +2870,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.write!(Path.join(vol_docs, "manual.md"), "# Manual")
       File.write!(Path.join(vol_archives, "old.md"), "# Old")
 
+      Repo.get_by!(ChannelConfig, provider: "disk")
+      |> ChannelConfig.changeset(%{
+        settings: %{
+          "volumes" => [
+            %{"name" => "docs", "path" => "volumes/docs"},
+            %{"name" => "archives", "path" => "volumes/archives"}
+          ]
+        }
+      })
+      |> Repo.update!()
+
       original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
       original_storage = Application.get_env(:zaq, Zaq.Storage)
 
-      storage_config = [volumes: %{"docs" => vol_docs, "archives" => vol_archives}]
+      storage_config = [base_path: tmp_dir]
 
       Application.put_env(:zaq, Zaq.Ingestion, storage_config)
       Application.put_env(:zaq, Zaq.Storage, storage_config)
@@ -2922,6 +3095,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       {:ok, team} =
         People.create_team(%{name: "Eng#{unique}"})
+
+      assert render(view) =~ "phx-click=\"share_item\""
 
       {:ok, doc} = Document.create(%{source: disk_source("alpha.md"), content: "shared content"})
 

@@ -43,6 +43,8 @@
           }
           watch_supported={@watch_supported}
           watch_disabled_reason={@watch_disabled_reason}
+          action_capabilities={@action_capabilities}
+          create_item_supported={@create_item_supported}
           active_jobs_count={active_jobs_count(@jobs)}
         />
       </div>
@@ -62,6 +64,7 @@
         current_volume={@current_volume}
         ingestion_map={@ingestion_map}
         provider_mode={@provider != "local"}
+        action_capabilities={@action_capabilities}
         watch_supported={@watch_supported}
         watch_disabled_reason={@watch_disabled_reason}
       />
@@ -73,6 +76,7 @@
         current_volume={@current_volume}
         ingestion_map={@ingestion_map}
         provider_mode={@provider != "local"}
+        action_capabilities={@action_capabilities}
         watch_supported={@watch_supported}
         watch_disabled_reason={@watch_disabled_reason}
       />
@@ -131,7 +135,7 @@
     modal_name={@modal_name}
   />
   <.modal_upload
-    :if={@modal == :upload and @provider == "local"}
+    :if={@modal == :upload}
     uploads={@uploads}
     embedding_ready={@embedding_ready}
     folder_drop_skipped={@folder_drop_skipped}

@@ -80,6 +80,9 @@ Locator fields:
 
 - `file_id` — the stable Storage entry id, the same id `Zaq.Channels.DiskBridge`
   puts on every disk record it returns
+- `config_id` — optional Disk data-source `ChannelConfig` id. Storage reads the
+  current persisted config at redemption time and fails closed if the config is
+  disabled, missing, or ambiguous.
 
 Per-redemption options:
 
@@ -87,11 +90,12 @@ Per-redemption options:
   otherwise answer as text. Representation state, not identity, so it stays out of the
   signed locator.
 
-The handler always dispatches `:materialize_document` to the Storage role via
-`Zaq.Storage.Events`. Disk records are handed out unmaterialized by a Channels bridge, so
-they redeem as a nested handle: the Channels hop returns a record still carrying its disk
-handle, and `Zaq.Materialization` redeems that second handle and merges the bytes into the
-record the bridge already built.
+The handler always dispatches `:materialize_document` directly to the Storage role via
+`Zaq.Storage.Events`. A consumer that already has a Disk record redeems this handle without
+going back through Channels. Provider-plus-id consumers still use the generic
+`data_source_document` path first; for Disk, that Channels hop returns an unmaterialized
+record carrying the `disk_document` handle, and `Zaq.Materialization` redeems that second
+handle against Storage.
 
 ## Extension Rules
 

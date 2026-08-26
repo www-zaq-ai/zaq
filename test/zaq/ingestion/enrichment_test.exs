@@ -1,6 +1,7 @@
 defmodule Zaq.Ingestion.EnrichmentTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document}
@@ -24,6 +25,7 @@ defmodule Zaq.Ingestion.EnrichmentTest do
     assert status.document_id == document.id
     assert status.indexed? == false
     assert status.ingested_at == nil
+    assert status.permissions_count == 0
 
     {:ok, _chunk} =
       Chunk.create(%{
@@ -36,5 +38,17 @@ defmodule Zaq.Ingestion.EnrichmentTest do
     assert {:ok, %{^source => status}} = Ingestion.enrich_records([record])
     assert status.indexed? == true
     assert status.ingested_at == document.updated_at
+
+    {:ok, person} =
+      People.create_person(%{
+        full_name: "Enrichment User",
+        email: "enrichment-#{System.unique_integer([:positive])}@example.com"
+      })
+
+    {:ok, _permission} =
+      Ingestion.set_document_permission(document.id, :person, person.id, ["read"])
+
+    assert {:ok, %{^source => status}} = Ingestion.enrich_records([record])
+    assert status.permissions_count == 1
   end
 end

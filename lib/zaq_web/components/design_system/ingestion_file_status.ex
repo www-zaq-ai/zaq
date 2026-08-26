@@ -48,8 +48,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
 
   def preview_path(entry, _current_volume, true), do: record_path(entry)
 
-  def preview_path(entry, current_volume, false),
-    do: Path.join([current_volume, record_path(entry)])
+  def preview_path(entry, _current_volume, false), do: record_path(entry)
 
   def related_record(%{attributes: attrs}) when is_map(attrs) do
     Map.get(attrs, "related_record") || Map.get(attrs, :related_record)
@@ -65,14 +64,14 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
 
   def related_record_size(record), do: Map.get(record, "size") || Map.get(record, :size)
 
-  def related_record_preview_path(record, current_volume) do
+  def related_record_preview_path(record, _current_volume) do
     case related_record_preview_path(record) do
       path when is_binary(path) and path != "" -> path
-      _ -> Path.join([current_volume, related_record_path(record)])
+      _ -> related_record_path(record)
     end
   end
 
-  attr :provider_mode, :boolean, default: false
+  attr :share_editable, :boolean, default: false
   attr :permissions_count, :integer, required: true
   attr :path, :string, required: true
   attr :icon, :boolean, default: false
@@ -82,14 +81,14 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
     <button
       :if={@permissions_count > 0}
       type="button"
-      phx-click={if @provider_mode, do: "view_provider_permissions", else: "share_item"}
+      phx-click={if @share_editable, do: "share_item", else: "view_provider_permissions"}
       phx-value-path={@path}
       class="zaq-pill zaq-pill--shared zaq-text-caption"
       title={
-        if @provider_mode,
-          do:
-            "Permissions are managed in the data source. Refresh ingestion after changing them there.",
-          else: "Shared with #{@permissions_count} person(s)/team(s)"
+        if @share_editable,
+          do: "Shared with #{@permissions_count} person(s)/team(s)",
+          else:
+            "Permissions are managed in the data source. Refresh ingestion after changing them there."
       }
     >
       <svg

@@ -15,6 +15,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
   attr :provider_mode, :boolean, default: false
+  attr :action_capabilities, :map, default: %{}
+  attr :create_item_supported, :boolean, default: false
   attr :selected_watchable_count, :integer, default: 0
   attr :selected_watched_count, :integer, default: 0
   attr :watch_supported, :boolean, default: true
@@ -25,7 +27,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
     ~H"""
     <div class="zaq-ingestion-chrome-actions zaq-ingestion-chrome-actions--end">
       <.button
-        :if={not @provider_mode}
+        :if={@create_item_supported}
         id="upload-data-button"
         variant={:secondary}
         icon="hero-arrow-up-tray"
@@ -34,7 +36,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
         Upload data
       </.button>
       <.button
-        :if={not @provider_mode}
+        :if={@create_item_supported}
         id="new-folder-button"
         variant={:secondary}
         icon="hero-plus"
@@ -43,7 +45,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
         New Folder
       </.button>
       <.button
-        :if={not @provider_mode}
+        :if={@create_item_supported}
         id="add-raw-md-button"
         variant={:secondary}
         icon="hero-pencil-square"
@@ -52,7 +54,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
         Add Raw MD
       </.button>
       <button
-        :if={not @provider_mode and MapSet.size(@selected) > 0}
+        :if={Map.get(@action_capabilities, :delete, false) and MapSet.size(@selected) > 0}
         id="bulk-delete-button"
         phx-click="show_delete_confirmation"
         class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-text_label-default"

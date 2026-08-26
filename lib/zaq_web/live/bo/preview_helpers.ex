@@ -3,19 +3,23 @@ defmodule ZaqWeb.Live.BO.PreviewHelpers do
   Shared helpers for BO file preview modal state transitions.
   """
 
+  alias Zaq.Contracts.Record
   alias ZaqWeb.Live.BO.AI.FilePreviewData
 
   @unauthorized_message "You do not have access to this file."
   @not_previewable_message "Preview is not available for this file type."
 
-  @spec previewable_path?(String.t()) :: boolean()
+  @spec previewable_path?(String.t() | Record.t()) :: boolean()
+  def previewable_path?(%Record{} = record),
+    do: previewable_path?(record.name || record.path || record.id)
+
   def previewable_path?(path), do: FilePreviewData.previewable_path?(path)
 
-  @spec open_preview(Phoenix.LiveView.Socket.t(), String.t(), atom() | nil) ::
+  @spec open_preview(Phoenix.LiveView.Socket.t(), String.t() | Record.t(), atom() | nil) ::
           Phoenix.LiveView.Socket.t()
-  def open_preview(socket, path, modal_assign \\ nil) do
-    if previewable_path?(path) do
-      case FilePreviewData.load(path, socket.assigns.current_user) do
+  def open_preview(socket, preview_ref, modal_assign \\ nil) do
+    if previewable_path?(preview_ref) do
+      case FilePreviewData.load(preview_ref, socket.assigns.current_user) do
         {:ok, preview} ->
           socket
           |> Phoenix.Component.assign(:preview, preview)

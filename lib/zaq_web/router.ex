@@ -64,6 +64,7 @@ defmodule ZaqWeb.Router do
     pipe_through [:browser, :bo_node_only, :bo_auth]
 
     # File serving — raw content with correct Content-Type (opens in browser tab)
+    get "/files/ref/:token", FileController, :show_ref
     get "/files/*path", FileController, :show
     get "/trace-artifacts/:id", MessageTraceArtifactController, :show
 
