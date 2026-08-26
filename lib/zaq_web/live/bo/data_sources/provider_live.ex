@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
+  alias Zaq.Storage.VolumeConfig
   alias Zaq.Utils.ParseUtils
   alias Zaq.Utils.Scopes
   alias ZaqWeb.ChangesetErrors
@@ -38,6 +39,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
      |> assign(:page_title, label)
      |> assign(:provider, provider)
      |> assign(:provider_label, label)
+     |> assign(:storage_base_path, VolumeConfig.base_path())
      |> assign(:configs, configs)
      |> assign(:grants_by_config, grants)
      |> assign(:root_folders_by_config, root_folders)
@@ -170,6 +172,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
           }
         }
       })
+      |> maybe_put_default_disk_settings(socket.assigns.provider)
 
     {:noreply,
      socket
@@ -225,6 +228,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   def handle_event("validate", %{"form" => params}, socket) do
+    params = normalize_disk_form_params(params, socket.assigns.provider)
+
     changeset =
       socket.assigns.changeset.data
       |> ChannelConfig.changeset(params)
@@ -240,6 +245,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   def handle_event("save", %{"form" => params}, socket) do
+    params = normalize_disk_form_params(params, socket.assigns.provider)
+
     previous_config =
       if socket.assigns.modal == :edit, do: socket.assigns.changeset.data, else: nil
 
@@ -283,18 +290,48 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
     previous_config = Repo.get!(ChannelConfig, id)
 
-    config =
-      previous_config
-      |> Ecto.Changeset.change(enabled: !previous_config.enabled)
-      |> Repo.update!()
+    if socket.assigns.provider == "disk" and !previous_config.enabled and
+         storage_base_path_blank?(socket.assigns.storage_base_path) do
+      {:noreply, put_flash(socket, :error, "Set Zaq.Storage base_path before enabling Disk.")}
+    else
+      toggle_config_enabled(socket, previous_config)
+    end
+  end
 
-    _sync = sync_channel_runtime(previous_config, config)
+  def handle_event("add_disk_volume", _params, %{assigns: %{changeset: changeset}} = socket) do
+    settings =
+      changeset
+      |> Ecto.Changeset.get_field(:settings, %{})
+      |> VolumeConfig.normalize_settings()
+
+    volumes = Map.get(settings, "volumes", []) ++ [%{"name" => "", "path" => ""}]
+
+    changeset =
+      Ecto.Changeset.put_change(changeset, :settings, Map.put(settings, "volumes", volumes))
 
     {:noreply,
-     refresh_provider_page_without_folder_listing(
-       socket,
-       "#{config.name} #{if previous_config.enabled, do: "disabled", else: "enabled"}."
-     )}
+     socket |> assign(:changeset, changeset) |> assign(:form, to_form(changeset, as: :form))}
+  end
+
+  def handle_event(
+        "remove_disk_volume",
+        %{"index" => index},
+        %{assigns: %{changeset: changeset}} = socket
+      ) do
+    index = parse_int(index)
+
+    settings =
+      changeset
+      |> Ecto.Changeset.get_field(:settings, %{})
+      |> VolumeConfig.normalize_settings()
+
+    volumes = settings |> Map.get("volumes", []) |> List.delete_at(index || -1)
+
+    changeset =
+      Ecto.Changeset.put_change(changeset, :settings, Map.put(settings, "volumes", volumes))
+
+    {:noreply,
+     socket |> assign(:changeset, changeset) |> assign(:form, to_form(changeset, as: :form))}
   end
 
   def handle_event("open_test", %{"id" => id}, socket) do
@@ -437,6 +474,31 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
          |> assign(:confirm_delete, nil)
          |> refresh_provider_page("Data source config deleted.")}
     end
+  end
+
+  defp toggle_config_enabled(socket, previous_config) do
+    config =
+      previous_config
+      |> Ecto.Changeset.change(enabled: !previous_config.enabled)
+      |> Repo.update!()
+
+    _sync = sync_channel_runtime(previous_config, config)
+
+    {:noreply,
+     refresh_provider_page_without_folder_listing(
+       socket,
+       "#{config.name} #{if previous_config.enabled, do: "disabled", else: "enabled"}."
+     )}
+  end
+
+  def disk_provider?(provider), do: provider == "disk"
+
+  def disk_volumes_from_changeset(changeset) do
+    changeset
+    |> Ecto.Changeset.get_field(:settings, %{})
+    |> VolumeConfig.normalize_settings()
+    |> Map.get("volumes", [])
+    |> Enum.with_index()
   end
 
   def active_grant_for_config(config, grants_by_config),
@@ -906,7 +968,55 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     changeset
     |> maybe_validate_connect_credential_provider(provider)
     |> maybe_validate_global_base_url_for_webhook_capability(provider)
+    |> maybe_validate_disk_base_path(provider)
   end
+
+  defp maybe_validate_disk_base_path(changeset, "disk") do
+    if Ecto.Changeset.get_field(changeset, :enabled) and
+         storage_base_path_blank?(VolumeConfig.base_path()) do
+      Ecto.Changeset.add_error(changeset, :enabled, "requires configured Zaq.Storage base_path")
+    else
+      changeset
+    end
+  end
+
+  defp maybe_validate_disk_base_path(changeset, _provider), do: changeset
+
+  defp maybe_put_default_disk_settings(changeset, "disk") do
+    settings =
+      changeset
+      |> Ecto.Changeset.get_field(:settings, %{})
+      |> Map.put_new("volumes", [%{"name" => "documents", "path" => "documents"}])
+
+    Ecto.Changeset.put_change(changeset, :settings, settings)
+  end
+
+  defp maybe_put_default_disk_settings(changeset, _provider), do: changeset
+
+  defp normalize_disk_form_params(params, "disk") do
+    settings = Map.get(params, "settings", %{})
+
+    volumes =
+      case Map.get(settings, "volumes") do
+        volumes when is_map(volumes) ->
+          volumes
+          |> Enum.sort_by(fn {index, _volume} -> parse_int(index) || 0 end)
+          |> Enum.map(fn {_index, volume} -> volume end)
+
+        volumes when is_list(volumes) ->
+          volumes
+
+        _other ->
+          []
+      end
+
+    Map.put(params, "settings", Map.put(settings, "volumes", volumes))
+  end
+
+  defp normalize_disk_form_params(params, _provider), do: params
+
+  defp storage_base_path_blank?(path) when is_binary(path), do: String.trim(path) == ""
+  defp storage_base_path_blank?(_path), do: true
 
   defp maybe_validate_global_base_url_for_webhook_capability(changeset, provider) do
     if provider_requires_global_base_url?(provider) and is_nil(Zaq.System.get_global_base_url()) do

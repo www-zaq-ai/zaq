@@ -12,8 +12,10 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   setup do
     original_base_url = ZaqSystem.get_global_base_url()
     original_channels = Application.get_env(:zaq, :channels)
+    original_storage = Application.get_env(:zaq, Zaq.Storage)
 
     :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+    Application.put_env(:zaq, Zaq.Storage, base_path: "priv/documents")
 
     on_exit(fn ->
       :ok = ZaqSystem.set_global_base_url(original_base_url)
@@ -21,6 +23,11 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       case original_channels do
         nil -> Application.delete_env(:zaq, :channels)
         channels -> Application.put_env(:zaq, :channels, channels)
+      end
+
+      case original_storage do
+        nil -> Application.delete_env(:zaq, Zaq.Storage)
+        storage -> Application.put_env(:zaq, Zaq.Storage, storage)
       end
     end)
 
@@ -76,6 +83,47 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
     refute closed.assigns.credential_modal
     assert closed.assigns.credential_changeset == nil
+  end
+
+  test "disk new config starts with an editable default volume" do
+    socket =
+      socket_with(%{
+        service_available: true,
+        provider: "disk"
+      })
+
+    assert {:noreply, opened} =
+             ProviderLive.handle_event("open_modal", %{"action" => "new"}, socket)
+
+    assert [{%{"name" => "documents", "path" => "documents"}, 0}] =
+             ProviderLive.disk_volumes_from_changeset(opened.assigns.changeset)
+  end
+
+  test "disk validation rejects volume paths escaping the storage base" do
+    socket =
+      socket_with(%{
+        service_available: true,
+        provider: "disk",
+        changeset: config_changeset("disk")
+      })
+
+    assert {:noreply, validated} =
+             ProviderLive.handle_event(
+               "validate",
+               %{
+                 "form" => %{
+                   "name" => "Disk",
+                   "provider" => "disk",
+                   "kind" => "data_source",
+                   "settings" => %{
+                     "volumes" => %{"0" => %{"name" => "docs", "path" => "../docs"}}
+                   }
+                 }
+               },
+               socket
+             )
+
+    assert Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "storage base path"))
   end
 
   test "open_new_credential shows base URL requirement when unset" do
@@ -1316,15 +1364,15 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     assert Enum.any?(validated.assigns.modal_errors, &String.contains?(&1, "not found"))
   end
 
-  test "zaq_local provider uses local_filesystem credential mapping" do
+  test "disk provider uses disk credential mapping" do
     assert {:ok, mounted} =
              ProviderLive.mount(
-               %{"provider" => "zaq_local"},
+               %{"provider" => "disk"},
                %{},
                socket_with(%{service_available: false})
              )
 
-    assert mounted.assigns.provider == "zaq_local"
+    assert mounted.assigns.provider == "disk"
     assert mounted.assigns.provider_label == "Disk"
 
     assert {:noreply, opened} = ProviderLive.handle_event("open_new_credential", %{}, mounted)
@@ -1333,7 +1381,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     cred_provider =
       Ecto.Changeset.get_field(opened.assigns.credential_changeset, :provider)
 
-    assert cred_provider == "local_filesystem"
+    assert cred_provider == "disk"
   end
 
   test "fetch_more with next_page_token attempts to load additional pages" do

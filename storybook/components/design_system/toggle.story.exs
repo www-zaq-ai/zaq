@@ -58,8 +58,8 @@ defmodule Storybook.Components.DesignSystem.Toggle do
           event: "noop",
           value_param: "source",
           choices: [
-            %{value: "volume:documents", label: "documents", provider: "zaq_local"},
-            %{value: "volume:archives", label: "archives", provider: "zaq_local"},
+            %{value: "volume:documents", label: "documents", provider: "disk"},
+            %{value: "volume:archives", label: "archives", provider: "disk"},
             %{value: "provider:google_drive", label: "Google Drive", provider: "google_drive"}
           ]
         }

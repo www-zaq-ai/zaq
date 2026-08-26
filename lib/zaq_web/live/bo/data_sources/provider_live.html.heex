@@ -36,6 +36,20 @@
         Add Config
       </button>
     </div>
+    <div
+      :if={disk_provider?(@provider)}
+      class="mt-4 rounded-xl border border-black/10 bg-white p-4"
+    >
+      <p class="font-mono text-[0.62rem] uppercase tracking-wider text-black/35 mb-1">
+        Storage base path
+      </p>
+      <p class="font-mono text-sm text-black">
+        {@storage_base_path || "Not configured"}
+      </p>
+      <p class="font-mono text-[0.65rem] text-black/40 mt-1">
+        Volume paths are resolved relative to this `Zaq.Storage` base path.
+      </p>
+    </div>
   </div>
 
   <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">
@@ -110,6 +124,7 @@
             </svg>
           </button>
           <button
+            :if={!disk_provider?(@provider)}
             id={"open-test-config-#{config.id}"}
             phx-click="open_test"
             phx-value-id={config.id}
@@ -158,75 +173,91 @@
       </div>
 
       <div class="rounded-lg border border-black/10 p-3 mb-4">
-        <p class="font-mono text-[0.62rem] uppercase tracking-wider text-black/35 mb-2">
-          Root folders
-          <span :if={Map.get(root_meta, :pages_loaded, 0) > 0}>
-            ({Map.get(root_meta, :pages_loaded, 0)} pages loaded)
-          </span>
-        </p>
-        <div :if={root_folders_list == nil} class="font-mono text-[0.75rem] text-black/45">
-          N/A
-        </div>
-        <div
-          :if={root_folders_list != nil and root_folders(root_folders_list) == []}
-          class="font-mono text-[0.75rem] text-black/45"
-        >
-          None found
-        </div>
-        <ul :if={root_folders(root_folders_list) != []} class="space-y-1">
-          <li
-            :for={folder <- root_folders(root_folders_list)}
-            class="font-mono text-[0.75rem] text-black/70 flex items-center gap-2"
-          >
-            <img
-              :if={folder_icon(folder)}
-              src={folder_icon(folder)}
-              class="w-4 h-4"
-              alt="icon"
-              loading="lazy"
-              decoding="async"
-            />
-            <a
-              :if={folder_url(folder)}
-              href={folder_url(folder)}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="underline decoration-black/20 hover:decoration-black"
+        <div :if={disk_provider?(@provider)}>
+          <p class="font-mono text-[0.62rem] uppercase tracking-wider text-black/35 mb-2">
+            Volumes
+          </p>
+          <ul class="space-y-1">
+            <li
+              :for={volume <- Map.get(config.settings || %{}, "volumes", [])}
+              class="font-mono text-[0.75rem] text-black/70 flex items-center gap-2"
             >
-              {folder_name(folder)}
-            </a>
-            <span :if={!folder_url(folder)}>{folder_name(folder)}</span>
+              <span class="font-bold">{volume["name"]}</span>
+              <span class="text-black/35">{@storage_base_path}/{volume["path"]}</span>
+            </li>
+          </ul>
+        </div>
+        <div :if={!disk_provider?(@provider)}>
+          <p class="font-mono text-[0.62rem] uppercase tracking-wider text-black/35 mb-2">
+            Root folders
+            <span :if={Map.get(root_meta, :pages_loaded, 0) > 0}>
+              ({Map.get(root_meta, :pages_loaded, 0)} pages loaded)
+            </span>
+          </p>
+          <div :if={root_folders_list == nil} class="font-mono text-[0.75rem] text-black/45">
+            N/A
+          </div>
+          <div
+            :if={root_folders_list != nil and root_folders(root_folders_list) == []}
+            class="font-mono text-[0.75rem] text-black/45"
+          >
+            None found
+          </div>
+          <ul :if={root_folders(root_folders_list) != []} class="space-y-1">
+            <li
+              :for={folder <- root_folders(root_folders_list)}
+              class="font-mono text-[0.75rem] text-black/70 flex items-center gap-2"
+            >
+              <img
+                :if={folder_icon(folder)}
+                src={folder_icon(folder)}
+                class="w-4 h-4"
+                alt="icon"
+                loading="lazy"
+                decoding="async"
+              />
+              <a
+                :if={folder_url(folder)}
+                href={folder_url(folder)}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="underline decoration-black/20 hover:decoration-black"
+              >
+                {folder_name(folder)}
+              </a>
+              <span :if={!folder_url(folder)}>{folder_name(folder)}</span>
+              <button
+                type="button"
+                phx-click="open_folder_info"
+                phx-value-config-id={config.id}
+                phx-value-folder-id={folder.id}
+                class="w-5 h-5 rounded border border-black/10 grid place-items-center text-black/40 hover:text-[#03b6d4] hover:border-[#03b6d4]/30"
+                title="Folder details"
+              >
+                <svg
+                  class="w-3 h-3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12 10v6" />
+                  <path d="M12 7h.01" />
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+              </button>
+            </li>
+          </ul>
+          <div :if={Map.get(root_meta, :has_more?, false)} class="mt-3">
             <button
               type="button"
-              phx-click="open_folder_info"
-              phx-value-config-id={config.id}
-              phx-value-folder-id={folder.id}
-              class="w-5 h-5 rounded border border-black/10 grid place-items-center text-black/40 hover:text-[#03b6d4] hover:border-[#03b6d4]/30"
-              title="Folder details"
+              phx-click="fetch_more"
+              phx-value-id={config.id}
+              class="font-mono text-[0.68rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/55 hover:text-black hover:border-black/20 transition-all"
             >
-              <svg
-                class="w-3 h-3"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="M12 10v6" />
-                <path d="M12 7h.01" />
-                <circle cx="12" cy="12" r="9" />
-              </svg>
+              Fetch more (+{Map.get(root_meta, :max_pages_per_batch, 5)} pages)
             </button>
-          </li>
-        </ul>
-        <div :if={Map.get(root_meta, :has_more?, false)} class="mt-3">
-          <button
-            type="button"
-            phx-click="fetch_more"
-            phx-value-id={config.id}
-            class="font-mono text-[0.68rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/55 hover:text-black hover:border-black/20 transition-all"
-          >
-            Fetch more (+{Map.get(root_meta, :max_pages_per_batch, 5)} pages)
-          </button>
+          </div>
         </div>
       </div>
     </div>
@@ -324,7 +355,7 @@
         />
       </div>
 
-      <div class="mb-6">
+      <div :if={!disk_provider?(@provider)} class="mb-6">
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Credential
         </label>
@@ -380,7 +411,7 @@
         </p>
       </div>
 
-      <div class="mb-6">
+      <div :if={!disk_provider?(@provider)} class="mb-6">
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Root folder
         </label>
@@ -417,7 +448,10 @@
         </p>
       </div>
 
-      <div :if={map_size(@native_export_options || %{}) > 0} class="mb-6">
+      <div
+        :if={!disk_provider?(@provider) and map_size(@native_export_options || %{}) > 0}
+        class="mb-6"
+      >
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Native Export Defaults
         </label>
@@ -457,6 +491,53 @@
         </div>
       </div>
 
+      <div :if={disk_provider?(@provider)} class="mb-6 rounded-xl border border-black/10 p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider">Volumes</p>
+            <p class="font-mono text-[0.62rem] text-black/35 mt-1">
+              Removing a declaration hides that folder from ZAQ without deleting files.
+            </p>
+          </div>
+          <button
+            type="button"
+            phx-click="add_disk_volume"
+            class="font-mono text-[0.65rem] px-3 py-1.5 rounded-lg border border-[#03b6d4]/30 text-[#03b6d4] hover:bg-[#03b6d4]/5 transition-all"
+          >
+            Add volume
+          </button>
+        </div>
+        <div class="space-y-3">
+          <div
+            :for={{volume, index} <- disk_volumes_from_changeset(@changeset)}
+            class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 items-center"
+          >
+            <input
+              type="text"
+              name={"form[settings][volumes][#{index}][name]"}
+              value={volume["name"]}
+              placeholder="Name"
+              class="w-full h-10 px-3 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-xs font-mono outline-none focus:border-[#03b6d4] transition-colors"
+            />
+            <input
+              type="text"
+              name={"form[settings][volumes][#{index}][path]"}
+              value={volume["path"]}
+              placeholder="Relative path"
+              class="w-full h-10 px-3 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-xs font-mono outline-none focus:border-[#03b6d4] transition-colors"
+            />
+            <button
+              type="button"
+              phx-click="remove_disk_volume"
+              phx-value-index={index}
+              class="h-10 px-3 rounded-xl border border-black/10 text-black/40 hover:text-red-500 hover:border-red-200 transition-all font-mono text-[0.65rem]"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="flex items-center gap-3 mb-6">
         <input type="hidden" name="form[enabled]" value="false" />
         <input
@@ -465,11 +546,18 @@
           id="form_enabled"
           value="true"
           checked={@form[:enabled].value}
+          disabled={disk_provider?(@provider) and storage_base_path_blank?(@storage_base_path)}
           class="w-4 h-4 rounded border-black/20 accent-[#03b6d4]"
         />
         <label for="form_enabled" class="font-mono text-[0.75rem] text-black/60 cursor-pointer">
           Enable this configuration
         </label>
+        <span
+          :if={disk_provider?(@provider) and storage_base_path_blank?(@storage_base_path)}
+          class="font-mono text-[0.65rem] text-amber-600"
+        >
+          Set Zaq.Storage base_path first.
+        </span>
       </div>
 
       <div :if={@modal_errors != []} class="mb-4 rounded-xl bg-red-50 border border-red-200 p-3">
