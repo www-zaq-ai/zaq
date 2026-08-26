@@ -11,11 +11,15 @@
     {
       "text": "Implemented listing-only fix. DiskBridge now maps agent tool path '/' to root listing and rooted nested paths to Storage filters.parent, with explicit filters taking precedence; actor/config propagation is unchanged. Storage root enumeration now omits only ENOENT configured roots, keeps existing roots subject to the existing can_read_entry? ACL filter, and returns structured volume_unavailable errors for non-directories and other stat failures. Added unit/property regressions for root/nested path normalization, precedence, all-missing and mixed roots, ACL filtering, malformed roots, and generic stat errors. Validation: 62 focused tests (including 2 properties) pass; 145 adjacent tool/Channels tests pass; mix q passes. No docs change because this restores the documented list_documents path behavior. Work remains uncommitted per session policy, so issue stays in_progress until landing.",
       "timestamp": "2026-08-26T08:00:03Z"
+    },
+    {
+      "text": "Corrected root-path semantics after live tool verification. DiskBridge now preserves normalized path:'/' instead of erasing it. Storage distinguishes explicit '/' from internal no-path listing: '/' aggregates immediate entries from every existing configured volume, skips missing and empty roots without terminating, applies the existing ACL filter after aggregation, and paginates the combined source-ordered entries with one root cursor. Internal no-path calls still return volume root folders; nested paths still map to filters.parent. Added regressions for populated+empty+missing volumes, non-recursive immediate depth, cross-volume ACL filtering, and cross-volume pagination. Validation: 210 focused/adjacent tests passed before final cleanup; final focused suite 65 tests including 2 properties passed; mix q and git diff --check pass. Changes remain uncommitted.",
+      "timestamp": "2026-08-26T08:24:01Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-8o8.21] Fix disk listing missing roots and path contract",
   "type": "bug",
-  "updated_at": "2026-08-26T08:00:03Z"
+  "updated_at": "2026-08-26T08:24:01Z"
 }
