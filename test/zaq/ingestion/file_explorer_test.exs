@@ -1,5 +1,6 @@
 defmodule Zaq.Storage.FileExplorerTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   alias Zaq.Storage.FileExplorer
   alias Zaq.Storage.FileExplorer.Entry
@@ -102,6 +103,12 @@ defmodule Zaq.Storage.FileExplorerTest do
     test "rejects sneaky traversal" do
       assert {:error, :path_traversal} = FileExplorer.resolve_path("foo/../../..")
     end
+
+    test "rejects sibling paths that share the base path prefix" do
+      sibling = Path.basename(@test_base) <> "-sibling/file.txt"
+
+      assert {:error, :path_traversal} = FileExplorer.resolve_path("../#{sibling}")
+    end
   end
 
   describe "resolve_path/1 with volumes configured" do
@@ -132,6 +139,13 @@ defmodule Zaq.Storage.FileExplorerTest do
 
     test "rejects traversal through volume prefix" do
       assert {:error, :path_traversal} = FileExplorer.resolve_path("docs/../../etc/passwd")
+    end
+
+    property "rejects paths escaping to sibling directories with matching prefixes" do
+      check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 16)) do
+        assert {:error, :path_traversal} =
+                 FileExplorer.resolve_path("docs", "../vol_resolve1#{suffix}/file.txt")
+      end
     end
   end
 

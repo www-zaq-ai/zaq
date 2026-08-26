@@ -98,7 +98,7 @@ defmodule Zaq.Storage.FileExplorer do
       {:ok, vol_root} ->
         full = Path.expand(Path.join(vol_root, relative_path))
 
-        if String.starts_with?(full, vol_root) do
+        if inside_path?(full, vol_root) do
           {:ok, full}
         else
           {:error, :path_traversal}
@@ -113,7 +113,7 @@ defmodule Zaq.Storage.FileExplorer do
     base = Path.expand(base_path(opts))
     full = Path.expand(Path.join(base, relative_path))
 
-    if String.starts_with?(full, base) do
+    if inside_path?(full, base) do
       {:ok, full}
     else
       {:error, :path_traversal}
@@ -459,6 +459,13 @@ defmodule Zaq.Storage.FileExplorer do
 
   defp normalize_concurrency(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_concurrency(_value, default), do: default
+
+  defp inside_path?(path, root) do
+    path = Path.expand(path)
+    root = Path.expand(root)
+
+    path == root or String.starts_with?(path, root <> "/")
+  end
 
   # A file is named by its source, which is volume plus path and nothing else — no document
   # row is consulted, so a file that was never ingested is addressable exactly like one that
