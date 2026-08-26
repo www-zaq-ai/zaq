@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T09:22:37Z",
+  "description": "Make Storage describe_document resolve the selected Disk ChannelConfig before UUID/path lookup and validate the full download flow.",
+  "id": "zaq-2rx.3",
+  "labels": [],
+  "parent": "zaq-2rx",
+  "priority": 1,
+  "status": "open",
+  "title": "Resolve describe_document through Disk config",
+  "type": "task",
+  "updated_at": "2026-08-26T09:22:37Z"
+}
