@@ -80,19 +80,13 @@ config :zaq, Zaq.System.SecretConfig,
   encryption_key: "MPEyMzQ1Njc5OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
   key_id: "v1"
 
-config :zaq, Zaq.Ingestion,
-  base_path: "priv/documents",
+config :zaq, :storage_volume_import,
   volumes: %{
-    "documents" => "priv/documents",
-    "archives" => "priv/archives"
+    "documents" => "documents",
+    "archives" => "archives"
   }
 
-config :zaq, Zaq.Storage,
-  base_path: "priv/documents",
-  volumes: %{
-    "documents" => "priv/documents",
-    "archives" => "priv/archives"
-  }
+config :zaq, Zaq.Storage, base_path: "priv"
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

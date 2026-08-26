@@ -17,6 +17,7 @@ defmodule Zaq.Channels.ChannelConfig do
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.NodeRouter
+  alias Zaq.Storage.VolumeConfig
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
 
@@ -49,6 +50,7 @@ defmodule Zaq.Channels.ChannelConfig do
     |> validate_inclusion(:kind, @valid_kinds)
     |> maybe_require_connection_fields()
     |> maybe_validate_imap_settings()
+    |> maybe_validate_disk_settings()
     |> maybe_validate_imap_smtp_dependency_on_persist()
     |> unique_constraint(:provider)
     |> maybe_encrypt_token()
@@ -103,6 +105,13 @@ defmodule Zaq.Channels.ChannelConfig do
 
       _ ->
         changeset
+    end
+  end
+
+  defp maybe_validate_disk_settings(changeset) do
+    case {get_field(changeset, :provider), get_field(changeset, :kind)} do
+      {"disk", "data_source"} -> VolumeConfig.validate_changeset(changeset)
+      _ -> changeset
     end
   end
 

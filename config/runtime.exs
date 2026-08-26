@@ -138,18 +138,14 @@ if config_env() == :prod do
       |> String.split(",")
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
-      |> Map.new(fn name -> {name, Path.join(storage_volumes_base, name)} end)
+      |> Map.new(fn name -> {name, name} end)
     else
       %{}
     end
 
-  config :zaq, Zaq.Storage,
-    base_path: storage_volumes_base,
-    volumes: storage_volumes
+  config :zaq, :storage_volume_import, volumes: storage_volumes
 
-  config :zaq, Zaq.Ingestion,
-    base_path: storage_volumes_base,
-    volumes: storage_volumes
+  config :zaq, Zaq.Storage, base_path: storage_volumes_base
 
   # -- Oban --
   config :zaq, Oban,
