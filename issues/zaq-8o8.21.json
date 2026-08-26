@@ -15,11 +15,15 @@
     {
       "text": "Corrected root-path semantics after live tool verification. DiskBridge now preserves normalized path:'/' instead of erasing it. Storage distinguishes explicit '/' from internal no-path listing: '/' aggregates immediate entries from every existing configured volume, skips missing and empty roots without terminating, applies the existing ACL filter after aggregation, and paginates the combined source-ordered entries with one root cursor. Internal no-path calls still return volume root folders; nested paths still map to filters.parent. Added regressions for populated+empty+missing volumes, non-recursive immediate depth, cross-volume ACL filtering, and cross-volume pagination. Validation: 210 focused/adjacent tests passed before final cleanup; final focused suite 65 tests including 2 properties passed; mix q and git diff --check pass. Changes remain uncommitted.",
       "timestamp": "2026-08-26T08:24:01Z"
+    },
+    {
+      "text": "Fixed the remaining live-call authorization issue. Root enumeration was correct (scanned counts raw immediate entries), but Executor's trusted tool_context skip_permissions flag was dropped by DataSourceTool. DataSourceTool now copies only context skip_permissions:true into Channels event opts. Channels.Api stamps that trusted flag onto disk's internal event actor, overriding any caller-supplied __event_actor marker; DiskBridge and Storage.Api then use their existing actor forwarding/bypass handling. Model request fields cannot enable bypass, false/missing context remains fail-closed, and actorless trusted machine contexts are supported. Validation: 170 focused tests including listing/search, boundary propagation, actor forwarding, Storage ACL, and anti-forgery cases pass; mix q, diagnostics, and git diff --check pass. Raw scanned statistics retained as requested. Changes remain uncommitted.",
+      "timestamp": "2026-08-26T08:44:56Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-8o8.21] Fix disk listing missing roots and path contract",
   "type": "bug",
-  "updated_at": "2026-08-26T08:24:01Z"
+  "updated_at": "2026-08-26T08:44:56Z"
 }
