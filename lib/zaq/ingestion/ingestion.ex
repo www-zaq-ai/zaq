@@ -30,6 +30,7 @@ defmodule Zaq.Ingestion do
   """
 
   alias Zaq.Ingestion.{
+    Chunk,
     ContentSource,
     Document,
     ExternalSource,
@@ -139,6 +140,8 @@ defmodule Zaq.Ingestion do
   @doc "Returns provider-neutral indexed-state enrichment for canonical data-source records."
   @spec enrich_records([Record.t()]) :: {:ok, map()}
   def enrich_records(records) when is_list(records) do
+    chunks_table_exists? = Chunk.table_exists?()
+
     documents_by_source =
       records
       |> Enum.map(&record_source_key/1)
@@ -159,7 +162,13 @@ defmodule Zaq.Ingestion do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
       |> Map.new(fn source ->
-        {source, record_status(source, Map.get(documents_by_source, source), permission_counts)}
+        {source,
+         record_status(
+           source,
+           Map.get(documents_by_source, source),
+           permission_counts,
+           chunks_table_exists?
+         )}
       end)
 
     {:ok, statuses}
@@ -173,11 +182,12 @@ defmodule Zaq.Ingestion do
     end
   end
 
-  defp record_status(_source, document, permission_counts) do
+  defp record_status(_source, document, permission_counts, chunks_table_exists?) do
     case document do
       %Document{} = document ->
         indexed? =
-          Repo.exists?(from c in Zaq.Ingestion.Chunk, where: c.document_id == ^document.id)
+          chunks_table_exists? and
+            Repo.exists?(from c in Chunk, where: c.document_id == ^document.id)
 
         %{
           document_id: document.id,
