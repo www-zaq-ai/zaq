@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-2rx",
   "priority": 1,
-  "status": "open",
-  "title": "Add Disk download regression coverage",
+  "status": "in_progress",
+  "title": "[zaq-2rx.1] Add Disk download regression coverage",
   "type": "task",
   "updated_at": "2026-08-26T09:22:37Z"
 }
