@@ -104,7 +104,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   @impl true
   def create_file(config, params) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :create_item, params),
-         {:ok, record} <- map_file_from_payload(payload) do
+         {:ok, record} <- map_file_from_payload(payload, config, params) do
       {:ok, %{status: "created", record: record}}
     end
   end
@@ -345,7 +345,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp map_file_from_payload(payload, config \\ nil, params \\ %{})
 
   defp map_file_from_payload(payload, config, params) when is_map(payload) do
-    raw = read_any(payload, [:file, "file"]) || payload
+    raw = read_any(payload, [:file, "file", :folder, "folder"]) || payload
 
     if is_map(raw) do
       {:ok, map_file_record(raw, config, params)}
@@ -770,11 +770,14 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp resolve_capability_ref(provider, capability, cache) do
     with {{:ok, tools}, cache} <- provider_tools_cached(provider, capability, cache) do
       case resolve_action_spec(tools, capability, provider) do
-        {:ok, action} -> {{:ok, action.id}, cache}
+        {:ok, action} -> {{:ok, capability_ref(action)}, cache}
         _ -> {{:error, :unsupported}, cache}
       end
     end
   end
+
+  defp capability_ref(true), do: true
+  defp capability_ref(%{id: id}), do: id
 
   defp provider_tools_cached(provider, capability, cache) when is_map(cache) do
     connector_provider =
@@ -2741,7 +2744,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
     do: resolve_action_by_candidates(tools, provider, :unwatch_item)
 
   defp resolve_action_spec(tools, :create_item, provider),
-    do: resolve_action_by_candidates(tools, provider, :create_item)
+    do: resolve_create_item_contract(tools, provider)
 
   defp resolve_action_spec(tools, :update_item, provider),
     do: resolve_action_by_candidates(tools, provider, :update_item)
@@ -2793,14 +2796,19 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp resolve_action_spec(tools, :create_item, provider, params)
        when is_list(tools) and is_map(params) do
-    if content_file_create_requested?(params) do
-      resolve_action_by_suffixes(tools, provider, ["file.upload"])
-      |> case do
-        {:ok, _} = ok -> ok
-        _ -> resolve_action_by_candidates(tools, provider, :create_item)
-      end
-    else
-      resolve_action_by_candidates(tools, provider, :create_item)
+    cond do
+      folder_create_requested?(params) ->
+        resolve_create_action(tools, provider, :folder, :create, ["folder.create"])
+        |> case do
+          {:ok, _} = ok -> ok
+          _ -> maybe_resolve_explicit_mime_file_create(tools, provider, params)
+        end
+
+      content_file_create_requested?(params) ->
+        resolve_create_action(tools, provider, :file, :upload, ["file.upload"])
+
+      true ->
+        resolve_create_action(tools, provider, :file, :create, ["file.create"])
     end
   end
 
@@ -2816,7 +2824,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp resolve_action_by_candidates(_tools, _provider, _capability), do: {:error, :unsupported}
 
-  defp resolve_action_by_suffixes(tools, provider, suffixes, capability \\ :action)
+  defp resolve_action_by_suffixes(tools, provider, suffixes, capability)
 
   defp resolve_action_by_suffixes(tools, provider, suffixes, capability)
        when is_list(tools) and not is_nil(provider) and is_list(suffixes) do
@@ -2849,6 +2857,53 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp capability_tool_candidates(capability),
     do: ProviderCatalog.capability_action_suffixes(capability)
+
+  defp resolve_create_item_contract(tools, provider) when is_list(tools) do
+    with {:ok, _} <- resolve_create_action(tools, provider, :file, :create, ["file.create"]),
+         {:ok, _} <- resolve_create_action(tools, provider, :file, :upload, ["file.upload"]),
+         {:ok, _} <- resolve_create_action(tools, provider, :folder, :create, ["folder.create"]) do
+      {:ok, true}
+    end
+  end
+
+  defp resolve_create_action(tools, provider, resource, verb, legacy_suffixes) do
+    resolve_action_by_resource_verb(tools, resource, verb)
+    |> case do
+      {:ok, _} = ok -> ok
+      _ -> resolve_action_by_suffixes(tools, provider, legacy_suffixes, :create_item)
+    end
+  end
+
+  defp maybe_resolve_explicit_mime_file_create(tools, provider, params) do
+    case read_any(params, [:mime_type, "mime_type", :mimeType, "mimeType"]) do
+      value when is_binary(value) and value != "" ->
+        resolve_create_action(tools, provider, :file, :create, ["file.create"])
+
+      _ ->
+        {:error, :unsupported}
+    end
+  end
+
+  defp resolve_action_by_resource_verb(tools, resource, verb) do
+    tools
+    |> Enum.filter(fn tool ->
+      map_get_atom(tool, [:resource, "resource"]) == resource and
+        map_get_atom(tool, [:verb, "verb"]) == verb and
+        map_get_atom(tool, [:type, "type"]) == :action
+    end)
+    |> case do
+      [action] ->
+        {:ok, action}
+
+      [] ->
+        {:error, :unsupported}
+
+      many ->
+        {:error,
+         {:ambiguous_action_resolution,
+          %{resource: resource, verb: verb, action_ids: Enum.map(many, & &1.id)}}}
+    end
+  end
 
   defp content_file_create_requested?(params) when is_map(params) do
     content_present?(read_any(params, [:content, "content"])) and

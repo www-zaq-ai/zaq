@@ -4,7 +4,6 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
   alias Zaq.Channels.{ChannelConfig, JidoConnectBridge}
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Connect
-  alias Zaq.Event
   alias Zaq.Materialization.Handle
   alias Zaq.Repo
 
@@ -956,7 +955,8 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       {:ok,
        [
          %{id: "stub.file.create", resource: :file, verb: :create, auth_profiles: [:user]},
-         %{id: "stub.file.upload", resource: :file, verb: :upload, auth_profiles: [:user]}
+         %{id: "stub.file.upload", resource: :file, verb: :upload, auth_profiles: [:user]},
+         %{id: "stub.folder.create", resource: :folder, verb: :create, auth_profiles: [:user]}
        ]}
     end
 
@@ -970,6 +970,19 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
            "id" => "f1",
            "name" => Map.get(params, "name") || Map.get(params, :name),
            "mimeType" => Map.get(params, "mime_type") || Map.get(params, :mime_type)
+         }
+       }}
+    end
+
+    def invoke(_integration, "stub.folder.create", params, _opts) do
+      send(self(), {:invoke_create_file, "stub.folder.create", params})
+
+      {:ok,
+       %{
+         folder: %{
+           "id" => "folder-1",
+           "name" => Map.get(params, "name") || Map.get(params, :name),
+           "mimeType" => "application/vnd.provider.folder"
          }
        }}
     end
@@ -1214,7 +1227,7 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
                      %{"name" => "Blank", "content" => "  "}}
   end
 
-  test "create_file ignores content for explicit folder creates" do
+  test "create_file routes canonical folder creates to folder create action" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
     _grant = create_active_grant!(credential, config.id)
@@ -1228,25 +1241,36 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     params = %{
       "name" => "Folder",
       "content" => "ignored",
-      "mimeType" => "application/vnd.google-apps.folder"
+      "kind" => "folder"
     }
 
     assert {:ok, %{status: "created"}} = JidoConnectBridge.create_file(config, params)
-    assert_received {:invoke_create_file, "stub.file.create", ^params}
+    assert_received {:invoke_create_file, "stub.folder.create", ^params}
   end
 
-  test "create_file falls back to metadata create when upload action is unavailable" do
+  test "capability_snapshot resolves create_item composite contract" do
+    config = insert_data_source_config(:google_drive)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectCreateUpload
+    )
+
+    assert {:ok, snapshot} = JidoConnectBridge.capability_snapshot(config)
+    assert snapshot.resolved[:create_item] == true
+    refute :create_item in snapshot.unsupported
+  end
+
+  test "create_file returns unsupported when content upload action is unavailable" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()
     _grant = create_active_grant!(credential, config.id)
 
     Application.put_env(:zaq, :jido_connect_bridge_jido_connect_module, StubJidoConnectCreateOnly)
 
-    assert {:ok, %{status: "created"}} =
+    assert {:error, :unsupported} =
              JidoConnectBridge.create_file(config, %{"name" => "Doc", "content" => "hello"})
-
-    assert_received {:invoke_create_file, "stub.file.create",
-                     %{"name" => "Doc", "content" => "hello"}}
   end
 
   test "list_files preserves service_account profile when action has no auth_profiles" do

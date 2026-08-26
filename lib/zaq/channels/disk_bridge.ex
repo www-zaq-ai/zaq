@@ -121,9 +121,10 @@ defmodule Zaq.Channels.DiskBridge do
   """
   @impl true
   def create_file(config, params) when is_map(config) and is_map(params) do
-    with {:ok, %{entry: entry} = result} <-
-           dispatch(:persist_document, persist_request(params), config) do
-      {:ok, %{status: Map.get(result, :status, "created"), record: map_entry(entry)}}
+    action = if folder_request?(params), do: :persist_directory, else: :persist_document
+
+    with {:ok, %{entry: entry} = result} <- dispatch(action, persist_request(params), config) do
+      {:ok, %{status: Map.get(result, :status, "created"), record: map_entry(entry, config)}}
     end
   end
 
@@ -334,6 +335,10 @@ defmodule Zaq.Channels.DiskBridge do
       "content" => fetch(params, "content") || "",
       "encoding" => fetch(params, "encoding")
     }
+  end
+
+  defp folder_request?(params) when is_map(params) do
+    fetch(params, "kind") in ["folder", :folder] or fetch(params, "type") in ["folder", :folder]
   end
 
   # Only the keys the caller actually sent travel, so ingestion can tell "leave this alone"

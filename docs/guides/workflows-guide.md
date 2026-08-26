@@ -125,11 +125,11 @@ So a node's `"input"` can be a template that pulls from mapped data:
 | `Zaq.Agent.Tools.Workflow.Concat`              | Concatenate parts into a string / matrix.                  |
 | `Zaq.Agent.Tools.Workflow.DispatchEvent`       | Emit a `Zaq.Event` (e.g. trigger another workflow).        |
 | `Zaq.Agent.Tools.Workflow.Sleep`               | Pause for `duration_ms`.                                   |
-| `Zaq.Agent.Tools.DataSource.CreateDocument`    | Create a file (or folder, via folder `mime_type`).         |
+| `Zaq.Agent.Tools.DataSource.CreateDocument`    | Create a file or folder on a data source.                  |
 
-> **Tip — folders are files.** `CreateDocument` creates a folder when you pass
-> `"mime_type" => "application/vnd.google-apps.folder"`. There is no separate
-> "create folder" action.
+> **Tip — folders are items.** `CreateDocument` creates a folder when you pass
+> `"kind" => "folder"`. Provider-specific MIME values, such as Google Drive's
+> folder MIME type, are handled by the connector rather than workflow code.
 
 ---
 

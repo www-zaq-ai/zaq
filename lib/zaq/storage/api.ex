@@ -41,6 +41,11 @@ defmodule Zaq.Storage.Api do
     %{event | response: Storage.create_directory(volume, path, event.opts)}
   end
 
+  def handle_event(%Event{request: request} = event, :persist_directory, _context)
+      when is_map(request) do
+    %{event | response: Storage.persist_directory(request, event.opts)}
+  end
+
   def handle_event(
         %Event{request: %{volume: volume, path: path, content: content}} = event,
         :save_file,

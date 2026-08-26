@@ -192,7 +192,7 @@ Channels action after locator and actor validation.
 - `get_item_metadata`
 - `list_item_versions`
 - `download_items`
-- `create_item`
+- `create_item` — umbrella write support for empty files, content uploads, and folders
 - `update_item`
 - `delete_item`
 - `search_items`

@@ -383,17 +383,24 @@ defmodule Zaq.Channels.Bridge do
   end
 
   @doc "Returns standardized capability snapshot for a provider."
-  @spec capability_snapshot(atom() | String.t()) :: {:ok, map()} | {:error, term()}
-  def capability_snapshot(provider) do
+  @spec capability_snapshot(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def capability_snapshot(provider, params \\ %{}) when is_map(params) do
     with {:ok, bridge} <- resolve_bridge(provider),
-         {:ok, config} <- fetch_capability_config(provider),
+         {:ok, config} <- fetch_capability_config(provider, params),
          true <- bridge_supports?(bridge, :capability_snapshot, 1) || {:error, :unsupported},
          {:ok, raw_snapshot} <- bridge.capability_snapshot(config) do
       {:ok, normalize_capability_snapshot(raw_snapshot, config)}
     end
   end
 
-  defp fetch_capability_config(provider) do
+  defp fetch_capability_config(provider, params) do
+    case capability_config_id(params) do
+      nil -> fetch_provider_capability_config(provider)
+      id -> fetch_scoped_capability_config(provider, id)
+    end
+  end
+
+  defp fetch_provider_capability_config(provider) do
     case fetch_any_channel_config(provider) do
       {:ok, config} ->
         {:ok, config}
@@ -403,6 +410,35 @@ defmodule Zaq.Channels.Bridge do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp fetch_scoped_capability_config(provider, id) do
+    case ChannelConfig.get(id) do
+      %ChannelConfig{provider: scoped_provider, enabled: true} = config ->
+        if to_string(scoped_provider) == to_string(provider) do
+          {:ok, normalize_channel_config(config)}
+        else
+          {:error, {:channel_not_configured, provider}}
+        end
+
+      _ ->
+        {:error, {:channel_not_configured, provider}}
+    end
+  end
+
+  defp capability_config_id(params) when is_map(params) do
+    case Map.get(params, "config_id") || Map.get(params, :config_id) do
+      id when is_integer(id) and id > 0 -> id
+      id when is_binary(id) -> parse_capability_config_id(id)
+      _ -> nil
+    end
+  end
+
+  defp parse_capability_config_id(id) do
+    case Integer.parse(String.trim(id)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> nil
     end
   end
 

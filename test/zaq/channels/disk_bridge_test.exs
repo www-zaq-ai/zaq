@@ -283,6 +283,21 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert request["encoding"] == nil
     end
 
+    test "dispatches canonical folder creates to storage directory persistence" do
+      stub_response({:ok, %{status: "created", entry: entry("docs", type: :directory)}})
+
+      assert {:ok, %{status: "created", record: %Record{id: "docs", kind: :folder}}} =
+               DiskBridge.create_file(config(), %{
+                 "name" => "docs",
+                 "path" => "archives",
+                 "kind" => "folder"
+               })
+
+      assert_received {:dispatch, :storage, :persist_directory, request}
+      assert request["name"] == "docs"
+      assert request["path"] == "archives"
+    end
+
     test "passes an storage error back unchanged" do
       stub_response({:error, :volume_required})
 

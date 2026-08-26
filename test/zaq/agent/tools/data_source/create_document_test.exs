@@ -5,8 +5,12 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
   alias Zaq.Event
 
   defmodule StubNodeRouter do
-    def dispatch(%Event{request: %{provider: "google_drive", params: params}, opts: opts}) do
-      send(self(), {:dispatch, opts[:action], params})
+    def dispatch(%Event{
+          request: %{provider: "google_drive", params: params},
+          opts: opts,
+          actor: actor
+        }) do
+      send(self(), {:dispatch, opts[:action], params, actor, opts})
 
       %{
         Event.new(%{}, :channels)
@@ -29,7 +33,7 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
                node_router: StubNodeRouter
              })
 
-    assert_received {:dispatch, :data_source_create_file, %{"name" => "Doc"}}
+    assert_received {:dispatch, :data_source_create_file, %{"name" => "Doc"}, nil, _opts}
   end
 
   test "passes optional params when present" do
@@ -42,6 +46,7 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
                  path: "/docs",
                  parent_id: "p1",
                  mime_type: "text/plain",
+                 kind: "folder",
                  config_id: "12"
                },
                %{node_router: StubNodeRouter}
@@ -54,8 +59,39 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
                        "path" => "/docs",
                        "parent_id" => "p1",
                        "mime_type" => "text/plain",
+                       "kind" => "folder",
                        "config_id" => "12"
-                     }}
+                     }, _actor, _opts}
+  end
+
+  test "decodes base64 content before dispatching" do
+    encoded = Base.encode64(<<0, 255, 1>>)
+
+    assert {:ok, _} =
+             CreateDocument.run(
+               %{
+                 provider: "google_drive",
+                 name: "image.png",
+                 content: encoded,
+                 encoding: "base64"
+               },
+               %{node_router: StubNodeRouter, actor: %{provider: "bo"}}
+             )
+
+    assert_received {:dispatch, :data_source_create_file,
+                     %{"name" => "image.png", "content" => <<0, 255, 1>>}, %{provider: "bo"},
+                     _opts}
+  end
+
+  test "passes event opts to the channels event" do
+    assert {:ok, _} =
+             CreateDocument.run(%{provider: "google_drive", name: "Doc"}, %{
+               node_router: StubNodeRouter,
+               event_opts: [data_source_bridge_module: StubBridge]
+             })
+
+    assert_received {:dispatch, :data_source_create_file, %{"name" => "Doc"}, nil, opts}
+    assert opts[:data_source_bridge_module] == StubBridge
   end
 
   test "formats datasource error reason" do

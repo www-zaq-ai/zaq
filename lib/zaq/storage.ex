@@ -96,6 +96,19 @@ defmodule Zaq.Storage do
     end
   end
 
+  @doc "Creates a storage directory and returns its entry."
+  @spec persist_directory(map()) :: {:ok, map()} | {:error, term()}
+  def persist_directory(request, opts \\ []) when is_map(request) do
+    with {:ok, opts} <- disk_config_opts(request, opts),
+         {:ok, {volume_name, dir}} <- destination(request, opts),
+         {:ok, name} <- required(request, "name", :name_required),
+         dest = dir |> Path.join(name) |> SourcePath.normalize_relative(),
+         :ok <- create_directory(volume_name, dest, opts),
+         {:ok, entry} <- file_info(volume_name, dest, opts) do
+      {:ok, %{status: "created", entry: entry}}
+    end
+  end
+
   @doc "Reads a storage file's bytes."
   @spec materialize_document(map()) :: {:ok, map()} | {:error, term()}
   def materialize_document(request, opts \\ []) when is_map(request) do
