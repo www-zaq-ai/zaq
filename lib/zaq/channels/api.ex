@@ -298,7 +298,12 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.list_files(provider, params)}
+
+    %{
+      event
+      | response:
+          data_source_module.list_files(provider, data_source_params(provider, params, event))
+    }
   end
 
   def handle_event(
@@ -308,7 +313,12 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.create_file(provider, params)}
+
+    %{
+      event
+      | response:
+          data_source_module.create_file(provider, data_source_params(provider, params, event))
+    }
   end
 
   def handle_event(
@@ -318,7 +328,12 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.get_file(provider, params)}
+
+    %{
+      event
+      | response:
+          data_source_module.get_file(provider, data_source_params(provider, params, event))
+    }
   end
 
   def handle_event(
@@ -328,7 +343,12 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.update_file(provider, params)}
+
+    %{
+      event
+      | response:
+          data_source_module.update_file(provider, data_source_params(provider, params, event))
+    }
   end
 
   def handle_event(
@@ -338,7 +358,12 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.delete_file(provider, params)}
+
+    %{
+      event
+      | response:
+          data_source_module.delete_file(provider, data_source_params(provider, params, event))
+    }
   end
 
   def handle_event(
@@ -348,7 +373,12 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.search_files(provider, params)}
+
+    %{
+      event
+      | response:
+          data_source_module.search_files(provider, data_source_params(provider, params, event))
+    }
   end
 
   def handle_event(
@@ -358,7 +388,15 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.download_document(provider, params)}
+
+    %{
+      event
+      | response:
+          data_source_module.download_document(
+            provider,
+            data_source_params(provider, params, event)
+          )
+    }
   end
 
   def handle_event(
@@ -368,7 +406,15 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.list_permissions(provider, params)}
+
+    %{
+      event
+      | response:
+          data_source_module.list_permissions(
+            provider,
+            data_source_params(provider, params, event)
+          )
+    }
   end
 
   def handle_event(
@@ -575,12 +621,20 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
-        %Event{request: %{provider: provider}} = event,
+        %Event{request: %{provider: provider} = request} = event,
         :channel_capability_snapshot,
         _context
       ) do
     bridge_module = bridge_module(event)
-    %{event | response: bridge_module.capability_snapshot(provider)}
+
+    response =
+      if function_exported?(bridge_module, :capability_snapshot, 2) do
+        bridge_module.capability_snapshot(provider, request)
+      else
+        bridge_module.capability_snapshot(provider)
+      end
+
+    %{event | response: response}
   end
 
   def handle_event(
@@ -784,6 +838,12 @@ defmodule Zaq.Channels.Api do
     metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
     Map.get(metadata, :update_intent) || Map.get(metadata, "update_intent")
   end
+
+  defp data_source_params(provider, params, %Event{actor: actor})
+       when provider in [:disk, "disk"],
+       do: Map.put(params, :__event_actor, actor)
+
+  defp data_source_params(_provider, params, _event), do: params
 
   defp fetch(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 

@@ -84,12 +84,12 @@ defmodule Zaq.Storage.Api do
 
   def handle_event(%Event{request: %{file_id: file_id}} = event, :describe_document, _context)
       when is_binary(file_id) do
-    %{event | response: Storage.describe_document(file_id, event.opts)}
+    %{event | response: Storage.describe_document(file_id, opts(event))}
   end
 
   def handle_event(%Event{request: %{params: params}} = event, :list_documents, _context)
       when is_map(params) do
-    %{event | response: Storage.list_documents(params, event.opts)}
+    %{event | response: Storage.list_documents(params, opts(event))}
   end
 
   def handle_event(
@@ -98,22 +98,22 @@ defmodule Zaq.Storage.Api do
         _context
       )
       when is_binary(file_id) do
-    %{event | response: Storage.materialize_document(request, event.opts)}
+    %{event | response: Storage.materialize_document(request, opts(event))}
   end
 
   def handle_event(%Event{request: request} = event, :persist_document, _context)
       when is_map(request) do
-    %{event | response: Storage.persist_document(request, event.opts)}
+    %{event | response: Storage.persist_document(request, opts(event))}
   end
 
   def handle_event(%Event{request: request} = event, :update_document, _context)
       when is_map(request) do
-    %{event | response: Storage.update_document(request, event.opts)}
+    %{event | response: Storage.update_document(request, opts(event))}
   end
 
   def handle_event(%Event{request: %{file_id: file_id}} = event, :delete_document, _context)
       when is_binary(file_id) do
-    %{event | response: Storage.delete_document(file_id, event.opts)}
+    %{event | response: Storage.delete_document(event.request, opts(event))}
   end
 
   def handle_event(
@@ -127,15 +127,29 @@ defmodule Zaq.Storage.Api do
 
   def handle_event(%Event{request: %{params: params}} = event, :search_documents, _context)
       when is_map(params) do
-    %{event | response: Storage.search_documents(params, event.opts)}
+    %{event | response: Storage.search_documents(params, opts(event))}
   end
 
   def handle_event(%Event{request: request} = event, :volume_stats, _context)
       when is_map(request) do
-    %{event | response: Storage.volume_stats(event.opts)}
+    %{event | response: Storage.volume_stats(opts(event))}
   end
 
   @impl true
   def handle_event(%Event{} = event, action, _context),
     do: InternalBoundaries.default_handle_event(event, action)
 end
+
+  defp opts(%Event{} = event) do
+    event.opts
+    |> Keyword.put(:actor, event.actor)
+    |> maybe_put_skip_permissions(event.actor)
+  end
+
+  defp maybe_put_skip_permissions(opts, %{skip_permissions: true}),
+    do: Keyword.put(opts, :skip_permissions, true)
+
+  defp maybe_put_skip_permissions(opts, %{"skip_permissions" => true}),
+    do: Keyword.put(opts, :skip_permissions, true)
+
+  defp maybe_put_skip_permissions(opts, _actor), do: opts

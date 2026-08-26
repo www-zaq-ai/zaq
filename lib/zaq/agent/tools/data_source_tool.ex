@@ -14,7 +14,8 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
 
   def dispatch(action, request, context, error_prefix, on_ok) do
     node_router = Map.get(context, :node_router, NodeRouter)
-    event = Event.new(request, :channels, opts: [action: action])
+    event_opts = [action: action] ++ Map.get(context, :event_opts, [])
+    event = Event.new(request, :channels, actor: Map.get(context, :actor), opts: event_opts)
 
     event
     |> node_router.dispatch()

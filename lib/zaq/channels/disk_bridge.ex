@@ -49,6 +49,7 @@ defmodule Zaq.Channels.DiskBridge do
     create_item: true,
     update_item: true,
     delete_item: true,
+    manage_item_permissions: true,
     search_items: true
   }
 
@@ -255,8 +256,8 @@ defmodule Zaq.Channels.DiskBridge do
 
   defp materialization_handle(_kind, _id, _config), do: nil
 
-  defp record_page(%{entries: entries, scanned: scanned} = page) do
-    records = Enum.map(entries, &map_entry(&1, entry_permissions(&1, page)))
+  defp record_page(%{entries: entries, scanned: scanned} = page, config) do
+    records = Enum.map(entries, &map_entry(&1, entry_permissions(&1, page), config))
 
     %RecordPage{
       resource_type: :item,
@@ -355,10 +356,16 @@ defmodule Zaq.Channels.DiskBridge do
   # target from it would make what runs a function of what the caller sent.
   defp dispatch(action, request, config) do
     node_router = fetch(config, "node_router") || NodeRouter
-    event_opts = [action: action] |> maybe_put(:config, fetch(config, "config"))
+    config_id = config_id(config)
+    {request, actor} = pop_internal_actor(request)
+
+    event_opts =
+      [action: action]
+      |> maybe_put(:config, fetch(config, "config"))
+      |> maybe_put(:config_id, config_id)
 
     request
-    |> Event.new(:storage, opts: event_opts)
+    |> Event.new(:storage, opts: event_opts, actor: actor)
     |> node_router.dispatch()
     |> Map.fetch!(:response)
   end
@@ -368,6 +375,21 @@ defmodule Zaq.Channels.DiskBridge do
 
   # Params arrive from agent tools with string keys and from internal callers with atom keys;
   # accept either rather than forcing every caller to normalise first.
+  defp pop_internal_actor(%{params: params} = request) when is_map(params) do
+    {params, actor} = pop_internal_actor(params)
+    {%{request | params: params}, actor}
+  end
+
+  defp pop_internal_actor(%{"params" => params} = request) when is_map(params) do
+    {params, actor} = pop_internal_actor(params)
+    {%{request | "params" => params}, actor}
+  end
+
+  defp pop_internal_actor(request) when is_map(request) do
+    {actor, request} = Map.pop(request, :__event_actor)
+    {request, actor}
+  end
+
   defp fetch(params, key), do: Utils.Map.present_value(params, key)
 end
 

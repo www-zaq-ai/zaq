@@ -15,6 +15,13 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
     def dispatch(%Event{} = event) do
       send(self(), {:dispatch, event.next_hop.destination, event.opts[:action], event.request})
+      send(self(), {:dispatch_opts, event.next_hop.destination, event.opts[:action], event.opts})
+
+      send(
+        self(),
+        {:dispatch_actor, event.next_hop.destination, event.opts[:action], event.actor}
+      )
+
       %{event | response: Process.get(:stub_response, {:ok, %{}})}
     end
   end
@@ -187,6 +194,20 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       assert {:ok, %RecordPage{}} = DiskBridge.list_files(config(), params)
       assert_received {:dispatch, :storage, :list_documents, %{params: ^params}}
+      assert_received {:dispatch_opts, :storage, :list_documents, opts}
+      assert opts[:config_id] == 42
+      refute Keyword.has_key?(opts, :storage_config)
+    end
+
+    test "forwards trusted internal actor as event actor without leaking it into params" do
+      actor = %{person_id: 123}
+      params = %{"filters" => %{"parent" => "archives"}, __event_actor: actor}
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} = DiskBridge.list_files(config(), params)
+      assert_received {:dispatch, :storage, :list_documents, %{params: request_params}}
+      assert request_params == %{"filters" => %{"parent" => "archives"}}
+      assert_received {:dispatch_actor, :storage, :list_documents, ^actor}
     end
 
     test "passes an storage error back unchanged" do

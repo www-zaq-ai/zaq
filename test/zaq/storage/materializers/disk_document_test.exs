@@ -10,6 +10,7 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
   defmodule StubNodeRouter do
     def dispatch(%Event{request: request, opts: opts} = event) do
       send(self(), {:dispatch, event.next_hop.destination, opts[:action], request})
+      send(self(), {:dispatch_actor, event.next_hop.destination, opts[:action], event.actor})
       %{event | response: {:ok, %{content: "# guide", encoding: nil}}}
     end
   end
@@ -37,6 +38,29 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
              DiskDocument.materialize(%{"file_id" => "guide.md"}, %{node_router: StubNodeRouter})
 
     assert_received {:dispatch, :storage, :materialize_document, %{file_id: "guide.md"}}
+  end
+
+  test "passes the signed config id through to storage" do
+    assert {:ok, _answer} =
+             DiskDocument.materialize(
+               %{"file_id" => "guide.md", "config_id" => 42},
+               %{node_router: StubNodeRouter}
+             )
+
+    assert_received {:dispatch, :storage, :materialize_document,
+                     %{"config_id" => 42, file_id: "guide.md"}}
+  end
+
+  test "passes the materialization actor through to storage" do
+    actor = %{person_id: 123}
+
+    assert {:ok, _answer} =
+             DiskDocument.materialize(%{"file_id" => "guide.md"}, %{
+               node_router: StubNodeRouter,
+               actor: actor
+             })
+
+    assert_received {:dispatch_actor, :storage, :materialize_document, ^actor}
   end
 
   test "passes the encoding runtime option through to storage" do

@@ -7,6 +7,9 @@ defmodule Zaq.Storage do
   sources, but it does not manage mounted files directly.
   """
 
+  alias Zaq.Accounts.People
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Identity.ActorNormalizer
   alias Zaq.Materialization.Handle
   alias Zaq.Permissions
   alias Zaq.Storage.EntryCatalog
@@ -175,6 +178,7 @@ defmodule Zaq.Storage do
       volumes = list_volumes(opts)
 
       entries =
+        |> Enum.filter(&can_read_entry?(&1, opts))
         Enum.flat_map(volumes, fn {volume, _root} -> search_volume(volume, ".", "", opts) end)
 
       {:ok,
@@ -233,7 +237,7 @@ defmodule Zaq.Storage do
   defp paginate_entries(entries, volume_name, path, params, opts) do
     with {:ok, page_size} <- page_size(params),
          {:ok, last_source} <- cursor_source(params, volume_name, path) do
-      ordered = Enum.sort_by(entries, & &1.source)
+      ordered = entries |> Enum.filter(&can_read_entry?(&1, opts)) |> Enum.sort_by(& &1.source)
 
       filtered =
         if last_source, do: Enum.filter(ordered, &(&1.source > last_source)), else: ordered
@@ -337,8 +341,10 @@ defmodule Zaq.Storage do
   end
 
   defp entry_from_source(source, opts) do
-    with {:ok, {volume_name, path}} <- resolve_entry_ref(source, opts) do
-      file_info(volume_name, path, opts)
+    with {:ok, {volume_name, path}} <- resolve_entry_ref(source, opts),
+         {:ok, %Entry{} = entry} <- file_info(volume_name, path, opts),
+         :ok <- authorize_entry(entry, opts) do
+      {:ok, entry}
     end
   end
 
@@ -358,6 +364,7 @@ defmodule Zaq.Storage do
       {:ok, {volume, path}}
     else
       _ -> {:ok, SourcePath.split_source(ref, nil, nil, opts)}
+         :ok <- authorize_entry(entry, opts),
     end
   end
 
@@ -496,6 +503,37 @@ defmodule Zaq.Storage do
   end
 
   defp search_volume(volume, path, query, opts) do
+  defp can_read_entry?(%Entry{} = entry, opts) do
+    case authorize_entry(entry, opts) do
+      :ok -> true
+      {:error, :unauthorized} -> false
+    end
+  end
+
+  defp authorize_entry(%Entry{id: id}, opts) when is_binary(id) do
+    resource = storage_resource(id)
+
+    cond do
+      Keyword.get(opts, :skip_permissions, false) ->
+        :ok
+
+      Permissions.can?(person_from_opts(opts), :read, resource) ->
+        :ok
+
+      true ->
+        {:error, :unauthorized}
+    end
+  end
+
+  defp authorize_entry(_entry, _opts), do: {:error, :unauthorized}
+
+  defp person_from_opts(opts) do
+    opts
+    |> Keyword.get(:actor)
+    |> ActorNormalizer.person_id()
+    |> People.get_person()
+  end
+
     case list_entries(volume, path, opts) do
       {:ok, entries} ->
         matching =

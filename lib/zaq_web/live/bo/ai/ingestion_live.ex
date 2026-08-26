@@ -23,6 +23,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Live.BO.PreviewHelpers
 
+  alias ZaqWeb.Live.BO.AI.BOActor
   import Ecto.Query
 
   @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
@@ -868,7 +869,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("ingest_selected", _params, socket) do
     records = selected_records(socket)
-    result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode})
+    result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode}, socket)
 
     socket =
       socket
@@ -1376,7 +1377,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     opts = [action: :data_source_list_files]
     opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
 
-    Event.new(%{provider: provider, params: params}, :channels, opts: opts)
+    Event.new(%{provider: provider, params: params}, :channels,
+      opts: opts,
+      actor: BOActor.build(socket.assigns.current_user)
+    )
     |> NodeRouter.dispatch()
     |> Map.get(:response)
   end
@@ -1385,7 +1389,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     opts = [action: action]
     opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
 
-    Event.new(%{provider: provider, params: params}, :channels, opts: opts)
+    Event.new(%{provider: provider, params: params}, :channels,
+      opts: opts,
+      actor: BOActor.build(socket.assigns.current_user)
+    )
     |> NodeRouter.dispatch()
     |> Map.get(:response)
   end
@@ -1402,12 +1409,45 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp local_parent_source(volume, dir) when dir in [nil, "", "."], do: volume
   defp local_parent_source(volume, dir), do: Path.join(volume, dir)
 
-  defp create_local_file(volume, current_dir, name, content) do
-    dispatch_data_source_action(:data_source_create_file, "disk", %{
-      "name" => name,
-      "path" => local_parent_source(volume, current_dir),
-      "content" => content
-    })
+  defp create_document(socket, attrs) when is_map(attrs) do
+    params =
+      attrs
+      |> Map.put(:provider, create_document_provider(socket))
+      |> Map.merge(create_document_destination(socket))
+
+    CreateDocument.run(params, create_document_context(socket))
+  end
+
+  defp create_document_provider(%{assigns: %{provider: provider}}),
+    do: capability_provider(provider)
+
+  defp create_document_destination(%{assigns: %{provider: "local"}} = socket) do
+    config_id = provider_config_id(capability_provider("local"))
+
+    %{
+      config_id: config_id && to_string(config_id),
+      path: local_parent_source(socket.assigns.current_volume, socket.assigns.current_dir)
+    }
+  end
+
+  defp create_document_destination(socket) do
+    folder = List.last(socket.assigns.provider_folder_stack)
+
+    %{
+      config_id:
+        socket.assigns.provider_config_id && to_string(socket.assigns.provider_config_id),
+      parent_id: provider_parent_id(folder)
+    }
+  end
+
+  defp provider_parent_id(%{id: id}) when is_binary(id) and id not in ["", "."], do: id
+  defp provider_parent_id(_folder), do: nil
+
+  defp create_document_context(socket) do
+    %{
+      actor: BOActor.build(socket.assigns.current_user),
+      event_opts: [data_source_bridge_module: data_source_bridge_module()]
+    }
   end
 
   defp update_local_file(socket, path, attrs) do
@@ -1471,13 +1511,23 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     Application.get_env(:zaq, :ingestion_data_source_bridge_module, DataSourceBridge)
   end
 
-  defp dispatch_ingest_records([], _params), do: {:ok, []}
+  defp dispatch_ingest_records([], _params, _socket), do: {:ok, []}
 
-  defp dispatch_ingest_records(records, params) do
+  defp dispatch_ingest_records(records, params, socket) do
     # Phase 1 sends canonical records to ingestion. Future external data-source
     # records should follow this same path so BO never branches on source origin.
     event =
-      Event.new(%{records: records, params: params}, :ingestion, opts: [action: :ingest_records])
+      Event.new(%{records: records, params: params}, :ingestion,
+        opts: [action: :ingest_records],
+        actor: BOActor.build(socket.assigns.current_user)
+      )
+
+    NodeRouter.dispatch(event).response
+  end
+
+  defp dispatch_source_scopes(provider, params) do
+    opts = [action: :data_source_list_source_scopes]
+    event = Event.new(%{provider: provider, params: params}, :channels, opts: opts)
 
     NodeRouter.dispatch(event).response
   end
@@ -1526,7 +1576,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     %{
       ingested_at: Map.get(status, :ingested_at),
       stale?: false,
-      permissions_count: 0,
+      permissions_count: Map.get(status, :permissions_count, 0),
       is_public: Map.get(status, :public?, false),
       can_share?: false,
       watch_status: Map.get(status, :watch_status),
@@ -1859,7 +1909,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       source = ExternalSource.source(record)
       doc = Map.get(documents_by_source, source)
 
-      status = provider_record_status(record, doc, permission_counts, inherited_watch)
+      status = provider_record_status(record, doc, permission_counts, inherited_watch, socket)
 
       {record, Map.put(acc, record.name, status)}
     end)
@@ -1902,9 +1952,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp provider_record_status(record, doc, permission_counts, inherited_watch)
+  defp maybe_override_preview_filename(socket, _filename), do: socket
 
-  defp provider_record_status(%{kind: kind}, doc, _permission_counts, inherited_watch)
+  defp provider_record_status(record, doc, permission_counts, inherited_watch, socket)
+
+  defp provider_record_status(%{kind: kind}, doc, _permission_counts, inherited_watch, _socket)
        when kind in [:folder, "folder"] do
     watch_state = Ingestion.data_source_record_watch_state(doc, inherited_watch)
 
@@ -1921,7 +1973,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     }
   end
 
-  defp provider_record_status(_record, nil, _permission_counts, inherited_watch) do
+  defp provider_record_status(_record, nil, _permission_counts, inherited_watch, _socket) do
     watch_state = Ingestion.data_source_record_watch_state(nil, inherited_watch)
 
     %{
@@ -1937,7 +1989,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     }
   end
 
-  defp provider_record_status(record, doc, permission_counts, inherited_watch) do
+  defp provider_record_status(record, doc, permission_counts, inherited_watch, socket) do
     stale? =
       record.modified_at && doc.updated_at &&
         DateTime.compare(record.modified_at, doc.updated_at) == :gt
@@ -2004,14 +2056,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp watch_supported?("local"), do: true
 
-  defp watch_supported?(provider) do
-    bridge_module = data_source_bridge_module()
-
-    if global_base_url_present?() and function_exported?(bridge_module, :capability_snapshot, 1) do
-      provider_watch_supported?(bridge_module, provider)
-    else
-      false
-    end
+    %{
+      create: capability_resolved?(resolved, :create_item),
+      update: capability_resolved?(resolved, :update_item),
+      delete: capability_resolved?(resolved, :delete_item),
+      share: capability_resolved?(resolved, :manage_item_permissions),
+      watch: global_base_url_present?() and capability_resolved?(resolved, :watch_changes_webhook)
+    }
   end
 
   defp watch_disabled_reason("local"), do: nil
