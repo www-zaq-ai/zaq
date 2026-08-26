@@ -588,7 +588,7 @@ defmodule Zaq.Storage do
       type: if(permission.person_id, do: "person", else: "team"),
       target_id: to_string(permission.person_id || permission.team_id),
       name:
-        (permission.person && permission.person.username) ||
+        (permission.person && permission.person.full_name) ||
           (permission.team && permission.team.name),
       access_rights: permission.access_rights || []
     }

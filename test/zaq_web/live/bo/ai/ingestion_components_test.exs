@@ -230,6 +230,116 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
 
       assert html =~ "zaq-table-row--selected"
     end
+
+    test "renders converted markdown sidecar preview metadata" do
+      html =
+        render_component(&IngestionFileListView.file_list_view/1,
+          entries: [
+            %{
+              name: "report.pdf",
+              path: "report.pdf",
+              kind: :file,
+              size: 4096,
+              modified_at: ~U[2026-01-01 00:00:00Z],
+              attributes: %{
+                "related_record" => %{
+                  "name" => "report.md",
+                  "path" => "report.md",
+                  "preview_path" => "previews/report.md",
+                  "size" => 1024
+                }
+              }
+            }
+          ],
+          selected: MapSet.new(),
+          current_dir: ".",
+          current_volume: "default",
+          ingestion_map: %{}
+        )
+
+      assert html =~ "zaq-table-sidecar-preview"
+      assert html =~ "zaq-table-sidecar-preview-name"
+      assert html =~ ~s(type="button")
+      assert html =~ ~s(phx-click="open_preview")
+      assert html =~ ~s(phx-value-filename="report.md")
+      assert html =~ ~s(phx-value-path="previews/report.md")
+      assert html =~ ~s(title="Preview converted markdown")
+      assert html =~ "MD"
+      assert html =~ "1.0 KB"
+      refute html =~ ~s(phx-value-path="report.md")
+    end
+
+    test "renders processing, pending, and failed ingestion statuses" do
+      entries =
+        for name <- ["processing.md", "pending.md", "failed.md"] do
+          %{
+            name: name,
+            path: name,
+            kind: :file,
+            size: 1024,
+            modified_at: ~U[2026-01-01 00:00:00Z]
+          }
+        end
+
+      html =
+        render_component(&IngestionFileListView.file_list_view/1,
+          entries: entries,
+          selected: MapSet.new(),
+          current_dir: ".",
+          current_volume: "default",
+          ingestion_map: %{
+            "processing.md" => %{job_status: "processing"},
+            "pending.md" => %{job_status: "pending"},
+            "failed.md" => %{job_status: "failed"}
+          }
+        )
+
+      assert html =~ "processing"
+      assert html =~ "zaq-pill--accent"
+      assert html =~ "zaq-pill--pulse"
+      assert html =~ "pending"
+      assert html =~ "zaq-pill--elevated"
+      assert html =~ "failed"
+      assert html =~ "zaq-pill--danger"
+
+      assert length(Regex.scan(~r/zaq-pill--pulse/, html)) == 1
+    end
+
+    test "renders complete and partial folder ingestion progress" do
+      html =
+        render_component(&IngestionFileListView.file_list_view/1,
+          entries: [
+            %{
+              name: "complete",
+              path: "complete",
+              kind: :folder,
+              size: 0,
+              modified_at: ~U[2026-01-01 00:00:00Z]
+            },
+            %{
+              name: "partial",
+              path: "partial",
+              kind: :folder,
+              size: 0,
+              modified_at: ~U[2026-01-01 00:00:00Z]
+            }
+          ],
+          selected: MapSet.new(),
+          current_dir: ".",
+          current_volume: "default",
+          ingestion_map: %{
+            "complete" => %{total_size: 2048, file_count: 3, ingested_count: 3},
+            "partial" => %{total_size: 4096, file_count: 5, ingested_count: 2}
+          }
+        )
+
+      assert html =~ "3/3"
+      assert html =~ "2/5"
+      assert html =~ "var(--zaq-text-color-body-success)"
+      assert html =~ "var(--zaq-text-color-body-warning)"
+      assert html =~ "2.0 KB"
+      assert html =~ "4.0 KB"
+    end
   end
 
   describe "grid view rendering" do

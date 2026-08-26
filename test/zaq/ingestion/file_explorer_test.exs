@@ -2,6 +2,10 @@ defmodule Zaq.Storage.FileExplorerTest do
   use Zaq.DataCase, async: false
   use ExUnitProperties
 
+  import ExUnit.CaptureLog
+
+  alias Zaq.Repo
+  alias Zaq.Storage.EntryCatalog
   alias Zaq.Storage.FileExplorer
   alias Zaq.Storage.FileExplorer.Entry
 
@@ -277,6 +281,19 @@ defmodule Zaq.Storage.FileExplorerTest do
     test "returns error when path is not a directory" do
       File.write!(Path.join(@test_base, "single.txt"), "content")
       assert {:error, :not_a_directory} = FileExplorer.delete_directory("single.txt")
+    end
+
+    test "rejects traversal without removing anything outside the base path" do
+      outside = Path.join(Path.dirname(@test_base), "file_explorer_outside")
+      File.rm_rf!(outside)
+      File.mkdir_p!(outside)
+      marker = Path.join(outside, "marker.txt")
+      File.write!(marker, "keep")
+
+      on_exit(fn -> File.rm_rf!(outside) end)
+
+      assert {:error, :path_traversal} = FileExplorer.delete_directory("../file_explorer_outside")
+      assert File.read!(marker) == "keep"
     end
   end
 
@@ -627,6 +644,13 @@ defmodule Zaq.Storage.FileExplorerTest do
     test "returns 0 for unknown volume" do
       assert FileExplorer.folder_size("nonexistent", ".") == 0
     end
+
+    test "counts regular files but does not follow a self-referential symlink", %{vol: vol} do
+      File.write!(Path.join(vol, "four.txt"), "1234")
+      assert :ok = File.ln_s("loop", Path.join(vol, "loop"))
+
+      assert FileExplorer.folder_size("docs", ".") == 4
+    end
   end
 
   describe "create_directory/2 (volume-aware)" do
@@ -709,6 +733,13 @@ defmodule Zaq.Storage.FileExplorerTest do
     test "rejects traversal" do
       assert {:error, :path_traversal} = FileExplorer.upload_unique("../../evil.txt", "bad")
     end
+
+    test "returns the symlink loop error for a self-referential destination" do
+      loop = Path.join(@test_base, "loop.txt")
+      assert :ok = File.ln_s("loop.txt", loop)
+
+      assert {:error, :eloop} = FileExplorer.upload_unique("loop.txt", "content")
+    end
   end
 
   describe "upload_unique/3 (volume-aware deduplication)" do
@@ -741,6 +772,75 @@ defmodule Zaq.Storage.FileExplorerTest do
     test "rejects path traversal" do
       assert {:error, :path_traversal} =
                FileExplorer.upload_unique("docs", "../../evil.txt", "bad")
+    end
+
+    test "returns the symlink loop error in a named volume", %{vol: vol} do
+      loop = Path.join(vol, "loop.txt")
+      assert :ok = File.ln_s("loop.txt", loop)
+
+      assert {:error, :eloop} = FileExplorer.upload_unique("docs", "loop.txt", "content")
+    end
+  end
+
+  describe "list/1 with symlink loops" do
+    test "keeps regular entries and logs skipped loop entries" do
+      File.write!(Path.join(@test_base, "regular.txt"), "content")
+      assert :ok = File.ln_s("loop", Path.join(@test_base, "loop"))
+
+      previous = Process.flag(:trap_exit, true)
+
+      try do
+        log =
+          capture_log(fn ->
+            assert {:ok, entries} = FileExplorer.list(".")
+            assert [%Entry{name: "regular.txt", type: :file}] = entries
+          end)
+
+        assert log =~ "FileExplorer: skipped entry"
+        assert log =~ "eloop"
+      after
+        Process.flag(:trap_exit, previous)
+      end
+    end
+  end
+
+  describe "volume catalog integration" do
+    test "does not replace a filesystem entry when a blank volume cannot be cataloged" do
+      vol = Path.join(@test_base, "blank_volume")
+      File.mkdir_p!(vol)
+      File.write!(Path.join(vol, "regular.txt"), "content")
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"" => vol})
+
+      assert_raise BadMapError, fn -> EntryCatalog.ensure("", "regular.txt", :file) end
+      assert EntryCatalog.get_active("", "regular.txt") == nil
+
+      assert {:ok, [%Entry{} = entry]} = FileExplorer.list("", ".")
+      assert entry.name == "regular.txt"
+      assert entry.relative_path == "regular.txt"
+      assert entry.source == "regular.txt"
+      assert entry.id == entry.source
+      assert entry.parent_id == nil
+      assert entry.volume == ""
+    end
+
+    test "tolerates a catalog rename conflict after the filesystem rename" do
+      vol = Path.join(@test_base, "rename_conflict")
+      File.mkdir_p!(vol)
+      File.write!(Path.join(vol, "old.txt"), "old")
+      File.write!(Path.join(vol, "target.txt"), "target")
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"docs" => vol})
+
+      assert {:ok, entries} = FileExplorer.list("docs", ".")
+      old = Enum.find(entries, &(&1.name == "old.txt"))
+      target = Enum.find(entries, &(&1.name == "target.txt"))
+      assert old && target
+
+      File.rm!(Path.join(vol, "target.txt"))
+
+      assert :ok = FileExplorer.rename("docs", "old.txt", "target.txt")
+      assert File.read!(Path.join(vol, "target.txt")) == "old"
+      assert Repo.get!(EntryCatalog, old.id).relative_path == "old.txt"
+      assert Repo.get!(EntryCatalog, target.id).relative_path == "target.txt"
     end
   end
 end

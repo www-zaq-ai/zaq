@@ -39,12 +39,15 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
   def previewable_path?(_), do: false
 
   @spec load(String.t() | Record.t(), map()) :: {:ok, map()} | {:error, :unauthorized}
-  def load(%Record{} = record, current_user) do
+  def load(input, current_user), do: load(input, current_user, [])
+
+  @spec load(String.t() | Record.t(), map(), keyword()) :: {:ok, map()} | {:error, :unauthorized}
+  def load(%Record{} = record, current_user, opts) do
     relative_path = record_source(record)
 
     if Ingestion.can_access_file?(relative_path, current_user) do
       record
-      |> materialized_record(current_user)
+      |> materialized_record(current_user, opts)
       |> case do
         {:ok, %{record: %Record{} = materialized}} ->
           {:ok, preview_from_record(materialized, record, current_user)}
@@ -57,9 +60,9 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
     end
   end
 
-  def load(relative_path, current_user) do
+  def load(relative_path, current_user, opts) do
     if Ingestion.can_access_file?(relative_path, current_user) do
-      case load_document_reference(relative_path, current_user) do
+      case load_document_reference(relative_path, current_user, opts) do
         {:ok, preview} ->
           {:ok, preview}
 
@@ -95,12 +98,12 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
     end
   end
 
-  defp load_document_reference(relative_path, current_user) do
+  defp load_document_reference(relative_path, current_user, opts) do
     case Document.get_by_source(relative_path) do
       %Document{metadata: %{"materialization_handle" => handle}} = doc when is_binary(handle) ->
         doc
         |> record_from_document(handle)
-        |> load(current_user)
+        |> load(current_user, opts)
 
       _ ->
         :fallback
@@ -162,17 +165,17 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
     }
   end
 
-  defp materialized_record(%Record{materialization_handle: handle}, current_user)
+  defp materialized_record(%Record{materialization_handle: handle}, current_user, opts)
        when is_binary(handle) do
     Materialization.materialize(
       handle,
-      materialization_context(current_user),
+      materialization_context(current_user, opts),
       "Preview materialization failed"
     )
   end
 
-  defp materialized_record(%Record{content: nil}, _current_user), do: {:error, :no_content}
-  defp materialized_record(%Record{} = record, _current_user), do: {:ok, %{record: record}}
+  defp materialized_record(%Record{content: nil}, _current_user, _opts), do: {:error, :no_content}
+  defp materialized_record(%Record{} = record, _current_user, _opts), do: {:ok, %{record: record}}
 
   defp load_content_from_record(%Record{} = record, ext, filename) do
     case decode_content(record.content, record.attributes) do
@@ -358,10 +361,15 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
     end
   end
 
-  defp materialization_context(current_user) do
-    %{
+  defp materialization_context(current_user, opts \\ []) do
+    context = %{
       actor: BOActor.build(current_user)
     }
+
+    case Keyword.get(opts, :node_router) do
+      nil -> context
+      node_router -> Map.put(context, :node_router, node_router)
+    end
   end
 
   defp binary_tmp_path(filename, ext, binary, fun) do

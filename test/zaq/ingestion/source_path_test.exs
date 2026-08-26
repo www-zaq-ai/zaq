@@ -19,6 +19,22 @@ defmodule Zaq.Storage.SourcePathTest do
     :ok
   end
 
+  describe "remap_source/3" do
+    test "preserves a matching volume prefix" do
+      assert SourcePath.remap_source("documents/old/file.md", "documents", "./new/file.md") ==
+               "documents/new/file.md"
+    end
+
+    test "returns a relative path when the existing source is not volume-prefixed" do
+      assert SourcePath.remap_source("old/file.md", "documents", "./new/file.md") ==
+               "new/file.md"
+    end
+
+    test "returns a relative path when the existing source is nil" do
+      assert SourcePath.remap_source(nil, "documents", "./new/file.md") == "new/file.md"
+    end
+  end
+
   describe "legacy_folder_prefixes/3" do
     test "returns empty list when volume_name is not in volumes map" do
       # line 139: Map.get(volumes, volume_name) -> nil
@@ -48,6 +64,19 @@ defmodule Zaq.Storage.SourcePathTest do
   end
 
   describe "absolute_to_source/1 in multi-volume mode" do
+    test "returns a volume-prefixed path for a file inside a configured volume" do
+      root =
+        Path.join(
+          System.tmp_dir!(),
+          "zaq_source_path_documents_#{System.unique_integer([:positive])}"
+        )
+
+      file_path = Path.join(root, "nested/report.md")
+      Application.put_env(:zaq, Zaq.Storage, volumes: %{"documents" => root})
+
+      assert {:ok, "documents/nested/report.md"} = SourcePath.absolute_to_source(file_path)
+    end
+
     test "falls back to basename when path is outside all configured volumes" do
       # line 95: find_volume_for_path returns nil
       tmp = System.tmp_dir!()
@@ -66,6 +95,12 @@ defmodule Zaq.Storage.SourcePathTest do
   end
 
   describe "absolute_to_source/1 in single-volume mode" do
+    test "returns an empty source for the root path" do
+      Application.put_env(:zaq, Zaq.Storage, base_path: "/")
+
+      assert {:ok, ""} = SourcePath.absolute_to_source("/")
+    end
+
     test "returns path relative to root base_path" do
       Application.put_env(:zaq, Zaq.Storage, base_path: "/")
 

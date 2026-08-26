@@ -6,6 +6,7 @@ defmodule ZaqWeb.FileControllerTest do
   alias Zaq.Accounts
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.Record
+  alias Zaq.Ingestion.Document
   alias Zaq.Repo
   alias Zaq.Storage.Materializers.DiskDocument
   alias ZaqWeb.PreviewReference
@@ -51,6 +52,39 @@ defmodule ZaqWeb.FileControllerTest do
       conn = get(conn, "/bo/files/%2e%2e/secret.txt")
 
       assert response(conn, 403) == "Forbidden"
+    end
+
+    test "returns forbidden for an unauthorized document before checking the file", %{
+      conn: conn
+    } do
+      admin = admin_fixture()
+      {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
+      conn = init_test_session(conn, %{user_id: admin.id})
+
+      assert {:ok, _document} = Document.create(%{source: "restricted.md", content: "private"})
+
+      conn = get(conn, "/bo/files/restricted.md")
+
+      assert response(conn, 403) == "Access denied"
+      refute response(conn, 403) == "File not found"
+    end
+
+    test "falls back to storage when the ingestion configuration is absent", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "storage-only.txt"), "storage content")
+      Application.delete_env(:zaq, Zaq.Ingestion)
+
+      conn = get(conn, "/bo/files/storage-only.txt")
+
+      assert response(conn, 200) == "storage content"
+
+      assert get_resp_header(conn, "content-disposition") == [
+               ~s(inline; filename="storage-only.txt")
+             ]
+
+      assert List.first(get_resp_header(conn, "content-type")) =~ "text/plain"
     end
 
     test "returns not found for missing files", %{conn: conn} do
@@ -145,6 +179,39 @@ defmodule ZaqWeb.FileControllerTest do
       conn = get(conn, "/bo/files/ref/#{token <> "tampered"}")
 
       assert response(conn, 404) == "File not found"
+    end
+
+    test "rejects an unauthorized signed preview reference before materialization", %{conn: conn} do
+      admin = admin_fixture()
+      {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
+      conn = init_test_session(conn, %{user_id: admin.id})
+
+      assert {:ok, _document} =
+               Document.create(%{source: "restricted-ref.md", content: "private"})
+
+      {:ok, handle} = DiskDocument.issue("restricted-ref.md", %{"config_id" => 123})
+
+      record = %Record{
+        id: "restricted-ref.md",
+        kind: :file,
+        name: "restricted-ref.md",
+        mime_type: "text/markdown",
+        materialization_handle: handle,
+        attributes: %{
+          "provider" => "local",
+          "config_id" => 123,
+          "source" => "restricted-ref.md"
+        }
+      }
+
+      token = PreviewReference.sign_record(record, admin)
+      conn = get(conn, "/bo/files/ref/#{token}")
+
+      assert response(conn, 403) == "Access denied"
+      refute response(conn, 403) == "File not found"
+      assert get_resp_header(conn, "content-disposition") == []
+      # The endpoint adds `nosniff` globally; the controller must not add preview headers.
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
     end
   end
 end

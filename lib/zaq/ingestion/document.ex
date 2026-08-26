@@ -94,8 +94,11 @@ defmodule Zaq.Ingestion.Document do
     |> changeset(attrs)
     |> Repo.insert(on_conflict: :nothing, conflict_target: :source, returning: true)
     |> case do
-      {:ok, %__MODULE__{} = doc} -> {:ok, doc}
-      {:ok, nil} -> {:ok, Repo.get_by!(__MODULE__, source: attrs[:source] || attrs["source"])}
+      {:ok, %__MODULE__{id: nil}} ->
+        {:ok, Repo.get_by!(__MODULE__, source: attrs[:source] || attrs["source"])}
+
+      {:ok, %__MODULE__{} = doc} ->
+        {:ok, doc}
     end
   end
 

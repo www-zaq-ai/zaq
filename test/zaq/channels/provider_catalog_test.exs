@@ -19,6 +19,8 @@ defmodule Zaq.Channels.ProviderCatalogTest do
 
   test "returns capability suffixes for file and sheet operations" do
     assert "file.update" in ProviderCatalog.capability_action_suffixes(:update_item)
+    assert ProviderCatalog.capability_action_suffixes(:watch_item) == ["file.watch"]
+    assert ProviderCatalog.capability_action_suffixes(:create_item) == ["file.create"]
     assert "values.update" in ProviderCatalog.capability_action_suffixes(:sheet_update_values)
     assert ProviderCatalog.capability_action_suffixes(:sheet_get) == ["values.get"]
     assert ProviderCatalog.capability_action_suffixes(:sheet_inspect) == ["spreadsheet.get"]

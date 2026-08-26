@@ -674,7 +674,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp resource_data_source_provider, do: @resource_data_source_provider
 
   defp resource_actor(%{assigns: assigns}), do: BOActor.build(Map.get(assigns, :current_user))
-  defp resource_actor(_), do: %{provider: "bo", skip_permissions: false}
 
   defp data_source_bridge_module do
     Application.get_env(

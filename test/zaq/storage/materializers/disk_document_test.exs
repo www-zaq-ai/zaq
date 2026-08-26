@@ -23,6 +23,23 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     assert locator == %{"file_id" => "disk:archives:loose.md"}
   end
 
+  test "issues disk document handles with keyword signing options" do
+    opts = [secret_key_base: "disk-document-custom-test-secret"]
+
+    assert {:ok, handle} = DiskDocument.issue("disk:archives:loose.md", opts)
+    assert is_binary(handle)
+
+    assert {:ok,
+            %{
+              type: "disk_document",
+              locator: %{"file_id" => "disk:archives:loose.md"},
+              version: 1
+            }} =
+             Handle.verify(handle, opts)
+
+    assert {:error, :invalid_materialization_handle} = Handle.verify(handle)
+  end
+
   test "issues disk document handles with the current disk config id when present" do
     assert {:ok, handle} = DiskDocument.issue("guide.md", %{"config_id" => 42})
 

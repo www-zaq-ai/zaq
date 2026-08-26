@@ -2,6 +2,7 @@ defmodule Zaq.Ingestion.DocumentTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Ingestion.Document
+  alias Zaq.Repo
 
   @valid_attrs %{
     source: "test_document.md",
@@ -92,19 +93,43 @@ defmodule Zaq.Ingestion.DocumentTest do
       {:ok, existing} =
         Document.create(%{
           source: source,
+          title: "Original title",
           content: "original content",
-          content_type: "markdown"
+          content_type: "markdown",
+          metadata: %{"origin" => "original"}
         })
 
       {:ok, returned} =
         Document.insert_new(%{
           "source" => source,
+          "title" => "Replacement title",
           "content" => "replacement content",
-          "content_type" => "markdown"
+          "content_type" => "markdown",
+          "metadata" => %{"origin" => "replacement"}
         })
 
+      assert returned.id == existing.id
       assert returned.source == source
-      assert returned.content == "replacement content"
+      assert returned.title == "Original title"
+      assert returned.content == "original content"
+      assert returned.metadata == %{"origin" => "original"}
+
+      persisted = Document.get_by_source(source)
+      assert persisted.id == existing.id
+      assert persisted.title == "Original title"
+      assert persisted.content == "original content"
+      assert persisted.metadata == %{"origin" => "original"}
+    end
+
+    test "returns existing document on atom-key source conflict" do
+      source = "tracked/atom-existing-#{System.unique_integer([:positive])}.md"
+      {:ok, existing} = Document.create(%{source: source, content: "original content"})
+
+      assert {:ok, returned} =
+               Document.insert_new(%{source: source, content: "replacement content"})
+
+      assert returned.id == existing.id
+      assert returned.content == "original content"
       assert Document.get_by_source(source).content == "original content"
     end
   end
@@ -163,6 +188,108 @@ defmodule Zaq.Ingestion.DocumentTest do
       docs = Document.list()
       sources = Enum.map(docs, & &1.source) |> Enum.sort()
       assert sources == ["a.md", "b.md"]
+    end
+  end
+
+  describe "ids_by_source/1" do
+    test "maps existing sources and omits missing sources" do
+      {:ok, first} = Document.create(%{source: "ids/first.md", content: "first"})
+      {:ok, second} = Document.create(%{source: "ids/second.md", content: "second"})
+
+      assert Document.ids_by_source([
+               "ids/first.md",
+               "ids/second.md",
+               "ids/first.md",
+               "ids/missing.md"
+             ]) ==
+               %{"ids/first.md" => first.id, "ids/second.md" => second.id}
+    end
+
+    test "returns an empty map for an empty source list" do
+      assert Document.ids_by_source([]) == %{}
+    end
+  end
+
+  describe "rename_source_prefix_query/2" do
+    test "renames only sources under the exact prefix" do
+      old_prefix = "rename/source-#{System.unique_integer([:positive])}"
+      new_prefix = "renamed/source-#{System.unique_integer([:positive])}"
+
+      {:ok, matching} =
+        Document.create(%{source: "#{old_prefix}/nested/file.md", content: "match"})
+
+      {:ok, exact} = Document.create(%{source: old_prefix, content: "exact"})
+      {:ok, sibling} = Document.create(%{source: "#{old_prefix}x/file.md", content: "sibling"})
+      {:ok, unrelated} = Document.create(%{source: "other/file.md", content: "other"})
+
+      assert {1, _} =
+               Repo.update_all(Document.rename_source_prefix_query(old_prefix, new_prefix), [])
+
+      assert Document.get(matching.id).source == "#{new_prefix}/nested/file.md"
+      assert Document.get(exact.id).source == old_prefix
+      assert Document.get(sibling.id).source == "#{old_prefix}x/file.md"
+      assert Document.get(unrelated.id).source == "other/file.md"
+    end
+  end
+
+  describe "rename_metadata_key_query/3" do
+    test "renames only the selected metadata key under the exact prefix" do
+      old_prefix = "metadata/source-#{System.unique_integer([:positive])}"
+      new_prefix = "metadata/renamed-#{System.unique_integer([:positive])}"
+
+      {:ok, matching} =
+        Document.create(%{
+          source: "metadata/matching.md",
+          content: "match",
+          metadata: %{
+            "sidecar_source" => "#{old_prefix}/nested.json",
+            "other_key" => "#{old_prefix}/keep.json"
+          }
+        })
+
+      {:ok, exact} =
+        Document.create(%{
+          source: "metadata/exact.md",
+          content: "exact",
+          metadata: %{"sidecar_source" => old_prefix}
+        })
+
+      {:ok, sibling} =
+        Document.create(%{
+          source: "metadata/sibling.md",
+          content: "sibling",
+          metadata: %{"sidecar_source" => "#{old_prefix}x/file.json"}
+        })
+
+      {:ok, absent} =
+        Document.create(%{source: "metadata/absent.md", content: "absent", metadata: %{}})
+
+      {:ok, other_key} =
+        Document.create(%{
+          source: "metadata/other.md",
+          content: "other",
+          metadata: %{"other_key" => "#{old_prefix}/file.json"}
+        })
+
+      assert {1, _} =
+               Repo.update_all(
+                 Document.rename_metadata_key_query("sidecar_source", old_prefix, new_prefix),
+                 []
+               )
+
+      assert Document.get(matching.id).metadata == %{
+               "sidecar_source" => "#{new_prefix}/nested.json",
+               "other_key" => "#{old_prefix}/keep.json"
+             }
+
+      assert Document.get(exact.id).metadata == %{"sidecar_source" => old_prefix}
+
+      assert Document.get(sibling.id).metadata == %{
+               "sidecar_source" => "#{old_prefix}x/file.json"
+             }
+
+      assert Document.get(absent.id).metadata == %{}
+      assert Document.get(other_key.id).metadata == %{"other_key" => "#{old_prefix}/file.json"}
     end
   end
 

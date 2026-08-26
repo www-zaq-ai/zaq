@@ -115,6 +115,65 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     end
   end
 
+  defmodule MixedUploadRouter do
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts, request: request} = event) do
+      if Keyword.get(opts, :action) == :data_source_create_file and
+           get_in(request, [:params, "name"]) == "blocked.md" do
+        %{event | response: {:error, :eacces}}
+      else
+        RealRouter.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: RealRouter.dispatch(event)
+  end
+
+  defmodule MalformedScopesRouter do
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :data_source_list_source_scopes do
+        %{event | response: {:ok, [%{}, "invalid-scope"]}}
+      else
+        RealRouter.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: RealRouter.dispatch(event)
+  end
+
+  defmodule StringKeyRecordsRouter do
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :data_source_list_files do
+        %{
+          event
+          | response:
+              {:ok,
+               %{
+                 "records" => [
+                   %{kind: :file, name: "kept.md", size: 4, modified_at: DateTime.utc_now()},
+                   %{kind: :directory, name: "ignored"}
+                 ]
+               }}
+        }
+      else
+        RealRouter.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: RealRouter.dispatch(event)
+  end
+
+  defmodule StaleDeleteSuccessRouter do
+    def dispatch(%{next_hop: %{destination: :agent}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :agent_skill_deleted do
+        %{event | response: {:ok, %{skill: nil}}}
+      else
+        RealRouter.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: RealRouter.dispatch(event)
+  end
+
   defmodule SkillsDiskBridge do
     alias Zaq.Channels.DiskBridge
 
@@ -246,6 +305,20 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   end
 
   describe "skill resources — volume gate" do
+    test "uses only valid configured scopes and gates uploads when none are usable", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("malformed_scopes")})
+      with_skills_live_node_router(MalformedScopesRouter)
+      skill = create_skill!(%{name: "malformed-scopes"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      html = view |> element("#add-resource-button") |> render_click()
+
+      assert html =~ "Please, connect a volume to be able upload a resource"
+      assert has_element?(view, "#no-volume-modal")
+      refute has_element?(view, "#skill-resource-form")
+    end
+
     test "shows the connect-a-volume popup and no upload form when no volume is configured",
          %{conn: conn} do
       configure_volumes(%{})
@@ -293,6 +366,74 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   end
 
   describe "skill resources — upload" do
+    test "renders string-keyed file records and ignores directories", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("string_records")})
+      with_skills_live_node_router(StringKeyRecordsRouter)
+      skill = create_skill!(%{name: "string-records"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+
+      html = render(view)
+      assert html =~ "kept.md"
+      refute html =~ "ignored"
+    end
+
+    test "keeps the modal open and persists only successful mixed uploads", %{conn: conn} do
+      volume = tmp_volume("mixed_edit")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(MixedUploadRouter)
+      skill = create_skill!(%{name: "mixed-edit"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+
+      saved_upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "saved.md", content: "kept", type: "text/markdown"}
+        ])
+
+      blocked_upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "blocked.md", content: "nope", type: "text/markdown"}
+        ])
+
+      assert render_upload(saved_upload, "saved.md")
+      assert render_upload(blocked_upload, "blocked.md")
+      html = view |> form("#skill-resource-form") |> render_submit()
+
+      assert html =~ "1 resource(s) added. 1 failed."
+      assert has_element?(view, "#skill-resource-modal")
+      assert File.exists?(Path.join(volume, ".agents/skills/mixed-edit/references/saved.md"))
+      refute File.exists?(Path.join(volume, ".agents/skills/mixed-edit/references/blocked.md"))
+      assert Skills.get_skill!(skill.id).resource_root == ".agents/skills/mixed-edit"
+    end
+
+    test "direct resource handlers preserve an idle socket" do
+      {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+      assert {:noreply, ^socket} = SkillsLive.handle_event("validate_skill_resource", %{}, socket)
+      assert {:noreply, ^socket} = SkillsLive.handle_event("upload_skill_resource", %{}, socket)
+      assert {:noreply, ^socket} = SkillsLive.handle_event("open_resource_upload", %{}, socket)
+    end
+
+    test "submitting an edit modal with no entries leaves it open without a toast", %{conn: conn} do
+      volume = tmp_volume("empty_edit")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "empty-edit"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+      render_submit(view, "upload_skill_resource", %{})
+
+      assert has_element?(view, "#skill-resource-modal")
+      refute has_element?(view, "#resource-upload-toast")
+      refute File.exists?(Path.join(volume, ".agents/skills/empty-edit"))
+    end
+
     test "writes the file under .agents/skills/{name}/references and persists resource_root",
          %{conn: conn} do
       volume = tmp_volume("upload")
@@ -862,6 +1003,26 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert skill.resource_root == ".agents/skills/saved-with-res"
     end
 
+    test "reports mixed staged uploads and saves only the successful file", %{conn: conn} do
+      volume = tmp_volume("staged_mixed")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(MixedUploadRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      fill_new_skill(view, "staged-mixed")
+      stage_resource!(view, "saved.md")
+      stage_resource!(view, "blocked.md")
+
+      html = submit_new_skill(view, "staged-mixed")
+
+      assert html =~ "Skill created with 1 resource(s). 1 could not be uploaded."
+      refute has_element?(view, "#skill-form-drawer")
+      assert File.exists?(Path.join(volume, ".agents/skills/staged-mixed/references/saved.md"))
+      refute File.exists?(Path.join(volume, ".agents/skills/staged-mixed/references/blocked.md"))
+      assert [skill] = Skills.search_skills(%{q: "staged-mixed", tags: []})
+      assert skill.resource_root == ".agents/skills/staged-mixed"
+    end
+
     test "uses the name as saved, not the name at staging time", %{conn: conn} do
       volume = tmp_volume("staged_rename")
       configure_volumes(%{"documents" => volume})
@@ -1419,6 +1580,18 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     refute has_element?(view, "#skill-form-drawer")
   end
 
+  test "deletes a stale numeric skill id without cleanup warnings", %{conn: conn} do
+    configure_volumes(%{})
+    with_skills_live_node_router(StaleDeleteSuccessRouter)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+    html = render_click(view, "delete_skill", %{"id" => "999999"})
+
+    assert html =~ "Skill deleted"
+    refute html =~ "resources could not be removed"
+    assert Skills.list_skills() == []
+  end
+
   test "validation handles list tags and saving without tags defaults to empty list", %{
     conn: conn
   } do
@@ -1574,6 +1747,39 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       )
 
     assert socket.assigns.form[:allowed_tools].value == []
+  end
+
+  test "renders binary and map tag/tool values through a form", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+    render_click(element(view, "#new-skill-button"))
+
+    html =
+      render_change(view, "validate", %{
+        "skill" => %{
+          "name" => "render-format",
+          "description" => "Description.",
+          "body" => "Instructions.",
+          "tags" => "alpha",
+          "allowed_tools" => "Read Bash"
+        }
+      })
+
+    assert html =~ ~s(value="alpha")
+    assert html =~ ~s(value="Read Bash")
+
+    html =
+      render_change(view, "validate", %{
+        "skill" => %{
+          "name" => "render-empty",
+          "description" => "Description.",
+          "body" => "Instructions.",
+          "tags" => %{},
+          "allowed_tools" => %{}
+        }
+      })
+
+    assert html =~ ~s(name="skill[tags]" value="")
+    assert html =~ ~s(name="skill[allowed_tools]" value="")
   end
 
   test "cancel hides the form", %{conn: conn} do

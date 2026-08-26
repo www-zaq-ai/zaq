@@ -83,6 +83,21 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocumentTest do
                      _opts}
   end
 
+  test "returns an error and does not dispatch when base64 content is invalid" do
+    assert {:error, "Invalid base64 content: not valid Base64 in the standard alphabet"} =
+             CreateDocument.run(
+               %{
+                 provider: "google_drive",
+                 name: "invalid.bin",
+                 content: "*",
+                 encoding: "base64"
+               },
+               %{node_router: StubNodeRouter}
+             )
+
+    refute_received {:dispatch, _, _, _, _}
+  end
+
   test "passes event opts to the channels event" do
     assert {:ok, _} =
              CreateDocument.run(%{provider: "google_drive", name: "Doc"}, %{

@@ -1,6 +1,7 @@
 defmodule Zaq.Ingestion.ApiTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.Ingestion.Api
 
@@ -23,6 +24,30 @@ defmodule Zaq.Ingestion.ApiTest do
     result = Api.handle_event(event, :unknown, nil)
 
     assert result.response == {:error, {:unsupported_action, :unknown}}
+  end
+
+  test "enriches records through the ingestion boundary" do
+    record = %Record{id: "api-enrichment-missing", kind: :file}
+    event = Event.new(%{records: [record]}, :ingestion, opts: [action: :enrich_records])
+    result = Api.handle_event(event, :enrich_records, nil)
+
+    assert result.response ==
+             {:ok,
+              %{
+                "api-enrichment-missing" => %{
+                  document_id: nil,
+                  indexed?: false,
+                  ingested_at: nil,
+                  permissions_count: 0,
+                  watch_status: nil,
+                  watch_error: nil,
+                  public?: false
+                }
+              }}
+
+    assert result.request == event.request
+    assert result.next_hop == event.next_hop
+    assert result.opts == event.opts
   end
 
   describe "retired storage actions" do

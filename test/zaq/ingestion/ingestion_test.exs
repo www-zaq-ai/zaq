@@ -1407,4 +1407,113 @@ defmodule Zaq.IngestionTest do
       assert Enum.any?(labels, &String.contains?(&1, "empty_query_doc_#{unique}"))
     end
   end
+
+  test "request_watch skips an empty-source folder without inserting a blank document" do
+    assert %{updated: 0, skipped: 1} = Ingestion.request_watch([%{source: nil, kind: :folder}])
+    refute Document.get_by_source("")
+  end
+
+  test "list_documents_under_folder/2 handles nil volume and folder paths" do
+    {:ok, child} = Document.create(%{source: "./child.md", content: "child"})
+    {:ok, _other} = Document.create(%{source: "other.md", content: "other"})
+
+    assert Ingestion.list_documents_under_folder(nil, nil) == [child]
+  end
+
+  describe "provider delta edge cases" do
+    test "ignores non-map signals without enqueuing jobs" do
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [], removed: 0}} =
+                 Ingestion.process_data_source_changes(%{
+                   provider: "google_drive",
+                   config_id: 42,
+                   signals: [nil, "not-a-signal"]
+                 })
+      end)
+    end
+
+    test "ignores removed records without an id" do
+      record = %Record{id: nil, kind: :file, name: "missing-id"}
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [], removed: 0}} =
+                 Ingestion.process_data_source_changes(%{
+                   provider: "google_drive",
+                   config_id: 42,
+                   signals: [%{record: record, removed: true}]
+                 })
+      end)
+    end
+
+    test "keeps an unwatched matching document when metadata is nil" do
+      source = "data_source/google_drive/42/nil-metadata"
+      {:ok, doc} = Document.create(%{source: source, content: "keep", metadata: nil})
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [], removed: 0}} =
+                 Ingestion.process_data_source_changes(%{
+                   provider: "google_drive",
+                   config_id: 42,
+                   signals: [%{provider_record_id: "nil-metadata", removed: true}]
+                 })
+      end)
+
+      assert Document.get(doc.id)
+    end
+
+    test "keeps an unwatched document with empty provider parent ids" do
+      source = "data_source/google_drive/42/empty-parents"
+
+      {:ok, doc} =
+        Document.create(%{
+          source: source,
+          content: "keep",
+          metadata: %{"provider_parent_ids" => [nil, ""]}
+        })
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [], removed: 0}} =
+                 Ingestion.process_data_source_changes(%{
+                   provider: "google_drive",
+                   config_id: 42,
+                   signals: [%{provider_record_id: "empty-parents", removed: true}]
+                 })
+      end)
+
+      assert Document.get(doc.id)
+    end
+
+    test "enqueues watched records for unknown binary change types" do
+      source = "data_source/google_drive/42/unknown-change"
+      {:ok, _doc} = Document.create(%{source: source, content: "old", watch_status: "watched"})
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [job], removed: 0}} =
+                 Ingestion.process_data_source_changes(%{
+                   provider: "google_drive",
+                   config_id: 42,
+                   signals: [
+                     %{
+                       provider_record_id: "unknown-change",
+                       change_type: "unknown_change",
+                       record: %{id: "unknown-change", name: "Changed.md"}
+                     }
+                   ]
+                 })
+
+        persisted_job = Repo.get!(IngestJob, job.id)
+        assert persisted_job.mode == "async"
+        assert persisted_job.source_record["id"] == "unknown-change"
+        assert persisted_job.source_record["kind"] == "file"
+
+        assert persisted_job.source_record["attributes"] == %{
+                 "provider" => "google_drive",
+                 "config_id" => "42",
+                 "provider_record_id" => "unknown-change"
+               }
+
+        refute Map.has_key?(persisted_job.source_record, "lifecycle_state")
+      end)
+    end
+  end
 end

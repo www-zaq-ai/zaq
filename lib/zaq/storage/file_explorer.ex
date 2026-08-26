@@ -490,9 +490,14 @@ defmodule Zaq.Storage.FileExplorer do
 
   defp attach_catalog(%Entry{volume: volume, relative_path: path, type: type} = entry) do
     case EntryCatalog.ensure(volume, path, type) do
-      {:ok, catalog_entry} -> %{entry | id: catalog_entry.id, parent_id: catalog_entry.parent_id}
-      {:error, _reason} -> entry
+      {:ok, %EntryCatalog{} = catalog_entry} ->
+        %{entry | id: catalog_entry.id, parent_id: catalog_entry.parent_id}
+
+      _failure ->
+        entry
     end
+  rescue
+    _error -> entry
   end
 
   defp rename_catalog(nil, _old_relative, _new_relative), do: :ok
