@@ -26,7 +26,16 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   defp config(overrides \\ %{}) do
-    Map.merge(%{"provider" => "disk", "node_router" => StubRouter}, overrides)
+    Map.merge(
+      %{
+        "id" => 42,
+        "provider" => "disk",
+        "node_router" => StubRouter,
+        "storage_config" => [base_path: "priv/documents"],
+        "settings" => %{"volumes" => [%{"name" => "archives", "path" => "archives"}]}
+      },
+      overrides
+    )
   end
 
   defp stub_response(response), do: Process.put(:stub_response, response)
@@ -65,13 +74,33 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
 
       assert %Record{id: "42", kind: :file, name: "guide.md", path: "guide.md"} = record
+  describe "source scopes" do
+    test "returns one generic source scope per configured volume" do
+      assert {:ok, scopes} =
+               DiskBridge.list_source_scopes(
+                 config(%{"id" => 42}),
+                 %{}
+               )
+
+      assert scopes == [
+               %{
+                 provider: "disk",
+                 config_id: 42,
+                 scope_id: "archives",
+                 label: "archives",
+                 filters: %{"parent" => "archives"}
+               }
+             ]
+    end
+  end
+
       assert record.mime_type == "text/markdown"
       assert record.size == 12
       assert record.modified_at == ~U[2026-01-01 00:00:00Z]
 
       assert record.attributes == %{
                "provider" => "disk",
-               "config_id" => "archives",
+               "config_id" => 42,
                "provider_record_id" => "42",
                "volume" => "archives",
                "relative_path" => "guide.md",
@@ -116,12 +145,16 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   describe "materialization handles" do
-    test "attaches a disk_document handle naming the record id" do
+    test "attaches a disk_document handle naming the record and config" do
       stub_response({:ok, entry_page([entry("42")])})
 
       assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
 
-      assert {:ok, %{type: "disk_document", locator: %{"file_id" => "42"}}} =
+      assert {:ok,
+              %{
+                type: "disk_document",
+                locator: %{"file_id" => "42", "config_id" => 123}
+              }} =
                Handle.verify(record.materialization_handle)
 
       assert record.content == nil
@@ -130,7 +163,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
     test "attaches one to a file with no document row, using its volume-path id" do
       stub_response({:ok, entry_page([entry("disk:archives:loose.md")])})
 
-      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+      assert {:ok, %RecordPage{records: [record]}} =
+               DiskBridge.list_files(config(%{"id" => 123}), %{})
 
       assert {:ok, %{locator: %{"file_id" => "disk:archives:loose.md"}}} =
                Handle.verify(record.materialization_handle)
@@ -191,7 +225,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert {:ok, %{record: %Record{content: nil, materialization_handle: handle}}} =
                DiskBridge.get_file(config(), %{"file_id" => "42"})
 
-      assert {:ok, %{type: "disk_document"}} = Handle.verify(handle)
+      assert {:ok, %{type: "disk_document", locator: %{"file_id" => "42"}}} =
+               Handle.verify(handle)
     end
   end
 
@@ -459,7 +494,15 @@ defmodule Zaq.Channels.DiskBridgeTest do
     test "accepts an atom-keyed router on config" do
       stub_response({:ok, entry_page([])})
 
-      assert {:ok, %RecordPage{}} = DiskBridge.list_files(%{node_router: StubRouter}, %{})
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(
+                 %{
+                   node_router: StubRouter,
+                   storage_config: [base_path: "priv/documents"],
+                   settings: %{"volumes" => [%{"name" => "archives", "path" => "archives"}]}
+                 },
+                 %{}
+               )
 
       assert_received {:dispatch, :storage, :list_documents, _request}
     end

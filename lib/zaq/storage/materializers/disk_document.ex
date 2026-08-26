@@ -14,16 +14,27 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
   alias Zaq.Storage.Events
 
   @type_key "disk_document"
+  @locator_fields ~w(config_id)
   @option_fields ~w(encoding)
 
   @doc "Issues a handle for the document a volume source names."
-  @spec issue(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
-  def issue(file_id, opts \\ [])
+  @spec issue(String.t(), map() | keyword(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def issue(file_id, attrs_or_opts \\ %{}, opts \\ [])
 
-  def issue(file_id, opts) when is_binary(file_id),
-    do: Materialization.issue(@type_key, %{"file_id" => file_id}, opts)
+  def issue(file_id, opts, []) when is_binary(file_id) and is_list(opts),
+    do: issue(file_id, %{}, opts)
 
-  def issue(_file_id, _opts), do: {:error, :invalid_materialization_locator}
+  def issue(file_id, attrs, opts) when is_binary(file_id) and is_map(attrs) and is_list(opts) do
+    locator =
+      attrs
+      |> Map.take(@locator_fields)
+      |> Map.merge(%{"file_id" => file_id})
+      |> drop_blank_values()
+
+    Materialization.issue(@type_key, locator, opts)
+  end
+
+  def issue(_file_id, _attrs_or_opts, _opts), do: {:error, :invalid_materialization_locator}
 
   @doc "Reads the bytes by dispatching the fixed `:materialize_document` action to Storage."
   @impl true
@@ -31,8 +42,8 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
 
   def materialize(locator, context, options)
       when is_map(locator) and is_map(context) and is_map(options) do
-    with {:ok, file_id} <- validate_locator(locator),
-         {:ok, request} <- merge_options(%{file_id: file_id}, options) do
+    with {:ok, request} <- validate_locator(locator),
+         {:ok, request} <- merge_options(request, options) do
       request
       |> Events.build_and_dispatch_materialize_document_event(node_router_opts(context))
       |> Map.fetch!(:response)
@@ -48,7 +59,12 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
       file_id when is_binary(file_id) ->
         if Helpers.blank?(file_id),
           do: {:error, :invalid_materialization_locator},
-          else: {:ok, file_id}
+          else:
+            {:ok,
+             locator
+             |> Map.take(@locator_fields)
+             |> Map.put(:file_id, file_id)
+             |> drop_blank_values()}
 
       _other ->
         {:error, :invalid_materialization_locator}
@@ -69,6 +85,10 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
   end
 
   defp put_encoding(request, _encoding), do: request
+
+  defp drop_blank_values(map) do
+    Map.reject(map, fn {_key, value} -> Helpers.blank?(value) end)
+  end
 
   defp node_router_opts(context) do
     []

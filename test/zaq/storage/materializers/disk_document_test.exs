@@ -22,6 +22,13 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
   end
 
   test "refuses to issue a handle for anything but a source string" do
+  test "issues disk document handles with the current disk config id when present" do
+    assert {:ok, handle} = DiskDocument.issue("guide.md", %{"config_id" => 42})
+
+    assert {:ok, %{type: "disk_document", locator: locator}} = Handle.verify(handle)
+    assert locator == %{"file_id" => "guide.md", "config_id" => 42}
+  end
+
     assert {:error, :invalid_materialization_locator} = DiskDocument.issue(nil)
   end
 
@@ -96,10 +103,9 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     refute_received {:dispatch, _destination, _action, _request}
   end
 
-  test "falls back to the real router when the context names none" do
-    # `:enoent` can only come from storage reading the volume, so the fallback reached the
-    # role rather than raising on a missing router.
-    assert {:error, :enoent} = DiskDocument.materialize(%{"file_id" => "disk:missing.md"}, %{})
+  test "fails closed when no current disk config can be resolved" do
+    assert {:error, :disk_channel_config_not_found} =
+             DiskDocument.materialize(%{"file_id" => "disk:missing.md"}, %{})
 
     refute_received {:dispatch, _destination, _action, _request}
   end

@@ -517,5 +517,10 @@ defmodule Zaq.Storage.FileExplorer do
   defp child_path(dir, name) when dir in [".", "", nil], do: name
   defp child_path(dir, name), do: Path.join(dir, name)
 
-  defp storage_config(opts), do: Config.get(:zaq, Zaq.Storage, [], opts)
+  defp storage_config(opts) do
+    case Keyword.get(opts, :storage_config) do
+      nil -> Config.get(:zaq, Zaq.Storage, [], opts)
+      config -> config
+    end
+  end
 end

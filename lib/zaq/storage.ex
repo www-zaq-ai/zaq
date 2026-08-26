@@ -12,11 +12,13 @@ defmodule Zaq.Storage do
   alias Zaq.Storage.EntryCatalog
   alias Zaq.Storage.FileExplorer
   alias Zaq.Storage.FileExplorer.Entry
+  alias Zaq.Repo
   alias Zaq.Storage.SourcePath
   alias Zaq.Storage.StorageEntry
   alias Zaq.Utils.Map, as: MapUtils
 
   @textual_mime_types ~w(
+  alias Zaq.Storage.VolumeConfig
     application/json application/xml application/javascript
     application/yaml application/x-yaml application/x-sh
   )
@@ -69,16 +71,19 @@ defmodule Zaq.Storage do
   @doc "Returns storage entries as a page-shaped map consumed by DiskBridge."
   @spec list_documents(map()) :: {:ok, map()} | {:error, term()}
   def list_documents(params \\ %{}, opts \\ []) when is_map(params) do
-    case parent_source(params) do
-      nil -> list_volume_roots(params, opts)
-      parent -> list_directory_entries(split_parent(parent, opts), params, opts)
+    with {:ok, opts} <- disk_config_opts(params, opts) do
+      case parent_source(params) do
+        nil -> list_volume_roots(params, opts)
+        parent -> list_directory_entries(split_parent(parent, opts), params, opts)
+      end
     end
   end
 
   @doc "Writes a new storage file and returns its entry."
   @spec persist_document(map()) :: {:ok, map()} | {:error, term()}
   def persist_document(request, opts \\ []) when is_map(request) do
-    with {:ok, {volume_name, dir}} <- destination(request, opts),
+    with {:ok, opts} <- disk_config_opts(request, opts),
+         {:ok, {volume_name, dir}} <- destination(request, opts),
          {:ok, name} <- required(request, "name", :name_required),
          {:ok, content} <- decode_content(request),
          dest = dir |> Path.join(name) |> SourcePath.normalize_relative(),
@@ -91,7 +96,8 @@ defmodule Zaq.Storage do
   @doc "Reads a storage file's bytes."
   @spec materialize_document(map()) :: {:ok, map()} | {:error, term()}
   def materialize_document(request, opts \\ []) when is_map(request) do
-    with {:ok, source} <- required(request, "file_id", :file_id_required) do
+    with {:ok, opts} <- disk_config_opts(request, opts),
+         {:ok, source} <- required(request, "file_id", :file_id_required) do
       materialize_source(source, request, opts)
     end
   end
@@ -99,7 +105,8 @@ defmodule Zaq.Storage do
   @doc "Updates content, name, or parent directory for a storage file."
   @spec update_document(map()) :: {:ok, map()} | {:error, term()}
   def update_document(request, opts \\ []) when is_map(request) do
-    with {:ok, file_id} <- required(request, "file_id", :file_id_required),
+    with {:ok, opts} <- disk_config_opts(request, opts),
+         {:ok, file_id} <- required(request, "file_id", :file_id_required),
          {:ok, {volume_name, path}} <- resolve_entry_ref(file_id, opts),
          :ok <- write_content(volume_name, path, request, opts),
          {:ok, target} <- move_target(volume_name, path, request, opts),
@@ -110,8 +117,17 @@ defmodule Zaq.Storage do
   end
 
   @doc "Deletes the storage entry named by source."
-  @spec delete_document(String.t()) :: {:ok, map()} | {:error, term()}
-  def delete_document(file_id, opts \\ []) when is_binary(file_id) do
+  @spec delete_document(String.t() | map()) :: {:ok, map()} | {:error, term()}
+  def delete_document(file_id_or_request, opts \\ [])
+
+  def delete_document(%{} = request, opts) do
+    with {:ok, opts} <- disk_config_opts(request, opts),
+         {:ok, file_id} <- required(request, "file_id", :file_id_required) do
+      delete_document(file_id, opts)
+    end
+  end
+
+  def delete_document(file_id, opts) when is_binary(file_id) do
     with {:ok, {volume_name, path}} <- resolve_entry_ref(file_id, opts),
          {:ok, %Entry{type: type}} <- file_info(volume_name, path, opts),
          :ok <- delete_entry(volume_name, path, type, opts) do
@@ -139,7 +155,8 @@ defmodule Zaq.Storage do
   @doc "Searches storage entries by filename across mounted volumes."
   @spec search_documents(map()) :: {:ok, map()} | {:error, term()}
   def search_documents(params, opts \\ []) when is_map(params) do
-    with {:ok, query} <- required(params, "query", :query_required) do
+    with {:ok, opts} <- disk_config_opts(params, opts),
+         {:ok, query} <- required(params, "query", :query_required) do
       query = String.downcase(query)
 
       entries =
@@ -154,18 +171,20 @@ defmodule Zaq.Storage do
   @doc "Reports mounted storage volume counts."
   @spec volume_stats() :: {:ok, map()}
   def volume_stats(opts \\ []) do
-    volumes = list_volumes(opts)
+    with {:ok, opts} <- disk_config_opts(%{}, opts) do
+      volumes = list_volumes(opts)
 
-    entries =
-      Enum.flat_map(volumes, fn {volume, _root} -> search_volume(volume, ".", "", opts) end)
+      entries =
+        Enum.flat_map(volumes, fn {volume, _root} -> search_volume(volume, ".", "", opts) end)
 
-    {:ok,
-     %{
-       files_count: Enum.count(entries, &(&1.type == :file)),
-       folders_count: Enum.count(entries, &(&1.type == :directory)),
-       principals_count: 0,
-       root_folders: volumes |> Map.keys() |> Enum.sort()
-     }}
+      {:ok,
+       %{
+         files_count: Enum.count(entries, &(&1.type == :file)),
+         folders_count: Enum.count(entries, &(&1.type == :directory)),
+         principals_count: 0,
+         root_folders: volumes |> Map.keys() |> Enum.sort()
+       }}
+    end
   end
 
   defp list_volume_roots(params, opts) do
@@ -190,7 +209,7 @@ defmodule Zaq.Storage do
       end)
       |> Enum.sort_by(& &1.name)
 
-    paginate_entries(entries, nil, ".", params)
+    paginate_entries(entries, nil, ".", params, opts)
   end
 
   defp catalog_volume_root(volume) do
@@ -202,7 +221,7 @@ defmodule Zaq.Storage do
 
   defp list_directory_entries({volume_name, path}, params, opts) do
     with {:ok, entries} <- list_entries(volume_name, path, opts) do
-      paginate_entries(entries, volume_name, path, params)
+      paginate_entries(entries, volume_name, path, params, opts)
     end
   end
 
@@ -211,7 +230,7 @@ defmodule Zaq.Storage do
   defp entry_page(entries, scanned, pagination),
     do: %{entries: entries, scanned: scanned, pagination: pagination}
 
-  defp paginate_entries(entries, volume_name, path, params) do
+  defp paginate_entries(entries, volume_name, path, params, opts) do
     with {:ok, page_size} <- page_size(params),
          {:ok, last_source} <- cursor_source(params, volume_name, path) do
       ordered = Enum.sort_by(entries, & &1.source)
@@ -352,6 +371,58 @@ defmodule Zaq.Storage do
   defp content_answer(%Entry{} = entry, binary, request) do
     if base64?(entry, binary, request) do
       %{content: Base.encode64(binary), encoding: "base64"}
+  defp disk_config_opts(request, opts) do
+    cond do
+      Keyword.has_key?(opts, :storage_config) ->
+        {:ok, opts}
+
+      config_id = disk_config_id(request, opts) ->
+        with {:ok, config} <- fetch_enabled_disk_config(config_id),
+             {:ok, storage_opts} <- VolumeConfig.opts_for_channel_config(config, opts) do
+          {:ok, Keyword.merge(opts, storage_opts)}
+        end
+
+      true ->
+        with {:ok, config} <- fetch_single_enabled_disk_config(),
+             {:ok, storage_opts} <- VolumeConfig.opts_for_channel_config(config, opts) do
+          {:ok, Keyword.merge(opts, storage_opts)}
+        end
+    end
+  end
+
+  defp fetch_enabled_disk_config(config_id) do
+    with {:ok, id} <- parse_config_id(config_id),
+         %ChannelConfig{provider: "disk", kind: "data_source", enabled: true} = config <-
+           Repo.get(ChannelConfig, id) do
+      {:ok, config}
+    else
+      _ -> {:error, :disk_channel_config_not_found}
+    end
+  end
+
+  defp disk_config_id(request, opts) do
+    MapUtils.present_value(request, "config_id") || Keyword.get(opts, :config_id)
+  end
+
+  defp fetch_single_enabled_disk_config do
+    case ChannelConfig.list_enabled_by_kind(:data_source, ["disk"]) do
+      [config] -> {:ok, config}
+      [] -> {:error, :disk_channel_config_not_found}
+      _configs -> {:error, :ambiguous_disk_channel_config}
+    end
+  end
+
+  defp parse_config_id(id) when is_integer(id), do: {:ok, id}
+
+  defp parse_config_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {integer, ""} -> {:ok, integer}
+      _ -> {:error, :invalid_disk_channel_config_id}
+    end
+  end
+
+  defp parse_config_id(_id), do: {:error, :invalid_disk_channel_config_id}
+
     else
       %{content: binary, encoding: nil}
     end

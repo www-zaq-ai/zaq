@@ -54,6 +54,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback oauth_exchange_code(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback oauth_refresh_token(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback oauth_default_scopes(map()) :: {:ok, [String.t()]} | {:error, term()}
+  @callback list_source_scopes(map(), map()) :: {:ok, [map()]} | {:error, term()}
   @callback list_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
   @callback create_file(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback get_file(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -94,6 +95,7 @@ defmodule Zaq.Channels.DataSourceBridge do
                       oauth_exchange_code: 2,
                       oauth_refresh_token: 2,
                       oauth_default_scopes: 1,
+                      list_source_scopes: 2,
                       list_files: 2,
                       create_file: 2,
                       get_file: 2,
@@ -124,6 +126,7 @@ defmodule Zaq.Channels.DataSourceBridge do
     :create_item,
     :update_item,
     :delete_item,
+    :manage_item_permissions,
     :search_items,
     :sheet_inspect,
     :sheet_get,
@@ -148,6 +151,7 @@ defmodule Zaq.Channels.DataSourceBridge do
     create_item: "Add file",
     update_item: "Edit file",
     delete_item: "Delete a file/folder",
+    manage_item_permissions: "Manage file/folder permissions",
     search_items: "Search for a file",
     sheet_inspect: "Inspect spreadsheet metadata",
     sheet_get: "Read sheet values or spreadsheet metadata",
@@ -300,6 +304,19 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- supports_callback?(bridge, :oauth_default_scopes, 1) || {:error, :unsupported} do
       bridge.oauth_default_scopes(config)
+    end
+  end
+
+  @doc "Lists source scopes exposed by one data-source config."
+  @spec list_source_scopes(atom() | String.t(), map()) :: {:ok, [map()]} | {:error, term()}
+  def list_source_scopes(provider, params \\ %{}) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params) do
+      if supports_callback?(bridge, :list_source_scopes, 2) do
+        bridge.list_source_scopes(config, params)
+      else
+        {:ok, [default_source_scope(config)]}
+      end
     end
   end
 
@@ -493,10 +510,6 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  defp fetch_unscoped_data_source_config(provider) when provider in [:disk, "disk"] do
-    {:ok, %{"provider" => "disk"}}
-  end
-
   defp fetch_unscoped_data_source_config(provider), do: Bridge.fetch_channel_config(provider)
 
   defp normalize_config_id(params) do
@@ -517,8 +530,11 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   defp fetch_scoped_data_source_config(provider, id) do
     case Zaq.Repo.get(ChannelConfig, id) do
-      %ChannelConfig{provider: prov, kind: "data_source"} = config ->
+      %ChannelConfig{provider: prov, kind: "data_source", enabled: true} = config ->
         ensure_provider_match(config, provider, prov)
+
+      %ChannelConfig{provider: prov, kind: "data_source", enabled: false} ->
+        {:error, {:channel_disabled, prov}}
 
       _ ->
         {:error, {:channel_not_configured, provider}}
@@ -561,8 +577,9 @@ defmodule Zaq.Channels.DataSourceBridge do
   def normalize_export_formats_map(_), do: %{}
 
   @doc "Returns connector capability resolution for a provider."
-  @spec capability_snapshot(atom() | String.t()) :: {:ok, map()} | {:error, term()}
-  def capability_snapshot(provider), do: Bridge.capability_snapshot(provider)
+  @spec capability_snapshot(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def capability_snapshot(provider, params \\ %{}),
+    do: Bridge.capability_snapshot(provider, params)
 
   @doc "Synchronizes runtime processes when a datasource config changes."
   @spec sync_config_runtime(map() | nil, map()) :: :ok | {:error, term()}
@@ -588,5 +605,15 @@ defmodule Zaq.Channels.DataSourceBridge do
   defp supports_callback?(bridge, fun, arity)
        when is_atom(bridge) and is_atom(fun) and is_integer(arity) do
     Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
+  end
+
+  defp default_source_scope(config) do
+    %{
+      provider: config.provider,
+      config_id: config.id,
+      scope_id: to_string(config.id),
+      label: config.name,
+      filters: %{}
+    }
   end
 end

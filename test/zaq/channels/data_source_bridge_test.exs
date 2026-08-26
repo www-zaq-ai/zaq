@@ -213,13 +213,17 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       provider: to_string(provider),
       kind: "data_source",
       enabled: true,
-      settings: %{}
+      settings: disk_settings(provider)
     }
 
     %ChannelConfig{}
     |> ChannelConfig.changeset(Map.merge(base, attrs))
     |> Repo.insert!()
   end
+
+  defp disk_settings(:disk), do: %{"volumes" => [%{"name" => "docs", "path" => "docs"}]}
+  defp disk_settings("disk"), do: %{"volumes" => [%{"name" => "docs", "path" => "docs"}]}
+  defp disk_settings(_provider), do: %{}
 
   test "delegates datasource operations to provider bridge" do
     insert_data_source_config(:google_drive)
@@ -244,6 +248,20 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert :ok = DataSourceBridge.teardown_listener(:google_drive, %{"listener_id" => "l1"})
     assert_received {:teardown_listener, "google_drive", %{"listener_id" => "l1"}}
+  end
+
+  test "list_source_scopes defaults to one generic scope for providers without custom scopes" do
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, [scope]} = DataSourceBridge.list_source_scopes(:google_drive, %{})
+
+    assert scope == %{
+             provider: "google_drive",
+             config_id: config.id,
+             scope_id: to_string(config.id),
+             label: config.name,
+             filters: %{}
+           }
   end
 
   describe "download_resource/2 default params" do
@@ -399,6 +417,13 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              DataSourceBridge.list_files(:sharepoint, %{"config_id" => config.id})
   end
 
+  test "scoped config rejects disabled configs" do
+    config = insert_data_source_config(:google_drive, %{enabled: false})
+
+    assert {:error, {:channel_disabled, "google_drive"}} =
+             DataSourceBridge.list_files(:google_drive, %{"config_id" => config.id})
+  end
+
   test "scoped config id ignores invalid config_id and falls back to default config" do
     _config = insert_data_source_config(:google_drive)
 
@@ -433,6 +458,23 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:capability_snapshot, ^config_id}
   end
 
+  test "capability snapshot can be scoped to an enabled matching config" do
+    scoped = insert_data_source_config(:google_drive, %{name: "scoped"})
+    scoped_id = scoped.id
+
+    assert {:ok, %{required: [], resolved: %{}, unsupported: [], labels: %{}}} =
+             DataSourceBridge.capability_snapshot(:google_drive, %{"config_id" => scoped_id})
+
+    assert_received {:capability_snapshot, ^scoped_id}
+  end
+
+  test "capability snapshot rejects disabled scoped configs" do
+    disabled = insert_data_source_config(:google_drive, %{enabled: false})
+
+    assert {:error, {:channel_not_configured, :google_drive}} =
+             DataSourceBridge.capability_snapshot(:google_drive, %{"config_id" => disabled.id})
+  end
+
   test "required_capabilities returns expected canonical list" do
     caps = DataSourceBridge.required_capabilities()
 
@@ -447,6 +489,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              :create_item,
              :update_item,
              :delete_item,
+             :manage_item_permissions,
              :search_items,
              :sheet_inspect,
              :sheet_get,
@@ -471,6 +514,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert is_map(meta)
     assert Map.keys(meta) |> Enum.sort() == Enum.sort(caps)
     assert meta[:list_items] == "List files and folders"
+    assert meta[:manage_item_permissions] == "Manage file/folder permissions"
     assert meta[:watch_changes_webhook] == "Register webhook watch for change notifications"
     assert meta[:receive_change_webhook] == "Verify and normalize webhook change payloads"
     assert Enum.all?(meta, fn {_k, v} -> is_binary(v) and String.trim(v) != "" end)
@@ -1067,7 +1111,8 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
             search_files: 2,
             download_document: 2,
             list_permissions: 2,
-            channel_stats: 2
+            channel_stats: 2,
+            list_source_scopes: 2
           ] do
         assert function_exported?(DiskBridge, callback, arity),
                "expected DiskBridge to export #{callback}/#{arity}"
@@ -1097,7 +1142,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                DataSourceBridge.export_options(:disk, %{})
     end
 
-    test "disk uses its built-in config without a channel_configs row" do
+    test "disk requires a channel_configs row" do
       original_storage = Application.get_env(:zaq, Zaq.Storage, [])
       root = Path.join(System.tmp_dir!(), "zaq-disk-bridge-#{System.unique_integer([:positive])}")
       docs = Path.join(root, "docs")
@@ -1110,7 +1155,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
         File.rm_rf!(root)
       end)
 
-      assert {:ok, %Zaq.Contracts.RecordPage{}} = DataSourceBridge.list_files(:disk, %{})
+      assert {:error, {:channel_not_configured, :disk}} = DataSourceBridge.list_files(:disk, %{})
     end
   end
 end

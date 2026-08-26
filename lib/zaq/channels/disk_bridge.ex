@@ -34,6 +34,7 @@ defmodule Zaq.Channels.DiskBridge do
   alias Zaq.NodeRouter
   alias Zaq.Storage.FileExplorer.Entry
   alias Zaq.Storage.Materializers.DiskDocument
+  alias Zaq.Storage.VolumeConfig
   alias Zaq.Utils
 
   @provider "disk"
@@ -80,18 +81,41 @@ defmodule Zaq.Channels.DiskBridge do
   # -- files --
 
   @doc "Lists the documents on the mounted volumes as **unmaterialized** records — no content."
+  @doc "Lists one generic source scope per configured disk volume."
+  @impl true
+  def list_source_scopes(config, _params) when is_map(config) do
+    settings = config |> fetch("settings") |> VolumeConfig.normalize_settings()
+
+    with :ok <- VolumeConfig.validate_settings(settings) do
+      volumes =
+        settings
+        |> Map.fetch!("volumes")
+        |> Enum.map(fn %{"name" => name} ->
+          %{
+            provider: @provider,
+            config_id: config_id(config),
+            scope_id: name,
+            label: name,
+            filters: %{"parent" => name}
+          }
+        end)
+
+      {:ok, volumes}
+    end
+  end
+
   @impl true
   def list_files(config, params) when is_map(config) and is_map(params) do
     with {:ok, page} <- dispatch(:list_documents, %{params: params}, config) do
-      {:ok, record_page(page)}
+      {:ok, record_page(page, config)}
     end
   end
 
   @doc """
-  Writes a file onto a volume and registers its document row.
+  Writes a file onto a storage volume.
 
   `path` is the destination directory and carries the volume; `name` is the file. Binary
-  content travels base64-encoded under `encoding`. Ingestion owns which volumes are mounted,
+  content travels base64-encoded under `encoding`. Storage owns which volumes are mounted,
   so it validates the destination rather than this bridge.
   """
   @impl true
@@ -108,7 +132,7 @@ defmodule Zaq.Channels.DiskBridge do
     file_id = to_string(fetch(params, "file_id"))
 
     with {:ok, %Entry{} = entry} <- dispatch(:describe_document, %{file_id: file_id}, config) do
-      {:ok, %{record: map_entry(entry)}}
+      {:ok, %{record: map_entry(entry, config)}}
     end
   end
 
@@ -122,7 +146,7 @@ defmodule Zaq.Channels.DiskBridge do
   def update_file(config, params) when is_map(config) and is_map(params) do
     with {:ok, %{entry: entry} = result} <-
            dispatch(:update_document, update_request(params), config) do
-      {:ok, %{status: Map.get(result, :status, "updated"), record: map_entry(entry)}}
+      {:ok, %{status: Map.get(result, :status, "updated"), record: map_entry(entry, config)}}
     end
   end
 
@@ -141,7 +165,7 @@ defmodule Zaq.Channels.DiskBridge do
   @impl true
   def search_files(config, params) when is_map(config) and is_map(params) do
     with {:ok, page} <- dispatch(:search_documents, %{params: params}, config) do
-      {:ok, record_page(page)}
+      {:ok, record_page(page, config)}
     end
   end
 
@@ -152,7 +176,7 @@ defmodule Zaq.Channels.DiskBridge do
   Unlike a bridge fronting a system that holds the file, this one reads nothing. The bytes
   live on an ingestion volume, so carrying them back through here would route the whole
   payload across the channels node for no reason. A caller that actually wants the content
-  redeems `record.materialization_handle`, which goes straight to ingestion. `Zaq.Materialization`
+  redeems `record.materialization_handle`, which goes straight to storage. `Zaq.Materialization`
   redeems it as a nested handle and merges the bytes into the record this bridge already gave
   the caller.
 
@@ -164,7 +188,7 @@ defmodule Zaq.Channels.DiskBridge do
     get_file(config, params)
   end
 
-  @doc "Lists who can read the given document — one record per person, team, or public grant."
+  @doc "Lists who can read the given document — one record per person or team grant."
   @impl true
   def list_permissions(config, params) when is_map(config) and is_map(params) do
     file_id = to_string(fetch(params, "file_id"))
@@ -179,11 +203,11 @@ defmodule Zaq.Channels.DiskBridge do
   # Ingestion answers with volume entries; the canonical record shape is put on here. The
   # entry's `:directory` becomes the record's `:folder` — the two vocabularies meet at this
   # function and nowhere else.
-  defp map_entry(%Entry{} = entry) do
-    map_entry(entry, nil)
+  defp map_entry(%Entry{} = entry, config) do
+    map_entry(entry, nil, config)
   end
 
-  defp map_entry(%Entry{} = entry, permissions) do
+  defp map_entry(%Entry{} = entry, permissions, config) do
     kind = kind(entry.type)
 
     %Record{
@@ -194,13 +218,13 @@ defmodule Zaq.Channels.DiskBridge do
       parent_ids: Enum.reject([entry.parent_id], &is_nil/1),
       path: entry.relative_path,
       mime_type: mime_type(kind, entry.name),
-      materialization_handle: materialization_handle(kind, entry.id),
+      materialization_handle: materialization_handle(kind, entry.id, config),
       permissions: permissions,
       size: entry.size,
       modified_at: entry.modified_at,
       attributes: %{
         "provider" => @provider,
-        "config_id" => entry.volume,
+        "config_id" => config_id(config),
         "provider_record_id" => entry.id,
         "volume" => entry.volume,
         "relative_path" => entry.relative_path,
@@ -222,14 +246,14 @@ defmodule Zaq.Channels.DiskBridge do
   # redeems straight to ingestion rather than back through this bridge. A folder has nothing
   # to materialize, and an unsignable handle leaves the record metadata-only rather than
   # failing the whole listing.
-  defp materialization_handle(:file, id) when is_binary(id) do
-    case DiskDocument.issue(id) do
+  defp materialization_handle(:file, id, config) when is_binary(id) do
+    case DiskDocument.issue(id, %{"config_id" => config_id(config)}) do
       {:ok, handle} -> handle
       {:error, _reason} -> nil
     end
   end
 
-  defp materialization_handle(_kind, _id), do: nil
+  defp materialization_handle(_kind, _id, _config), do: nil
 
   defp record_page(%{entries: entries, scanned: scanned} = page) do
     records = Enum.map(entries, &map_entry(&1, entry_permissions(&1, page)))
@@ -246,9 +270,8 @@ defmodule Zaq.Channels.DiskBridge do
     }
   end
 
-  # Public access has no `resource_permissions` row, so ingestion reports it as a flag and
-  # the grant is synthesized here. Its id is derived from the document — stable across calls,
-  # and visibly not a permission-row id.
+  # Kept shape-compatible with providers that can report public grants. Disk storage entries
+  # are private by default, so Storage currently always returns `public?: false`.
   defp permission_page(%{permissions: grants, public?: public?}, file_id) do
     records = public_records(public?, file_id) ++ Enum.map(grants, &map_permission/1)
 
@@ -326,10 +349,10 @@ defmodule Zaq.Channels.DiskBridge do
 
   # -- dispatch --
 
-  # The bytes and the document rows live on the ingestion node, so every read crosses a role
-  # boundary. The router is read off `config`, never off `params`: `params` is caller-supplied
-  # data that reaches here verbatim from agent tools, and choosing the dispatch target from it
-  # would make what runs a function of what the caller sent.
+  # Storage owns filesystem configuration, so only the Disk ChannelConfig identity crosses the
+  # role boundary. The router is read off `config`, never off `params`: `params` is
+  # caller-supplied data that reaches here verbatim from agent tools, and choosing the dispatch
+  # target from it would make what runs a function of what the caller sent.
   defp dispatch(action, request, config) do
     node_router = fetch(config, "node_router") || NodeRouter
     event_opts = [action: action] |> maybe_put(:config, fetch(config, "config"))
@@ -347,3 +370,7 @@ defmodule Zaq.Channels.DiskBridge do
   # accept either rather than forcing every caller to normalise first.
   defp fetch(params, key), do: Utils.Map.present_value(params, key)
 end
+
+  defp config_id(%{id: id}), do: id
+  defp config_id(%{"id" => id}), do: id
+  defp config_id(_config), do: nil
