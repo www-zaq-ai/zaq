@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-2rx",
   "priority": 1,
-  "status": "in_progress",
+  "status": "completed",
   "title": "[zaq-2rx.2] Centralize trusted event context propagation",
   "type": "task",
-  "updated_at": "2026-08-26T09:36:57Z"
+  "updated_at": "2026-08-26T09:37:28Z"
 }
