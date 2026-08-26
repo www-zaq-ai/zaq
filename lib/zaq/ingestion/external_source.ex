@@ -11,7 +11,7 @@ defmodule Zaq.Ingestion.ExternalSource do
   def external?(%Record{} = record) do
     provider = provider(record)
 
-    is_binary(provider) and provider not in ["", "local", "zaq_local"] and
+    is_binary(provider) and provider not in ["", "local"] and
       not is_nil(config_id(record))
   end
 

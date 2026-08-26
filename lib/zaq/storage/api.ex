@@ -143,7 +143,6 @@ defmodule Zaq.Storage.Api do
   @impl true
   def handle_event(%Event{} = event, action, _context),
     do: InternalBoundaries.default_handle_event(event, action)
-end
 
   defp opts(%Event{} = event) do
     event.opts
@@ -158,3 +157,4 @@ end
     do: Keyword.put(opts, :skip_permissions, true)
 
   defp maybe_put_skip_permissions(opts, _actor), do: opts
+end

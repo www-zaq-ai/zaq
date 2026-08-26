@@ -81,7 +81,6 @@ defmodule Zaq.Channels.DiskBridge do
 
   # -- files --
 
-  @doc "Lists the documents on the mounted volumes as **unmaterialized** records — no content."
   @doc "Lists one generic source scope per configured disk volume."
   @impl true
   def list_source_scopes(config, _params) when is_map(config) do
@@ -105,6 +104,7 @@ defmodule Zaq.Channels.DiskBridge do
     end
   end
 
+  @doc "Lists the documents on the mounted volumes as **unmaterialized** records — no content."
   @impl true
   def list_files(config, params) when is_map(config) and is_map(params) do
     with {:ok, page} <- dispatch(:list_documents, %{params: params}, config) do
@@ -176,7 +176,7 @@ defmodule Zaq.Channels.DiskBridge do
   `materialization_handle` that fetches the bytes.
 
   Unlike a bridge fronting a system that holds the file, this one reads nothing. The bytes
-  live on an ingestion volume, so carrying them back through here would route the whole
+  live on a storage volume, so carrying them back through here would route the whole
   payload across the channels node for no reason. A caller that actually wants the content
   redeems `record.materialization_handle`, which goes straight to storage. `Zaq.Materialization`
   redeems it as a nested handle and merges the bytes into the record this bridge already gave
@@ -375,11 +375,6 @@ defmodule Zaq.Channels.DiskBridge do
     |> Map.fetch!(:response)
   end
 
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
-
-  # Params arrive from agent tools with string keys and from internal callers with atom keys;
-  # accept either rather than forcing every caller to normalise first.
   defp pop_internal_actor(%{params: params} = request) when is_map(params) do
     {params, actor} = pop_internal_actor(params)
     {%{request | params: params}, actor}
@@ -395,9 +390,14 @@ defmodule Zaq.Channels.DiskBridge do
     {request, actor}
   end
 
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  # Params arrive from agent tools with string keys and from internal callers with atom keys;
+  # accept either rather than forcing every caller to normalise first.
   defp fetch(params, key), do: Utils.Map.present_value(params, key)
-end
 
   defp config_id(%{id: id}), do: id
   defp config_id(%{"id" => id}), do: id
   defp config_id(_config), do: nil
+end

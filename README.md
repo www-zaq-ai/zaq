@@ -125,9 +125,9 @@ This path uses `docker-compose.yml` with:
 
 Defaults used by the Docker setup:
 
-- ingestion volume root: `/zaq/volumes`
-- default ingestion folder: `/zaq/volumes`
-- named volume map: none; unset `INGESTION_VOLUMES` exposes `/zaq/volumes` as the default volume
+- storage volume root: `/zaq/volumes`
+- default storage folder: `/zaq/volumes`
+- named volume map: none; unset `STORAGE_VOLUMES` exposes `/zaq/volumes` as the default volume
 
 1. Create the host folder used by the default bind mount:
 
@@ -141,14 +141,14 @@ mkdir -p ingestion-volumes
 export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 ```
 
-3. Optionally override base URL and ingestion paths from your host environment:
+3. Optionally override base URL and storage paths from your host environment:
 
 ```bash
 export BASE_URL_SCHEME="http"
 export BASE_URL="http://localhost:4000"
 
-export INGESTION_VOLUMES=""
-export INGESTION_VOLUMES_BASE="/zaq/volumes"
+export STORAGE_VOLUMES=""
+export STORAGE_VOLUMES_BASE="/zaq/volumes"
 ```
 
 LLM, embedding, and image-to-text provider/model settings are configured from Back Office at
@@ -198,13 +198,14 @@ docker compose down -v
 | ----------------------------------- | ------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                      | `ecto://postgres:postgres@pgvector:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database                                     |
 | `SECRET_KEY_BASE`                   | none                                              | Yes (prod runtime) | Generate with `openssl rand -hex 64`                                                  |
-| `INGESTION_VOLUMES`                 | empty                                             | No                 | Optional comma-separated named volumes; empty exposes `INGESTION_VOLUMES_BASE`        |
-| `INGESTION_VOLUMES_BASE`            | `/zaq/volumes`                                    | No                 | Root path for ingestion storage and named volume subdirectories                       |
+| `STORAGE_VOLUMES`                   | empty                                             | No                 | One-time import input for Disk data-source volume declarations                        |
+| `STORAGE_VOLUMES_BASE`              | `/zaq/volumes`                                    | No                 | Base path for imported Disk volume declarations                                       |
 | `OBAN_INGESTION_CONCURRENCY`        | `3`                                               | No                 | Number of document-level ingestion jobs processed in parallel                         |
 | `OBAN_INGESTION_CHUNKS_CONCURRENCY` | `6`                                               | No                 | Number of chunk child-jobs processed in parallel by `Zaq.Ingestion.IngestChunkWorker` |
 
 AI model settings (LLM, embedding, image-to-text) are managed in Back Office System Config
 at `/bo/system-config`, not via environment variables.
+Disk volume declarations are managed in Back Office Data Sources > Disk and stored as a normal data-source `ChannelConfig`.
 
 `OBAN_INGESTION_CHUNKS_CONCURRENCY` directly impacts chunk ingestion behavior:
 

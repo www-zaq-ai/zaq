@@ -22,7 +22,6 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     assert locator == %{"file_id" => "disk:archives:loose.md"}
   end
 
-  test "refuses to issue a handle for anything but a source string" do
   test "issues disk document handles with the current disk config id when present" do
     assert {:ok, handle} = DiskDocument.issue("guide.md", %{"config_id" => 42})
 
@@ -30,6 +29,7 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     assert locator == %{"file_id" => "guide.md", "config_id" => 42}
   end
 
+  test "refuses to issue a handle for anything but a source string" do
     assert {:error, :invalid_materialization_locator} = DiskDocument.issue(nil)
   end
 

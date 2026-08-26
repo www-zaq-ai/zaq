@@ -74,13 +74,6 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
   # ── mapping: entries to records ─────────────────────────────────────────────
 
-  describe "entry mapping" do
-    test "maps a file entry onto a record, carrying provider attributes" do
-      stub_response({:ok, entry_page([entry("42")])})
-
-      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
-
-      assert %Record{id: "42", kind: :file, name: "guide.md", path: "guide.md"} = record
   describe "source scopes" do
     test "returns one generic source scope per configured volume" do
       assert {:ok, scopes} =
@@ -101,6 +94,13 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
   end
 
+  describe "entry mapping" do
+    test "maps a file entry onto a record, carrying provider attributes" do
+      stub_response({:ok, entry_page([entry("42")])})
+
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+
+      assert %Record{id: "42", kind: :file, name: "guide.md", path: "guide.md"} = record
       assert record.mime_type == "text/markdown"
       assert record.size == 12
       assert record.modified_at == ~U[2026-01-01 00:00:00Z]
@@ -155,7 +155,8 @@ defmodule Zaq.Channels.DiskBridgeTest do
     test "attaches a disk_document handle naming the record and config" do
       stub_response({:ok, entry_page([entry("42")])})
 
-      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
+      assert {:ok, %RecordPage{records: [record]}} =
+               DiskBridge.list_files(config(%{"id" => 123}), %{})
 
       assert {:ok,
               %{
@@ -170,8 +171,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
     test "attaches one to a file with no document row, using its volume-path id" do
       stub_response({:ok, entry_page([entry("disk:archives:loose.md")])})
 
-      assert {:ok, %RecordPage{records: [record]}} =
-               DiskBridge.list_files(config(%{"id" => 123}), %{})
+      assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
 
       assert {:ok, %{locator: %{"file_id" => "disk:archives:loose.md"}}} =
                Handle.verify(record.materialization_handle)

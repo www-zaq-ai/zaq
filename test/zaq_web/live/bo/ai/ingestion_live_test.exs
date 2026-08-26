@@ -2390,14 +2390,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert state.socket.assigns.provider == "local"
       assert state.socket.assigns.current_path == "/bo/ingestion"
     end
-
-    test "mounting /bo/ingestion/zaq_local also normalizes provider to local", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/zaq_local")
-      state = :sys.get_state(view.pid)
-
-      assert state.socket.assigns.provider == "local"
-      assert state.socket.assigns.current_path == "/bo/ingestion"
-    end
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -2870,6 +2862,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       File.write!(Path.join(vol_docs, "manual.md"), "# Manual")
       File.write!(Path.join(vol_archives, "old.md"), "# Old")
 
+      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+      original_storage = Application.get_env(:zaq, Zaq.Storage)
+
+      storage_config = [base_path: tmp_dir]
+
+      Application.put_env(:zaq, Zaq.Ingestion, storage_config)
+      Application.put_env(:zaq, Zaq.Storage, storage_config)
+
       Repo.get_by!(ChannelConfig, provider: "disk")
       |> ChannelConfig.changeset(%{
         settings: %{
@@ -2880,14 +2880,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         }
       })
       |> Repo.update!()
-
-      original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
-      original_storage = Application.get_env(:zaq, Zaq.Storage)
-
-      storage_config = [base_path: tmp_dir]
-
-      Application.put_env(:zaq, Zaq.Ingestion, storage_config)
-      Application.put_env(:zaq, Zaq.Storage, storage_config)
 
       on_exit(fn ->
         Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
@@ -3096,8 +3088,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       {:ok, team} =
         People.create_team(%{name: "Eng#{unique}"})
 
-      assert render(view) =~ "phx-click=\"share_item\""
-
       {:ok, doc} = Document.create(%{source: disk_source("alpha.md"), content: "shared content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
@@ -3106,6 +3096,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "share_item opens the share modal for a file", %{view: view} do
+      assert render(view) =~ "phx-click=\"share_item\""
+
       render_hook(view, "share_item", %{"path" => "alpha.md"})
 
       assert has_element?(view, "button", "Save Permissions")

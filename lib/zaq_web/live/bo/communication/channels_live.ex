@@ -37,8 +37,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     "discord" => "Discord",
     "telegram" => "Telegram",
     "webhook" => "Webhook",
-    # Ingestion
-    "zaq_local" => "Disk",
+    # Data sources
+    "disk" => "Disk",
     "google_drive" => "Google Drive",
     "sharepoint" => "SharePoint"
   }
@@ -1364,7 +1364,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     Map.put(settings, "connect", connect)
   end
 
-  defp credential_provider_for("zaq_local"), do: "local_filesystem"
   defp credential_provider_for(provider), do: provider
 
   defp maybe_validate_connect_credential_provider(changeset, provider) do

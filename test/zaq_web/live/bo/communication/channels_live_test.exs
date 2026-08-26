@@ -1811,15 +1811,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Test 11 — zaq_local provider mapping + oauth2 non-oauth bypass
+  # Test 11 — disk provider credential mapping + oauth2 non-oauth bypass
   # ---------------------------------------------------------------------------
 
-  test "open_new_credential maps zaq_local provider and save_credential skips oauth2 base-url check for non-oauth" do
+  test "open_new_credential maps disk provider and save_credential skips oauth2 base-url check for non-oauth" do
     :ok = ZaqSystem.set_global_base_url(nil)
 
     base_changeset =
       ChannelConfig.changeset(%ChannelConfig{}, %{
-        provider: "zaq_local",
+        provider: "disk",
         kind: "data_source",
         name: "cfg"
       })
@@ -1828,7 +1828,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       assigns: %{
         __changed__: %{},
         flash: %{},
-        provider: "zaq_local",
+        provider: "disk",
         kind: :data_source,
         changeset: base_changeset,
         credential_modal: false,
@@ -1838,7 +1838,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       }
     }
 
-    # open_new_credential — provider mapping "zaq_local" -> "local_filesystem" (covers 1158)
+    # open_new_credential — provider mapping for disk (covers 1158)
     assert {:noreply, opened} = ChannelsLive.handle_event("open_new_credential", %{}, socket)
     assert opened.assigns.credential_modal
     # With nil base URL, oauth2 changeset will have an error — that's expected
@@ -1864,12 +1864,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     refute saved.assigns.credential_modal,
            "Expected credential modal closed after successful non-oauth save"
 
-    # Verify the created credential has "local_filesystem" as provider
     assert Repo.get_by(Connect.Credential,
              name: cred_name,
-             provider: "local_filesystem"
+             provider: "disk"
            ),
-           "Expected credential with provider local_filesystem from zaq_local mapping"
+           "Expected credential with provider disk"
   end
 
   # ---------------------------------------------------------------------------

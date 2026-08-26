@@ -111,8 +111,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/data_source")
 
     assert has_element?(view, "a", "All Channels")
-    assert has_element?(view, "#channel-card-zaq_local")
-    assert has_element?(view, "#channel-card-zaq_local", "Disk")
+    assert has_element?(view, "#channel-card-disk")
+    assert has_element?(view, "#channel-card-disk", "Disk")
     assert has_element?(view, "#channel-card-google_drive")
     assert has_element?(view, "#channel-card-sharepoint")
   end
@@ -184,10 +184,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
 
     test "retrieval_total and data_source_total aggregate known providers" do
       base_stats =
-        ~w(slack teams mattermost discord telegram webhook zaq_local google_drive sharepoint)
+        ~w(slack teams mattermost discord telegram webhook disk google_drive sharepoint)
         |> Map.new(fn provider -> {String.to_atom(provider), 0} end)
 
-      stats = %{base_stats | slack: 2, mattermost: 1, zaq_local: 3, google_drive: 4}
+      stats = %{base_stats | slack: 2, mattermost: 1, disk: 3, google_drive: 4}
 
       assert ChannelsIndexLive.retrieval_total(stats) == 3
       assert ChannelsIndexLive.data_source_total(stats) == 7
@@ -199,8 +199,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
       assert ChannelsIndexLive.notification_total(stats) == 2
     end
 
-    test "provider_path handles zaq_local special case and scoped paths" do
-      assert ChannelsIndexLive.provider_path(:data_source, "zaq_local") == "/bo/ingestion"
+    test "provider_path handles disk and scoped paths" do
+      assert ChannelsIndexLive.provider_path(:data_source, "disk") ==
+               "/bo/channels/data_source/disk"
 
       assert ChannelsIndexLive.provider_path(:retrieval, "slack") ==
                "/bo/channels/retrieval/slack"

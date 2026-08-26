@@ -13,7 +13,7 @@ const GOOGLE_DRIVE_PROVIDER = "/bo/channels/data_source/google_drive"
 
 // Keep in sync with @retrieval_preview / @data_source_preview in channels_index_live.ex
 const CHANNEL_INDEX_RETRIEVAL_PREVIEW = ["slack", "teams", "mattermost", "discord", "telegram"]
-const CHANNEL_INDEX_DATA_SOURCE_PREVIEW = ["zaq_local", "google_drive", "sharepoint"]
+const CHANNEL_INDEX_DATA_SOURCE_PREVIEW = ["disk", "google_drive", "sharepoint"]
 
 test.describe("Channels index & provider UI", () => {
   test.beforeEach(async ({ page, request }) => {

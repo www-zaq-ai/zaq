@@ -367,8 +367,8 @@ Back Office System Config (`/bo/system-config`) now owns model-related settings:
 
 For containerized runs, ZAQ defaults to:
 
-- `INGESTION_VOLUMES=`
-- `INGESTION_VOLUMES_BASE=/zaq/volumes`
+- `STORAGE_VOLUMES=` (one-time import input for Disk data-source volume declarations)
+- `STORAGE_VOLUMES_BASE=/zaq/volumes` (base path for imported Disk volume declarations)
 
 When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists before startup.
 If you use `./zaq-local.sh`, this folder is created automatically.
@@ -377,7 +377,7 @@ If you use `./zaq-local.sh`, this folder is created automatically.
 mkdir -p ingestion-volumes
 ```
 
-Unset or empty `INGESTION_VOLUMES` exposes `INGESTION_VOLUMES_BASE` as the default volume. Set `INGESTION_VOLUMES=documents` only when you want named volume sources rooted at `/zaq/volumes/documents`.
+Disk volumes are now edited in Back Office at Data Sources > Disk and stored in the normal `ChannelConfig` settings. `Zaq.Storage[:base_path]` remains environment-backed; every volume path is resolved relative to it, and deleting a volume declaration only makes that path inaccessible to ZAQ.
 
 ---
 

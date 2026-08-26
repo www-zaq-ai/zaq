@@ -16,7 +16,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   @pending_ingress_status_max_attempts 25
 
   @retrieval_providers ~w(slack teams mattermost discord telegram webhook email)
-  @data_source_providers ~w(zaq_local google_drive sharepoint)
+  @data_source_providers ~w(disk google_drive sharepoint)
   @notification_providers ~w(email:smtp)
 
   # ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   @data_source_cards [
     %{
-      id: "zaq_local",
+      id: "disk",
       label: "Disk",
       color: "#64748B",
       desc: "Upload and manage documents stored on the local server disk."
@@ -107,7 +107,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   # Provider IDs shown as mini-logos inside category cards on the index page
   # (E2E: CHANNEL_INDEX_* in test/e2e/specs/channels.spec.js — keep in sync)
   @retrieval_preview ~w(slack teams mattermost discord telegram)
-  @data_source_preview ~w(zaq_local google_drive sharepoint)
+  @data_source_preview ~w(disk google_drive sharepoint)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -300,7 +300,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     end)
   end
 
-  def provider_path(_kind, "zaq_local"), do: "/bo/ingestion"
   def provider_path(:retrieval, "email"), do: "/bo/channels/retrieval/email"
   def provider_path(:retrieval, id), do: "/bo/channels/retrieval/#{id}"
   def provider_path(:data_source, id), do: "/bo/channels/data_source/#{id}"

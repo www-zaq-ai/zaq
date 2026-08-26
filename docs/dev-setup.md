@@ -129,8 +129,8 @@ Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
 For containerized runs, ZAQ defaults to:
 
-- `INGESTION_VOLUMES=`
-- `INGESTION_VOLUMES_BASE=/zaq/volumes`
+- `STORAGE_VOLUMES=` (one-time import input for Disk data-source volume declarations)
+- `STORAGE_VOLUMES_BASE=/zaq/volumes` (base path for imported Disk volume declarations)
 
 When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists:
 
@@ -139,6 +139,8 @@ mkdir -p ingestion-volumes
 ```
 
 If using `./zaq-local.sh`, this folder is created automatically.
+
+Disk volumes are configured from Back Office Data Sources > Disk. Each volume path is relative to `Zaq.Storage[:base_path]`.
 
 ---
 

@@ -563,8 +563,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: New Folder
 
   def handle_event("show_new_folder_modal", _params, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local"] do
-    {:noreply, put_flash(socket, :info, "Provider folders are read-only in this phase.")}
+      when provider != "local" do
+    if socket.assigns.create_item_supported do
+      {:noreply, assign(socket, modal: :new_folder, modal_name: "", modal_error: nil)}
+    else
+      {:noreply, put_flash(socket, :info, "This data source does not support document creation.")}
+    end
   end
 
   def handle_event("show_new_folder_modal", _params, socket) do
@@ -594,7 +598,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Rename
 
   def handle_event("rename_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -629,7 +633,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Delete single item
 
   def handle_event("delete_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -674,7 +678,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         _params,
         %{assigns: %{provider: provider}} = socket
       )
-      when provider not in ["local", "zaq_local"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -707,7 +711,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Modal: Move item
 
   def handle_event("move_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider not in ["local", "zaq_local"] do
+      when provider != "local" do
     {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
   end
 
@@ -822,12 +826,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
          raw_content: "",
          modal_error: nil
        )}
+    else
+      {:noreply, put_flash(socket, :info, "This data source does not support document creation.")}
     end
   end
 
   def handle_event("update_raw_field", %{"field" => "filename", "value" => value}, socket) do
-    else
-      {:noreply, put_flash(socket, :info, "This data source does not support document creation.")}
     {:noreply, assign(socket, raw_filename: value)}
   end
 
@@ -1024,10 +1028,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     |> Enum.join(", ")
   end
 
-  defp maybe_close_upload_modal(socket, uploaded, failed) do
-    if socket.assigns.modal == :upload and uploaded != [] and failed == [] do
-      assign(socket, modal: nil)
-    else
   defp create_modal_error(prefix, reason) when is_binary(reason) do
     reason = String.replace_prefix(reason, "Data source document creation failed: ", "")
     "#{prefix}: #{reason}"
@@ -1035,6 +1035,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp create_modal_error(prefix, reason), do: "#{prefix}: #{inspect(reason)}"
 
+  defp maybe_close_upload_modal(socket, uploaded, failed) do
+    if socket.assigns.modal == :upload and uploaded != [] and failed == [] do
+      assign(socket, modal: nil)
+    else
       socket
     end
   end
@@ -1388,10 +1392,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp enabled_data_source_sources do
-    local_providers = ["zaq_local", "local"]
-
-    ChannelConfig
   defp fetch_storage_volumes do
     %{}
     |> Event.new(:storage, opts: [action: :list_volumes])
@@ -1399,6 +1399,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     |> Map.get(:response, %{})
   end
 
+  defp enabled_data_source_sources do
+    local_providers = ["local", "disk"]
+
+    ChannelConfig
     |> where([c], c.kind == "data_source" and c.enabled == true)
     |> where([c], c.provider not in ^local_providers)
     |> Repo.all()
@@ -1556,6 +1560,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
+  defp share_record(socket, path) do
+    with {:ok, record} <- local_record(socket, path) do
+      {:ok, with_provider_attrs(record, socket)}
+    end
+  end
+
   defp local_path_source(volume, path) do
     path = path |> Path.expand("/") |> Path.relative_to("/")
 
@@ -1571,12 +1581,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     %{record | attributes: attrs, path: path}
   end
-  defp share_record(socket, path) do
-    with {:ok, record} <- local_record(socket, path) do
-      {:ok, with_provider_attrs(record, socket)}
-    end
-  end
-
 
   defp dispatch_data_source_removed(record) do
     request = %{
@@ -1719,14 +1723,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp watch_target_for_path(socket, path) do
     with %{} = entry <- Map.get(socket.assigns.records_by_path, path) || {:error, :missing},
          status = file_ingestion_status(socket.assigns.ingestion_map, entry.name),
-         true <- Map.get(status, :watchable?, false) || {:error, :not_ingested},
-         true <- not Map.get(status, :watch_inherited?, false) || {:error, :watch_inherited} do
-      {:ok, watch_target(socket, entry), status.watch_status || "unwatched"}
-    end
          true <-
            socket.assigns.watch_supported or
              status.watch_status in ["pending", "watched", "error"] or
              watch_support_error(socket),
+         true <- Map.get(status, :watchable?, false) || {:error, :not_ingested},
+         true <- not Map.get(status, :watch_inherited?, false) || {:error, :watch_inherited} do
+      {:ok, watch_target(socket, entry), status.watch_status || "unwatched"}
+    end
   end
 
   defp watch_target(socket, entry) do
@@ -1944,10 +1948,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     WebhookUrl.build(:data_source, provider)
   end
 
-  defp put_watch_result_flash(socket, %{updated: updated, skipped: 0}, message)
-       when updated > 0 do
-    put_flash(socket, :info, message)
-  end
   defp data_source_provider(%{assigns: %{provider: provider}}), do: capability_provider(provider)
 
   defp data_source_config_id(%{assigns: %{provider: "local"}}),
@@ -1955,6 +1955,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp data_source_config_id(%{assigns: %{provider_config_id: config_id}}), do: config_id
 
+  defp put_watch_result_flash(socket, %{updated: updated, skipped: 0}, message)
+       when updated > 0 do
+    put_flash(socket, :info, message)
+  end
 
   defp put_watch_result_flash(socket, %{updated: updated, skipped: skipped}, message)
        when updated > 0 do
@@ -2040,10 +2044,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
       record.materialization_handle ->
         socket
-    end
-  end
-
-  defp maybe_override_preview_filename(socket, _filename), do: socket
         |> PreviewHelpers.open_preview(record, :modal)
         |> maybe_override_preview_filename(filename)
 
@@ -2057,6 +2057,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     case socket.assigns.preview do
       %{filename: _} = preview -> assign(socket, preview: %{preview | filename: filename})
       _ -> socket
+    end
+  end
+
+  defp maybe_override_preview_filename(socket, _filename), do: socket
 
   defp provider_record_status(record, doc, permission_counts, inherited_watch, socket)
 
@@ -2141,7 +2145,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp normalize_provider(nil), do: "local"
   defp normalize_provider(""), do: "local"
   defp normalize_provider("local"), do: "local"
-  defp normalize_provider("zaq_local"), do: "local"
   defp normalize_provider(provider) when is_binary(provider), do: provider
 
   defp provider_label(provider) when is_binary(provider) do
@@ -2199,14 +2202,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       _ ->
         %{}
     end
-  rescue
-    _ -> {:error, :unsupported}
-  end
-
-  defp capability_resolved?(resolved, capability) do
-    value = Map.get(resolved, capability) || Map.get(resolved, to_string(capability))
-    not is_nil(value) and value != false
-  end
   end
 
   defp capability_provider("local"), do: "disk"
@@ -2228,6 +2223,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     |> Event.new(:channels, opts: opts)
     |> NodeRouter.dispatch()
     |> Map.get(:response)
+  rescue
+    _ -> {:error, :unsupported}
+  end
+
+  defp capability_resolved?(resolved, capability) do
+    value = Map.get(resolved, capability) || Map.get(resolved, to_string(capability))
+    not is_nil(value) and value != false
+  end
 
   defp provider_config_id("local"), do: nil
 
@@ -2341,12 +2344,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp put_ingest_result_flash(socket, {:ok, _jobs}) do
-    socket
-    |> assign(:jobs_drawer_open, true)
   defp open_provider_preview(socket, _record),
     do: put_flash(socket, :error, "Preview unavailable for this provider record.")
 
+  defp put_ingest_result_flash(socket, {:ok, _jobs}) do
+    socket
+    |> assign(:jobs_drawer_open, true)
     |> assign(:ingest_toast, %{kind: :info, message: "Ingestion started."})
   end
 

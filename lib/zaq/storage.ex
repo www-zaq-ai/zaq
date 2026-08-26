@@ -12,16 +12,16 @@ defmodule Zaq.Storage do
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.Materialization.Handle
   alias Zaq.Permissions
+  alias Zaq.Repo
   alias Zaq.Storage.EntryCatalog
   alias Zaq.Storage.FileExplorer
   alias Zaq.Storage.FileExplorer.Entry
-  alias Zaq.Repo
   alias Zaq.Storage.SourcePath
   alias Zaq.Storage.StorageEntry
+  alias Zaq.Storage.VolumeConfig
   alias Zaq.Utils.Map, as: MapUtils
 
   @textual_mime_types ~w(
-  alias Zaq.Storage.VolumeConfig
     application/json application/xml application/javascript
     application/yaml application/x-yaml application/x-sh
   )
@@ -178,6 +178,7 @@ defmodule Zaq.Storage do
       entries =
         list_volumes(opts)
         |> Enum.flat_map(fn {volume, _root} -> search_volume(volume, ".", query, opts) end)
+        |> Enum.filter(&can_read_entry?(&1, opts))
         |> Enum.take(100)
 
       {:ok, entry_page(entries, length(entries))}
@@ -191,7 +192,6 @@ defmodule Zaq.Storage do
       volumes = list_volumes(opts)
 
       entries =
-        |> Enum.filter(&can_read_entry?(&1, opts))
         Enum.flat_map(volumes, fn {volume, _root} -> search_volume(volume, ".", "", opts) end)
 
       {:ok,
@@ -364,33 +364,13 @@ defmodule Zaq.Storage do
   defp materialize_source(source, request, opts) do
     with {:ok, {volume_name, path}} <- resolve_entry_ref(source, opts),
          {:ok, %Entry{} = entry} <- file_info(volume_name, path, opts),
+         :ok <- authorize_entry(entry, opts),
          {:ok, absolute_path} <- resolve_path(volume_name, entry.relative_path, opts),
          {:ok, binary} <- File.read(absolute_path) do
       {:ok, content_answer(entry, binary, request)}
     end
   end
 
-  defp resolve_entry_ref(ref, opts) when is_binary(ref) do
-    with true <- dashed_uuid?(ref),
-         {:ok, _uuid} <- Ecto.UUID.cast(ref),
-         %EntryCatalog{volume: volume, relative_path: path} <- EntryCatalog.by_id(ref) do
-      {:ok, {volume, path}}
-    else
-      _ -> {:ok, SourcePath.split_source(ref, nil, nil, opts)}
-         :ok <- authorize_entry(entry, opts),
-    end
-  end
-
-  defp dashed_uuid?(ref),
-    do:
-      String.match?(
-        ref,
-        ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
-      )
-
-  defp content_answer(%Entry{} = entry, binary, request) do
-    if base64?(entry, binary, request) do
-      %{content: Base.encode64(binary), encoding: "base64"}
   defp disk_config_opts(request, opts) do
     cond do
       Keyword.has_key?(opts, :storage_config) ->
@@ -443,6 +423,26 @@ defmodule Zaq.Storage do
 
   defp parse_config_id(_id), do: {:error, :invalid_disk_channel_config_id}
 
+  defp resolve_entry_ref(ref, opts) when is_binary(ref) do
+    with true <- dashed_uuid?(ref),
+         {:ok, _uuid} <- Ecto.UUID.cast(ref),
+         %EntryCatalog{volume: volume, relative_path: path} <- EntryCatalog.by_id(ref) do
+      {:ok, {volume, path}}
+    else
+      _ -> {:ok, SourcePath.split_source(ref, nil, nil, opts)}
+    end
+  end
+
+  defp dashed_uuid?(ref),
+    do:
+      String.match?(
+        ref,
+        ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+      )
+
+  defp content_answer(%Entry{} = entry, binary, request) do
+    if base64?(entry, binary, request) do
+      %{content: Base.encode64(binary), encoding: "base64"}
     else
       %{content: binary, encoding: nil}
     end
@@ -503,19 +503,6 @@ defmodule Zaq.Storage do
 
   defp storage_resource(file_id), do: %StorageEntry{id: file_id}
 
-  defp permission_grant(permission) do
-    %{
-      id: permission.id,
-      type: if(permission.person_id, do: "person", else: "team"),
-      target_id: to_string(permission.person_id || permission.team_id),
-      name:
-        (permission.person && permission.person.username) ||
-          (permission.team && permission.team.name),
-      access_rights: permission.access_rights || []
-    }
-  end
-
-  defp search_volume(volume, path, query, opts) do
   defp can_read_entry?(%Entry{} = entry, opts) do
     case authorize_entry(entry, opts) do
       :ok -> true
@@ -547,6 +534,19 @@ defmodule Zaq.Storage do
     |> People.get_person()
   end
 
+  defp permission_grant(permission) do
+    %{
+      id: permission.id,
+      type: if(permission.person_id, do: "person", else: "team"),
+      target_id: to_string(permission.person_id || permission.team_id),
+      name:
+        (permission.person && permission.person.username) ||
+          (permission.team && permission.team.name),
+      access_rights: permission.access_rights || []
+    }
+  end
+
+  defp search_volume(volume, path, query, opts) do
     case list_entries(volume, path, opts) do
       {:ok, entries} ->
         matching =
