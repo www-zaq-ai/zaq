@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-2rx.1"
+  ],
   "blocks": [],
   "created": "2026-08-26T09:22:37Z",
   "description": "Introduce an allowlisted trusted-context adapter and migrate materialization/event dispatch paths without forwarding arbitrary context.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-2rx.2] Centralize trusted event context propagation",
   "type": "task",
-  "updated_at": "2026-08-26T09:22:37Z"
+  "updated_at": "2026-08-26T09:22:52Z"
 }
