@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T12:10:34Z",
+  "description": "Allowlisted event options such as data_source_bridge_module must survive TrustedContext projection for tests and runtime bridge dispatch.",
+  "id": "zaq-33v",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Fix trusted event option forwarding",
+  "type": "task",
+  "updated_at": "2026-08-26T12:10:34Z"
+}
