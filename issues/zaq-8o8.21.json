@@ -9,7 +9,7 @@
   "parent": "zaq-8o8",
   "priority": 1,
   "status": "open",
-  "title": "Disk listing missing roots and path contract",
+  "title": "[zaq-8o8.21] Fix disk listing missing roots and path contract",
   "type": "bug",
-  "updated_at": "2026-08-26T07:50:57Z"
+  "updated_at": "2026-08-26T07:51:07Z"
 }
