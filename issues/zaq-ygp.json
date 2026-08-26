@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T12:10:34Z",
+  "description": "Folder ingestion expansion must pass actor and permission context when listing data-source children.",
+  "id": "zaq-ygp",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Preserve actor context for folder child listing",
+  "type": "task",
+  "updated_at": "2026-08-26T12:10:34Z"
+}
