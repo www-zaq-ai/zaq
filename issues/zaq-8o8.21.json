@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-26T07:50:57Z",
-  "description": "Step 1 functional scope: make disk list_documents honor the agent tool path contract and return successful filtered pages when configured volume roots do not exist. Owners: DiskBridge maps provider path input; Storage owns filesystem root enumeration. Tests first: DiskBridge maps / and nested disk paths while preserving filters.parent; Storage omits ENOENT roots, keeps accessible existing roots, and preserves ACL filtering. Branches: root path, nested path, filters precedence, all-missing roots, mixed roots, unauthorized entries, non-ENOENT errors. Mocking: DiskBridge router stub only; Storage uses temporary filesystem. Docs: no docs update expected because this restores documented behavior. Validation: focused tests, mix format, mix q.",
+  "description": "Fix disk listing missing roots, path contract, write-path default volume resolution, and exact filename normalization. Storage owns configured default_volume selection; DiskBridge maps provider path input and tolerates full destination paths when basename exactly equals name; BO Disk settings expose a single default-volume toggle. Tests first: DiskBridge maps / and nested disk paths while preserving filters.parent, normalizes full file paths only for file creation, and preserves folders; Storage omits ENOENT roots, uses default_volume for unqualified write destinations, preserves explicit volume precedence and ACL filtering. Branches: root path, nested path, filters precedence, all-missing roots, mixed roots, unauthorized entries, non-ENOENT errors, default volume fallback, explicit volume precedence, filename exact match, folder non-normalization. Mocking: DiskBridge router stub only; Storage uses temporary filesystem. Docs: tool/schema docs only if behavior is clarified. Validation: focused tests, mix format, mix q.",
   "id": "zaq-8o8.21",
   "labels": [],
   "parent": "zaq-8o8",
@@ -25,5 +25,5 @@
   "status": "in_progress",
   "title": "[zaq-8o8.21] Fix disk listing missing roots and path contract",
   "type": "bug",
-  "updated_at": "2026-08-26T08:44:56Z"
+  "updated_at": "2026-08-26T10:53:21Z"
 }
