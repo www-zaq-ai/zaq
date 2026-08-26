@@ -7,8 +7,8 @@
   "id": "zaq-2rx",
   "labels": [],
   "priority": 1,
-  "status": "open",
-  "title": "Fix Disk document download context and scoping",
+  "status": "in_progress",
+  "title": "[zaq-2rx] Fix Disk document download context and scoping",
   "type": "bug",
-  "updated_at": "2026-08-26T09:22:36Z"
+  "updated_at": "2026-08-26T09:22:37Z"
 }
