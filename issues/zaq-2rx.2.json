@@ -9,7 +9,7 @@
   "parent": "zaq-2rx",
   "priority": 1,
   "status": "open",
-  "title": "Centralize trusted event context propagation",
+  "title": "[zaq-2rx.2] Centralize trusted event context propagation",
   "type": "task",
   "updated_at": "2026-08-26T09:22:37Z"
 }
