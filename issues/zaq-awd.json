@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T12:10:35Z",
+  "description": "Align component tests and preview/watch fixtures with current public contracts and deterministic converter behavior.",
+  "id": "zaq-awd",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Fix BO preview and watch fixtures",
+  "type": "task",
+  "updated_at": "2026-08-26T12:10:35Z"
+}
