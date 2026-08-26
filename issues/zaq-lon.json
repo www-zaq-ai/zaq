@@ -8,7 +8,7 @@
   "labels": [],
   "priority": 2,
   "status": "open",
-  "title": "Fix data-source tombstone deletion identity",
+  "title": "[zaq-lon] Fix data-source tombstone deletion identity",
   "type": "task",
   "updated_at": "2026-08-26T12:10:34Z"
 }
