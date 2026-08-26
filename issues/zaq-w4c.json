@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-26T14:36:30Z",
@@ -7,8 +7,8 @@
   "id": "zaq-w4c",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[source-acl] Implement source-backed sharing ACLs",
   "type": "task",
-  "updated_at": "2026-08-26T14:36:30Z"
+  "updated_at": "2026-08-26T14:36:35Z"
 }
