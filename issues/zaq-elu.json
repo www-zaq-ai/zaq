@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T12:10:35Z",
+  "description": "Update tests to current Storage/DiskBridge boundaries and indexed-only KnowledgeBaseOverview behavior.",
+  "id": "zaq-elu",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Migrate stale disk/Ingestion tests",
+  "type": "task",
+  "updated_at": "2026-08-26T12:10:35Z"
+}
