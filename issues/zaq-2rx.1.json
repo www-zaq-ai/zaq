@@ -11,8 +11,8 @@
   "labels": [],
   "parent": "zaq-2rx",
   "priority": 1,
-  "status": "in_progress",
+  "status": "completed",
   "title": "[zaq-2rx.1] Add Disk download regression coverage",
   "type": "task",
-  "updated_at": "2026-08-26T09:22:52Z"
+  "updated_at": "2026-08-26T09:36:57Z"
 }
