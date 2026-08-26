@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T12:10:35Z",
+  "description": "Run targeted suites, mix format, and mix q after implementation.",
+  "id": "zaq-g0k",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Validate disk bridge failure fixes",
+  "type": "task",
+  "updated_at": "2026-08-26T12:10:35Z"
+}
