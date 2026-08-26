@@ -25,6 +25,7 @@ defmodule Zaq.Channels.Api do
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
   alias Zaq.Events.Helper
+  alias Zaq.Events.TrustedContext
   alias Zaq.InternalBoundaries
 
   @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
@@ -302,7 +303,7 @@ defmodule Zaq.Channels.Api do
     %{
       event
       | response:
-          data_source_module.list_files(provider, data_source_params(provider, params, event))
+          data_source_module.list_files(provider, params, TrustedContext.from_event(event))
     }
   end
 
@@ -317,7 +318,7 @@ defmodule Zaq.Channels.Api do
     %{
       event
       | response:
-          data_source_module.create_file(provider, data_source_params(provider, params, event))
+          data_source_module.create_file(provider, params, TrustedContext.from_event(event))
     }
   end
 
@@ -331,8 +332,7 @@ defmodule Zaq.Channels.Api do
 
     %{
       event
-      | response:
-          data_source_module.get_file(provider, data_source_params(provider, params, event))
+      | response: data_source_module.get_file(provider, params, TrustedContext.from_event(event))
     }
   end
 
@@ -347,7 +347,7 @@ defmodule Zaq.Channels.Api do
     %{
       event
       | response:
-          data_source_module.update_file(provider, data_source_params(provider, params, event))
+          data_source_module.update_file(provider, params, TrustedContext.from_event(event))
     }
   end
 
@@ -362,7 +362,7 @@ defmodule Zaq.Channels.Api do
     %{
       event
       | response:
-          data_source_module.delete_file(provider, data_source_params(provider, params, event))
+          data_source_module.delete_file(provider, params, TrustedContext.from_event(event))
     }
   end
 
@@ -377,7 +377,7 @@ defmodule Zaq.Channels.Api do
     %{
       event
       | response:
-          data_source_module.search_files(provider, data_source_params(provider, params, event))
+          data_source_module.search_files(provider, params, TrustedContext.from_event(event))
     }
   end
 
@@ -394,7 +394,8 @@ defmodule Zaq.Channels.Api do
       | response:
           data_source_module.download_document(
             provider,
-            data_source_params(provider, params, event)
+            params,
+            TrustedContext.from_event(event)
           )
     }
   end
@@ -412,7 +413,8 @@ defmodule Zaq.Channels.Api do
       | response:
           data_source_module.list_permissions(
             provider,
-            data_source_params(provider, params, event)
+            params,
+            TrustedContext.from_event(event)
           )
     }
   end
@@ -838,12 +840,6 @@ defmodule Zaq.Channels.Api do
     metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
     Map.get(metadata, :update_intent) || Map.get(metadata, "update_intent")
   end
-
-  defp data_source_params(provider, params, %Event{actor: actor})
-       when provider in [:disk, "disk"],
-       do: Map.put(params, :__event_actor, actor)
-
-  defp data_source_params(_provider, params, _event), do: params
 
   defp fetch(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 

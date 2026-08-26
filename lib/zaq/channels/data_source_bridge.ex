@@ -34,11 +34,16 @@ defmodule Zaq.Channels.DataSourceBridge do
        capabilities (return `{:error, :unsupported}` for unsupported actions).
      - Ensure provider resolution and runtime sync paths remain routed through
        `Zaq.Channels.Bridge`.
+
+  File operations receive a normalized `Zaq.Events.TrustedContext` as their third callback
+  argument. Identity and explicit permission bypass therefore remain separate from provider
+  parameters and cannot be supplied by model-controlled request fields.
   """
 
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.RecordPage
+  alias Zaq.Events.TrustedContext
 
   @callback auth_handshake(map(), map()) :: {:ok, term()} | {:error, term()}
   @callback list_resources(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
@@ -55,14 +60,18 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback oauth_refresh_token(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback oauth_default_scopes(map()) :: {:ok, [String.t()]} | {:error, term()}
   @callback list_source_scopes(map(), map()) :: {:ok, [map()]} | {:error, term()}
-  @callback list_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
-  @callback create_file(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback get_file(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback update_file(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback delete_file(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback search_files(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
-  @callback download_document(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback list_permissions(map(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
+  @callback list_files(map(), map(), TrustedContext.t()) ::
+              {:ok, RecordPage.t()} | {:error, term()}
+  @callback create_file(map(), map(), TrustedContext.t()) :: {:ok, map()} | {:error, term()}
+  @callback get_file(map(), map(), TrustedContext.t()) :: {:ok, map()} | {:error, term()}
+  @callback update_file(map(), map(), TrustedContext.t()) :: {:ok, map()} | {:error, term()}
+  @callback delete_file(map(), map(), TrustedContext.t()) :: {:ok, map()} | {:error, term()}
+  @callback search_files(map(), map(), TrustedContext.t()) ::
+              {:ok, RecordPage.t()} | {:error, term()}
+  @callback download_document(map(), map(), TrustedContext.t()) ::
+              {:ok, map()} | {:error, term()}
+  @callback list_permissions(map(), map(), TrustedContext.t()) ::
+              {:ok, RecordPage.t()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback export_options(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback sheet_inspect(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -96,14 +105,14 @@ defmodule Zaq.Channels.DataSourceBridge do
                       oauth_refresh_token: 2,
                       oauth_default_scopes: 1,
                       list_source_scopes: 2,
-                      list_files: 2,
-                      create_file: 2,
-                      get_file: 2,
-                      update_file: 2,
-                      delete_file: 2,
-                      search_files: 2,
-                      download_document: 2,
-                      list_permissions: 2,
+                      list_files: 3,
+                      create_file: 3,
+                      get_file: 3,
+                      update_file: 3,
+                      delete_file: 3,
+                      search_files: 3,
+                      download_document: 3,
+                      list_permissions: 3,
                       channel_stats: 2,
                       export_options: 2,
                       sheet_inspect: 2,
@@ -321,82 +330,97 @@ defmodule Zaq.Channels.DataSourceBridge do
   end
 
   @doc "Lists provider files through the configured DataSource bridge."
-  @spec list_files(atom() | String.t(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
-  def list_files(provider, params \\ %{}) when is_map(params) do
+  @spec list_files(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, RecordPage.t()} | {:error, term()}
+  def list_files(provider, params \\ %{}, context \\ %{})
+      when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :list_files, 2) || {:error, :unsupported} do
-      bridge.list_files(config, params)
+         true <- supports_callback?(bridge, :list_files, 3) || {:error, :unsupported} do
+      bridge.list_files(config, params, TrustedContext.normalize(context))
     end
   end
 
   @doc "Creates a provider file through the configured DataSource bridge."
-  @spec create_file(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def create_file(provider, params \\ %{}) when is_map(params) do
+  @spec create_file(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, map()} | {:error, term()}
+  def create_file(provider, params \\ %{}, context \\ %{})
+      when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :create_file, 2) || {:error, :unsupported} do
-      bridge.create_file(config, params)
+         true <- supports_callback?(bridge, :create_file, 3) || {:error, :unsupported} do
+      bridge.create_file(config, params, TrustedContext.normalize(context))
     end
   end
 
   @doc "Gets a provider file by id through the configured DataSource bridge."
-  @spec get_file(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def get_file(provider, params \\ %{}) when is_map(params) do
+  @spec get_file(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, map()} | {:error, term()}
+  def get_file(provider, params \\ %{}, context \\ %{}) when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :get_file, 2) || {:error, :unsupported} do
-      bridge.get_file(config, params)
+         true <- supports_callback?(bridge, :get_file, 3) || {:error, :unsupported} do
+      bridge.get_file(config, params, TrustedContext.normalize(context))
     end
   end
 
   @doc "Updates a provider file through the configured DataSource bridge."
-  @spec update_file(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def update_file(provider, params \\ %{}) when is_map(params) do
+  @spec update_file(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, map()} | {:error, term()}
+  def update_file(provider, params \\ %{}, context \\ %{})
+      when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :update_file, 2) || {:error, :unsupported} do
-      bridge.update_file(config, params)
+         true <- supports_callback?(bridge, :update_file, 3) || {:error, :unsupported} do
+      bridge.update_file(config, params, TrustedContext.normalize(context))
     end
   end
 
   @doc "Deletes a provider file through the configured DataSource bridge."
-  @spec delete_file(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def delete_file(provider, params \\ %{}) when is_map(params) do
+  @spec delete_file(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, map()} | {:error, term()}
+  def delete_file(provider, params \\ %{}, context \\ %{})
+      when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :delete_file, 2) || {:error, :unsupported} do
-      bridge.delete_file(config, params)
+         true <- supports_callback?(bridge, :delete_file, 3) || {:error, :unsupported} do
+      bridge.delete_file(config, params, TrustedContext.normalize(context))
     end
   end
 
   @doc "Searches provider files through the configured DataSource bridge."
-  @spec search_files(atom() | String.t(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
-  def search_files(provider, params \\ %{}) when is_map(params) do
+  @spec search_files(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, RecordPage.t()} | {:error, term()}
+  def search_files(provider, params \\ %{}, context \\ %{})
+      when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :search_files, 2) || {:error, :unsupported} do
-      bridge.search_files(config, params)
+         true <- supports_callback?(bridge, :search_files, 3) || {:error, :unsupported} do
+      bridge.search_files(config, params, TrustedContext.normalize(context))
     end
   end
 
   @doc "Downloads a provider document through the configured DataSource bridge."
-  @spec download_document(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def download_document(provider, params \\ %{}) when is_map(params) do
+  @spec download_document(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, map()} | {:error, term()}
+  def download_document(provider, params \\ %{}, context \\ %{})
+      when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :download_document, 2) || {:error, :unsupported} do
-      bridge.download_document(config, params)
+         true <- supports_callback?(bridge, :download_document, 3) || {:error, :unsupported} do
+      bridge.download_document(config, params, TrustedContext.normalize(context))
     end
   end
 
   @doc "Lists provider file permissions through the configured DataSource bridge."
-  @spec list_permissions(atom() | String.t(), map()) :: {:ok, RecordPage.t()} | {:error, term()}
-  def list_permissions(provider, params) when is_map(params) do
+  @spec list_permissions(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, RecordPage.t()} | {:error, term()}
+  def list_permissions(provider, params, context \\ %{})
+      when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :list_permissions, 2) || {:error, :unsupported} do
-      bridge.list_permissions(config, params)
+         true <- supports_callback?(bridge, :list_permissions, 3) || {:error, :unsupported} do
+      bridge.list_permissions(config, params, TrustedContext.normalize(context))
     end
   end
 

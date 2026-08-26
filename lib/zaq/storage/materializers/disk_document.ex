@@ -9,6 +9,7 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
 
   @behaviour Zaq.Materialization.Handler
 
+  alias Zaq.Events.TrustedContext
   alias Zaq.Helpers
   alias Zaq.Materialization
   alias Zaq.Storage.Events
@@ -45,7 +46,9 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
     with {:ok, request} <- validate_locator(locator),
          {:ok, request} <- merge_options(request, options) do
       request
-      |> Events.build_and_dispatch_materialize_document_event(node_router_opts(context))
+      |> Events.build_and_dispatch_materialize_document_event(
+        TrustedContext.event_builder_opts(context)
+      )
       |> Map.fetch!(:response)
     end
   end
@@ -89,14 +92,4 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
   defp drop_blank_values(map) do
     Map.reject(map, fn {_key, value} -> Helpers.blank?(value) end)
   end
-
-  defp node_router_opts(context) do
-    []
-    |> maybe_put(:node_router, Map.get(context, :node_router))
-    |> maybe_put(:config, Map.get(context, :config))
-    |> maybe_put(:actor, Map.get(context, :actor))
-  end
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

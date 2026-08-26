@@ -6,8 +6,8 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
   @behaviour Zaq.Materialization.Handler
 
   alias Zaq.Channels.Events
+  alias Zaq.Events.TrustedContext
   alias Zaq.Helpers
-  alias Zaq.MapUtils
 
   @type_key "data_source_document"
   @locator_fields ~w(config_id document_mime_type)
@@ -36,11 +36,9 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
       provider
       |> Events.build_and_dispatch_data_source_download_document_event(
         params,
-        node_router_opts(context) ++
-          [
-            actor: actor(context),
-            event_opts: data_source_event_opts(context)
-          ]
+        TrustedContext.event_builder_opts(context,
+          event_opts: data_source_event_opts(context)
+        )
       )
       |> Map.fetch!(:response)
     end
@@ -83,15 +81,6 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
       module -> [data_source_bridge_module: module]
     end
   end
-
-  defp node_router_opts(context) do
-    case Map.get(context, :node_router) do
-      nil -> []
-      module -> [node_router: module]
-    end
-  end
-
-  defp actor(context), do: MapUtils.fetch(context, :actor)
 
   defp string(map, key), do: string_value(Map.get(map, key))
 

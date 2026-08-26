@@ -171,6 +171,12 @@ again before returning content.
 
 `Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, `list_files`, file CRUD/search, listener setup/teardown, provider watch setup/teardown, and webhook normalization).
 
+Data-source file callbacks receive `%Zaq.Events.TrustedContext{}` separately from provider
+parameters. `Zaq.Channels.Api` derives it only from the incoming event envelope; bridges must
+never derive actors or `skip_permissions` from request parameters. Bridges that dispatch to
+another role, such as `DiskBridge` dispatching to Storage, project the same trusted context
+through that role's event helper.
+
 Unmaterialized data-source file records carry a signed `materialization_handle` of type
 `data_source_document`. The handle survives agent/tool JSON serialization and is redeemed
 through `Zaq.Materialization`; the Channels materializer validates the locator and dispatches

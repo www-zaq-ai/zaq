@@ -97,7 +97,16 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       conn: conn,
       tmp_dir: tmp_dir
     } do
-      # DOCX magic bytes — Python script won't run in test env → :binary fallback
+      original_runner = Application.get_env(:zaq, Zaq.Ingestion.Python.Runner)
+
+      Application.put_env(:zaq, Zaq.Ingestion.Python.Runner,
+        scripts_dir: Path.join(tmp_dir, "missing")
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion.Python.Runner, original_runner || [])
+      end)
+
       unique = "doc-#{System.unique_integer([:positive])}"
       docx_path = Path.join(tmp_dir, "#{unique}.docx")
       File.write!(docx_path, <<80, 75, 3, 4, 0, 0>>)
@@ -117,6 +126,16 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
       conn: conn,
       tmp_dir: tmp_dir
     } do
+      original_runner = Application.get_env(:zaq, Zaq.Ingestion.Python.Runner)
+
+      Application.put_env(:zaq, Zaq.Ingestion.Python.Runner,
+        scripts_dir: Path.join(tmp_dir, "missing")
+      )
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Ingestion.Python.Runner, original_runner || [])
+      end)
+
       unique = "data-#{System.unique_integer([:positive])}"
       xlsx_path = Path.join(tmp_dir, "#{unique}.xlsx")
       File.write!(xlsx_path, <<80, 75, 3, 4, 0, 0>>)

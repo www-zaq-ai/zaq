@@ -30,7 +30,7 @@ end
 defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.UnexpectedResponse do
   @moduledoc false
 
-  def list_files(_config, _params), do: :unexpected
+  def list_files(_config, _params, _context), do: :unexpected
 end
 
 defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NoWebhookCapabilities do
@@ -68,7 +68,7 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.ContinuationThenHalt do
 
   alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
 
-  def list_files(_config, %{"page_token" => "next-1"}) do
+  def list_files(_config, %{"page_token" => "next-1"}, _context) do
     {:ok,
      Stubs.page(
        [
@@ -81,7 +81,7 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.ContinuationThenHalt do
      )}
   end
 
-  def list_files(_config, _params) do
+  def list_files(_config, _params, _context) do
     {:ok, Stubs.page([Stubs.record("folder-z", "Zulu")], "next-1")}
   end
 end
@@ -91,7 +91,7 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.StillMore do
 
   alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
 
-  def list_files(_config, _params) do
+  def list_files(_config, _params, _context) do
     {:ok, Stubs.page([Stubs.record("folder-one", "Only One")], "still-more")}
   end
 end
@@ -99,7 +99,7 @@ end
 defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.DisplayMessageError do
   @moduledoc false
 
-  def list_files(_config, _params) do
+  def list_files(_config, _params, _context) do
     {:error,
      %{
        message: "raw",
@@ -114,7 +114,7 @@ end
 defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NilError do
   @moduledoc false
 
-  def list_files(_config, _params), do: {:error, nil}
+  def list_files(_config, _params, _context), do: {:error, nil}
 end
 
 defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NilIdDuplicate do
@@ -122,7 +122,7 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NilIdDuplicate do
 
   alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
 
-  def list_files(_config, _params) do
+  def list_files(_config, _params, _context) do
     record = Stubs.record(nil, "Shared Folder")
 
     {:ok, Stubs.page([record, record], nil)}
@@ -134,7 +134,7 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.NonListRecordsPage do
 
   alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
 
-  def list_files(_config, _params) do
+  def list_files(_config, _params, _context) do
     {:ok, Stubs.page(:not_a_list, nil)}
   end
 end
@@ -144,7 +144,7 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.DefaultScopesSuccess do
 
   alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
 
-  def list_files(_config, _params), do: {:ok, Stubs.page([], nil)}
+  def list_files(_config, _params, _context), do: {:ok, Stubs.page([], nil)}
 
   def oauth_default_scopes(_config), do: {:ok, ["scope.z", "scope.a", "scope.z"]}
 end
@@ -154,7 +154,7 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.DefaultScopesInvalid do
 
   alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
 
-  def list_files(_config, _params), do: {:ok, Stubs.page([], nil)}
+  def list_files(_config, _params, _context), do: {:ok, Stubs.page([], nil)}
 
   def oauth_default_scopes(_config), do: {:ok, "not-a-list"}
 end

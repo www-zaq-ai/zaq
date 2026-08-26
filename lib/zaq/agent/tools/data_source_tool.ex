@@ -4,8 +4,8 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   """
 
   alias Zaq.Agent.Tools.Error
-  alias Zaq.Event
-  alias Zaq.NodeRouter
+  alias Zaq.Events.Helper
+  alias Zaq.Events.TrustedContext
 
   @type on_ok :: (map() -> {:ok, map()} | {:error, String.t()})
 
@@ -13,12 +13,12 @@ defmodule Zaq.Agent.Tools.DataSourceTool do
   def dispatch(action, request, context, error_prefix, on_ok \\ &default_on_ok/1)
 
   def dispatch(action, request, context, error_prefix, on_ok) do
-    node_router = Map.get(context, :node_router, NodeRouter)
-    event_opts = [action: action] ++ Map.get(context, :event_opts, [])
-    event = Event.new(request, :channels, actor: Map.get(context, :actor), opts: event_opts)
-
-    event
-    |> node_router.dispatch()
+    :channels
+    |> Helper.build_and_dispatch_invoke_event(
+      request,
+      action,
+      TrustedContext.event_builder_opts(context)
+    )
     |> Map.fetch!(:response)
     |> format_response(error_prefix, on_ok)
   end

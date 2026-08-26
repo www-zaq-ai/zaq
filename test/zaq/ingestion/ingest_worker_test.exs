@@ -89,7 +89,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   end
 
   defmodule ExternalDataSourceBridgeStub do
-    def download_document(provider, params) do
+    def download_document(provider, params, _context) do
       send(self(), {:download_document, provider, params})
 
       {:ok,
@@ -275,7 +275,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       assert updated.completed_at != nil
     end
 
-    test "logs cleanup failures for materialized external files" do
+    test "cleans up materialized external files recursively" do
       original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
 
       Application.put_env(
@@ -336,7 +336,8 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
         File.rm_rf(cleanup_dir)
       end)
 
-      assert log =~ "Failed to remove materialized ingestion file"
+      refute log =~ "Failed to remove materialized ingestion file"
+      refute File.exists?(cleanup_dir)
 
       updated = Repo.get!(IngestJob, job.id)
       assert updated.status == "completed"
@@ -533,29 +534,11 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
                })
     end
 
-    test "resolves path against volume_name when job has one" do
-      vol_dir =
-        Path.join(System.tmp_dir!(), "zaq_worker_vol_#{System.unique_integer([:positive])}")
-
-      File.mkdir_p!(vol_dir)
-
-      original = Application.get_env(:zaq, Zaq.Ingestion)
-
-      on_exit(fn ->
-        if is_nil(original) do
-          Application.delete_env(:zaq, Zaq.Ingestion)
-        else
-          Application.put_env(:zaq, Zaq.Ingestion, original)
-        end
-      end)
-
-      Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"myvol" => vol_dir})
-
+    test "passes the materialized job path through without resolving volume_name" do
       job = create_job(%{file_path: "report.md", volume_name: "myvol"})
-      expected_path = Path.join(vol_dir, "report.md")
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
-        assert path == expected_path
+        assert path == "report.md"
         {:ok, create_document()}
       end)
 

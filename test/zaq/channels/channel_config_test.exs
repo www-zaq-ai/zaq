@@ -215,7 +215,8 @@ defmodule Zaq.Channels.ChannelConfigTest do
           name: "Disk",
           provider: "disk",
           kind: "data_source",
-          enabled: true
+          enabled: true,
+          settings: disk_settings()
         })
 
       assert changeset.valid?
@@ -231,7 +232,8 @@ defmodule Zaq.Channels.ChannelConfigTest do
                  name: "Disk",
                  provider: "disk",
                  kind: "data_source",
-                 enabled: true
+                 enabled: true,
+                 settings: disk_settings()
                })
                |> Repo.insert()
 
@@ -268,10 +270,26 @@ defmodule Zaq.Channels.ChannelConfigTest do
         name: "Disk",
         provider: "disk",
         kind: "data_source",
-        enabled: true
+        enabled: true,
+        settings: disk_settings()
       })
       |> Repo.insert!()
     end
+
+    test "requires at least one volume" do
+      changeset =
+        ChannelConfig.changeset(%ChannelConfig{}, %{
+          name: "Disk",
+          provider: "disk",
+          kind: "data_source",
+          enabled: true
+        })
+
+      refute changeset.valid?
+      assert %{settings: ["at least one volume is required"]} = errors_on(changeset)
+    end
+
+    defp disk_settings, do: %{"volumes" => [%{"name" => "default", "path" => "."}]}
   end
 
   test "email:imap requires selected_mailboxes in settings" do

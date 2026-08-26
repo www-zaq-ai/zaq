@@ -89,7 +89,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
-  def list_files(config, params) when is_map(config) and is_map(params) do
+  def list_files(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     params =
       params
       |> maybe_embed_permissions_projection(config)
@@ -102,7 +102,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
-  def create_file(config, params) when is_map(config) and is_map(params) do
+  def create_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :create_item, params),
          {:ok, record} <- map_file_from_payload(payload, config, params) do
       {:ok, %{status: "created", record: record}}
@@ -110,7 +110,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
-  def get_file(config, params) when is_map(config) and is_map(params) do
+  def get_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :get_item_metadata, params),
          {:ok, record} <- map_file_from_payload(payload, config, params) do
       {:ok, %{record: record}}
@@ -118,7 +118,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
-  def update_file(config, params) when is_map(config) and is_map(params) do
+  def update_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :update_item, params),
          {:ok, record} <- map_file_from_payload(payload) do
       {:ok, %{status: "updated", record: record}}
@@ -126,14 +126,14 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
-  def delete_file(config, params) when is_map(config) and is_map(params) do
+  def delete_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :delete_item, params) do
       {:ok, %{status: "deleted", result: payload}}
     end
   end
 
   @impl true
-  def search_files(config, params) when is_map(config) and is_map(params) do
+  def search_files(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :search_items, params) do
       map_file_page(payload, config, params)
     end
@@ -271,7 +271,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
-  def download_document(config, params) when is_map(config) and is_map(params) do
+  def download_document(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     params = maybe_apply_default_export_mime_type(config, params)
 
     with {:ok, payload} <- invoke_intent(config, :download_items, params),
@@ -314,7 +314,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
     do: {:ok, %{native_types: [], export_formats_by_native_type: %{}}}
 
   @impl true
-  def list_permissions(config, params) when is_map(config) and is_map(params) do
+  def list_permissions(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     with {:ok, payload} <- invoke_intent(config, :list_principals, params) do
       permissions =
         payload

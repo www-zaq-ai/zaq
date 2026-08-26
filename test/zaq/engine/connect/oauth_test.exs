@@ -16,8 +16,8 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     def download_resource(_config, _resource, _params), do: {:error, :unsupported}
     def setup_listener(_config, _params), do: {:error, :unsupported}
     def teardown_listener(_config, _params), do: {:error, :unsupported}
-    def list_files(_config, _params), do: {:error, :unsupported}
-    def list_permissions(_config, _params), do: {:error, :unsupported}
+    def list_files(_config, _params, _context), do: {:error, :unsupported}
+    def list_permissions(_config, _params, _context), do: {:error, :unsupported}
     def channel_stats(_config, _params), do: {:error, :unsupported}
     def capability_snapshot(_config), do: {:error, :unsupported}
 
@@ -54,8 +54,8 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     def download_resource(_config, _resource, _params), do: {:error, :unsupported}
     def setup_listener(_config, _params), do: {:error, :unsupported}
     def teardown_listener(_config, _params), do: {:error, :unsupported}
-    def list_files(_config, _params), do: {:error, :unsupported}
-    def list_permissions(_config, _params), do: {:error, :unsupported}
+    def list_files(_config, _params, _context), do: {:error, :unsupported}
+    def list_permissions(_config, _params, _context), do: {:error, :unsupported}
     def channel_stats(_config, _params), do: {:error, :unsupported}
     def capability_snapshot(_config), do: {:error, :unsupported}
 
@@ -70,8 +70,8 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     def download_resource(_config, _resource, _params), do: {:error, :unsupported}
     def setup_listener(_config, _params), do: {:error, :unsupported}
     def teardown_listener(_config, _params), do: {:error, :unsupported}
-    def list_files(_config, _params), do: {:error, :unsupported}
-    def list_permissions(_config, _params), do: {:error, :unsupported}
+    def list_files(_config, _params, _context), do: {:error, :unsupported}
+    def list_permissions(_config, _params, _context), do: {:error, :unsupported}
     def channel_stats(_config, _params), do: {:error, :unsupported}
     def capability_snapshot(_config), do: {:error, :unsupported}
 

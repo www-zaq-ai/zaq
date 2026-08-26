@@ -69,15 +69,25 @@ defmodule Zaq.Storage do
 
   @doc "Returns the storage entry for a source locator."
   @spec describe_document(String.t()) :: {:ok, Entry.t()} | {:error, term()}
-  def describe_document(source, opts \\ []), do: entry_from_source(source, opts)
+  def describe_document(source, opts \\ []) do
+    with {:ok, opts} <- disk_config_opts(%{}, opts) do
+      entry_from_source(source, opts)
+    end
+  end
 
   @doc "Returns storage entries as a page-shaped map consumed by DiskBridge."
   @spec list_documents(map()) :: {:ok, map()} | {:error, term()}
   def list_documents(params \\ %{}, opts \\ []) when is_map(params) do
     with {:ok, opts} <- disk_config_opts(params, opts) do
-      case parent_source(params) do
-        nil -> list_volume_roots(params, opts)
-        parent -> list_directory_entries(split_parent(parent, opts), params, opts)
+      cond do
+        parent = parent_source(params) ->
+          list_directory_entries(split_parent(parent, opts), params, opts)
+
+        root_path?(params) ->
+          list_all_volume_entries(params, opts)
+
+        true ->
+          list_volume_roots(params, opts)
       end
     end
   end
@@ -205,28 +215,66 @@ defmodule Zaq.Storage do
   end
 
   defp list_volume_roots(params, opts) do
-    entries =
-      list_volumes(opts)
-      |> Enum.map(fn {volume, root} ->
-        stat = File.stat!(root, time: :posix)
+    with {:ok, volumes} <- existing_volume_roots(opts) do
+      entries =
+        Enum.map(volumes, fn {volume, stat} ->
+          catalog_entry = catalog_volume_root(volume)
 
-        catalog_entry = catalog_volume_root(volume)
+          %Entry{
+            id: catalog_entry.id,
+            parent_id: catalog_entry.parent_id,
+            name: volume,
+            type: :directory,
+            size: stat.size,
+            modified_at: stat.mtime |> DateTime.from_unix!(),
+            volume: volume,
+            relative_path: ".",
+            source: volume
+          }
+        end)
 
-        %Entry{
-          id: catalog_entry.id,
-          parent_id: catalog_entry.parent_id,
-          name: volume,
-          type: :directory,
-          size: stat.size,
-          modified_at: stat.mtime |> DateTime.from_unix!(),
-          volume: volume,
-          relative_path: ".",
-          source: volume
-        }
-      end)
+      entries
       |> Enum.sort_by(& &1.name)
+      |> paginate_entries(nil, ".", params, opts)
+    end
+  end
 
-    paginate_entries(entries, nil, ".", params, opts)
+  defp list_all_volume_entries(params, opts) do
+    with {:ok, volumes} <- existing_volume_roots(opts),
+         {:ok, entries} <- list_volume_entries(volumes, opts) do
+      paginate_entries(entries, nil, "/", params, opts)
+    end
+  end
+
+  defp existing_volume_roots(opts) do
+    list_volumes(opts)
+    |> Enum.reduce_while({:ok, []}, fn {volume, root}, {:ok, volumes} ->
+      case File.stat(root, time: :posix) do
+        {:ok, %{type: :directory} = stat} ->
+          {:cont, {:ok, [{volume, stat} | volumes]}}
+
+        {:ok, _stat} ->
+          {:halt, {:error, {:volume_unavailable, volume, :not_a_directory}}}
+
+        {:error, :enoent} ->
+          {:cont, {:ok, volumes}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:volume_unavailable, volume, reason}}}
+      end
+    end)
+  end
+
+  defp list_volume_entries(volumes, opts) do
+    Enum.reduce_while(volumes, {:ok, []}, fn {volume, _stat}, {:ok, entries} ->
+      case list_entries(volume, ".", opts) do
+        {:ok, volume_entries} ->
+          {:cont, {:ok, volume_entries ++ entries}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:volume_unavailable, volume, reason}}}
+      end
+    end)
   end
 
   defp catalog_volume_root(volume) do
@@ -583,11 +631,21 @@ defmodule Zaq.Storage do
   end
 
   defp destination(request, opts) do
-    with {:ok, path} <- required(request, "path", :path_required) do
-      case split_parent(path, opts) do
-        {nil, _dir} -> {:error, :volume_required}
-        {volume_name, dir} -> {:ok, {volume_name, dir}}
-      end
+    path = MapUtils.present_value(request, "path") || "."
+
+    case split_parent(path, opts) do
+      {nil, dir} -> default_destination(dir, opts)
+      {volume_name, dir} -> {:ok, {volume_name, dir}}
+    end
+  end
+
+  defp default_destination(dir, opts) do
+    opts
+    |> Keyword.get(:storage_config, [])
+    |> Keyword.get(:default_volume)
+    |> case do
+      volume_name when is_binary(volume_name) and volume_name != "" -> {:ok, {volume_name, dir}}
+      _ -> {:error, :volume_required}
     end
   end
 
@@ -622,4 +680,6 @@ defmodule Zaq.Storage do
       _ -> nil
     end
   end
+
+  defp root_path?(params), do: MapUtils.present_value(params, "path") == "/"
 end

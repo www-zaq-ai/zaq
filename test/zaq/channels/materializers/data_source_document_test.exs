@@ -10,7 +10,8 @@ defmodule Zaq.Channels.Materializers.DataSourceDocumentTest do
     def dispatch(%Event{request: %{provider: provider, params: params}, opts: opts} = event) do
       send(
         self(),
-        {:dispatch, event.next_hop.destination, opts[:action], provider, params, event.actor}
+        {:dispatch, event.next_hop.destination, opts[:action], provider, params, event.actor,
+         opts}
       )
 
       %{event | response: {:ok, %{content: "downloaded"}}}
@@ -41,7 +42,7 @@ defmodule Zaq.Channels.Materializers.DataSourceDocumentTest do
              )
 
     assert_received {:dispatch, :channels, :data_source_download_document, "google_drive",
-                     %{"file_id" => "f1", "config_id" => "12"}, %{person: %{id: 123}}}
+                     %{"file_id" => "f1", "config_id" => "12"}, %{person: %{id: 123}}, _opts}
   end
 
   test "materializes with an explicit export MIME runtime option" do
@@ -57,7 +58,25 @@ defmodule Zaq.Channels.Materializers.DataSourceDocumentTest do
                        "file_id" => "f1",
                        "config_id" => "12",
                        "export_mime_type" => "text/plain"
-                     }, nil}
+                     }, nil, _opts}
+  end
+
+  test "passes only an explicit trusted permission bypass through to Channels" do
+    assert {:ok, %{content: "downloaded"}} =
+             DataSourceDocument.materialize(
+               %{"provider" => "disk", "file_id" => "f1", "config_id" => "12"},
+               %{
+                 node_router: StubNodeRouter,
+                 skip_permissions: true,
+                 event_opts: [skip_permissions: false, action: :delete_document]
+               }
+             )
+
+    assert_received {:dispatch, :channels, :data_source_download_document, "disk", _params, nil,
+                     opts}
+
+    assert opts[:skip_permissions] == true
+    assert opts[:action] == :data_source_download_document
   end
 
   test "rejects runtime options that try to override locator identity" do

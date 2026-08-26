@@ -274,14 +274,16 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                DocumentProcessor.extract_source("ignored", "/some/path/report.md")
     end
 
-    test "returns path relative to configured base_path" do
+    test "source_override supplies canonical source for indexed data-source files" do
       base_dir = Path.join(System.tmp_dir!(), "zaq_base_#{System.unique_integer([:positive])}")
       Application.put_env(:zaq, Zaq.Ingestion, base_path: base_dir)
 
       file_path = Path.join([base_dir, "guides", "api", "reference.md"])
 
       assert {:ok, "guides/api/reference.md"} =
-               DocumentProcessor.extract_source("ignored", file_path)
+               DocumentProcessor.extract_source("ignored", file_path,
+                 source_override: "guides/api/reference.md"
+               )
     end
 
     test "falls back to basename when path is outside configured base_path" do
@@ -294,13 +296,13 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                DocumentProcessor.extract_source("ignored", outside_path)
     end
 
-    test "prefixes volume name when file lives in a configured volume" do
+    test "falls back to basename when source_override is missing for a volume file" do
       vol_dir = Path.join(System.tmp_dir!(), "zaq_vol_#{System.unique_integer([:positive])}")
       Application.put_env(:zaq, Zaq.Ingestion, volumes: %{"docs" => vol_dir})
 
       file_path = Path.join([vol_dir, "sub", "guide.md"])
 
-      assert {:ok, "docs/sub/guide.md"} =
+      assert {:ok, "guide.md"} =
                DocumentProcessor.extract_source("ignored", file_path)
     end
   end

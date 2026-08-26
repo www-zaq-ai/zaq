@@ -182,6 +182,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       html =
         render_component(&IngestionFileStatus.shared_badge/1,
           provider_mode: false,
+          share_editable: true,
           permissions_count: 3,
           path: "local-file.md"
         )
@@ -304,7 +305,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       assert html =~ "public"
       assert html =~ "report.md"
       assert html =~ "1.0 KB"
-      assert html =~ ~s(phx-value-path="default/report.md")
+      assert html =~ ~s(phx-value-path="report.md")
     end
 
     test "renders shared and public indicators without ingested status" do

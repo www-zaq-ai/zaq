@@ -11,7 +11,7 @@ defmodule ZaqWeb.FileControllerTest do
   alias ZaqWeb.PreviewReference
 
   setup %{conn: conn} do
-    user = user_fixture(%{username: "file_controller_admin"})
+    user = super_admin_fixture(%{username: "file_controller_admin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 
     conn = init_test_session(conn, %{user_id: user.id})

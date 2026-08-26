@@ -31,9 +31,9 @@ defmodule Zaq.Ingestion.RecordSource do
   end
 
   @doc "Lists child records for a folder record."
-  @spec list_children(Record.t()) :: {:ok, [Record.t()]} | {:error, term()}
-  def list_children(%Record{} = record) do
-    list_external_children(record)
+  @spec list_children(Record.t(), map()) :: {:ok, [Record.t()]} | {:error, term()}
+  def list_children(%Record{} = record, context \\ %{}) when is_map(context) do
+    list_external_children(record, context)
   end
 
   @doc "Serializes a canonical record into a JSON-safe map for persistence."
@@ -168,7 +168,7 @@ defmodule Zaq.Ingestion.RecordSource do
 
   defp with_cleanup_root(error), do: error
 
-  defp list_external_children(%Record{} = record) do
+  defp list_external_children(%Record{} = record, context) do
     params = %{
       "config_id" => ExternalSource.config_id(record),
       "filters" => %{"parent" => ExternalSource.file_id(record), "include_shared" => false},
@@ -176,6 +176,7 @@ defmodule Zaq.Ingestion.RecordSource do
     }
 
     Event.new(%{provider: ExternalSource.provider(record), params: params}, :channels,
+      actor: Map.get(context, :actor) || Map.get(context, "actor"),
       opts: data_source_opts(:data_source_list_files)
     )
     |> NodeRouter.dispatch()

@@ -2,11 +2,13 @@ defmodule Zaq.Channels.DiskBridgeTest do
   # Unit-level: the router is stubbed through `config["node_router"]`, so these assert what
   # the bridge asks storage for and what it maps the answer into — never storage itself.
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.Channels.DiskBridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Event
+  alias Zaq.Events.TrustedContext
   alias Zaq.Materialization.Handle
   alias Zaq.Storage.FileExplorer.Entry
 
@@ -188,6 +190,52 @@ defmodule Zaq.Channels.DiskBridgeTest do
   # ── request shapes, one per callback ────────────────────────────────────────
 
   describe "list_files/2" do
+    test "preserves the tool root path for an all-volume content listing" do
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} = DiskBridge.list_files(config(), %{"path" => "/"})
+      assert_received {:dispatch, :storage, :list_documents, %{params: request_params}}
+      assert request_params == %{"path" => "/"}
+    end
+
+    test "maps a tool path to storage's parent filter" do
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(config(), %{
+                 "path" => "/archives/manuals",
+                 "page_size" => 50
+               })
+
+      assert_received {:dispatch, :storage, :list_documents,
+                       %{
+                         params: %{
+                           "filters" => %{"parent" => "archives/manuals"},
+                           "page_size" => 50
+                         }
+                       }}
+    end
+
+    property "normalizes rooted tool paths to the same storage parent" do
+      check all(
+              segments <-
+                StreamData.list_of(StreamData.string(:alphanumeric, min_length: 1, max_length: 8),
+                  min_length: 1,
+                  max_length: 4
+                ),
+              max_runs: 12
+            ) do
+        parent = Enum.join(segments, "/")
+        stub_response({:ok, entry_page([])})
+
+        assert {:ok, %RecordPage{}} =
+                 DiskBridge.list_files(config(), %{"path" => "/#{parent}/"})
+
+        assert_received {:dispatch, :storage, :list_documents,
+                         %{params: %{"filters" => %{"parent" => ^parent}}}}
+      end
+    end
+
     test "dispatches :list_documents to storage, passing filters through untouched" do
       params = %{"filters" => %{"parent" => "archives/manuals"}, "page_size" => 50}
       stub_response({:ok, entry_page([])})
@@ -199,15 +247,33 @@ defmodule Zaq.Channels.DiskBridgeTest do
       refute Keyword.has_key?(opts, :storage_config)
     end
 
-    test "forwards trusted internal actor as event actor without leaking it into params" do
-      actor = %{person_id: 123}
-      params = %{"filters" => %{"parent" => "archives"}, __event_actor: actor}
+    test "prefers an explicit parent filter over a tool path" do
+      params = %{"filters" => %{"parent" => "archives/manuals"}, "path" => "/archives/other"}
       stub_response({:ok, entry_page([])})
 
       assert {:ok, %RecordPage{}} = DiskBridge.list_files(config(), params)
+
+      assert_received {:dispatch, :storage, :list_documents, %{params: request_params}}
+      assert request_params == %{"filters" => %{"parent" => "archives/manuals"}}
+    end
+
+    test "forwards trusted internal actor as event actor without leaking it into params" do
+      actor = %{person_id: 123}
+      params = %{"filters" => %{"parent" => "archives"}}
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(
+                 config(),
+                 params,
+                 %TrustedContext{actor: actor, skip_permissions: true}
+               )
+
       assert_received {:dispatch, :storage, :list_documents, %{params: request_params}}
       assert request_params == %{"filters" => %{"parent" => "archives"}}
       assert_received {:dispatch_actor, :storage, :list_documents, ^actor}
+      assert_received {:dispatch_opts, :storage, :list_documents, event_opts}
+      assert event_opts[:skip_permissions] == true
     end
 
     test "passes an storage error back unchanged" do
@@ -281,6 +347,48 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert_received {:dispatch, :storage, :persist_document, request}
       assert request["content"] == ""
       assert request["encoding"] == nil
+    end
+
+    test "treats a file path ending with the exact name as a parent path" do
+      stub_response({:ok, %{status: "created", entry: entry("42")}})
+
+      assert {:ok, %{status: "created", record: %Record{id: "42"}}} =
+               DiskBridge.create_file(config(), %{
+                 "name" => "conversation-history-zaq-legacy.md",
+                 "path" => "docs/conversation-history-zaq-legacy.md",
+                 "content" => "# History"
+               })
+
+      assert_received {:dispatch, :storage, :persist_document, request}
+
+      assert request["name"] == "conversation-history-zaq-legacy.md"
+      assert request["path"] == "docs"
+    end
+
+    test "does not strip similar but non-identical file path basenames" do
+      stub_response({:ok, %{status: "created", entry: entry("42")}})
+
+      DiskBridge.create_file(config(), %{
+        "name" => "report.md",
+        "path" => "archives/report",
+        "content" => "# report"
+      })
+
+      assert_received {:dispatch, :storage, :persist_document, request}
+      assert request["path"] == "archives/report"
+    end
+
+    test "does not strip folder create paths even when the basename equals the folder name" do
+      stub_response({:ok, %{status: "created", entry: entry("docs", type: :directory)}})
+
+      DiskBridge.create_file(config(), %{
+        "name" => "report.md",
+        "path" => "archives/report.md",
+        "kind" => "folder"
+      })
+
+      assert_received {:dispatch, :storage, :persist_directory, request}
+      assert request["path"] == "archives/report.md"
     end
 
     test "dispatches canonical folder creates to storage directory persistence" do

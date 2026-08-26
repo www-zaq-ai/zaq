@@ -119,10 +119,16 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     alias Zaq.Channels.DiskBridge
 
     def list_source_scopes("disk", params), do: DiskBridge.list_source_scopes(config(), params)
-    def create_file("disk", params), do: DiskBridge.create_file(config(), params)
-    def get_file("disk", params), do: DiskBridge.get_file(config(), params)
-    def delete_file("disk", params), do: DiskBridge.delete_file(config(), params)
-    def list_files("disk", params), do: DiskBridge.list_files(config(), params)
+
+    def create_file("disk", params, context),
+      do: DiskBridge.create_file(config(), params, context)
+
+    def get_file("disk", params, context), do: DiskBridge.get_file(config(), params, context)
+
+    def delete_file("disk", params, context),
+      do: DiskBridge.delete_file(config(), params, context)
+
+    def list_files("disk", params, context), do: DiskBridge.list_files(config(), params, context)
 
     defp config do
       :zaq

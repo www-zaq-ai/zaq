@@ -109,6 +109,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
       assert event.next_hop.destination == :channels
       assert event.request.provider == "google_drive"
+      assert event.actor == %{person_id: 123, skip_permissions: true}
 
       assert event.request.params == %{
                "config_id" => "cfg-1",
@@ -122,7 +123,11 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %RecordPage{resource_type: :folder, records: [child]}}}
     end)
 
-    assert {:ok, [listed]} = RecordSource.list_children(parent)
+    assert {:ok, [listed]} =
+             RecordSource.list_children(parent, %{
+               actor: %{person_id: 123, skip_permissions: true}
+             })
+
     assert listed.id == "child-1"
     assert listed.attributes["custom"] == "kept"
     assert listed.attributes["provider"] == "google_drive"

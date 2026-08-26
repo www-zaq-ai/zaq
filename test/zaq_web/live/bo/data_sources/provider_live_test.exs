@@ -97,6 +97,57 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
     assert [{%{"name" => "documents", "path" => "documents"}, 0}] =
              ProviderLive.disk_volumes_from_changeset(opened.assigns.changeset)
+
+    assert ProviderLive.disk_default_volume_from_changeset(opened.assigns.changeset) ==
+             "documents"
+  end
+
+  test "disk default volume can be selected and is promoted when removed" do
+    changeset =
+      ChannelConfig.changeset(%ChannelConfig{}, %{
+        "name" => "Disk",
+        "provider" => "disk",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{
+          "default_volume" => "archives",
+          "volumes" => [
+            %{"name" => "archives", "path" => "archives"},
+            %{"name" => "docs", "path" => "docs"}
+          ]
+        }
+      })
+
+    socket =
+      socket_with(%{
+        service_available: true,
+        provider: "disk",
+        changeset: changeset
+      })
+
+    assert {:noreply, selected} =
+             ProviderLive.handle_event("set_default_disk_volume", %{"index" => "1"}, socket)
+
+    assert ProviderLive.disk_default_volume_from_changeset(selected.assigns.changeset) == "docs"
+
+    assert {:noreply, removed} =
+             ProviderLive.handle_event("remove_disk_volume", %{"index" => "1"}, selected)
+
+    assert ProviderLive.disk_default_volume_from_changeset(removed.assigns.changeset) ==
+             "archives"
+  end
+
+  test "disk default volume display helper falls back to the first configured volume" do
+    config = %ChannelConfig{
+      settings: %{
+        "volumes" => [
+          %{"name" => "archives", "path" => "archives"},
+          %{"name" => "docs", "path" => "docs"}
+        ]
+      }
+    }
+
+    assert ProviderLive.disk_default_volume(config) == "archives"
   end
 
   test "disk validation rejects volume paths escaping the storage base" do

@@ -11,6 +11,7 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     def dispatch(%Event{request: request, opts: opts} = event) do
       send(self(), {:dispatch, event.next_hop.destination, opts[:action], request})
       send(self(), {:dispatch_actor, event.next_hop.destination, opts[:action], event.actor})
+      send(self(), {:dispatch_opts, event.next_hop.destination, opts[:action], opts})
       %{event | response: {:ok, %{content: "# guide", encoding: nil}}}
     end
   end
@@ -61,6 +62,19 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
              })
 
     assert_received {:dispatch_actor, :storage, :materialize_document, ^actor}
+  end
+
+  test "passes only an explicit trusted permission bypass through to storage" do
+    assert {:ok, _answer} =
+             DiskDocument.materialize(%{"file_id" => "guide.md"}, %{
+               node_router: StubNodeRouter,
+               skip_permissions: true,
+               event_opts: [skip_permissions: false, action: :delete_document]
+             })
+
+    assert_received {:dispatch_opts, :storage, :materialize_document, opts}
+    assert opts[:skip_permissions] == true
+    assert opts[:action] == :materialize_document
   end
 
   test "passes the encoding runtime option through to storage" do

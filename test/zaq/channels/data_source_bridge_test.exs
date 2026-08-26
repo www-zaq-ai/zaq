@@ -50,42 +50,42 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       {:ok, %{access_token: "new-access-token"}}
     end
 
-    def list_files(config, params) do
+    def list_files(config, params, _context) do
       send(self(), {:list_files, config.id, params})
       {:ok, %{records: []}}
     end
 
-    def create_file(config, params) do
+    def create_file(config, params, _context) do
       send(self(), {:create_file, config.id, params})
       {:ok, %{status: "created", record: %{"id" => "f1"}}}
     end
 
-    def get_file(config, params) do
+    def get_file(config, params, _context) do
       send(self(), {:get_file, config.id, params})
       {:ok, %{record: %{"id" => "f1"}}}
     end
 
-    def update_file(config, params) do
+    def update_file(config, params, _context) do
       send(self(), {:update_file, config.id, params})
       {:ok, %{status: "updated", record: %{"id" => "f1"}}}
     end
 
-    def delete_file(config, params) do
+    def delete_file(config, params, _context) do
       send(self(), {:delete_file, config.id, params})
       {:ok, %{status: "deleted", result: %{}}}
     end
 
-    def search_files(config, params) do
+    def search_files(config, params, _context) do
       send(self(), {:search_files, config.id, params})
       {:ok, %{records: [%{"id" => "f1"}]}}
     end
 
-    def download_document(config, params) do
+    def download_document(config, params, _context) do
       send(self(), {:download_document, config.id, params})
       {:ok, %{record: %{id: "f1", kind: :file, content: "hello"}}}
     end
 
-    def list_permissions(config, params) do
+    def list_permissions(config, params, _context) do
       send(self(), {:list_permissions, config.id, params})
       {:ok, %{records: []}}
     end

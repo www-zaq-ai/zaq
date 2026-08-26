@@ -32,8 +32,9 @@ defmodule Zaq.Storage.VolumeConfig do
     base_path = base_path(runtime_opts)
 
     with :ok <- validate_base_path(base_path),
-         {:ok, volumes} <- volumes_from_settings(settings, base_path) do
-      {:ok, [storage_config: [base_path: base_path, volumes: volumes]]}
+         {:ok, volumes, default_volume} <- volumes_from_settings(settings, base_path) do
+      {:ok,
+       [storage_config: [base_path: base_path, volumes: volumes, default_volume: default_volume]]}
     end
   end
 
@@ -49,10 +50,17 @@ defmodule Zaq.Storage.VolumeConfig do
         }
       end)
 
-    Map.put(settings, "volumes", volumes)
+    default_volume =
+      settings
+      |> map_get("default_volume")
+      |> normalize_default_volume(volumes)
+
+    settings
+    |> Map.put("volumes", volumes)
+    |> Map.put("default_volume", default_volume)
   end
 
-  def normalize_settings(_settings), do: %{"volumes" => []}
+  def normalize_settings(_settings), do: %{"volumes" => [], "default_volume" => nil}
 
   @doc "Validates normalized or raw settings."
   def validate_settings(settings) when is_map(settings) do
@@ -84,7 +92,18 @@ defmodule Zaq.Storage.VolumeConfig do
           {name, Path.join(base_path, path)}
         end)
 
-      {:ok, volumes}
+      {:ok, volumes, Map.fetch!(settings, "default_volume")}
+    end
+  end
+
+  defp normalize_default_volume(value, volumes) do
+    value = if is_nil(value), do: nil, else: value |> to_string() |> String.trim()
+    names = Enum.map(volumes, &Map.fetch!(&1, "name"))
+
+    cond do
+      value in names -> value
+      names == [] -> nil
+      true -> hd(names)
     end
   end
 
@@ -130,6 +149,10 @@ defmodule Zaq.Storage.VolumeConfig do
 
   defp map_get(map, "name") when is_map(map), do: Map.get(map, "name") || Map.get(map, :name)
   defp map_get(map, "path") when is_map(map), do: Map.get(map, "path") || Map.get(map, :path)
+
+  defp map_get(map, "default_volume") when is_map(map),
+    do: Map.get(map, "default_volume") || Map.get(map, :default_volume)
+
   defp map_get(_map, _key), do: nil
 
   defp storage_config(opts) do

@@ -110,7 +110,7 @@ defmodule Zaq.Ingestion do
         ingest_file_record(record, mode, context)
 
       :folder ->
-        with {:ok, children} <- RecordSource.list_children(record) do
+        with {:ok, children} <- RecordSource.list_children(record, context) do
           ingest_records(children, Map.put(context, :mode, mode))
         end
 
@@ -1072,28 +1072,31 @@ defmodule Zaq.Ingestion do
   defp data_source_record_source(_provider, _config_id, _provider_record_id), do: nil
 
   defp delete_removed_data_source_documents(request, provider, config_id) do
+    force_delete? = read_any(request, [:force_delete, "force_delete"]) == true
+
     request
     |> read_any([:signals, "signals"])
     |> List.wrap()
     |> Enum.filter(&data_source_signal_removed?/1)
     |> Enum.map(&data_source_signal_record/1)
     |> Enum.reject(&is_nil/1)
+    |> Enum.map(&put_data_source_attrs(&1, provider, config_id))
     |> Enum.reduce(0, fn record, count ->
-      count + delete_data_source_documents(provider, config_id, record)
+      count + delete_data_source_documents(provider, config_id, record, force_delete?)
     end)
   end
 
-  defp delete_data_source_documents(provider, config_id, %Record{} = record)
+  defp delete_data_source_documents(provider, config_id, %Record{} = record, force_delete?)
        when is_binary(provider) and is_binary(config_id) do
     source = ExternalSource.source(record)
     doc = Document.get_by_source(source)
 
-    delete_data_source_document_sources(source, doc, record)
+    delete_data_source_document_sources(source, doc, record, force_delete?)
   end
 
-  defp delete_data_source_documents(_provider, _config_id, _record), do: 0
+  defp delete_data_source_documents(_provider, _config_id, _record, _force_delete?), do: 0
 
-  defp delete_data_source_document_sources(_source, nil, %Record{id: parent_id})
+  defp delete_data_source_document_sources(_source, nil, %Record{id: parent_id}, _force_delete?)
        when is_binary(parent_id) do
     Document
     |> where(
@@ -1105,10 +1108,38 @@ defmodule Zaq.Ingestion do
     |> Enum.reduce(0, fn doc, count -> count + delete_existing_data_source_document(doc) end)
   end
 
-  defp delete_data_source_document_sources(_source, nil, _record), do: 0
+  defp delete_data_source_document_sources(_source, nil, _record, _force_delete?), do: 0
 
-  defp delete_data_source_document_sources(_source, %Document{} = doc, _record),
-    do: delete_existing_data_source_document(doc)
+  defp delete_data_source_document_sources(_source, %Document{} = doc, _record, force_delete?) do
+    if force_delete? or removable_data_source_document?(doc) do
+      delete_existing_data_source_document(doc)
+    else
+      0
+    end
+  end
+
+  defp removable_data_source_document?(%Document{watch_status: status})
+       when status in ["pending", "watched"],
+       do: true
+
+  defp removable_data_source_document?(%Document{metadata: metadata}) when is_map(metadata) do
+    metadata
+    |> Map.get("provider_parent_ids", [])
+    |> List.wrap()
+    |> Enum.any?(&watched_data_source_folder?/1)
+  end
+
+  defp removable_data_source_document?(_doc), do: false
+
+  defp watched_data_source_folder?(parent_id) when is_binary(parent_id) and parent_id != "" do
+    Document
+    |> where([d], d.watch_status in ["pending", "watched"])
+    |> where([d], fragment("? @> ?", d.metadata, ^%{"entry_type" => "folder"}))
+    |> where([d], like(d.source, ^"%/#{parent_id}"))
+    |> Repo.exists?()
+  end
+
+  defp watched_data_source_folder?(_parent_id), do: false
 
   defp delete_existing_data_source_document(%Document{} = doc) do
     case Document.delete(doc) do

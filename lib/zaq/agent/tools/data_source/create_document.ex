@@ -27,7 +27,7 @@ defmodule Zaq.Agent.Tools.DataSource.CreateDocument do
       provider: [type: :string, required: true, doc: "Datasource provider key"],
       name: [type: :string, required: true, doc: "Document name/title"],
       content: [type: :string, required: false, doc: "Optional textual content to create"],
-      path: [type: :string, required: false, doc: "Optional provider path/parent folder"],
+      path: [type: :string, required: false, doc: "Optional provider parent folder path"],
       parent_id: [type: :string, required: false, doc: "Optional provider parent identifier"],
       mime_type: [type: :string, required: false, doc: "Optional provider MIME type"],
       kind: [type: :string, required: false, doc: "Optional canonical item kind, e.g. folder"],

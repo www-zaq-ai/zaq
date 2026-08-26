@@ -16,6 +16,12 @@ Handles intentionally do not contain destination roles, actions, modules, creden
 actors, or permission decisions. Current authorization must come from the trusted runtime
 context that redeems the handle.
 
+`Zaq.Events.TrustedContext` is the only reusable projection of that runtime context across
+role and bridge boundaries. It retains the canonical actor and literal
+`skip_permissions: true`; credentials, arbitrary event options, request parameters, and
+runtime module overrides are not transported. Event builders may consume local router and
+config dependencies without storing them in the transported context.
+
 ## Flow
 
 1. A source adapter returns an unmaterialized `%Zaq.Contracts.Record{}` with
@@ -48,7 +54,9 @@ Per-redemption options:
   MIME type.
 
 The handler always dispatches `:data_source_download_document` to the Channels role via
-`Zaq.Channels.Events`; callers cannot select another action.
+`Zaq.Channels.Events`; callers cannot select another action. Channels passes the normalized
+trusted context to data-source file callbacks as a separate argument rather than embedding
+identity or permission flags in provider parameters.
 
 ## Communication Media
 

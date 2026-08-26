@@ -1586,6 +1586,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     request = %{
       provider: ExternalSource.provider(record),
       config_id: ExternalSource.config_id(record),
+      force_delete: true,
       signals: [%{removed: true, record: record}]
     }
 

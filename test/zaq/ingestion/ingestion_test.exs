@@ -25,7 +25,7 @@ defmodule Zaq.IngestionTest do
   alias Zaq.SystemConfigFixtures
 
   defmodule ExternalDataSourceBridgeStub do
-    def download_document(provider, params) do
+    def download_document(provider, params, _context) do
       send(self(), {:download_document, provider, params})
 
       if params["file_id"] == "pdf-123" do

@@ -5,6 +5,7 @@ defmodule Zaq.Channels.ApiTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
+  alias Zaq.Events.TrustedContext
   alias Zaq.Types.EncryptedString
 
   defmodule StubCommunicationBridge do
@@ -177,33 +178,33 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{status: "unwatched"}}
     end
 
-    def create_file(provider, params) do
-      send(self(), {:ds_create_file, provider, params})
+    def create_file(provider, params, context) do
+      send(self(), {:ds_create_file, provider, params, context})
       {:ok, %{status: "created", record: %{"id" => "f1"}}}
     end
 
-    def get_file(provider, params) do
-      send(self(), {:ds_get_file, provider, params})
+    def get_file(provider, params, context) do
+      send(self(), {:ds_get_file, provider, params, context})
       {:ok, %{record: %{"id" => "f1"}}}
     end
 
-    def update_file(provider, params) do
-      send(self(), {:ds_update_file, provider, params})
+    def update_file(provider, params, context) do
+      send(self(), {:ds_update_file, provider, params, context})
       {:ok, %{status: "updated", record: %{"id" => "f1"}}}
     end
 
-    def delete_file(provider, params) do
-      send(self(), {:ds_delete_file, provider, params})
+    def delete_file(provider, params, context) do
+      send(self(), {:ds_delete_file, provider, params, context})
       {:ok, %{status: "deleted", result: %{}}}
     end
 
-    def search_files(provider, params) do
-      send(self(), {:ds_search_files, provider, params})
+    def search_files(provider, params, context) do
+      send(self(), {:ds_search_files, provider, params, context})
       {:ok, %{records: [%{"id" => "f1"}]}}
     end
 
-    def download_document(provider, params) do
-      send(self(), {:ds_download_document, provider, params})
+    def download_document(provider, params, context) do
+      send(self(), {:ds_download_document, provider, params, context})
       {:ok, %{record: %{id: "f1", kind: :file, content: "hello"}}}
     end
 
@@ -287,8 +288,8 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{status: "deleted"}}
     end
 
-    def list_permissions(provider, params) do
-      send(self(), {:ds_list_permissions, provider, params})
+    def list_permissions(provider, params, context) do
+      send(self(), {:ds_list_permissions, provider, params, context})
       {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
     end
 
@@ -839,7 +840,7 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :data_source_create_file, nil)
     assert {:ok, %{status: "created", record: %{"id" => "f1"}}} = result.response
-    assert_received {:ds_create_file, :google_drive, %{"name" => "Doc"}}
+    assert_received {:ds_create_file, :google_drive, %{"name" => "Doc"}, %TrustedContext{}}
   end
 
   test "handles data_source_get_file action" do
@@ -850,7 +851,7 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :data_source_get_file, nil)
     assert {:ok, %{record: %{"id" => "f1"}}} = result.response
-    assert_received {:ds_get_file, :google_drive, %{"file_id" => "f1"}}
+    assert_received {:ds_get_file, :google_drive, %{"file_id" => "f1"}, %TrustedContext{}}
   end
 
   test "handles data_source_update_file action" do
@@ -863,7 +864,9 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :data_source_update_file, nil)
     assert {:ok, %{status: "updated", record: %{"id" => "f1"}}} = result.response
-    assert_received {:ds_update_file, :google_drive, %{"file_id" => "f1", "name" => "Renamed"}}
+
+    assert_received {:ds_update_file, :google_drive, %{"file_id" => "f1", "name" => "Renamed"},
+                     %TrustedContext{}}
   end
 
   test "handles data_source_delete_file action" do
@@ -874,7 +877,7 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :data_source_delete_file, nil)
     assert {:ok, %{status: "deleted", result: %{}}} = result.response
-    assert_received {:ds_delete_file, :google_drive, %{"file_id" => "f1"}}
+    assert_received {:ds_delete_file, :google_drive, %{"file_id" => "f1"}, %TrustedContext{}}
   end
 
   test "handles data_source_search_files action" do
@@ -885,7 +888,79 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :data_source_search_files, nil)
     assert {:ok, %{records: [%{"id" => "f1"}]}} = result.response
-    assert_received {:ds_search_files, :google_drive, %{"query" => "invoice"}}
+    assert_received {:ds_search_files, :google_drive, %{"query" => "invoice"}, %TrustedContext{}}
+  end
+
+  test "passes trusted identity and bypass separately from disk request params" do
+    actor = %{person_id: 7, provider: "bo"}
+
+    event =
+      Event.new(
+        %{
+          provider: :disk,
+          params: %{"query" => "invoice", __event_actor: %{skip_permissions: false}}
+        },
+        :channels,
+        actor: actor,
+        opts: [
+          action: :data_source_search_files,
+          data_source_bridge_module: StubDataSourceBridge,
+          skip_permissions: true
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_search_files, nil)
+    assert {:ok, %{records: [%{"id" => "f1"}]}} = result.response
+
+    assert_received {:ds_search_files, :disk, %{"query" => "invoice"}, context}
+    assert context == %TrustedContext{actor: actor, skip_permissions: true}
+  end
+
+  test "carries trusted disk bypass for an actorless machine context" do
+    event =
+      Event.new(%{provider: :disk, params: %{"query" => "invoice"}}, :channels,
+        opts: [
+          action: :data_source_search_files,
+          data_source_bridge_module: StubDataSourceBridge,
+          skip_permissions: true
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_search_files, nil)
+    assert {:ok, %{records: [%{"id" => "f1"}]}} = result.response
+
+    assert_received {:ds_search_files, :disk, %{"query" => "invoice"}, context}
+    assert context == %TrustedContext{actor: nil, skip_permissions: true}
+  end
+
+  test "does not trust bypass or actor markers from request params" do
+    actor = %{person_id: 7, provider: "bo"}
+
+    event =
+      Event.new(
+        %{
+          provider: :disk,
+          params: %{
+            "query" => "invoice",
+            "skip_permissions" => true,
+            __event_actor: %{skip_permissions: true}
+          }
+        },
+        :channels,
+        actor: actor,
+        opts: [
+          action: :data_source_search_files,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_search_files, nil)
+    assert {:ok, %{records: [%{"id" => "f1"}]}} = result.response
+
+    assert_received {:ds_search_files, :disk, params, context}
+    assert params["skip_permissions"] == true
+    assert params[:__event_actor] == %{skip_permissions: true}
+    assert context == %TrustedContext{actor: actor, skip_permissions: false}
   end
 
   test "handles data_source_download_document action" do
@@ -899,7 +974,9 @@ defmodule Zaq.Channels.ApiTest do
 
     result = Api.handle_event(event, :data_source_download_document, nil)
     assert {:ok, %{record: %{id: "f1", kind: :file, content: "hello"}}} = result.response
-    assert_received {:ds_download_document, :google_drive, %{"file_id" => "f1"}}
+
+    assert_received {:ds_download_document, :google_drive, %{"file_id" => "f1"},
+                     %TrustedContext{}}
   end
 
   test "handles data_source_export_options action" do
@@ -1108,7 +1185,7 @@ defmodule Zaq.Channels.ApiTest do
     assert result.response == {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
 
     assert_received {:ds_list_permissions, :google_drive,
-                     %{"file_id" => "f1", "config_id" => "12"}}
+                     %{"file_id" => "f1", "config_id" => "12"}, %TrustedContext{}}
   end
 
   test "data_source_list_permissions accepts empty params map" do
@@ -1123,7 +1200,7 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :data_source_list_permissions, nil)
 
     assert result.response == {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
-    assert_received {:ds_list_permissions, :google_drive, %{}}
+    assert_received {:ds_list_permissions, :google_drive, %{}, %TrustedContext{}}
   end
 
   test "handles webhook_delivered for data_source" do

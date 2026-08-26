@@ -21,7 +21,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.SystemConfigFixtures
 
   defmodule ProviderBrowserBridgeStub do
-    def list_files(provider, params) do
+    def list_files(provider, params, _context) do
       if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
         send(pid, {:list_files, provider, params})
       end
@@ -85,7 +85,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
        }}
     end
 
-    def download_document(_provider, %{"file_id" => file_id}) do
+    def download_document(_provider, %{"file_id" => file_id}, _context) do
       {:ok,
        %{
          record: %Record{
@@ -98,7 +98,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
        }}
     end
 
-    def create_file(provider, params) do
+    def create_file(provider, params, _context) do
       if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
         send(pid, {:create_file, provider, params})
       end
@@ -191,7 +191,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   defmodule ProviderBrowserErrorBridgeStub do
-    def list_files(provider, params) do
+    def list_files(provider, params, _context) do
       if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
         send(pid, {:list_files, provider, params})
       end
@@ -201,7 +201,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   defmodule ProviderBrowserCustomBridgeStub do
-    def list_files(provider, params) do
+    def list_files(provider, params, _context) do
       if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
         send(pid, {:list_files, provider, params})
       end
@@ -1476,7 +1476,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert state.socket.assigns.watch_error_message == "Watch setup failed."
   end
 
-  test "toggle_watch_status on a non-ingested local file shows the watch guidance flash", %{
+  test "toggle_watch_status on a non-ingested local file shows unsupported-source flash", %{
     conn: conn
   } do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
@@ -1486,7 +1486,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     state = :sys.get_state(view.pid)
 
     assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
-             "Ingest this item before watching it."
+             "Watching is not supported for this data source."
   end
 
   test "opens file preview inside modal", %{conn: conn} do

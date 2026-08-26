@@ -18,8 +18,8 @@ defmodule Zaq.Channels.DiskBridge do
   straight to storage rather than back through here — which is why `materialize_document`
   answers with the bytes alone rather than a record.
 
-  A file is named by its source — volume plus relative path — which is the id `list_files/2`
-  returns and `get_file/2`, `update_file/2`, and `delete_file/2` accept. It is deliberately
+  A file is named by its source — volume plus relative path — which is the id `list_files/3`
+  returns and `get_file/3`, `update_file/3`, and `delete_file/3` accept. It is deliberately
   not the `documents.id`: any file on a mounted volume is reachable whether or not it was
   ever ingested, so identity cannot depend on a document row existing.
   """
@@ -30,8 +30,9 @@ defmodule Zaq.Channels.DiskBridge do
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
-  alias Zaq.Event
+  alias Zaq.Events.TrustedContext
   alias Zaq.NodeRouter
+  alias Zaq.Storage.Events
   alias Zaq.Storage.FileExplorer.Entry
   alias Zaq.Storage.Materializers.DiskDocument
   alias Zaq.Storage.VolumeConfig
@@ -76,7 +77,7 @@ defmodule Zaq.Channels.DiskBridge do
   @doc "Reports what the mounted volumes hold — file, folder, and principal counts."
   @impl true
   def channel_stats(config, params) when is_map(config) and is_map(params) do
-    dispatch(:volume_stats, %{params: params}, config)
+    dispatch(:volume_stats, %{params: params}, config, %{})
   end
 
   # -- files --
@@ -106,8 +107,10 @@ defmodule Zaq.Channels.DiskBridge do
 
   @doc "Lists the documents on the mounted volumes as **unmaterialized** records — no content."
   @impl true
-  def list_files(config, params) when is_map(config) and is_map(params) do
-    with {:ok, page} <- dispatch(:list_documents, %{params: params}, config) do
+  def list_files(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
+    with {:ok, page} <-
+           dispatch(:list_documents, %{params: list_request(params)}, config, context) do
       {:ok, record_page(page, config)}
     end
   end
@@ -115,25 +118,31 @@ defmodule Zaq.Channels.DiskBridge do
   @doc """
   Writes a file onto a storage volume.
 
-  `path` is the destination directory and carries the volume; `name` is the file. Binary
-  content travels base64-encoded under `encoding`. Storage owns which volumes are mounted,
-  so it validates the destination rather than this bridge.
+  `path` is the destination directory; Storage applies the configured default volume when the
+  directory is not volume-qualified. `name` is the file. Binary content travels base64-encoded
+  under `encoding`. Storage owns which volumes are mounted, so it validates the destination
+  rather than this bridge.
   """
   @impl true
-  def create_file(config, params) when is_map(config) and is_map(params) do
-    action = if folder_request?(params), do: :persist_directory, else: :persist_document
+  def create_file(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
+    folder? = folder_request?(params)
+    action = if folder?, do: :persist_directory, else: :persist_document
 
-    with {:ok, %{entry: entry} = result} <- dispatch(action, persist_request(params), config) do
+    with {:ok, %{entry: entry} = result} <-
+           dispatch(action, persist_request(params, folder?), config, context) do
       {:ok, %{status: Map.get(result, :status, "created"), record: map_entry(entry, config)}}
     end
   end
 
   @doc "Returns one document as an unmaterialized record — metadata only, no content."
   @impl true
-  def get_file(config, params) when is_map(config) and is_map(params) do
+  def get_file(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
     file_id = to_string(fetch(params, "file_id"))
 
-    with {:ok, %Entry{} = entry} <- dispatch(:describe_document, %{file_id: file_id}, config) do
+    with {:ok, %Entry{} = entry} <-
+           dispatch(:describe_document, %{file_id: file_id}, config, context) do
       {:ok, %{record: map_entry(entry, config)}}
     end
   end
@@ -145,9 +154,10 @@ defmodule Zaq.Channels.DiskBridge do
   `content` (with `encoding` for binary) overwrites the bytes.
   """
   @impl true
-  def update_file(config, params) when is_map(config) and is_map(params) do
+  def update_file(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
     with {:ok, %{entry: entry} = result} <-
-           dispatch(:update_document, update_request(params), config) do
+           dispatch(:update_document, update_request(params), config, context) do
       {:ok, %{status: Map.get(result, :status, "updated"), record: map_entry(entry, config)}}
     end
   end
@@ -156,17 +166,24 @@ defmodule Zaq.Channels.DiskBridge do
   Removes the document row and the file behind it, along with its chunks and sidecars.
 
   Answers with the status alone. The file is gone by the time ingestion returns, so there is
-  nothing left to describe — the same answer `JidoConnectBridge.delete_file/2` gives.
+   nothing left to describe — the same answer `JidoConnectBridge.delete_file/3` gives.
   """
   @impl true
-  def delete_file(config, params) when is_map(config) and is_map(params) do
-    dispatch(:delete_document, %{file_id: to_string(fetch(params, "file_id"))}, config)
+  def delete_file(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
+    dispatch(
+      :delete_document,
+      %{file_id: to_string(fetch(params, "file_id"))},
+      config,
+      context
+    )
   end
 
   @doc "Finds documents whose source or title matches `query`."
   @impl true
-  def search_files(config, params) when is_map(config) and is_map(params) do
-    with {:ok, page} <- dispatch(:search_documents, %{params: params}, config) do
+  def search_files(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
+    with {:ok, page} <- dispatch(:search_documents, %{params: params}, config, context) do
       {:ok, record_page(page, config)}
     end
   end
@@ -182,20 +199,23 @@ defmodule Zaq.Channels.DiskBridge do
   redeems it as a nested handle and merges the bytes into the record this bridge already gave
   the caller.
 
-  That makes this the same answer as `get_file/2` — the difference between the two is what
+   That makes this the same answer as `get_file/3` — the difference between the two is what
   the caller does with the record, not what this bridge reads.
   """
   @impl true
-  def download_document(config, params) when is_map(config) and is_map(params) do
-    get_file(config, params)
+  def download_document(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
+    get_file(config, params, context)
   end
 
   @doc "Lists who can read the given document — one record per person or team grant."
   @impl true
-  def list_permissions(config, params) when is_map(config) and is_map(params) do
+  def list_permissions(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
     file_id = to_string(fetch(params, "file_id"))
 
-    with {:ok, grants} <- dispatch(:list_document_grants, %{file_id: file_id}, config) do
+    with {:ok, grants} <-
+           dispatch(:list_document_grants, %{file_id: file_id}, config, context) do
       {:ok, permission_page(grants, file_id)}
     end
   end
@@ -328,14 +348,52 @@ defmodule Zaq.Channels.DiskBridge do
 
   # -- requests --
 
-  defp persist_request(params) do
+  defp list_request(params) do
+    filters = fetch(params, "filters") || %{}
+    path = fetch(params, "path")
+
+    cond do
+      fetch(filters, "parent") -> without_path(params)
+      is_binary(path) -> put_list_parent(without_path(params), filters, String.trim(path, "/"))
+      true -> params
+    end
+  end
+
+  defp put_list_parent(params, _filters, ""), do: Map.put(params, "path", "/")
+
+  defp put_list_parent(params, filters, parent),
+    do: Map.put(params, "filters", Map.put(filters, "parent", parent))
+
+  defp without_path(params), do: params |> Map.delete("path") |> Map.delete(:path)
+
+  defp persist_request(params, folder?) do
+    name = fetch(params, "name")
+
     %{
-      "name" => fetch(params, "name"),
-      "path" => fetch(params, "path"),
+      "name" => name,
+      "path" => create_parent_path(fetch(params, "path"), name, folder?),
       "content" => fetch(params, "content") || "",
       "encoding" => fetch(params, "encoding")
     }
   end
+
+  defp create_parent_path(path, name, false) when is_binary(path) and is_binary(name) do
+    normalized = Path.expand(path, "/")
+
+    if Path.basename(normalized) == name do
+      normalized
+      |> Path.dirname()
+      |> String.trim_leading("/")
+      |> case do
+        "" -> nil
+        parent -> parent
+      end
+    else
+      path
+    end
+  end
+
+  defp create_parent_path(path, _name, _folder?), do: path
 
   defp folder_request?(params) when is_map(params) do
     fetch(params, "kind") in ["folder", :folder] or fetch(params, "type") in ["folder", :folder]
@@ -359,35 +417,18 @@ defmodule Zaq.Channels.DiskBridge do
   # role boundary. The router is read off `config`, never off `params`: `params` is
   # caller-supplied data that reaches here verbatim from agent tools, and choosing the dispatch
   # target from it would make what runs a function of what the caller sent.
-  defp dispatch(action, request, config) do
+  defp dispatch(action, request, config, context) do
     node_router = fetch(config, "node_router") || NodeRouter
     config_id = config_id(config)
-    {request, actor} = pop_internal_actor(request)
 
-    event_opts =
-      [action: action]
-      |> maybe_put(:config, fetch(config, "config"))
-      |> maybe_put(:config_id, config_id)
+    event_builder_opts =
+      TrustedContext.event_builder_opts(context,
+        node_router: node_router,
+        config: fetch(config, "config"),
+        event_opts: maybe_put([], :config_id, config_id)
+      )
 
-    request
-    |> Event.new(:storage, opts: event_opts, actor: actor)
-    |> node_router.dispatch()
-    |> Map.fetch!(:response)
-  end
-
-  defp pop_internal_actor(%{params: params} = request) when is_map(params) do
-    {params, actor} = pop_internal_actor(params)
-    {%{request | params: params}, actor}
-  end
-
-  defp pop_internal_actor(%{"params" => params} = request) when is_map(params) do
-    {params, actor} = pop_internal_actor(params)
-    {%{request | "params" => params}, actor}
-  end
-
-  defp pop_internal_actor(request) when is_map(request) do
-    {actor, request} = Map.pop(request, :__event_actor)
-    {request, actor}
+    Events.build_and_dispatch_event(action, request, event_builder_opts)
   end
 
   defp maybe_put(opts, _key, nil), do: opts

@@ -19,6 +19,13 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
     def dispatch(%Event{}), do: %{Event.new(%{}, :channels) | response: :weird_response}
   end
 
+  defmodule ContextNodeRouter do
+    def dispatch(%Event{} = event) do
+      send(self(), {:dispatched_event, event})
+      %{Event.new(%{}, :channels) | response: {:ok, %{records: []}}}
+    end
+  end
+
   test "dispatch/5 returns ok payload by default" do
     request = %{provider: "google_drive", params: %{"file_id" => "f1"}}
 
@@ -64,6 +71,35 @@ defmodule Zaq.Agent.Tools.DataSourceToolTest do
                %{node_router: UnexpectedNodeRouter},
                "Data source document request failed"
              )
+  end
+
+  test "dispatch/5 carries an explicit trusted permission bypass in event opts" do
+    assert {:ok, %{records: []}} =
+             DataSourceTool.dispatch(
+               :data_source_list_files,
+               %{provider: "disk", params: %{"path" => "/"}},
+               %{node_router: ContextNodeRouter, skip_permissions: true},
+               "Data source document listing failed"
+             )
+
+    assert_received {:dispatched_event, %Event{} = event}
+    assert event.opts[:skip_permissions] == true
+  end
+
+  test "dispatch/5 does not derive permission bypass from request arguments" do
+    assert {:ok, %{records: []}} =
+             DataSourceTool.dispatch(
+               :data_source_list_files,
+               %{
+                 provider: "disk",
+                 params: %{"path" => "/", "skip_permissions" => true}
+               },
+               %{node_router: ContextNodeRouter, skip_permissions: false},
+               "Data source document listing failed"
+             )
+
+    assert_received {:dispatched_event, %Event{} = event}
+    refute event.opts[:skip_permissions]
   end
 
   test "put_if_present/3 only adds non-nil values" do

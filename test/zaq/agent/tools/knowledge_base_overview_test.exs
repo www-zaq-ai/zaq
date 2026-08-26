@@ -1,11 +1,8 @@
 defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
-  # async: false — modifies application env and writes to the filesystem
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Tools.KnowledgeBaseOverview
   alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, Sidecar}
-
-  @test_base "test/tmp/knowledge_base_overview"
 
   # Routes directly to DocumentAccess without going through a real node boundary.
   defmodule PassthroughRouter do
@@ -18,25 +15,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
 
   setup do
     Chunk.create_table(1536)
-    File.rm_rf!(@test_base)
-    File.mkdir_p!(@test_base)
-
-    original = Application.get_env(:zaq, Zaq.Ingestion)
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: @test_base)
-
-    on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, original || [])
-      File.rm_rf!(@test_base)
-    end)
-
     :ok
-  end
-
-  defp write_file(rel_path) do
-    abs = Path.join(@test_base, rel_path)
-    abs |> Path.dirname() |> File.mkdir_p!()
-    File.write!(abs, "content")
-    rel_path
   end
 
   defp create_doc(source) do
@@ -47,6 +26,11 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
         metadata: %{}
       })
 
+    doc
+  end
+
+  defp create_ingested_doc(source) do
+    doc = create_doc(source)
     {:ok, _} = Chunk.create(%{document_id: doc.id, content: "chunk", chunk_index: 0})
 
     doc
@@ -57,20 +41,18 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
   end
 
   describe "run/2 — full path integration (skip_permissions: true)" do
-    test "returns correct total and ingested_count for mixed files" do
-      ingested = write_file("full-path/ingested.md")
-      _not_ingested = write_file("full-path/raw.md")
-      create_doc(ingested)
+    test "returns correct total and ingested_count for indexed documents" do
+      _ingested = create_ingested_doc("full-path/ingested.md")
+      _not_ingested = create_doc("full-path/raw.md")
 
       {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
 
-      assert result.total >= 2
-      assert result.ingested_count >= 1
-      assert result.ingested_count < result.total
+      assert result.total == 2
+      assert result.ingested_count == 1
     end
 
     test "every document in results has a preview_url" do
-      write_file("preview/file.md")
+      create_doc("preview/file.md")
 
       {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
 
@@ -80,8 +62,8 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
     end
 
     test "ingested file has ingested: true and correct preview_url" do
-      source = write_file("tag/doc.md")
-      create_doc(source)
+      source = "tag/doc.md"
+      create_ingested_doc(source)
 
       {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
 
@@ -91,8 +73,9 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
       assert entry.preview_url == "/bo/preview/#{source}"
     end
 
-    test "non-ingested file has ingested: false and correct preview_url" do
-      source = write_file("tag/raw.md")
+    test "indexed file with no chunks has ingested: false and correct preview_url" do
+      source = "tag/raw.md"
+      create_doc(source)
 
       {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
 
@@ -103,8 +86,10 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
     end
 
     test "source_filter restricts documents to matching folder" do
-      in_source = write_file("filter-target/a.md")
-      out_source = write_file("filter-other/b.md")
+      in_source = "filter-target/a.md"
+      out_source = "filter-other/b.md"
+      create_doc(in_source)
+      create_doc(out_source)
 
       ctx = Map.put(base_context(), :source_filter, ["filter-target"])
       {:ok, result} = KnowledgeBaseOverview.run(%{}, ctx)
@@ -115,9 +100,10 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
       assert result.total == length(result.documents)
     end
 
-    test "standalone .md appears even when same-name .pdf exists" do
-      write_file("sidecar-test/product.pdf")
-      md_source = write_file("sidecar-test/product.md")
+    test "standalone indexed .md appears even when same-name .pdf is indexed" do
+      create_doc("sidecar-test/product.pdf")
+      md_source = "sidecar-test/product.md"
+      create_doc(md_source)
 
       {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
 
@@ -126,8 +112,8 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
     end
 
     test "confirmed sidecar .md is hidden when companion .pdf exists" do
-      write_file("sidecar-confirmed/report.pdf")
-      sidecar_source = write_file("sidecar-confirmed/report.md")
+      create_doc("sidecar-confirmed/report.pdf")
+      sidecar_source = "sidecar-confirmed/report.md"
 
       Document.create(%{
         source: sidecar_source,

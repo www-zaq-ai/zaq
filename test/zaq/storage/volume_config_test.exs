@@ -18,8 +18,27 @@ defmodule Zaq.Storage.VolumeConfigTest do
     settings = %{"volumes" => [%{"name" => "Archive", :path => "archive"}]}
 
     assert VolumeConfig.normalize_settings(settings) == %{
-             "volumes" => [%{"name" => "Archive", "path" => "archive"}]
+             "volumes" => [%{"name" => "Archive", "path" => "archive"}],
+             "default_volume" => "Archive"
            }
+  end
+
+  test "keeps a valid default volume and promotes the first volume when missing or stale" do
+    settings = %{
+      "default_volume" => "second",
+      "volumes" => [
+        %{"name" => "first", "path" => "first"},
+        %{"name" => "second", "path" => "second"}
+      ]
+    }
+
+    assert %{"default_volume" => "second"} = VolumeConfig.normalize_settings(settings)
+
+    assert %{"default_volume" => "first"} =
+             VolumeConfig.normalize_settings(%{settings | "default_volume" => "missing"})
+
+    assert %{"default_volume" => "first"} =
+             VolumeConfig.normalize_settings(Map.delete(settings, "default_volume"))
   end
 
   test "rejects missing, duplicate, absolute, and traversal volume paths" do
@@ -47,7 +66,14 @@ defmodule Zaq.Storage.VolumeConfigTest do
   test "builds Storage runtime opts by joining base_path and relative volume paths" do
     config = %{settings: %{"volumes" => [%{"name" => "archive", "path" => "archive"}]}}
 
-    assert {:ok, [storage_config: [base_path: "priv/documents", volumes: volumes]]} =
+    assert {:ok,
+            [
+              storage_config: [
+                base_path: "priv/documents",
+                volumes: volumes,
+                default_volume: "archive"
+              ]
+            ]} =
              VolumeConfig.opts_for_channel_config(config)
 
     assert volumes == %{"archive" => "priv/documents/archive"}

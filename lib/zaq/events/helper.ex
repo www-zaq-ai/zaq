@@ -20,7 +20,11 @@ defmodule Zaq.Events.Helper do
     event_type = Keyword.get(opts, :type, :sync)
     event_opts = Keyword.get(opts, :event_opts, [])
 
-    Event.new(request, destination, type: event_type, opts: [action: action] ++ event_opts)
+    Event.new(request, destination,
+      type: event_type,
+      actor: Keyword.get(opts, :actor),
+      opts: [action: action] ++ event_opts
+    )
   end
 
   @spec build_and_dispatch_invoke_event(atom(), map(), atom(), keyword()) :: Event.t()

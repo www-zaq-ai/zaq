@@ -305,9 +305,9 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
       |> VolumeConfig.normalize_settings()
 
     volumes = Map.get(settings, "volumes", []) ++ [%{"name" => "", "path" => ""}]
+    settings = default_disk_volume_settings(%{settings | "volumes" => volumes})
 
-    changeset =
-      Ecto.Changeset.put_change(changeset, :settings, Map.put(settings, "volumes", volumes))
+    changeset = Ecto.Changeset.put_change(changeset, :settings, settings)
 
     {:noreply,
      socket |> assign(:changeset, changeset) |> assign(:form, to_form(changeset, as: :form))}
@@ -326,9 +326,38 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
       |> VolumeConfig.normalize_settings()
 
     volumes = settings |> Map.get("volumes", []) |> List.delete_at(index || -1)
+    settings = default_disk_volume_settings(%{settings | "volumes" => volumes})
 
-    changeset =
-      Ecto.Changeset.put_change(changeset, :settings, Map.put(settings, "volumes", volumes))
+    changeset = Ecto.Changeset.put_change(changeset, :settings, settings)
+
+    {:noreply,
+     socket |> assign(:changeset, changeset) |> assign(:form, to_form(changeset, as: :form))}
+  end
+
+  def handle_event(
+        "set_default_disk_volume",
+        %{"index" => index},
+        %{assigns: %{changeset: changeset}} = socket
+      ) do
+    index = parse_int(index)
+
+    settings =
+      changeset
+      |> Ecto.Changeset.get_field(:settings, %{})
+      |> VolumeConfig.normalize_settings()
+
+    default_volume =
+      settings
+      |> Map.get("volumes", [])
+      |> Enum.at(index || -1, %{})
+      |> Map.get("name")
+
+    settings =
+      settings
+      |> Map.put("default_volume", default_volume)
+      |> VolumeConfig.normalize_settings()
+
+    changeset = Ecto.Changeset.put_change(changeset, :settings, settings)
 
     {:noreply,
      socket |> assign(:changeset, changeset) |> assign(:form, to_form(changeset, as: :form))}
@@ -500,6 +529,21 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     |> Map.get("volumes", [])
     |> Enum.with_index()
   end
+
+  def disk_default_volume_from_changeset(changeset) do
+    changeset
+    |> Ecto.Changeset.get_field(:settings, %{})
+    |> VolumeConfig.normalize_settings()
+    |> Map.get("default_volume")
+  end
+
+  def disk_default_volume(%{settings: settings}) when is_map(settings) do
+    settings
+    |> VolumeConfig.normalize_settings()
+    |> Map.get("default_volume")
+  end
+
+  def disk_default_volume(_config), do: nil
 
   def active_grant_for_config(config, grants_by_config),
     do: Map.get(grants_by_config || %{}, config.id)
@@ -987,6 +1031,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
       changeset
       |> Ecto.Changeset.get_field(:settings, %{})
       |> Map.put_new("volumes", [%{"name" => "documents", "path" => "documents"}])
+      |> VolumeConfig.normalize_settings()
 
     Ecto.Changeset.put_change(changeset, :settings, settings)
   end
@@ -1010,13 +1055,22 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
           []
       end
 
-    Map.put(params, "settings", Map.put(settings, "volumes", volumes))
+    settings =
+      settings
+      |> Map.put("volumes", volumes)
+      |> VolumeConfig.normalize_settings()
+
+    Map.put(params, "settings", settings)
   end
 
   defp normalize_disk_form_params(params, _provider), do: params
 
   defp storage_base_path_blank?(path) when is_binary(path), do: String.trim(path) == ""
   defp storage_base_path_blank?(_path), do: true
+
+  defp default_disk_volume_settings(settings) do
+    VolumeConfig.normalize_settings(settings)
+  end
 
   defp maybe_validate_global_base_url_for_webhook_capability(changeset, provider) do
     if provider_requires_global_base_url?(provider) and is_nil(Zaq.System.get_global_base_url()) do

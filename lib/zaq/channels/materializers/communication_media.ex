@@ -6,6 +6,7 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
   @behaviour Zaq.Materialization.Handler
 
   alias Zaq.Channels.Events
+  alias Zaq.Events.TrustedContext
   alias Zaq.Helpers
   alias Zaq.MapUtils
 
@@ -40,11 +41,9 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
          :ok <- authorize(request, context) do
       request
       |> Events.build_and_dispatch_materialize_record_event(
-        node_router_opts(context) ++
-          [
-            actor: actor(context),
-            event_opts: communication_event_opts(context)
-          ]
+        TrustedContext.event_builder_opts(context,
+          event_opts: communication_event_opts(context)
+        )
       )
       |> Map.fetch!(:response)
     end
@@ -110,12 +109,6 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
   defp maybe_put_communication_bridge_module(opts, module),
     do: Keyword.put(opts, :communication_bridge_module, module)
 
-  defp node_router_opts(context) do
-    node_router = Map.get(context, :node_router)
-    if is_nil(node_router), do: [], else: [node_router: node_router]
-  end
-
-  defp actor(context), do: MapUtils.fetch(context, :actor)
   defp string(map, key), do: string_value(Map.get(map, key))
   defp string_value(value) when is_binary(value), do: value
   defp string_value(value) when is_atom(value), do: Atom.to_string(value)
