@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T09:22:36Z",
+  "description": "Repair both download_document paths by centralizing trusted context propagation and resolving Disk ChannelConfig volumes consistently.",
+  "id": "zaq-2rx",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Fix Disk document download context and scoping",
+  "type": "bug",
+  "updated_at": "2026-08-26T09:22:36Z"
+}
