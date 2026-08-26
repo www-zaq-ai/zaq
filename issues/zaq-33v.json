@@ -8,7 +8,7 @@
   "labels": [],
   "priority": 2,
   "status": "open",
-  "title": "Fix trusted event option forwarding",
+  "title": "[zaq-33v] Fix trusted event option forwarding",
   "type": "task",
   "updated_at": "2026-08-26T12:10:34Z"
 }
