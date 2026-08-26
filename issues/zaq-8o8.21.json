@@ -19,11 +19,15 @@
     {
       "text": "Fixed the remaining live-call authorization issue. Root enumeration was correct (scanned counts raw immediate entries), but Executor's trusted tool_context skip_permissions flag was dropped by DataSourceTool. DataSourceTool now copies only context skip_permissions:true into Channels event opts. Channels.Api stamps that trusted flag onto disk's internal event actor, overriding any caller-supplied __event_actor marker; DiskBridge and Storage.Api then use their existing actor forwarding/bypass handling. Model request fields cannot enable bypass, false/missing context remains fail-closed, and actorless trusted machine contexts are supported. Validation: 170 focused tests including listing/search, boundary propagation, actor forwarding, Storage ACL, and anti-forgery cases pass; mix q, diagnostics, and git diff --check pass. Raw scanned statistics retained as requested. Changes remain uncommitted.",
       "timestamp": "2026-08-26T08:44:56Z"
+    },
+    {
+      "text": "Implemented write-path default volume handling and exact filename normalization. Disk settings now carry normalized default_volume, Storage runtime opts include default_volume, unqualified/omitted write destinations use that default while explicit volume paths still win, and DiskBridge strips a full destination path only when a file create path basename exactly equals name. BO Disk volume editor now exposes a single default-volume radio toggle and promotes a remaining volume after deletion. Added focused regressions across VolumeConfig, Storage, DiskBridge, and ProviderLive. Validation: focused tests passed; mix format passed; mix q passed.",
+      "timestamp": "2026-08-26T10:59:36Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-8o8.21] Fix disk listing missing roots and path contract",
   "type": "bug",
-  "updated_at": "2026-08-26T10:53:21Z"
+  "updated_at": "2026-08-26T10:59:36Z"
 }
