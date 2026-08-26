@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-26T09:22:37Z",
+  "description": "Add security and config-scoping regression tests before implementation.",
+  "id": "zaq-2rx.1",
+  "labels": [],
+  "parent": "zaq-2rx",
+  "priority": 1,
+  "status": "open",
+  "title": "Add Disk download regression coverage",
+  "type": "task",
+  "updated_at": "2026-08-26T09:22:37Z"
+}
