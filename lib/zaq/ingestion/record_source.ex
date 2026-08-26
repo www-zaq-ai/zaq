@@ -25,9 +25,9 @@ defmodule Zaq.Ingestion.RecordSource do
   end
 
   @doc "Materializes a canonical record into the common ingestion worker input."
-  @spec materialize(Record.t()) :: {:ok, map()} | {:error, term()}
-  def materialize(%Record{} = record) do
-    materialize_external(record)
+  @spec materialize(Record.t(), map()) :: {:ok, map()} | {:error, term()}
+  def materialize(%Record{} = record, context \\ %{}) when is_map(context) do
+    materialize_external(record, context)
   end
 
   @doc "Lists child records for a folder record."
@@ -83,8 +83,8 @@ defmodule Zaq.Ingestion.RecordSource do
 
   def from_storage_map(_), do: {:error, :invalid_source_record}
 
-  defp materialize_external(%Record{} = record) do
-    with {:ok, %{record: %Record{} = downloaded}} <- download_external(record),
+  defp materialize_external(%Record{} = record, context) do
+    with {:ok, %{record: %Record{} = downloaded}} <- download_external(record, context),
          {:ok, stored} <- store_download(record, downloaded) do
       source = ExternalSource.source(record)
 
@@ -102,15 +102,16 @@ defmodule Zaq.Ingestion.RecordSource do
     end
   end
 
-  defp download_external(%Record{materialization_handle: handle}) when is_binary(handle) do
+  defp download_external(%Record{materialization_handle: handle}, context)
+       when is_binary(handle) do
     Materialization.materialize(
       handle,
-      data_source_context(),
+      data_source_context(context),
       "Data source document download failed"
     )
   end
 
-  defp download_external(%Record{} = record) do
+  defp download_external(%Record{} = record, context) do
     attrs = %{
       "config_id" => ExternalSource.config_id(record),
       "document_mime_type" => record.mime_type
@@ -124,7 +125,7 @@ defmodule Zaq.Ingestion.RecordSource do
       {:ok, handle} ->
         Materialization.materialize(
           handle,
-          data_source_context(),
+          data_source_context(context),
           "Data source document download failed"
         )
 
@@ -146,7 +147,11 @@ defmodule Zaq.Ingestion.RecordSource do
     if encoding == "base64" do
       with {:ok, binary} <- Base.decode64(content),
            {:ok, stored} <-
-             ExternalSidecarStore.write_original(record, binary, extension_for(downloaded)) do
+             ExternalSidecarStore.write_original(
+               record,
+               binary,
+               extension_for(record, downloaded)
+             ) do
         {:ok, Map.put(stored, :cleanup_paths, [stored.root_path])}
       end
     else
@@ -247,15 +252,22 @@ defmodule Zaq.Ingestion.RecordSource do
     Protocol.UndefinedError -> ""
   end
 
-  defp extension_for(%Record{name: name}) when is_binary(name) do
+  defp extension_for(%Record{} = original, %Record{} = downloaded) do
+    case extension_from_record(original) do
+      ".bin" -> extension_from_record(downloaded)
+      ext -> ext
+    end
+  end
+
+  defp extension_from_record(%Record{name: name}) when is_binary(name) do
     case Path.extname(name) do
       "" -> ".bin"
       ext -> ext
     end
   end
 
-  defp extension_for(%Record{mime_type: "application/pdf"}), do: ".pdf"
-  defp extension_for(_), do: ".bin"
+  defp extension_from_record(%Record{mime_type: "application/pdf"}), do: ".pdf"
+  defp extension_from_record(_), do: ".bin"
 
   defp attr(%Record{} = record, key), do: record |> attributes() |> Map.get(key)
 
@@ -363,14 +375,19 @@ defmodule Zaq.Ingestion.RecordSource do
     ]
   end
 
-  defp data_source_context do
-    %{
+  defp data_source_context(context) do
+    %{}
+    |> maybe_put_actor(Map.get(context, :actor) || Map.get(context, "actor"))
+    |> Map.merge(%{
       data_source_bridge_module:
         Application.get_env(
           :zaq,
           :ingestion_data_source_bridge_module,
           Zaq.Channels.DataSourceBridge
         )
-    }
+    })
   end
+
+  defp maybe_put_actor(context, actor) when is_map(actor), do: Map.put(context, :actor, actor)
+  defp maybe_put_actor(context, _actor), do: context
 end

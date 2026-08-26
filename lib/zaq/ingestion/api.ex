@@ -16,7 +16,7 @@ defmodule Zaq.Ingestion.Api do
         _context
       )
       when is_list(records) and is_map(params) do
-    %{event | response: Ingestion.ingest_records(records, params)}
+    %{event | response: Ingestion.ingest_records(records, put_actor(params, event.actor))}
   end
 
   def handle_event(%Event{request: request} = event, :process_data_source_changes, _context)
@@ -31,4 +31,7 @@ defmodule Zaq.Ingestion.Api do
 
   def handle_event(%Event{} = event, action, _context),
     do: InternalBoundaries.default_handle_event(event, action)
+
+  defp put_actor(params, actor) when is_map(actor), do: Map.put(params, :actor, actor)
+  defp put_actor(params, _actor), do: params
 end

@@ -133,7 +133,7 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp materialize_job(%IngestJob{source_record: source_record}) when is_map(source_record) do
     with {:ok, record} <- RecordSource.from_storage_map(source_record) do
-      RecordSource.materialize(record)
+      RecordSource.materialize(record, Map.get(source_record, "materialization_context", %{}))
     end
   end
 

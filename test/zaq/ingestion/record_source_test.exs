@@ -276,7 +276,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert File.read!(materialized.path) == "PDF bytes"
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
 
-    blob_record = external_record(%{"provider_record_id" => "blob"})
+    blob_record = %{external_record(%{"provider_record_id" => "blob"}) | name: "blob"}
 
     blob_downloaded = %Record{
       id: "blob",
@@ -295,8 +295,22 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
   end
 
+  test "materialize/1 preserves original extension for flat base64 materializations" do
+    pdf_record = external_record(%{"provider_record_id" => "disk-pdf"})
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      assert event.opts[:action] == :data_source_download_document
+
+      %{event | response: {:ok, %{content: Base.encode64("PDF bytes"), encoding: "base64"}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(pdf_record)
+    assert String.ends_with?(materialized.path, ".pdf")
+    assert File.read!(materialized.path) == "PDF bytes"
+  end
+
   test "materialize/1 uses bin extension for unnamed non-pdf base64 downloads" do
-    record = external_record(%{"provider_record_id" => "raw"})
+    record = %{external_record(%{"provider_record_id" => "raw"}) | name: "raw"}
 
     downloaded = %Record{
       id: "raw",

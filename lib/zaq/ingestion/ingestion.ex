@@ -58,8 +58,9 @@ defmodule Zaq.Ingestion do
 
   def ingest_records(records, params \\ %{}) when is_list(records) and is_map(params) do
     mode = normalize_mode(Map.get(params, "mode") || Map.get(params, :mode) || :async)
+    context = materialization_context(params)
 
-    {jobs, errors} = Enum.reduce(records, {[], []}, &collect_ingest_result(&1, mode, &2))
+    {jobs, errors} = Enum.reduce(records, {[], []}, &collect_ingest_result(&1, mode, context, &2))
 
     if errors == [] do
       {:ok, Enum.reverse(jobs)}
@@ -100,6 +101,10 @@ defmodule Zaq.Ingestion do
   def process_data_source_changes(_request), do: {:error, :invalid_request}
 
   def ingest_record(record, mode \\ :async) do
+    ingest_record_with_context(record, mode, %{})
+  end
+
+  defp ingest_record_with_context(record, mode, context) do
     case RecordSource.kind(record) do
       :file ->
         ingest_file_record(record, mode)
@@ -916,15 +921,15 @@ defmodule Zaq.Ingestion do
 
   defp ingest_file_record(record, mode) do
     with path when is_binary(path) <- RecordSource.job_path(record),
-         {:ok, job} <- create_job(path, mode, nil, RecordSource.to_storage_map(record)) do
+         {:ok, job} <- create_job(path, mode, nil, source_record_for_job(record, context)) do
       run_job(job, mode)
     else
       _ -> {:error, :unsupported_record_source}
     end
   end
 
-  defp collect_ingest_result(record, mode, {jobs, errors}) do
-    case ingest_record(record, mode) do
+  defp collect_ingest_result(record, mode, context, {jobs, errors}) do
+    case ingest_record_with_context(record, mode, context) do
       {:ok, record_jobs} when is_list(record_jobs) ->
         {Enum.reverse(record_jobs) ++ jobs, errors}
 
@@ -967,6 +972,24 @@ defmodule Zaq.Ingestion do
         |> data_source_record_watch_state(
           inherited_watch_for_parent_ids(provider, config_id, record.parent_ids)
         )
+  defp materialization_context(params) do
+    case Map.get(params, :actor) || Map.get(params, "actor") do
+      actor when is_map(actor) -> %{actor: actor}
+      _ -> %{}
+    end
+  end
+
+  defp source_record_for_job(record, context) do
+    record
+    |> RecordSource.to_storage_map()
+    |> maybe_put_materialization_context(context)
+  end
+
+  defp maybe_put_materialization_context(source_record, %{actor: actor}) when is_map(actor),
+    do: Map.put(source_record, "materialization_context", %{"actor" => actor})
+
+  defp maybe_put_materialization_context(source_record, _context), do: source_record
+
 
       data_source_record_watch_active?(state)
     else
