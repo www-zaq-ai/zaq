@@ -8,7 +8,7 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
   payload owe it, so it is an *optional* input: omit it and the run still completes.
   But `StepRunner` validates every declared field it is handed a value for, required
   or not, so a wrong-kinded `label` fails the run. The contract has to say so
-  *before* the run, or a `valid: true` verdict is a false clearance. Optional
+  *before* the run, or a `valid?: true` verdict is a false clearance. Optional
   forgives absence, not the wrong kind of value — both halves are asserted here.
 
   Nothing here is stubbed: the real `create_workflow` → `create_run` →
@@ -16,6 +16,8 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
   assertions read the step run rows it wrote.
   """
   use Zaq.DataCase, async: true
+
+  import Zaq.InputContractHelpers
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.InputContract
@@ -85,7 +87,7 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
       workflow = wired_workflow()
       payload = %{"count" => 3}
 
-      assert %{valid: true, missing_inputs: [], invalid_inputs: []} =
+      assert %{valid?: true, errors: []} =
                InputContract.contract(workflow, payload)
 
       {_run, step_runs} = run_with(workflow, payload)
@@ -98,7 +100,7 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
       workflow = wired_workflow()
       payload = %{"count" => 3, "label" => "ok"}
 
-      assert %{valid: true, invalid_inputs: []} = InputContract.contract(workflow, payload)
+      assert %{valid?: true, errors: []} = InputContract.contract(workflow, payload)
 
       {_run, step_runs} = run_with(workflow, payload)
 
@@ -112,9 +114,11 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
 
       contract = InputContract.contract(workflow, payload)
 
-      assert contract.valid == false
-      assert contract.missing_inputs == []
-      assert [%{path: "label", expected: "string", got: "integer"}] = contract.invalid_inputs
+      assert contract.valid? == false
+      assert missing(contract) == []
+
+      assert [%{path: ["label"], code: :invalid_type, message: "expected string, got integer"}] =
+               contract.errors
 
       {_run, step_runs} = run_with(workflow, payload)
 
@@ -132,7 +136,7 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
         contract = InputContract.contract(workflow, payload)
         {_run, step_runs} = run_with(workflow, payload)
 
-        if contract.valid do
+        if contract.valid? do
           assert validation_failures(step_runs) == [],
                  "contract said valid but the run refused label=#{inspect(label)}"
         end

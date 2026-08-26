@@ -10,7 +10,7 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
     * a well-typed value that breaks a rule is **invalid**, not supplied. The
       pre-flight check runs `Zoi.parse/2`, the same judge `StepRunner` runs, so a
       refinement is not something it can be blind to.
-    * the report names **the rule**. `expected` and `got` both read `"string"` for a
+    * the report names **the rule** through its own `code`, not a kind pair. For a
       refinement failure — true and useless — so `message` carries Zoi's own wording
       and is the part a caller acts on.
 
@@ -22,6 +22,8 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
   the step actually does with the same payload.
   """
   use Zaq.DataCase, async: true
+
+  import Zaq.InputContractHelpers
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.InputContract
@@ -101,7 +103,10 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
   defp valid_payload(overrides \\ %{}),
     do: Map.merge(%{"email" => "a@b.c", "password" => "hunter22"}, overrides)
 
-  defp invalid_for(payload), do: InputContract.contract(graph(), payload).invalid_inputs
+  defp invalid_for(payload), do: InputContract.contract(graph(), payload) |> refused_errors()
+
+  defp refused_errors(verdict),
+    do: Enum.reject(verdict.errors, &(&1.code == :required))
 
   describe "the contract" do
     test "a refined field is required or optional the same way any field is" do
@@ -112,7 +117,7 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
     end
 
     test "a payload satisfying every rule is valid" do
-      assert %{valid: true, missing_inputs: [], invalid_inputs: []} =
+      assert %{valid?: true, errors: []} =
                InputContract.contract(graph(), valid_payload())
     end
   end
@@ -121,7 +126,8 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
     test "an email without @ is invalid, and the message names the pattern" do
       assert [violation] = invalid_for(valid_payload(%{"email" => "nope"}))
 
-      assert violation.path == "email"
+      assert violation.path == ["email"]
+      assert violation.code == :invalid_format
       assert violation.message == "invalid format: must match pattern @"
     end
 
@@ -130,28 +136,31 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
     test "the kind pair cannot express a refinement — the message is what carries it" do
       assert [violation] = invalid_for(valid_payload(%{"email" => "nope"}))
 
-      assert violation.expected == "string"
-      assert violation.got == "string"
+      # The kind pair is gone: a rule failure carries its own `code` and the message the
+      # author's rule produced, so nothing has to say "expected string, got string".
+      assert violation.code == :invalid_format
       refute violation.message =~ "expected string, got string"
     end
 
     test "a password under the minimum is invalid" do
       assert [violation] = invalid_for(valid_payload(%{"password" => "short"}))
 
-      assert violation.path == "password"
+      assert violation.path == ["password"]
+      assert violation.code == :greater_than_or_equal_to
       assert violation.message == "too small: must have at least 8 character(s)"
     end
 
     test "a password over the maximum is invalid" do
       assert [violation] = invalid_for(valid_payload(%{"password" => "way-too-long-password"}))
 
+      assert violation.code == :less_than_or_equal_to
       assert violation.message == "too big: must have at most 12 character(s)"
     end
 
     # The rules are inclusive at both ends — asserted so a later `gt`/`lt` slip shows up.
     test "the boundary lengths are accepted" do
       for password <- [String.duplicate("a", 8), String.duplicate("a", 12)] do
-        assert %{valid: true, invalid_inputs: []} =
+        assert %{valid?: true, errors: []} =
                  InputContract.contract(graph(), valid_payload(%{"password" => password})),
                "#{String.length(password)} characters should be accepted"
       end
@@ -160,34 +169,35 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
     test "one path per broken rule, so a caller sees every one at once" do
       violations = invalid_for(%{"email" => "nope", "password" => "short"})
 
-      assert Enum.map(violations, & &1.path) == ["email", "password"]
+      assert Enum.map(violations, & &1.path) == [["email"], ["password"]]
+      assert Enum.map(violations, & &1.code) == [:invalid_format, :greater_than_or_equal_to]
     end
 
     # A wrong *kind* still reads as a kind mismatch — that branch is not lost.
     test "a wrong kind still names what arrived" do
       assert [violation] = invalid_for(valid_payload(%{"email" => 42}))
 
+      assert violation.code == :invalid_type
       assert violation.message == "expected string, got integer"
-      assert violation.got == "integer"
     end
   end
 
   describe "a rule on an optional field" do
     test "omitting it is valid — the rule has nothing to judge" do
-      assert %{valid: true, missing_inputs: [], invalid_inputs: []} =
+      assert %{valid?: true, errors: []} =
                InputContract.contract(graph(), valid_payload())
     end
 
     test "supplying it too short is invalid, and it is not reported missing" do
-      assert %{valid: false, missing_inputs: [], invalid_inputs: [violation]} =
+      assert %{valid?: false, errors: [violation]} =
                InputContract.contract(graph(), valid_payload(%{"nickname" => "ab"}))
 
-      assert violation.path == "nickname"
+      assert violation.path == ["nickname"]
       assert violation.message == "too small: must have at least 3 character(s)"
     end
 
     test "supplying it correctly is valid" do
-      assert %{valid: true, invalid_inputs: []} =
+      assert %{valid?: true, errors: []} =
                InputContract.contract(graph(), valid_payload(%{"nickname" => "abc"}))
     end
   end
@@ -197,7 +207,7 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
       w = workflow()
       payload = valid_payload(%{"nickname" => "abc"})
 
-      assert %{valid: true} = InputContract.contract(w, payload)
+      assert %{valid?: true} = InputContract.contract(w, payload)
 
       {_run, step_runs} = run_with(w, payload)
 
@@ -218,7 +228,7 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
           ] do
         payload = valid_payload(%{field => value})
 
-        assert %{invalid_inputs: [%{path: ^field, message: message}]} =
+        assert %{errors: [%{path: [^field], message: message}]} =
                  InputContract.contract(w, payload)
 
         {_run, step_runs} = run_with(w, payload)
@@ -242,7 +252,7 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
         contract = InputContract.contract(w, payload)
         {_run, step_runs} = run_with(w, payload)
 
-        if contract.valid do
+        if contract.valid? do
           assert step_failure(step_runs) == nil,
                  "contract cleared #{inspect(payload)} but the run refused it"
         end

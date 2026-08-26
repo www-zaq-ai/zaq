@@ -1,55 +1,38 @@
 defmodule Zaq.Engine.Workflows.InputContract do
   @moduledoc """
-  Derives what a workflow's trigger payload must contain, from the graph alone.
+  Derives what a workflow's trigger payload must carry, and judges a candidate one.
 
-  A workflow is a DAG of nodes wired by edges. Every node needs input fields;
-  some are written by an upstream step, and the rest must arrive in the trigger
-  payload. This module walks the graph — edge mappings, `{{...}}` references in
-  node params, edge conditions, and each action module's `schema/0` and
-  `output_schema/0` — and sorts one from the other.
+  A workflow is a DAG of nodes wired by edges. Every node needs input fields; some
+  are written by an upstream step, and the rest must arrive in the trigger payload.
+  This module walks the graph — edge mappings, `{{...}}` references in node params,
+  edge conditions — and reads each action's `schema/0` and `output_schema/0` for what
+  it declares, to sort one from the other. `start` names the trigger payload: it is
+  not a node, so a field sourced from `start.*` is never step-fed.
 
-  `contract/2` is the entry point and returns the whole picture in one traversal:
+  `contract/2` is the entry point. It judges a payload and returns the verdict,
+  nothing else:
 
       %{
-        valid: false,
-        required_inputs: ["email topic", "input.name"],
-        optional_inputs: ["cc"],
-        input_types: %{"email topic" => "string", "input.name" => "string", "cc" => "any"},
-        required_input_shape: %{"email topic" => nil, "input" => %{"name" => nil}},
-        missing_inputs: ["email topic"],
-        invalid_inputs: [%{path: "input.name", expected: "string", got: "integer"}],
-        unsatisfiable_inputs: []
+        valid?: false,
+        errors: [
+          %{path: ["email topic"], code: :required, message: "is required"},
+          %{path: ["input", "name"], code: :invalid_type,
+            message: "expected string, got integer"}
+        ]
       }
 
-  The other public functions expose the same data one piece at a time, each
-  re-walking the graph: `all_inputs/1`, `fed_by_steps/1`, `missing/1`,
-  `required_inputs/1`, `optional_inputs/1`, `input_types/1`,
-  `required_input_shape/1`, `unsatisfiable_inputs/1`, and `check/2` to test a
-  candidate payload.
+  One entry per problem, carrying where to fix it, a `code` in Zoi's vocabulary
+  (`:required` for the key, `:invalid_type` for the kind, anything else for a rule
+  the author declared), and a sentence. `valid?` is `errors == []`. A `path` is a
+  list of segments rather than a dotted string, so it cannot be misread as a flat
+  key, and a list index (`["rows", 0, "email"]`) has a spelling at all.
 
-  ## Vocabulary
+  Describing a workflow — what it *can* be sent — is a different question, answered
+  by `required_inputs/1`, `optional_inputs/1`, `input_types/1` and
+  `required_input_shape/1`. They walk the same graph; they are not part of the
+  verdict.
 
-    * **Need** — "`node.field` is written from `source`". Everything here is
-      derived from the list of needs; qualifying by node keeps two nodes needing
-      a `subject` distinct.
-    * **`start`** — the namespace of the trigger payload. It is not a node, so a
-      field sourced from `start.*` is never step-fed: `missing = all_inputs −
-      fed_by_steps` leaves it required without special-casing.
-    * **Required input** — a dotted path into the payload (`"input.name"` means
-      an `"input"` object holding a `"name"`), the way `FactLookup` reads it at
-      run time, reaching a field some action declares required.
-    * **Optional input** — the same kind of path, but reaching only fields their
-      action declares optional. The payload may omit it and every step still runs;
-      supply it and it is type-checked like any other, since the omission is the
-      only thing optional forgives.
-    * **Unsatisfiable input** — a field whose source names no producer in the
-      graph. An authoring error rather than a payload gap, so it is reported
-      separately instead of being asked of the caller.
-    * **Expectation** — the kind of value the field a required path reaches
-      declares, read from the action's own schema. Optional fields declare a kind
-      too: optional means the payload may omit it, not that any value will do.
-      Known only where the payload value reaches that field whole; see
-      `expectations/1`.
+  Rationale, and the run-time parity argument, live in `docs/services/workflows.md`.
   """
 
   alias Zaq.Engine.Workflows.Action
@@ -62,10 +45,9 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   Every input field every node needs, as `"node.field"`.
 
-  A node needs a field when an incoming edge mapping writes it, when a reference
-  inside its own params reads it, or when its action schema requires it and
-  nothing else supplies it. An edge condition needs the field it gates on, keyed
-  by the edge (`"from->to.field"`) since it writes into neither endpoint.
+  A node needs a field when an edge mapping writes it, a reference in its own params
+  reads it, or its schema requires it and nothing else supplies it. An edge condition
+  is keyed by the edge (`"from->to.field"`), writing into neither endpoint.
   """
   @spec all_inputs(Workflow.t() | map()) :: MapSet.t(String.t())
   def all_inputs(workflow), do: workflow |> needs() |> all_inputs_from()
@@ -75,9 +57,8 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   The inputs fed by the output of a previous step, as `"node.field"`.
 
-  A field is fed when **every** source that writes into it names another node.
-  A `start.*` source is the trigger payload, not a step output, so a field with
-  even one `start` source is not fed.
+  Fed only when **every** source writing into it names another node; one `start.*`
+  source is the trigger payload, so it is enough to make the field unfed.
   """
   @spec fed_by_steps(Workflow.t() | map()) :: MapSet.t(String.t())
   def fed_by_steps(workflow), do: workflow |> needs() |> fed_by_steps_from()
@@ -99,13 +80,9 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   The paths the trigger payload must carry, as dotted strings.
 
-  This is `missing/1` translated from `"node.field"` into what a caller can
-  actually send: the `start.*` sources behind each unfed field, with the `start.`
-  prefix stripped and duplicates collapsed.
-
-  Only the paths a step cannot run without. A path that reaches nothing but fields
-  the schemas declare optional is in `optional_inputs/1` instead — see there for why
-  the two are separate lists rather than one.
+  `missing/1` translated into what a caller can send: the `start.*` sources behind
+  each unfed field, prefix stripped and duplicates collapsed. A path reaching only
+  fields the schemas declare optional is in `optional_inputs/1` instead.
   """
   @spec required_inputs(Workflow.t() | map()) :: [String.t()]
   def required_inputs(workflow), do: workflow |> needs() |> required_inputs_from()
@@ -113,19 +90,12 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   The paths the trigger payload *may* carry, as dotted strings.
 
-  The rest of the unfed `start.*` sources: paths that reach only fields their action
-  declares optional. The graph wires them, so the payload can supply them, but every
-  step still runs when it does not — demanding them would make a caller invent values
-  for fields the action has its own defaults or branches for.
+  The unfed `start.*` sources reaching only fields their action declares optional:
+  the graph wires them, but every step still runs when the payload omits one. A path
+  reaching an optional field on one node and a required field on another is required.
 
-  Optional is about presence, not about type. A wired optional field is typed like
-  any other (`expectations/1`), and `check/2` type-checks the ones a payload actually
-  supplies — `StepRunner` validates every declared field it is handed a value for, so
-  an optional field given the wrong kind of value fails the run just as a required one
-  does. Absence is the only thing optional forgives.
-
-  A path reaching an optional field on one node and a required field on another is
-  required: every node in the graph runs.
+  Optional is about presence, not type — a wired optional field is typed like any
+  other (`expectations/1`), and `check/2` judges the ones a payload supplies.
   """
   @spec optional_inputs(Workflow.t() | map()) :: [String.t()]
   def optional_inputs(workflow), do: workflow |> needs() |> optional_inputs_from()
@@ -135,8 +105,7 @@ defmodule Zaq.Engine.Workflows.InputContract do
   defp optional_inputs_from(needs), do: needs |> start_paths() |> paths_where(false)
 
   # The unfed payload paths the graph reads, grouped as `%{path => [need]}`. One path
-  # can reach several fields — a mapping on two nodes, or a param and a mapping — and
-  # each of them has its own say in whether the payload must carry it.
+  # can reach several fields, and each has its own say in whether the payload owes it.
   defp start_paths(needs) do
     unfed = missing_from(needs)
 
@@ -158,16 +127,11 @@ defmodule Zaq.Engine.Workflows.InputContract do
   The payload paths that carry a declared type, as `%{path => [spec]}`.
 
   A path is typed only where its value reaches a schema-declared field whole — a
-  mapping target, a schema-required field of an entry node, or a param the author
-  wrote as a lone `{{...}}`. An interpolated reference resolves to a string whatever
-  the payload holds, and a condition field has no schema, so neither is typed.
+  mapping target, a schema-required field of an entry node, or a param written as a
+  lone `{{...}}`. Interpolated references and condition fields have no declared kind.
 
-  Declared, not required: this covers `optional_inputs/1` as well as
-  `required_inputs/1`, because `StepRunner` validates every declared field it is
-  handed a value for — an optional field is free to be absent, not free to be wrong.
-
-  A path several nodes read collects one spec per node: the value has to satisfy all
-  of them, since every one of those nodes runs.
+  Covers optional paths as well as required ones, and a path several nodes read
+  collects one spec per node: the value must satisfy all of them.
   """
   @spec expectations(Workflow.t() | map()) :: %{String.t() => [term()]}
   def expectations(workflow), do: workflow |> needs() |> expectations_from()
@@ -184,19 +148,13 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   The declared kind of every payload path, as `%{path => kind}`.
 
-  `expectations/1` rendered for a reader instead of for `Zoi.parse/2`: one entry for
-  every path in `required_inputs/1` and `optional_inputs/1`, naming the kind through
-  `Action.schema_kind/1` — `"integer"`, `"one of: active, inactive"`, `"list of
-  string"`.
+  `expectations/1` rendered for a reader: one entry per path in `required_inputs/1`
+  and `optional_inputs/1`, named through `Action.schema_kind/1` (`"integer"`,
+  `"one of: active, inactive"`).
 
-  **Every path appears, including the ones nothing types.** A path the graph reaches
-  only through an interpolated placeholder has no declared kind, and it is reported
-  as `"any"` rather than left out. An absent entry reads as a question, and a reader
-  asked to say what a workflow expects answers a question it cannot look up by
-  inventing — which is the failure this exists to prevent. `"any"` is the answer.
-
-  A path several nodes read names every kind it must satisfy at once
-  (`"integer and one of: 1, 2"`), because every one of those nodes runs.
+  Every path appears — an untyped one reads `"any"` rather than being left out, so a
+  reader never has to guess. A path several nodes read names every kind it must
+  satisfy at once (`"integer and one of: 1, 2"`).
   """
   @spec input_types(Workflow.t() | map()) :: %{String.t() => String.t()}
   def input_types(workflow), do: workflow |> needs() |> input_types_from()
@@ -216,17 +174,11 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   `required_inputs/1` as the payload itself — a nested skeleton with `nil` leaves.
 
-  A dotted path is a *shape*, not a key: `"input.name"` means the payload carries
-  an `"input"` object holding `"name"`. Callers fill values into the skeleton
-  instead of applying that convention themselves.
-
       %{"email topic" => nil, "input" => %{"name" => nil}}
 
-  Where a path is both a leaf and a prefix of another (`"input"` and
-  `"input.name"`), the nested form wins — it satisfies both.
-
-  The skeleton is not a payload: every leaf is `nil`, and `check/2` counts a `nil`
-  leaf as missing, so returning it unfilled is invalid on every path it names.
+  A dotted path is a *shape*, not a key. Where a path is both a leaf and a prefix of
+  another, the nested form wins. Not a payload: `check/2` counts a `nil` leaf as
+  missing, so the skeleton is invalid on every path it names.
   """
   @spec required_input_shape(Workflow.t() | map()) :: map()
   def required_input_shape(workflow), do: workflow |> required_inputs() |> shape()
@@ -244,71 +196,25 @@ defmodule Zaq.Engine.Workflows.InputContract do
   end
 
   @doc """
-  Inputs no step can feed and no payload can supply, as `%{node:, field:, source:}`.
+  Judges a candidate trigger payload, as `%{valid?:, errors:}`.
 
-  A field is unsatisfiable when nothing local writes it, no predecessor's output
-  schema declares it, and it is not rooted in `start` — the graph names a source
-  that has no producer. `source` is that dangling reference, or `nil` when the
-  field is schema-required and the graph names nothing at all.
+  Takes a workflow or an already-computed `required_inputs/1` list. Resolution goes
+  through `FactLookup` with the payload planted under `start`, so a path matches the
+  way it will at run time — nested paths descend, and `"Email_Topic"` resolves
+  `"email topic"`.
 
-  Fixing one means editing the workflow. No payload can supply it, so it is kept
-  out of `missing/1`.
-  """
-  @spec unsatisfiable_inputs(Workflow.t() | map()) :: [
-          %{node: String.t(), field: String.t(), source: String.t() | nil}
-        ]
-  def unsatisfiable_inputs(workflow), do: workflow |> needs() |> unsatisfiable_from()
+  Each entry carries a Zoi `code`: `:required` (the path is absent or resolves to
+  `nil`), `:invalid_type`, or a rule the author declared (`:invalid_length`,
+  `:invalid_enum_value`, …) with Zoi's own phrasing and path kept. `false`, `0` and
+  `""` are values a caller can mean, and supply. An optional path is an error only
+  when it is present and wrong.
 
-  defp unsatisfiable_from(needs) do
-    needs
-    |> Enum.filter(&(&1.kind == :unsatisfiable))
-    |> Enum.map(&Map.take(&1, [:node, :field, :source]))
-    |> Enum.uniq()
-    |> Enum.sort_by(&{&1.node, &1.field, &1.source || ""})
-  end
-
-  @doc """
-  Checks a candidate trigger payload against `required_inputs/1` and
-  `optional_inputs/1`.
-
-  Takes a workflow or an already-computed `required_inputs/1` list, and returns
-  `%{valid:, supplied:, missing_inputs:, invalid_inputs:}`.
-
-  Resolution goes through `FactLookup` with the payload planted under `start`, so
-  a path matches the way it will at run time: nested paths descend, and the
-  canonicalising fallback accepts `"Email_Topic"` for `"email topic"`.
-
-  A path is supplied when it resolves to a value of the kind its field declares.
-  Three verdicts, because they have three remediations:
-
-    * **missing** — the path does not resolve, or resolves to `nil`. `nil` is not a
-      value: the run would read it and fail exactly the way this contract exists to
-      catch, the same rule `pinned_params/1` applies to an author's params. `false`,
-      `0` and `""` are values a caller can mean, and supply.
-    * **invalid** — the path resolves, but to a value the field refuses. Reported as
-      `%{path:, expected:, got:, message:}` so a caller knows to send a different
-      *kind* of value rather than merely a value. `expected`/`got` name the kinds at
-      the path itself; `message` is `Action.explain/2`, which for a failure *inside*
-      the value (a bad key of a wired map, a bad element of a wired list) names the
-      offending key and what it wanted. There `expected` and `got` are both the
-      container's kind and `message` is the only actionable part.
-    * **supplied** — everything else.
-
-  An optional path is judged on two of those three: absent or `nil` it is simply not
-  reported, and present it is type-checked and lands in `supplied` or
-  `invalid_inputs` like any other. Optional forgives absence, not the wrong kind of
-  value.
-
-  Only a workflow carries the modules that declare types, so only the workflow arity
-  type-checks — and only it knows which paths are optional. Given a bare
-  `required_inputs/1` list there is nothing to read either from, and the check is a
-  presence-only one over paths all taken to be required.
+  Only the workflow arity type-checks: a bare list carries no modules to read types
+  from, so it is a presence-only check over paths all taken to be required.
   """
   @spec check(Workflow.t() | map() | [String.t()], term()) :: %{
-          valid: boolean(),
-          supplied: [String.t()],
-          missing_inputs: [String.t()],
-          invalid_inputs: [%{path: String.t(), expected: String.t(), got: String.t()}]
+          valid?: boolean(),
+          errors: [%{path: [String.t() | integer()], code: atom(), message: String.t()}]
         }
   def check(required, payload) when is_list(required),
     do: check_against(required, [], %{}, payload)
@@ -327,101 +233,68 @@ defmodule Zaq.Engine.Workflows.InputContract do
   defp check_against(required, optional, expectations, payload) do
     fact = %{__cascade__: %{start: payload}}
 
-    {resolved, missing} =
+    {supplied, missing} =
       required
       |> Enum.map(&{&1, FactLookup.fetch(fact, qualified_start(&1))})
       |> Enum.split_with(&match?({_path, {:ok, value}} when not is_nil(value), &1))
 
-    # An optional path the payload omits is not a gap, so it never reaches `missing`.
-    # One the payload does carry is judged like any other: the step validates every
-    # declared field it is handed a value for, and refuses the wrong kind in an
-    # optional field exactly as in a required one.
+    # An optional path the payload omits is not a gap; one it carries is judged like
+    # any other.
     present_optional =
       optional
       |> Enum.map(&{&1, FactLookup.fetch(fact, qualified_start(&1))})
       |> Enum.filter(&match?({_path, {:ok, value}} when not is_nil(value), &1))
 
-    {supplied, invalid} =
-      (resolved ++ present_optional)
-      |> Enum.map(fn {path, {:ok, value}} -> {path, value} end)
-      |> Enum.split_with(fn {path, value} ->
-        Enum.all?(Map.get(expectations, path, []), &spec_accepts?(&1, value))
-      end)
+    errors =
+      Enum.map(missing, fn {path, _fetched} -> required_error(path) end) ++
+        Enum.flat_map(supplied ++ present_optional, &value_errors(&1, expectations))
 
-    invalid = Enum.map(invalid, &violation(&1, expectations))
+    errors = errors |> Enum.uniq() |> Enum.sort_by(& &1.path)
 
-    %{
-      valid: missing == [] and invalid == [],
-      supplied: supplied |> Enum.map(&elem(&1, 0)) |> Enum.sort(),
-      missing_inputs: missing |> Enum.map(&elem(&1, 0)) |> Enum.sort(),
-      invalid_inputs: Enum.sort_by(invalid, & &1.path)
-    }
+    %{valid?: errors == [], errors: errors}
   end
 
-  # Names the first spec the value fails, of the one or more the path collects.
-  defp violation({path, value}, expectations) do
-    refused =
-      expectations
-      |> Map.get(path, [])
-      |> Enum.find(&(not spec_accepts?(&1, value)))
+  defp required_error(path) do
+    segments = segments(path)
 
-    %{
-      path: path,
-      expected: Action.schema_kind(refused),
-      got: Action.value_kind(value),
-      message: Action.explain(refused, value)
-    }
+    segments
+    |> List.last()
+    |> Zoi.Error.required(path: segments)
+    |> Action.error_json()
   end
+
+  # Every rule the value breaks, at the path the payload carries it under. Zoi's own
+  # path is lifted onto it, so a nested failure reads as `["input", "name", "email"]`.
+  defp value_errors({path, {:ok, value}}, expectations) do
+    segments = segments(path)
+
+    expectations
+    |> Map.get(path, [])
+    |> Enum.flat_map(&Action.field_errors(&1, value))
+    |> Enum.map(&(&1 |> Zoi.Error.prepend_path(segments) |> Action.error_json()))
+  end
+
+  defp segments(path), do: String.split(path, ".")
 
   @doc """
-  The whole contract for one workflow in a single pass — verdict, requirements,
-  and authoring errors.
+  The verdict for one workflow against one payload.
 
-  Same data as `check/2`, `required_inputs/1`, `optional_inputs/1`, `input_types/1`,
-  `required_input_shape/1` and `unsatisfiable_inputs/1` combined, but walking the
-  graph and resolving the action schemas once instead of once per field.
+  Identical to `check/2`'s workflow arity, under the name `Workflows.input_contract/2`
+  dispatches.
   """
   @spec contract(Workflow.t() | map(), term()) :: %{
-          valid: boolean(),
-          missing_inputs: [String.t()],
-          invalid_inputs: [%{path: String.t(), expected: String.t(), got: String.t()}],
-          required_inputs: [String.t()],
-          optional_inputs: [String.t()],
-          input_types: %{String.t() => String.t()},
-          required_input_shape: map(),
-          unsatisfiable_inputs: [
-            %{node: String.t(), field: String.t(), source: String.t() | nil}
-          ]
+          valid?: boolean(),
+          errors: [%{path: [String.t() | integer()], code: atom(), message: String.t()}]
         }
-  def contract(workflow, payload) do
-    needs = needs(workflow)
-    required = required_inputs_from(needs)
-    optional = optional_inputs_from(needs)
-    verdict = check_against(required, optional, expectations_from(needs), payload)
-
-    %{
-      valid: verdict.valid,
-      missing_inputs: verdict.missing_inputs,
-      invalid_inputs: verdict.invalid_inputs,
-      required_inputs: required,
-      optional_inputs: optional,
-      input_types: input_types_from(needs),
-      required_input_shape: shape(required),
-      unsatisfiable_inputs: unsatisfiable_from(needs)
-    }
-  end
+  def contract(workflow, payload), do: check(workflow, payload)
 
   # -- iteration bodies ---------------------------------------------------------
 
   # An iteration node (`Batch`, or the `map` it lowers to) declares its sub-pipeline
-  # inline, as params rather than as nodes. `Batch` itself has no `schema/0` and no
-  # `output_schema/0`, so read as authored it needs nothing and promises nothing —
-  # everything the iteration actually requires is declared by the body modules.
-  #
-  # So the body is lifted into the graph before anything is derived: one node per
-  # sub-step, named `"<node>/<sub>"` exactly as `MapNodeBuilder` names its StepRuns,
-  # chained by synthetic edges that mirror `run_fork/2`. Nothing below this point
-  # knows an iteration node from a plain one.
+  # inline as params and has no schema of its own — the body modules declare what it
+  # needs. So the body is lifted into the graph first: one node per sub-step, named
+  # `"<node>/<sub>"` as `MapNodeBuilder` names its StepRuns, chained by synthetic edges.
+  # Nothing below this point knows an iteration node from a plain one.
   @body_keys ["process", "body"]
   @post_key "post_process"
 
@@ -435,8 +308,7 @@ defmodule Zaq.Engine.Workflows.InputContract do
   end
 
   # Returns `{node, sub_nodes, sub_edges}`. The body params are dropped from the node
-  # itself: they are nodes now, and leaving them would count every reference twice —
-  # once against the iteration node, once against the sub-step that actually reads it.
+  # itself — they are nodes now, and leaving them would count every reference twice.
   defp expand_node(node) do
     case body_chain(node["params"]) do
       [] ->
@@ -474,10 +346,8 @@ defmodule Zaq.Engine.Workflows.InputContract do
     }
   end
 
-  # `run_fork/2` threads the fan-out unit through the sub-steps in order, each one
-  # receiving only the previous one's result. So the head is fed by the iteration
-  # node and every other link by its predecessor — a plain chain of unmapped edges,
-  # which is already how `upstream_emits/2` reads a predecessor's output schema.
+  # `run_fork/2` threads the unit through the sub-steps in order, each receiving only
+  # the previous one's result — so the body is a plain chain of unmapped edges.
   defp chain_edges([head | rest], node) do
     pairs = Enum.zip([head | rest], rest)
 
@@ -487,13 +357,21 @@ defmodule Zaq.Engine.Workflows.InputContract do
 
   defp chain_edges([], _node), do: []
 
+  # `"synthetic"` marks an edge this module invented to model the fan-out. `run_fork/2`
+  # merges the unit *under* the sub-step's own params, the opposite precedence to a real
+  # edge, so a body param keeps the value its author wrote.
   defp edge(from, to, mapping),
-    do: %{"from" => from, "to" => to, "mapping" => mapping, "condition" => nil}
+    do: %{
+      "from" => from,
+      "to" => to,
+      "mapping" => mapping,
+      "condition" => nil,
+      "synthetic" => true
+    }
 
-  # What the fan-out delivers into the first sub-step, and under which key. The unit
-  # is wrapped under the delivery `field` — authored on a `map` node, detected from
-  # the first body module on a `Batch`. When neither states it the unit is merged in
-  # flat, so every required field of that module is what arrives.
+  # What the fan-out delivers into the first sub-step, and under which key — authored
+  # on a `map` node, detected from the first body module on a `Batch`. When neither
+  # states it, the unit is merged in flat.
   defp head_mapping(head, node) do
     fields =
       case node["params"]["field"] || batch_field(head["module"]) do
@@ -513,10 +391,9 @@ defmodule Zaq.Engine.Workflows.InputContract do
     end
   end
 
-  # An iteration node reads its collection from `over` (`"items"` for a `Batch`).
-  # Nothing declares it — `Batch` has no schema — so it is stated here, and then
-  # travels the same path as any schema-required field: satisfied by a mapping, by a
-  # predecessor's output, or by the payload, and unsatisfiable when by none of them.
+  # An iteration node reads its collection from `over` (`"items"` for a `Batch`). No
+  # schema declares it, so it is stated here and then travels the same path as any
+  # schema-required field.
   defp iterated_field(node), do: List.wrap(node["iterates"])
 
   # -- needs --------------------------------------------------------------------
@@ -525,11 +402,43 @@ defmodule Zaq.Engine.Workflows.InputContract do
   # edge mapping, param reference, unwritten schema-required field, and condition.
   defp needs(workflow) do
     %{nodes: nodes, edges: edges} = workflow |> graph() |> expand_bodies()
-    names = MapSet.new(nodes, & &1["name"])
+    ancestors = ancestors(edges)
     emits = Map.new(nodes, &{&1["name"], MapSet.new(emitted_schema_fields(&1["module"]))})
 
-    Enum.flat_map(nodes, &node_needs(&1, edges, names, emits)) ++
+    Enum.flat_map(nodes, &node_needs(&1, edges, ancestors, emits)) ++
       Enum.flat_map(edges, &condition_needs/1)
+  end
+
+  # Every node that runs before each node, as `%{node => MapSet.t()}`. The cascade is
+  # built per path (`StepRunner.inject_cascade/3`), so a node on another branch is never
+  # in this node's fact. `start` is not a node and is dropped.
+  defp ancestors(edges) do
+    parents =
+      edges
+      |> Enum.reject(&(&1["from"] == @start))
+      |> Enum.group_by(& &1["to"], & &1["from"])
+
+    Enum.reduce(Map.keys(parents), %{}, &walk_ancestors(&2, &1, parents, MapSet.new()))
+  end
+
+  # Depth-first, memoised in the accumulator. `visiting` guards a cycle: a persisted
+  # workflow is acyclic, but this module runs against graphs that are wrong.
+  defp walk_ancestors(acc, node, parents, visiting) do
+    if Map.has_key?(acc, node) or MapSet.member?(visiting, node) do
+      acc
+    else
+      forebears = Map.get(parents, node, [])
+      visiting = MapSet.put(visiting, node)
+      acc = Enum.reduce(forebears, acc, &walk_ancestors(&2, &1, parents, visiting))
+
+      Map.put(acc, node, collect_ancestors(forebears, acc))
+    end
+  end
+
+  defp collect_ancestors(forebears, acc) do
+    Enum.reduce(forebears, MapSet.new(), fn parent, set ->
+      set |> MapSet.put(parent) |> MapSet.union(Map.get(acc, parent, MapSet.new()))
+    end)
   end
 
   # The need an edge condition reads, keyed `"from->to"` rather than by either
@@ -562,7 +471,7 @@ defmodule Zaq.Engine.Workflows.InputContract do
     end
   end
 
-  defp node_needs(node, edges, names, emits) do
+  defp node_needs(node, edges, ancestors, emits) do
     name = node["name"]
     incoming = Enum.filter(edges, &(&1["to"] == name))
 
@@ -570,7 +479,8 @@ defmodule Zaq.Engine.Workflows.InputContract do
     pinned = pinned_params(node["params"])
 
     scope = %{
-      names: names,
+      ancestors: Map.get(ancestors, name, MapSet.new()),
+      overwritten: overwritten(incoming),
       local: MapSet.union(mapped, pinned),
       upstream: upstream_emits(incoming, emits),
       specs: declared_field_specs(node["module"]),
@@ -582,10 +492,8 @@ defmodule Zaq.Engine.Workflows.InputContract do
       schema_needs(node, name, incoming, scope)
   end
 
-  # Every declared field of a module's schema, `%{name => {spec, required?}}` —
-  # optional ones included. The two halves answer two different questions:
-  # `required?` whether the payload must carry the field at all, `spec` what the
-  # field accepts once a payload does supply it.
+  # Every declared field of a module's schema, `%{name => {spec, required?}}`, optional
+  # ones included: `required?` whether the payload must carry it, `spec` what it accepts.
   defp declared_field_specs(module) do
     module
     |> Action.field_specs()
@@ -603,14 +511,22 @@ defmodule Zaq.Engine.Workflows.InputContract do
     end
   end
 
-  # Whether the payload must carry the field. A field the schema declares optional
-  # may be omitted; one the schema does not declare at all is unknown, and unknown
-  # counts as required — the contract never invents permission to leave a field out.
+  # Whether the payload must carry the field. A field no schema declares is unknown,
+  # and unknown counts as required.
   defp field_required?(scope, field) do
     case Map.get(scope.specs, field) do
       {_spec, required?} -> required?
       nil -> true
     end
+  end
+
+  # Param keys an incoming edge overwrites at run time. Only a real edge does — the
+  # mapped value wins the merge, so what the author wrote never reaches the action.
+  defp overwritten(incoming) do
+    incoming
+    |> Enum.reject(& &1["synthetic"])
+    |> Enum.flat_map(&Map.keys(&1["mapping"]))
+    |> MapSet.new()
   end
 
   # Names of the params that carry a value. A `nil` param pins nothing, so its
@@ -637,25 +553,29 @@ defmodule Zaq.Engine.Workflows.InputContract do
   end
 
   # Types a param only when the author wrote the reference alone; an interpolated one
-  # resolves to a string whatever the payload holds. Only the *type* is unknown there
-  # — it is still the same field, so whether it is required still reads off the schema.
+  # resolves to a string whatever the payload holds. A param a real incoming edge
+  # overwrites is skipped — `StepRunner.still_authored/2` never resolves it, so asking
+  # the payload for what it names would starve a caller for a value the run ignores.
+  # A synthetic body edge merges the other way (see `edge/3`), so its reference stands.
   defp param_needs(node, name, scope) do
     params = node["params"] || %{}
 
-    Enum.map(param_references(node), fn {field, source} ->
+    node
+    |> param_references()
+    |> Enum.reject(fn {field, _source} -> MapSet.member?(scope.overwritten, field) end)
+    |> Enum.map(fn {field, source} ->
       typed? = Placeholders.lone_reference?(Map.get(params, field))
 
       need(name, field, source, %{scope | typed?: typed?})
     end)
   end
 
-  # Needs for the required fields nothing else writes: from `start` on a node fed
-  # only by `start`, from a predecessor emitting them otherwise. A node's own module
-  # states most of them; an iteration node's collection is the one the graph states.
+  # Needs for the required fields nothing else writes: from `start` on a node fed only
+  # by `start`, from a predecessor emitting them otherwise.
   defp schema_needs(node, name, incoming, scope) do
     entry? = Enum.all?(incoming, &(&1["from"] == @start))
 
-    (required_schema_fields(node["module"]) ++ iterated_field(node))
+    (required_specs(scope) ++ iterated_field(node))
     |> Enum.uniq()
     |> Enum.reject(&MapSet.member?(scope.local, &1))
     |> Enum.map(fn field ->
@@ -695,6 +615,16 @@ defmodule Zaq.Engine.Workflows.InputContract do
     end)
   end
 
+  # The required field names of the node's own schema, read off the specs `node_needs/4`
+  # already loaded — `Action.field_specs/1` rebuilds the schema struct on every call.
+  # Sorted because `scope.specs` is a map and loses declaration order.
+  defp required_specs(scope) do
+    scope.specs
+    |> Enum.filter(fn {_name, {_spec, required?}} -> required? end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
+  end
+
   # Builds one need, classifying its source: a leading `start` is the trigger
   # payload, anything else is resolved against the graph by its root.
   defp need(node, field, source, scope) do
@@ -714,10 +644,12 @@ defmodule Zaq.Engine.Workflows.InputContract do
     }
   end
 
-  # A source root is `:step` when it names a node, a locally written field, or a
-  # field a predecessor emits; anything else has no producer in the graph.
-  defp root_kind(root, %{names: names, local: local, upstream: upstream}) do
-    if MapSet.member?(names, root) or MapSet.member?(local, root) or
+  # A source root is `:step` when it names a node that runs before this one, a locally
+  # written field, or a field a predecessor emits. Anything else is `:unsatisfiable`:
+  # the fact will not carry it. That kind is not reported — it only keeps a dangling
+  # source from counting as step-fed; naming a broken graph is `Composition`'s job.
+  defp root_kind(root, %{ancestors: ancestors, local: local, upstream: upstream}) do
+    if MapSet.member?(ancestors, root) or MapSet.member?(local, root) or
          MapSet.member?(upstream, root),
        do: :step,
        else: :unsatisfiable
@@ -747,14 +679,8 @@ defmodule Zaq.Engine.Workflows.InputContract do
   Required fields of an action module's input schema, each with a spec that judges
   a candidate value for it — `[{name, spec}]`.
 
-  A spec is a Zoi schema for that one field, whichever dialect the action declared —
-  `Action.field_specs/1` reads both into that one vocabulary. Treat it as opaque.
-
-  `required_schema_fields/1` is the names-only projection of this. Requiring and
-  type-checking are separate questions and read separate slices: what the payload
-  must carry comes from this required-only list, what a wired field accepts comes
-  from the whole of `Action.field_specs/1`. Both read the same schema `StepRunner`
-  validates against at run time, so neither can drift from it.
+  A spec is a Zoi schema for that one field, whichever dialect the action declared.
+  Treat it as opaque. `required_schema_fields/1` is the names-only projection.
   """
   @spec required_schema_field_specs(String.t() | nil) :: [{String.t(), term()}]
   def required_schema_field_specs(module) do
@@ -767,11 +693,9 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   Whether `value` satisfies a spec from `Action.field_specs/1`.
 
-  Runs the value through `Zoi.parse/2` against the spec `Action.field_specs/1` read
-  off the action, which is exactly what `StepRunner.validate_params/2` does to the
-  same field at run time — so a verdict here is the verdict the run would reach.
-  A `nil` value never satisfies a spec: presence is `check/2`'s question, and a
-  field that reads `nil` at run time has no value at all.
+  Runs `Zoi.parse/2`, exactly what `StepRunner.validate_params/2` does to the same
+  field at run time. A `nil` value never satisfies a spec — presence is `check/2`'s
+  question.
   """
   @spec spec_accepts?(term(), term()) :: boolean()
   def spec_accepts?(_spec, nil), do: false
@@ -780,11 +704,8 @@ defmodule Zaq.Engine.Workflows.InputContract do
   @doc """
   Field names an action module's output schema declares, as strings.
 
-  Optional output fields count: the graph states a producer exists, and whether it
-  returns the key on a given run is the action's own branch, not a gap in the graph.
-
-  Read through `Action.output_field_specs/1`, the mirror of the reader the input side
-  uses, so this module holds no schema-dialect knowledge of its own.
+  Optional output fields count: whether a run returns the key is the action's own
+  branch, not a gap in the graph.
   """
   @spec emitted_schema_fields(String.t() | nil) :: [String.t()]
   def emitted_schema_fields(module),
@@ -855,9 +776,8 @@ defmodule Zaq.Engine.Workflows.InputContract do
   defp mapping(_mapping), do: %{}
 
   # A mapping source is a dotted reference, so anything non-scalar in the persisted
-  # JSONB is a malformed edge. Dropping it leaves the target field unfed, which the
-  # derivation then reports as a gap — the point of this module is to be runnable
-  # against a graph that is wrong, not to raise `Protocol.UndefinedError` on one.
+  # JSONB is a malformed edge. Dropping it leaves the field unfed, reported as a gap —
+  # this module runs against graphs that are wrong rather than raising on them.
   defp reference?(source) when is_binary(source) or is_number(source), do: true
   defp reference?(source) when is_atom(source), do: not is_nil(source)
   defp reference?(_source), do: false

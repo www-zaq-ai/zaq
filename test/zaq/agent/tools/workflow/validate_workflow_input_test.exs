@@ -1,6 +1,8 @@
 defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
   use Zaq.DataCase, async: true
 
+  import Zaq.InputContractHelpers
+
   alias Zaq.Agent.Tools.Workflow.ValidateWorkflowInput
   alias Zaq.Engine.Workflows.InputContract
   alias Zaq.Engine.Workflows.Workflow
@@ -13,7 +15,7 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     @moduledoc false
     def dispatch(%Event{} = event) do
       send(self(), {:dispatched, event})
-      %{event | response: {:ok, %{valid: true}}}
+      %{event | response: {:ok, %{valid?: true}}}
     end
   end
 
@@ -131,19 +133,6 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     # Both lists together are every path the workflow reads. `Concat.parts` is
     # required, so `company context content` must be sent; `History.query` is not,
     # so `email topic` is named but not demanded.
-    test "reports every payload path the workflow reads, split by what it must have" do
-      workflow = workflow_fixture()
-
-      assert {:ok, result} =
-               ValidateWorkflowInput.run(
-                 %{workflow_id: workflow.id, input: %{"email topic" => "Q3"}},
-                 %{}
-               )
-
-      assert result.required_inputs == ["company context content"]
-      assert result.optional_inputs == ["email topic"]
-    end
-
     # A path is optional about *presence* only. Sent with the wrong kind of value it
     # fails the verdict like any other, because the step validates it either way.
     test "an optional path supplied with the wrong kind of value is invalid" do
@@ -158,33 +147,24 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
                  %{}
                )
 
-      assert result.valid == false
-      assert result.missing_inputs == []
-      assert [%{path: "email topic", expected: "string", got: "integer"}] = result.invalid_inputs
+      refute result.valid?
+      assert missing(result) == []
+
+      assert [
+               %{
+                 path: ["email topic"],
+                 code: :invalid_type,
+                 message: "expected string, got integer"
+               }
+             ] =
+               result.errors
     end
 
     # The agent renders "what the workflow expects" from this and nothing else.
-    test "reports the declared kind of every path it names" do
-      workflow = workflow_fixture()
-
-      assert {:ok, result} =
-               ValidateWorkflowInput.run(
-                 %{workflow_id: workflow.id, input: %{"email topic" => "Q3"}},
-                 %{}
-               )
-
-      paths = result.required_inputs ++ result.optional_inputs
-
-      assert Enum.sort(Map.keys(result.input_types)) == Enum.sort(paths),
-             "every path the verdict names must carry a kind, or the agent guesses one"
-
-      assert Enum.all?(Map.values(result.input_types), &is_binary/1)
-    end
-
     test "an omitted optional path is not a gap" do
       workflow = workflow_fixture()
 
-      assert {:ok, %{valid: true, missing_inputs: [], invalid_inputs: []}} =
+      assert {:ok, %{valid?: true, errors: []}} =
                ValidateWorkflowInput.run(
                  %{workflow_id: workflow.id, input: %{"company context content" => "ctx"}},
                  %{}
@@ -215,38 +195,8 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     # Everything the agent needs to ask a useful question travels as a field. None of
     # it has to be parsed back out of a message, so none of it can be lost to a
     # truncated one.
-    test "a failing verdict carries the shape and the types as data" do
-      workflow = workflow_fixture()
-
-      assert {:ok, result} =
-               ValidateWorkflowInput.run(
-                 %{workflow_id: workflow.id, input: %{"probe" => "probe"}},
-                 %{}
-               )
-
-      assert result.valid == false
-      assert result.missing_inputs == result.required_inputs
-      assert result.invalid_inputs == []
-      assert Map.keys(result.required_input_shape) == result.required_inputs
-
-      assert Enum.sort(Map.keys(result.input_types)) ==
-               Enum.sort(result.required_inputs ++ result.optional_inputs)
-    end
-
     # The skeleton names only what is owed. An optional path in it reads as another
     # gap for the agent to invent a value for.
-    test "the shape does not ask for the optional paths" do
-      workflow = workflow_fixture()
-
-      assert {:ok, %{required_input_shape: shape, optional_inputs: optional}} =
-               ValidateWorkflowInput.run(
-                 %{workflow_id: workflow.id, input: %{"probe" => "probe"}},
-                 %{}
-               )
-
-      refute Enum.any?(optional, &Map.has_key?(shape, &1))
-    end
-
     test "rejects a payload missing a required field" do
       workflow = workflow_fixture()
 
@@ -256,9 +206,8 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
                  %{}
                )
 
-      refute result.valid
-      assert result.missing_inputs == ["company context content"]
-      assert result.input == %{"email topic" => "Q3"}
+      refute result.valid?
+      assert missing(result) == [["company context content"]]
     end
 
     # A null leaf is a gap, not a value: the run would read `nil` and fail for the
@@ -276,9 +225,8 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
                  %{}
                )
 
-      refute result.valid
-      assert result.missing_inputs == ["company context content"]
-      assert result.input == %{"email topic" => "Q3", "company context content" => nil}
+      refute result.valid?
+      assert missing(result) == [["company context content"]]
     end
 
     test "a null field routes like a missing one — {:ok, _}, so an edge can branch on it" do
@@ -287,34 +235,15 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
       nulled = %{"email topic" => "Q3", "company context content" => nil}
       absent = %{"email topic" => "Q3"}
 
-      assert {:ok, %{valid: false, missing_inputs: missing}} =
+      assert {:ok, %{valid?: false, errors: missing}} =
                ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: nulled}, %{})
 
-      assert {:ok, %{valid: false, missing_inputs: ^missing}} =
+      assert {:ok, %{valid?: false, errors: ^missing}} =
                ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: absent}, %{})
     end
 
     # The loop the moduledoc describes — read the shape, fill it, call again — must
     # not converge on the skeleton itself.
-    test "the required_input_shape sent straight back is not valid" do
-      workflow = workflow_fixture()
-
-      shape = shape_for(workflow)
-      required = Enum.sort(Map.keys(shape))
-
-      assert {:ok, %{valid: false, missing_inputs: ^required}} =
-               ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: shape}, %{})
-    end
-
-    test "the shape filled in is valid — the loop still converges" do
-      workflow = workflow_fixture()
-
-      filled = Map.new(shape_for(workflow), fn {path, nil} -> {path, "a value"} end)
-
-      assert {:ok, %{valid: true, missing_inputs: []}} =
-               ValidateWorkflowInput.run(%{workflow_id: workflow.id, input: filled}, %{})
-    end
-
     # A wrong-typed value is not a gap: the caller sent something, it is the wrong
     # kind of something, and the remediation is a different kind of value rather than
     # a value. It gets its own bucket so an agent can tell the two apart.
@@ -327,15 +256,24 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
                  %{}
                )
 
-      refute result.valid
-      assert [%{path: "person_id", expected: "integer", got: "string"}] = result.invalid_inputs
-      refute "person_id" in result.missing_inputs
+      refute result.valid?
+
+      assert [
+               %{
+                 path: ["person_id"],
+                 code: :invalid_type,
+                 message: "expected integer, got string"
+               }
+             ] =
+               result.errors
+
+      refute ["person_id"] in missing(result)
     end
 
     test "a wrong-typed field still routes as {:ok, _} so a remediation edge stays reachable" do
       workflow = workflow_fixture(person_id_node: true)
 
-      assert {:ok, %{valid: false}} =
+      assert {:ok, %{valid?: false}} =
                ValidateWorkflowInput.run(
                  %{workflow_id: workflow.id, input: full_payload(%{"person_id" => "42"})},
                  %{}
@@ -354,14 +292,14 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
                  %{}
                )
 
-      assert result.missing_inputs == ["company context content"]
-      assert [%{path: "person_id"}] = result.invalid_inputs
+      assert missing(result) == [["company context content"]]
+      assert refused(result) == [["person_id"]]
     end
 
     test "a correctly-typed payload has both buckets empty" do
       workflow = workflow_fixture(person_id_node: true)
 
-      assert {:ok, %{valid: true, missing_inputs: [], invalid_inputs: []}} =
+      assert {:ok, %{valid?: true, errors: []}} =
                ValidateWorkflowInput.run(
                  %{workflow_id: workflow.id, input: full_payload(%{"person_id" => 42})},
                  %{}
@@ -371,7 +309,7 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     test "accepts a payload supplying every required field" do
       workflow = workflow_fixture()
 
-      assert {:ok, %{valid: true, missing_inputs: []}} =
+      assert {:ok, %{valid?: true, errors: []}} =
                ValidateWorkflowInput.run(
                  %{
                    workflow_id: workflow.id,
@@ -384,7 +322,7 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     test "accepts differently-cased keys the way FactLookup will at run time" do
       workflow = workflow_fixture()
 
-      assert {:ok, %{valid: true}} =
+      assert {:ok, %{valid?: true}} =
                ValidateWorkflowInput.run(
                  %{
                    workflow_id: workflow.id,
@@ -397,7 +335,7 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     test "a failing verdict is {:ok, _} so an edge can route it, never {:error, _}" do
       workflow = workflow_fixture()
 
-      assert {:ok, %{valid: false}} =
+      assert {:ok, %{valid?: false}} =
                ValidateWorkflowInput.run(
                  %{workflow_id: workflow.id, input: %{"email topic" => "Q3"}},
                  %{}
@@ -412,35 +350,11 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
       assert {:error, "input is required"} =
                ValidateWorkflowInput.run(%{workflow_id: workflow.id}, %{})
 
-      assert {:ok, %{valid: true, required_inputs: []}} =
+      assert {:ok, %{valid?: true, errors: []}} =
                ValidateWorkflowInput.run(
                  %{workflow_id: workflow.id, input: %{"probe" => "probe"}},
                  %{}
                )
-    end
-
-    test "reports inputs the graph cannot trace as unknown, not as required" do
-      workflow = workflow_fixture()
-
-      assert {:ok, %{unsatisfiable_inputs: []}} =
-               ValidateWorkflowInput.run(
-                 %{workflow_id: workflow.id, input: full_payload(%{})},
-                 %{}
-               )
-    end
-
-    test "returns the contract as a fillable shape, not only as paths" do
-      workflow = workflow_fixture()
-
-      assert {:ok, %{required_input_shape: shape}} =
-               ValidateWorkflowInput.run(
-                 %{workflow_id: workflow.id, input: %{"email topic" => "Q3"}},
-                 %{}
-               )
-
-      # The skeleton is what the caller must fill, so it carries the required paths
-      # only — an optional leaf in it reads as another gap to invent a value for.
-      assert shape == %{"company context content" => nil}
     end
 
     test "returns an error for an unknown workflow" do
@@ -503,7 +417,7 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     test "a scalar payload is reported invalid rather than raising" do
       workflow = workflow_fixture()
 
-      assert {:ok, %{valid: false, input: "not a map"}} =
+      assert {:ok, %{valid?: false}} =
                ValidateWorkflowInput.run(
                  %{workflow_id: workflow.id, input: "not a map"},
                  %{}
@@ -517,13 +431,14 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
       workflow = workflow_fixture()
 
       for payload <- [false, 0, ""] do
-        assert {:ok, %{valid: false, input: echoed}} =
+        assert {:ok, %{valid?: false} = verdict} =
                  ValidateWorkflowInput.run(
                    %{workflow_id: workflow.id, input: payload},
                    %{}
                  )
 
-        assert echoed === payload
+        # Judged, not swallowed: a scalar supplies no path, so every one is reported.
+        assert missing(verdict) != []
       end
     end
 
@@ -562,13 +477,30 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
     test "string-keyed params are read like atom-keyed ones" do
       id = Ecto.UUID.generate()
 
-      assert {:ok, %{input: %{"name" => "Ada"}}} =
+      assert {:ok, %{valid?: _}} =
                ValidateWorkflowInput.run(
                  %{"workflow_id" => id, "input" => %{"name" => "Ada"}},
                  %{node_router: RecordingNodeRouter}
                )
 
       assert_received {:dispatched, %Event{request: %{workflow_id: ^id}}}
+    end
+
+    # The refusal is decided before the workflow is read, so an empty payload never
+    # crosses the node boundary at all. Deriving a contract only to discard it costs a
+    # round-trip to the Engine and hands back a graph description nobody asked for —
+    # the thing an agent then turns into an invented payload template.
+    test "an empty input never reaches the engine" do
+      for params <- [
+            %{workflow_id: Ecto.UUID.generate(), input: %{}},
+            %{workflow_id: Ecto.UUID.generate(), input: nil},
+            %{workflow_id: Ecto.UUID.generate()}
+          ] do
+        assert {:error, "input is required"} =
+                 ValidateWorkflowInput.run(params, %{node_router: RecordingNodeRouter})
+
+        refute_received {:dispatched, _event}
+      end
     end
 
     # A params map naming no workflow is a caller error to report, not a
@@ -578,12 +510,16 @@ defmodule Zaq.Agent.Tools.Workflow.ValidateWorkflowInputTest do
                ValidateWorkflowInput.run(%{input: %{}}, %{node_router: RecordingNodeRouter})
     end
 
-    test "the echoed input comes from the caller, not from the routed response" do
-      assert {:ok, %{input: %{"name" => "Ada"}}} =
-               ValidateWorkflowInput.run(
-                 %{workflow_id: Ecto.UUID.generate(), input: %{"name" => "Ada"}},
-                 %{node_router: RecordingNodeRouter}
-               )
+    test "the payload the caller sent is what crosses to the engine" do
+      id = Ecto.UUID.generate()
+
+      ValidateWorkflowInput.run(
+        %{workflow_id: id, input: %{"name" => "Ada"}},
+        %{node_router: RecordingNodeRouter}
+      )
+
+      assert_received {:dispatched,
+                       %Event{request: %{workflow_id: ^id, input: %{"name" => "Ada"}}}}
     end
 
     test "an unreachable engine surfaces as an error, not a false verdict" do

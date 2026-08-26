@@ -269,20 +269,12 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   # One refusal line, phrased as `InputContract` phrases the same mismatch —
   # `Action.explain/2` is where both read the same `Zoi.parse/2` verdict.
   defp violation({name, spec, _required?}, params) do
-    with {:ok, value} when not is_nil(value) <- fetch_param(params, name),
+    with {:ok, value} when not is_nil(value) <- Action.fetch_param(params, name),
          explanation when is_binary(explanation) <- Action.explain(spec, value) do
       ["#{name}: #{explanation}"]
     else
       _ -> []
     end
-  end
-
-  defp fetch_param(params, name) do
-    with :error <- Map.fetch(params, name) do
-      Map.fetch(params, String.to_existing_atom(name))
-    end
-  rescue
-    ArgumentError -> :error
   end
 
   # Under the :retry strategy a failing map fork is re-run up to @max_retries total

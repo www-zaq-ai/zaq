@@ -1,6 +1,8 @@
 defmodule Zaq.Engine.ApiTest do
   use Zaq.DataCase, async: true
 
+  import Zaq.InputContractHelpers
+
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Api
@@ -926,14 +928,16 @@ defmodule Zaq.Engine.ApiTest do
       assert %Event{response: {:ok, contract}} =
                Api.handle_event(event, :workflow_input_contract, nil)
 
-      assert contract.valid
-      assert contract.required_inputs == ["name"]
+      assert contract.valid?
+      assert contract.valid?
     end
 
     # The bucket has to survive the node hop: the tool runs on the Agent node and only
     # the derived contract crosses back, so a key the Engine adds is invisible to an
     # agent unless it travels.
-    test "a wrong-typed payload field crosses back as invalid_inputs", %{workflow: workflow} do
+    test "a wrong-typed payload field crosses back as an invalid_type error", %{
+      workflow: workflow
+    } do
       workflow =
         Repo.insert!(
           Workflows.Workflow.changeset(%Workflows.Workflow{}, %{
@@ -957,28 +961,36 @@ defmodule Zaq.Engine.ApiTest do
       assert %Event{response: {:ok, contract}} =
                Api.handle_event(event, :workflow_input_contract, nil)
 
-      refute contract.valid
-      assert [%{path: "person_id", expected: "integer", got: "string"}] = contract.invalid_inputs
+      refute contract.valid?
+
+      assert [
+               %{
+                 path: ["person_id"],
+                 code: :invalid_type,
+                 message: "expected integer, got string"
+               }
+             ] =
+               contract.errors
     end
 
     test "a valid payload crosses back with both buckets empty", %{workflow: workflow} do
       event = Event.new(%{workflow_id: workflow.id, input: %{"name" => "Ada"}}, :engine)
 
-      assert %Event{response: {:ok, %{valid: true, missing_inputs: [], invalid_inputs: []}}} =
+      assert %Event{response: {:ok, %{valid?: true, errors: []}}} =
                Api.handle_event(event, :workflow_input_contract, nil)
     end
 
     test "a missing payload field is reported, not raised", %{workflow: workflow} do
       event = Event.new(%{workflow_id: workflow.id, input: %{}}, :engine)
 
-      assert %Event{response: {:ok, %{valid: false, missing_inputs: ["name"]}}} =
+      assert %Event{response: {:ok, %{valid?: false, errors: [%{path: ["name"]}]}}} =
                Api.handle_event(event, :workflow_input_contract, nil)
     end
 
     test "a scalar payload is derived against rather than rejected", %{workflow: workflow} do
       event = Event.new(%{workflow_id: workflow.id, input: "not a map"}, :engine)
 
-      assert %Event{response: {:ok, %{valid: false}}} =
+      assert %Event{response: {:ok, %{valid?: false}}} =
                Api.handle_event(event, :workflow_input_contract, nil)
     end
 

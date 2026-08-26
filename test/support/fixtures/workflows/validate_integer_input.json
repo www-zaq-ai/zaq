@@ -1,5 +1,5 @@
 {
-  "description": "Smallest workflow that exercises the typed input contract: one required integer declared in each schema dialect, plus one path no schema can type.",
+  "description": "Smallest workflow that exercises the typed input contract: one required integer declared in each schema dialect, one optional field wired by each mechanism, and one path no schema can type.",
   "edges": [
     {
       "from": "update_person",
@@ -10,6 +10,9 @@
     },
     {
       "from": "bump_sequence",
+      "mapping": {
+        "separator": "start.separator"
+      },
       "to": "summarize"
     }
   ],
@@ -19,7 +22,9 @@
       "index": 0,
       "module": "Zaq.Agent.Tools.People.UpdatePerson",
       "name": "update_person",
-      "params": {},
+      "params": {
+        "merge_with_person_id": "{{start.merge_with_person_id}}"
+      },
       "type": "action"
     },
     {
@@ -36,8 +41,7 @@
       "params": {
         "parts": [
           "Lead {{start.name}} is now at step {{bump_sequence.value}}"
-        ],
-        "separator": " "
+        ]
       },
       "type": "action"
     }

@@ -1,12 +1,12 @@
 defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
   @moduledoc """
-  The guarantee the contract exists to make: **a `valid: true` verdict means the run
+  The guarantee the contract exists to make: **a `valid?: true` verdict means the run
   will not fail on its inputs.**
 
   Two halves have to agree for that to hold. `InputContract` reads each step's
   declared schema before the run and judges a candidate payload against it;
   `StepRunner` reads the same schema during the run and refuses a param of the wrong
-  kind. If either drifts, the tool becomes a lie — an agent loops to `valid: true`
+  kind. If either drifts, the tool becomes a lie — an agent loops to `valid?: true`
   and the run then fails for the very reason the loop was supposed to prevent.
 
   ## What is real vs. stubbed
@@ -18,6 +18,8 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
   and the Google Sheet write.
   """
   use Zaq.DataCase, async: false
+
+  import Zaq.InputContractHelpers
 
   import Ecto.Query
 
@@ -143,7 +145,7 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
       workflow = consumer()
       payload = filled_payload(workflow)
 
-      assert %{valid: true, missing_inputs: [], invalid_inputs: []} =
+      assert %{valid?: true, errors: []} =
                InputContract.contract(workflow, payload)
 
       {_run, step_runs} = run_with(workflow, payload, person)
@@ -157,13 +159,13 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
     test "the agent loop converges: shape, fill, valid, run", %{person: person} do
       workflow = consumer()
 
-      assert %{valid: false} = InputContract.contract(workflow, %{})
+      assert %{valid?: false} = InputContract.contract(workflow, %{})
 
       shape = InputContract.required_input_shape(workflow)
-      assert %{valid: false} = InputContract.contract(workflow, shape)
+      assert %{valid?: false} = InputContract.contract(workflow, shape)
 
       filled = filled_payload(workflow)
-      assert %{valid: true} = InputContract.contract(workflow, filled)
+      assert %{valid?: true} = InputContract.contract(workflow, filled)
 
       {_run, step_runs} = run_with(workflow, filled, person)
       assert step_runs |> assert_ran_deep() |> validation_failures() == []
@@ -180,7 +182,7 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
 
       # Either the contract names it, or no step refuses it — the forbidden state is
       # "the contract said fine" while a step refused the very same value.
-      refute contract.valid == true and validation_failures(step_runs) != []
+      refute contract.valid? == true and validation_failures(step_runs) != []
     end
 
     test "the contract's verdict and the run's verdict never contradict", %{person: person} do
@@ -194,7 +196,7 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
         contract = InputContract.contract(workflow, payload)
         {_run, step_runs} = run_with(workflow, payload, person)
 
-        if contract.valid do
+        if contract.valid? do
           assert validation_failures(step_runs) == [],
                  "contract said valid but the run refused: #{inspect(payload)}"
         end
@@ -215,7 +217,7 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
       if untyped do
         payload = Map.put(filled_payload(workflow), untyped, 42)
 
-        assert %{invalid_inputs: []} = InputContract.contract(workflow, payload)
+        assert refused(InputContract.contract(workflow, payload)) == []
 
         {_run, step_runs} = run_with(workflow, payload, person)
         assert validation_failures(step_runs) == []

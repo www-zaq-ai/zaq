@@ -146,89 +146,98 @@ implements substitution itself.
 so what the contract calls a reference and what the runtime resolves cannot drift.
 Every reference is visible to it — there is no module-specific reference syntax.
 
+### The verdict
+
+`check/2` (and `contract/2`, the name the Engine dispatches) returns one thing:
+
+```elixir
+%{
+  valid?: false,
+  errors: [
+    %{path: ["email topic"], code: :required, message: "is required"},
+    %{path: ["input", "name"], code: :invalid_type,
+      message: "expected string, got integer"}
+  ]
+}
+```
+
+One entry per problem, carrying everything about it — where to fix it, a
+machine-readable `code`, and a sentence. `valid?` is `errors == []`. There is
+nothing to cross-reference: a reader asking "what do I do about `input.name`?"
+reads one entry rather than joining four lists.
+
+`path` is a list of segments, not a dotted string, so `["input", "name"]` *is* the
+nesting and cannot be misread as a flat key called `"input.name"` — and a list index
+(`["rows", 0, "email"]`) has a spelling at all.
+
+`code` is Zoi's own vocabulary, which already separates the three levels of the
+check: `:required` (the key), `:invalid_type` (the kind), and everything else
+(`:invalid_length`, `:invalid_format`, `:invalid_enum_value`, …) — a rule the author
+declared that the value breaks.
+
+Describing a workflow — what it *can* be sent — is a different question, answered by
+`required_inputs/1`, `optional_inputs/1`, `input_types/1` and
+`required_input_shape/1`. They walk the same graph and are not part of the verdict.
+
 **Required and optional are two lists.** A payload path is *required* when it
 reaches a field some action's schema declares required, and *optional* when every
-field it reaches is declared optional — `required_inputs/1` and `optional_inputs/1`.
-A path reaching a required field on one node and an optional one on another is
-required: every node in the graph runs. Wiring an optional field does not make the
-payload owe it; the step runs without it, and demanding it would make an agent
-invent a value for a field the action has its own default or branch for.
+field it reaches is declared optional. A path reaching a required field on one node
+and an optional one on another is required: every node in the graph runs. Wiring an
+optional field does not make the payload owe it; the step runs without it, and
+demanding it would make an agent invent a value for a field the action has its own
+default or branch for.
 
 **Optional is about presence, not type.** `StepRunner` validates every declared
 field it is handed a value for, required or not, so an optional field given the
 wrong *kind* of value fails the run. `check/2` therefore type-checks the optional
-paths a payload actually supplies and reports them in `invalid_inputs` — it only
-skips the ones the payload omits. Absence is the only thing optional forgives.
-`required_input_shape/1` stays required-only: it is the skeleton a caller fills in,
-and an optional leaf in it reads as one more gap to invent a value for.
+paths a payload actually supplies — it only skips the ones the payload omits.
+Absence is the only thing optional forgives.
 
 **A declared type is not the whole contract.** A field may carry Zoi refinements —
 a pattern, a length, an enum — and a value of exactly the right kind can still be
 refused. `check/2` runs `Zoi.parse/2`, the same judge `StepRunner` runs, so it sees
 every rule the author declared; there is no schema feature the pre-flight is blind to.
 
-**One judge, one phrasing.** Both sides read that verdict through
-`Action.explain/2`, so neither can phrase a mismatch its own way. Zoi's error `code`
-decides how it reads: `:invalid_type` at the value itself is a bare kind mismatch,
-phrased `"expected integer, got string"` — Zoi names what was wanted but never what
-arrived, which is the half a caller needs. Every other code is a rule the value
-broke, or a failure Zoi located inside the value, and Zoi has already phrased it
-against the rule the author wrote — `"too small: must have at least 8 character(s)"`,
-`"invalid enum value: expected one of active, inactive, at status"` — so its own
-rendering is used verbatim.
-
-An `invalid_inputs` entry carries both: `expected`/`got` for the path itself, and
-`message` for the reason. **For a refinement or a nested failure `expected` and `got`
-are both the same kind** — `"expected string, got string"` for an email that does not
-match its pattern — and `message` is the only actionable part. Read `message` first.
+**One judge, one phrasing.** Both sides render errors through `Action.field_errors/2`,
+so neither can phrase a mismatch its own way. Zoi's `code` decides how it reads:
+`:invalid_type` at the value itself is a bare kind mismatch, phrased
+`"expected integer, got string"` — Zoi names what was wanted but never what arrived,
+which is the half a caller needs. Every other code is a rule the value broke, or a
+failure Zoi located *inside* the value, and Zoi has already phrased it against the
+rule the author wrote — `"too small: must have at least 8 character(s)"` — so its own
+rendering is used verbatim, with its path lifted onto the payload path so the entry
+points at the offending key rather than describing its container.
 
 **A required path present but `nil` is missing.** `check/2` counts a path as
 supplied only when it resolves to a value, the same rule the authoring side applies
-to a node's params (`pinned_params/1`: a `nil` param pins nothing). So
-`required_input_shape/1` — a skeleton with `nil` leaves — is invalid on every path
-it names until the leaves are filled, and an agent looping on
-`validate_workflow_input` cannot converge by echoing the skeleton back. `false`,
-`0` and `""` are values a caller can mean, and they supply.
-
-**The verdict types every path it names.** `input_types` gives the declared kind of
-every path in `required_inputs` and `optional_inputs`, untyped ones included (as
-`any`). It exists because an agent asked what a workflow expects answers for every
-path it can see: given a bare name it supplies a type from the field's name and
-presents it as fact, then builds an example payload around the guess — one the
-workflow rejects. Reporting a kind for every path leaves no gap for a guess to fill,
-and `any` is an answer rather than a silence. This is the only source of types: an
-agent must never state one that is not in the map.
+to a node's params (`pinned_params/1`: a `nil` param pins nothing). `false`, `0` and
+`""` are values a caller can mean, and they supply.
 
 **An empty input is refused, not judged.** `%{}`, `nil` and an omitted key carry
 nothing to check, so `validate_workflow_input` returns `{:error, "input is required"}`
 before the workflow is read — no contract is derived for a call that proposes nothing.
-`false`, `0` and `""` are payloads a caller can mean, and they are judged like any
-other.
 
-Everything a failing verdict owes the agent travels as a field of the result map, never
-inside its message. The contract was once returned as `{:error, _}` with the paths named
-in prose, an instruction not to invent them, and the skeleton rendered as JSON on the
-end — and the transport truncated the message past its instruction, leaving the agent
-four bare path names and an explicit note that no types were reported. It answered by
-writing a payload template out of what was left, quoting two integer paths as strings.
-Steering a reader with wording it may never finish reading is not a contract; a map
-cannot be truncated into something that still reads as an answer, and
-`required_input_shape` and `input_types` travel in it as fields.
+**Everything a failing verdict owes the agent travels as a field of the result map,
+never inside its message.** The contract was once returned as `{:error, _}` with the
+paths named in prose and a payload skeleton rendered as JSON on the end — and the
+transport truncated the message past its instruction, leaving the agent four bare
+path names. It answered by writing a payload template out of what was left, quoting
+two integer paths as strings. Steering a reader with wording it may never finish
+reading is not a contract, and a map cannot be truncated into something that still
+reads as an answer. For the same reason the verdict carries no skeleton: a
+payload-shaped map with `nil` leaves is a template an agent fills with invented
+values. `path` names the gap without modelling a payload around it.
 
-**A required path is type-checked where its value reaches a schema-declared field
-whole.** `required_schema_field_specs/1` reads each required field's declared type
-out of the action's own schema through `Action.field_specs/1`, which translates both
-dialects — NimbleOptions and Zoi — into Zoi. `check/2` then runs the payload value
-through `Zoi.parse/2` against that spec, which is exactly what
+**A path is type-checked where its value reaches a schema-declared field whole.**
+`Action.field_specs/1` reads each field's declared type out of the action's own
+schema, translating both dialects — NimbleOptions and Zoi — into Zoi. `check/2` runs
+the payload value through `Zoi.parse/2` against that spec, which is exactly what
 `StepRunner.validate_params/2` does to the same field at run time: one reader, one
-validator, so the contract's verdict is the run's verdict. A path supplied with the
-wrong kind of value lands in
-`invalid_inputs` (`%{path:, expected:, got:}`), never in `missing_inputs`: the
-remediation is a different *kind* of value, not another value. A path is typed only
-where the value arrives whole — a mapping target, a schema-required field of an
-entry node, or a param written as a lone `{{...}}`. An interpolated reference
-resolves to a string whatever the payload holds, and a condition field has no
-schema, so neither is typed and both keep presence-only semantics.
+validator, so the contract's verdict is the run's verdict. A path is typed only where
+the value arrives whole — a mapping target, a schema-required field of an entry node,
+or a param written as a lone `{{...}}`. An interpolated reference resolves to a string
+whatever the payload holds, and a condition field has no schema, so neither is typed
+and both keep presence-only semantics.
 
 **Run-time param validation refuses the step, and has an escape hatch.** `StepRunner`
 calls `mod.run/2` directly and never goes through `Jido.Exec`, so before this check no

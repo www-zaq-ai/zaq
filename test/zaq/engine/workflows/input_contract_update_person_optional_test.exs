@@ -18,6 +18,8 @@ defmodule Zaq.Engine.Workflows.InputContractUpdatePersonOptionalTest do
   """
   use Zaq.DataCase, async: true
 
+  import Zaq.InputContractHelpers
+
   alias Zaq.Accounts.People
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.InputContract
@@ -110,30 +112,38 @@ defmodule Zaq.Engine.Workflows.InputContractUpdatePersonOptionalTest do
     end
 
     test "omitting the optional path is valid" do
-      assert %{valid: true, missing_inputs: [], invalid_inputs: []} =
+      assert %{valid?: true, errors: []} =
                InputContract.contract(graph(), %{"person_id" => 1})
     end
 
     test "omitting the required path is not" do
-      assert %{valid: false, missing_inputs: ["person_id"]} =
+      assert %{valid?: false, errors: [%{code: :required, path: ["person_id"]}]} =
                InputContract.contract(graph(), %{"attrs" => %{email: "a@b.c"}})
     end
 
     test "the required path carries its declared type" do
-      assert %{valid: false, missing_inputs: [], invalid_inputs: invalid} =
+      assert %{valid?: false, errors: invalid} =
                InputContract.contract(graph(), %{"person_id" => "1"})
 
-      assert [%{path: "person_id", expected: "integer", got: "string"}] = invalid
+      assert [
+               %{
+                 path: ["person_id"],
+                 code: :invalid_type,
+                 message: "expected integer, got string"
+               }
+             ] =
+               invalid
     end
   end
 
   # The point of the optional list: named, not demanded — and still type-checked.
   describe "the optional path is type-checked when supplied" do
     test "a scalar where the field declares a map is invalid" do
-      assert %{valid: false, missing_inputs: [], invalid_inputs: invalid} =
+      assert %{valid?: false, errors: invalid} =
                InputContract.contract(graph(), %{"person_id" => 1, "attrs" => "not a map"})
 
-      assert [%{path: "attrs", expected: "map", got: "string"}] = invalid
+      assert [%{path: ["attrs"], code: :invalid_type, message: "expected map, got string"}] =
+               invalid
     end
 
     # The two sides of the contract read the same `Zoi.parse/2` verdict through
@@ -142,18 +152,21 @@ defmodule Zaq.Engine.Workflows.InputContractUpdatePersonOptionalTest do
       w = workflow()
       payload = %{"person_id" => person_id, "attrs" => %{status: "pending"}}
 
-      assert %{invalid_inputs: [%{message: message}]} = InputContract.contract(w, payload)
+      assert %{errors: [%{message: message}]} = InputContract.contract(w, payload)
 
       {_run, step_runs} = run_with(w, payload)
 
       assert [{"update", reason}] = validation_failures(step_runs)
-      assert reason == "Invalid parameters: attrs: " <> message
+      # Same words: the run adds only where it found the problem, which the contract
+      # carries as `path` instead of folding into the sentence.
+      assert reason =~ message
+      assert reason =~ "Invalid parameters: attrs: "
     end
 
     test "a well-formed attrs map is valid" do
       payload = %{"person_id" => 1, "attrs" => %{email: "a@b.c", status: "active"}}
 
-      assert %{valid: true, missing_inputs: [], invalid_inputs: []} =
+      assert %{valid?: true, errors: []} =
                InputContract.contract(graph(), payload)
     end
 
@@ -164,48 +177,52 @@ defmodule Zaq.Engine.Workflows.InputContractUpdatePersonOptionalTest do
     test "an integer email fails, and the message names the key" do
       payload = %{"person_id" => 1, "attrs" => %{email: 42}}
 
-      assert %{valid: false, missing_inputs: [], invalid_inputs: invalid} =
+      assert %{valid?: false, errors: invalid} =
                InputContract.contract(graph(), payload)
 
-      assert [%{path: "attrs", expected: "map", got: "map", message: message}] = invalid
-      assert message == "invalid type: expected string, at email"
+      # Zoi located it inside the value, so the path points at the offending key
+      # rather than at the container the old kind pair could only name.
+      assert [%{path: ["attrs", "email"], message: message}] = invalid
+      assert message == "invalid type: expected string"
     end
 
     test "a status outside the enum fails, and the message names the choices" do
       payload = %{"person_id" => 1, "attrs" => %{status: "pending"}}
 
-      assert %{valid: false, invalid_inputs: [%{path: "attrs", message: message}]} =
+      assert %{valid?: false, errors: [%{path: ["attrs" | _], message: message}]} =
                InputContract.contract(graph(), payload)
 
-      assert message == "invalid enum value: expected one of active, inactive, at status"
+      assert message == "invalid enum value: expected one of active, inactive"
     end
 
     test "an integer status fails" do
       payload = %{"person_id" => 1, "attrs" => %{status: 1}}
+      verdict = InputContract.contract(graph(), payload)
 
-      assert %{valid: false, invalid_inputs: [%{path: "attrs", message: message}]} =
-               InputContract.contract(graph(), payload)
+      refute verdict.valid?
 
-      assert message =~ "at status"
+      # The location is a field now, not a suffix on the sentence.
+      assert %{code: :invalid_enum_value} = error_at(verdict, ["attrs", "status"])
     end
 
     # Every located failure is reported, so a caller fixing them does not round-trip
     # once per field.
-    test "two bad keys are both named, in one message" do
+    # One error per broken key, each at its own path — where a single joined sentence
+    # used to carry both and a reader had to parse the locations out of it.
+    test "two bad keys are each their own error" do
       payload = %{"person_id" => 1, "attrs" => %{email: 42, status: "pending"}}
+      verdict = InputContract.contract(graph(), payload)
 
-      assert %{valid: false, invalid_inputs: [%{message: message}]} =
-               InputContract.contract(graph(), payload)
-
-      assert message =~ "at email"
-      assert message =~ "at status"
-      refute message =~ "\n"
+      refute verdict.valid?
+      assert error_at(verdict, ["attrs", "email"])
+      assert error_at(verdict, ["attrs", "status"])
+      assert Enum.all?(verdict.errors, &(not (&1.message =~ "\n")))
     end
 
     # A failure *at* the value is a kind mismatch, and Zoi never says what arrived —
     # so that half keeps the `schema_kind`/`value_kind` phrasing.
     test "a failure at the value itself reads as a kind mismatch" do
-      assert %{invalid_inputs: [%{path: "attrs", message: message}]} =
+      assert %{errors: [%{path: ["attrs" | _], message: message}]} =
                InputContract.contract(graph(), %{"person_id" => 1, "attrs" => "not a map"})
 
       assert message == "expected map, got string"
@@ -222,7 +239,7 @@ defmodule Zaq.Engine.Workflows.InputContractUpdatePersonOptionalTest do
         "attrs" => %{"email" => "moved@example.com", "status" => "active"}
       }
 
-      assert %{valid: true} = InputContract.contract(w, payload)
+      assert %{valid?: true} = InputContract.contract(w, payload)
 
       {_run, step_runs} = run_with(w, payload)
 
@@ -234,7 +251,7 @@ defmodule Zaq.Engine.Workflows.InputContractUpdatePersonOptionalTest do
       w = workflow()
       payload = %{"person_id" => person_id}
 
-      assert %{valid: true} = InputContract.contract(w, payload)
+      assert %{valid?: true} = InputContract.contract(w, payload)
 
       {_run, step_runs} = run_with(w, payload)
 
@@ -263,7 +280,7 @@ defmodule Zaq.Engine.Workflows.InputContractUpdatePersonOptionalTest do
         contract = InputContract.contract(w, payload)
         {_run, step_runs} = run_with(w, payload)
 
-        if contract.valid do
+        if contract.valid? do
           assert validation_failures(step_runs) == [],
                  "contract cleared attrs=#{inspect(attrs)} but the run refused it"
         end

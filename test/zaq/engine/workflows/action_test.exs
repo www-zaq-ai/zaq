@@ -119,6 +119,53 @@ defmodule Zaq.Engine.Workflows.BatchFieldTest.RequiredZoiList do
   def run(_, _), do: {:ok, %{out: true}}
 end
 
+defmodule Zaq.Engine.Workflows.ActionTest.DefaultedZoiAction do
+  @moduledoc false
+  use Jido.Action,
+    name: "action_test_defaulted_zoi",
+    schema:
+      Zoi.object(%{
+        subject: Zoi.string(),
+        tone: Zoi.default(Zoi.string(), "neutral"),
+        retries: Zoi.default(Zoi.integer(), 3)
+      }),
+    output_schema: Zoi.object(%{out: Zoi.boolean()})
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+# A Batch body node reads its fan-out field from the required ones, so a defaulted
+# field counted as required makes an otherwise unambiguous module unbatchable.
+defmodule Zaq.Engine.Workflows.BatchFieldTest.DefaultedZoiList do
+  @moduledoc false
+  use Jido.Action,
+    name: "batch_field_defaulted_zoi_list",
+    schema:
+      Zoi.object(%{
+        items: Zoi.list(Zoi.map()),
+        variant: Zoi.default(Zoi.string(), "auto")
+      }),
+    output_schema: Zoi.object(%{out: Zoi.any()})
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
+defmodule Zaq.Engine.Workflows.ActionTest.BareListAction do
+  @moduledoc false
+  use Jido.Action,
+    name: "action_test_bare_list",
+    schema: [items: [type: :list, required: true]],
+    output_schema: [out: [type: :boolean, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+  @impl Jido.Action
+  def run(_, _), do: {:ok, %{out: true}}
+end
+
 defmodule Zaq.Engine.Workflows.ActionTest.FloatParam do
   @moduledoc false
   use Jido.Action,
@@ -190,7 +237,11 @@ defmodule Zaq.Engine.Workflows.ActionTest do
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.Test.{NonConformingAction, OkAction}
 
+  alias Zaq.Engine.Workflows.ActionTest.BareListAction
+  alias Zaq.Engine.Workflows.ActionTest.DefaultedZoiAction
+
   alias Zaq.Engine.Workflows.BatchFieldTest.{
+    DefaultedZoiList,
     ListAndMap,
     NoRequired,
     RequiredList,
@@ -246,6 +297,12 @@ defmodule Zaq.Engine.Workflows.ActionTest do
 
     test "one required Zoi union with list branch → {:ok, {field, :list}}" do
       assert {:ok, {:items, :list}} = Action.batch_field(RequiredZoiUnionList)
+    end
+
+    # A defaulted field is not one the fan-out has to deliver, so it must not compete
+    # with the real batch field for the role.
+    test "a defaulted Zoi field does not make the batch field ambiguous" do
+      assert {:ok, {:items, :list}} = Action.batch_field(DefaultedZoiList)
     end
 
     test "zero required fields → {:error, {:no_batch_field, module}}" do
@@ -575,6 +632,15 @@ defmodule Zaq.Engine.Workflows.ActionTest do
       refute accepts?(KeywordSchemaAction, "conditions", %{"key" => "a"})
     end
 
+    # A bare `:list` used to translate to `any`, so a field declared a list accepted a
+    # string — in the contract and in `StepRunner` alike.
+    test "a bare :list field judges lists" do
+      assert accepts?(BareListAction, "items", ["a", 1, %{"k" => "v"}])
+      assert accepts?(BareListAction, "items", [])
+      refute accepts?(BareListAction, "items", "not a list")
+      refute accepts?(BareListAction, "items", %{"a" => 1})
+    end
+
     test "a nested list type is judged structurally" do
       assert accepts?(KeywordSchemaAction, "rows", [["a", "b"], ["c"]])
       refute accepts?(KeywordSchemaAction, "rows", ["a", "b"])
@@ -607,6 +673,32 @@ defmodule Zaq.Engine.Workflows.ActionTest do
       assert {:error, _} = Zoi.parse(schema, "42")
     end
 
+    # `Zoi.default/2` leaves `required` unset, and `Zoi.Types.Map` stamps `required:
+    # true` on every field that arrives that way — so reading `meta` alone reports a
+    # defaulted field as one the payload must carry.
+    test "a Zoi field carrying a default is optional" do
+      specs = Action.field_specs(inspect(DefaultedZoiAction))
+
+      assert {"tone", _spec, false} = List.keyfind(specs, "tone", 0)
+      assert {"retries", _spec, false} = List.keyfind(specs, "retries", 0)
+      assert {"subject", _spec, true} = List.keyfind(specs, "subject", 0)
+    end
+
+    # The invariant the whole contract rests on: what `field_specs/1` calls required is
+    # what `Zoi.parse/2` refuses to do without. Anything else and `InputContract` asks a
+    # caller for a field the action would have supplied, or stays silent about one it
+    # will not.
+    test "required? agrees with Zoi.parse on an omitted key" do
+      schema = DefaultedZoiAction.schema()
+
+      for {name, _spec, required?} <- Action.field_specs(inspect(DefaultedZoiAction)) do
+        without = Map.delete(%{subject: "hi", tone: "warm", retries: 2}, String.to_atom(name))
+
+        assert match?({:error, _}, Zoi.parse(schema, without)) == required?,
+               "#{name}: field_specs says required?=#{required?}, Zoi.parse disagrees"
+      end
+    end
+
     test "a module with nothing readable yields no specs" do
       for module <- [nil, "", "Not.A.Module"] do
         assert Action.field_specs(module) == []
@@ -637,7 +729,7 @@ defmodule Zaq.Engine.Workflows.ActionTest do
     test "reads a Zoi output schema" do
       specs = Action.output_field_specs("Zaq.Agent.Tools.Workflow.ValidateWorkflowInput")
 
-      assert {"valid", _spec, true} = List.keyfind(specs, "valid", 0)
+      assert {"valid?", _spec, true} = List.keyfind(specs, "valid?", 0)
     end
 
     test "a module with no output schema yields no specs" do
@@ -686,6 +778,32 @@ defmodule Zaq.Engine.Workflows.ActionTest do
 
       assert {"on_fail", spec, false} = List.keyfind(specs, "on_fail", 0)
       assert Action.schema_kind(spec) == "one of: halt, continue"
+    end
+
+    # A default is a wrapper, not a kind. `input_types` is the only source of types an
+    # agent is allowed to state, so a wrapper name there is a type it will repeat back.
+    test "a defaulted field is named by the kind it wraps, not \"default\"" do
+      assert Action.schema_kind(Zoi.default(Zoi.integer(), 3)) == "integer"
+
+      assert Action.schema_kind(Zoi.default(Zoi.enum(["standard", "url_safe"]), "standard")) ==
+               "one of: standard, url_safe"
+    end
+
+    test "a shipped action's defaulted fields name their real kinds" do
+      specs = Action.field_specs("Zaq.Agent.Tools.General.EncodeBase64")
+
+      assert {"padding", padding, false} = List.keyfind(specs, "padding", 0)
+      assert {"variant", variant, false} = List.keyfind(specs, "variant", 0)
+
+      assert Action.schema_kind(padding) == "boolean"
+      assert Action.schema_kind(variant) == "one of: standard, url_safe"
+    end
+
+    # `explain/2` phrases a bare kind mismatch from `schema_kind/1`, so the wrapper
+    # leaked into the refusal a caller reads as well.
+    test "explain/2 names the wrapped kind when a defaulted field is refused" do
+      assert Action.explain(Zoi.default(Zoi.boolean(), true), 42) ==
+               "expected boolean, got integer"
     end
 
     test "an unreadable spec is \"any\"" do
