@@ -151,6 +151,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
            }}
         )
 
+    def replace_permissions(_provider, _params, _context),
+      do: Application.get_env(:zaq, :provider_browser_replace_permissions_response, {:ok, %{}})
+
     def list_source_scopes(_provider, _params),
       do: Application.get_env(:zaq, :provider_browser_scopes_response, {:ok, []})
 
@@ -248,6 +251,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     def capability_snapshot(_provider), do: {:ok, %{resolved: %{list_items: true}}}
 
+    def list_permissions(_provider, _params, _context),
+      do:
+        Application.get_env(
+          :zaq,
+          :provider_browser_permissions_response,
+          {:ok, %RecordPage{resource_type: :permission, records: []}}
+        )
+
     def list_files(provider, params, _context) do
       if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
         send(pid, {:list_files, provider, params})
@@ -275,6 +286,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         %{^fun => response} -> response
         _ -> Zaq.NodeRouter.invoke(role, module, fun, args)
       end
+    end
+  end
+
+  defmodule CreateDocumentStub do
+    def run(params, _context) do
+      response = Application.get_env(:zaq, :ingestion_create_document_response, {:ok, %{}})
+      if is_function(response, 1), do: response.(params), else: response
+    end
+  end
+
+  defmodule IngestionRouterStub do
+    def dispatch(event) do
+      response = Application.get_env(:zaq, :ingestion_router_response, {:ok, []})
+      %{event | response: response}
     end
   end
 
@@ -316,6 +341,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     original_provider_browser_unwatch_response =
       Application.get_env(:zaq, :provider_browser_unwatch_response)
+
+    original_create_document_module =
+      Application.get_env(:zaq, :ingestion_create_document_module)
+
+    original_create_document_response =
+      Application.get_env(:zaq, :ingestion_create_document_response)
+
+    original_router_module = Application.get_env(:zaq, :ingestion_node_router_module)
+    original_router_response = Application.get_env(:zaq, :ingestion_router_response)
+
+    original_replace_permissions_response =
+      Application.get_env(:zaq, :provider_browser_replace_permissions_response)
 
     storage_config = [base_path: tmp_dir, volumes: %{}]
     Application.put_env(:zaq, Zaq.Ingestion, storage_config)
@@ -370,11 +407,24 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         value -> Application.put_env(:zaq, :provider_browser_unwatch_response, value)
       end
 
+      restore_env(:ingestion_create_document_module, original_create_document_module)
+      restore_env(:ingestion_create_document_response, original_create_document_response)
+      restore_env(:ingestion_node_router_module, original_router_module)
+      restore_env(:ingestion_router_response, original_router_response)
+
+      restore_env(
+        :provider_browser_replace_permissions_response,
+        original_replace_permissions_response
+      )
+
       File.rm_rf!(tmp_dir)
     end)
 
     {:ok, conn: conn, tmp_dir: tmp_dir}
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:zaq, key)
+  defp restore_env(key, value), do: Application.put_env(:zaq, key, value)
 
   defp create_job(attrs) do
     %IngestJob{}
@@ -2025,11 +2075,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "span", "modal-close.txt")
   end
 
-  @tag :skip
   test "uploads mixed valid and invalid files while keeping the modal open", %{
     conn: conn,
     tmp_dir: tmp_dir
   } do
+    Application.put_env(:zaq, :ingestion_create_document_module, CreateDocumentStub)
+
+    Application.put_env(:zaq, :ingestion_create_document_response, fn params ->
+      if params[:name] == "bad.md" do
+        {:error, :invalid_upload}
+      else
+        Zaq.Agent.Tools.DataSource.CreateDocument.run(params, %{})
+      end
+    end)
+
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
     open_upload_modal(view)
 
@@ -2040,14 +2099,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
           name: "bad.md",
           content: "bad upload",
           type: "text/markdown",
-          relative_path: "../bad.md"
+          relative_path: "bad.md"
         }
       ])
 
     assert render_upload(upload, "upload.txt", 100)
     assert render_upload(upload, "bad.md", 100)
 
-    render_hook(view, "upload", %{})
+    view |> form("#upload-form") |> render_submit()
 
     assert File.exists?(Path.join(tmp_dir, "upload.txt"))
     refute File.exists?(Path.join(tmp_dir, "bad.md"))
@@ -4091,6 +4150,255 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :error) =~
                "Permissions unavailable"
+    end
+  end
+
+  describe "remaining ingestion coverage seams" do
+    test "confirm_share keeps the modal open when provider permissions fail", %{conn: conn} do
+      Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
+      create_provider_config()
+
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{list_items: true, manage_item_permissions: true}}}
+      )
+
+      Application.put_env(
+        :zaq,
+        :provider_browser_permissions_response,
+        {:ok,
+         %RecordPage{
+           resource_type: :permission,
+           records: [],
+           pagination: %{},
+           stats: %{},
+           filters: %{},
+           metadata: %{}
+         }}
+      )
+
+      Application.put_env(
+        :zaq,
+        :provider_browser_replace_permissions_response,
+        {:error, :permission_denied}
+      )
+
+      Application.put_env(:zaq, :ingestion_node_router_module, IngestionRouterStub)
+      Application.put_env(:zaq, :ingestion_router_response, {:error, :permission_denied})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "share_item", %{"path" => "file-1"})
+      render_hook(view, "confirm_share", %{})
+
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.modal == :share
+      assert state.socket.assigns.modal_error == "Permissions failed: :permission_denied"
+    end
+
+    test "dismiss_ingest_toast clears a successful ingestion toast", %{conn: conn} do
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
+        {:ok, %{id: nil}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "toggle_select", %{"path" => "alpha.md"})
+      render_hook(view, "ingest_selected", %{})
+      assert has_element?(view, "#ingest-toast")
+      render_hook(view, "dismiss_ingest_toast", %{})
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.ingest_toast == nil
+      refute has_element?(view, "#ingest-toast")
+    end
+
+    test "save_raw_content reports a nonbinary action error", %{conn: conn} do
+      Application.put_env(:zaq, :ingestion_create_document_module, CreateDocumentStub)
+      Application.put_env(:zaq, :ingestion_create_document_response, {:error, :provider_down})
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "show_add_raw_modal", %{})
+      render_hook(view, "save_raw_content", %{"filename" => "raw", "content" => "body"})
+      assert :sys.get_state(view.pid).socket.assigns.modal_error == "Save failed: :provider_down"
+    end
+
+    test "local navigation with no volume reports the disabled Disk source", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      :sys.replace_state(view.pid, fn state ->
+        assign = Map.merge(state.socket.assigns, %{volumes: %{}, current_volume: nil})
+        put_in(state.socket.assigns, assign)
+      end)
+
+      render_hook(view, "navigate", %{"path" => "docs"})
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.entries == []
+      assert state.socket.assigns.records_by_path == %{}
+      assert state.socket.assigns.ingestion_map == %{}
+      assert state.socket.assigns.provider_error == "No Disk volume is enabled."
+    end
+
+    test "provider preview events distinguish URL, unavailable, missing, and malformed paths", %{
+      conn: conn
+    } do
+      create_provider_config()
+      Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "open_preview", %{"path" => "file-1"})
+      assert :sys.get_state(view.pid).socket.assigns.modal == :preview
+      render_hook(view, "close_preview_modal", %{})
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+      render_hook(view, "open_preview", %{"path" => "file-no-url"})
+
+      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :error) ==
+               "Preview unavailable for this provider record."
+
+      render_hook(view, "open_preview", %{"path" => "missing-id"})
+
+      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :error) ==
+               "Preview is unavailable for this provider record."
+
+      render_hook(view, "open_preview", %{"path" => nil})
+
+      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :error) ==
+               "Preview unavailable for this provider record."
+    end
+
+    test "ingest_selected clears selection on an unexpected router response", %{conn: conn} do
+      Application.put_env(:zaq, :ingestion_node_router_module, IngestionRouterStub)
+      Application.put_env(:zaq, :ingestion_router_response, {:error, :service_unavailable})
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "toggle_select", %{"path" => "alpha.md"})
+      render_hook(view, "ingest_selected", %{})
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.selected == MapSet.new()
+      assert Phoenix.Flash.get(state.socket.assigns.flash, :error) == "Ingestion failed."
+    end
+
+    test "local preview uses an explicit nonblank filename and preserves errors for missing files",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      render_hook(view, "open_preview", %{"path" => "alpha.md", "filename" => "renamed.md"})
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.preview.filename == "renamed.md"
+      render_hook(view, "close_preview_modal", %{})
+      render_hook(view, "open_preview", %{"path" => "does-not-exist.md"})
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.preview.kind == :not_found
+    end
+
+    test "malformed nameless ingestion jobs do not create a local overlay", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      send(view.pid, {:job_updated, %IngestJob{source_record: %{}, file_path: nil}})
+      render_hook(view, "navigate", %{"path" => "docs"})
+      refute has_element?(view, "[data-testid='ingestion-overlay']")
+    end
+
+    test "share reports local source-id traversal failures", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      :sys.replace_state(view.pid, fn state ->
+        record = %Record{id: "invalid", kind: :file, name: "Invalid", path: "../invalid"}
+
+        assigns =
+          Map.merge(state.socket.assigns, %{
+            current_volume: nil,
+            records_by_path: %{"../invalid" => record}
+          })
+
+        put_in(state.socket.assigns, assigns)
+      end)
+
+      render_hook(view, "share_item", %{"path" => "../invalid"})
+
+      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :error) =~
+               "Permissions unavailable"
+    end
+
+    test "provider share reports a blank source id and permission failures", %{conn: conn} do
+      create_provider_config()
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        ProviderBrowserCustomBridgeStub
+      )
+
+      Application.put_env(:zaq, :provider_browser_response, [
+        %Record{id: "", kind: :file, path: "usable", name: "Usable"}
+      ])
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "share_item", %{"path" => "usable"})
+
+      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :error) ==
+               "Permissions unavailable: :missing_source_file_id"
+
+      Application.put_env(:zaq, :provider_browser_response, [
+        %Record{id: "usable", kind: :file, path: "usable", name: "Usable"}
+      ])
+
+      Application.put_env(:zaq, :provider_browser_permissions_response, {:error, :timeout})
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "share_item", %{"path" => "usable"})
+
+      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :error) ==
+               "Permissions unavailable: :timeout"
+    end
+
+    test "provider watch degrades when marking active fails", %{conn: conn} do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      config = create_provider_config()
+      Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
+
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{list_items: true, watch_changes_webhook: true}}}
+      )
+
+      Application.put_env(:zaq, :ingestion_call_module, IngestionCallStub)
+
+      Application.put_env(:zaq, :ingestion_call_responses, %{
+        mark_watch_active: {:error, :db_down}
+      })
+
+      source = "data_source/google_drive/#{config.id}/file-1"
+      create_document_with_chunk(source, %{watch_status: "unwatched"})
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+      render_hook(view, "watch_selected", %{})
+
+      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :info) ==
+               "No watch status was changed."
+    end
+
+    test "unexpected provider watch response leaves status unchanged", %{conn: conn} do
+      original_base_url = ZaqSystem.get_global_base_url()
+      :ok = ZaqSystem.set_global_base_url("https://zaq.example")
+      on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
+
+      config = create_provider_config()
+      Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
+
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{list_items: true, watch_changes_webhook: true}}}
+      )
+
+      Application.put_env(:zaq, :provider_browser_watch_response, :unexpected)
+      source = "data_source/google_drive/#{config.id}/file-1"
+      create_document_with_chunk(source, %{watch_status: "unwatched"})
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "toggle_select", %{"path" => "file-1"})
+      render_hook(view, "watch_selected", %{})
+      assert Document.get_by_source(source).watch_status == "error"
+
+      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :info) ==
+               "No watch status was changed."
     end
   end
 end

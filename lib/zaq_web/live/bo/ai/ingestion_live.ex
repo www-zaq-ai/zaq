@@ -705,32 +705,30 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("open_preview", %{"path" => path, "filename" => filename}, socket) do
-    case preview_record(socket, path) do
-      {:ok, record} ->
-        {:noreply, open_record_preview(socket, record, filename)}
+    if provider_mode?(socket) do
+      {:noreply, open_provider_preview(socket, path)}
+    else
+      case preview_record(socket, path) do
+        {:ok, record} ->
+          {:noreply, open_record_preview(socket, record, filename)}
 
-      :missing ->
-        if provider_mode?(socket) do
-          {:noreply,
-           put_flash(socket, :error, "Preview is unavailable for this provider record.")}
-        else
+        :missing ->
           {:noreply, open_local_preview(socket, path, filename)}
-        end
+      end
     end
   end
 
   def handle_event("open_preview", %{"path" => path}, socket) do
-    case preview_record(socket, path) do
-      {:ok, record} ->
-        {:noreply, open_record_preview(socket, record, nil)}
+    if provider_mode?(socket) do
+      {:noreply, open_provider_preview(socket, path)}
+    else
+      case preview_record(socket, path) do
+        {:ok, record} ->
+          {:noreply, open_record_preview(socket, record, nil)}
 
-      :missing ->
-        if provider_mode?(socket) do
-          {:noreply,
-           put_flash(socket, :error, "Preview is unavailable for this provider record.")}
-        else
+        :missing ->
           {:noreply, PreviewHelpers.open_preview(socket, path, :modal)}
-        end
+      end
     end
   end
 
@@ -1402,7 +1400,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       |> Map.put(:provider, create_document_provider(socket))
       |> Map.merge(create_document_destination(socket))
 
-    CreateDocument.run(params, create_document_context(socket))
+    action_module =
+      Zaq.Config.get(:zaq, :ingestion_create_document_module, CreateDocument, [])
+
+    action_module.run(params, create_document_context(socket))
   end
 
   defp create_document_provider(%{assigns: %{provider: provider}}),
@@ -1538,7 +1539,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         actor: BOActor.build(socket.assigns.current_user)
       )
 
-    NodeRouter.dispatch(event).response
+    router_module =
+      Zaq.Config.get(:zaq, :ingestion_node_router_module, NodeRouter, [])
+
+    router_module.dispatch(event).response
   end
 
   defp dispatch_source_scopes(provider, params) do
@@ -1605,9 +1609,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp local_source_file_id(socket, path, folder?) do
     kind = if folder?, do: "directory", else: "file"
 
-    case EntryCatalog.ensure(socket.assigns.current_volume, path, kind) do
-      {:ok, entry} -> {:ok, entry.id}
-      {:error, reason} -> {:error, reason}
+    case socket.assigns.current_volume do
+      volume when is_binary(volume) ->
+        case EntryCatalog.ensure(volume, path, kind) do
+          {:ok, entry} -> {:ok, entry.id}
+          {:error, reason} -> {:error, reason}
+        end
+
+      _ ->
+        {:error, :missing_volume}
     end
   end
 
@@ -1732,13 +1742,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp dispatch_source_permission_sync(socket, params) do
-    %{provider: data_source_provider(socket), params: params}
-    |> Event.new(:ingestion,
-      opts: [action: :sync_data_source_permissions],
-      actor: BOActor.build(socket.assigns.current_user)
-    )
-    |> NodeRouter.dispatch()
-    |> Map.get(:response)
+    event =
+      %{provider: data_source_provider(socket), params: params}
+      |> Event.new(:ingestion,
+        opts: [
+          action: :sync_data_source_permissions,
+          data_source_bridge_module: data_source_bridge_module()
+        ],
+        actor: BOActor.build(socket.assigns.current_user)
+      )
+
+    router_module = Zaq.Config.get(:zaq, :ingestion_node_router_module, NodeRouter, [])
+    router_module.dispatch(event).response
   end
 
   defp parse_int(value) when is_integer(value), do: value
@@ -2558,7 +2573,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp open_provider_preview(socket, record_or_id)
 
   defp open_provider_preview(socket, id) when is_binary(id) do
-    open_provider_preview(socket, Map.get(socket.assigns.records_by_path, id))
+    case Map.get(socket.assigns.records_by_path, id) do
+      nil -> put_flash(socket, :error, "Preview is unavailable for this provider record.")
+      record -> open_provider_preview(socket, record)
+    end
   end
 
   defp open_provider_preview(socket, record) when is_map(record) do
