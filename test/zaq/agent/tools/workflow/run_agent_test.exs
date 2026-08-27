@@ -595,6 +595,63 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert [%{role: :user, content: "solo"}] = seeded_messages(event)
     end
 
+    test "drops entries whose role is neither a string nor an atom" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [
+            %{role: 42, content: "numeric role"},
+            %{role: nil, content: "nil role"},
+            %{role: ["user"], content: "list role"},
+            %{content: "missing role"},
+            %{role: "user", content: "keep me"}
+          ]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [%{role: :user, content: "keep me"}] = seeded_messages(event)
+    end
+
+    test "stringifies float and boolean content in a context turn" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{role: "user", content: 1.5}, %{role: "assistant", content: true}]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [
+               %{role: :user, content: "1.5"},
+               %{role: :assistant, content: "true"}
+             ] = seeded_messages(event)
+    end
+
+    # `entry_field/2` reads a turn's key as `atom_key || string_key`, so a literal
+    # `false` content is indistinguishable from an absent key and normalises to "".
+    # Pinned here so the behaviour is visible rather than surprising.
+    test "treats a literal false content as absent (empty string)" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "go", context: [%{role: "tool", content: false}]},
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [%{role: :tool, content: ""}] = seeded_messages(event)
+    end
+
     test "keeps a turn whose content is missing or empty as an empty string" do
       # Carrier is a mechanical normaliser: it does not drop empty turns — deciding
       # what to do with an empty message is the consumer's job (Issue 2).
@@ -710,6 +767,28 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
       assert [%{content: "a"}, %{content: "b"}] = seeded_messages(event)
+    end
+
+    # When even the newest turn overflows the budget, `within_budget/2` keeps
+    # nothing. No `:context` is then sent, so the agent falls back to normal
+    # history loading rather than spawning with an empty seeded context.
+    test "sends no :context when every seed turn overflows the budget" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{role: "user", content: "one two three four five"}],
+          context_max_size: 1
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert seeded_context(event) == nil
+      # The budget is still carried as data for downstream observability.
+      assert event.request.metadata[:context_max_size] == 1
     end
   end
 
