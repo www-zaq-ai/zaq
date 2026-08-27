@@ -13,6 +13,7 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Identity.ActorNormalizer
+  alias Zaq.Permissions
   alias Zaq.Permissions.ResourcePermission
   alias Zaq.Repo
 
@@ -33,33 +34,40 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     if skip_permissions?(context) do
       {:ok, from(row in module)}
     else
-      case actor_person(context) do
-        nil ->
-          {:error, :unauthorized}
-
-        %{id: person_id, team_ids: team_ids} ->
-          resource_type = resource_type(descriptor.module)
-
-          permissions =
-            from perm in ResourcePermission,
-              where:
-                perm.resource_type == ^resource_type and
-                  fragment("? = ANY(?)", "read", perm.access_rights) and
-                  (perm.person_id == ^person_id or perm.team_id in ^team_ids)
-
-          authorized_resources =
-            from perm in subquery(permissions),
-              join: row in ^module,
-              on: field(row, :id) == fragment("?::bigint", perm.resource_id),
-              select: row,
-              distinct: true
-
-          query = from(row in subquery(authorized_resources))
-
-          {:ok, query}
-      end
+      {:ok, private_authorized_query(descriptor, context)}
     end
   end
+
+  defp private_authorized_query(%{module: module} = descriptor, context) do
+    {person_id, team_ids} = authorization_subject(context)
+    resource_type = resource_type(descriptor.module)
+    subject_condition = permission_subject_condition(person_id, team_ids)
+
+    permission_condition =
+      dynamic(
+        [perm],
+        perm.resource_type == ^resource_type and
+          fragment("? = ANY(?)", "read", perm.access_rights) and ^subject_condition
+      )
+
+    permissions =
+      from perm in ResourcePermission,
+        where: ^permission_condition
+
+    authorized_resources =
+      from perm in subquery(permissions),
+        join: row in ^module,
+        on: field(row, :id) == fragment("?::bigint", perm.resource_id),
+        select: row,
+        distinct: true
+
+    from(row in subquery(authorized_resources))
+  end
+
+  defp permission_subject_condition(nil, team_ids), do: dynamic([perm], perm.team_id in ^team_ids)
+
+  defp permission_subject_condition(person_id, team_ids),
+    do: dynamic([perm], perm.person_id == ^person_id or perm.team_id in ^team_ids)
 
   @spec run(map(), map(), map()) :: query_result()
   def run(descriptor, params, context) do
@@ -448,20 +456,38 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
   defp clamp_integer(_value, default, _min, _max), do: default
 
-  defp actor_person(context) do
+  defp authorization_subject(context) do
     actor = Map.get(context, :actor) || Map.get(context, "actor")
 
     case ActorNormalizer.person_id(actor) ||
            ActorNormalizer.normalize_id(Map.get(context, :person_id)) do
-      nil -> nil
-      person_id -> %{id: person_id, team_ids: actor_team_ids(actor, person_id)}
+      nil -> {nil, effective_team_ids(context, actor, nil)}
+      person_id -> {person_id, effective_team_ids(context, actor, person_id)}
     end
   end
+
+  defp effective_team_ids(context, actor, person_id) do
+    actor_team_ids(actor, person_id)
+    |> case do
+      [] -> context_team_ids(context)
+      ids -> ids
+    end
+    |> Permissions.with_everyone_team_ids()
+  end
+
+  defp actor_team_ids(actor, nil), do: ActorNormalizer.team_ids(actor)
 
   defp actor_team_ids(actor, person_id) do
     case ActorNormalizer.team_ids(actor) do
       [] -> person_id |> People.get_person() |> person_team_ids()
       ids -> ids
+    end
+  end
+
+  defp context_team_ids(context) do
+    case Map.get(context, :team_ids) || Map.get(context, "team_ids") do
+      ids when is_list(ids) -> ids
+      _ -> []
     end
   end
 

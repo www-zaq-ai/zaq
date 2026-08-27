@@ -12,6 +12,8 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
   attr :share_modal_is_folder, :boolean, default: false
   attr :share_modal_is_public, :boolean, default: false
   attr :share_modal_original_is_public, :boolean, default: false
+  attr :share_modal_public_inherited?, :boolean, default: false
+  attr :share_modal_removed?, :boolean, default: false
   attr :share_modal_permissions, :list, required: true
   attr :share_modal_targets_options, :list, required: true
   attr :share_modal_pending, :list, required: true
@@ -104,16 +106,29 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
               phx-click="toggle_public"
               class={[
                 "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-                if(@share_modal_is_public, do: "bg-[var(--zaq-color-accent)]", else: "bg-black/20")
+                if(@share_modal_is_public or @share_modal_public_inherited?,
+                  do: "bg-[var(--zaq-color-accent)]",
+                  else: "bg-black/20"
+                )
               ]}
               role="switch"
-              aria-checked={to_string(@share_modal_is_public)}
+              aria-checked={to_string(@share_modal_is_public or @share_modal_public_inherited?)}
+              disabled={@share_modal_public_inherited?}
             >
               <span class={[
                 "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200",
-                if(@share_modal_is_public, do: "translate-x-4", else: "translate-x-0")
+                if(@share_modal_is_public or @share_modal_public_inherited?,
+                  do: "translate-x-4",
+                  else: "translate-x-0"
+                )
               ]} />
             </button>
+            <span
+              :if={@share_modal_public_inherited?}
+              class="font-mono text-[0.65rem] text-black/35 shrink-0"
+            >
+              inherited
+            </span>
           </div>
           <%!-- Existing permissions --%>
           <div :if={@share_modal_permissions != []}>
@@ -141,7 +156,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
                   </div>
                 </div>
                 <button
-                  :if={not @share_modal_read_only}
+                  :if={not @share_modal_read_only and not Map.get(perm, :inherited?, false)}
                   phx-click="remove_permission"
                   phx-value-id={perm.id}
                   class="text-black/20 hover:text-red-400 transition-colors shrink-0"
@@ -156,6 +171,12 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
+                <span
+                  :if={Map.get(perm, :inherited?, false)}
+                  class="font-mono text-[0.65rem] text-black/35 shrink-0"
+                >
+                  inherited
+                </span>
               </div>
             </div>
           </div>
@@ -246,7 +267,8 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
             phx-click="confirm_share"
             class="font-mono text-[0.78rem] font-semibold px-5 py-2 rounded-xl bg-[var(--zaq-color-accent)] text-white hover:bg-[var(--zaq-color-accent-hover)] shadow-sm shadow-[var(--zaq-color-accent-border)] transition-all disabled:opacity-40"
             disabled={
-              @share_modal_pending == [] and @share_modal_is_public == @share_modal_original_is_public
+              @share_modal_pending == [] and not @share_modal_removed? and
+                @share_modal_is_public == @share_modal_original_is_public
             }
           >
             Save Permissions

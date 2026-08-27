@@ -9,6 +9,7 @@ defmodule Zaq.IngestionTest do
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Api
+  alias Zaq.Permissions
 
   alias Zaq.Ingestion.{
     Chunk,
@@ -1209,7 +1210,7 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "can_access_file?/2" do
-    test "returns false when document has no permissions and no public tag (private by default)" do
+    test "returns false when document has no permissions (private by default)" do
       source = "private-doc-#{System.unique_integer()}.md"
       _doc = create_doc_with_source(source)
       person = create_person()
@@ -1282,82 +1283,14 @@ defmodule Zaq.IngestionTest do
     end
   end
 
-  describe "add_document_tag/2 and remove_document_tag/2" do
-    test "adds a tag to a document" do
-      doc = create_doc_with_source("tag-add-#{System.unique_integer()}.md")
-      assert {:ok, updated} = Ingestion.add_document_tag(doc.id, "public")
-      assert "public" in updated.tags
-    end
-
-    test "adding the same tag twice does not duplicate it" do
-      doc = create_doc_with_source("tag-dedup-#{System.unique_integer()}.md")
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
-      {:ok, updated} = Ingestion.add_document_tag(doc.id, "public")
-      assert Enum.count(updated.tags, &(&1 == "public")) == 1
-    end
-
-    test "removes a tag from a document" do
-      doc = create_doc_with_source("tag-remove-#{System.unique_integer()}.md")
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
-      assert {:ok, updated} = Ingestion.remove_document_tag(doc.id, "public")
-      refute "public" in updated.tags
-    end
-
-    test "removing a non-existent tag is a no-op" do
-      doc = create_doc_with_source("tag-noop-#{System.unique_integer()}.md")
-      assert {:ok, updated} = Ingestion.remove_document_tag(doc.id, "public")
-      assert updated.tags == []
-    end
-  end
-
   # ---------------------------------------------------------------------------
-  # Public tag — folder-level
+  # list_permitted_document_ids — public grants
   # ---------------------------------------------------------------------------
 
-  describe "set_folder_public/2 and unset_folder_public/2" do
-    test "marks a folder public and tags all existing docs under it" do
-      folder = "vol_pub/folder_#{System.unique_integer()}"
-      doc1 = create_doc_with_source("#{folder}/a.md")
-      doc2 = create_doc_with_source("#{folder}/sub/b.md")
-
-      assert :ok = Ingestion.set_folder_public("vol_pub", Path.basename(folder))
-
-      assert "public" in Repo.get!(Document, doc1.id).tags
-      assert "public" in Repo.get!(Document, doc2.id).tags
-    end
-
-    test "persists the folder public flag" do
-      folder_name = "pub_persist_#{System.unique_integer()}"
-      assert :ok = Ingestion.set_folder_public("vol_pub", folder_name)
-      assert Ingestion.folder_public?("vol_pub", folder_name) == true
-    end
-
-    test "unset_folder_public removes the flag and tag from docs" do
-      folder_name = "pub_unset_#{System.unique_integer()}"
-      folder = "vol_pub/#{folder_name}"
-      doc = create_doc_with_source("#{folder}/x.md")
-
-      :ok = Ingestion.set_folder_public("vol_pub", folder_name)
-      assert "public" in Repo.get!(Document, doc.id).tags
-
-      assert :ok = Ingestion.unset_folder_public("vol_pub", folder_name)
-      refute "public" in Repo.get!(Document, doc.id).tags
-      assert Ingestion.folder_public?("vol_pub", folder_name) == false
-    end
-
-    test "folder_public? returns false when no setting exists" do
-      assert Ingestion.folder_public?("vol_pub", "no_such_folder") == false
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # list_permitted_document_ids — public tag bypass
-  # ---------------------------------------------------------------------------
-
-  describe "list_permitted_document_ids/3 — public tag" do
-    test "returns public-tagged doc even when person has no permission row" do
+  describe "list_permitted_document_ids/3 — public grants" do
+    test "returns public doc even when person has no permission row" do
       doc = create_doc_with_source("pub-tag-permitted-#{System.unique_integer()}.md")
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       person = create_person()
 
       result = DocumentAccess.list_permitted_document_ids(person.id, [], [doc.id])
@@ -1372,9 +1305,9 @@ defmodule Zaq.IngestionTest do
       refute doc.id in result
     end
 
-    test "public tag takes precedence regardless of team_ids" do
+    test "public grant takes precedence regardless of team_ids" do
       doc = create_doc_with_source("pub-no-team-#{System.unique_integer()}.md")
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       person = create_person()
 
       result = DocumentAccess.list_permitted_document_ids(person.id, [-99], [doc.id])

@@ -20,6 +20,7 @@ defmodule Zaq.Permissions.DocumentPermission do
   import Ecto.Query
 
   alias Zaq.Accounts.{Person, Team}
+  alias Zaq.Permissions
   alias Zaq.Permissions.ResourcePermission
 
   @resource_type "document"
@@ -74,11 +75,8 @@ defmodule Zaq.Permissions.DocumentPermission do
   Used by `DocumentAccess` to filter a known set of IDs (e.g. from vector search).
   """
   @spec build_permission_query(term(), [term()], [term()]) :: Ecto.Query.t()
-  def build_permission_query(nil, team_ids, _doc_ids) when team_ids == [] do
-    from(p in __MODULE__, where: false, select: p.resource_id)
-  end
-
   def build_permission_query(nil, team_ids, doc_ids) do
+    team_ids = Permissions.with_everyone_team_ids(team_ids)
     id_strings = Enum.map(doc_ids, &to_string/1)
 
     from(p in __MODULE__,
@@ -92,6 +90,7 @@ defmodule Zaq.Permissions.DocumentPermission do
   end
 
   def build_permission_query(person_id, team_ids, doc_ids) do
+    team_ids = Permissions.with_everyone_team_ids(team_ids)
     id_strings = Enum.map(doc_ids, &to_string/1)
 
     from(p in __MODULE__,
@@ -112,16 +111,20 @@ defmodule Zaq.Permissions.DocumentPermission do
     `on: p.resource_type == "document" and p.resource_id == fragment("?::text", d.id)`
   """
   @spec build_perm_join_condition(term(), [term()]) :: Ecto.Query.dynamic_expr()
-  def build_perm_join_condition(nil, []), do: dynamic([perm: p], false)
+  def build_perm_join_condition(nil, team_ids) do
+    team_ids = Permissions.with_everyone_team_ids(team_ids)
+    dynamic([perm: p], p.team_id in ^team_ids)
+  end
 
-  def build_perm_join_condition(nil, team_ids),
-    do: dynamic([perm: p], p.team_id in ^team_ids)
+  def build_perm_join_condition(person_id, team_ids) when team_ids == [] do
+    team_ids = Permissions.with_everyone_team_ids([])
+    dynamic([perm: p], p.person_id == ^person_id or p.team_id in ^team_ids)
+  end
 
-  def build_perm_join_condition(person_id, []),
-    do: dynamic([perm: p], p.person_id == ^person_id)
-
-  def build_perm_join_condition(person_id, team_ids),
-    do: dynamic([perm: p], p.person_id == ^person_id or p.team_id in ^team_ids)
+  def build_perm_join_condition(person_id, team_ids) do
+    team_ids = Permissions.with_everyone_team_ids(team_ids)
+    dynamic([perm: p], p.person_id == ^person_id or p.team_id in ^team_ids)
+  end
 
   # Intentionally mirrors the DB CHECK constraint — changeset validation gives
   # early feedback before hitting the database; the constraint ensures integrity

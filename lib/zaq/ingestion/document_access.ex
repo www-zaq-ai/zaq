@@ -7,14 +7,13 @@ defmodule Zaq.Ingestion.DocumentAccess do
 
   Permission model:
   - Documents with no permission rows → not accessible to regular users (admin-only via `skip_permissions`).
-  - Documents tagged `"public"` → accessible to all.
+  - Documents granted to the system Everyone team → accessible to all.
   - Documents with explicit permission rows → accessible only to matched persons/teams.
   - `skip_permissions: true` → all documents, used for admin/internal callers.
 
   `nil person_id` is never an implicit permission grant. Both nil and authenticated
-  callers require either a `"public"` tag or a matching permission row. Documents
-  with no permission rows and no public tag are private — only `skip_permissions: true`
-  (BO admin) can access them.
+  callers require an Everyone grant or a matching permission row. Documents with no
+  permission rows are private — only `skip_permissions: true` (BO admin) can access them.
   """
 
   alias Zaq.Ingestion.{Chunk, Document}
@@ -27,36 +26,20 @@ defmodule Zaq.Ingestion.DocumentAccess do
   Returns the subset of `doc_ids` the caller is permitted to access.
 
   A document is included if:
-  - A permission row exists matching `person_id` or any of `team_ids`, OR
-  - The document is tagged `"public"`.
+  - A permission row exists matching `person_id` or any of `team_ids`, including Everyone.
 
-  Note: documents with *no* permission rows at all are NOT returned here —
-  use `count_accessible_documents/1` or `list_accessible_documents/1` when
-  you need the "public by default" (no-permissions) behaviour for a full scan.
-  This function is designed for filtering a known set of doc_ids fetched from
-  an external source (e.g., vector search results).
+  Documents with no permission rows are not returned. This function is designed
+  for filtering a known set of doc_ids fetched from an external source (e.g.,
+  vector search results).
   """
   @spec list_permitted_document_ids(term(), [term()], [term()]) :: [term()]
   def list_permitted_document_ids(person_id, team_ids, doc_ids) do
-    via_permission =
-      Permission.build_permission_query(person_id, team_ids, doc_ids)
-      |> Repo.all()
-
-    via_public =
-      from(d in Document,
-        where: d.id in ^doc_ids and fragment("? @> ARRAY[?]::varchar[]", d.tags, "public"),
-        select: d.id
-      )
-      |> Repo.all()
-
-    Enum.uniq(via_permission ++ via_public)
+    Permission.build_permission_query(person_id, team_ids, doc_ids)
+    |> Repo.all()
   end
 
   @doc """
   Counts documents the caller is permitted to access.
-
-  Unlike `list_permitted_document_ids/3`, documents with no permission rows at
-  all are treated as public (accessible to everyone).
 
   Options:
   - `:person_id` — ID of the requesting person.
@@ -149,16 +132,14 @@ defmodule Zaq.Ingestion.DocumentAccess do
   # All three access conditions unified in one named-binding dynamic to avoid
   # mixing positional and named bindings in the same where expression.
   #
-  # Both nil and authenticated person_id require either a "public" tag or a matching
-  # permission row. Docs with no permission rows and no public tag are NOT accessible
-  # here — only skip_permissions: true (BO admin) bypasses this.
+  # Both nil and authenticated person_id require an Everyone grant or a matching
+  # permission row. Only skip_permissions: true (BO admin) bypasses this.
   defp build_accessible_where(nil, team_ids) do
     perm_cond = Permission.build_perm_join_condition(nil, team_ids)
 
     dynamic(
       [doc: d, perm: p],
-      fragment("? @> ARRAY['public']::varchar[]", d.tags) or
-        ^perm_cond
+      ^perm_cond
     )
   end
 
@@ -167,8 +148,7 @@ defmodule Zaq.Ingestion.DocumentAccess do
 
     dynamic(
       [doc: d, perm: p],
-      fragment("? @> ARRAY['public']::varchar[]", d.tags) or
-        ^perm_cond
+      ^perm_cond
     )
   end
 

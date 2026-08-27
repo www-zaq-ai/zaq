@@ -180,10 +180,15 @@ defmodule Zaq.Storage.ApiTest do
       type: "person",
       target_id: to_string(person.id),
       name: person.full_name,
-      access_rights: ["read"]
+      access_rights: ["read"],
+      inherited?: false,
+      origin_resource_id: entry.id
     }
 
-    assert_result(event, result, {:ok, %{permissions: [expected], public?: false}})
+    assert_result(event, result, {
+      :ok,
+      %{effective_permissions: [expected]}
+    })
   end
 
   test "searches documents with string actor permission bypass", %{

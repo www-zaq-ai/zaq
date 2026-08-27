@@ -16,11 +16,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Channels.ProviderCatalog
   alias Zaq.Channels.WebhookUrl
+  alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Document, ExternalSource}
   alias Zaq.NodeRouter
+  alias Zaq.Permissions
   alias Zaq.Repo
+  alias Zaq.Storage.EntryCatalog
   alias Zaq.System
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Live.BO.AI.BOActor
@@ -95,6 +98,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        share_modal_is_public: false,
        share_modal_original_is_public: false,
        share_modal_folder_path: nil,
+       share_modal_source_file_id: nil,
+       share_modal_removed?: false,
+       share_modal_public_inherited?: false,
        share_modal_permissions: [],
        share_modal_all_targets: build_share_targets_options(),
        share_modal_targets_options: build_share_targets_options(),
@@ -139,30 +145,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # Permission sharing (share modal)
 
   def handle_event("share_item", %{"path" => path, "type" => "directory"}, socket) do
-    all_targets = socket.assigns.share_modal_all_targets
-
-    permissions =
-      ingestion_call(:list_folder_permissions, [socket.assigns.current_volume, path])
-
-    is_public = Ingestion.folder_public?(socket.assigns.current_volume, path)
-
-    {:noreply,
-     assign(socket,
-       modal: :share,
-       modal_path: path,
-       modal_name: Path.basename(path),
-       modal_error: nil,
-       share_modal_is_folder: true,
-       share_modal_is_public: is_public,
-       share_modal_original_is_public: is_public,
-       share_modal_folder_path: path,
-       share_modal_document_id: nil,
-       share_modal_permissions: permissions,
-       share_modal_pending: [],
-       share_modal_targets_options: filtered_targets(all_targets, permissions, []),
-       share_modal_read_only: false,
-       share_modal_notice: nil
-     )}
+    open_source_share_modal(socket, path, true)
   end
 
   def handle_event("view_provider_permissions", %{"path" => path}, socket) do
@@ -180,8 +163,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
          modal_name: record.name || path,
          modal_error: nil,
          share_modal_is_folder: false,
-         share_modal_is_public: "public" in doc.tags,
-         share_modal_original_is_public: "public" in doc.tags,
+         share_modal_is_public: Permissions.public?(doc),
+         share_modal_original_is_public: Permissions.public?(doc),
          share_modal_folder_path: nil,
          share_modal_document_id: doc.id,
          share_modal_permissions: permissions,
@@ -203,33 +186,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("share_item", %{"path" => path}, socket) do
-    {:ok, record} = share_record(socket, path)
-    doc = ingestion_call(:get_document_by_source!, [ExternalSource.source(record)])
-    permissions = ingestion_call(:list_document_permissions, [doc.id])
-
-    all_targets = socket.assigns.share_modal_all_targets
-
-    {:noreply,
-     assign(socket,
-       modal: :share,
-       modal_path: path,
-       modal_name: Path.basename(path),
-       modal_error: nil,
-       share_modal_is_folder: false,
-       share_modal_is_public: "public" in doc.tags,
-       share_modal_original_is_public: "public" in doc.tags,
-       share_modal_folder_path: nil,
-       share_modal_document_id: doc.id,
-       share_modal_permissions: permissions,
-       share_modal_pending: [],
-       share_modal_targets_options: filtered_targets(all_targets, permissions, []),
-       share_modal_read_only: false,
-       share_modal_notice: nil
-     )}
+    open_source_share_modal(socket, path, false)
   end
 
   def handle_event("toggle_public", _params, %{assigns: %{share_modal_read_only: true}} = socket),
     do: {:noreply, socket}
+
+  def handle_event(
+        "toggle_public",
+        _params,
+        %{assigns: %{share_modal_public_inherited?: true}} = socket
+      ),
+      do: {:noreply, socket}
 
   def handle_event("toggle_public", _params, socket) do
     {:noreply, assign(socket, share_modal_is_public: not socket.assigns.share_modal_is_public)}
@@ -329,27 +297,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   def handle_event("remove_permission", %{"id" => id_str}, socket) do
     id = String.to_integer(id_str)
 
-    permissions =
-      if socket.assigns.share_modal_is_folder do
-        {:ok, _} =
-          ingestion_call(:delete_folder_target_permission, [
-            socket.assigns.current_volume,
-            socket.assigns.share_modal_folder_path,
-            id
-          ])
+    direct_count =
+      socket.assigns.share_modal_permissions
+      |> Enum.reject(&Map.get(&1, :inherited?, false))
+      |> length()
 
-        ingestion_call(:list_folder_permissions, [
-          socket.assigns.current_volume,
-          socket.assigns.share_modal_folder_path
-        ])
-      else
-        {:ok, _} = ingestion_call(:delete_document_permission, [id])
-        ingestion_call(:list_document_permissions, [socket.assigns.share_modal_document_id])
-      end
+    permissions =
+      Enum.reject(socket.assigns.share_modal_permissions, &(&1.id == id or &1.id == id_str))
 
     {:noreply,
      assign(socket,
        share_modal_permissions: permissions,
+       share_modal_removed?:
+         direct_count > permissions |> Enum.reject(&Map.get(&1, :inherited?, false)) |> length(),
        share_modal_targets_options:
          filtered_targets(
            socket.assigns.share_modal_all_targets,
@@ -366,54 +326,30 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     pending = socket.assigns.share_modal_pending
     name = socket.assigns.modal_name
     is_public = socket.assigns.share_modal_is_public
-    original_is_public = socket.assigns.share_modal_original_is_public
-    volume = socket.assigns.current_volume
 
-    if socket.assigns.share_modal_is_folder do
-      docs =
-        ingestion_call(:list_documents_under_folder, [
-          volume,
-          socket.assigns.share_modal_folder_path
-        ])
+    grants = source_share_grants(socket.assigns.share_modal_permissions, pending, is_public)
 
-      for doc <- docs,
-          %{type: type, id: id, access_rights: rights} <- pending do
-        ingestion_call(:set_document_permission, [doc.id, type, id, rights])
-      end
+    params = %{
+      "config_id" => data_source_config_id(socket),
+      "file_id" => confirm_source_file_id(socket),
+      "grants" => grants
+    }
 
-      maybe_update_folder_public(
-        volume,
-        socket.assigns.share_modal_folder_path,
-        is_public,
-        original_is_public
-      )
+    case dispatch_source_permission_sync(socket, params) do
+      {:ok, _result} ->
+        {:noreply,
+         socket
+         |> assign(
+           modal: nil,
+           modal_error: nil,
+           share_modal_pending: [],
+           share_modal_removed?: false
+         )
+         |> load_entries()
+         |> put_flash(:info, "Permissions saved for \"#{name}\".")}
 
-      {:noreply,
-       socket
-       |> assign(modal: nil, modal_error: nil, share_modal_pending: [])
-       |> load_entries()
-       |> put_flash(:info, "Permissions applied to all documents in \"#{name}\".")}
-    else
-      doc_id = socket.assigns.share_modal_document_id
-
-      for %{type: type, id: id, access_rights: rights} <- pending do
-        ingestion_call(:set_document_permission, [doc_id, type, id, rights])
-      end
-
-      maybe_update_document_public(doc_id, is_public, original_is_public)
-
-      permissions = ingestion_call(:list_document_permissions, [doc_id])
-
-      {:noreply,
-       socket
-       |> assign(
-         modal: nil,
-         modal_error: nil,
-         share_modal_permissions: permissions,
-         share_modal_pending: []
-       )
-       |> load_entries()
-       |> put_flash(:info, "Permissions saved for \"#{name}\".")}
+      {:error, reason} ->
+        {:noreply, assign(socket, modal_error: "Permissions failed: #{inspect(reason)}")}
     end
   end
 
@@ -1306,22 +1242,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     Application.get_env(:zaq, :ingestion_prep_ttl_ms, @prep_ttl_ms_default)
   end
 
-  defp maybe_update_folder_public(_volume, _path, same, same), do: :ok
-
-  defp maybe_update_folder_public(volume, path, true, _),
-    do: Ingestion.set_folder_public(volume, path)
-
-  defp maybe_update_folder_public(volume, path, false, _),
-    do: Ingestion.unset_folder_public(volume, path)
-
-  defp maybe_update_document_public(_doc_id, same, same), do: :ok
-
-  defp maybe_update_document_public(doc_id, true, _),
-    do: Ingestion.add_document_tag(doc_id, "public")
-
-  defp maybe_update_document_public(doc_id, false, _),
-    do: Ingestion.remove_document_tag(doc_id, "public")
-
   defp status_match?("all", _job_status), do: true
 
   defp status_match?("others", job_status),
@@ -1628,6 +1548,189 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp records_by_path(entries), do: Map.new(entries, &{record_path(&1), &1})
 
+  defp open_source_share_modal(socket, path, folder?) do
+    with {:ok, record} <- share_record(socket, path),
+         {:ok, source_file_id} <- source_file_id(socket, path, record, folder?),
+         {:ok, permissions, public?, public_inherited?} <-
+           source_permissions(socket, source_file_id) do
+      all_targets = socket.assigns.share_modal_all_targets
+
+      {:noreply,
+       assign(socket,
+         modal: :share,
+         modal_path: path,
+         modal_name: record.name || Path.basename(path),
+         modal_error: nil,
+         share_modal_is_folder: folder?,
+         share_modal_is_public: public? and not public_inherited?,
+         share_modal_original_is_public: public? and not public_inherited?,
+         share_modal_folder_path: if(folder?, do: path, else: nil),
+         share_modal_document_id: nil,
+         share_modal_source_file_id: source_file_id,
+         share_modal_removed?: false,
+         share_modal_public_inherited?: public_inherited?,
+         share_modal_permissions: permissions,
+         share_modal_pending: [],
+         share_modal_targets_options: filtered_targets(all_targets, permissions, []),
+         share_modal_read_only: false,
+         share_modal_notice: nil
+       )}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Permissions unavailable: #{inspect(reason)}")}
+    end
+  end
+
+  defp source_file_id(socket, path, record, folder?) do
+    if data_source_provider(socket) in ["disk", "local"] do
+      local_source_file_id(socket, path, folder?)
+    else
+      remote_source_file_id(record)
+    end
+  end
+
+  defp local_source_file_id(socket, path, folder?) do
+    kind = if folder?, do: "directory", else: "file"
+
+    case EntryCatalog.ensure(socket.assigns.current_volume, path, kind) do
+      {:ok, entry} -> {:ok, entry.id}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp remote_source_file_id(%{id: id}) when is_binary(id) and id != "", do: {:ok, id}
+  defp remote_source_file_id(_record), do: {:error, :missing_source_file_id}
+
+  defp source_permissions(socket, file_id) do
+    params = %{"config_id" => data_source_config_id(socket), "file_id" => file_id}
+
+    case dispatch_data_source_action(
+           :data_source_list_permissions,
+           data_source_provider(socket),
+           params,
+           socket
+         ) do
+      {:ok, %{records: records} = page} ->
+        public? = Map.get(page, :public?, Enum.any?(records, &public_permission_record?/1))
+        public_inherited? = Enum.any?(records, &public_permission_inherited?/1)
+
+        {:ok, Enum.map(records, &modal_permission/1) |> Enum.reject(&is_nil/1), public?,
+         public_inherited?}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, other}
+    end
+  end
+
+  defp confirm_source_file_id(%{assigns: %{share_modal_source_file_id: id}})
+       when is_binary(id) and id != "",
+       do: id
+
+  defp confirm_source_file_id(socket) do
+    case source_file_id(
+           socket,
+           socket.assigns.modal_path,
+           %{},
+           socket.assigns.share_modal_is_folder
+         ) do
+      {:ok, id} -> id
+      _ -> socket.assigns.share_modal_source_file_id
+    end
+  end
+
+  defp modal_permission(%Record{attributes: %{"type" => "public"}}), do: nil
+
+  defp modal_permission(%Record{
+         id: id,
+         attributes: %{"type" => "person", "target_id" => target_id} = attrs
+       }) do
+    person = People.get_person(parse_int(target_id))
+
+    %{
+      id: parse_int(id),
+      person: person,
+      team: nil,
+      access_rights: Map.get(attrs, "access_rights", ["read"]),
+      inherited?: Map.get(attrs, "inherited", false)
+    }
+  end
+
+  defp modal_permission(%Record{
+         id: id,
+         attributes: %{"type" => "team", "target_id" => target_id} = attrs
+       }) do
+    team = People.get_team(parse_int(target_id))
+
+    %{
+      id: parse_int(id),
+      person: nil,
+      team: team,
+      access_rights: Map.get(attrs, "access_rights", ["read"]),
+      inherited?: Map.get(attrs, "inherited", false)
+    }
+  end
+
+  defp modal_permission(_record), do: nil
+
+  defp public_permission_record?(%Record{attributes: %{"type" => "public"}}), do: true
+  defp public_permission_record?(_record), do: false
+
+  defp public_permission_inherited?(%Record{attributes: %{"type" => "public"} = attrs}),
+    do: Map.get(attrs, "inherited", false)
+
+  defp public_permission_inherited?(_record), do: false
+
+  defp source_share_grants(permissions, pending, public?) do
+    current =
+      permissions
+      |> Enum.reject(&Map.get(&1, :inherited?, false))
+      |> Enum.map(fn permission ->
+        cond do
+          permission.person ->
+            %{
+              "type" => "person",
+              "target_id" => permission.person.id,
+              "access_rights" => permission.access_rights
+            }
+
+          permission.team ->
+            %{
+              "type" => "team",
+              "target_id" => permission.team.id,
+              "access_rights" => permission.access_rights
+            }
+        end
+      end)
+
+    pending =
+      Enum.map(pending, fn entry ->
+        %{
+          "type" => to_string(entry.type),
+          "target_id" => entry.id,
+          "access_rights" => entry.access_rights
+        }
+      end)
+
+    public = if public?, do: [%{"type" => "public", "access_rights" => ["read"]}], else: []
+    current ++ pending ++ public
+  end
+
+  defp dispatch_source_permission_sync(socket, params) do
+    %{provider: data_source_provider(socket), params: params}
+    |> Event.new(:ingestion,
+      opts: [action: :sync_data_source_permissions],
+      actor: BOActor.build(socket.assigns.current_user)
+    )
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
+  defp parse_int(value) when is_integer(value), do: value
+  defp parse_int(value) when is_binary(value), do: String.to_integer(value)
+
   defp enrich_local_records(records) do
     statuses =
       case ingestion_call(:enrich_records, [records]) do
@@ -1645,33 +1748,95 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     {records, ingestion_map}
   end
 
-  defp local_record_status(%{kind: kind}, status) when kind in [:folder, "folder"] do
-    %{
+  defp local_record_status(%{kind: kind} = record, status) when kind in [:folder, "folder"] do
+    record
+    |> access_status(%{})
+    |> Map.merge(%{
       type: :directory,
       total_size: 0,
       file_count: 0,
       ingested_count: 0,
-      is_public: false,
       watch_status: Map.get(status, :watch_status),
       watch_error: Map.get(status, :watch_error),
       watch_inherited?: false,
       watchable?: true
-    }
+    })
   end
 
-  defp local_record_status(_record, status) do
-    %{
-      ingested_at: Map.get(status, :ingested_at),
-      stale?: false,
+  defp local_record_status(record, status) do
+    record
+    |> access_status(%{
       permissions_count: Map.get(status, :permissions_count, 0),
       is_public: Map.get(status, :public?, false),
-      can_share?: not is_nil(Map.get(status, :document_id)),
+      can_share?: not is_nil(Map.get(status, :document_id))
+    })
+    |> Map.merge(%{
+      ingested_at: Map.get(status, :ingested_at),
+      stale?: false,
       watch_status: Map.get(status, :watch_status),
       watch_error: Map.get(status, :watch_error),
       watch_inherited?: false,
       watchable?: Map.get(status, :indexed?, false)
+    })
+  end
+
+  defp access_status(record, fallback) do
+    case permission_summary(record) do
+      nil -> fallback
+      summary -> Map.merge(fallback, summary)
+    end
+  end
+
+  defp permission_summary(%{permissions: permissions}) when is_list(permissions) do
+    direct_public? =
+      Enum.any?(permissions, &(permission_type?(&1, "public") and not permission_inherited?(&1)))
+
+    inherited_public? =
+      Enum.any?(permissions, &(permission_type?(&1, "public") and permission_inherited?(&1)))
+
+    principal_count =
+      permissions
+      |> Enum.reject(&permission_type?(&1, "public"))
+      |> Enum.map(&permission_principal_key/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> length()
+
+    %{
+      permissions_count: principal_count,
+      is_public: direct_public? or inherited_public?,
+      public_inherited?: inherited_public?,
+      can_share?: true
     }
   end
+
+  defp permission_summary(_record), do: nil
+
+  defp permission_type?(permission, type), do: permission_attr(permission, :type) == type
+
+  defp permission_inherited?(permission),
+    do:
+      permission_attr(permission, :inherited?) == true or
+        permission_attr(permission, :inherited) == true
+
+  defp permission_principal_key(permission) do
+    case {permission_attr(permission, :type),
+          permission_attr(permission, :target_id) || permission_attr(permission, :id)} do
+      {type, id} when type in ["person", "team"] and not is_nil(id) -> {type, to_string(id)}
+      _ -> nil
+    end
+  end
+
+  defp permission_attr(%Record{attributes: attrs} = record, key) do
+    Map.get(attrs || %{}, Atom.to_string(key)) || Map.get(attrs || %{}, key) ||
+      Map.get(record, key)
+  end
+
+  defp permission_attr(permission, key) when is_map(permission) do
+    Map.get(permission, key) || Map.get(permission, Atom.to_string(key))
+  end
+
+  defp permission_attr(_permission, _key), do: nil
 
   defp selected_watchable_count(selected, records_by_path, ingestion_map) do
     selected
@@ -2065,37 +2230,47 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp provider_record_status(record, doc, permission_counts, inherited_watch, socket)
 
-  defp provider_record_status(%{kind: kind}, doc, _permission_counts, inherited_watch, _socket)
+  defp provider_record_status(
+         %{kind: kind} = record,
+         doc,
+         _permission_counts,
+         inherited_watch,
+         socket
+       )
        when kind in [:folder, "folder"] do
     watch_state = Ingestion.data_source_record_watch_state(doc, inherited_watch)
 
-    %{
+    record
+    |> editable_access_status(socket, %{})
+    |> Map.merge(%{
       type: :directory,
       total_size: 0,
       file_count: 0,
       ingested_count: 0,
-      is_public: false,
       watch_status: watch_state.watch_status,
       watch_error: watch_state.watch_error,
       watch_inherited?: watch_state.watch_inherited?,
       watchable?: true
-    }
+    })
   end
 
-  defp provider_record_status(_record, nil, _permission_counts, inherited_watch, _socket) do
+  defp provider_record_status(record, nil, _permission_counts, inherited_watch, socket) do
     watch_state = Ingestion.data_source_record_watch_state(nil, inherited_watch)
 
-    %{
-      ingested_at: nil,
-      stale?: false,
+    record
+    |> editable_access_status(socket, %{
       permissions_count: 0,
       is_public: false,
-      can_share?: false,
+      can_share?: false
+    })
+    |> Map.merge(%{
+      ingested_at: nil,
+      stale?: false,
       watch_status: watch_state.watch_status,
       watch_error: watch_state.watch_error,
       watch_inherited?: watch_state.watch_inherited?,
       watchable?: Ingestion.data_source_record_watch_active?(watch_state)
-    }
+    })
   end
 
   defp provider_record_status(record, doc, permission_counts, inherited_watch, socket) do
@@ -2105,17 +2280,28 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     watch_state = Ingestion.data_source_record_watch_state(doc, inherited_watch)
 
-    %{
+    record
+    |> editable_access_status(socket, %{
+      permissions_count: Map.get(permission_counts, to_string(doc.id), 0),
+      is_public: Permissions.public?(doc),
+      can_share?: socket.assigns.action_capabilities.share
+    })
+    |> Map.merge(%{
       ingested_at: doc.updated_at,
       stale?: stale? || false,
-      permissions_count: Map.get(permission_counts, to_string(doc.id), 0),
-      is_public: "public" in doc.tags,
-      can_share?: socket.assigns.action_capabilities.share,
       watch_status: watch_state.watch_status,
       watch_error: watch_state.watch_error,
       watch_inherited?: watch_state.watch_inherited?,
       watchable?: not is_nil(doc.content)
-    }
+    })
+  end
+
+  defp editable_access_status(record, socket, fallback) do
+    if socket.assigns.action_capabilities.share do
+      access_status(record, fallback)
+    else
+      fallback
+    end
   end
 
   defp with_provider_attrs(record, %{assigns: %{provider: "local"}}), do: record
@@ -2442,6 +2628,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     teams_opts =
       People.list_teams()
+      |> Enum.reject(&(&1.system_key == "everyone"))
       |> Enum.map(fn t -> {"team: #{t.name}", "team:#{t.id}"} end)
 
     people_opts ++ teams_opts

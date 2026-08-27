@@ -29,6 +29,18 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.enrich_records(records)}
   end
 
+  def handle_event(
+        %Event{request: %{provider: provider, params: params}} = event,
+        :sync_data_source_permissions,
+        _context
+      )
+      when is_map(params) do
+    %{
+      event
+      | response: Ingestion.sync_data_source_permissions(provider, params, %{actor: event.actor})
+    }
+  end
+
   def handle_event(%Event{} = event, action, _context),
     do: InternalBoundaries.default_handle_event(event, action)
 

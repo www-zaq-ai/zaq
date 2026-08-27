@@ -162,21 +162,41 @@ defmodule Zaq.Storage do
   end
 
   @doc "Lists source-scoped grants for a storage entry."
-  @spec list_document_grants(String.t()) :: {:ok, map()}
-  def list_document_grants(file_id) when is_binary(file_id) do
-    permissions =
-      file_id
-      |> storage_resource()
-      |> Permissions.list()
-      |> Enum.map(&permission_grant/1)
+  @spec list_document_grants(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def list_document_grants(file_id, _opts \\ []) when is_binary(file_id) do
+    with %EntryCatalog{} = entry <- EntryCatalog.by_id(file_id) || {:error, :not_found} do
+      ancestors = entry_ancestor_resources(entry.id)
 
-    {:ok, %{permissions: permissions, public?: false}}
+      grants =
+        entry.id
+        |> storage_resource()
+        |> Permissions.list_effective(ancestors: ancestors)
+        |> Enum.map(&permission_grant/1)
+
+      {:ok,
+       %{
+         effective_permissions: grants
+       }}
+    end
   end
 
   @doc "Grants source-scoped access to a storage entry."
   @spec grant_document_access(String.t(), map()) :: {:ok, term()} | {:error, term()}
   def grant_document_access(file_id, attrs) when is_binary(file_id) and is_map(attrs),
     do: file_id |> storage_resource() |> Permissions.grant(attrs)
+
+  @doc "Replaces direct source-scoped grants for a storage entry."
+  @spec replace_document_grants(String.t(), [map()], keyword()) :: {:ok, map()} | {:error, term()}
+  def replace_document_grants(file_id, grants, opts \\ [])
+      when is_binary(file_id) and is_list(grants) do
+    with %EntryCatalog{} = entry <- EntryCatalog.by_id(file_id) || {:error, :not_found},
+         :ok <- authorize_manage_entry(entry, opts),
+         {:ok, _direct} <-
+           Permissions.replace(storage_resource(file_id), normalize_grants(grants)) do
+      affected_ids = [file_id | Enum.map(EntryCatalog.descendants(file_id), & &1.id)]
+      {:ok, %{status: "updated", file_id: file_id, affected_file_ids: affected_ids}}
+    end
+  end
 
   @doc "Searches storage entries by filename across mounted volumes."
   @spec search_documents(map()) :: {:ok, map()} | {:error, term()}
@@ -336,9 +356,11 @@ defmodule Zaq.Storage do
   end
 
   defp permissions_for_entry(%Entry{id: id}) when is_binary(id) do
+    ancestors = entry_ancestor_resources(id)
+
     id
     |> storage_resource()
-    |> Permissions.list()
+    |> Permissions.list_effective(ancestors: ancestors)
     |> Enum.map(&permission_grant/1)
     |> Enum.map(fn grant ->
       %{
@@ -346,7 +368,9 @@ defmodule Zaq.Storage do
         type: grant.type,
         target_id: grant.target_id,
         name: grant.name,
-        access_rights: grant.access_rights
+        access_rights: grant.access_rights,
+        inherited?: Map.get(grant, :inherited?, false),
+        origin_resource_id: Map.get(grant, :origin_resource_id)
       }
     end)
   end
@@ -558,14 +582,16 @@ defmodule Zaq.Storage do
     end
   end
 
-  defp authorize_entry(%Entry{id: id}, opts) when is_binary(id) do
+  defp authorize_entry(%Entry{id: id} = entry, opts) when is_binary(id) do
     resource = storage_resource(id)
 
     cond do
       Keyword.get(opts, :skip_permissions, false) ->
         :ok
 
-      Permissions.can?(person_from_opts(opts), :read, resource) ->
+      Permissions.can?(person_from_opts(opts), :read, resource,
+        ancestors: entry_ancestor_resources(entry.id)
+      ) ->
         :ok
 
       true ->
@@ -575,6 +601,21 @@ defmodule Zaq.Storage do
 
   defp authorize_entry(_entry, _opts), do: {:error, :unauthorized}
 
+  defp authorize_manage_entry(%EntryCatalog{id: id}, opts) do
+    cond do
+      Keyword.get(opts, :skip_permissions, false) ->
+        :ok
+
+      Permissions.can?(person_from_opts(opts), :manage, storage_resource(id),
+        ancestors: entry_ancestor_resources(id)
+      ) ->
+        :ok
+
+      true ->
+        {:error, :unauthorized}
+    end
+  end
+
   defp person_from_opts(opts) do
     opts
     |> Keyword.get(:actor)
@@ -582,17 +623,71 @@ defmodule Zaq.Storage do
     |> People.get_person()
   end
 
+  defp entry_ancestor_resources(entry_id) do
+    entry_id
+    |> EntryCatalog.ancestors()
+    |> Enum.map(&storage_resource(&1.id))
+  end
+
+  defp normalize_grants(grants) do
+    grants
+    |> Enum.map(&normalize_grant/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_grant(%{"type" => "public"}),
+    do: %{team_id: Permissions.everyone_team_id(), access_rights: ["read"]}
+
+  defp normalize_grant(%{type: "public"}),
+    do: %{team_id: Permissions.everyone_team_id(), access_rights: ["read"]}
+
+  defp normalize_grant(%{"type" => "person", "target_id" => id, "access_rights" => rights}),
+    do: %{person_id: parse_int(id), access_rights: normalize_rights(rights)}
+
+  defp normalize_grant(%{"type" => "team", "target_id" => id, "access_rights" => rights}),
+    do: %{team_id: parse_int(id), access_rights: normalize_rights(rights)}
+
+  defp normalize_grant(%{type: :person, id: id, access_rights: rights}),
+    do: %{person_id: parse_int(id), access_rights: normalize_rights(rights)}
+
+  defp normalize_grant(%{type: :team, id: id, access_rights: rights}),
+    do: %{team_id: parse_int(id), access_rights: normalize_rights(rights)}
+
+  defp normalize_grant(_grant), do: nil
+
+  defp parse_int(value) when is_integer(value), do: value
+  defp parse_int(value) when is_binary(value), do: String.to_integer(value)
+
+  defp normalize_rights(rights) when is_list(rights), do: Enum.map(rights, &to_string/1)
+  defp normalize_rights(_rights), do: ["read"]
+
+  defp permission_grant(%{permission: permission, origin: origin, inherited?: inherited?}) do
+    permission
+    |> permission_grant()
+    |> Map.put(:inherited?, inherited?)
+    |> Map.put(:origin_resource_id, origin.id)
+  end
+
   defp permission_grant(permission) do
+    public? = permission.team_id == Permissions.everyone_team_id()
+
     %{
       id: permission.id,
-      type: if(permission.person_id, do: "person", else: "team"),
+      type: permission_type(permission, public?),
       target_id: to_string(permission.person_id || permission.team_id),
-      name:
-        (permission.person && permission.person.full_name) ||
-          (permission.team && permission.team.name),
+      name: permission_name(permission, public?),
       access_rights: permission.access_rights || []
     }
   end
+
+  defp permission_type(_permission, true), do: "public"
+  defp permission_type(%{person_id: person_id}, false) when not is_nil(person_id), do: "person"
+  defp permission_type(_permission, false), do: "team"
+
+  defp permission_name(_permission, true), do: "Public"
+  defp permission_name(%{person: %{full_name: name}}, false), do: name
+  defp permission_name(%{team: %{name: name}}, false), do: name
+  defp permission_name(_permission, false), do: nil
 
   defp search_volume(volume, path, query, opts) do
     case list_entries(volume, path, opts) do

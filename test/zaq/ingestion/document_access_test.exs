@@ -4,6 +4,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
   alias Zaq.Accounts.People
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
+  alias Zaq.Permissions
 
   setup do
     Chunk.create_table(1536)
@@ -98,18 +99,18 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       refute doc.id in result
     end
 
-    test "includes doc tagged public regardless of permissions" do
+    test "includes public doc regardless of permissions" do
       doc = create_doc(uid("pub-tag"))
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       person = create_person()
 
       result = DocumentAccess.list_permitted_document_ids(person.id, [], [doc.id])
       assert doc.id in result
     end
 
-    test "includes doc tagged public even with mismatched team_ids" do
+    test "includes public doc even with mismatched team_ids" do
       doc = create_doc(uid("pub-team"))
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       person = create_person()
 
       result = DocumentAccess.list_permitted_document_ids(person.id, [-99], [doc.id])
@@ -190,9 +191,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
   # ---------------------------------------------------------------------------
 
   describe "count_accessible_documents/1" do
-    test "counts tagged-public docs" do
+    test "counts public docs" do
       doc = create_doc(uid("open"))
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       count = DocumentAccess.count_accessible_documents(person_id: create_person().id)
       assert count >= 1
     end
@@ -230,7 +231,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert count_after == count_before + 1
     end
 
-    test "counts docs tagged public even without permission row" do
+    test "counts public docs without a person permission" do
       doc = create_doc(uid("pub-count"))
       person = create_person()
       other = create_person()
@@ -238,7 +239,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       {:ok, _} = grant(doc.id, :person, other.id)
 
       count_before = DocumentAccess.count_accessible_documents(person_id: person.id)
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       count_after = DocumentAccess.count_accessible_documents(person_id: person.id)
 
       assert count_after == count_before + 1
@@ -299,9 +300,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert count >= 0
     end
 
-    test "nil person_id with no teams counts only tagged-public docs" do
+    test "nil person_id with no teams counts only public docs" do
       open_doc = create_doc(uid("nil-open"))
-      {:ok, _} = Ingestion.add_document_tag(open_doc.id, "public")
+      {:ok, _} = Permissions.grant_public(open_doc)
       locked = create_doc(uid("nil-locked"))
       {:ok, _} = grant(locked.id, :person, create_person().id)
 
@@ -323,7 +324,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
   describe "list_accessible_documents/1" do
     test "returns source and title for accessible docs" do
       doc = create_doc(uid("list-basic"))
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       person = create_person()
 
       result = DocumentAccess.list_accessible_documents(person_id: person.id)
@@ -362,9 +363,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert doc.source in after_grant
     end
 
-    test "includes public-tagged doc for any person" do
+    test "includes public doc for any person" do
       doc = create_doc(uid("list-pub"))
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       other = create_person()
       {:ok, _} = grant(doc.id, :person, other.id)
 
@@ -480,7 +481,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
     test "returns public docs tagged ingested: true when chunks exist" do
       doc = create_doc(uid("lfwis-pub"))
       insert_chunk_for(doc)
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       person = create_person()
 
       result = DocumentAccess.list_files_with_ingestion_status(person_id: person.id)
@@ -493,9 +494,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       p = System.unique_integer([:positive])
       folder = "lfwis-sf-#{p}"
       in_doc = create_doc("#{folder}/file.md")
-      {:ok, _} = Ingestion.add_document_tag(in_doc.id, "public")
+      {:ok, _} = Permissions.grant_public(in_doc)
       out_doc = create_doc("other-lfwis-#{p}/file.md")
-      {:ok, _} = Ingestion.add_document_tag(out_doc.id, "public")
+      {:ok, _} = Permissions.grant_public(out_doc)
 
       result =
         DocumentAccess.list_files_with_ingestion_status(
@@ -580,7 +581,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       p = System.unique_integer([:positive])
       folder = "sf-perm-#{p}"
       open_doc = create_doc("#{folder}/open.md")
-      {:ok, _} = Ingestion.add_document_tag(open_doc.id, "public")
+      {:ok, _} = Permissions.grant_public(open_doc)
       locked_doc = create_doc("#{folder}/locked.md")
       person = create_person()
       other = create_person()
@@ -593,7 +594,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
           source_filter: [folder]
         )
 
-      # open_doc is tagged public, locked_doc is restricted to other
+      # open_doc is public, locked_doc is restricted to other
       assert count == 1
 
       listed =
@@ -635,9 +636,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert doc.source in sources
     end
 
-    test "public-tagged doc with no other permission rows is visible to authenticated user" do
+    test "public doc with no other permission rows is visible to authenticated user" do
       doc = create_doc(uid("no-perm-rows-public-auth"))
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
       person = create_person()
 
       result = DocumentAccess.list_accessible_documents(person_id: person.id)
@@ -645,9 +646,9 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert doc.source in sources
     end
 
-    test "public-tagged doc with no other permission rows is visible to nil person_id" do
+    test "public doc with no other permission rows is visible to nil person_id" do
       doc = create_doc(uid("no-perm-rows-public-nil"))
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
 
       result = DocumentAccess.list_accessible_documents(person_id: nil, team_ids: [])
       sources = Enum.map(result, & &1.source)
@@ -693,7 +694,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       {:ok, _} = grant(permitted_doc.id, :person, person.id)
 
       public_doc = create_doc(uid("mix-public"))
-      {:ok, _} = Ingestion.add_document_tag(public_doc.id, "public")
+      {:ok, _} = Permissions.grant_public(public_doc)
 
       private_doc = create_doc(uid("mix-private"))
       {:ok, _} = grant(private_doc.id, :person, other.id)
@@ -749,10 +750,10 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert entry == nil
     end
 
-    test "public-tagged doc appears in list_files_with_ingestion_status for nil person_id" do
+    test "public doc appears in list_files_with_ingestion_status for nil person_id" do
       doc = create_doc(uid("no-perm-rows-lfwis-public"))
       insert_chunk_for(doc)
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
       entry = Enum.find(result, fn r -> r.source == doc.source end)
@@ -765,7 +766,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
     test "nil person_id + public doc with chunks is tagged ingested: true" do
       doc = create_doc(uid("lfwis-nil-pub-chunks"))
       insert_chunk_for(doc)
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
       entry = Enum.find(result, fn r -> r.source == doc.source end)
@@ -776,7 +777,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
 
     test "nil person_id + public doc without chunks is tagged ingested: false" do
       doc = create_doc(uid("lfwis-nil-pub-nochunks"))
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
       entry = Enum.find(result, fn r -> r.source == doc.source end)
@@ -797,7 +798,7 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       doc = create_doc(uid("lfwis-multi-chunk"))
       {:ok, _} = Chunk.create(%{document_id: doc.id, content: "chunk 1", chunk_index: 0})
       {:ok, _} = Chunk.create(%{document_id: doc.id, content: "chunk 2", chunk_index: 1})
-      {:ok, _} = Ingestion.add_document_tag(doc.id, "public")
+      {:ok, _} = Permissions.grant_public(doc)
 
       result = DocumentAccess.list_files_with_ingestion_status(person_id: nil, team_ids: [])
       entries = Enum.filter(result, fn r -> r.source == doc.source end)

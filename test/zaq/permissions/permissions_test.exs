@@ -90,6 +90,27 @@ defmodule Zaq.PermissionsTest do
       assert Permissions.can?(nil, :run, workflow, skip_permissions: true)
     end
 
+    test "nil person can read an Everyone-granted resource but not other team grants" do
+      workflow = fake_workflow()
+      team = create_team()
+
+      {:ok, _} = Permissions.grant(workflow, %{team_id: team.id, access_rights: ["read"]})
+      refute Permissions.can?(nil, :read, workflow)
+
+      {:ok, _} = Permissions.grant_public(workflow)
+      assert Permissions.can?(nil, :read, workflow)
+    end
+
+    test "inherited ancestor grants are effective for child resources" do
+      parent = fake_workflow()
+      child = fake_document()
+
+      {:ok, _} = Permissions.grant_public(parent)
+
+      assert Permissions.can?(nil, :read, child, ancestors: [parent])
+      assert Permissions.public?(child, ancestors: [parent])
+    end
+
     test "returns true for a direct person grant" do
       person = create_person()
       workflow = fake_workflow()

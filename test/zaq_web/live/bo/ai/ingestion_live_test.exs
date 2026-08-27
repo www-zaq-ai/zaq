@@ -15,8 +15,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.ExternalSource
   alias Zaq.Ingestion.IngestJob
+  alias Zaq.Permissions
   alias Zaq.Repo
   alias Zaq.Storage.EntryCatalog
+  alias Zaq.Storage.StorageEntry
   alias Zaq.System, as: ZaqSystem
   alias Zaq.SystemConfigFixtures
 
@@ -356,6 +358,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     {:ok, entry} = EntryCatalog.ensure(volume, relative_path, kind)
 
     "data_source/disk/#{config_id}/#{entry.id}"
+  end
+
+  defp source_entry(relative_path, kind \\ "file") do
+    EntryCatalog.get_active("default", relative_path) ||
+      elem(EntryCatalog.ensure("default", relative_path, kind), 1)
   end
 
   defp open_upload_modal(view) do
@@ -2847,6 +2854,65 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       # Should render ingested state without crashing
       assert render(view) =~ "ingested"
     end
+
+    test "list view shows source ACL sharing for an un-ingested file", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "source-shared.md"), "content")
+      source = source_entry("source-shared.md")
+
+      {:ok, person} =
+        People.create_person(%{
+          full_name: "Source Shared Person",
+          email: "source_shared_#{System.unique_integer([:positive])}@example.com"
+        })
+
+      {:ok, _permission} =
+        Permissions.grant(%StorageEntry{id: source.id}, %{
+          person_id: person.id,
+          access_rights: ["read"]
+        })
+
+      {:ok, view, html} = live(conn, ~p"/bo/ingestion")
+      status = :sys.get_state(view.pid).socket.assigns.ingestion_map["source-shared.md"]
+
+      assert status.permissions_count == 1
+      assert status.can_share?
+      assert html =~ "shared"
+    end
+
+    test "list view shows public source ACL without counting Everyone as shared", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.write!(Path.join(tmp_dir, "source-public.md"), "content")
+      source = source_entry("source-public.md")
+      {:ok, _permission} = Permissions.grant_public(%StorageEntry{id: source.id})
+
+      {:ok, view, html} = live(conn, ~p"/bo/ingestion")
+      status = :sys.get_state(view.pid).socket.assigns.ingestion_map["source-public.md"]
+
+      assert status.permissions_count == 0
+      assert status.is_public
+      assert html =~ "Public"
+    end
+
+    test "folder inherits public source ACL display from parent", %{conn: conn, tmp_dir: tmp_dir} do
+      File.mkdir_p!(Path.join(tmp_dir, "public-parent"))
+      File.write!(Path.join([tmp_dir, "public-parent", "child.md"]), "content")
+      parent = source_entry("public-parent", "directory")
+      _child = source_entry("public-parent/child.md")
+      {:ok, _permission} = Permissions.grant_public(%StorageEntry{id: parent.id})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+      render_hook(view, "navigate", %{"path" => "public-parent"})
+      render_hook(view, "share_item", %{"path" => "public-parent/child.md"})
+      state = :sys.get_state(view.pid)
+
+      assert state.socket.assigns.share_modal_public_inherited?
+    end
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -3076,8 +3142,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   describe "share modal — document permissions" do
-    setup %{conn: conn} do
+    setup %{conn: conn, tmp_dir: tmp_dir} do
       unique = System.unique_integer([:positive])
+      File.write!(Path.join(tmp_dir, "alpha.md"), "shared content")
 
       {:ok, person} =
         People.create_person(%{
@@ -3092,7 +3159,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-      %{view: view, doc: doc, person: person, team: team}
+      %{view: view, doc: doc, person: person, team: team, tmp_dir: tmp_dir}
     end
 
     test "share_item opens the share modal for a file", %{view: view} do
@@ -3151,6 +3218,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "confirm_share", %{})
 
       refute has_element?(view, "button", "Save Permissions")
+      source = source_entry("alpha.md")
+      assert [source_perm] = Permissions.list(%StorageEntry{id: source.id})
+      assert source_perm.person_id == person.id
+
       assert [perm] = Zaq.Ingestion.list_document_permissions(doc.id)
       assert perm.person_id == person.id
       assert perm.access_rights == ["read"]
@@ -3161,12 +3232,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       doc: doc,
       person: person
     } do
-      {:ok, perm} = Zaq.Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+      source = source_entry("alpha.md")
+
+      {:ok, perm} =
+        Permissions.grant(%StorageEntry{id: source.id}, %{
+          person_id: person.id,
+          access_rights: ["read"]
+        })
 
       render_hook(view, "share_item", %{"path" => "alpha.md"})
       render_hook(view, "remove_permission", %{"id" => to_string(perm.id)})
+      render_hook(view, "confirm_share", %{})
 
       assert Zaq.Ingestion.list_document_permissions(doc.id) == []
+      assert Permissions.list(%StorageEntry{id: source.id}) == []
     end
 
     test "duplicate add_permission_target is ignored", %{view: view, person: person} do
@@ -3223,37 +3302,57 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "remove_permission for folder deletes across all docs", %{
-      view: view,
-      person: person
+      conn: conn,
+      person: person,
+      tmp_dir: tmp_dir
     } do
       unique = System.unique_integer([:positive])
-      {:ok, doc1} = Document.create(%{source: "folder-#{unique}/a.md", content: "a"})
-      {:ok, doc2} = Document.create(%{source: "folder-#{unique}/b.md", content: "b"})
+      folder_path = "folder-#{unique}"
+      File.mkdir_p!(Path.join(tmp_dir, folder_path))
+      File.write!(Path.join([tmp_dir, folder_path, "a.md"]), "a")
+      File.write!(Path.join([tmp_dir, folder_path, "b.md"]), "b")
+      {:ok, doc1} = Document.create(%{source: disk_source("#{folder_path}/a.md"), content: "a"})
+      {:ok, doc2} = Document.create(%{source: disk_source("#{folder_path}/b.md"), content: "b"})
+      folder = source_entry(folder_path, "directory")
 
-      {:ok, perm1} = Zaq.Ingestion.set_document_permission(doc1.id, :person, person.id, ["read"])
-      {:ok, _} = Zaq.Ingestion.set_document_permission(doc2.id, :person, person.id, ["read"])
+      {:ok, perm1} =
+        Permissions.grant(%StorageEntry{id: folder.id}, %{
+          person_id: person.id,
+          access_rights: ["read"]
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
       render_hook(view, "share_item", %{
-        "path" => "folder-#{unique}",
+        "path" => folder_path,
         "type" => "directory"
       })
 
       render_hook(view, "remove_permission", %{"id" => to_string(perm1.id)})
+      render_hook(view, "confirm_share", %{})
 
       assert Zaq.Ingestion.list_document_permissions(doc1.id) == []
       assert Zaq.Ingestion.list_document_permissions(doc2.id) == []
+      assert Permissions.list(%StorageEntry{id: folder.id}) == []
     end
 
     test "confirm_share for folder persists permissions to all docs", %{
-      view: view,
-      person: person
+      conn: conn,
+      person: person,
+      tmp_dir: tmp_dir
     } do
       unique = System.unique_integer([:positive])
-      {:ok, doc1} = Document.create(%{source: "sharedir-#{unique}/x.md", content: "x"})
-      {:ok, doc2} = Document.create(%{source: "sharedir-#{unique}/y.md", content: "y"})
+      folder_path = "sharedir-#{unique}"
+      File.mkdir_p!(Path.join(tmp_dir, folder_path))
+      File.write!(Path.join([tmp_dir, folder_path, "x.md"]), "x")
+      File.write!(Path.join([tmp_dir, folder_path, "y.md"]), "y")
+      {:ok, doc1} = Document.create(%{source: disk_source("#{folder_path}/x.md"), content: "x"})
+      {:ok, doc2} = Document.create(%{source: disk_source("#{folder_path}/y.md"), content: "y"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
       render_hook(view, "share_item", %{
-        "path" => "sharedir-#{unique}",
+        "path" => folder_path,
         "type" => "directory"
       })
 
@@ -3297,7 +3396,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert has_element?(view, "[data-testid='public-toggle']")
     end
 
-    test "toggling public and confirming saves the tag to the document", %{conn: conn} do
+    test "toggling public and confirming saves public ACLs", %{conn: conn} do
       {:ok, doc} = Document.create(%{source: disk_source("alpha.md"), content: "content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
@@ -3306,7 +3405,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_public", %{})
       render_hook(view, "confirm_share", %{})
 
-      assert "public" in Repo.get!(Document, doc.id).tags
+      source = source_entry("alpha.md")
+      assert Permissions.public?(%StorageEntry{id: source.id})
+      assert Permissions.public?(Repo.get!(Document, doc.id))
     end
 
     test "toggling public twice and confirming leaves the tag unchanged", %{conn: conn} do
@@ -3319,12 +3420,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_public", %{})
       render_hook(view, "confirm_share", %{})
 
-      refute "public" in Repo.get!(Document, doc.id).tags
+      source = source_entry("alpha.md")
+      refute Permissions.public?(%StorageEntry{id: source.id})
+      refute Permissions.public?(Repo.get!(Document, doc.id))
     end
 
-    test "toggling public off removes the tag from an already public document", %{conn: conn} do
-      {:ok, doc} =
-        Document.create(%{source: disk_source("alpha.md"), content: "content", tags: ["public"]})
+    test "toggling public off removes public ACL from an already public document", %{conn: conn} do
+      {:ok, doc} = Document.create(%{source: disk_source("alpha.md"), content: "content"})
+      source = source_entry("alpha.md")
+      {:ok, _} = Permissions.grant_public(%StorageEntry{id: source.id})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3332,7 +3436,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_public", %{})
       render_hook(view, "confirm_share", %{})
 
-      refute "public" in Repo.get!(Document, doc.id).tags
+      refute Permissions.public?(%StorageEntry{id: source.id})
+      refute Permissions.public?(Repo.get!(Document, doc.id))
     end
 
     test "toggle without confirm does not persist", %{conn: conn} do
@@ -3344,16 +3449,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_public", %{})
       render_hook(view, "close_modal", %{})
 
-      refute "public" in Repo.get!(Document, doc.id).tags
+      source = source_entry("alpha.md")
+      refute Permissions.public?(%StorageEntry{id: source.id})
+      refute Permissions.public?(Repo.get!(Document, doc.id))
     end
   end
 
   describe "share modal — public toggle for a folder" do
-    test "toggling folder public and confirming saves the flag and tags all docs inside", %{
-      conn: conn
+    test "toggling folder public and confirming saves public ACLs for descendants", %{
+      conn: conn,
+      tmp_dir: tmp_dir
     } do
-      # Sources are volume-prefixed: "default/docs/readme.md"
-      {:ok, doc} = Document.create(%{source: "default/docs/readme.md", content: "content"})
+      File.mkdir_p!(Path.join(tmp_dir, "docs"))
+      File.write!(Path.join([tmp_dir, "docs", "readme.md"]), "content")
+      {:ok, doc} = Document.create(%{source: disk_source("docs/readme.md"), content: "content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3361,12 +3470,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_public", %{})
       render_hook(view, "confirm_share", %{})
 
-      assert "public" in Repo.get!(Document, doc.id).tags
-      assert Zaq.Ingestion.folder_public?("default", "docs")
+      folder = source_entry("docs", "directory")
+      assert Permissions.public?(%StorageEntry{id: folder.id})
+      assert Permissions.public?(Repo.get!(Document, doc.id))
     end
 
-    test "toggling folder public twice and confirming leaves flag unchanged", %{conn: conn} do
-      {:ok, doc} = Document.create(%{source: "default/docs/readme.md", content: "content"})
+    test "toggling folder public twice and confirming leaves flag unchanged", %{
+      conn: conn,
+      tmp_dir: tmp_dir
+    } do
+      File.mkdir_p!(Path.join(tmp_dir, "docs"))
+      File.write!(Path.join([tmp_dir, "docs", "readme.md"]), "content")
+      {:ok, doc} = Document.create(%{source: disk_source("docs/readme.md"), content: "content"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3375,13 +3490,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_public", %{})
       render_hook(view, "confirm_share", %{})
 
-      refute "public" in Repo.get!(Document, doc.id).tags
-      refute Zaq.Ingestion.folder_public?("default", "docs")
+      folder = source_entry("docs", "directory")
+      refute Permissions.public?(%StorageEntry{id: folder.id})
+      refute Permissions.public?(Repo.get!(Document, doc.id))
     end
 
-    test "toggling folder public off removes the folder flag and public tag", %{conn: conn} do
-      {:ok, doc} = Document.create(%{source: "default/docs/readme.md", content: "content"})
-      :ok = Zaq.Ingestion.set_folder_public("default", "docs")
+    test "toggling folder public off removes public ACLs", %{conn: conn, tmp_dir: tmp_dir} do
+      File.mkdir_p!(Path.join(tmp_dir, "docs"))
+      File.write!(Path.join([tmp_dir, "docs", "readme.md"]), "content")
+      {:ok, doc} = Document.create(%{source: disk_source("docs/readme.md"), content: "content"})
+      folder = source_entry("docs", "directory")
+      {:ok, _} = Permissions.grant_public(%StorageEntry{id: folder.id})
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
@@ -3389,8 +3508,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_public", %{})
       render_hook(view, "confirm_share", %{})
 
-      refute Zaq.Ingestion.folder_public?("default", "docs")
-      refute "public" in Repo.get!(Document, doc.id).tags
+      refute Permissions.public?(%StorageEntry{id: folder.id})
+      refute Permissions.public?(Repo.get!(Document, doc.id))
     end
   end
 

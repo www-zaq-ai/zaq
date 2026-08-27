@@ -148,6 +148,36 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
     end
   end
 
+  describe "modal_share/1" do
+    test "enables Save when an existing direct permission was removed" do
+      html =
+        render_component(&IngestionComponents.modal_share/1,
+          modal_name: "shared.md",
+          share_modal_permissions: [],
+          share_modal_targets_options: [],
+          share_modal_pending: [],
+          share_modal_removed?: true
+        )
+
+      refute html =~ ~s(disabled="disabled")
+    end
+
+    test "shows inherited public access as enabled but non-editable" do
+      html =
+        render_component(&IngestionComponents.modal_share/1,
+          modal_name: "child.md",
+          share_modal_permissions: [],
+          share_modal_targets_options: [],
+          share_modal_pending: [],
+          share_modal_public_inherited?: true
+        )
+
+      assert html =~ ~s(aria-checked="true")
+      assert html =~ "inherited"
+      assert html =~ " disabled"
+    end
+  end
+
   describe "ingestion file status helpers" do
     test "file_ingestion_status applies defaults around partial map entries" do
       status =

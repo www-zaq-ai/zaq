@@ -216,6 +216,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :share_modal_is_folder, :boolean, default: false
   attr :share_modal_is_public, :boolean, default: false
   attr :share_modal_original_is_public, :boolean, default: false
+  attr :share_modal_public_inherited?, :boolean, default: false
+  attr :share_modal_removed?, :boolean, default: false
   attr :share_modal_permissions, :list, required: true
   attr :share_modal_targets_options, :list, required: true
   attr :share_modal_pending, :list, required: true

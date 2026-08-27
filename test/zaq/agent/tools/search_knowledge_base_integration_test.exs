@@ -16,6 +16,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Ingestion.{Chunk, Document, DocumentProcessor}
+  alias Zaq.Permissions
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -60,21 +61,21 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
   end
 
   describe "nil person_id — public data only (no skip_permissions)" do
-    test "returns only public-tagged chunks when person_id is nil" do
-      private_doc = create_doc(tags: [])
-      public_doc = create_doc(tags: ["public"])
+    test "returns only public chunks when person_id is nil" do
+      private_doc = create_doc()
+      public_doc = create_doc(public?: true)
       insert_chunk(private_doc.id, "Private content about Elixir internals.", 0)
       insert_chunk(public_doc.id, "Public Elixir documentation.", 0)
 
       context = %{person_id: nil}
 
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "elixir"}, context)
-      assert String.contains?(result.chunks, "Public Elixir documentation.")
-      refute String.contains?(result.chunks, "Private content about Elixir internals.")
+      assert chunk_content?(result.chunks, "Public Elixir documentation.")
+      refute chunk_content?(result.chunks, "Private content about Elixir internals.")
     end
 
     test "absent person_id also returns only public data" do
-      public_doc = create_doc(tags: ["public"])
+      public_doc = create_doc(public?: true)
       insert_chunk(public_doc.id, "Phoenix is a web framework for Elixir.", 0)
 
       context = %{}
@@ -85,8 +86,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
   end
 
   describe "explicit admin (skip_permissions: true)" do
-    test "returns all chunks regardless of document tags" do
-      private_doc = create_doc(tags: [])
+    test "returns all chunks regardless of document permissions" do
+      private_doc = create_doc()
       insert_chunk(private_doc.id, "Restricted Elixir content.", 0)
 
       context = %{person_id: nil, skip_permissions: true}
@@ -99,7 +100,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
 
   describe "authenticated user" do
     test "returns access-denied content for unpermitted chunks" do
-      doc = create_doc(tags: [])
+      doc = create_doc()
       insert_chunk(doc.id, "Elixir is a functional language built on the BEAM VM.", 0)
 
       context = %{person_id: 999_999, team_ids: []}
@@ -108,7 +109,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       assert is_integer(result.count)
 
       if result.count > 0 do
-        assert String.contains?(result.chunks, DocumentProcessor.access_denied_message())
+        assert chunk_content?(result.chunks, DocumentProcessor.access_denied_message())
       end
     end
   end
@@ -117,16 +118,15 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
   # Helpers
   # ---------------------------------------------------------------------------
 
-  defp create_doc(opts) do
-    tags = Keyword.get(opts, :tags, [])
-
+  defp create_doc(opts \\ []) do
     {:ok, doc} =
       Document.upsert(%{
         source: "search_kb_test_#{System.unique_integer([:positive])}.md",
         content: "Test document.",
-        content_type: "markdown",
-        tags: tags
+        content_type: "markdown"
       })
+
+    if Keyword.get(opts, :public?, false), do: {:ok, _} = Permissions.grant_public(doc)
 
     doc
   end
@@ -145,5 +145,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       language: "english"
     })
     |> Repo.insert!()
+  end
+
+  defp chunk_content?(chunks, content) do
+    Enum.any?(chunks, &String.contains?(&1["content"], content))
   end
 end

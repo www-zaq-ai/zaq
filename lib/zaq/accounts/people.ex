@@ -382,6 +382,7 @@ defmodule Zaq.Accounts.People do
 
   def get_team(id), do: Repo.get(Team, id)
   def get_team!(id), do: Repo.get!(Team, id)
+  def everyone_team, do: Repo.get_by!(Team, system_key: "everyone")
 
   def create_team(attrs) do
     %Team{} |> Team.changeset(attrs) |> Repo.insert()
@@ -390,6 +391,9 @@ defmodule Zaq.Accounts.People do
   def update_team(%Team{} = team, attrs) do
     team |> Team.update_changeset(attrs) |> Repo.update()
   end
+
+  def delete_team(%Team{system_key: key}) when is_binary(key) and key != "",
+    do: {:error, :system_team}
 
   def delete_team(%Team{} = team) do
     team_id = team.id
@@ -406,16 +410,23 @@ defmodule Zaq.Accounts.People do
   end
 
   def assign_team(%Person{} = person, team_id) when is_integer(team_id) do
-    if team_id in person.team_ids do
-      {:ok, person}
-    else
-      update_person(person, %{team_ids: person.team_ids ++ [team_id]})
+    cond do
+      system_team_id?(team_id) -> {:error, :system_team}
+      team_id in person.team_ids -> {:ok, person}
+      true -> update_person(person, %{team_ids: person.team_ids ++ [team_id]})
     end
   end
 
   def unassign_team(%Person{} = person, team_id) when is_integer(team_id) do
-    update_person(person, %{team_ids: List.delete(person.team_ids, team_id)})
+    if system_team_id?(team_id) do
+      {:error, :system_team}
+    else
+      update_person(person, %{team_ids: List.delete(person.team_ids, team_id)})
+    end
   end
+
+  defp system_team_id?(team_id),
+    do: Repo.exists?(from t in Team, where: t.id == ^team_id and not is_nil(t.system_key))
 
   # ── PersonChannels ───────────────────────────────────────────────────────
 

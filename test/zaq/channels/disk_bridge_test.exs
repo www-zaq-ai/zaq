@@ -527,7 +527,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
   describe "list_permissions/2" do
     test "dispatches :list_document_grants and maps each grant onto a record" do
-      stub_response({:ok, %{permissions: [grant("7")], public?: false}})
+      stub_response({:ok, %{effective_permissions: [grant("7")]}})
 
       assert {:ok, %RecordPage{resource_type: :permission, records: [record]}} =
                DiskBridge.list_permissions(config(), %{"file_id" => "42"})
@@ -537,44 +537,50 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert record.attributes == %{
                "type" => "person",
                "target_id" => "7",
-               "access_rights" => ["read"]
+               "access_rights" => ["read"],
+               "inherited" => false,
+               "origin_resource_id" => nil
              }
 
       assert_received {:dispatch, :storage, :list_document_grants, %{file_id: "42"}}
     end
 
-    test "synthesizes the public grant, since it has no permission row to name" do
-      stub_response({:ok, %{permissions: [], public?: true}})
+    test "maps an Everyone grant as a public permission record" do
+      public =
+        grant("11", %{type: "public", target_id: "3", name: "Public"})
+
+      stub_response({:ok, %{effective_permissions: [public]}})
 
       assert {:ok, %RecordPage{records: [record]}} =
                DiskBridge.list_permissions(config(), %{"file_id" => "42"})
 
-      assert record.id == "public:42"
+      assert record.id == "11"
       assert record.name == "Public"
       assert record.attributes["type"] == "public"
-      assert record.attributes["target_id"] == nil
+      assert record.attributes["target_id"] == "3"
       assert record.attributes["access_rights"] == ["read"]
     end
 
-    test "lists the public grant ahead of explicit ones" do
-      stub_response({:ok, %{permissions: [grant("7")], public?: true}})
+    test "maps public and explicit grants through the same path" do
+      public = grant("11", %{type: "public", target_id: "3", name: "Public"})
+      stub_response({:ok, %{effective_permissions: [public, grant("7")]}})
 
       assert {:ok, %RecordPage{records: records, stats: stats}} =
                DiskBridge.list_permissions(config(), %{"file_id" => "42"})
 
-      assert Enum.map(records, & &1.id) == ["public:42", "7"]
+      assert Enum.map(records, & &1.id) == ["11", "7"]
       assert stats == %{scanned: 2, returned: 2}
     end
 
     test "answers with an empty page when nobody has access" do
-      stub_response({:ok, %{permissions: [], public?: false}})
+      stub_response({:ok, %{effective_permissions: []}})
 
       assert {:ok, %RecordPage{resource_type: :permission, records: []}} =
                DiskBridge.list_permissions(config(), %{"file_id" => "42"})
     end
 
     test "defaults missing access rights to an empty list" do
-      stub_response({:ok, %{permissions: [grant("7", %{access_rights: nil})], public?: false}})
+      stub_response({:ok, %{effective_permissions: [grant("7", %{access_rights: nil})]}})
 
       assert {:ok, %RecordPage{records: [record]}} =
                DiskBridge.list_permissions(config(), %{"file_id" => "42"})

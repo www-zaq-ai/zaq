@@ -197,9 +197,11 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
   end
 
   describe "private resources" do
-    test "rejects private resource listing without actor" do
-      assert {:error, :unauthorized} =
-               QueryResources.run(%{mode: "query", resource_type: "person"}, %{})
+    test "private resource listing without actor returns only public grants" do
+      assert {:ok, result} = QueryResources.run(%{mode: "query", resource_type: "person"}, %{})
+
+      assert result.resources == []
+      assert result.total_count == 0
     end
 
     test "rejects private resource get without an actor" do
@@ -349,12 +351,15 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       assert Enum.any?(channels, &(&1.id == channel.id and &1.platform == "slack"))
     end
 
-    test "rejects routing rule listing without actor" do
-      assert {:error, :unauthorized} =
+    test "routing rule listing without actor returns an empty authorized subset" do
+      assert {:ok, result} =
                QueryResources.run(
                  %{mode: "query", resource_type: "incoming_message_routing_rule"},
                  %{}
                )
+
+      assert result.resources == []
+      assert result.total_count == 0
     end
 
     test "skip_permissions can search routing rules by person and channel config ids" do
@@ -525,6 +530,55 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
       assert [%{channel_name: "General"}] = result.resource.retrieval_channels
       refute Map.has_key?(result.resource, :token)
       refute Map.has_key?(result.resource, :settings)
+    end
+
+    test "channel config listing includes Everyone grants without exposing secrets" do
+      config = channel_config_fixture(%{provider: "mattermost", name: "Public Mattermost"})
+      _hidden = channel_config_fixture(%{provider: "slack", name: "Hidden Slack"})
+
+      {:ok, _permission} = Permissions.grant_public(config)
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "channel_config", fields: ["id", "name"]},
+                 %{}
+               )
+
+      assert result.resources == [%{id: config.id, name: "Public Mattermost"}]
+    end
+
+    test "channel config listing honors trusted context team ids" do
+      {:ok, team} = People.create_team(%{name: "Connector Readers"})
+      allowed = channel_config_fixture(%{provider: "mattermost", name: "Team Mattermost"})
+      _hidden = channel_config_fixture(%{provider: "slack", name: "Team Hidden Slack"})
+
+      {:ok, _permission} =
+        Permissions.grant(allowed, %{team_id: team.id, access_rights: ["read"]})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "channel_config", fields: ["id", "name"]},
+                 %{team_ids: [team.id]}
+               )
+
+      assert result.resources == [%{id: allowed.id, name: "Team Mattermost"}]
+    end
+
+    test "channel config listing filters normal actors to granted resources" do
+      actor_person = person_fixture(%{full_name: "Filtered Channel Config Actor"})
+      allowed = channel_config_fixture(%{provider: "mattermost", name: "Allowed Mattermost"})
+      _hidden = channel_config_fixture(%{provider: "slack", name: "Filtered Hidden Slack"})
+
+      {:ok, _permission} =
+        Permissions.grant(allowed, %{person_id: actor_person.id, access_rights: ["read"]})
+
+      assert {:ok, result} =
+               QueryResources.run(
+                 %{mode: "query", resource_type: "channel_config", fields: ["id", "name"]},
+                 %{actor: %{person: %{id: actor_person.id, team_ids: []}}}
+               )
+
+      assert result.resources == [%{id: allowed.id, name: "Allowed Mattermost"}]
     end
   end
 

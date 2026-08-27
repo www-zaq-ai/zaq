@@ -216,8 +216,18 @@ defmodule Zaq.Channels.DiskBridge do
 
     with {:ok, grants} <-
            dispatch(:list_document_grants, %{file_id: file_id}, config, context) do
-      {:ok, permission_page(grants, file_id)}
+      {:ok, permission_page(grants)}
     end
+  end
+
+  @doc "Replaces direct permissions on a storage-backed document or folder."
+  @impl true
+  def replace_permissions(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
+    file_id = to_string(fetch(params, "file_id"))
+    grants = fetch(params, "grants") || []
+
+    dispatch(:replace_document_grants, %{file_id: file_id, grants: grants}, config, context)
   end
 
   # -- mapping --
@@ -292,30 +302,14 @@ defmodule Zaq.Channels.DiskBridge do
     }
   end
 
-  # Kept shape-compatible with providers that can report public grants. Disk storage entries
-  # are private by default, so Storage currently always returns `public?: false`.
-  defp permission_page(%{permissions: grants, public?: public?}, file_id) do
-    records = public_records(public?, file_id) ++ Enum.map(grants, &map_permission/1)
+  defp permission_page(%{effective_permissions: grants}) do
+    records = Enum.map(grants, &map_permission/1)
 
     %RecordPage{
       resource_type: :permission,
       records: records,
       stats: %{scanned: length(records), returned: length(records)}
     }
-  end
-
-  defp public_records(false, _file_id), do: []
-
-  defp public_records(true, file_id) do
-    [
-      %Record{
-        id: "public:#{file_id}",
-        kind: :permission,
-        name: "Public",
-        lifecycle_state: :active,
-        attributes: %{"type" => "public", "target_id" => nil, "access_rights" => ["read"]}
-      }
-    ]
   end
 
   defp map_permission(grant) when is_map(grant) do
@@ -327,14 +321,18 @@ defmodule Zaq.Channels.DiskBridge do
       attributes: %{
         "type" => grant.type,
         "target_id" => grant.target_id,
-        "access_rights" => grant.access_rights || []
+        "access_rights" => grant.access_rights || [],
+        "inherited" => Map.get(grant, :inherited?, false),
+        "origin_resource_id" => Map.get(grant, :origin_resource_id)
       },
       raw: %{
         "type" => grant.type,
         "target_id" => grant.target_id,
         "id" => grant.target_id,
         "display_name" => grant.name,
-        "access_rights" => grant.access_rights || []
+        "access_rights" => grant.access_rights || [],
+        "inherited" => Map.get(grant, :inherited?, false),
+        "origin_resource_id" => Map.get(grant, :origin_resource_id)
       }
     }
   end

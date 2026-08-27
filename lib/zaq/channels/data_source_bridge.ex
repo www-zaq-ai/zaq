@@ -72,6 +72,8 @@ defmodule Zaq.Channels.DataSourceBridge do
               {:ok, map()} | {:error, term()}
   @callback list_permissions(map(), map(), TrustedContext.t()) ::
               {:ok, RecordPage.t()} | {:error, term()}
+  @callback replace_permissions(map(), map(), TrustedContext.t()) ::
+              {:ok, map()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback export_options(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback sheet_inspect(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -113,6 +115,7 @@ defmodule Zaq.Channels.DataSourceBridge do
                       search_files: 3,
                       download_document: 3,
                       list_permissions: 3,
+                      replace_permissions: 3,
                       channel_stats: 2,
                       export_options: 2,
                       sheet_inspect: 2,
@@ -421,6 +424,18 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :list_permissions, 3) || {:error, :unsupported} do
       bridge.list_permissions(config, params, TrustedContext.normalize(context))
+    end
+  end
+
+  @doc "Replaces provider file permissions through the configured DataSource bridge."
+  @spec replace_permissions(atom() | String.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, map()} | {:error, term()}
+  def replace_permissions(provider, params, context \\ %{})
+      when is_map(params) and is_map(context) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :replace_permissions, 3) || {:error, :unsupported} do
+      bridge.replace_permissions(config, params, TrustedContext.normalize(context))
     end
   end
 

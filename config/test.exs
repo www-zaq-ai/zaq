@@ -113,6 +113,7 @@ if e2e? do
 
   config :zaq, Zaq.Ingestion, base_path: "tmp/e2e_documents"
   config :zaq, Zaq.Storage, base_path: "tmp/e2e_documents"
+  config :zaq, :storage_volume_import, volumes: %{"default" => "."}
   config :zaq, e2e_routes: true
 end
 

@@ -34,7 +34,6 @@ defmodule Zaq.Ingestion do
     ContentSource,
     Document,
     ExternalSource,
-    FolderSetting,
     IngestChunkJob,
     IngestJob,
     IngestWorker,
@@ -43,6 +42,9 @@ defmodule Zaq.Ingestion do
   }
 
   alias Zaq.Contracts.Record
+  alias Zaq.Event
+  alias Zaq.NodeRouter
+  alias Zaq.Permissions
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
   alias Zaq.Repo
@@ -196,7 +198,7 @@ defmodule Zaq.Ingestion do
           permissions_count: Map.get(permission_counts, to_string(document.id), 0),
           watch_status: document.watch_status,
           watch_error: document.watch_error,
-          public?: "public" in (document.tags || [])
+          public?: Permissions.public?(document)
         }
 
       nil ->
@@ -379,8 +381,8 @@ defmodule Zaq.Ingestion do
   Returns true if the given person can access a file at `relative_path`.
   - Super admins bypass all checks.
   - Files with no Document record are accessible to all (backward compat).
-  - Documents tagged `"public"` are accessible to all.
-  - Documents with no permission rows and no public tag are private (admin-only).
+  - Documents granted to the system Everyone team are accessible to all.
+  - Documents with no permission rows are private (admin-only).
   - Otherwise: person must have a direct permission or a team permission.
   """
   def can_access_file?(relative_path, current_user) do
@@ -392,15 +394,15 @@ defmodule Zaq.Ingestion do
 
       doc ->
         super_admin? = current_user.role.name == "super_admin"
-        permissions = list_document_permissions(doc.id)
         person_id = Map.get(current_user, :person_id)
-        team_ids = Map.get(current_user, :team_ids) || []
 
-        super_admin? or "public" in doc.tags or
-          Enum.any?(permissions, fn p ->
-            (not is_nil(p.person_id) and p.person_id == person_id) or
-              (not is_nil(p.team_id) and p.team_id in team_ids)
-          end)
+        person =
+          case person_id && Repo.get(Zaq.Accounts.Person, person_id) do
+            nil -> nil
+            person -> %{person | team_ids: Map.get(current_user, :team_ids) || person.team_ids}
+          end
+
+        Permissions.can?(person, :read, doc, skip_permissions: super_admin?)
     end
   end
 
@@ -593,6 +595,19 @@ defmodule Zaq.Ingestion do
     |> Repo.all()
   end
 
+  @doc "Replaces source permissions through Channels and synchronizes matching documents."
+  def sync_data_source_permissions(provider, params, context \\ %{})
+      when is_map(params) and is_map(context) do
+    with {:ok, %{affected_file_ids: affected_file_ids} = result} <-
+           replace_source_permissions(provider, params, context),
+         :ok <- sync_data_source_documents(provider, params, affected_file_ids, context) do
+      {:ok, result}
+    else
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
   def count_document_permissions(document_ids) when is_list(document_ids) do
     resource_ids = document_ids |> Enum.map(&to_string/1) |> Enum.uniq()
 
@@ -603,6 +618,87 @@ defmodule Zaq.Ingestion do
     |> Repo.all()
     |> Map.new()
   end
+
+  defp replace_source_permissions(provider, params, context) do
+    params
+    |> Event.new(:channels,
+      opts: [action: :data_source_replace_permissions],
+      actor: Map.get(context, :actor) || Map.get(context, "actor")
+    )
+    |> then(fn event -> %{event | request: %{provider: provider, params: params}} end)
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+  end
+
+  defp sync_data_source_documents(provider, params, file_ids, context) do
+    config_id = Map.get(params, "config_id") || Map.get(params, :config_id)
+
+    Enum.reduce_while(file_ids, :ok, fn file_id, :ok ->
+      sync_data_source_document(provider, config_id, params, file_id, context)
+    end)
+  end
+
+  defp sync_data_source_document(provider, config_id, params, file_id, context) do
+    source =
+      data_source_record_source(to_string(provider), to_string(config_id), to_string(file_id))
+
+    case Document.get_by_source(source) do
+      nil ->
+        {:cont, :ok}
+
+      %Document{} = document ->
+        replace_document_permissions(document, provider, params, file_id, context)
+    end
+  end
+
+  defp replace_document_permissions(document, provider, params, file_id, context) do
+    with {:ok, grants} <- list_source_permission_records(provider, params, file_id, context),
+         {:ok, _} <- Permissions.replace(document, document_grants(grants)) do
+      {:cont, :ok}
+    else
+      {:error, reason} -> {:halt, {:error, {:document_sync_failed, file_id, reason}}}
+      other -> {:halt, {:error, {:document_sync_failed, file_id, other}}}
+    end
+  end
+
+  defp list_source_permission_records(provider, params, file_id, context) do
+    request_params = Map.put(params, "file_id", file_id)
+
+    response =
+      %{provider: provider, params: request_params}
+      |> Event.new(:channels,
+        opts: [action: :data_source_list_permissions],
+        actor: Map.get(context, :actor) || Map.get(context, "actor")
+      )
+      |> NodeRouter.dispatch()
+      |> Map.get(:response)
+
+    case response do
+      {:ok, %{records: records}} when is_list(records) -> {:ok, records}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  defp document_grants(records) do
+    records
+    |> Enum.map(&document_grant/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp document_grant(%Record{attributes: %{"type" => "public"}}),
+    do: %{team_id: Permissions.everyone_team_id(), access_rights: ["read"]}
+
+  defp document_grant(%Record{attributes: %{"type" => "person", "target_id" => id} = attrs}),
+    do: %{person_id: parse_int(id), access_rights: Map.get(attrs, "access_rights", ["read"])}
+
+  defp document_grant(%Record{attributes: %{"type" => "team", "target_id" => id} = attrs}),
+    do: %{team_id: parse_int(id), access_rights: Map.get(attrs, "access_rights", ["read"])}
+
+  defp document_grant(_record), do: nil
+
+  defp parse_int(value) when is_integer(value), do: value
+  defp parse_int(value) when is_binary(value), do: String.to_integer(value)
 
   def list_person_permissions(person_id) do
     perms =
@@ -730,92 +826,6 @@ defmodule Zaq.Ingestion do
 
     from(d in Document, where: ^conditions)
     |> Repo.all()
-  end
-
-  # --- Document tag management ---
-
-  @doc "Adds a tag to a document. No-op if the tag is already present."
-  def add_document_tag(doc_id, tag) do
-    from(d in Document,
-      where: d.id == ^doc_id,
-      where: not fragment("? @> ARRAY[?]::varchar[]", d.tags, ^tag),
-      update: [set: [tags: fragment("array_append(?, ?)", d.tags, ^tag)]]
-    )
-    |> Repo.update_all([])
-
-    {:ok, Repo.get!(Document, doc_id)}
-  end
-
-  @doc "Removes a tag from a document. No-op if the tag is not present."
-  def remove_document_tag(doc_id, tag) do
-    doc = Repo.get!(Document, doc_id)
-
-    doc
-    |> Ecto.Changeset.change(tags: List.delete(doc.tags, tag))
-    |> Repo.update()
-  end
-
-  # --- Folder public flag ---
-
-  @doc """
-  Marks a folder public: persists the flag in `folder_settings` and adds the
-  `"public"` tag to every document whose source starts with any known prefix
-  for the folder (covers both volume-prefixed and legacy sources).
-  """
-  def set_folder_public(volume_name, folder_path) do
-    {:ok, _} =
-      Repo.transaction(fn ->
-        {:ok, _} =
-          FolderSetting.upsert(%{
-            volume_name: volume_name,
-            folder_path: folder_path,
-            tags: ["public"]
-          })
-
-        conditions =
-          Document.source_prefix_conditions(source_candidates(volume_name, folder_path))
-
-        from(d in Document,
-          where: ^conditions,
-          where: not fragment("? @> ARRAY[?]::varchar[]", d.tags, "public"),
-          update: [set: [tags: fragment("array_append(?, ?)", d.tags, "public")]]
-        )
-        |> Repo.update_all([])
-      end)
-
-    :ok
-  end
-
-  @doc """
-  Removes the public flag from a folder and strips the `"public"` tag from all
-  documents under it.
-  """
-  def unset_folder_public(volume_name, folder_path) do
-    {:ok, _} =
-      Repo.transaction(fn ->
-        {:ok, _} =
-          FolderSetting.upsert(%{volume_name: volume_name, folder_path: folder_path, tags: []})
-
-        conditions =
-          Document.source_prefix_conditions(source_candidates(volume_name, folder_path))
-
-        from(d in Document,
-          where: ^conditions,
-          where: fragment("? @> ARRAY[?]::varchar[]", d.tags, "public"),
-          update: [set: [tags: fragment("array_remove(?, ?)", d.tags, "public")]]
-        )
-        |> Repo.update_all([])
-      end)
-
-    :ok
-  end
-
-  @doc "Returns true if the folder has the `\"public\"` tag set."
-  def folder_public?(volume_name, folder_path) do
-    case FolderSetting.get(volume_name, folder_path) do
-      nil -> false
-      setting -> "public" in setting.tags
-    end
   end
 
   def get_document_by_source!(source) do

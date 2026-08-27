@@ -450,10 +450,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
     end
   end
 
-  defp shareable?(entry, action_capabilities, ingestion_map) do
-    Map.get(action_capabilities, :share, false) and
-      (record_folder?(entry) or
-         (record_file?(entry) and
-            Map.get(ingestion_map, entry.name, %{can_share?: false}).can_share?))
-  end
+  defp shareable?(entry, action_capabilities, _ingestion_map),
+    do:
+      Map.get(action_capabilities, :share, false) and
+        (record_folder?(entry) or record_file?(entry))
 end

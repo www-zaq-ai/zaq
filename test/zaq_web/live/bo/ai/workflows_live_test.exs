@@ -159,6 +159,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/workflows")
 
+      :sys.replace_state(view.pid, fn state ->
+        update_in(state.socket.assigns.current_user, fn current_user ->
+          current_user |> Map.put(:person_id, 42) |> Map.put(:team_ids, [7, 9])
+        end)
+      end)
+
       assert {:error, {:live_redirect, _}} =
                view
                |> element(
@@ -173,12 +179,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
       assert get_in(source_event.assigns, ["trigger_type"]) == "manual"
       assert get_in(source_event.assigns, ["skip_permissions"]) == true
 
-      # BO users have no Person record: the actor is audit-only and must not
-      # carry a person identity.
       actor = source_event.actor
       assert actor["name"] == user.username
       assert actor["provider"] == "bo"
-      assert is_nil(actor["person"])
+      assert actor["person_id"] == 42
+      assert actor["person"] == %{"id" => 42, "full_name" => user.username, "team_ids" => [7, 9]}
     end
 
     # The list page must only create + navigate, never start the run — starting is

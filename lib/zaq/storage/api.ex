@@ -127,7 +127,16 @@ defmodule Zaq.Storage.Api do
         _context
       )
       when is_binary(file_id) do
-    %{event | response: Storage.list_document_grants(file_id)}
+    %{event | response: Storage.list_document_grants(file_id, opts(event))}
+  end
+
+  def handle_event(
+        %Event{request: %{file_id: file_id, grants: grants}} = event,
+        :replace_document_grants,
+        _context
+      )
+      when is_binary(file_id) and is_list(grants) do
+    %{event | response: Storage.replace_document_grants(file_id, grants, opts(event))}
   end
 
   def handle_event(%Event{request: %{params: params}} = event, :search_documents, _context)

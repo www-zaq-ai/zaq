@@ -293,11 +293,8 @@ defmodule Zaq.StorageTest do
     assert person_permission.person_id == person.id
     assert person_permission.access_rights == ["read", "write"]
 
-    assert {:ok, %{permissions: [grant], public?: false}} =
-             Storage.list_document_grants(entry.id)
-             |> then(fn {:ok, %{permissions: grants} = result} ->
-               {:ok, %{result | permissions: Enum.reject(grants, &(&1.type == "person"))}}
-             end)
+    assert {:ok, %{effective_permissions: grants}} = Storage.list_document_grants(entry.id)
+    grant = Enum.find(grants, &(&1.type == "team"))
 
     assert grant.type == "team"
     assert grant.target_id == to_string(team.id)
@@ -893,6 +890,40 @@ defmodule Zaq.StorageTest do
     assert described.id == entry.id
     assert described.volume == "documents"
     assert described.relative_path == "guide.md"
+  end
+
+  test "replace_document_grants stores public source ACLs and exposes them as effective grants" do
+    {:ok, entry} = EntryCatalog.ensure("archives", "guide.md", "file")
+
+    assert {:ok, %{affected_file_ids: [affected_id]}} =
+             Storage.replace_document_grants(
+               entry.id,
+               [%{"type" => "public", "access_rights" => ["read"]}],
+               skip_permissions: true
+             )
+
+    assert affected_id == entry.id
+
+    assert {:ok, %{effective_permissions: grants}} =
+             Storage.list_document_grants(entry.id, skip_permissions: true)
+
+    assert Enum.any?(grants, &(&1.type == "public" and &1.name == "Public"))
+  end
+
+  test "child entries inherit parent source ACLs" do
+    {:ok, parent} = EntryCatalog.ensure("archives", "docs", "directory")
+    {:ok, child} = EntryCatalog.ensure("archives", "docs/guide.md", "file")
+    person = person_fixture()
+
+    assert {:ok, _} =
+             Storage.replace_document_grants(
+               parent.id,
+               [%{"type" => "person", "target_id" => person.id, "access_rights" => ["read"]}],
+               skip_permissions: true
+             )
+
+    assert {:ok, %{effective_permissions: grants}} = Storage.list_document_grants(child.id)
+    assert Enum.any?(grants, &(&1.type == "person" and &1.inherited? == true))
   end
 
   defp person_fixture do

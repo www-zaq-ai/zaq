@@ -64,6 +64,21 @@ defmodule Zaq.Storage.EntryCatalog do
     Repo.one(from(e in __MODULE__, where: e.id == ^id and is_nil(e.deleted_at)))
   end
 
+  @doc "Returns active ancestors from nearest parent to root."
+  def ancestors(id) when is_binary(id) do
+    id
+    |> by_id()
+    |> do_ancestors([])
+  end
+
+  @doc "Returns active descendants for an entry, excluding the entry itself."
+  def descendants(id) when is_binary(id) do
+    case by_id(id) do
+      nil -> []
+      entry -> descendants_for(entry)
+    end
+  end
+
   def rename(volume, old_relative_path, new_relative_path) do
     old_relative_path = normalize(old_relative_path)
     new_relative_path = normalize(new_relative_path)
@@ -122,6 +137,25 @@ defmodule Zaq.Storage.EntryCatalog do
         {:ok, parent.id}
       end
     end
+  end
+
+  defp do_ancestors(nil, acc), do: acc
+  defp do_ancestors(%__MODULE__{parent_id: nil}, acc), do: acc
+
+  defp do_ancestors(%__MODULE__{parent_id: parent_id}, acc) do
+    parent = by_id(parent_id)
+    do_ancestors(parent, acc ++ List.wrap(parent))
+  end
+
+  defp descendants_for(%__MODULE__{volume: volume, relative_path: path}) do
+    prefix = normalize(path)
+
+    from(e in __MODULE__,
+      where:
+        e.volume == ^volume and is_nil(e.deleted_at) and
+          e.relative_path != ^prefix and like(e.relative_path, ^"#{prefix}/%")
+    )
+    |> Repo.all()
   end
 
   defp normalize(nil), do: "."

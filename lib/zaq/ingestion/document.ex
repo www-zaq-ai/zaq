@@ -29,7 +29,6 @@ defmodule Zaq.Ingestion.Document do
     field :content, :string
     field :content_type, :string, default: "markdown"
     field :metadata, :map, default: %{}
-    field :tags, {:array, :string}, default: []
     field :watch_status, :string, default: "unwatched"
     field :watch_requested_at, :utc_datetime
     field :watch_updated_at, :utc_datetime
@@ -44,7 +43,7 @@ defmodule Zaq.Ingestion.Document do
   @required_fields ~w(source)a
   @watch_statuses ~w(unwatched pending watched error)
 
-  @optional_fields ~w(title content content_type metadata tags watch_status watch_requested_at watch_updated_at watch_error)a
+  @optional_fields ~w(title content content_type metadata watch_status watch_requested_at watch_updated_at watch_error)a
 
   def changeset(document, attrs) do
     document

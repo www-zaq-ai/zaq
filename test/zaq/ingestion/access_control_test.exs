@@ -4,6 +4,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
   alias Zaq.Accounts.{People, Team}
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
+  alias Zaq.Permissions
   alias Zaq.SystemConfigFixtures
 
   setup do
@@ -63,7 +64,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
     end
   end
 
-  describe "can_access_file?/2 — no permissions, no public tag (private)" do
+  describe "can_access_file?/2 — no permissions (private)" do
     test "non-admin cannot access document with no permissions", %{admin: admin, staff: staff} do
       source = unique_source()
       {:ok, _} = Document.upsert(%{source: source})
@@ -80,25 +81,27 @@ defmodule Zaq.Ingestion.AccessControlTest do
     end
   end
 
-  describe "can_access_file?/2 — public tag" do
-    test "document tagged public is accessible to all regardless of role", %{
+  describe "can_access_file?/2 — public ACL" do
+    test "public document is accessible to all regardless of role", %{
       admin: admin,
       staff: staff,
       super_admin: super_admin
     } do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, tags: ["public"]})
+      {:ok, doc} = Document.upsert(%{source: source})
+      {:ok, _} = Permissions.grant_public(doc)
 
       assert Ingestion.can_access_file?(source, admin)
       assert Ingestion.can_access_file?(source, staff)
       assert Ingestion.can_access_file?(source, super_admin)
     end
 
-    test "document tagged public with no permission rows is accessible to non-admin", %{
+    test "Everyone grant makes a document accessible to non-admin", %{
       staff: staff
     } do
       source = unique_source()
-      {:ok, _} = Document.upsert(%{source: source, tags: ["public"]})
+      {:ok, doc} = Document.upsert(%{source: source})
+      {:ok, _} = Permissions.grant_public(doc)
 
       assert Ingestion.can_access_file?(source, staff)
     end

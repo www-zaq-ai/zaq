@@ -665,10 +665,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         routing_context: transient_routing_context(selected_agent_id)
       })
 
-    # Explicit: BO-authenticated users with no person record get full access.
-    # This is a deliberate policy decision, not a nil shortcut.
-    bo_user_without_person = is_nil(Map.get(current_user, :person_id))
-
     event =
       Event.new(incoming, :engine,
         name: :incoming_message_routing_requested,
@@ -678,7 +674,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
           agent_hop_type: :sync,
           pipeline_opts: [
             history: history,
-            skip_permissions: bo_user_without_person,
+            skip_permissions: true,
             node_router: node_router()
           ]
         ]

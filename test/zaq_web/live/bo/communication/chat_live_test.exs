@@ -1184,7 +1184,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     refute render(view) =~ "[source:"
   end
 
-  test "send_message propagates person and team permissions", %{conn: conn} do
+  test "send_message keeps person identity and uses explicit BO permission bypass", %{conn: conn} do
     caller = self()
 
     NodeRouterFake.put_dispatch(fn %Event{} = event ->
@@ -1204,7 +1204,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     assert_receive {:person_dispatch, %Event{} = event}, 1_000
     assert event.request.person == %{id: 42, full_name: "testadmin", team_ids: [7, 9]}
-    assert event.opts[:pipeline_opts][:skip_permissions] == false
+    assert event.opts[:pipeline_opts][:skip_permissions] == true
   end
 
   test "send_message defaults nil team ids to an empty list", %{conn: conn} do

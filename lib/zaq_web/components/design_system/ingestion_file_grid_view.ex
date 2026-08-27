@@ -400,9 +400,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
     """
   end
 
-  defp grid_shareable?(entry, action_capabilities, ingestion_map) do
-    Map.get(action_capabilities, :share, false) and
-      (record_folder?(entry) or
-         (record_file?(entry) and file_ingestion_status(ingestion_map, entry.name).can_share?))
-  end
+  defp grid_shareable?(entry, action_capabilities, _ingestion_map),
+    do:
+      Map.get(action_capabilities, :share, false) and
+        (record_folder?(entry) or record_file?(entry))
 end
