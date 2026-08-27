@@ -85,10 +85,50 @@ defmodule Zaq.Storage.EntryCatalog do
 
     with %__MODULE__{} = entry <- get_active(volume, old_relative_path) || {:error, :not_found},
          {:ok, parent_id} <- parent_id(volume, new_relative_path) do
-      entry
-      |> changeset(%{relative_path: new_relative_path, parent_id: parent_id})
-      |> Repo.update()
+      rename_with_descendants(entry, volume, old_relative_path, new_relative_path, parent_id)
     end
+  end
+
+  defp rename_with_descendants(entry, volume, old_relative_path, new_relative_path, parent_id) do
+    Repo.transaction(fn ->
+      renamed = rename_entry!(entry, new_relative_path, parent_id)
+
+      if renamed.kind == "directory" do
+        rename_descendants(volume, old_relative_path, new_relative_path)
+      end
+
+      renamed
+    end)
+  end
+
+  defp rename_entry!(entry, new_relative_path, parent_id) do
+    entry
+    |> changeset(%{relative_path: new_relative_path, parent_id: parent_id})
+    |> Repo.update()
+    |> case do
+      {:ok, renamed} -> renamed
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp rename_descendants(volume, old_relative_path, new_relative_path) do
+    from(e in __MODULE__,
+      where:
+        e.volume == ^volume and is_nil(e.deleted_at) and
+          like(e.relative_path, ^"#{old_relative_path}/%"),
+      update: [
+        set: [
+          relative_path:
+            fragment(
+              "? || substring(relative_path from char_length(?) + 1)",
+              ^new_relative_path,
+              ^old_relative_path
+            ),
+          updated_at: ^DateTime.utc_now(:second)
+        ]
+      ]
+    )
+    |> Repo.update_all([])
   end
 
   def tombstone(volume, relative_path) do

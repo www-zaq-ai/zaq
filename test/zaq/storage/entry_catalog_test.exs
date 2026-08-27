@@ -61,6 +61,29 @@ defmodule Zaq.Storage.EntryCatalogTest do
     assert %{id: ^child_id, deleted_at: nil} = Repo.get!(EntryCatalog, child_id)
   end
 
+  test "renaming a directory preserves descendant ids by updating their paths" do
+    volume = "documents"
+    {:ok, folder} = EntryCatalog.ensure(volume, "old", :directory)
+    {:ok, child} = EntryCatalog.ensure(volume, "old/file.pdf", :file)
+    {:ok, nested} = EntryCatalog.ensure(volume, "old/sub/notes.md", :file)
+
+    assert {:ok, %{id: folder_id, relative_path: "new"}} =
+             EntryCatalog.rename(volume, "old", "new")
+
+    assert folder_id == folder.id
+
+    assert %{id: child_id, relative_path: "new/file.pdf", parent_id: ^folder_id} =
+             EntryCatalog.get_active(volume, "new/file.pdf")
+
+    assert child_id == child.id
+
+    assert %{id: nested_id, relative_path: "new/sub/notes.md"} =
+             EntryCatalog.get_active(volume, "new/sub/notes.md")
+
+    assert nested_id == nested.id
+    assert EntryCatalog.get_active(volume, "old/file.pdf") == nil
+  end
+
   test "ensuring an empty path creates the canonical volume root" do
     volume = "documents"
 

@@ -30,13 +30,35 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
 
   @spec previewable_path?(String.t()) :: boolean()
   def previewable_path?(path) when is_binary(path) and path != "" do
+    previewable_filename?(path) || previewable_document_reference?(path)
+  end
+
+  def previewable_path?(_), do: false
+
+  defp previewable_document_reference?(source) do
+    source
+    |> Document.get_by_source()
+    |> case do
+      %Document{} = document -> previewable_document?(document)
+      _ -> false
+    end
+  end
+
+  defp previewable_document?(%Document{} = document) do
+    metadata = document.metadata || %{}
+    name = metadata["provider_name"] || document.title || document.source
+
+    previewable_filename?(name)
+  end
+
+  defp previewable_filename?(path) when is_binary(path) and path != "" do
     path
     |> Path.extname()
     |> String.downcase()
     |> then(&(&1 in @previewable_extensions))
   end
 
-  def previewable_path?(_), do: false
+  defp previewable_filename?(_), do: false
 
   @spec load(String.t() | Record.t(), map()) :: {:ok, map()} | {:error, :unauthorized}
   def load(input, current_user), do: load(input, current_user, [])

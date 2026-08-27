@@ -1825,6 +1825,38 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "p", "fresh.txt")
   end
 
+  test "latest failed local job overrides an existing ingested badge", %{conn: conn} do
+    source = disk_source("notes.txt")
+    create_document_with_chunk(source)
+
+    create_job(%{
+      file_path: source,
+      status: "failed",
+      source_record: %{"name" => "notes.txt"}
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
+    assert has_element?(view, "#ingestion-file-list tr span", "failed")
+    refute has_element?(view, "#ingestion-file-list tr span", "ingested")
+  end
+
+  test "local file shows stale when modified after indexing", %{conn: conn, tmp_dir: tmp_dir} do
+    source = disk_source("notes.txt")
+    doc = create_document_with_chunk(source)
+    ingested_at = ~U[2024-01-01 00:00:00Z]
+
+    Repo.update!(Ecto.Changeset.change(doc, updated_at: ingested_at))
+    File.touch!(Path.join(tmp_dir, "notes.txt"), DateTime.to_unix(ingested_at) + 60)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
+    assert has_element?(view, "#ingestion-file-list tr span", "stale")
+    refute has_element?(view, "#ingestion-file-list tr span", "ingested")
+  end
+
   test "others job filter includes active non-terminal statuses", %{conn: conn} do
     create_job(%{file_path: "pending-other.txt", status: "pending"})
     create_job(%{file_path: "processing-other.txt", status: "processing"})
@@ -2130,7 +2162,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "ingest_selected clears selection and shows flash for a file", %{conn: conn} do
-      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:ok, %{id: nil}}
       end)
 
@@ -2155,7 +2187,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "ingest_selected clears selection and shows flash for a directory", %{conn: conn} do
-      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:ok, %{id: nil}}
       end)
 
@@ -2176,7 +2208,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     test "ingest_selected processes file without role_id (RBAC-based access)", %{conn: conn} do
       parent = self()
 
-      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+      Mox.stub(Zaq.DocumentProcessorMock, :process_single_file, fn path, _opts ->
         send(parent, {:path_ingested, path})
         {:ok, %{id: nil}}
       end)

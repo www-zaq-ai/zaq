@@ -121,7 +121,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       |> Chunk.changeset(%{document_id: doc.id, content: "second", chunk_index: 2})
       |> Repo.insert!()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:ok, doc}
       end)
 
@@ -149,7 +149,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       job = create_job()
       Zaq.Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:error, :parse_error}
       end)
 
@@ -207,7 +207,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
           set: [file_path: nil, volume_name: "missing-volume"]
         )
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, _opts ->
         assert path == nil
         {:error, :missing_path}
       end)
@@ -255,7 +255,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       source_record = RecordSource.to_storage_map(record)
       job = create_job(%{source_record: source_record})
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, _opts ->
         assert File.exists?(path)
         File.rm!(path)
         refute File.exists?(path)
@@ -308,7 +308,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
 
       cleanup_dir_ref = make_ref()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, _opts ->
         assert File.exists?(path)
 
         File.rm!(path)
@@ -344,10 +344,60 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       assert updated.completed_at != nil
     end
 
+    test "passes canonical source override to legacy processor fallback for data-source records" do
+      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        __MODULE__.ExternalDataSourceBridgeStub
+      )
+
+      on_exit(fn ->
+        case original_bridge do
+          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+          module -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, module)
+        end
+      end)
+
+      record = %Record{
+        id: "pdf-canonical-source",
+        kind: :file,
+        name: "Canonical Source.pdf",
+        mime_type: "application/pdf",
+        attributes: %{
+          "provider" => "disk",
+          "config_id" => "cfg-disk",
+          "provider_record_id" => "pdf-canonical-source"
+        }
+      }
+
+      source = "data_source/disk/cfg-disk/pdf-canonical-source"
+      job = create_job(%{source_record: RecordSource.to_storage_map(record)})
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, opts ->
+        assert File.exists?(path)
+        assert opts[:source_override] == source
+        assert opts[:document_title] == "Canonical Source.pdf"
+        assert opts[:document_metadata]["provider"] == "disk"
+
+        {:ok, create_document(%{source: opts[:source_override]})}
+      end)
+
+      assert :ok =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      assert %Document{} = Document.get_by_source(source)
+    end
+
     test "cancels immediately for structural string errors" do
       job = create_job()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:error, "Structural error while storing chunks: :dimension_mismatch"}
       end)
 
@@ -367,7 +417,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     test "cancels immediately for dimension mismatch atom errors" do
       job = create_job()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:error, :dimension_mismatch}
       end)
 
@@ -387,7 +437,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       job = create_job()
       reason = %{errors: [source: {"can't be blank", [validation: :required]}]}
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:error, reason}
       end)
 
@@ -408,7 +458,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       job = create_job()
       reason = {:unexpected, %{stage: :prepare}}
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:error, reason}
       end)
 
@@ -497,7 +547,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       job = create_job()
       Zaq.Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:error, "temporary failure"}
       end)
 
@@ -521,7 +571,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     test "uses unresolved path when resolve_path fails" do
       job = create_job(%{file_path: "../../bad.md"})
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, _opts ->
         assert path == "../../bad.md"
         {:error, :missing}
       end)
@@ -537,7 +587,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     test "passes the materialized job path through without resolving volume_name" do
       job = create_job(%{file_path: "report.md", volume_name: "myvol"})
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, _opts ->
         assert path == "report.md"
         {:ok, create_document()}
       end)
@@ -565,7 +615,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
 
       job = create_job(%{file_path: "orphan.md", volume_name: "missing-volume"})
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, _opts ->
         assert path == "orphan.md"
         {:ok, create_document()}
       end)
@@ -641,7 +691,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     test "converts crashes to retries" do
       job = create_job()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         raise "boom"
       end)
 
@@ -660,7 +710,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     test "converts thrown values to retries" do
       job = create_job()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         throw({:halted, :from_test})
       end)
 

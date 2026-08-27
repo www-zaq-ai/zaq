@@ -298,6 +298,16 @@ async function touchE2EFile(request, relativePath, options = {}) {
   }
 }
 
+async function writeE2EFile(request, relativePath, content, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/ingestion/write_file`, {
+    data: { path: relativePath, content },
+  });
+  if (!res.ok()) {
+    throw new Error(`/e2e/ingestion/write_file returned ${res.status()} ${await res.text()}`);
+  }
+}
+
 async function createE2EAiCredential(request, attrs, options = {}) {
   const baseURL = normalizeBaseURL(options.baseURL);
   const res = await request.post(`${baseURL}/e2e/ai-credentials`, { data: attrs });
@@ -419,6 +429,7 @@ module.exports = {
   createE2EAddonPackage,
   setE2ESystemConfig,
   touchE2EFile,
+  writeE2EFile,
   createE2EAiCredential,
   createE2EMcpEndpoint,
   createE2EAgent,

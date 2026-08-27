@@ -121,7 +121,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Supported formats: `.md`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.csv`, `.png`, `.jpg`
   """
   def process_single_file(file_path) do
-    case process_single_file_with_report(file_path) do
+    process_single_file(file_path, [])
+  end
+
+  def process_single_file(file_path, opts) do
+    case process_single_file_with_report(file_path, opts) do
       {:ok, document, %{failed_chunks: 0}} ->
         {:ok, document}
 

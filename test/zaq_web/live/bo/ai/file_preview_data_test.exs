@@ -33,6 +33,17 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewDataTest do
     for path <- [nil, :file, 1, [], %{}], do: refute(FilePreviewData.previewable_path?(path))
   end
 
+  test "previewable_path?/1 accepts canonical document sources with previewable provider names" do
+    {:ok, _doc} =
+      Document.create(%{
+        source: "data_source/disk/cfg/entry-1",
+        metadata: %{"provider_name" => "journey-source.md"}
+      })
+
+    assert FilePreviewData.previewable_path?("data_source/disk/cfg/entry-1")
+    refute FilePreviewData.previewable_path?("data_source/disk/cfg/missing")
+  end
+
   test "invalid signed handle is unavailable", %{user: user} do
     record = %Record{
       id: "notes.txt",

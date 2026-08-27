@@ -250,6 +250,19 @@ defmodule ZaqWeb.E2EController do
     end
   end
 
+  # POST /e2e/ingestion/write_file
+  # Overwrites a file inside tmp/e2e_documents/ for tests that need an existing
+  # disk record to become stale without exercising create-file deduplication.
+  def write_file(conn, params) do
+    with path when is_binary(path) and path != "" <- Map.get(params, "path"),
+         content when is_binary(content) <- Map.get(params, "content") do
+      {:ok, absolute} = Reset.write_file!(path, content)
+      json(conn, %{ok: true, path: absolute})
+    else
+      _ -> conn |> put_status(:bad_request) |> json(%{error: "missing path or content"}) |> halt()
+    end
+  end
+
   # POST /e2e/bootstrap-admin — seed the initial "admin" user that satisfies
   # bootstrap_admin_pending?/1 (single insert, no password, inserted_at == updated_at).
   # After calling this, GET /bo/bootstrap-login creates a session and redirects to

@@ -110,7 +110,7 @@ defmodule Zaq.Ingestion.IngestWorker do
     if Code.ensure_loaded?(proc) and function_exported?(proc, :prepare_file_chunks, 2) do
       proc.prepare_file_chunks(file_path, opts)
     else
-      case proc.process_single_file(file_path) do
+      case proc.process_single_file(file_path, opts) do
         {:ok, document} ->
           {:ok, document, :legacy_completed}
 

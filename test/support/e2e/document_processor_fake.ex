@@ -11,23 +11,23 @@ defmodule Zaq.E2E.DocumentProcessorFake do
   alias Zaq.Storage.FileExplorer
 
   @impl true
-  def process_single_file(file_path) do
+  def process_single_file(file_path, opts \\ []) do
     case ProcessorState.check_and_consume() do
       :fail ->
         {:error, "Structural error: simulated e2e failure"}
 
       :ok ->
-        do_process(file_path)
+        do_process(file_path, opts)
     end
   end
 
-  defp do_process(file_path) do
+  defp do_process(file_path, opts) do
     sidecar_path = Sidecar.sidecar_path_for(file_path)
 
     with {:ok, content} <- File.read(file_path),
-         {:ok, source} <- extract_source(file_path),
+         {:ok, source} <- extract_source(file_path, opts),
          {:ok, sidecar_source} <- maybe_write_sidecar(sidecar_path, source),
-         source_metadata = Sidecar.source_metadata(sidecar_source),
+         source_metadata = document_metadata(sidecar_source, opts),
          {:ok, document} <-
            Document.upsert(%{
              source: source,
@@ -116,6 +116,19 @@ defmodule Zaq.E2E.DocumentProcessorFake do
       end
 
     {:ok, source}
+  end
+
+  defp extract_source(file_path, opts) do
+    case Keyword.get(opts, :source_override) do
+      source when is_binary(source) and source != "" -> {:ok, source}
+      _ -> extract_source(file_path)
+    end
+  end
+
+  defp document_metadata(sidecar_source, opts) do
+    opts
+    |> Keyword.get(:document_metadata, %{})
+    |> Map.merge(Sidecar.source_metadata(sidecar_source))
   end
 
   defp upsert_chunk(document_id, content) do

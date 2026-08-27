@@ -161,6 +161,7 @@ defmodule ZaqWeb.Router do
       post "/agents", E2EController, :create_agent
       post "/conversations", E2EController, :create_conversation
       post "/ingestion/touch_file", E2EController, :touch_file
+      post "/ingestion/write_file", E2EController, :write_file
       post "/bootstrap-admin", E2EController, :create_bootstrap_admin
       post "/onboarding-user", E2EController, :create_onboarding_user
 

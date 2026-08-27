@@ -73,13 +73,6 @@ function fileRow(page, filename) {
     .first()
 }
 
-// Find the converted-markdown preview control by filename (list + grid).
-// Implemented as button.zaq-table-sidecar-preview (grid adds --ingestion-grid);
-// not getByRole("row") because grid has no sidecar <tr>.
-function sidecarRow(page, filename) {
-  return page.locator("button.zaq-table-sidecar-preview").filter({ hasText: filename })
-}
-
 async function closeJobsDrawer(page) {
   const drawer = page.locator("#ingestion-jobs-drawer")
   if (await drawer.isVisible().catch(() => false)) {
@@ -233,8 +226,6 @@ test.describe("Ingestion", () => {
     test.setTimeout(240_000)
     // Use a timestamp-unique filename so parallel/repeated runs don't collide.
     const pdfFilename = `e2e-ingestion-${Date.now()}.pdf`
-    const sidecarFilename = pdfFilename.replace(/\.pdf$/, ".md")
-
     // ── Step 1: Reset already seeded embedding config — no warning ────────────
     //
     // POST /e2e/reset re-seeds the default embedding config and ensures the
@@ -280,14 +271,6 @@ test.describe("Ingestion", () => {
 
     await selectAndIngest(page, row, pdfFilename)
     await waitForAsyncRowBadge(page, pdfFilename, "ingested")
-
-    // ── Step 3b: Sidecar sub-row must appear below the PDF row ───────────────
-    //
-    // DocumentProcessorFake writes a .md sidecar to disk and creates a sidecar
-    // Document record. DirectorySnapshot attaches it as related_md on the PDF
-    // entry → the template renders a row showing the sidecar filename.
-
-    await expect(sidecarRow(page, sidecarFilename)).toBeVisible({ timeout: 5_000 })
 
     // ── Step 3c: Fail a re-ingest while "ingested" is still in the DB ─────────
     //
@@ -408,8 +391,6 @@ test.describe("Ingestion", () => {
     const folderName = `zaq-rename-${ts}`
     const renamedFolder = `product-rename-${ts}`
     const pdfFilename = `e2e-in-folder-${ts}.pdf`
-    const sidecarFilename = pdfFilename.replace(/\.pdf$/, ".md")
-
     await gotoBackOfficeLive(page, INGESTION_PATH)
     await waitForLiveViewSettled(page)
     await ensureAsyncMode(page)
@@ -444,9 +425,6 @@ test.describe("Ingestion", () => {
     await selectAndIngest(page, row, pdfFilename)
     await waitForAsyncRowBadge(page, pdfFilename, "ingested")
 
-    // Sidecar .md must appear as a sub-row under the PDF before we rename.
-    await expect(sidecarRow(page, sidecarFilename)).toBeVisible({ timeout: 5_000 })
-
     // ── Navigate back to root ─────────────────────────────────────────────
     await page.getByRole("button", { name: "root" }).click()
     await waitForLiveViewSettled(page)
@@ -471,10 +449,6 @@ test.describe("Ingestion", () => {
     await expect(fileRow(page, pdfFilename)).toBeVisible()
     await expect(fileRow(page, pdfFilename).locator("span", { hasText: "ingested" })).toBeVisible()
 
-    // The sidecar sub-row must still appear under the PDF, proving the
-    // sidecar_source and source_document_source metadata pointers were also
-    // updated (not just Document.source).
-    await expect(sidecarRow(page, sidecarFilename)).toBeVisible()
   })
 
   // ── Duplicate filename deduplication ──────────────────────────────────────

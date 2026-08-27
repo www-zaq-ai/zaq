@@ -10,7 +10,7 @@ defmodule Zaq.E2E.Reset do
   #   * AI credentials wiped
   #   * Conversations/messages wiped, then the deterministic "E2E Unsupported
   #     Source Conversation" fixture is re-seeded (needed by Journey 4)
-  #   * Persons/teams/channels wiped
+  #   * Persons/user-created teams/channels wiped
   #   * In-memory add-on package data cleared (`FeatureStore`)
   #   * ProcessorState back to 0 consecutive failures
   #
@@ -18,6 +18,7 @@ defmodule Zaq.E2E.Reset do
   # same fixtures rather than duplicating payload strings.
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.Team
   alias Zaq.Accounts.User
   alias Zaq.Addons.FeatureStore
   alias Zaq.Agent.ConfiguredAgent
@@ -193,6 +194,14 @@ defmodule Zaq.E2E.Reset do
     {:ok, absolute}
   end
 
+  @doc "Overwrite a file inside the documents root for stale-preview journey setup."
+  def write_file!(relative_path, content) when is_binary(relative_path) and is_binary(content) do
+    absolute = safe_path!(relative_path)
+    File.mkdir_p!(Path.dirname(absolute))
+    :ok = File.write!(absolute, content)
+    {:ok, absolute}
+  end
+
   # ── Internals ──────────────────────────────────────────────────────────────
 
   # Delete all users except the standing E2E admin so bootstrap-created users
@@ -246,7 +255,18 @@ defmodule Zaq.E2E.Reset do
     # `channels` holds person↔channel mappings; FK cascades from people.
     Repo.query!("DELETE FROM channels", [])
     Repo.query!("DELETE FROM people", [])
-    Repo.query!("DELETE FROM teams", [])
+    Repo.query!("DELETE FROM teams WHERE system_key IS NULL", [])
+    ensure_everyone_team!()
+  end
+
+  defp ensure_everyone_team! do
+    unless Repo.get_by(Team, system_key: "everyone") do
+      Repo.insert!(%Team{
+        name: "Everyone",
+        description: "System team representing public access.",
+        system_key: "everyone"
+      })
+    end
   end
 
   defp reset_conversations! do

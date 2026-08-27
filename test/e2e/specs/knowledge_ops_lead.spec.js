@@ -4,6 +4,7 @@ const {
   loginToBackOffice,
   resetE2EState,
   touchE2EFile,
+  writeE2EFile,
   dismissFlash,
   waitForLiveViewSettled,
 } = require("../support/bo");
@@ -176,7 +177,11 @@ test.describe("Knowledge Ops Lead journeys", () => {
     // Overwrite the file first. save_raw_content calls File.write! which stamps
     // mtime = now — this may or may not exceed doc.updated_at depending on
     // filesystem granularity, so we bump mtime explicitly after the write.
-    await addRawMarkdown(page, fileBase, "# Hygiene v2\n\nUpdated content should mark file stale.");
+    await writeE2EFile(
+      request,
+      `${folderName}/${fileName}`,
+      "# Hygiene v2\n\nUpdated content should mark file stale."
+    );
 
     // Now bump mtime to guarantee it's strictly greater than doc.updated_at (T1).
     // Must happen AFTER the write — File.write resets mtime to now and would

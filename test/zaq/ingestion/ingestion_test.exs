@@ -734,7 +734,7 @@ defmodule Zaq.IngestionTest do
       job = create_job(%{status: "failed", error: "something broke"})
       Ingestion.subscribe()
 
-      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path ->
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, _opts ->
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 

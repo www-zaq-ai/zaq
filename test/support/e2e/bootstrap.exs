@@ -5,6 +5,7 @@
 # ZaqWeb.E2EController :portal_*). No req_options override is needed.
 
 alias Zaq.Accounts
+alias Zaq.Accounts.Team
 alias Zaq.Agent.PromptTemplate
 alias Zaq.Engine.Conversations
 alias Zaq.Engine.Telemetry
@@ -14,6 +15,18 @@ alias Zaq.Repo
 alias Zaq.SystemConfigFixtures
 
 documents_root = Path.expand("tmp/e2e_documents")
+
+ensure_everyone_team = fn ->
+  unless Repo.get_by(Team, system_key: "everyone") do
+    Repo.insert!(%Team{
+      name: "Everyone",
+      description: "System team representing public access.",
+      system_key: "everyone"
+    })
+  end
+end
+
+ensure_everyone_team.()
 
 IO.puts("[e2e-bootstrap] Resetting documents root: #{documents_root}")
 File.rm_rf!(documents_root)

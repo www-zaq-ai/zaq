@@ -19,7 +19,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{Document, ExternalSource}
+  alias Zaq.Ingestion.{Document, ExternalSource, IngestJob}
   alias Zaq.NodeRouter
   alias Zaq.Permissions
   alias Zaq.Repo
@@ -129,8 +129,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Folder drop
        folder_drop_skipped: []
      )
-     |> load_entries()
      |> load_jobs()
+     |> load_entries()
      |> allow_upload(:files,
        accept: @allowed_extensions,
        max_entries: 10,
@@ -1081,7 +1081,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       case dispatch_list_files(data_source_provider(socket), local_list_params(socket), socket) do
         {:ok, %Zaq.Contracts.RecordPage{} = page} ->
           records = page.records || []
-          {records, ingestion_map} = enrich_local_records(records)
+          {records, ingestion_map} = enrich_local_records(records, socket.assigns.jobs)
 
           socket
           |> assign(entries: records)
@@ -1731,21 +1731,50 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp parse_int(value) when is_integer(value), do: value
   defp parse_int(value) when is_binary(value), do: String.to_integer(value)
 
-  defp enrich_local_records(records) do
+  defp enrich_local_records(records, jobs) do
     statuses =
       case ingestion_call(:enrich_records, [records]) do
         {:ok, statuses} -> statuses
         _ -> %{}
       end
 
+    latest_jobs_by_name = latest_jobs_by_name(jobs)
+
     ingestion_map =
       Map.new(records, fn record ->
         source = ExternalSource.source(record)
         status = Map.get(statuses, source, %{})
-        {record.name, local_record_status(record, status)}
+
+        {record.name,
+         record
+         |> local_record_status(status)
+         |> overlay_latest_job_status(record, latest_jobs_by_name)}
       end)
 
     {records, ingestion_map}
+  end
+
+  defp latest_jobs_by_name(jobs) do
+    Enum.reduce(jobs, %{}, fn job, acc ->
+      case job_name(job) do
+        name when is_binary(name) and name != "" -> Map.put_new(acc, name, job)
+        _ -> acc
+      end
+    end)
+  end
+
+  defp job_name(%IngestJob{source_record: %{"name" => name}}) when is_binary(name), do: name
+  defp job_name(%IngestJob{file_path: path}) when is_binary(path), do: Path.basename(path)
+  defp job_name(_), do: nil
+
+  defp overlay_latest_job_status(status, %{name: name}, latest_jobs_by_name) do
+    case Map.get(latest_jobs_by_name, name) do
+      %IngestJob{status: job_status} when job_status in ["pending", "processing", "failed"] ->
+        Map.put(status, :job_status, job_status)
+
+      _ ->
+        status
+    end
   end
 
   defp local_record_status(%{kind: kind} = record, status) when kind in [:folder, "folder"] do
@@ -1764,6 +1793,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp local_record_status(record, status) do
+    ingested_at = Map.get(status, :ingested_at)
+
     record
     |> access_status(%{
       permissions_count: Map.get(status, :permissions_count, 0),
@@ -1771,14 +1802,20 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       can_share?: not is_nil(Map.get(status, :document_id))
     })
     |> Map.merge(%{
-      ingested_at: Map.get(status, :ingested_at),
-      stale?: false,
+      ingested_at: ingested_at,
+      stale?: stale_local_record?(record, ingested_at),
       watch_status: Map.get(status, :watch_status),
       watch_error: Map.get(status, :watch_error),
       watch_inherited?: false,
       watchable?: Map.get(status, :indexed?, false)
     })
   end
+
+  defp stale_local_record?(%{modified_at: %DateTime{} = modified_at}, %DateTime{} = ingested_at) do
+    DateTime.compare(modified_at, ingested_at) == :gt
+  end
+
+  defp stale_local_record?(_, _), do: false
 
   defp access_status(record, fallback) do
     case permission_summary(record) do
