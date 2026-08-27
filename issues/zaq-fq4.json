@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-27T14:13:14Z",
+  "description": "Provider browsing LiveView tests use bridge stubs and capability snapshots that predate list_items-gated browsing. Update test doubles to advertise list_items for browsing-capable scenarios and keep capability-discovery failures non-browsable.",
+  "id": "zaq-fq4",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Align provider browsing tests with list capability gate",
+  "type": "task",
+  "updated_at": "2026-08-27T14:13:14Z"
+}
