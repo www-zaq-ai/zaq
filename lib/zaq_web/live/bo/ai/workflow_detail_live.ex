@@ -405,8 +405,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowDetailLive do
                         phx-hook="CronCountdown"
                         data-next-at={next_cron_run_unix(trigger.cron_schedule)}
                         class="font-mono text-[0.65rem] text-black/40"
-                      >
-                      </span>
+                      ></span>
                     </div>
                   </div>
                   <p :if={@triggers == []} class="font-mono text-[0.72rem] text-black/30 italic">

@@ -28,12 +28,11 @@
             else: "Update role details."}
         </p>
       </div>
-      
-<!-- Form -->
+
+      <!-- Form -->
       <div class="px-8 py-6">
         <.form for={@form} phx-submit="save" phx-change="validate" class="space-y-6">
-          
-<!-- Name -->
+          <!-- Name -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Name
@@ -54,8 +53,8 @@
               {elem(hd(@form[:name].errors), 0)}
             </p>
           </div>
-          
-<!-- Meta (JSON) -->
+
+          <!-- Meta (JSON) -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Meta <span class="text-black/30 normal-case">(optional JSON)</span>
@@ -68,8 +67,8 @@
               class="w-full font-mono text-[0.82rem] text-black border border-black/10 rounded-xl px-4 py-3 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all resize-none"
             >{if @form[:meta].value && @form[:meta].value != %{}, do: Jason.encode!(@form[:meta].value, pretty: true), else: ""}</textarea>
           </div>
-          
-<!-- Actions -->
+
+          <!-- Actions -->
           <div class="flex items-center gap-3 pt-3">
             <button
               type="submit"

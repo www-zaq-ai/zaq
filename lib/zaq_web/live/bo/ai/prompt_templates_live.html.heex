@@ -28,8 +28,8 @@
         off
       </span>
     </button>
-    
-<!-- New tab -->
+
+    <!-- New tab -->
     <button
       id="prompt-tab-new"
       phx-click="switch_tab"
@@ -45,8 +45,8 @@
       + new
     </button>
   </div>
-  
-<!-- Existing template panels -->
+
+  <!-- Existing template panels -->
   <div :for={tpl <- @templates} :if={@active_tab == tpl.id}>
     <form
       id={"prompt-template-edit-form-#{tpl.id}"}
@@ -55,8 +55,8 @@
       class="space-y-6"
     >
       <input type="hidden" name="prompt_template[id]" value={tpl.id} />
-      
-<!-- Header row -->
+
+      <!-- Header row -->
       <div class="flex items-center justify-between">
         <div>
           <p class="font-mono text-xs text-black/40 mb-1">slug</p>
@@ -82,8 +82,8 @@
           </button>
         </div>
       </div>
-      
-<!-- Fields -->
+
+      <!-- Fields -->
       <div class="grid grid-cols-2 gap-4">
         <div>
           <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider block mb-1.5">
@@ -122,8 +122,8 @@
           placeholder="Write the system prompt here…"
         />
       </div>
-      
-<!-- Actions -->
+
+      <!-- Actions -->
       <div class="flex items-center justify-between pt-2">
         <!-- Delete -->
         <div>
@@ -136,8 +136,8 @@
             Delete template
           </button>
         </div>
-        
-<!-- Save -->
+
+        <!-- Save -->
         <button
           id={"save-template-#{tpl.id}"}
           type="submit"
@@ -148,8 +148,8 @@
       </div>
     </form>
   </div>
-  
-<!-- New template panel -->
+
+  <!-- New template panel -->
   <div :if={@active_tab == :new}>
     <form
       id="prompt-template-create-form"

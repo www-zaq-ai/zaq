@@ -117,12 +117,9 @@ defmodule ZaqWeb.Chat.Transcript do
               <div>
                 <div class="mb-2 flex items-center gap-2">
                   <div class="flex gap-1">
-                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:0ms]">
-                    </span>
-                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:150ms]">
-                    </span>
-                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:300ms]">
-                    </span>
+                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:0ms]"></span>
+                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:150ms]"></span>
+                    <span class="zaq-chat-transcript__typing-dot animate-bounce [animation-delay:300ms]"></span>
                   </div>
                   <span
                     class="zaq-text-body-sm"

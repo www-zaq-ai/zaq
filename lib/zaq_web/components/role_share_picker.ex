@@ -71,8 +71,7 @@ defmodule ZaqWeb.Components.RoleSharePicker do
               <span class={[
                 "w-1.5 h-1.5 rounded-full",
                 if(role.id in @selected_role_ids, do: "bg-[#03b6d4]", else: "bg-black/20")
-              ]}>
-              </span>
+              ]}></span>
               <span class="font-mono text-[0.78rem] font-medium">{role.name}</span>
             </label>
           </div>

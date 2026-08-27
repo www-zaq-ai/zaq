@@ -105,8 +105,7 @@ defmodule ZaqWeb.Components.ServiceUnavailable do
             <span
               class="w-2 h-2 rounded-full flex-shrink-0"
               style="background-color: #ef4444;"
-            >
-            </span>
+            ></span>
             <span class="font-mono text-sm font-bold text-black">
               {role_label(role)}
             </span>

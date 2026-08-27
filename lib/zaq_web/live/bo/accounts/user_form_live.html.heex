@@ -28,12 +28,11 @@
             else: "Update user details and role assignment."}
         </p>
       </div>
-      
-<!-- Form -->
+
+      <!-- Form -->
       <div class="px-8 py-6">
         <.form for={@form} phx-submit="save" phx-change="validate" class="space-y-6 group">
-          
-<!-- Username -->
+          <!-- Username -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Username
@@ -54,8 +53,8 @@
               {elem(hd(@form[:username].errors), 0)}
             </p>
           </div>
-          
-<!-- Password (only on create) -->
+
+          <!-- Password (only on create) -->
           <div :if={@live_action == :new}>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Password
@@ -83,8 +82,8 @@
               {elem(hd(@form[:password].errors), 0)}
             </p>
           </div>
-          
-<!-- Email -->
+
+          <!-- Email -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Email
@@ -105,8 +104,8 @@
               {elem(hd(@form[:email].errors), 0)}
             </p>
           </div>
-          
-<!-- Role -->
+
+          <!-- Role -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
               Role
@@ -128,8 +127,8 @@
               </option>
             </select>
           </div>
-          
-<!-- Actions -->
+
+          <!-- Actions -->
           <div class="flex items-center gap-3 pt-3">
             <button
               type="submit"

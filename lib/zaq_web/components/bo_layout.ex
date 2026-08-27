@@ -244,15 +244,14 @@ defmodule ZaqWeb.Components.BOLayout do
                   border-left: none;
                 }
       </style>
-      
-    <!-- Sidebar -->
+
+      <!-- Sidebar -->
       <aside
         id="bo-sidebar"
         data-section-ids={Enum.join(@nav_section_ids, ",")}
         class="fixed top-0 left-0 h-screen zaq-sidebar flex flex-col z-40 shadow-xl"
       >
-        
-    <!-- Logo + collapse toggle -->
+        <!-- Logo + collapse toggle -->
         <div class="h-16 flex items-center justify-between px-3 flex-shrink-0 zaq-sidebar-header">
           <div class="flex items-center gap-2 min-w-0">
             <img
@@ -284,11 +283,10 @@ defmodule ZaqWeb.Components.BOLayout do
             </svg>
           </button>
         </div>
-        
-    <!-- Nav -->
+
+        <!-- Nav -->
         <nav class="flex-1 py-3 px-2 overflow-y-auto overflow-x-hidden space-y-0.5">
-          
-    <!-- Dashboard (standalone) -->
+          <!-- Dashboard (standalone) -->
           <div class="nav-item-wrap">
             <a
               href={~p"/bo/dashboard"}
@@ -317,8 +315,8 @@ defmodule ZaqWeb.Components.BOLayout do
             </a>
             <div class="nav-tooltip zaq-text-body-sm zaq-sidebar-nav-tooltip">Dashboard</div>
           </div>
-          
-    <!-- Sections -->
+
+          <!-- Sections -->
           <%= for section <- @nav_sections do %>
             <.nav_section
               id={section.id}
@@ -388,8 +386,8 @@ defmodule ZaqWeb.Components.BOLayout do
           </div>
         </div>
       </aside>
-      
-    <!-- Main -->
+
+      <!-- Main -->
       <main id="bo-main" class="flex-1 min-w-0">
         <!-- Header -->
         <header

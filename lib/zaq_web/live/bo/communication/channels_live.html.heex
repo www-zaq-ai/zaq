@@ -47,16 +47,16 @@
       </button>
     </div>
   </div>
-  
-<!-- ================================================================== -->
+
+  <!-- ================================================================== -->
   <!-- SECTION: Configurations -->
   <!-- ================================================================== -->
   <div class="mb-2">
     <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">
       Configurations
     </p>
-    
-<!-- Empty State -->
+
+    <!-- Empty State -->
     <div
       :if={@configs == []}
       id="configs-empty-state"
@@ -78,8 +78,8 @@
         Add a Mattermost connection to get started
       </p>
     </div>
-    
-<!-- Config Cards -->
+
+    <!-- Config Cards -->
     <div :if={@configs != []} class="space-y-3">
       <div
         :for={config <- @configs}
@@ -212,8 +212,8 @@
       </div>
     </div>
   </div>
-  
-<!-- ================================================================== -->
+
+  <!-- ================================================================== -->
   <!-- SECTION: Retrieval Channel Picker -->
   <!-- ================================================================== -->
   <div :if={@configs != []} class="mt-8">
@@ -249,8 +249,8 @@
         </select>
       </form>
     </div>
-    
-<!-- Currently Selected Channels -->
+
+    <!-- Currently Selected Channels -->
     <div :if={@retrieval_channels != []} class="space-y-2 mb-5">
       <div
         :for={rc <- @retrieval_channels}
@@ -340,8 +340,8 @@
         </div>
       </div>
     </div>
-    
-<!-- Fetch Teams Button (initial and empty states) -->
+
+    <!-- Fetch Teams Button (initial and empty states) -->
     <div :if={@teams == [] and @teams_status in [:idle, :empty]} class="space-y-3">
       <button
         phx-click="fetch_teams"
@@ -382,8 +382,8 @@
         </div>
       </div>
     </div>
-    
-<!-- Loading Teams -->
+
+    <!-- Loading Teams -->
     <div
       :if={@teams_status == :loading}
       class="flex items-center gap-2 py-3"
@@ -398,8 +398,8 @@
       </svg>
       <span class="font-mono text-[0.7rem] text-black/40">Loading teams...</span>
     </div>
-    
-<!-- Teams Error -->
+
+    <!-- Teams Error -->
     <div
       :if={is_tuple(@teams_status) and elem(@teams_status, 0) == :error}
       class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-2 mb-4"
@@ -420,8 +420,8 @@
         </p>
       </div>
     </div>
-    
-<!-- Team Selector -->
+
+    <!-- Team Selector -->
     <div :if={@teams != [] and @teams_status == :ok} class="mb-4">
       <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
         <div class="px-5 py-3 border-b border-black/5 flex items-center justify-between">
@@ -484,8 +484,8 @@
         </div>
       </div>
     </div>
-    
-<!-- Loading Channels -->
+
+    <!-- Loading Channels -->
     <div
       :if={@channels_status == :loading}
       class="flex items-center gap-2 py-3"
@@ -500,8 +500,8 @@
       </svg>
       <span class="font-mono text-[0.7rem] text-black/40">Loading channels...</span>
     </div>
-    
-<!-- Channels Error -->
+
+    <!-- Channels Error -->
     <div
       :if={is_tuple(@channels_status) and elem(@channels_status, 0) == :error}
       class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-2"
@@ -522,8 +522,8 @@
         </p>
       </div>
     </div>
-    
-<!-- Available Channels List -->
+
+    <!-- Available Channels List -->
     <div :if={@channels_status == :ok and @selected_team_id != nil}>
       <div
         :if={@available_channels == []}
@@ -661,14 +661,14 @@
       </div>
     </div>
   </div>
-  
-<!-- ================================================================== -->
+
+  <!-- ================================================================== -->
   <!-- TOOLS (only shown when at least one config exists) -->
   <!-- ================================================================== -->
   <div :if={@configs != []} class="mt-8 space-y-4">
     <p class="font-mono text-[0.65rem] uppercase tracking-widest text-black/30 mb-3">Tools</p>
-    
-<!-- ── Send Message ─────────────────────────────────────────────────── -->
+
+    <!-- ── Send Message ─────────────────────────────────────────────────── -->
     <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
       <div class="px-6 py-4 border-b border-black/5 flex items-center gap-3">
         <div class="w-7 h-7 rounded-lg bg-[#03b6d4]/10 grid place-items-center">
@@ -718,8 +718,8 @@
             Send another
           </button>
         </div>
-        
-<!-- Error state -->
+
+        <!-- Error state -->
         <div
           :if={is_tuple(@send_status) and elem(@send_status, 0) == :error}
           class="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-2"
@@ -740,8 +740,8 @@
             </p>
           </div>
         </div>
-        
-<!-- Form -->
+
+        <!-- Form -->
         <form
           :if={@send_status != :ok}
           phx-submit="send_message"
@@ -822,8 +822,8 @@
         </form>
       </div>
     </div>
-    
-<!-- ── Browse Posts ──────────────────────────────────────────────────── -->
+
+    <!-- ── Browse Posts ──────────────────────────────────────────────────── -->
     <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
       <div class="px-6 py-4 border-b border-black/5 flex items-center gap-3">
         <div class="w-7 h-7 rounded-lg bg-[#0058CC]/10 grid place-items-center">
@@ -899,8 +899,8 @@
             {if @posts_status == :loading, do: "Loading…", else: "Fetch Posts"}
           </button>
         </form>
-        
-<!-- Error -->
+
+        <!-- Error -->
         <div
           :if={@posts_status == :error}
           class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-center gap-2"
@@ -918,16 +918,16 @@
             {if is_binary(@posts), do: @posts, else: "An error occurred"}
           </p>
         </div>
-        
-<!-- Empty result -->
+
+        <!-- Empty result -->
         <div
           :if={@posts_status == :ok and @posts == []}
           class="rounded-xl bg-black/3 border border-black/8 px-4 py-6 text-center"
         >
           <p class="font-mono text-[0.75rem] text-black/40">No posts found in this channel.</p>
         </div>
-        
-<!-- Posts list -->
+
+        <!-- Posts list -->
         <div :if={@posts_status == :ok and @posts != []}>
           <div class="divide-y divide-black/5 rounded-xl border border-black/8 overflow-hidden bg-white mb-3">
             <div
@@ -1093,8 +1093,8 @@
         </div>
       </div>
     </div>
-    
-<!-- ── Clear Channel ─────────────────────────────────────────────────── -->
+
+    <!-- ── Clear Channel ─────────────────────────────────────────────────── -->
     <div class="bg-white rounded-xl border border-red-100 overflow-hidden">
       <div class="px-6 py-4 border-b border-red-50 flex items-center gap-3">
         <div class="w-7 h-7 rounded-lg bg-red-50 grid place-items-center">
@@ -1136,8 +1136,8 @@
           </svg>
           <p class="font-mono text-[0.7rem] text-emerald-700">Channel cleared successfully.</p>
         </div>
-        
-<!-- Error -->
+
+        <!-- Error -->
         <div
           :if={is_tuple(@clear_status) and elem(@clear_status, 0) == :error}
           class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-center gap-2 mb-4"
@@ -1184,8 +1184,8 @@
       </div>
     </div>
   </div>
-  
-<!-- ================================================================== -->
+
+  <!-- ================================================================== -->
   <!-- MODAL: New / Edit Config -->
   <!-- ================================================================== -->
   <ZaqWeb.Components.BOModal.form_dialog
@@ -1557,8 +1557,8 @@
       </div>
     </.form>
   </ZaqWeb.Components.BOModal.form_dialog>
-  
-<!-- ================================================================== -->
+
+  <!-- ================================================================== -->
   <!-- MODAL: Delete Confirmation -->
   <!-- ================================================================== -->
   <ZaqWeb.Components.BOModal.confirm_dialog
@@ -1569,8 +1569,8 @@
     confirm_event="delete"
     confirm_button_id="delete-config-button"
   />
-  
-<!-- ================================================================== -->
+
+  <!-- ================================================================== -->
   <!-- MODAL: Clear Channel Confirmation -->
   <!-- ================================================================== -->
   <div
@@ -1627,8 +1627,8 @@
       </div>
     </div>
   </div>
-  
-<!-- ================================================================== -->
+
+  <!-- ================================================================== -->
   <!-- MODAL: Remove Retrieval Channel Confirmation -->
   <!-- ================================================================== -->
   <ZaqWeb.Components.BOModal.confirm_dialog
@@ -1640,8 +1640,8 @@
     confirm_label="Remove"
     confirm_button_id="remove-retrieval-channel-button"
   />
-  
-<!-- ================================================================== -->
+
+  <!-- ================================================================== -->
   <!-- MODAL: Test Connection -->
   <!-- ================================================================== -->
   <div

@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Agent.Tools.DataSource.CreateDocument
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.ProviderCatalog
   alias Zaq.Contracts.{Record, RecordPage}
@@ -2085,7 +2086,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       if params[:name] == "bad.md" do
         {:error, :invalid_upload}
       else
-        Zaq.Agent.Tools.DataSource.CreateDocument.run(params, %{})
+        CreateDocument.run(params, %{})
       end
     end)
 
