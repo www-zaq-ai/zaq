@@ -49,7 +49,6 @@ defmodule Zaq.Ingestion.DocumentAccess do
     matched exactly; folders are matched by prefix (`source LIKE "prefix/%"`).
     `nil` or `[]` means no filter (all sources).
 
-  Chunks (documents whose metadata contains `source_document_source`) are excluded.
   """
   @spec count_accessible_documents(keyword()) :: non_neg_integer()
   def count_accessible_documents(opts \\ []) do
@@ -63,7 +62,6 @@ defmodule Zaq.Ingestion.DocumentAccess do
     if skip_permissions do
       from(d in Document,
         as: :doc,
-        where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
         where: ^source_cond
       )
       |> Repo.aggregate(:count, :id)
@@ -75,7 +73,6 @@ defmodule Zaq.Ingestion.DocumentAccess do
         left_join: p in Permission,
         on: p.resource_type == "document" and p.resource_id == fragment("?::text", d.id),
         as: :perm,
-        where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
         where: ^accessible,
         where: ^source_cond,
         select: count(d.id, :distinct)
@@ -104,7 +101,6 @@ defmodule Zaq.Ingestion.DocumentAccess do
     if skip_permissions do
       from(d in Document,
         as: :doc,
-        where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
         where: ^source_cond,
         select: %{source: d.source, title: d.title},
         order_by: [asc: d.source]
@@ -118,7 +114,6 @@ defmodule Zaq.Ingestion.DocumentAccess do
         left_join: p in Permission,
         on: p.resource_type == "document" and p.resource_id == fragment("?::text", d.id),
         as: :perm,
-        where: fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
         where: ^accessible,
         where: ^source_cond,
         select: %{source: d.source, title: d.title},
@@ -172,7 +167,6 @@ defmodule Zaq.Ingestion.DocumentAccess do
     from(d in Document,
       join: _c in Chunk,
       on: _c.document_id == d.id,
-      where: is_nil(fragment("? ->> 'source_document_source'", d.metadata)),
       select: d.source,
       distinct: true
     )

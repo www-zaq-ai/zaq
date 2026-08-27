@@ -171,28 +171,8 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       assert_receive {:job_updated, %{id: ^job_id, status: "failed"}}
     end
 
-    test "does not process external sidecar filesystem paths without source record" do
-      job =
-        create_job(%{
-          file_path: "documents/.external-sidecars/google_drive/4/file-1.pdf",
-          source_record: nil
-        })
-
-      assert {:error, :external_sidecar_requires_source_record} =
-               IngestWorker.perform(%Oban.Job{
-                 args: %{"job_id" => job.id},
-                 attempt: 1,
-                 max_attempts: 3
-               })
-
-      updated = Repo.get!(IngestJob, job.id)
-      assert updated.status == "pending"
-      assert updated.error =~ "external_sidecar_requires_source_record"
-      refute Repo.exists?(from d in Document, where: like(d.source, "%external-sidecars%"))
-    end
-
     @tag :skip
-    test "processes non-binary unresolved paths as non-sidecar paths" do
+    test "processes non-binary unresolved paths" do
       job = create_job()
 
       Repo.query!("ALTER TABLE ingest_jobs ALTER COLUMN file_path DROP NOT NULL")

@@ -219,26 +219,35 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       ".pdf" ->
         md_path = Path.rootname(file_path) <> ".md"
 
-        read_sidecar_or_convert(md_path, "PDF", opts, fn ->
+        convert_to_temporary_markdown(md_path, "PDF", opts, fn ->
           convert_pdf(file_path, md_path, opts)
         end)
 
       ".docx" ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "DOCX", opts, fn -> convert_docx(file_path, md_path) end)
+
+        convert_to_temporary_markdown(md_path, "DOCX", opts, fn ->
+          convert_docx(file_path, md_path)
+        end)
 
       ".pptx" ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "PPTX", opts, fn -> convert_pptx(file_path, md_path) end)
+
+        convert_to_temporary_markdown(md_path, "PPTX", opts, fn ->
+          convert_pptx(file_path, md_path)
+        end)
 
       ".xlsx" ->
         md_path = Path.rootname(file_path) <> ".md"
-        read_sidecar_or_convert(md_path, "XLSX", opts, fn -> convert_xlsx(file_path, md_path) end)
+
+        convert_to_temporary_markdown(md_path, "XLSX", opts, fn ->
+          convert_xlsx(file_path, md_path)
+        end)
 
       ext when ext in [".png", ".jpg", ".jpeg"] ->
         md_path = Path.rootname(file_path) <> ".md"
 
-        read_sidecar_or_convert(md_path, "image", opts, fn ->
+        convert_to_temporary_markdown(md_path, "image", opts, fn ->
           convert_image(file_path, md_path)
         end)
 
@@ -315,7 +324,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp read_sidecar_or_convert(md_path, label, opts, convert_fn) do
+  defp convert_to_temporary_markdown(md_path, label, opts, convert_fn) do
     _ = {md_path, label, opts}
     convert_fn.()
   end

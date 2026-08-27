@@ -11,7 +11,7 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Event
   alias Zaq.Materialization
 
-  alias Zaq.Ingestion.{ExternalSidecarStore, ExternalSource}
+  alias Zaq.Ingestion.{ExternalSource, TemporaryMaterializationStore}
   alias Zaq.NodeRouter
 
   @doc "Returns the normalized ingestion kind for a canonical record."
@@ -136,7 +136,7 @@ defmodule Zaq.Ingestion.RecordSource do
 
   defp store_download(record, %Record{content: rows}) when is_list(rows) do
     record
-    |> ExternalSidecarStore.write_markdown(rows_to_markdown(rows))
+    |> TemporaryMaterializationStore.write_markdown(rows_to_markdown(rows))
     |> with_cleanup_root()
   end
 
@@ -147,7 +147,7 @@ defmodule Zaq.Ingestion.RecordSource do
     if encoding == "base64" do
       with {:ok, binary} <- Base.decode64(content),
            {:ok, stored} <-
-             ExternalSidecarStore.write_original(
+             TemporaryMaterializationStore.write_original(
                record,
                binary,
                extension_for(record, downloaded)
@@ -156,7 +156,7 @@ defmodule Zaq.Ingestion.RecordSource do
       end
     else
       record
-      |> ExternalSidecarStore.write_markdown(content)
+      |> TemporaryMaterializationStore.write_markdown(content)
       |> with_cleanup_root()
     end
   end
@@ -298,7 +298,7 @@ defmodule Zaq.Ingestion.RecordSource do
 
   defp safe_attributes(attrs) when is_map(attrs) do
     allowed =
-      ~w(provider config_id provider_record_id source_url provider_url provider_mime_type volume relative_path source related_record)
+      ~w(provider config_id provider_record_id source_url provider_url provider_mime_type volume relative_path source)
 
     attrs
     |> Map.new(fn {key, value} -> {to_string(key), value} end)

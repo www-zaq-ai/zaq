@@ -180,29 +180,6 @@ defmodule Zaq.Ingestion.Document do
   end
 
   @doc """
-  Returns a query that bulk-renames one JSONB metadata key (e.g. `"sidecar_source"`)
-  whose value begins with `old_prefix/`. Intended for use inside an `Ecto.Multi`.
-  """
-  def rename_metadata_key_query(key, old_prefix, new_prefix) do
-    from(d in __MODULE__,
-      where: like(fragment("?->>(?::text)", d.metadata, ^key), ^"#{old_prefix}/%"),
-      update: [
-        set: [
-          metadata:
-            fragment(
-              "metadata || jsonb_build_object((?::text), ? || substring(metadata->>(?::text) from char_length((?::text)) + 1))",
-              ^key,
-              ^new_prefix,
-              ^key,
-              ^old_prefix
-            ),
-          updated_at: ^DateTime.utc_now()
-        ]
-      ]
-    )
-  end
-
-  @doc """
   Builds an Ecto `dynamic` OR-condition matching documents whose source starts
   with any of the given prefixes (i.e. `source LIKE "prefix/%"`).
   """

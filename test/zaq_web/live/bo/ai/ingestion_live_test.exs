@@ -158,7 +158,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       case Application.get_env(
              :zaq,
              :provider_browser_capability_snapshot,
-             {:ok, %{resolved: %{watch_changes_webhook: true}}}
+             {:ok,
+              %{resolved: %{list_items: true, download_items: true, watch_changes_webhook: true}}}
            ) do
         {:raise, reason} when is_binary(reason) -> raise reason
         {:raise, reason} -> raise inspect(reason)
@@ -231,6 +232,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   defmodule ProviderBrowserErrorBridgeStub do
     def list_source_scopes(_provider, _params), do: {:ok, []}
 
+    def capability_snapshot(_provider), do: {:ok, %{resolved: %{list_items: true}}}
+
     def list_files(provider, params, _context) do
       if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
         send(pid, {:list_files, provider, params})
@@ -242,6 +245,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   defmodule ProviderBrowserCustomBridgeStub do
     def list_source_scopes(_provider, _params), do: {:ok, []}
+
+    def capability_snapshot(_provider), do: {:ok, %{resolved: %{list_items: true}}}
 
     def list_files(provider, params, _context) do
       if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
@@ -490,7 +495,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       Application.put_env(
         :zaq,
         :provider_browser_capability_snapshot,
-        {:ok, %{resolved: %{create_item: true}}}
+        {:ok, %{resolved: %{list_items: true, create_item: true}}}
       )
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
@@ -504,7 +509,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       Application.put_env(
         :zaq,
         :provider_browser_capability_snapshot,
-        {:ok, %{resolved: %{create_item: true}}}
+        {:ok, %{resolved: %{list_items: true, create_item: true}}}
       )
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
@@ -520,7 +525,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       Application.put_env(
         :zaq,
         :provider_browser_capability_snapshot,
-        {:ok, %{resolved: %{create_item: true}}}
+        {:ok, %{resolved: %{list_items: true, create_item: true}}}
       )
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
@@ -541,7 +546,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       Application.put_env(
         :zaq,
         :provider_browser_capability_snapshot,
-        {:ok, %{resolved: %{create_item: true}}}
+        {:ok, %{resolved: %{list_items: true, create_item: true}}}
       )
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
@@ -733,8 +738,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       for {capability_snapshot, idx} <-
             Enum.with_index([
-              {:ok, %{resolved: %{"watch_changes_webhook" => true}}},
-              %{resolved: %{watch_changes_webhook: true}}
+              {:ok, %{resolved: %{"list_items" => true, "watch_changes_webhook" => true}}},
+              %{resolved: %{list_items: true, watch_changes_webhook: true}}
             ]) do
         Application.put_env(:zaq, :provider_browser_capability_snapshot, capability_snapshot)
 
@@ -761,10 +766,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       end
     end
 
-    test "provider watch_supported disables watching when capability snapshot raises", %{
-      conn: conn,
-      provider_config: config
-    } do
+    test "provider watch_supported disables browsing and watching when capability snapshot raises",
+         %{
+           conn: conn,
+           provider_config: config
+         } do
       original_base_url = ZaqSystem.get_global_base_url()
       :ok = ZaqSystem.set_global_base_url("https://zaq.example/root")
 
@@ -774,11 +780,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
-      assert_received {:list_files, "google_drive", _params}
+      refute_received {:list_files, "google_drive", _params}
 
-      render_hook(view, "toggle_select", %{"path" => "file-1"})
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.entries == []
+      assert state.socket.assigns.provider_error == "This data source does not support browsing."
 
-      assert has_element?(view, "#bulk-watch-button[disabled]")
+      assert state.socket.assigns.watch_supported == false
+      refute has_element?(view, "#bulk-watch-button")
     end
 
     test "provider watch skips unsupported providers without a watch_changes_webhook capability",
@@ -791,7 +800,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
-      Application.put_env(:zaq, :provider_browser_capability_snapshot, {:ok, %{resolved: %{}}})
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{list_items: true}}}
+      )
+
       create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
@@ -1091,19 +1105,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
                "No enabled data-source configuration found for missing_provider."
     end
 
-    test "provider read-only guards keep the modal closed and flash info", %{conn: conn} do
+    test "provider capability guards only block unsupported actions", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
 
       for {event, params, expected} <- [
             {"show_new_folder_modal", %{},
              "This data source does not support document creation."},
-            {"rename_item", %{"path" => "file-1", "type" => "file"},
-             "Provider records are read-only in this phase."},
-            {"delete_item", %{"path" => "file-1", "type" => "file"},
-             "Provider records are read-only in this phase."},
-            {"show_delete_confirmation", %{}, "Provider records are read-only in this phase."},
+            {"show_delete_confirmation", %{}, "This data source does not support deletion."},
             {"move_item", %{"path" => "file-1", "type" => "file"},
-             "Provider records are read-only in this phase."}
+             "This data source does not support move operations."}
           ] do
         render_hook(view, event, params)
         state = :sys.get_state(view.pid)
@@ -1111,6 +1121,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         assert Phoenix.Flash.get(state.socket.assigns.flash, :info) == expected
         assert state.socket.assigns.modal == nil
       end
+
+      render_hook(view, "rename_item", %{"path" => "file-1", "type" => "file"})
+      assert :sys.get_state(view.pid).socket.assigns.modal == :rename
+
+      render_hook(view, "delete_item", %{"path" => "file-1", "type" => "file"})
+      assert :sys.get_state(view.pid).socket.assigns.modal == :delete
     end
 
     test "provider read-only share modal events are no-ops", %{
@@ -3170,7 +3186,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
   # ────────────────────────────────────────────────────────────────
   # Markdown files on disk are normal records. Converted content is stored on the
-  # primary document and no longer hides a duplicate sidecar document.
+  # primary document and no longer hides a duplicate converted Markdown document.
   # ────────────────────────────────────────────────────────────────
 
   describe "markdown record selection" do
@@ -3179,9 +3195,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       tmp_dir: tmp_dir
     } do
       File.write!(Path.join(tmp_dir, "report.pdf"), "%PDF-1.4")
-      File.write!(Path.join(tmp_dir, "report_converted.md"), "# Report sidecar")
+      File.write!(Path.join(tmp_dir, "report_converted.md"), "# Report converted Markdown")
 
-      create_document_with_chunk(disk_source("report.pdf"), %{content: "# Report sidecar"})
+      create_document_with_chunk(disk_source("report.pdf"), %{
+        content: "# Report converted Markdown"
+      })
+
       create_document_with_chunk(disk_source("report_converted.md"))
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
@@ -3966,7 +3985,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       Application.put_env(
         :zaq,
         :provider_browser_capability_snapshot,
-        {:ok, %{resolved: %{create_item: true, delete_item: true}}}
+        {:ok, %{resolved: %{list_items: true, create_item: true, delete_item: true}}}
       )
 
       :ok
@@ -4051,7 +4070,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       Application.put_env(
         :zaq,
         :provider_browser_capability_snapshot,
-        {:ok, %{resolved: %{create_item: true}}}
+        {:ok, %{resolved: %{list_items: true, create_item: true}}}
       )
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")

@@ -60,16 +60,12 @@
 }
 
 /* Row surface hover — only when the row has a primary destination (navigate / patch / click). */
-.zaq-table tbody tr.zaq-table-row--clickable:hover:not(.zaq-table-row--plain):not(.zaq-table-row--sidecar) {
+.zaq-table tbody tr.zaq-table-row--clickable:hover:not(.zaq-table-row--plain) {
   background: var(--zaq-surface-color-base);
 }
 
 .zaq-table tbody tr.zaq-table-row--plain:hover {
   background: transparent;
-}
-
-.zaq-table tbody tr.zaq-table-row--sidecar {
-  background: var(--zaq-surface-color-accent);
 }
 
 .zaq-table tbody tr.zaq-table-row--selected {
@@ -201,52 +197,7 @@
   color: var(--zaq-text-color-body-accent);
 }
 
-/* ── Sidecar row: converted markdown preview control ─ */
-
-.zaq-table-sidecar-preview {
-  display: flex;
-  align-items: center;
-  gap: var(--zaq-scale-8);
-  width: 100%;
-  padding-left: var(--zaq-scale-24);
-  margin-left: var(--zaq-scale-16);
-  border-left: var(--zaq-border-thickness-default) dashed var(--zaq-border-color-default);
-  text-align: left;
-  cursor: pointer;
-  background: transparent;
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
-}
-
-.zaq-table-sidecar-preview > svg:first-of-type {
-  flex-shrink: 0;
-  width: var(--zaq-scale-12);
-  height: var(--zaq-scale-12);
-  color: var(--zaq-text-color-body-tertiary);
-}
-
-.zaq-table-sidecar-preview:hover > svg:first-of-type {
-  color: var(--zaq-text-color-body-accent);
-}
-
-.zaq-table-sidecar-preview-name {
-  color: var(--zaq-text-color-body-secondary);
-  transition: color 150ms ease, text-decoration-thickness 150ms ease;
-}
-
-.zaq-table-sidecar-preview:hover .zaq-table-sidecar-preview-name {
-  color: var(--zaq-text-color-body-accent);
-  text-decoration: underline;
-  text-underline-offset: var(--zaq-scale-4);
-}
-
-.zaq-table-sidecar-preview-meta {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-/* ── Ingestion file grid (`IngestionFileGridView`) — card tiles + sidecar ─ */
+/* ── Ingestion file grid (`IngestionFileGridView`) — card tiles ─ */
 
 /* Wrapper around empty state + card grid: equal inset from preview shell */
 .zaq-ingestion-file-grid-cards-wrap {
@@ -294,16 +245,4 @@
   gap: var(--zaq-scale-2);
   overflow-x: hidden;
   overflow-y: auto;
-}
-
-/* Reuse `.zaq-table-sidecar-preview` in grid cards — drop table-only offsets */
-.zaq-table-sidecar-preview.zaq-table-sidecar-preview--ingestion-grid {
-  margin-left: 0;
-  padding-left: 0;
-  border-left: none;
-  border-top: var(--zaq-border-thickness-default) dashed var(--zaq-border-color-default);
-  padding-top: var(--zaq-scale-8);
-  margin-top: var(--zaq-scale-8);
-  justify-content: center;
-  flex-wrap: wrap;
 }

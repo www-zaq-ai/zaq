@@ -116,7 +116,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
         id="ingest-selected-button"
         variant={:primary}
         phx-click="ingest_selected"
-        disabled={MapSet.size(@selected) == 0 or not @embedding_ready}
+        disabled={
+          MapSet.size(@selected) == 0 or not @embedding_ready or
+            not Map.get(@action_capabilities, :download, false)
+        }
       >
         Ingest Selected ({MapSet.size(@selected)})
       </.button>

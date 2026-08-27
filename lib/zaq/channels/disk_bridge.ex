@@ -163,7 +163,7 @@ defmodule Zaq.Channels.DiskBridge do
   end
 
   @doc """
-  Removes the document row and the file behind it, along with its chunks and sidecars.
+  Removes the document row and the file behind it, along with its chunks.
 
   Answers with the status alone. The file is gone by the time ingestion returns, so there is
    nothing left to describe — the same answer `JidoConnectBridge.delete_file/3` gives.

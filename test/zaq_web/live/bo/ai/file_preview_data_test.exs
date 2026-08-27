@@ -16,12 +16,12 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewDataTest do
     scripts = Path.join(root, "scripts")
     File.mkdir_p!(scripts)
 
-    old_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
+    old_storage = Application.get_env(:zaq, Zaq.Storage)
     old_runner = Application.get_env(:zaq, Zaq.Ingestion.Python.Runner)
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: root)
+    Application.put_env(:zaq, Zaq.Storage, base_path: root, volumes: %{})
 
     on_exit(fn ->
-      restore_env(:zaq, Zaq.Ingestion, old_ingestion)
+      restore_env(:zaq, Zaq.Storage, old_storage)
       restore_env(:zaq, Zaq.Ingestion.Python.Runner, old_runner)
       File.rm_rf!(root)
     end)

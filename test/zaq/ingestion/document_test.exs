@@ -232,67 +232,6 @@ defmodule Zaq.Ingestion.DocumentTest do
     end
   end
 
-  describe "rename_metadata_key_query/3" do
-    test "renames only the selected metadata key under the exact prefix" do
-      old_prefix = "metadata/source-#{System.unique_integer([:positive])}"
-      new_prefix = "metadata/renamed-#{System.unique_integer([:positive])}"
-
-      {:ok, matching} =
-        Document.create(%{
-          source: "metadata/matching.md",
-          content: "match",
-          metadata: %{
-            "sidecar_source" => "#{old_prefix}/nested.json",
-            "other_key" => "#{old_prefix}/keep.json"
-          }
-        })
-
-      {:ok, exact} =
-        Document.create(%{
-          source: "metadata/exact.md",
-          content: "exact",
-          metadata: %{"sidecar_source" => old_prefix}
-        })
-
-      {:ok, sibling} =
-        Document.create(%{
-          source: "metadata/sibling.md",
-          content: "sibling",
-          metadata: %{"sidecar_source" => "#{old_prefix}x/file.json"}
-        })
-
-      {:ok, absent} =
-        Document.create(%{source: "metadata/absent.md", content: "absent", metadata: %{}})
-
-      {:ok, other_key} =
-        Document.create(%{
-          source: "metadata/other.md",
-          content: "other",
-          metadata: %{"other_key" => "#{old_prefix}/file.json"}
-        })
-
-      assert {1, _} =
-               Repo.update_all(
-                 Document.rename_metadata_key_query("sidecar_source", old_prefix, new_prefix),
-                 []
-               )
-
-      assert Document.get(matching.id).metadata == %{
-               "sidecar_source" => "#{new_prefix}/nested.json",
-               "other_key" => "#{old_prefix}/keep.json"
-             }
-
-      assert Document.get(exact.id).metadata == %{"sidecar_source" => old_prefix}
-
-      assert Document.get(sibling.id).metadata == %{
-               "sidecar_source" => "#{old_prefix}x/file.json"
-             }
-
-      assert Document.get(absent.id).metadata == %{}
-      assert Document.get(other_key.id).metadata == %{"other_key" => "#{old_prefix}/file.json"}
-    end
-  end
-
   describe "delete/1" do
     test "deletes a document" do
       {:ok, doc} = Document.create(@valid_attrs)

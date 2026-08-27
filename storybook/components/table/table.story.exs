@@ -208,7 +208,7 @@ defmodule Storybook.Components.Table.Story do
           </.story_subsection>
           <.story_subsection
             title="scroll_max={:lg} — tall panel"
-            description="Default sidecar demo uses scrollable without scroll_max (:default 45vh)."
+            description="Default table demo uses scrollable without scroll_max (:default 45vh)."
           >
             <.table id="story-table-scroll-lg" scrollable scroll_max={:lg}>
               <:head>
@@ -228,47 +228,6 @@ defmodule Storybook.Components.Table.Story do
             </.table>
           </.story_subsection>
         </div>
-      </.story_section>
-
-      <.story_section
-        title="Sidecar sub-row"
-        description="Data row plus sidecar preview control spanning columns."
-      >
-        <.table id="story-table-sidecar" scrollable scroll_max={:default}>
-          <:head>
-            <.table_head_row sticky_header>
-              <.table_cell element={:th}><.table_text label="Name" tone={:tertiary} /></.table_cell>
-              <.table_cell element={:th} align={:right} nowrap>
-                <.table_text label="Modified" tone={:tertiary} />
-              </.table_cell>
-            </.table_head_row>
-          </:head>
-          <:body>
-            <.table_row>
-              <.table_cell>
-                <.table_media>
-                  <:icon>
-                    <span
-                      class="w-4 h-4 rounded zaq-text-accent"
-                      style="background: var(--zaq-surface-color-accent)"
-                    >
-                    </span>
-                  </:icon>
-                  report.pdf
-                </.table_media>
-              </.table_cell>
-              <.table_cell align={:right} nowrap>
-                <.table_datetime value={@dt} align={:right} />
-              </.table_cell>
-            </.table_row>
-            <.table_sidecar_row leading_colspan={1} body_colspan={1}>
-              <button type="button" class="zaq-table-sidecar-preview">
-                <span class="zaq-table-sidecar-preview-name zaq-text-body">report.md</span>
-                <span class="zaq-table-sidecar-preview-meta zaq-text-caption">18 KB</span>
-              </button>
-            </.table_sidecar_row>
-          </:body>
-        </.table>
       </.story_section>
 
       <.story_section

@@ -19,11 +19,11 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewLiveTest do
 
     File.mkdir_p!(tmp_dir)
 
-    original_ingestion_env = Application.get_env(:zaq, Zaq.Ingestion)
-    Application.put_env(:zaq, Zaq.Ingestion, base_path: tmp_dir)
+    original_storage_env = Application.get_env(:zaq, Zaq.Storage)
+    Application.put_env(:zaq, Zaq.Storage, base_path: tmp_dir, volumes: %{})
 
     on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, original_ingestion_env || [])
+      Application.put_env(:zaq, Zaq.Storage, original_storage_env || [])
       File.rm_rf!(tmp_dir)
     end)
 

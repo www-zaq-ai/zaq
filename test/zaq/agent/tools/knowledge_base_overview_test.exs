@@ -2,7 +2,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Tools.KnowledgeBaseOverview
-  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, Sidecar}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
 
   # Routes directly to DocumentAccess without going through a real node boundary.
   defmodule PassthroughRouter do
@@ -101,30 +101,14 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
     end
 
     test "standalone indexed .md appears even when same-name .pdf is indexed" do
-      create_doc("sidecar-test/product.pdf")
-      md_source = "sidecar-test/product.md"
+      create_doc("markdown-companion-test/product.pdf")
+      md_source = "markdown-companion-test/product.md"
       create_doc(md_source)
 
       {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
 
       sources = Enum.map(result.documents, & &1.source)
       assert md_source in sources
-    end
-
-    test "confirmed sidecar .md is hidden when companion .pdf exists" do
-      create_doc("sidecar-confirmed/report.pdf")
-      sidecar_source = "sidecar-confirmed/report.md"
-
-      Document.create(%{
-        source: sidecar_source,
-        content: "sidecar content",
-        metadata: Sidecar.sidecar_metadata("sidecar-confirmed/report.pdf")
-      })
-
-      {:ok, result} = KnowledgeBaseOverview.run(%{}, base_context())
-
-      sources = Enum.map(result.documents, & &1.source)
-      refute sidecar_source in sources
     end
 
     test "returns error tuple when router returns error" do

@@ -149,7 +149,7 @@ Provider watch ownership is split intentionally:
 
 - Channels owns provider-facing watch/list/stop calls and webhook normalization.
 - Engine owns durable watch-channel rows, checkpoints, expiration, renewal, and runtime error state.
-- Ingestion owns user-facing document watch state, changed-record filtering, and deletion of removed watched documents and sidecars.
+- Ingestion owns user-facing document watch state, changed-record filtering, and deletion of removed watched documents.
 
 Engine modules:
 
@@ -235,8 +235,7 @@ File (PDF/DOCX/XLSX/image)
 
 Python scripts fetched via `mix zaq.python.fetch`. Requires Python 3.10+ and `.venv`.
 
-### Sidecar (`lib/zaq/ingestion/sidecar.ex`)
-Manages the Python process lifecycle as an OTP-supervised sidecar.
+Python converters may write temporary Markdown outputs next to job-scoped materialized inputs. These scratch files are deleted with the materialization root and are not indexed as separate documents.
 
 ---
 

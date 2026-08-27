@@ -37,7 +37,7 @@ This is the highest-risk gap for day-to-day agent work right now.
 |---|---|
 | `agent.md` | `pipeline.ex`, `llm_runner.ex`, `history.ex`, `citation_normalizer.ex`, `answering/result.ex` |
 | `channels.md` | `dispatch_hook.ex`, `notification.ex`, `retrieval_channel.ex` moved to channels |
-| `ingestion.md` | Full Python pipeline (`python/` directory), `sidecar.ex`, `delete_service.ex`, `rename_service.ex`, `directory_snapshot.ex`, `job_lifecycle.ex`, `source_path.ex` |
+| `ingestion.md` | Full Python pipeline (`python/` directory), `job_lifecycle.ex`, temporary materialization cleanup |
 | `bo-auth.md` | `password_policy.ex`, `permissions.ex`, `user_notification_channel.ex`, forgot/reset password flow |
 | Missing entirely | `docs/services/hooks.md` — full hooks system undocumented |
 | Missing entirely | `docs/services/notifications.md` — engine notifications subsystem undocumented |

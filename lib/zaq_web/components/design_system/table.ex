@@ -16,7 +16,7 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   @moduledoc """
   BO data table — list shell, rows, cells, and shared cell helpers.
 
-  CSS: `assets/css/table.css` (`.zaq-table`, row variants, sidecar, grid cards).
+  CSS: `assets/css/table.css` (`.zaq-table`, row variants, grid cards).
 
   Grid layout: `ZaqWeb.Components.DesignSystem.Table.Grid` (`grid/1`, `grid_card/1`).
 
@@ -118,7 +118,7 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   @doc """
   Table row. Set `navigate`, `patch`, or `click` for whole-row primary action.
   """
-  attr :variant, :atom, default: :default, values: [:default, :plain, :sidecar, :selected]
+  attr :variant, :atom, default: :default, values: [:default, :plain, :selected]
   attr :id, :string, default: nil
   attr :navigate, :string, default: nil
   attr :patch, :string, default: nil
@@ -155,24 +155,6 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
     ~H"""
     <.table_row variant={:plain}>
       <.table_cell colspan={@colspan} align={:center} class={["px-4 py-8 zaq-text-body-sm", @class]}>
-        {render_slot(@inner_block)}
-      </.table_cell>
-    </.table_row>
-    """
-  end
-
-  @doc "Sidecar sub-row spanning body columns (ingestion converted markdown preview)."
-  attr :leading_colspan, :integer, default: 1
-  attr :body_colspan, :integer, required: true
-  slot :inner_block, required: true
-
-  def table_sidecar_row(assigns) do
-    ~H"""
-    <.table_row variant={:sidecar}>
-      <%= for _ <- 1..@leading_colspan do %>
-        <.table_cell />
-      <% end %>
-      <.table_cell colspan={@body_colspan} class="px-4 py-1.5 overflow-hidden max-w-0">
         {render_slot(@inner_block)}
       </.table_cell>
     </.table_row>
@@ -367,13 +349,12 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
       variant_class(variant),
       row_click? && "zaq-table-row--clickable",
       row_click? && "cursor-pointer",
-      variant != :plain && variant != :sidecar && "group",
+      variant != :plain && "group",
       extra
     ]
   end
 
   defp variant_class(:plain), do: "zaq-table-row--plain"
-  defp variant_class(:sidecar), do: "zaq-table-row--sidecar"
   defp variant_class(:selected), do: "zaq-table-row--selected"
   defp variant_class(_), do: nil
 

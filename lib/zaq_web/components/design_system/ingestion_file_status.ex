@@ -50,27 +50,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileStatus do
 
   def preview_path(entry, _current_volume, false), do: record_path(entry)
 
-  def related_record(%{attributes: attrs}) when is_map(attrs) do
-    Map.get(attrs, "related_record") || Map.get(attrs, :related_record)
-  end
-
-  def related_record(_entry), do: nil
-
-  def related_record_name(record), do: Map.get(record, "name") || Map.get(record, :name) || ""
-  def related_record_path(record), do: Map.get(record, "path") || Map.get(record, :path) || ""
-
-  def related_record_preview_path(record),
-    do: Map.get(record, "preview_path") || Map.get(record, :preview_path)
-
-  def related_record_size(record), do: Map.get(record, "size") || Map.get(record, :size)
-
-  def related_record_preview_path(record, _current_volume) do
-    case related_record_preview_path(record) do
-      path when is_binary(path) and path != "" -> path
-      _ -> related_record_path(record)
-    end
-  end
-
   attr :share_editable, :boolean, default: false
   attr :permissions_count, :integer, required: true
   attr :path, :string, required: true

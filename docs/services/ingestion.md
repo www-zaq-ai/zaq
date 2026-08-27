@@ -16,7 +16,7 @@ Canonical records (from any data-source bridge)
   → Zaq.Ingestion.ingest_records/2          ← creates one IngestJob per record, queues Oban worker
   → IngestWorker.perform/1                  ← document-level orchestrator
       → [Python.Pipeline.run/2]             ← optional: PDF → clean Markdown
-      → [DocxToMd/PptxToMd/XlsxToMd]        ← optional: office docs → Markdown sidecar
+      → [DocxToMd/PptxToMd/XlsxToMd]        ← optional: office docs → temporary Markdown
       → [CSV parsing / image-to-text]       ← optional: CSV/images → Markdown
       → DocumentProcessor.prepare_file_chunks/1
           → File.read/1                     ← read file content
@@ -129,7 +129,7 @@ Canonical records (from any data-source bridge)
 ### Document Processor (`Zaq.Ingestion.DocumentProcessor`)
 - `process_single_file/1` — full pipeline: read → upsert doc → chunk → embed → store
 - `prepare_file_chunks/1` — parses document and returns persisted chunk payloads for child jobs
-- `force_sidecar: true` — option used by external provider re-ingestion to regenerate binary sidecar Markdown from the latest downloaded content
+- Non-Markdown converters write temporary `.md` files next to job-scoped materialized inputs because the Python pipeline expects output paths; those files are scratch artifacts, not indexed documents.
 - `process_folder/1` — processes supported files in a directory (`.md .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg`)
 - `store_chunk_with_metadata/3` — embeds `embedding_input || content`, validates dimension, inserts verbatim `content`
 - `hybrid_search/2` — full-text + vector search with RRF fusion (Reciprocal Rank Fusion, k=60); accepts optional `:source_filter` list of path prefixes — files matched by exact source, folders matched by `LIKE prefix/%`
@@ -161,12 +161,6 @@ Canonical records (from any data-source bridge)
 - Wraps Lingua detection for chunk text-search language selection
 - Falls back to `"simple"` when token-count is too small or confidence is below threshold
 
-### Connector Registry (`Zaq.Ingestion.ConnectorRegistry`)
-- Config-driven registry of active ingestion connectors; no runtime registration, no ETS table
-- `list_connectors/0` — returns sorted list of active connectors derived from `FileExplorer.list_volumes/0`; each entry is `%{id: String.t(), label: String.t(), icon: atom()}`
-- Used by `ChatLive` to populate the `@`-mention autocomplete dropdown with available source scopes
-- Extend by adding clauses to `list_connectors/0` when new connector types ship (e.g. SharePoint, Google Drive)
-
 ### Python Pipeline (`Zaq.Ingestion.Python.Pipeline`)
 - Orchestrates PDF → clean Markdown conversion via individual Python step scripts
 - Steps: `PdfToMd → ImageDedup → CleanMd → [ImageToText] → [InjectDescriptions]`
@@ -191,50 +185,13 @@ Canonical records (from any data-source bridge)
 - `ImageToText` — generates image descriptions via Scaleway Vision API
 - `InjectDescriptions` — injects image descriptions into Markdown
 
-### File Explorer (`Zaq.Ingestion.FileExplorer`)
-- Multi-volume filesystem navigator
-- `list_volumes/0` — returns configured volumes map
-- `list/2`, `list/3` — list directory entries for a volume + path
-- `file_info/2` — stat a file in a volume
-- `delete/2`, `delete_directory/2` — remove files/directories from a volume
-- `rename/3` — move/rename a file within a volume
-
-### Source Path (`Zaq.Ingestion.SourcePath`)
-- Shared helpers for converting between filesystem paths and document sources
-- `build_source/2` — builds volume-prefixed source from volume name + relative path
-- `split_source/3` — splits a source back into `{volume_name, relative_path}`
-- `absolute_to_source/1` — converts absolute path to canonical document source
-- `volume_root_for_absolute/1` — resolves the volume root containing an absolute path
-- `remap_source/3` — remaps source preserving volume-prefix style
-- `source_candidates/2` — returns both legacy and canonical source lookup candidates
-
-### Sidecar (`Zaq.Ingestion.Sidecar`)
-- Helpers for sidecar companion Markdown metadata (PDF → `.md` pairs)
-- `sidecar_path_for/1` — returns expected `.md` path for a source file (`.pdf`, `.docx`, `.xlsx`, `.png`, `.jpg`)
-- `sidecar_source/1`, `sidecar_metadata/1` — read/build sidecar source links
-- `put_sidecar_source/2`, `put_source_document_source/2` — mutate metadata maps
-- `retarget_relative_path/3` — follows sidecar path on source move/rename
-
-### Delete Service (`Zaq.Ingestion.DeleteService`)
-- `delete_path/4` — deletes a file or directory from a volume, also deletes associated `Document` records and sidecar files
-- `delete_paths/3` — batch delete; auto-detects file vs. directory per entry
-
-### Rename Service (`Zaq.Ingestion.RenameService`)
-- `rename_entry/4` — renames a file within a volume; updates `Document.source` and sidecar metadata in a single Ecto.Multi transaction; rolls back filesystem renames on DB failure
-
-### Directory Snapshot (`Zaq.Ingestion.DirectorySnapshot`)
-- `build/4` — combines filesystem entries with DB document/job state for the file explorer LiveView
-- Returns `%{entries: [...], ingestion_map: %{name => %{ingested_at, stale?, permissions_count, can_share?, job_status}}}`
-- For directory entries the map value contains `%{type: :directory, total_size, file_count, ingested_count}`
-- `ingestion_map` values for files now include `permissions_count` (integer, count of `Permission` rows) instead of role-based fields
-
 ### Schemas
 
 **`Zaq.Ingestion.Document`**
 - Fields: `source` (unique), `content`, `title`, `content_type`, `metadata`, `tags`, `watch_status`, `watch_requested_at`, `watch_updated_at`, `watch_error`
 - Watch statuses: `unwatched`, `pending`, `watched`, `error`.
 - Watch fields are user-facing BO state only. Provider channel ids, resource ids, checkpoints, expiration, and runtime errors live in `Zaq.Engine.DataSources.WatchChannel`.
-- External provider documents store provider parent ids in metadata so sparse delete/tombstone signals can still remove watched descendants and sidecars.
+- External provider documents store provider parent ids in metadata so sparse delete/tombstone signals can still remove watched descendants.
 - `upsert/1` — conflict on `source`, replaces content/title/metadata
 - `get_by_source/1` — lookup by source string
 - `delete/1` — deletes document and cascades to chunks
@@ -295,13 +252,10 @@ lib/zaq/ingestion/
 │       ├── pptx_to_md.ex         # PPTX → Markdown conversion
 │       └── xlsx_to_md.ex         # XLSX → Markdown conversion
 ├── chunk.ex                      # Ecto schema for chunks with PGVector halfvec embedding
-├── delete_service.ex             # File + document deletion with sidecar handling
-├── directory_snapshot.ex         # Combines FS entries with DB state for LiveView
 ├── document.ex                   # Ecto schema for ingested documents
 ├── document_access.ex            # Permission-filtered document query helpers
 ├── document_chunker.ex           # Layout-aware Markdown → sections → chunks
 ├── document_processor.ex         # Full pipeline: read, chunk, embed, store, search
-├── file_explorer.ex              # Multi-volume filesystem utilities
 ├── folder_setting.ex             # Folder-level tag policy persistence
 ├── ingest_chunk_job.ex           # Ecto schema for persisted child chunk jobs
 ├── ingest_chunk_worker.ex        # Oban worker for chunk-level processing/retries
@@ -311,10 +265,7 @@ lib/zaq/ingestion/
 ├── job_lifecycle.ex              # IngestJob state transitions + PubSub broadcast
 ├── language_detector.ex          # Lingua-based chunk language detection
 ├── oban_telemetry.ex             # Oban telemetry setup
-├── permission.ex                 # Ecto schema for person/team document access permissions
-├── rename_service.ex             # File rename with DB source update + rollback
-├── sidecar.ex                    # Sidecar companion Markdown metadata helpers
-├── source_path.ex                # Path ↔ document source normalization helpers
+├── temporary_materialization_store.ex # Job-scoped temporary provider download files
 └── supervisor.ex                 # Starts Oban under the :ingestion role
 
 lib/zaq/embedding/
@@ -384,11 +335,10 @@ Disk volumes are now edited in Back Office at Data Sources > Disk and stored in 
 - **Dimension validation** — embedding dimension is checked against `EmbeddingClient.dimension()` before insert
 - **Python pre-processing pipeline** — non-Markdown files are converted to Markdown before chunking; image descriptions are injected via Scaleway Vision API when a key is configured
 - **Multi-format conversion path** — non-Markdown files (`PDF`, `DOCX`, `PPTX`, `XLSX`, `CSV`, images) are normalized to Markdown before chunking
-- **Sidecar Markdown pattern** — binary files (`.pdf`, `.docx`, etc.) store their converted `.md` as a linked sidecar document; renames/deletes cascade to the sidecar
-- **Provider watch ownership split** — Ingestion owns user-facing `Document.watch_status`, direct/inherited watch decisions, changed-record filtering, and document/sidecar deletion. Engine owns provider watch-channel runtime state. Channels owns provider calls and webhook normalization.
-- **Provider delta processing** — changed provider records are re-ingested only when directly watched or inherited through a watched folder. Removed/tombstone records delete existing documents and linked sidecars only when the same shared watch-state logic says the record is watched.
-- **External sidecar freshness** — provider re-ingestion forces sidecar regeneration so converted Markdown does not lag behind remote binary file updates.
-- **Volume-prefixed sources** — document sources are prefixed with volume name (`"documents/path/to/file.md"`) in multi-volume mode for namespace isolation
+- **Temporary converter Markdown** — binary files (`.pdf`, `.docx`, etc.) may produce temporary `.md` files beside job-scoped materialized inputs because Python converters expect an output path. These files are cleanup-scoped scratch artifacts, not linked `Document` rows.
+- **Provider watch ownership split** — Ingestion owns user-facing `Document.watch_status`, direct/inherited watch decisions, changed-record filtering, and document deletion. Engine owns provider watch-channel runtime state. Channels owns provider calls and webhook normalization.
+- **Provider delta processing** — changed provider records are re-ingested only when directly watched or inherited through a watched folder. Removed/tombstone records delete existing documents only when the same shared watch-state logic says the record is watched.
+- **Data-source sources** — document sources use provider/config/record identity (`data_source/<provider>/<config>/<record-id>`) for namespace isolation.
 - **JobLifecycle extracted** — all IngestJob state transitions go through `JobLifecycle` to ensure PubSub broadcast is never missed
 - **Permissions centralized for search/listing** — `DocumentAccess` is the canonical query surface for permission-scoped document visibility
 - **HTML parsing not implemented** — `DocumentChunker.parse_layout/2` raises on `:html` format
@@ -399,8 +349,8 @@ Follow `docs/testing-approach.md` for ingestion changes. Add property tests when
 
 Ingestion invariants that should be property-tested when affected:
 
-- **Source/path round-trip** (`SourcePath`): canonical source conversion remains stable under valid input transformations.
-- **Rename/delete consistency** (`RenameService`, `DeleteService`, `Sidecar`): sidecar/source remapping never produces mismatched document/source pairs.
+- **Source identity** (`ExternalSource`): canonical data-source IDs remain stable under valid input transformations.
+- **Temporary materialization cleanup** (`RecordSource`, `TemporaryMaterializationStore`, `IngestWorker`): every job-scoped temporary root returned in `cleanup_paths` is removed after processing.
 - **Chunking bounds** (`DocumentChunker`): emitted chunks respect configured token bounds and preserve deterministic ordering/indexing.
 - **Job counter/state consistency** (`IngestChunkWorker`, `JobLifecycle`): parent totals and terminal statuses remain coherent for any mix of completed/failed chunk states.
 - **Permission safety defaults** (`Permission` and access checks): missing permission rows make files private by default — only Everyone, person, or team permission rows grant access.

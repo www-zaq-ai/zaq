@@ -1,31 +1,25 @@
-defmodule Zaq.Ingestion.ExternalSidecarStore do
+defmodule Zaq.Ingestion.TemporaryMaterializationStore do
   @moduledoc """
-  Writes job-scoped temporary materialization files for external data-source records.
+  Writes job-scoped temporary files for external data-source record materialization.
+
+  Python converters may create `.md` outputs next to these temporary files. The
+  caller owns deleting the returned `root_path` after ingestion finishes.
   """
 
   alias Zaq.Ingestion.ExternalSource
 
   @spec write_markdown(Zaq.Contracts.Record.t(), String.t()) ::
-          {:ok, %{absolute_path: String.t(), relative_path: String.t()}} | {:error, term()}
+          {:ok, %{absolute_path: String.t(), relative_path: String.t(), root_path: String.t()}}
+          | {:error, term()}
   def write_markdown(record, content) when is_binary(content) do
     write(record, content, ".md")
   end
 
   @spec write_original(Zaq.Contracts.Record.t(), binary(), String.t()) ::
-          {:ok, %{absolute_path: String.t(), relative_path: String.t()}} | {:error, term()}
+          {:ok, %{absolute_path: String.t(), relative_path: String.t(), root_path: String.t()}}
+          | {:error, term()}
   def write_original(record, content, ext) when is_binary(content) do
     write(record, content, ext)
-  end
-
-  def delete(relative_path) when is_binary(relative_path) do
-    relative_path
-    |> absolute_path()
-    |> File.rm()
-    |> case do
-      :ok -> :ok
-      {:error, :enoent} -> :ok
-      error -> error
-    end
   end
 
   defp write(record, content, ext) do
@@ -49,8 +43,6 @@ defmodule Zaq.Ingestion.ExternalSidecarStore do
   end
 
   defp base_path do
-    Path.join(System.tmp_dir!(), "zaq_external_sidecars")
+    Path.join(System.tmp_dir!(), "zaq_temporary_materializations")
   end
-
-  defp absolute_path(relative_path), do: Path.join(base_path(), relative_path)
 end

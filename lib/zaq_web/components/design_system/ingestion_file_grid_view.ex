@@ -224,38 +224,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
           watch_disabled_reason={@watch_disabled_reason}
         />
       </span>
-      <button
-        :if={related_record(@entry)}
-        type="button"
-        phx-click="open_preview"
-        phx-value-filename={related_record_name(related_record(@entry))}
-        phx-value-path={related_record_preview_path(related_record(@entry), @current_volume)}
-        class="zaq-table-sidecar-preview zaq-table-sidecar-preview--ingestion-grid"
-        title="Preview converted markdown"
-      >
-        <svg
-          class="shrink-0"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4" />
-        </svg>
-        <IngFileIcon.file_icon
-          name={related_record_name(related_record(@entry))}
-          class="w-3.5 h-3.5 shrink-0"
-        />
-        <span class="zaq-table-sidecar-preview-name zaq-text-caption truncate min-w-0">
-          {related_record_name(related_record(@entry))}
-        </span>
-        <span
-          class="zaq-table-sidecar-preview-meta zaq-text-caption"
-          style="color: var(--zaq-text-color-body-tertiary)"
-        >
-          {SizeFormat.format_size(related_record_size(related_record(@entry)))}
-        </span>
-      </button>
     </div>
     """
   end

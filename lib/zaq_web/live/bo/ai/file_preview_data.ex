@@ -137,7 +137,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
     ext = relative_path |> Path.extname() |> String.downcase()
 
     result =
-      with {:ok, full_path} <- FileExplorer.resolve_path(relative_path, legacy_storage_opts()),
+      with {:ok, full_path} <- FileExplorer.resolve_path(relative_path),
            false <- File.dir?(full_path),
            {:ok, stat} <- File.stat(full_path, time: :posix) do
         {:ok, full_path, stat}
@@ -409,13 +409,6 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
     basename = filename |> Path.basename(ext) |> String.replace(~r/[^A-Za-z0-9_.-]/, "_")
     unique = System.unique_integer([:positive])
     Path.join(System.tmp_dir!(), "#{basename}-#{unique}#{ext}")
-  end
-
-  defp legacy_storage_opts do
-    case Application.get_env(:zaq, Zaq.Ingestion, [])[:base_path] do
-      nil -> []
-      base_path -> [storage_config: [base_path: base_path, volumes: %{}]]
-    end
   end
 
   defp render_html(content, ".md") do

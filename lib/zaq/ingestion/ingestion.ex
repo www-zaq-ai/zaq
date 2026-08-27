@@ -6,7 +6,7 @@ defmodule Zaq.Ingestion do
   Ingestion also owns user-facing document watch state and provider delta
   handling. Channels/Engine provide metadata-only provider changes; this context
   decides which watched records should be re-ingested, which removed records
-  should delete existing documents and sidecars, and how folder watch inheritance
+  should delete existing documents, and how folder watch inheritance
   is reflected in the BO UI.
 
   ## Records are not produced here
@@ -77,8 +77,8 @@ defmodule Zaq.Ingestion do
 
   Records and provider signals are filtered through the same direct/inherited
   watch-state rules used by BO. Watched changed records are scheduled for async
-  ingestion. Removed records delete matching source documents, chunks, linked
-  sidecars, and external sidecar files when the watch state permits deletion.
+  ingestion. Removed records delete matching source documents and chunks when
+  the watch state permits deletion.
   """
   def process_data_source_changes(request) when is_map(request) do
     provider = read_stringish(request, [:provider, "provider"])
@@ -242,10 +242,9 @@ defmodule Zaq.Ingestion do
         do:
           dynamic(
             [d],
-            ilike(d.source, ^"%#{name}%") and
-              fragment("(? ->> 'source_document_source') IS NULL", d.metadata)
+            ilike(d.source, ^"%#{name}%")
           ),
-        else: dynamic([d], fragment("(? ->> 'source_document_source') IS NULL", d.metadata))
+        else: dynamic([_d], true)
 
     name_lower = name && String.downcase(name)
 
@@ -286,9 +285,7 @@ defmodule Zaq.Ingestion do
         prefix = canonical_path <> "/"
 
         from(d in Document,
-          where:
-            like(d.source, ^"#{prefix}%") and
-              fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+          where: like(d.source, ^"#{prefix}%"),
           select: d.source,
           order_by: [asc: d.source],
           limit: 100
@@ -336,9 +333,8 @@ defmodule Zaq.Ingestion do
 
     from(d in Document,
       where:
-        (ilike(d.source, ^"#{folder_label}/%") or
-           ilike(d.source, ^"%/#{folder_label}/%")) and
-          fragment("(? ->> 'source_document_source') IS NULL", d.metadata),
+        ilike(d.source, ^"#{folder_label}/%") or
+          ilike(d.source, ^"%/#{folder_label}/%"),
       select: d.source,
       limit: 100
     )
@@ -1111,12 +1107,12 @@ defmodule Zaq.Ingestion do
     source = ExternalSource.source(record)
     doc = Document.get_by_source(source)
 
-    delete_data_source_document_sources(source, doc, record, force_delete?)
+    delete_data_source_documents_for(source, doc, record, force_delete?)
   end
 
   defp delete_data_source_documents(_provider, _config_id, _record, _force_delete?), do: 0
 
-  defp delete_data_source_document_sources(_source, nil, %Record{id: parent_id}, _force_delete?)
+  defp delete_data_source_documents_for(_source, nil, %Record{id: parent_id}, _force_delete?)
        when is_binary(parent_id) do
     Document
     |> where(
@@ -1128,9 +1124,9 @@ defmodule Zaq.Ingestion do
     |> Enum.reduce(0, fn doc, count -> count + delete_existing_data_source_document(doc) end)
   end
 
-  defp delete_data_source_document_sources(_source, nil, _record, _force_delete?), do: 0
+  defp delete_data_source_documents_for(_source, nil, _record, _force_delete?), do: 0
 
-  defp delete_data_source_document_sources(_source, %Document{} = doc, _record, force_delete?) do
+  defp delete_data_source_documents_for(_source, %Document{} = doc, _record, force_delete?) do
     if force_delete? or removable_data_source_document?(doc) do
       delete_existing_data_source_document(doc)
     else

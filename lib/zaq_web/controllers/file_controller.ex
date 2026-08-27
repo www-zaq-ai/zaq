@@ -51,7 +51,7 @@ defmodule ZaqWeb.FileController do
     relative_path = Path.join(path_segments)
 
     if Ingestion.can_access_file?(relative_path, conn.assigns.current_user) do
-      with {:ok, full_path} <- FileExplorer.resolve_path(relative_path, legacy_storage_opts()),
+      with {:ok, full_path} <- FileExplorer.resolve_path(relative_path),
            {:ok, stat} <- File.stat(full_path),
            false <- stat.type == :directory,
            {:ok, content} <- File.read(full_path) do
@@ -80,13 +80,6 @@ defmodule ZaqWeb.FileController do
       end
     else
       conn |> put_status(:forbidden) |> text("Access denied")
-    end
-  end
-
-  defp legacy_storage_opts do
-    case Application.get_env(:zaq, Zaq.Ingestion, [])[:base_path] do
-      nil -> []
-      base_path -> [storage_config: [base_path: base_path, volumes: %{}]]
     end
   end
 end

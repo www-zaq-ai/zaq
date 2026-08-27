@@ -455,8 +455,6 @@ defmodule Zaq.IngestionTest do
       assert String.ends_with?(materialized.path, ".pdf")
       assert [cleanup_path] = materialized.cleanup_paths
       assert cleanup_path == Path.dirname(materialized.path)
-      refute Keyword.has_key?(materialized.processor_opts, :force_sidecar)
-      refute Keyword.has_key?(materialized.processor_opts, :sidecar_metadata)
     end
 
     test "process_data_source_changes only enqueues watched records and watched folder children" do
@@ -604,8 +602,7 @@ defmodule Zaq.IngestionTest do
       assert source_doc.metadata["provider_url"] == "https://drive.example/pdf-123"
 
       refute Repo.exists?(
-               from d in Document,
-                 where: like(d.source, "%external-sidecars%")
+               from d in Document, where: like(d.source, "%temporary_materializations%")
              )
     end
   end

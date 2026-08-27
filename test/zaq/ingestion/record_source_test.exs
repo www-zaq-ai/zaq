@@ -179,8 +179,6 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
     assert materialized.processor_opts[:document_title] == "Report.pdf"
     assert materialized.processor_opts[:document_metadata]["provider"] == "google_drive"
-    refute Keyword.has_key?(materialized.processor_opts, :sidecar_source_override)
-    refute Keyword.has_key?(materialized.processor_opts, :sidecar_metadata)
   end
 
   test "materialize/1 handles empty row downloads as empty markdown" do

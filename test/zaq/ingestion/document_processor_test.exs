@@ -917,17 +917,15 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       with_image_to_text_stub("test-api-key", fn ->
         path = create_test_md_file(tmp_dir, "diagram.png", "not-a-real-png")
-        sidecar_path = Path.join(tmp_dir, "diagram.md")
+        temporary_markdown_path = Path.join(tmp_dir, "diagram.md")
 
         assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(path)
         assert doc.source == "diagram.png"
         assert doc.content =~ "[Image: diagram.png]"
         assert doc.content =~ "Detected text from diagram.png"
-        refute Map.has_key?(doc.metadata, "sidecar_source")
-
-        assert File.exists?(sidecar_path)
-        assert {:ok, sidecar_content} = File.read(sidecar_path)
-        assert sidecar_content =~ "[Image: diagram.png]"
+        assert File.exists?(temporary_markdown_path)
+        assert {:ok, temporary_markdown} = File.read(temporary_markdown_path)
+        assert temporary_markdown =~ "[Image: diagram.png]"
 
         assert Document.get_by_source("diagram.md") == nil
       end)
@@ -940,13 +938,13 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       with_image_to_text_stub("", fn ->
         path = create_test_md_file(tmp_dir, "missing-key.jpg", "not-a-real-jpg")
-        sidecar_path = Path.join(tmp_dir, "missing-key.md")
+        temporary_markdown_path = Path.join(tmp_dir, "missing-key.md")
 
         assert {:error, reason} = DocumentProcessor.process_single_file(path)
         assert is_binary(reason)
         assert String.contains?(reason, "not configured")
 
-        refute File.exists?(sidecar_path)
+        refute File.exists?(temporary_markdown_path)
         assert Document.get_by_source("missing-key.jpg") == nil
         assert Document.get_by_source("missing-key.md") == nil
       end)
@@ -1104,12 +1102,10 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         assert File.exists?(Path.join(tmp_dir, "photo.md"))
         assert File.exists?(Path.join(tmp_dir, "banner.md"))
 
-        assert %Document{} = photo_doc = Document.get_by_source("photo.png")
-        refute Map.has_key?(photo_doc.metadata, "sidecar_source")
+        assert %Document{} = Document.get_by_source("photo.png")
         assert Document.get_by_source("photo.md") == nil
 
-        assert %Document{} = banner_doc = Document.get_by_source("banner.jpg")
-        refute Map.has_key?(banner_doc.metadata, "sidecar_source")
+        assert %Document{} = Document.get_by_source("banner.jpg")
         assert Document.get_by_source("banner.md") == nil
       end)
     end
@@ -1387,34 +1383,33 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       {:ok, tmp_dir: tmp_dir}
     end
 
-    test "ignores existing markdown sidecars for pdf/docx/pptx/xlsx", %{
+    test "ignores existing temporary markdown output for pdf/docx/pptx/xlsx", %{
       tmp_dir: tmp_dir
     } do
       cases = [
-        {:pdf_pipeline_module, PdfPipelineStub, "sidecar.pdf", "Converted PDF content."},
-        {:docx_to_md_module, DocxToMdStub, "sidecar.docx", "Converted DOCX content."},
-        {:pptx_to_md_module, Zaq.Ingestion.PptxToMdStub, "sidecar.pptx",
+        {:pdf_pipeline_module, PdfPipelineStub, "temporary-output.pdf", "Converted PDF content."},
+        {:docx_to_md_module, DocxToMdStub, "temporary-output.docx", "Converted DOCX content."},
+        {:pptx_to_md_module, Zaq.Ingestion.PptxToMdStub, "temporary-output.pptx",
          "Converted PPTX content."},
-        {:xlsx_to_md_module, XlsxToMdStub, "sidecar.xlsx", "Converted XLSX content."}
+        {:xlsx_to_md_module, XlsxToMdStub, "temporary-output.xlsx", "Converted XLSX content."}
       ]
 
       for {app_key, stub_module, source_name, expected_content} <- cases do
         with_converter_stub(app_key, stub_module, fn ->
           source_path = create_test_md_file(tmp_dir, source_name, "raw-bytes")
-          sidecar_path = Path.rootname(source_path) <> ".md"
-          File.write!(sidecar_path, "# Sidecar\n\nLoaded from existing sidecar.")
+          temporary_markdown_path = Path.rootname(source_path) <> ".md"
+          File.write!(temporary_markdown_path, "# Existing\n\nLoaded from existing output.")
 
           assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(source_path)
           assert doc.source == source_name
           assert doc.content =~ expected_content
-          refute doc.content =~ "Loaded from existing sidecar."
-          refute Map.has_key?(doc.metadata, "sidecar_source")
-          assert Document.get_by_source(Path.basename(sidecar_path)) == nil
+          refute doc.content =~ "Loaded from existing output."
+          assert Document.get_by_source(Path.basename(temporary_markdown_path)) == nil
         end)
       end
     end
 
-    test "converts office and pdf files when no markdown sidecar exists", %{tmp_dir: tmp_dir} do
+    test "converts office and pdf files when no temporary markdown exists", %{tmp_dir: tmp_dir} do
       cases = [
         {:pdf_pipeline_module, PdfPipelineStub, "report.pdf", "Converted PDF content."},
         {:docx_to_md_module, DocxToMdStub, "brief.docx", "Converted DOCX content."},
@@ -1425,12 +1420,12 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       for {app_key, stub_module, filename, expected_content} <- cases do
         with_converter_stub(app_key, stub_module, fn ->
           source_path = create_test_md_file(tmp_dir, filename, "#{filename}-bytes")
-          sidecar_path = Path.rootname(source_path) <> ".md"
+          temporary_markdown_path = Path.rootname(source_path) <> ".md"
 
           assert {:ok, %Document{} = doc} = DocumentProcessor.process_single_file(source_path)
           assert doc.source == filename
           assert doc.content =~ expected_content
-          assert File.read!(sidecar_path) =~ expected_content
+          assert File.read!(temporary_markdown_path) =~ expected_content
         end)
       end
     end
@@ -1603,7 +1598,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert {:ok, []} = DocumentProcessor.query_extraction("no indexed content here")
     end
 
-    test "converts pptx to markdown when no sidecar exists", %{tmp_dir: tmp_dir} do
+    test "converts pptx to markdown when no temporary markdown exists", %{tmp_dir: tmp_dir} do
       with_pptx_to_md_stub(fn ->
         pptx_path = Path.join(tmp_dir, "deck.pptx")
         File.write!(pptx_path, "fake-pptx-bytes")
@@ -1614,7 +1609,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       end)
     end
 
-    test "converts pdf to markdown when no sidecar exists", %{tmp_dir: tmp_dir} do
+    test "converts pdf to markdown when no temporary markdown exists", %{tmp_dir: tmp_dir} do
       scripts = %{
         "pdf_to_md.py" => """
         import os
@@ -1653,7 +1648,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       end)
     end
 
-    test "converts docx to markdown when no sidecar exists", %{tmp_dir: tmp_dir} do
+    test "converts docx to markdown when no temporary markdown exists", %{tmp_dir: tmp_dir} do
       with_fake_python_script(
         "docx_to_md.py",
         fake_converter_script("# Docx\n\nConverted DOCX."),
@@ -1668,7 +1663,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       )
     end
 
-    test "converts xlsx to markdown when no sidecar exists", %{tmp_dir: tmp_dir} do
+    test "converts xlsx to markdown when no temporary markdown exists", %{tmp_dir: tmp_dir} do
       with_fake_python_script(
         "xlsx_to_md.py",
         fake_converter_script("# Sheet\n\nConverted XLSX."),
@@ -1683,7 +1678,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       )
     end
 
-    test "returns error when pptx conversion fails and no sidecar exists", %{tmp_dir: tmp_dir} do
+    test "returns error when pptx conversion fails and no temporary markdown exists", %{
+      tmp_dir: tmp_dir
+    } do
       failing_stub = Module.concat(__MODULE__, FailingPptxStub)
 
       unless Code.ensure_loaded?(failing_stub) do

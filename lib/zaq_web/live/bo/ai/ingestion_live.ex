@@ -533,11 +533,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   # Modal: Rename
 
-  def handle_event("rename_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider != "local" do
-    {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
-  end
-
   def handle_event("rename_item", %{"path" => path, "type" => type}, socket) do
     {:noreply,
      assign(socket,
@@ -568,11 +563,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   # Modal: Delete single item
 
-  def handle_event("delete_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
-      when provider != "local" do
-    {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
-  end
-
   def handle_event("delete_item", %{"path" => path, "type" => type}, socket) do
     {:noreply,
      assign(socket,
@@ -585,7 +575,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("confirm_delete", _params, socket) do
-    result = delete_local_path(socket, socket.assigns.modal_path)
+    result = delete_data_source_path(socket, socket.assigns.modal_path)
 
     case result do
       :ok ->
@@ -615,7 +605,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         %{assigns: %{provider: provider}} = socket
       )
       when provider != "local" do
-    {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
+    if Map.get(socket.assigns.action_capabilities, :delete, false) do
+      {:noreply, assign(socket, modal: :delete_selected, modal_error: nil)}
+    else
+      {:noreply, put_flash(socket, :info, "This data source does not support deletion.")}
+    end
   end
 
   def handle_event("show_delete_confirmation", _params, socket) do
@@ -624,7 +618,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("confirm_delete_selected", _params, socket) do
     results =
-      Enum.map(socket.assigns.selected, fn path -> {path, delete_local_path(socket, path)} end)
+      Enum.map(socket.assigns.selected, fn path ->
+        {path, delete_data_source_path(socket, path)}
+      end)
 
     errors = Enum.reject(results, fn {_p, res} -> delete_success?(res) end)
 
@@ -648,7 +644,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("move_item", %{"path" => _path}, %{assigns: %{provider: provider}} = socket)
       when provider != "local" do
-    {:noreply, put_flash(socket, :info, "Provider records are read-only in this phase.")}
+    {:noreply, put_flash(socket, :info, "This data source does not support move operations.")}
   end
 
   def handle_event("move_item", %{"path" => path, "type" => type}, socket) do
@@ -819,20 +815,24 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   def handle_event("ingest_selected", _params, socket) do
-    records = selected_records(socket)
-    result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode}, socket)
+    if Map.get(socket.assigns.action_capabilities, :download, false) do
+      records = selected_records(socket)
+      result = dispatch_ingest_records(records, %{mode: socket.assigns.ingest_mode}, socket)
 
-    socket =
-      socket
-      |> assign(selected: MapSet.new())
-      |> load_jobs()
-      # With Oban testing: :inline (E2E/ExUnit), async jobs finish before this handler
-      # returns. Refresh entries now so the file browser shows terminal badges in the
-      # same patch; PubSub {:job_updated, _} still refreshes for real async runs.
-      |> load_entries()
-      |> put_ingest_result_flash(result)
+      socket =
+        socket
+        |> assign(selected: MapSet.new())
+        |> load_jobs()
+        # With Oban testing: :inline (E2E/ExUnit), async jobs finish before this handler
+        # returns. Refresh entries now so the file browser shows terminal badges in the
+        # same patch; PubSub {:job_updated, _} still refreshes for real async runs.
+        |> load_entries()
+        |> put_ingest_result_flash(result)
 
-    {:noreply, socket}
+      {:noreply, socket}
+    else
+      {:noreply, put_flash(socket, :info, "This data source does not support ingestion.")}
+    end
   end
 
   def handle_event("dismiss_ingest_toast", _params, socket) do
@@ -1034,7 +1034,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp parent_dir(path), do: Path.dirname(path)
 
   defp do_rename(socket, old_path, _new_path, new_name) do
-    case update_local_file(socket, old_path, %{"name" => new_name}) do
+    case update_data_source_file(socket, old_path, %{"name" => new_name}) do
       {:ok, _result} ->
         {:noreply,
          socket
@@ -1048,7 +1048,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp do_move(socket, source, _dest, name, dest_dir) do
-    case update_local_file(socket, source, %{
+    case update_data_source_file(socket, source, %{
            "path" => local_parent_source(socket.assigns.current_volume, dest_dir)
          }) do
       {:ok, _result} ->
@@ -1067,7 +1067,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp load_entries(socket) do
-    if provider_mode?(socket), do: load_provider_entries(socket), else: load_local_entries(socket)
+    if Map.get(socket.assigns.action_capabilities, :list, false) do
+      if provider_mode?(socket),
+        do: load_provider_entries(socket),
+        else: load_local_entries(socket)
+    else
+      socket
+      |> assign(entries: [], records_by_path: %{}, ingestion_map: %{})
+      |> assign(provider_error: "This data source does not support browsing.")
+    end
   end
 
   defp load_local_entries(socket) do
@@ -1280,8 +1288,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     load_entries(socket)
   end
 
-  # Refresh as soon as chunks are scheduled (prepare_file_chunks just completed):
-  # the sidecar .md is on disk and in the DB at this point, before any embedding runs.
+  # Refresh as soon as chunks are scheduled so the primary record shows progress
+  # before chunk embedding finishes.
   defp maybe_refresh_entries_after_job(socket, %{
          status: "processing",
          total_chunks: total,
@@ -1429,7 +1437,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     }
   end
 
-  defp update_local_file(socket, path, attrs) do
+  defp update_data_source_file(socket, path, attrs) do
     with {:ok, record} <- local_record(socket, path) do
       params = Map.put(attrs, "file_id", record.id)
 
@@ -1442,7 +1450,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp delete_local_path(socket, path) do
+  defp delete_data_source_path(socket, path) do
     record =
       case local_record(socket, path) do
         {:ok, record} -> record
@@ -2397,6 +2405,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       create: capability_resolved?(resolved, :create_item),
       update: capability_resolved?(resolved, :update_item),
       delete: capability_resolved?(resolved, :delete_item),
+      list: capability_resolved?(resolved, :list_items),
+      download: capability_resolved?(resolved, :download_items),
       share: capability_resolved?(resolved, :manage_item_permissions),
       watch: global_base_url_present?() and capability_resolved?(resolved, :watch_changes_webhook)
     }

@@ -111,7 +111,6 @@ if e2e? do
     document_processor: Zaq.E2E.DocumentProcessorFake,
     pipeline_document_processor_module: Zaq.E2E.DocumentProcessorFake
 
-  config :zaq, Zaq.Ingestion, base_path: "tmp/e2e_documents"
   config :zaq, Zaq.Storage, base_path: "tmp/e2e_documents"
   config :zaq, :storage_volume_import, volumes: %{"default" => "."}
   config :zaq, e2e_routes: true

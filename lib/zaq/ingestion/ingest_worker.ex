@@ -139,18 +139,8 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   defp materialize_job(%IngestJob{} = job) do
     path = resolve_file_path(job)
-
-    if external_sidecar_path?(path) do
-      {:error, :external_sidecar_requires_source_record}
-    else
-      {:ok, %{path: path, processor_opts: [], cleanup_paths: []}}
-    end
+    {:ok, %{path: path, processor_opts: [], cleanup_paths: []}}
   end
-
-  defp external_sidecar_path?(path) when is_binary(path),
-    do: path |> Path.split() |> Enum.member?(".external-sidecars")
-
-  defp external_sidecar_path?(_path), do: false
 
   defp cleanup_materialized({:ok, %{cleanup_paths: paths}}) when is_list(paths) do
     Enum.each(paths, &cleanup_materialized_path/1)

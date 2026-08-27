@@ -1,7 +1,7 @@
 defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, Sidecar}
+  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
 
   import Zaq.SystemConfigFixtures
 
@@ -47,21 +47,6 @@ defmodule Zaq.Ingestion.DocumentAccessSkipPermissionsTest do
 
       sources = Enum.map(result, & &1.source)
       assert sources == [target.source]
-    end
-
-    test "sidecar documents stay hidden when indexed" do
-      _source = create_doc("sidecar/report.pdf")
-
-      sidecar =
-        create_doc("sidecar/report.md", %{
-          metadata: Sidecar.sidecar_metadata("sidecar/report.pdf")
-        })
-
-      insert_chunk_for(sidecar)
-
-      result = DocumentAccess.list_files_with_ingestion_status(skip_permissions: true)
-
-      refute Enum.any?(result, &(&1.source == sidecar.source))
     end
 
     test "uploaded DB record with no chunks is tagged ingested: false" do

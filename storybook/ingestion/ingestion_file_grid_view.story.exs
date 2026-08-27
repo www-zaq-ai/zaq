@@ -33,25 +33,8 @@ defmodule Storybook.Ingestion.IngestionFileGridView do
       </.story_block>
 
       <.story_block
-        title="Converted markdown sidecar (PDF)"
-        description={
-          "Same sidecar data as list view: related .md preview on the card. " <>
-            "Grid: button.zaq-table-sidecar-preview.zaq-table-sidecar-preview--ingestion-grid " <>
-            "(filename in .zaq-table-sidecar-preview-name)."
-        }
-      >
-        <.file_grid_view
-          entries={sidecar_only_entries()}
-          selected={@empty}
-          current_dir="."
-          current_volume="default"
-          ingestion_map={sidecar_only_ingestion_map()}
-        />
-      </.story_block>
-
-      <.story_block
         title="Populated directory"
-        description="Folders, file statuses, shared/public badges, sidecar preview link, and one selected card."
+        description="Folders, file statuses, shared/public badges, and one selected card."
       >
         <.file_grid_view
           entries={fixture_entries()}
@@ -103,15 +86,7 @@ defmodule Storybook.Ingestion.IngestionFileGridView do
       %{name: "readme.md", type: :file, size: 800, modified_at: @dt},
       %{name: "both-access.docx", type: :file, size: 12_000, modified_at: @dt},
       %{name: "locked.bin", type: :file, size: 99, modified_at: @dt},
-      %{
-        name: "slide.pdf",
-        type: :file,
-        size: 2_000_000,
-        modified_at: @dt,
-        attributes: %{
-          "related_record" => %{"name" => "slide.md", "path" => "slide.md", "size" => 18_000}
-        }
-      }
+      %{name: "slide.pdf", type: :file, size: 2_000_000, modified_at: @dt}
     ]
   end
 
@@ -208,32 +183,6 @@ defmodule Storybook.Ingestion.IngestionFileGridView do
         can_share?: false
       },
       "slide.pdf" => %{
-        ingested_at: @dt,
-        stale?: false,
-        permissions_count: 0,
-        is_public: false,
-        can_share?: true
-      }
-    }
-  end
-
-  defp sidecar_only_entries do
-    [
-      %{
-        name: "demo.pdf",
-        type: :file,
-        size: 42_000,
-        modified_at: @dt,
-        attributes: %{
-          "related_record" => %{"name" => "demo.md", "path" => "demo.md", "size" => 9_800}
-        }
-      }
-    ]
-  end
-
-  defp sidecar_only_ingestion_map do
-    %{
-      "demo.pdf" => %{
         ingested_at: @dt,
         stale?: false,
         permissions_count: 0,

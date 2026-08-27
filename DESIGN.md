@@ -422,7 +422,6 @@ Use `.zaq-table` shell and related cell patterns — do not duplicate table styl
 | Body row | `ZaqWeb.Components.DesignSystem.Table` | `table_row/1` |
 | Cell | `ZaqWeb.Components.DesignSystem.Table` | `table_cell/1` |
 | Empty state row | `ZaqWeb.Components.DesignSystem.Table` | `table_empty/1` |
-| Sidecar row | `ZaqWeb.Components.DesignSystem.Table` | `table_sidecar_row/1` |
 | Selection bar | `ZaqWeb.Components.DesignSystem.Table` | `table_selection_bar/1` |
 | Checkbox cell | `ZaqWeb.Components.DesignSystem.Table` | `table_checkbox/1` |
 | Text cell | `ZaqWeb.Components.DesignSystem.Table` | `table_text/1` |

@@ -16,7 +16,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       table_empty: 1,
       table_head_row: 1,
       table_row: 1,
-      table_sidecar_row: 1,
       table_text: 1
     ]
 
@@ -182,43 +181,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               <.table_datetime value={entry.modified_at} align={:right} />
             </.table_cell>
           </.table_row>
-          <.table_sidecar_row
-            :if={related_record(entry)}
-            leading_colspan={1}
-            body_colspan={6}
-          >
-            <button
-              type="button"
-              phx-click="open_preview"
-              phx-value-filename={related_record_name(related_record(entry))}
-              phx-value-path={related_record_preview_path(related_record(entry), @current_volume)}
-              class="zaq-table-sidecar-preview"
-              title="Preview converted markdown"
-            >
-              <svg
-                class="shrink-0"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4" />
-              </svg>
-              <.file_icon
-                name={related_record_name(related_record(entry))}
-                class="w-3.5 h-3.5 zaq-text-accent"
-              />
-              <span class="zaq-table-sidecar-preview-name zaq-text-body truncate min-w-0">
-                {related_record_name(related_record(entry))}
-              </span>
-              <span
-                class="zaq-table-sidecar-preview-meta zaq-text-caption"
-                style="color: var(--zaq-text-color-body-tertiary)"
-              >
-                {SizeFormat.format_size(related_record_size(related_record(entry)))}
-              </span>
-            </button>
-          </.table_sidecar_row>
         <% end %>
       </:body>
     </.table>
@@ -233,7 +195,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   defp entry_row_actions(assigns) do
     ~H"""
     <button
-      :if={Map.get(@action_capabilities, :update, false)}
+      :if={not @provider_mode and Map.get(@action_capabilities, :update, false)}
       phx-click="move_item"
       phx-value-path={record_path(@entry)}
       phx-value-type={record_local_type(@entry)}

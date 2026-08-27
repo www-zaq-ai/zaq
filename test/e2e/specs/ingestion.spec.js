@@ -211,7 +211,7 @@ test.describe("Ingestion", () => {
   // 1. Reset seeds embedding config  →  chunks table exists, no warning on ingestion page
   // 2. Upload a PDF and ingest it:
   //      →  "ingested" tag appears in the file browser
-  //      →  sidecar .md row appears (DocumentProcessorFake creates it)
+  //      →  temporary Markdown conversion output may be created but is not shown as a row
   // 3. Unlock embedding, change the model, confirm destructive save
   //      →  reset_table drops+recreates chunks, clears documents.content
   //      →  "ingested" tag disappears
@@ -220,7 +220,7 @@ test.describe("Ingestion", () => {
   // 5. Re-ingest the same file (no failure)
   //      →  "ingested" tag reappears, "failed" tag gone
 
-  test("ingest PDF shows ingested tag and sidecar; changing model invalidates; job failure shows failed tag; re-ingest restores", async ({
+  test("ingest PDF shows ingested tag; changing model invalidates; job failure shows failed tag; re-ingest restores", async ({
     page,
   }) => {
     test.setTimeout(240_000)

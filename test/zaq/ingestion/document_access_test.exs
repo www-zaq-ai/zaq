@@ -41,10 +41,6 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
     doc
   end
 
-  defp create_chunk(source) do
-    create_doc(source, %{"source_document_source" => "parent.md"})
-  end
-
   defp insert_chunk_for(doc) do
     {:ok, _chunk} = Chunk.create(%{document_id: doc.id, content: "chunk", chunk_index: 0})
   end
@@ -258,27 +254,6 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       assert admin_count >= 1
     end
 
-    test "excludes chunks (source_document_source metadata present)" do
-      _chunk = create_chunk(uid("chunk-excluded"))
-      person = create_person()
-
-      count = DocumentAccess.count_accessible_documents(person_id: person.id)
-      admin_count = DocumentAccess.count_accessible_documents(skip_permissions: true)
-
-      # Chunks must never appear in either count
-      sources_seen =
-        DocumentAccess.list_accessible_documents(skip_permissions: true)
-        |> Enum.map(& &1.source)
-
-      chunk_sources =
-        sources_seen
-        |> Enum.filter(fn s -> String.contains?(s, "chunk-excluded") end)
-
-      assert chunk_sources == []
-      assert count >= 0
-      assert admin_count >= 0
-    end
-
     test "nil person_id with non-empty team_ids counts team-accessible docs" do
       doc = create_doc(uid("nil-team-count"))
       team = create_team()
@@ -405,13 +380,6 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
       result = DocumentAccess.list_accessible_documents(skip_permissions: true)
       sources = result |> Enum.map(& &1.source) |> Enum.filter(&String.contains?(&1, "sort"))
       assert sources == Enum.sort(sources)
-    end
-
-    test "excludes chunks from listing" do
-      _chunk = create_chunk(uid("list-chunk"))
-      result = DocumentAccess.list_accessible_documents(skip_permissions: true)
-      chunk_entries = Enum.filter(result, fn d -> String.contains?(d.source, "list-chunk") end)
-      assert chunk_entries == []
     end
 
     test "nil person_id with non-empty team_ids returns team-accessible docs" do

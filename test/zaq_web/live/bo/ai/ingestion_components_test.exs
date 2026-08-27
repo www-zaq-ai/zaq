@@ -227,21 +227,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       refute html =~ "Permissions are managed in the data source"
     end
 
-    test "record helpers support fallback shapes and related record variants" do
+    test "record helpers support fallback shapes" do
       assert IngestionFileStatus.record_path(%{name: "fallback.md"}) == "fallback.md"
       assert IngestionFileStatus.record_file?(%{kind: :file})
       assert IngestionFileStatus.record_folder?(%{kind: "folder"})
       assert IngestionFileStatus.record_folder?(%{type: :directory})
-
-      assert IngestionFileStatus.related_record(%{
-               attributes: %{related_record: %{name: "side.md"}}
-             }) ==
-               %{name: "side.md"}
-
-      assert IngestionFileStatus.related_record(%{}) == nil
-      assert IngestionFileStatus.related_record_name(%{name: "side.md"}) == "side.md"
-      assert IngestionFileStatus.related_record_path(%{path: "side.md"}) == "side.md"
-      assert IngestionFileStatus.related_record_size(%{size: 12}) == 12
     end
   end
 
@@ -259,44 +249,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
         )
 
       assert html =~ "zaq-table-row--selected"
-    end
-
-    test "renders converted markdown sidecar preview metadata" do
-      html =
-        render_component(&IngestionFileListView.file_list_view/1,
-          entries: [
-            %{
-              name: "report.pdf",
-              path: "report.pdf",
-              kind: :file,
-              size: 4096,
-              modified_at: ~U[2026-01-01 00:00:00Z],
-              attributes: %{
-                "related_record" => %{
-                  "name" => "report.md",
-                  "path" => "report.md",
-                  "preview_path" => "previews/report.md",
-                  "size" => 1024
-                }
-              }
-            }
-          ],
-          selected: MapSet.new(),
-          current_dir: ".",
-          current_volume: "default",
-          ingestion_map: %{}
-        )
-
-      assert html =~ "zaq-table-sidecar-preview"
-      assert html =~ "zaq-table-sidecar-preview-name"
-      assert html =~ ~s(type="button")
-      assert html =~ ~s(phx-click="open_preview")
-      assert html =~ ~s(phx-value-filename="report.md")
-      assert html =~ ~s(phx-value-path="previews/report.md")
-      assert html =~ ~s(title="Preview converted markdown")
-      assert html =~ "MD"
-      assert html =~ "1.0 KB"
-      refute html =~ ~s(phx-value-path="report.md")
     end
 
     test "renders processing, pending, and failed ingestion statuses" do
@@ -408,7 +360,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       assert html =~ "zaq-ingestion-file-grid-card--selected"
     end
 
-    test "renders ingested public and related sidecar indicators" do
+    test "renders ingested public and shared indicators" do
       html =
         render_component(&IngestionFileGridView.file_grid_view/1,
           entries: [
@@ -416,14 +368,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
               name: "report.pdf",
               path: "report.pdf",
               kind: :file,
-              size: 4096,
-              attributes: %{
-                "related_record" => %{
-                  "name" => "report.md",
-                  "path" => "report.md",
-                  "size" => 1024
-                }
-              }
+              size: 4096
             }
           ],
           selected: MapSet.new(),
@@ -443,9 +388,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       assert html =~ "ingested"
       assert html =~ "shared"
       assert html =~ "public"
-      assert html =~ "report.md"
-      assert html =~ "1.0 KB"
-      assert html =~ ~s(phx-value-path="report.md")
+      refute html =~ "report.md"
+      refute html =~ "report.md"
     end
 
     test "renders shared and public indicators without ingested status" do
