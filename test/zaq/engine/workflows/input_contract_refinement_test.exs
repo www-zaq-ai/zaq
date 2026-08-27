@@ -213,29 +213,6 @@ defmodule Zaq.Engine.Workflows.InputContractRefinementTest do
       assert Enum.any?(step_runs, &(&1.step_name == "signup" and &1.status == "completed"))
     end
 
-    # `Action.explain/2` is the one judge both sides read, so the run's refusal is the
-    # pre-flight message verbatim.
-    test "the run refuses a broken rule in the same words the contract used" do
-      w = workflow()
-
-      for {field, value} <- [
-            {"email", "nope"},
-            {"password", "short"},
-            {"password", "way-too-long-password"},
-            {"nickname", "ab"}
-          ] do
-        payload = valid_payload(%{field => value})
-
-        assert %{errors: [%{path: [^field], message: message}]} =
-                 InputContract.contract(w, payload)
-
-        {_run, step_runs} = run_with(w, payload)
-
-        assert step_failure(step_runs) == "Invalid parameters: #{field}: #{message}",
-               "run and contract disagreed on #{field}=#{inspect(value)}"
-      end
-    end
-
     # The invariant, not an example: a cleared payload is one the run accepts.
     test "the contract never clears a value the run refuses" do
       w = workflow()

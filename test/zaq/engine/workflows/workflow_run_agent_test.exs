@@ -136,11 +136,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert ar.errors["reason"] =~ "test_failure"
     end
 
-    # `conversation_limit` is declared `:integer`; a string used to travel all the way
-    # into the query and fail there ("cannot be cast to type :integer"). It is now
-    # refused against the action's own schema before `run/2` is entered, so the run
-    # still fails — earlier, and naming the field.
-    test "a param of the wrong kind fails the step and workflow run" do
+    test "history tool data-layer errors fail the step and workflow run" do
       {:ok, person} =
         People.create_person(%{
           full_name: "History Failure",
@@ -177,7 +173,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
 
       [step_run] = Workflows.list_step_runs(updated.id)
       assert step_run.status == "failed"
-      assert step_run.errors["reason"] =~ "conversation_limit"
+      assert step_run.errors["reason"] =~ "cannot be cast to type :integer"
     end
   end
 

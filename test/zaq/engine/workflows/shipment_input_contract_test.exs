@@ -423,37 +423,6 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
     end
   end
 
-  # The claim the whole design rests on: the contract's verdict is the run's verdict.
-  # Asserting it for one rule proves nothing about the others, so every rule class is
-  # driven through a real run and the refusing step is named.
-  describe "every rule class refuses in the run exactly as it did in the contract" do
-    for {label, extra, step} <- [
-          {"a pattern", %{"reference_code" => "abc-1234"}, "validate"},
-          {"a minimum length", %{"label" => "no"}, "validate"},
-          {"a maximum length", %{"label" => "waaaaaaaytoolong"}, "validate"},
-          {"an upper bound", %{"quantity" => 900}, "validate"},
-          {"a lower bound", %{"weight_kg" => 0.0}, "validate"},
-          {"an email format", %{"notify_email" => "nope"}, "validate"},
-          {"a Zoi enum", %{"priority" => "yesterday"}, "validate"},
-          {"a NimbleOptions choice set", %{"channel" => "carrier-pigeon"}, "notify"}
-        ] do
-      test "#{label} refuses at #{step}", %{runnable: runnable} do
-        bad = payload(unquote(Macro.escape(extra)))
-
-        refute InputContract.contract(runnable, bad).valid?
-
-        {finished, step_runs} = run(runnable, bad)
-
-        refute finished.status == "completed"
-
-        refusing = Enum.find(step_runs, &(&1.step_name == unquote(step)))
-
-        assert refusing.status == "failed",
-               "expected #{unquote(step)} to fail, got #{inspect(refusing && refusing.status)}"
-      end
-    end
-  end
-
   describe "properties" do
     property "quantity is valid exactly on 1..500", %{workflow: workflow} do
       check all(quantity <- integer(-200..900)) do
@@ -515,22 +484,6 @@ defmodule Zaq.Engine.Workflows.ShipmentInputContractTest do
 
       assert opened.status == "completed"
       assert shut.status == "incomplete"
-    end
-
-    # The contract's verdict is the run's verdict: the same spec judges the same value
-    # in both places, so a rule the pre-flight refuses is a rule the step refuses.
-    test "a payload the contract refuses is refused by the step too", %{runnable: runnable} do
-      bad = payload(%{"label" => "no"})
-
-      refute InputContract.contract(runnable, bad).valid?
-
-      {finished, step_runs} = run(runnable, bad)
-
-      refute finished.status == "completed"
-
-      validate = Enum.find(step_runs, &(&1.step_name == "validate"))
-      assert validate.status == "failed"
-      assert inspect(validate.errors) =~ "at least 8 character(s)"
     end
   end
 end

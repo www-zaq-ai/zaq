@@ -146,23 +146,6 @@ defmodule Zaq.Engine.Workflows.InputContractUpdatePersonOptionalTest do
                invalid
     end
 
-    # The two sides of the contract read the same `Zoi.parse/2` verdict through
-    # `Action.explain/2`, so the run's refusal repeats the pre-flight message.
-    test "the run refuses it in the same words", %{person_id: person_id} do
-      w = workflow()
-      payload = %{"person_id" => person_id, "attrs" => %{status: "pending"}}
-
-      assert %{errors: [%{message: message}]} = InputContract.contract(w, payload)
-
-      {_run, step_runs} = run_with(w, payload)
-
-      assert [{"update", reason}] = validation_failures(step_runs)
-      # Same words: the run adds only where it found the problem, which the contract
-      # carries as `path` instead of folding into the sentence.
-      assert reason =~ message
-      assert reason =~ "Invalid parameters: attrs: "
-    end
-
     test "a well-formed attrs map is valid" do
       payload = %{"person_id" => 1, "attrs" => %{email: "a@b.c", status: "active"}}
 

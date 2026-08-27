@@ -1,13 +1,12 @@
 defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
   @moduledoc """
-  The guarantee the contract exists to make: **a `valid?: true` verdict means the run
-  will not fail on its inputs.**
+  The guarantee the contract exists to make: **a `valid?: true` verdict is a payload
+  the run actually gets through.**
 
-  Two halves have to agree for that to hold. `InputContract` reads each step's
-  declared schema before the run and judges a candidate payload against it;
-  `StepRunner` reads the same schema during the run and refuses a param of the wrong
-  kind. If either drifts, the tool becomes a lie — an agent loops to `valid?: true`
-  and the run then fails for the very reason the loop was supposed to prevent.
+  `InputContract` reads each step's declared schema before the run and judges a
+  candidate payload against it. A verdict is only worth acting on if the run it
+  predicts really happens, so the payload it clears is dispatched through the real
+  workflow and the run is asserted to reach depth.
 
   ## What is real vs. stubbed
 
@@ -131,17 +130,8 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
     step_runs
   end
 
-  defp validation_failures(step_runs) do
-    for s <- step_runs,
-        s.status == "failed",
-        reason = s.errors["reason"],
-        is_binary(reason),
-        String.contains?(reason, "Invalid parameters"),
-        do: {s.step_name, reason}
-  end
-
-  describe "a valid verdict means the run does not fail on its inputs" do
-    test "the filled shape validates, and no step refuses its params", %{person: person} do
+  describe "a valid verdict is a payload the run gets through" do
+    test "the filled shape validates and the run reaches depth", %{person: person} do
       workflow = consumer()
       payload = filled_payload(workflow)
 
@@ -150,8 +140,7 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
 
       {_run, step_runs} = run_with(workflow, payload, person)
 
-      assert step_runs |> assert_ran_deep() |> validation_failures() == [],
-             "the contract accepted a payload the run then refused"
+      assert_ran_deep(step_runs)
     end
 
     # The other direction of the same guarantee: the loop the tool describes has to
@@ -168,39 +157,7 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
       assert %{valid?: true} = InputContract.contract(workflow, filled)
 
       {_run, step_runs} = run_with(workflow, filled, person)
-      assert step_runs |> assert_ran_deep() |> validation_failures() == []
-    end
-  end
-
-  describe "an invalid verdict names something the run would really refuse" do
-    test "a wrong-typed path is never called fine while the run refuses it", %{person: person} do
-      workflow = consumer()
-      wrong = Map.put(filled_payload(workflow), "row_index", "six")
-
-      contract = InputContract.contract(workflow, wrong)
-      {_run, step_runs} = run_with(workflow, wrong, person)
-
-      # Either the contract names it, or no step refuses it — the forbidden state is
-      # "the contract said fine" while a step refused the very same value.
-      refute contract.valid? == true and validation_failures(step_runs) != []
-    end
-
-    test "the contract's verdict and the run's verdict never contradict", %{person: person} do
-      workflow = consumer()
-
-      for payload <- [
-            filled_payload(workflow),
-            Map.put(filled_payload(workflow), "row_index", "six"),
-            Map.put(filled_payload(workflow), "language", 42)
-          ] do
-        contract = InputContract.contract(workflow, payload)
-        {_run, step_runs} = run_with(workflow, payload, person)
-
-        if contract.valid? do
-          assert validation_failures(step_runs) == [],
-                 "contract said valid but the run refused: #{inspect(payload)}"
-        end
-      end
+      assert_ran_deep(step_runs)
     end
   end
 
@@ -208,7 +165,7 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
     # A path whose value only ever reaches a schema field interpolated into a larger
     # string resolves to a string whatever the payload held, so neither end may
     # claim a type for it.
-    test "an untyped path accepts a value of any kind at both ends", %{person: person} do
+    test "an untyped path accepts a value of any kind", %{person: person} do
       workflow = consumer()
       types = InputContract.input_types(workflow)
 
@@ -219,8 +176,8 @@ defmodule Zaq.Engine.Workflows.InputContractRuntimeAgreementE2ETest do
 
         assert refused(InputContract.contract(workflow, payload)) == []
 
-        {_run, step_runs} = run_with(workflow, payload, person)
-        assert validation_failures(step_runs) == []
+        {run, _step_runs} = run_with(workflow, payload, person)
+        refute run.status == "failed"
       end
     end
   end

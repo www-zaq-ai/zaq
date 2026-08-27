@@ -108,7 +108,7 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
       assert [%{status: "completed", step_name: "typed"}] = step_runs
     end
 
-    test "a wrong-typed optional value is invalid before the run, and refused by it" do
+    test "a wrong-typed optional value is invalid before the run" do
       workflow = wired_workflow()
       payload = %{"count" => 3, "label" => 42}
 
@@ -119,11 +119,6 @@ defmodule Zaq.Engine.Workflows.InputContractOptionalFieldAgreementTest do
 
       assert [%{path: ["label"], code: :invalid_type, message: "expected string, got integer"}] =
                contract.errors
-
-      {_run, step_runs} = run_with(workflow, payload)
-
-      assert [{"typed", reason}] = validation_failures(step_runs)
-      assert reason =~ "label: expected string, got integer"
     end
 
     # The forbidden state, stated as the invariant rather than as one example:

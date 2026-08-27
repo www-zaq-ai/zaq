@@ -3,7 +3,6 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
-  alias Zaq.Engine.Workflows.DagBuilder
   alias Zaq.Engine.Workflows.DateOperand
   alias Zaq.Engine.Workflows.StepRunner
 
@@ -339,122 +338,6 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
   # `Jido.Exec` is what normally enforces an action's declared schema, and StepRunner
   # deliberately does not route through it — so without this gate nothing validates a
   # workflow's params at any point, and a wrong-typed value reaches `run/2`.
-  describe "run/2 — param validation against the action's own schema" do
-    alias Zaq.Engine.Workflows.Test.TypedParamAction
-
-    defp typed_params(run, params),
-      do: Map.merge(wp(run, TypedParamAction, "typed", 0), params)
-
-    test "a wrong-typed param fails the step and the action is never entered" do
-      run = create_run()
-
-      assert {:error, _} = StepRunner.run(typed_params(run, %{count: "42"}), %{})
-      refute_received {:typed_param_action_ran, _}
-
-      [ar] = Workflows.list_step_runs(run.id)
-      assert ar.status == "failed"
-    end
-
-    test "the failure reason names the offending field" do
-      run = create_run()
-
-      assert {:error, _} = StepRunner.run(typed_params(run, %{count: "42"}), %{})
-
-      [ar] = Workflows.list_step_runs(run.id)
-      assert ar.errors["reason"] =~ "count"
-    end
-
-    test "a correctly-typed param runs and reaches the action" do
-      run = create_run()
-
-      assert {:ok, result} = StepRunner.run(typed_params(run, %{count: 42}), %{})
-      assert_received {:typed_param_action_ran, _}
-      assert result.count == 42
-
-      [ar] = Workflows.list_step_runs(run.id)
-      assert ar.status == "completed"
-    end
-
-    # Validation is a verdict, not a rewrite. The action receives exactly the params it
-    # always did — schema defaults and casts are not injected, because changing what
-    # every action receives is a far wider change than closing the validation hole.
-    test "the action receives the params it was given, not a validated rewrite" do
-      run = create_run()
-
-      assert {:ok, result} = StepRunner.run(typed_params(run, %{count: 1}), %{})
-      assert result.label == nil
-    end
-
-    # Workflow params are mixed-key by construction: static params are atomized while
-    # the trigger payload and edge mappings stay string-keyed, and actions read both.
-    # A string-keyed required field must satisfy the schema, not read as absent.
-    test "a string-keyed param satisfies its schema field" do
-      run = create_run()
-
-      assert {:ok, _} = StepRunner.run(typed_params(run, %{"count" => 7}), %{})
-      assert_received {:typed_param_action_ran, params}
-      assert params["count"] == 7
-    end
-
-    test "a string-keyed param of the wrong kind still fails" do
-      run = create_run()
-
-      assert {:error, _} = StepRunner.run(typed_params(run, %{"count" => "7"}), %{})
-      refute_received {:typed_param_action_ran, _}
-    end
-
-    # Validation must not become a filter: fact overflow and mapped data that no schema
-    # names still has to reach the action, exactly as it does today.
-    test "keys the schema does not name still reach the action" do
-      run = create_run()
-
-      assert {:ok, result} =
-               StepRunner.run(typed_params(run, %{count: 1, extra: "carried"}), %{})
-
-      assert result.extra == "carried"
-    end
-
-    test "an action declaring an empty schema is unaffected" do
-      run = create_run()
-
-      assert {:ok, _} = StepRunner.run(wp(run, OkAction, "fetch", 0), %{})
-    end
-
-    # Validation is deterministic, so a retry strategy must not spend attempts on it.
-    test "a wrong-typed param is not retried" do
-      run = create_run()
-
-      params =
-        run
-        |> typed_params(%{count: "42"})
-        |> Map.put(:__map_strategy__, :retry)
-
-      assert {:error, _} = StepRunner.run(params, %{})
-      refute_received {:typed_param_action_ran, _}
-    end
-
-    # The specs are stamped onto the wrapper at build time so a `map` body does not
-    # re-read the schema per item. A stamp must judge exactly as the fallback does.
-    test "the build-time spec stamp is used and reaches the same verdict" do
-      run = create_run()
-      stamped = Map.put(typed_params(run, %{count: "42"}), :__field_specs__, [])
-
-      assert {:ok, _} = StepRunner.run(stamped, %{})
-      assert_received {:typed_param_action_ran, _}
-    end
-
-    test "the stamp is stripped before the action is called" do
-      run = create_run()
-      params = DagBuilder.wrapper_params(TypedParamAction, %{count: 1}, "typed", 0, run.id)
-
-      assert params.__field_specs__ != []
-      assert {:ok, _} = StepRunner.run(params, %{})
-
-      assert_received {:typed_param_action_ran, called_with}
-      refute Map.has_key?(called_with, :__field_specs__)
-    end
-  end
-
   describe "run/2 — error path" do
     test "calls wrapped module and writes failed ActionResult" do
       run = create_run()

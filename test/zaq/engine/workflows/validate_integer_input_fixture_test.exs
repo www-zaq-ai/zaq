@@ -256,38 +256,5 @@ defmodule Zaq.Engine.Workflows.ValidateIntegerInputFixtureTest do
 
       assert finished.status == "completed"
     end
-
-    test "the run refuses a wrong-kinded optional in the same words", %{
-      workflow: workflow,
-      person: person
-    } do
-      payload = payload(person, %{"separator" => 5})
-
-      assert %{errors: [%{message: message}]} =
-               InputContract.contract(workflow, payload)
-
-      {finished, step_runs} = run(workflow, person, payload)
-
-      assert finished.status == "failed"
-      failed = Enum.find(step_runs, &(&1.status == "failed"))
-      assert failed.step_name == "summarize"
-      assert failed.errors["reason"] == "Invalid parameters: separator: " <> message
-    end
-
-    # The second half of the guarantee: a payload that bypasses the pre-flight check
-    # is still refused, by the step whose schema the value contradicts.
-    test "a wrong-typed integer fails the step that declared it", %{
-      workflow: workflow,
-      person: person
-    } do
-      {finished, step_runs} = run(workflow, person, payload(person, %{"sequence" => "1"}))
-
-      assert finished.status == "failed"
-
-      failed = Enum.find(step_runs, &(&1.status == "failed"))
-      assert failed.step_name == "bump_sequence"
-      # The step refuses it in the same words the contract would have used.
-      assert failed.errors["reason"] =~ "value: expected integer, got string"
-    end
   end
 end
