@@ -70,8 +70,10 @@ defmodule Zaq.Permissions do
   """
   @spec revoke(struct(), ResourcePermission.t(), keyword()) ::
           :ok | {:error, Ecto.Changeset.t()}
-  def revoke(_resource, %ResourcePermission{} = permission, _opts \\ []) do
-    case Repo.delete(permission) do
+  def revoke(_resource, %ResourcePermission{} = permission, opts \\ []) do
+    revoker = Keyword.get(opts, :revoker, Zaq.Permissions.PermissionRevoker)
+
+    case revoker.delete(permission) do
       {:ok, _} -> :ok
       {:error, changeset} -> {:error, changeset}
     end
@@ -128,10 +130,10 @@ defmodule Zaq.Permissions do
 
   @doc "Revokes direct public access from a resource."
   @spec revoke_public(struct(), keyword()) :: :ok | {:error, term()}
-  def revoke_public(resource, _opts \\ []) do
+  def revoke_public(resource, opts \\ []) do
     case direct_public_permission(resource) do
       nil -> :ok
-      permission -> revoke(resource, permission)
+      permission -> revoke(resource, permission, opts)
     end
   end
 
@@ -155,16 +157,16 @@ defmodule Zaq.Permissions do
   @doc "Replaces all direct grants on a resource with the desired grant maps."
   @spec replace(struct(), [map()], keyword()) ::
           {:ok, [ResourcePermission.t()]} | {:error, term()}
-  def replace(resource, desired_grants, _opts \\ []) when is_list(desired_grants) do
+  def replace(resource, desired_grants, opts \\ []) when is_list(desired_grants) do
     Repo.transaction(fn ->
-      revoke_existing(resource)
+      revoke_existing(resource, opts)
       grant_desired(resource, desired_grants)
     end)
   end
 
-  defp revoke_existing(resource) do
+  defp revoke_existing(resource, opts) do
     Enum.each(list(resource), fn permission ->
-      case revoke(resource, permission) do
+      case revoke(resource, permission, opts) do
         :ok -> :ok
         {:error, reason} -> Repo.rollback(reason)
       end

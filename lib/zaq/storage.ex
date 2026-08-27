@@ -27,45 +27,49 @@ defmodule Zaq.Storage do
   )
 
   @doc "Returns configured storage volumes as `%{name => abs_path}`."
-  def list_volumes(opts \\ []), do: FileExplorer.list_volumes(opts)
+  def list_volumes(opts \\ []), do: file_explorer(opts).list_volumes(opts)
 
   @doc "Returns true when at least one volume is explicitly configured."
-  def volumes_configured?(opts \\ []), do: FileExplorer.volumes_configured?(opts)
+  def volumes_configured?(opts \\ []), do: file_explorer(opts).volumes_configured?(opts)
 
   @doc "Lists entries in a volume directory."
-  def list_entries(volume_name, path, opts \\ []), do: FileExplorer.list(volume_name, path, opts)
+  def list_entries(volume_name, path, opts \\ []),
+    do: file_explorer(opts).list(volume_name, path, opts)
 
   @doc "Returns metadata for one storage entry."
   def file_info(volume_name, path, opts \\ [])
-  def file_info(nil, path, opts), do: FileExplorer.file_info(path, opts)
-  def file_info(volume_name, path, opts), do: FileExplorer.file_info(volume_name, path, opts)
+  def file_info(nil, path, opts), do: file_explorer(opts).file_info(path, opts)
+
+  def file_info(volume_name, path, opts),
+    do: file_explorer(opts).file_info(volume_name, path, opts)
 
   @doc "Creates a directory in a volume."
   def create_directory(volume_name, path, opts \\ []),
-    do: FileExplorer.create_directory(volume_name, path, opts)
+    do: file_explorer(opts).create_directory(volume_name, path, opts)
 
   @doc "Writes a file without deduplicating the path."
   def save_file(volume_name, path, content, opts \\ []),
-    do: FileExplorer.upload(volume_name, path, content, opts)
+    do: file_explorer(opts).upload(volume_name, path, content, opts)
 
   @doc "Writes a file, deduplicating the path when a file already exists."
   def upload_file(volume_name, path, content, opts \\ []),
-    do: FileExplorer.upload_unique(volume_name, path, content, opts)
+    do: file_explorer(opts).upload_unique(volume_name, path, content, opts)
 
   @doc "Deletes a file."
-  def delete_file(volume_name, path, opts \\ []), do: FileExplorer.delete(volume_name, path, opts)
+  def delete_file(volume_name, path, opts \\ []),
+    do: file_explorer(opts).delete(volume_name, path, opts)
 
   @doc "Deletes a directory recursively."
   def delete_directory(volume_name, path, opts \\ []),
-    do: FileExplorer.delete_directory(volume_name, path, opts)
+    do: file_explorer(opts).delete_directory(volume_name, path, opts)
 
   @doc "Renames or moves a storage entry inside one volume."
   def rename_entry(volume_name, old_path, new_path, opts \\ []),
-    do: FileExplorer.rename(volume_name, old_path, new_path, opts)
+    do: file_explorer(opts).rename(volume_name, old_path, new_path, opts)
 
   @doc "Resolves a volume-relative path to an absolute path."
   def resolve_path(volume_name, path, opts \\ []),
-    do: FileExplorer.resolve_path(volume_name, path, opts)
+    do: file_explorer(opts).resolve_path(volume_name, path, opts)
 
   @doc "Returns the storage entry for a source locator."
   @spec describe_document(String.t()) :: {:ok, Entry.t()} | {:error, term()}
@@ -163,15 +167,18 @@ defmodule Zaq.Storage do
 
   @doc "Lists source-scoped grants for a storage entry."
   @spec list_document_grants(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def list_document_grants(file_id, _opts \\ []) when is_binary(file_id) do
-    with %EntryCatalog{} = entry <- EntryCatalog.by_id(file_id) || {:error, :not_found} do
-      ancestors = entry_ancestor_resources(entry.id)
+  def list_document_grants(file_id, opts \\ []) when is_binary(file_id) do
+    catalog = entry_catalog(opts)
+    permissions = permissions(opts)
+
+    with %EntryCatalog{} = entry <- catalog.by_id(file_id) || {:error, :not_found} do
+      ancestors = entry_ancestor_resources(entry.id, opts)
 
       grants =
         entry.id
         |> storage_resource()
-        |> Permissions.list_effective(ancestors: ancestors)
-        |> Enum.map(&permission_grant/1)
+        |> permissions.list_effective(Keyword.put(opts, :ancestors, ancestors))
+        |> Enum.map(&permission_grant(&1, opts))
 
       {:ok,
        %{
@@ -182,18 +189,24 @@ defmodule Zaq.Storage do
 
   @doc "Grants source-scoped access to a storage entry."
   @spec grant_document_access(String.t(), map()) :: {:ok, term()} | {:error, term()}
-  def grant_document_access(file_id, attrs) when is_binary(file_id) and is_map(attrs),
-    do: file_id |> storage_resource() |> Permissions.grant(attrs)
+  def grant_document_access(file_id, attrs, opts \\ []) when is_binary(file_id) and is_map(attrs),
+    do: file_id |> storage_resource() |> permissions(opts).grant(attrs)
 
   @doc "Replaces direct source-scoped grants for a storage entry."
   @spec replace_document_grants(String.t(), [map()], keyword()) :: {:ok, map()} | {:error, term()}
   def replace_document_grants(file_id, grants, opts \\ [])
       when is_binary(file_id) and is_list(grants) do
-    with %EntryCatalog{} = entry <- EntryCatalog.by_id(file_id) || {:error, :not_found},
+    catalog = entry_catalog(opts)
+
+    with %EntryCatalog{} = entry <- catalog.by_id(file_id) || {:error, :not_found},
          :ok <- authorize_manage_entry(entry, opts),
          {:ok, _direct} <-
-           Permissions.replace(storage_resource(file_id), normalize_grants(grants)) do
-      affected_ids = [file_id | Enum.map(EntryCatalog.descendants(file_id), & &1.id)]
+           permissions(opts).replace(
+             storage_resource(file_id),
+             normalize_grants(grants, opts),
+             opts
+           ) do
+      affected_ids = [file_id | Enum.map(catalog.descendants(file_id), & &1.id)]
       {:ok, %{status: "updated", file_id: file_id, affected_file_ids: affected_ids}}
     end
   end
@@ -238,7 +251,7 @@ defmodule Zaq.Storage do
     with {:ok, volumes} <- existing_volume_roots(opts) do
       entries =
         Enum.map(volumes, fn {volume, stat} ->
-          catalog_entry = catalog_volume_root(volume)
+          catalog_entry = catalog_volume_root(volume, opts)
 
           %Entry{
             id: catalog_entry.id,
@@ -297,10 +310,10 @@ defmodule Zaq.Storage do
     end)
   end
 
-  defp catalog_volume_root(volume) do
-    case EntryCatalog.ensure(volume, ".", :directory) do
+  defp catalog_volume_root(volume, opts) do
+    case entry_catalog(opts).ensure(volume, ".", :directory) do
       {:ok, entry} -> entry
-      {:error, _reason} -> %{id: volume, parent_id: nil}
+      {:error, _reason} -> %{id: nil, parent_id: nil}
     end
   end
 
@@ -343,25 +356,29 @@ defmodule Zaq.Storage do
           truncated?: false
         })
 
-      {:ok, maybe_put_permissions(page, params)}
+      {:ok, maybe_put_permissions(page, params, opts)}
     end
   end
 
-  defp maybe_put_permissions(%{entries: entries} = page, params) do
+  defp maybe_put_permissions(%{entries: entries} = page, params, opts) do
     if MapUtils.present_value(params, "include_permissions") == true do
-      Map.put(page, :permissions_by_id, Map.new(entries, &{&1.id, permissions_for_entry(&1)}))
+      Map.put(
+        page,
+        :permissions_by_id,
+        Map.new(entries, &{&1.id, permissions_for_entry(&1, opts)})
+      )
     else
       page
     end
   end
 
-  defp permissions_for_entry(%Entry{id: id}) when is_binary(id) do
-    ancestors = entry_ancestor_resources(id)
+  defp permissions_for_entry(%Entry{id: id}, opts) when is_binary(id) do
+    ancestors = entry_ancestor_resources(id, opts)
 
     id
     |> storage_resource()
-    |> Permissions.list_effective(ancestors: ancestors)
-    |> Enum.map(&permission_grant/1)
+    |> permissions(opts).list_effective(Keyword.put(opts, :ancestors, ancestors))
+    |> Enum.map(&permission_grant(&1, opts))
     |> Enum.map(fn grant ->
       %{
         id: grant.id,
@@ -375,7 +392,7 @@ defmodule Zaq.Storage do
     end)
   end
 
-  defp permissions_for_entry(_entry), do: []
+  defp permissions_for_entry(_entry, _opts), do: []
 
   defp page_size(params) do
     raw = MapUtils.present_value(params, "page_size") || 100
@@ -439,7 +456,7 @@ defmodule Zaq.Storage do
          :ok <- authorize_entry(entry, opts),
          {:ok, absolute_path} <- resolve_path(volume_name, entry.relative_path, opts),
          {:ok, binary} <- File.read(absolute_path) do
-      {:ok, content_answer(entry, binary, request)}
+      {:ok, content_answer(entry, binary, request, opts)}
     end
   end
 
@@ -498,7 +515,7 @@ defmodule Zaq.Storage do
   defp resolve_entry_ref(ref, opts) when is_binary(ref) do
     with true <- dashed_uuid?(ref),
          {:ok, _uuid} <- Ecto.UUID.cast(ref),
-         %EntryCatalog{volume: volume, relative_path: path} <- EntryCatalog.by_id(ref) do
+         %EntryCatalog{volume: volume, relative_path: path} <- entry_catalog(opts).by_id(ref) do
       {:ok, {volume, path}}
     else
       _ -> {:ok, SourcePath.split_source(ref, nil, nil, opts)}
@@ -512,17 +529,17 @@ defmodule Zaq.Storage do
         ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
       )
 
-  defp content_answer(%Entry{} = entry, binary, request) do
-    if base64?(entry, binary, request) do
+  defp content_answer(%Entry{} = entry, binary, request, opts) do
+    if base64?(entry, binary, request, opts) do
       %{content: Base.encode64(binary), encoding: "base64"}
     else
       %{content: binary, encoding: nil}
     end
   end
 
-  defp base64?(%Entry{name: name}, binary, request) do
+  defp base64?(%Entry{name: name}, binary, request, opts) do
     MapUtils.present_value(request, "encoding") == "base64" or
-      not (textual_mime?(MIME.from_path(name)) and String.valid?(binary))
+      not (textual_mime?(mime(opts).from_path(name)) and String.valid?(binary))
   end
 
   defp textual_mime?(mime) when is_binary(mime),
@@ -589,8 +606,11 @@ defmodule Zaq.Storage do
       Keyword.get(opts, :skip_permissions, false) ->
         :ok
 
-      Permissions.can?(person_from_opts(opts), :read, resource,
-        ancestors: entry_ancestor_resources(entry.id)
+      permissions(opts).can?(
+        person_from_opts(opts),
+        :read,
+        resource,
+        Keyword.put(opts, :ancestors, entry_ancestor_resources(entry.id, opts))
       ) ->
         :ok
 
@@ -599,15 +619,20 @@ defmodule Zaq.Storage do
     end
   end
 
-  defp authorize_entry(_entry, _opts), do: {:error, :unauthorized}
+  defp authorize_entry(_entry, opts) do
+    if Keyword.get(opts, :skip_permissions, false), do: :ok, else: {:error, :unauthorized}
+  end
 
   defp authorize_manage_entry(%EntryCatalog{id: id}, opts) do
     cond do
       Keyword.get(opts, :skip_permissions, false) ->
         :ok
 
-      Permissions.can?(person_from_opts(opts), :manage, storage_resource(id),
-        ancestors: entry_ancestor_resources(id)
+      permissions(opts).can?(
+        person_from_opts(opts),
+        :manage,
+        storage_resource(id),
+        Keyword.put(opts, :ancestors, entry_ancestor_resources(id, opts))
       ) ->
         :ok
 
@@ -623,37 +648,43 @@ defmodule Zaq.Storage do
     |> People.get_person()
   end
 
-  defp entry_ancestor_resources(entry_id) do
+  defp entry_ancestor_resources(entry_id, opts) do
     entry_id
-    |> EntryCatalog.ancestors()
+    |> entry_catalog(opts).ancestors()
     |> Enum.map(&storage_resource(&1.id))
   end
 
-  defp normalize_grants(grants) do
+  defp normalize_grants(grants, opts) do
     grants
-    |> Enum.map(&normalize_grant/1)
+    |> Enum.map(&normalize_grant(&1, opts))
     |> Enum.reject(&is_nil/1)
   end
 
-  defp normalize_grant(%{"type" => "public"}),
-    do: %{team_id: Permissions.everyone_team_id(), access_rights: ["read"]}
+  defp normalize_grant(%{"type" => "public"}, opts),
+    do: %{team_id: permissions(opts).everyone_team_id(), access_rights: ["read"]}
 
-  defp normalize_grant(%{type: "public"}),
-    do: %{team_id: Permissions.everyone_team_id(), access_rights: ["read"]}
+  defp normalize_grant(%{type: "public"}, opts),
+    do: %{team_id: permissions(opts).everyone_team_id(), access_rights: ["read"]}
 
-  defp normalize_grant(%{"type" => "person", "target_id" => id, "access_rights" => rights}),
-    do: %{person_id: parse_int(id), access_rights: normalize_rights(rights)}
+  defp normalize_grant(%{type: :public}, opts),
+    do: %{team_id: permissions(opts).everyone_team_id(), access_rights: ["read"]}
 
-  defp normalize_grant(%{"type" => "team", "target_id" => id, "access_rights" => rights}),
+  defp normalize_grant(
+         %{"type" => "person", "target_id" => id, "access_rights" => rights},
+         _opts
+       ),
+       do: %{person_id: parse_int(id), access_rights: normalize_rights(rights)}
+
+  defp normalize_grant(%{"type" => "team", "target_id" => id, "access_rights" => rights}, _opts),
     do: %{team_id: parse_int(id), access_rights: normalize_rights(rights)}
 
-  defp normalize_grant(%{type: :person, id: id, access_rights: rights}),
+  defp normalize_grant(%{type: :person, id: id, access_rights: rights}, _opts),
     do: %{person_id: parse_int(id), access_rights: normalize_rights(rights)}
 
-  defp normalize_grant(%{type: :team, id: id, access_rights: rights}),
+  defp normalize_grant(%{type: :team, id: id, access_rights: rights}, _opts),
     do: %{team_id: parse_int(id), access_rights: normalize_rights(rights)}
 
-  defp normalize_grant(_grant), do: nil
+  defp normalize_grant(_grant, _opts), do: nil
 
   defp parse_int(value) when is_integer(value), do: value
   defp parse_int(value) when is_binary(value), do: String.to_integer(value)
@@ -661,15 +692,15 @@ defmodule Zaq.Storage do
   defp normalize_rights(rights) when is_list(rights), do: Enum.map(rights, &to_string/1)
   defp normalize_rights(_rights), do: ["read"]
 
-  defp permission_grant(%{permission: permission, origin: origin, inherited?: inherited?}) do
+  defp permission_grant(%{permission: permission, origin: origin, inherited?: inherited?}, opts) do
     permission
-    |> permission_grant()
+    |> permission_grant(opts)
     |> Map.put(:inherited?, inherited?)
     |> Map.put(:origin_resource_id, origin.id)
   end
 
-  defp permission_grant(permission) do
-    public? = permission.team_id == Permissions.everyone_team_id()
+  defp permission_grant(permission, opts) do
+    public? = permission.team_id == permissions(opts).everyone_team_id()
 
     %{
       id: permission.id,
@@ -777,4 +808,9 @@ defmodule Zaq.Storage do
   end
 
   defp root_path?(params), do: MapUtils.present_value(params, "path") == "/"
+
+  defp file_explorer(opts), do: Keyword.get(opts, :file_explorer_module, FileExplorer)
+  defp entry_catalog(opts), do: Keyword.get(opts, :entry_catalog_module, EntryCatalog)
+  defp permissions(opts), do: Keyword.get(opts, :permissions_module, Permissions)
+  defp mime(opts), do: Keyword.get(opts, :mime_module, MIME)
 end

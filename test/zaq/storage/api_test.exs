@@ -5,6 +5,7 @@ defmodule Zaq.Storage.ApiTest do
   alias Zaq.Event
   alias Zaq.Permissions
   alias Zaq.Storage.Api
+  alias Zaq.Storage.EntryCatalog
   alias Zaq.Storage.StorageEntry
 
   defmodule TestConfig do
@@ -189,6 +190,35 @@ defmodule Zaq.Storage.ApiTest do
       :ok,
       %{effective_permissions: [expected]}
     })
+  end
+
+  test "replace_document_grants forwards actor context and accepts inherited manage access", %{
+    storage_opts: opts
+  } do
+    {:ok, parent} = EntryCatalog.ensure("archives", "parent", "directory")
+    {:ok, child} = EntryCatalog.ensure("archives", "parent/child.md", "file")
+    {:ok, person} = People.create_person(%{full_name: "Inherited Storage Manager"})
+    {:ok, team} = People.create_team(%{name: "Direct Storage Team"})
+
+    assert {:ok, _} =
+             Permissions.grant(%StorageEntry{id: parent.id}, %{
+               person_id: person.id,
+               access_rights: ["manage"]
+             })
+
+    request = %{
+      file_id: child.id,
+      grants: [%{type: :team, id: team.id, access_rights: [:read]}]
+    }
+
+    event = event(request, opts, %{person_id: person.id})
+    result = Api.handle_event(event, :replace_document_grants, nil)
+
+    assert {:ok, %{status: "updated", file_id: id}} = result.response
+    assert id == child.id
+
+    assert {:ok, %{effective_permissions: grants}} = Zaq.Storage.list_document_grants(child.id)
+    assert Enum.any?(grants, &(&1.type == "team" and &1.target_id == to_string(team.id)))
   end
 
   test "searches documents with string actor permission bypass", %{

@@ -1348,7 +1348,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp ingestion_call(fun, args) do
-    NodeRouter.invoke(:ingestion, Ingestion, fun, args)
+    call_module = Zaq.Config.get(:zaq, :ingestion_call_module, NodeRouter, [])
+    call_module.invoke(:ingestion, Ingestion, fun, args)
   end
 
   defp dispatch_list_files(provider, params, socket) do
@@ -1533,7 +1534,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp dispatch_source_scopes(provider, params) do
-    opts = [action: :data_source_list_source_scopes]
+    opts = [
+      action: :data_source_list_source_scopes,
+      data_source_bridge_module: data_source_bridge_module()
+    ]
+
     event = Event.new(%{provider: provider, params: params}, :channels, opts: opts)
 
     NodeRouter.dispatch(event).response

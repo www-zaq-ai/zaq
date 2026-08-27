@@ -15,6 +15,53 @@ defmodule Zaq.StorageTest do
     def get(:zaq, Zaq.Storage, _default, opts), do: Keyword.fetch!(opts, :storage_config)
   end
 
+  defmodule ErrorExplorer do
+    alias Zaq.Storage.FileExplorer
+
+    def list_volumes(opts), do: FileExplorer.list_volumes(opts)
+    def list("archives", ".", _opts), do: {:error, :eacces}
+  end
+
+  defmodule UncataloguedCatalog do
+    def ensure(_volume, _path, _kind), do: {:error, :unavailable}
+  end
+
+  defmodule UnavailableMIME do
+    def from_path(_path), do: nil
+  end
+
+  defmodule NilEntryExplorer do
+    alias Zaq.Storage.FileExplorer
+    alias Zaq.Storage.FileExplorer.Entry
+
+    def list_volumes(opts), do: FileExplorer.list_volumes(opts)
+
+    def file_info(_volume, _path, _opts),
+      do: {:ok, %Entry{name: "secret.md", type: :file, id: nil}}
+  end
+
+  defmodule CapturePermissions do
+    def everyone_team_id, do: 999
+
+    def replace(_resource, grants, _opts) do
+      send(self(), {:normalized_grants, grants})
+      {:ok, []}
+    end
+  end
+
+  defmodule UnavailableTargetPermissions do
+    def list_effective(_resource, _opts),
+      do: [
+        %{
+          permission: %{id: 7, team_id: 42, person_id: nil, access_rights: ["read"]},
+          origin: %{id: "origin"},
+          inherited?: false
+        }
+      ]
+
+    def everyone_team_id, do: 999
+  end
+
   setup do
     root = Path.join(System.tmp_dir!(), "storage_test_#{System.unique_integer([:positive])}")
     File.rm_rf!(root)
@@ -455,6 +502,9 @@ defmodule Zaq.StorageTest do
     assert {:ok, %{entry: moved}} =
              Storage.update_document(%{"file_id" => entry.id, "name" => "renamed.md"}, opts)
 
+    refute File.exists?(Path.join(root, "draft.md"))
+    assert File.read!(Path.join(root, "renamed.md")) == "new"
+    assert moved.id == entry.id
     assert moved.relative_path == "renamed.md"
 
     assert {:error, :volume_required} =
@@ -488,6 +538,29 @@ defmodule Zaq.StorageTest do
              )
 
     assert {:error, :file_id_required} = Storage.materialize_document(%{"file_id" => ""}, opts)
+  end
+
+  test "valid UTF-8 content is base64 encoded when MIME resolution is unavailable", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.write!(Path.join(root, "text.md"), "héllo")
+    assert {:ok, entry} = Storage.file_info("archives", "text.md", opts)
+
+    assert {:ok, %{content: encoded, encoding: "base64"}} =
+             Storage.materialize_document(
+               %{"file_id" => entry.id},
+               opts
+               |> Keyword.put(:skip_permissions, true)
+               |> Keyword.put(:mime_module, UnavailableMIME)
+             )
+
+    assert Base.decode64!(encoded) == "héllo"
+  end
+
+  test "entries without stable IDs are unauthorized", %{storage_opts: opts} do
+    opts = Keyword.put(opts, :file_explorer_module, NilEntryExplorer)
+    assert {:error, :unauthorized} = Storage.describe_document("archives/secret.md", opts)
   end
 
   test "search_documents returns an empty page when a configured root is missing", %{
@@ -533,6 +606,28 @@ defmodule Zaq.StorageTest do
 
     assert {:error, {:volume_unavailable, "broken", :eloop}} =
              Storage.list_documents(%{}, Keyword.put(opts, :skip_permissions, true))
+  end
+
+  test "root listing reports deterministic explorer errors", %{storage_opts: opts} do
+    opts = Keyword.put(opts, :file_explorer_module, ErrorExplorer)
+
+    assert {:error, {:volume_unavailable, "archives", :eacces}} =
+             Storage.list_documents(%{"path" => "/"}, opts)
+  end
+
+  test "uncatalogued roots remain listable and have no permissions", %{storage_opts: opts} do
+    opts = Keyword.put(opts, :entry_catalog_module, UncataloguedCatalog)
+
+    assert {:ok, page} =
+             Storage.list_documents(
+               %{"include_permissions" => true},
+               Keyword.put(opts, :skip_permissions, true)
+             )
+
+    [root] = page.entries
+    assert root.id == nil
+    assert root.parent_id == nil
+    assert page.permissions_by_id[nil] == []
   end
 
   test "entries keep a stable id across ZAQ-managed rename", %{root: root, storage_opts: opts} do
@@ -924,6 +1019,94 @@ defmodule Zaq.StorageTest do
 
     assert {:ok, %{effective_permissions: grants}} = Storage.list_document_grants(child.id)
     assert Enum.any?(grants, &(&1.type == "person" and &1.inherited? == true))
+  end
+
+  test "replace_document_grants denies missing manage permission", %{storage_opts: opts} do
+    {:ok, entry} = EntryCatalog.ensure("archives", "protected.md", "file")
+
+    {:ok, existing} =
+      Permissions.grant(%StorageEntry{id: entry.id}, %{
+        team_id: Permissions.everyone_team_id(),
+        access_rights: ["read"]
+      })
+
+    assert {:error, :unauthorized} = Storage.replace_document_grants(entry.id, [], opts)
+    assert Repo.get(Permissions.ResourcePermission, existing.id) != nil
+  end
+
+  test "replace grants normalizes every accepted input shape", %{storage_opts: opts} do
+    {:ok, entry} = EntryCatalog.ensure("archives", "normalize.md", "file")
+
+    opts =
+      opts
+      |> Keyword.put(:skip_permissions, true)
+      |> Keyword.put(:permissions_module, CapturePermissions)
+
+    grants = [
+      %{type: :public},
+      %{"type" => "team", "target_id" => "12", "access_rights" => ["read", "write"]},
+      %{type: :person, id: 4, access_rights: [:read, :write]},
+      %{type: :team, id: "13", access_rights: :manage},
+      %{unsupported: true}
+    ]
+
+    assert {:ok, _} = Storage.replace_document_grants(entry.id, grants, opts)
+    assert_receive {:normalized_grants, normalized}
+
+    assert normalized == [
+             %{team_id: 999, access_rights: ["read"]},
+             %{team_id: 12, access_rights: ["read", "write"]},
+             %{person_id: 4, access_rights: ["read", "write"]},
+             %{team_id: 13, access_rights: ["read"]}
+           ]
+  end
+
+  property "atom-key person rights are stringified", %{storage_opts: opts} do
+    check all(rights <- list_of(atom(:alphanumeric), min_length: 1, max_length: 4), max_runs: 8) do
+      {:ok, entry} =
+        EntryCatalog.ensure("archives", "property-#{System.unique_integer()}.md", "file")
+
+      test_opts =
+        opts
+        |> Keyword.put(:skip_permissions, true)
+        |> Keyword.put(:permissions_module, CapturePermissions)
+
+      assert {:ok, _} =
+               Storage.replace_document_grants(
+                 entry.id,
+                 [%{type: :person, id: 4, access_rights: rights}],
+                 test_opts
+               )
+
+      assert_receive {:normalized_grants, [%{access_rights: stringified}]}
+      assert stringified == Enum.map(rights, &to_string/1)
+    end
+  end
+
+  test "permission formatting tolerates unavailable target preload", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.write!(Path.join(root, "unavailable.md"), "content")
+
+    assert {:ok, entry} = Storage.file_info("archives", "unavailable.md", opts)
+
+    opts =
+      opts
+      |> Keyword.put(:skip_permissions, true)
+      |> Keyword.put(:permissions_module, UnavailableTargetPermissions)
+
+    assert {:ok, page} =
+             Storage.list_documents(
+               %{"filters" => %{"parent" => "archives"}, "include_permissions" => true},
+               opts
+             )
+
+    [grant] = page.permissions_by_id[entry.id]
+    assert grant.type == "team"
+    assert grant.target_id == "42"
+    assert grant.access_rights == ["read"]
+    assert grant.name == nil
   end
 
   defp person_fixture do

@@ -1,10 +1,15 @@
 defmodule Zaq.PermissionsTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
+
+  import Mox
+  setup :verify_on_exit!
 
   alias Zaq.Accounts.People
   alias Zaq.Engine.Workflows.Workflow
   alias Zaq.Ingestion.Document
   alias Zaq.Permissions
+  alias Zaq.Permissions.PermissionRevokerMock
   alias Zaq.Permissions.ResourcePermission
 
   defp create_person do
@@ -220,6 +225,115 @@ defmodule Zaq.PermissionsTest do
       {:ok, perm} = Permissions.grant(workflow, %{person_id: person.id, access_rights: ["run"]})
 
       assert :ok = Permissions.revoke(workflow, perm)
+    end
+
+    test "returns the revoker changeset and leaves the row intact" do
+      person = create_person()
+      workflow = fake_workflow()
+      {:ok, perm} = Permissions.grant(workflow, %{person_id: person.id, access_rights: ["run"]})
+      changeset = ResourcePermission.changeset(perm, %{}) |> add_error(:base, "cannot revoke")
+
+      expect(PermissionRevokerMock, :delete, fn ^perm -> {:error, changeset} end)
+
+      assert {:error, ^changeset} =
+               Permissions.revoke(workflow, perm, revoker: PermissionRevokerMock)
+
+      assert Repo.get(ResourcePermission, perm.id)
+    end
+  end
+
+  describe "revoke_public/2" do
+    test "is a no-op when no public grant exists" do
+      workflow = fake_workflow()
+      team = create_team()
+
+      {:ok, permission} =
+        Permissions.grant(workflow, %{team_id: team.id, access_rights: ["read"]})
+
+      assert :ok = Permissions.revoke_public(workflow)
+      assert Repo.get(ResourcePermission, permission.id)
+    end
+
+    test "removes the public grant without removing private grants" do
+      workflow = fake_workflow()
+      team = create_team()
+
+      {:ok, private_permission} =
+        Permissions.grant(workflow, %{team_id: team.id, access_rights: ["read"]})
+
+      {:ok, public_permission} = Permissions.grant_public(workflow)
+      assert Permissions.public?(workflow)
+      assert Permissions.can?(nil, :read, workflow)
+
+      assert :ok = Permissions.revoke_public(workflow)
+      refute Permissions.public?(workflow)
+      refute Permissions.can?(nil, :read, workflow)
+      assert Repo.get(ResourcePermission, private_permission.id)
+      assert Repo.get(ResourcePermission, public_permission.id) == nil
+    end
+  end
+
+  describe "replace/3 rollback" do
+    test "restores all original grants when a deletion fails" do
+      workflow = fake_workflow()
+      person = create_person()
+      team = create_team()
+      {:ok, first} = Permissions.grant(workflow, %{person_id: person.id, access_rights: ["run"]})
+      {:ok, second} = Permissions.grant(workflow, %{team_id: team.id, access_rights: ["view"]})
+      changeset = ResourcePermission.changeset(second, %{}) |> add_error(:base, "cannot revoke")
+
+      expect(PermissionRevokerMock, :delete, 2, fn permission ->
+        case Process.get(:permission_revocations, 0) do
+          0 ->
+            Process.put(:permission_revocations, 1)
+            Repo.delete(permission)
+
+          _ ->
+            {:error, changeset}
+        end
+      end)
+
+      desired_person = create_person()
+
+      assert {:error, ^changeset} =
+               Permissions.replace(
+                 workflow,
+                 [%{person_id: desired_person.id, access_rights: ["read"]}],
+                 revoker: PermissionRevokerMock
+               )
+
+      permissions = Permissions.list(workflow)
+
+      assert Enum.map(permissions, & &1.id) |> Enum.sort() ==
+               Enum.map([first, second], & &1.id) |> Enum.sort()
+
+      assert Enum.map(permissions, &{&1.person_id, &1.team_id, &1.access_rights}) |> Enum.sort() ==
+               Enum.map([first, second], &{&1.person_id, &1.team_id, &1.access_rights})
+               |> Enum.sort()
+    end
+  end
+
+  property "replace/2 is atomic for an invalid grant after a valid prefix" do
+    check all(valid_prefix_length <- integer(0..3), max_runs: 10) do
+      workflow = fake_workflow()
+      person = create_person()
+
+      {:ok, original} =
+        Permissions.grant(workflow, %{person_id: person.id, access_rights: ["run"]})
+
+      valid_prefix =
+        for _ <- Enum.take(1..3, valid_prefix_length) do
+          team = create_team()
+
+          %{team_id: team.id, access_rights: ["read"]}
+        end
+
+      desired = valid_prefix ++ [%{access_rights: ["read"]}]
+
+      assert {:error, changeset} = Permissions.replace(workflow, desired)
+      assert changeset.errors[:person_id]
+      assert Repo.get(ResourcePermission, original.id).access_rights == ["run"]
+      assert Enum.map(Permissions.list(workflow), & &1.id) == [original.id]
     end
   end
 end
