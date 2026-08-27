@@ -22,7 +22,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   import ZaqWeb.Components.DesignSystem.IngestionFileIcon, only: [file_icon: 1]
 
   import ZaqWeb.Components.DesignSystem.IngestionFileStatus
-  import ZaqWeb.Helpers.DateFormat, only: [format_datetime: 1]
 
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon, as: IngFileIcon
   alias ZaqWeb.Helpers.SizeFormat
@@ -296,9 +295,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               </svg>
               stale
             </.table_badge>
-            <span class="font-mono text-[0.6rem] text-black/30 whitespace-nowrap">
-              {format_datetime(status.ingested_at)}
-            </span>
+            <.table_datetime value={status.ingested_at} />
           </div>
         <% status.ingested_at != nil -> %>
           <div class="flex flex-col gap-0.5">
@@ -314,9 +311,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               </svg>
               ingested
             </.table_badge>
-            <span class="font-mono text-[0.6rem] text-black/30 whitespace-nowrap">
-              {format_datetime(status.ingested_at)}
-            </span>
+            <.table_datetime value={status.ingested_at} />
           </div>
         <% true -> %>
           <span class="font-mono text-[0.65rem] text-black/20">—</span>

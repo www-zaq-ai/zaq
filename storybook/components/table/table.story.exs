@@ -139,41 +139,132 @@ defmodule Storybook.Components.Table.Story do
         title="Badges, datetime, actions column"
         description="StatusPill badges, right-aligned datetime, always-visible actions."
       >
-        <.table id="story-table-rich-cells">
-          <:head>
-            <.table_head_row>
-              <.table_cell element={:th}><.table_text label="User" tone={:tertiary} /></.table_cell>
-              <.table_cell element={:th}><.table_text label="Status" tone={:tertiary} /></.table_cell>
-              <.table_cell element={:th} align={:right} nowrap>
-                <.table_text label="Updated" tone={:tertiary} />
-              </.table_cell>
-              <.table_cell element={:th} align={:right} />
-            </.table_head_row>
-          </:head>
-          <:body>
-            <.table_row :for={row <- user_rows()}>
-              <.table_cell>
-                <.table_text label={row.name} />
-              </.table_cell>
-              <.table_cell>
-                <.table_badge status={row.status} />
-              </.table_cell>
-              <.table_cell align={:right} nowrap>
-                <.table_datetime value={row.updated_at} align={:right} />
-              </.table_cell>
-              <.table_cell align={:right}>
-                <.table_actions>
-                  <.nav_link destination="/bo/users/1/edit" external tone={:accent} size={:sm}>
-                    Edit
-                  </.nav_link>
-                  <.button variant={:tertiary} danger phx-click="delete">
-                    Delete
-                  </.button>
-                </.table_actions>
-              </.table_cell>
-            </.table_row>
-          </:body>
-        </.table>
+        <div class="flex flex-col gap-8 min-w-0">
+          <.story_subsection
+            title="Separate status and updated columns"
+            description="Badge in one cell; datetime right-aligned in its own column."
+          >
+            <.table id="story-table-rich-cells">
+              <:head>
+                <.table_head_row>
+                  <.table_cell element={:th}>
+                    <.table_text label="User" tone={:tertiary} />
+                  </.table_cell>
+                  <.table_cell element={:th}>
+                    <.table_text label="Status" tone={:tertiary} />
+                  </.table_cell>
+                  <.table_cell element={:th} align={:right} nowrap>
+                    <.table_text label="Updated" tone={:tertiary} />
+                  </.table_cell>
+                  <.table_cell element={:th} align={:right} />
+                </.table_head_row>
+              </:head>
+              <:body>
+                <.table_row :for={row <- user_rows()}>
+                  <.table_cell>
+                    <.table_text label={row.name} />
+                  </.table_cell>
+                  <.table_cell>
+                    <.table_badge status={row.status} />
+                  </.table_cell>
+                  <.table_cell align={:right} nowrap>
+                    <.table_datetime value={row.updated_at} align={:right} />
+                  </.table_cell>
+                  <.table_cell align={:right}>
+                    <.table_actions>
+                      <.nav_link destination="/bo/users/1/edit" external tone={:accent} size={:sm}>
+                        Edit
+                      </.nav_link>
+                      <.button variant={:tertiary} danger phx-click="delete">
+                        Delete
+                      </.button>
+                    </.table_actions>
+                  </.table_cell>
+                </.table_row>
+              </:body>
+            </.table>
+          </.story_subsection>
+
+          <.story_subsection
+            title="Stacked badge + datetime (ingestion status column)"
+            description="Status pill with ingested-at timestamp below — same pattern as the ingestion file list."
+          >
+            <.table id="story-table-ingestion-status">
+              <:head>
+                <.table_head_row>
+                  <.table_cell element={:th}>
+                    <.table_text label="Name" tone={:tertiary} />
+                  </.table_cell>
+                  <.table_cell element={:th}>
+                    <.table_text label="Status" tone={:tertiary} />
+                  </.table_cell>
+                  <.table_cell element={:th} align={:right} />
+                </.table_head_row>
+              </:head>
+              <:body>
+                <.table_row :for={row <- ingestion_status_rows()}>
+                  <.table_cell>
+                    <.table_media>
+                      <:icon>
+                        <.file_icon
+                          name={row.name}
+                          class={"w-4 h-4 shrink-0 #{file_icon_color(row.name)}"}
+                        />
+                      </:icon>
+                      {row.name}
+                    </.table_media>
+                  </.table_cell>
+                  <.table_cell width="w-36">
+                    <div class="flex flex-col gap-0.5">
+                      <.table_badge status={row.status}>
+                        <%= if row.status == "ingested" do %>
+                          <svg
+                            class="w-3 h-3 shrink-0"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                          ingested
+                        <% else %>
+                          <svg
+                            class="w-3 h-3 shrink-0"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                          stale
+                        <% end %>
+                      </.table_badge>
+                      <.table_datetime value={row.ingested_at} />
+                    </div>
+                  </.table_cell>
+                  <.table_cell align={:right}>
+                    <.table_actions>
+                      <.button variant={:ghost} icon="hero-folder" icon_only aria-label="Move to…" />
+                      <.button
+                        variant={:tertiary}
+                        danger
+                        icon="hero-trash"
+                        icon_only
+                        aria-label="Delete"
+                      />
+                    </.table_actions>
+                  </.table_cell>
+                </.table_row>
+              </:body>
+            </.table>
+          </.story_subsection>
+        </div>
       </.story_section>
 
       <.story_section
@@ -463,6 +554,13 @@ defmodule Storybook.Components.Table.Story do
     [
       %{name: "emily.carter", status: "ingested", updated_at: @demo_dt},
       %{name: "james.wright", status: "failed", updated_at: @demo_dt}
+    ]
+  end
+
+  defp ingestion_status_rows do
+    [
+      %{name: "report.pdf", status: "ingested", ingested_at: @demo_dt},
+      %{name: "notes.md", status: "stale", ingested_at: ~U[2025-01-08 09:15:00Z]}
     ]
   end
 
