@@ -2,13 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-27T14:25:49Z",
+  "close_reason": "Implemented test-only provider capability fixture alignment. Validated focused tests, full ingestion_live_test.exs, and mix q.",
   "created": "2026-08-27T14:13:14Z",
   "description": "Provider browsing LiveView tests use bridge stubs and capability snapshots that predate list_items-gated browsing. Update test doubles to advertise list_items for browsing-capable scenarios and keep capability-discovery failures non-browsable.",
   "id": "zaq-fq4",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-fq4] Align provider browsing tests with list capability gate",
   "type": "task",
-  "updated_at": "2026-08-27T14:14:23Z"
+  "updated_at": "2026-08-27T14:25:49Z"
 }
