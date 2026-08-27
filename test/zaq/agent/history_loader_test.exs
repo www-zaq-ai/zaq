@@ -384,6 +384,28 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       assert hd(messages).role == :assistant
     end
 
+    test "keeps the most recent message even when it alone exceeds max_tokens" do
+      person = insert_person()
+      conv = insert_conversation(person.id, "mattermost")
+
+      insert_message(conv, "user", "older message", ~U[2026-04-01 10:00:00.000000Z])
+
+      insert_message(
+        conv,
+        "assistant",
+        String.duplicate("word ", 100),
+        ~U[2026-04-01 10:01:00.000000Z]
+      )
+
+      result = HistoryLoader.load(person.id, "mattermost", max_tokens: 10)
+      messages = AIContext.to_messages(result)
+
+      # Previously the budget accumulator halted on the first over-budget message
+      # and returned an empty context, cold-starting the agent with no history.
+      assert length(messages) == 1
+      assert hd(messages).role == :assistant
+    end
+
     test "uses default 5000 tokens when max_tokens not supplied" do
       person = insert_person()
       conv = insert_conversation(person.id, "mattermost")

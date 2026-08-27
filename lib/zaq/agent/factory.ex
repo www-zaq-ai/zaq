@@ -42,10 +42,12 @@ defmodule Zaq.Agent.Factory do
     ],
     tools: []
 
+  alias Jido.Agent.Strategy.State, as: StrategyState
   alias Jido.AI.Context, as: AIContext
 
   alias Zaq.Agent.{
     ConfiguredAgent,
+    ContextWindow,
     HistoryLoader,
     MaterializationAliases,
     MediaResultTransformer,
@@ -56,9 +58,60 @@ defmodule Zaq.Agent.Factory do
   alias Zaq.Agent.Tools.Registry
   alias Zaq.System
 
+  @default_memory_context_max_size 5_000
+
+  # `ContextWindow` bounds every outgoing turn against the agent's
+  # `memory_context_max_size`. It is registered as the ReAct request transformer
+  # (rather than applied at the call site) because that is the only hook that
+  # runs per LLM turn — a single run whose tool results balloon across iterations
+  # would otherwise blow the budget without any ask-level check ever firing.
   def strategy_opts do
     super()
     |> Keyword.delete(:model)
+    |> Keyword.put(:request_transformer, ContextWindow)
+  end
+
+  # `memory_context_max_size` is a maximum, so it has to hold at rest and not only
+  # on the wire. This trims the committed context the moment a run settles, which
+  # is the only point where the thread is both complete and idle — trimming before
+  # an ask instead would always leave the turn that ask appends untrimmed.
+  #
+  # It writes the context rather than sending an `ai.react.context.modify` signal
+  # because that signal cannot express "trim whatever is there now": it carries a
+  # snapshot, and `ReAct.Strategy` defers it whenever a run is in flight, so an op
+  # raised here would be applied *after* the next run committed and would replace
+  # that newer context with this older one. Its `base_seq` field, which would have
+  # guarded exactly that, is normalised and then never read. Writing in-process is
+  # the only form that cannot go stale — and it also keeps
+  # `preserve_durable_entries/3` out of the path, which is what re-ordered durable
+  # tool results ahead of their assistant stub.
+  @impl true
+  def on_after_cmd(agent, action, directives) do
+    {:ok, agent, directives} = super(agent, action, directives)
+    {:ok, trim_settled_context(agent), directives}
+  end
+
+  defp trim_settled_context(agent) do
+    strategy = StrategyState.get(agent)
+
+    with false <- active_run?(strategy),
+         %AIContext{} = context <- Map.get(strategy, :context),
+         budget when is_integer(budget) and budget > 0 <-
+           get_in(agent.state, [:runtime_config, :memory_context_max_size]) do
+      # No run is in flight, so anchor on the newest group rather than the last
+      # `:user` entry — same reasoning as the cold path.
+      fitted = ContextWindow.fit(context, max_tokens: budget, anchor: :newest, label: "post-run")
+
+      StrategyState.put(agent, Map.put(strategy, :context, fitted))
+    else
+      _ -> agent
+    end
+  end
+
+  # Mirrors `Jido.AI.Reasoning.ReAct.Strategy.active_run?/1`, which is private.
+  defp active_run?(strategy) do
+    is_binary(Map.get(strategy, :active_request_id)) and
+      Map.get(strategy, :status) in [:awaiting_llm, :awaiting_tool]
   end
 
   @impl Jido.AI.ToolInterceptor
@@ -111,7 +164,11 @@ defmodule Zaq.Agent.Factory do
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
          llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
-         system_prompt: Skills.system_prompt(configured_agent, skills)
+         system_prompt: Skills.system_prompt(configured_agent, skills),
+         # Carried on the agent so the post-run trim can read the budget without a
+         # DB round-trip. The per-ask copy in `tool_context` is not usable there:
+         # ReAct deletes `run_tool_context` as part of the terminal transition.
+         memory_context_max_size: memory_context_max_size(configured_agent)
        }}
     end
   end
@@ -140,10 +197,27 @@ defmodule Zaq.Agent.Factory do
 
     HistoryLoader.load_context(
       spawn_opts,
-      max_tokens: configured_agent.memory_context_max_size || 5_000,
+      max_tokens: memory_context_max_size(configured_agent),
       materialization_alias_scope: server_id
     )
   end
+
+  @doc """
+  Resolves the context-window token budget for a configured agent, defaulting when
+  unset.
+
+  This is the only place the number is derived. `runtime_config/1` then carries it
+  onto the server, and every warm enforcement point reads it back from there rather
+  than re-deriving it — so the per-turn transformer and the post-run trim cannot
+  drift apart. `build_initial_context/3` calls this directly because the cold path
+  runs before there is a server to read from.
+  """
+  @spec memory_context_max_size(ConfiguredAgent.t()) :: pos_integer()
+  def memory_context_max_size(%ConfiguredAgent{memory_context_max_size: size})
+      when is_integer(size) and size > 0,
+      do: size
+
+  def memory_context_max_size(%ConfiguredAgent{}), do: @default_memory_context_max_size
 
   def spawn_opts_from_server_id(server_id) when is_binary(server_id) do
     case String.split(server_id, ":") |> Enum.reverse() do
@@ -215,8 +289,34 @@ defmodule Zaq.Agent.Factory do
         |> Keyword.put(:max_iterations, configured_agent.max_iterations || 10)
         |> Keyword.put_new(:timeout, 300_000)
         |> maybe_put_tool_timeout(config)
+        |> put_context_budget(context_budget(config, configured_agent))
 
       ask_stream(server, query, ask_opts)
+    end
+  end
+
+  # The per-run `tool_context` is merged over the server's `base_tool_context` by
+  # ReAct and handed to `RequestTransformer.transform_request/4` as the runtime
+  # context — the one channel that carries per-agent config into a per-turn hook.
+  # Merging (rather than replacing) preserves the keys ServerManager seeds at
+  # spawn, e.g. `materialization_alias_scope`.
+  defp put_context_budget(opts, budget) when is_integer(budget) and budget > 0 do
+    tool_context =
+      opts
+      |> Keyword.get(:tool_context, %{})
+      |> Map.put(:max_context_tokens, budget)
+
+    Keyword.put(opts, :tool_context, tool_context)
+  end
+
+  # The budget resolved at spawn and carried on the server's runtime config, which
+  # is what `trim_settled_context/1` reads too — so the per-turn transformer and
+  # the post-run trim always enforce the same number. Falls back to the agent's own
+  # value for a live server whose cached config predates the key.
+  defp context_budget(config, %ConfiguredAgent{} = configured_agent) do
+    case Map.get(config, :memory_context_max_size) do
+      size when is_integer(size) and size > 0 -> size
+      _ -> memory_context_max_size(configured_agent)
     end
   end
 

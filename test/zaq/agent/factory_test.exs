@@ -7,6 +7,7 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent
   alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.ContextWindow
   alias Zaq.Agent.Factory
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.ServerManager
@@ -355,6 +356,158 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert_receive {:openai_request, "POST", "/v1/responses", "", second_body}, 1_000
     assert second_body =~ configured_agent.job
+  end
+
+  # A warm server's stored context is allowed to sit over budget between asks —
+  # compaction runs pre-ask, so the turn a run appends is not compacted until the
+  # next ask. What must never happen is an over-budget payload reaching the
+  # provider. `transform_request/4` is the last gate before the wire and runs on
+  # every turn, so this asserts on the body the provider actually received rather
+  # than on any internal state: the oldest history is gone, the newest survives,
+  # and the system prompt is intact.
+  # `memory_context_max_size` is a maximum, so it must hold at rest and not only
+  # on the wire. Compaction runs pre-ask, so without a post-run trim the turn a
+  # run appends leaves the stored context over budget until the next ask — and
+  # forever if the server is never asked again.
+  test "the stored context never exceeds the budget once a run settles" do
+    {_body, configured_agent, server} = ask_with_seeded_history(budget: 200)
+
+    budget = Factory.memory_context_max_size(configured_agent)
+    {:ok, status} = Jido.AgentServer.status(server)
+
+    {_kept, stats} =
+      ContextWindow.fit_with_stats(status.raw_state.__strategy__.context, max_tokens: budget)
+
+    assert stats.tokens_before <= budget,
+           "stored context is #{stats.tokens_before} tokens, over the #{budget} budget " <>
+             "after the run settled (#{inspect(stats)})"
+  end
+
+  # A second ask must still work against the post-run-trimmed context — the trim
+  # must not corrupt the thread it leaves behind.
+  test "a follow-up ask succeeds against a post-run-trimmed context" do
+    {_body, configured_agent, server} = ask_with_seeded_history(budget: 200)
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server, "and again", configured_agent, timeout: 35_000)
+
+    assert {:ok, answer} = Factory.await(request, timeout: 45_000)
+    assert is_binary(answer)
+
+    budget = Factory.memory_context_max_size(configured_agent)
+    {:ok, status} = Jido.AgentServer.status(server)
+
+    {_kept, stats} =
+      ContextWindow.fit_with_stats(status.raw_state.__strategy__.context, max_tokens: budget)
+
+    assert stats.tokens_before <= budget
+  end
+
+  test "an over-budget stored context is still trimmed before it reaches the provider" do
+    {body, configured_agent, _server} = ask_with_seeded_history(budget: 100)
+
+    # The oldest history never reached the provider...
+    refute body =~ "ZZALPHA"
+
+    # ...while the newest turn and the fixed head both did. Without this half the
+    # test would also pass if no history were sent at all.
+    assert body =~ "ZZDELTA"
+    assert body =~ configured_agent.job
+  end
+
+  # The control for the test above. Same history, same request, a budget large
+  # enough to hold all of it — so the oldest entry reaches the provider. If this
+  # ever fails alongside its pair, the trimming assertion above is vacuous and
+  # something other than the budget is dropping history.
+  test "history within budget reaches the provider untouched" do
+    {body, configured_agent, _server} = ask_with_seeded_history(budget: 5_000)
+
+    assert body =~ "ZZALPHA"
+    assert body =~ "ZZDELTA"
+    assert body =~ configured_agent.job
+  end
+
+  # Spawns a server seeded with four ~53-token marked entries, asks one question,
+  # and returns the body the provider stub actually received. Each entry carries a
+  # distinct marker so callers can name exactly which history survived without
+  # parsing the provider's payload shape.
+  defp ask_with_seeded_history(opts) do
+    budget = Keyword.fetch!(opts, :budget)
+    reply = String.duplicate("word ", 80)
+
+    handler = fn conn, _body ->
+      {200, streamed_reply(conn.request_path, reply, "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Budget Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "budget-key"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Budget Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "You are a helper",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        conversation_enabled: false,
+        active: true,
+        memory_context_max_size: budget
+      })
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    marked = fn marker -> marker <> " " <> String.duplicate("word ", 40) end
+
+    seeded =
+      seeded_context([
+        %AIContext.Entry{role: :user, content: marked.("ZZALPHA")},
+        %AIContext.Entry{role: :assistant, content: marked.("ZZBRAVO")},
+        %AIContext.Entry{role: :user, content: marked.("ZZCHARLIE")},
+        %AIContext.Entry{role: :assistant, content: marked.("ZZDELTA")}
+      ])
+
+    assert {:ok, server} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}",
+               seeded
+             )
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server, "hello", configured_agent, timeout: 35_000)
+
+    assert {:ok, _answer} = Factory.await(request, timeout: 45_000)
+
+    assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
+
+    # `await/2` returns before the server has transitioned out of the run, so a
+    # caller that inspects state or asks again immediately races the commit.
+    await_settled(server)
+
+    {body, configured_agent, server}
+  end
+
+  defp seeded_context(entries) do
+    Enum.reduce(entries, AIContext.new(), &AIContext.append(&2, &1))
+  end
+
+  defp await_settled(server, attempts \\ 100) do
+    {:ok, status} = Jido.AgentServer.status(server)
+
+    cond do
+      get_in(status.raw_state, [:__strategy__, :status]) == :completed -> :ok
+      attempts == 0 -> flunk("agent server never settled")
+      true -> Process.sleep(20) && await_settled(server, attempts - 1)
+    end
   end
 
   test "ask_with_config uses overridden job (system_prompt) on server initialized with different prompt" do

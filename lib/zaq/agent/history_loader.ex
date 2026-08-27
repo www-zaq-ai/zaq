@@ -11,8 +11,8 @@ defmodule Zaq.Agent.HistoryLoader do
   import Ecto.Query
 
   alias Jido.AI.Context, as: AIContext
+  alias Zaq.Agent.ContextWindow
   alias Zaq.Agent.MaterializationAliases
-  alias Zaq.Agent.TokenEstimator
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
   alias Zaq.Utils.DateUtils
@@ -42,8 +42,8 @@ defmodule Zaq.Agent.HistoryLoader do
   end
 
   @doc """
-  Loads the most recent messages for the given `conversation_id`, accumulates
-  them up to `max_tokens`, and returns a `Jido.AI.Context`.
+  Loads the most recent messages for the given `conversation_id`, trims them to
+  `max_tokens`, and returns a `Jido.AI.Context`.
 
   Returns an empty context immediately when `conversation_id` is `nil` or `""`.
 
@@ -57,8 +57,6 @@ defmodule Zaq.Agent.HistoryLoader do
   def load_for_conversation("", _opts), do: AIContext.new()
 
   def load_for_conversation(conversation_id, opts) do
-    max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
-
     from(m in Message,
       where: m.conversation_id == ^conversation_id,
       order_by: [desc: m.inserted_at],
@@ -71,13 +69,12 @@ defmodule Zaq.Agent.HistoryLoader do
       }
     )
     |> Repo.all()
-    |> accumulate_within_budget(max_tokens, opts)
-    |> build_context(opts)
+    |> to_budgeted_context(opts)
   end
 
   @doc """
   Loads the most recent messages for the given `person_id` + `channel_type`
-  pair, accumulates them up to `max_tokens`, and returns a `Jido.AI.Context`.
+  pair, trims them to `max_tokens`, and returns a `Jido.AI.Context`.
 
   Returns an empty context immediately when `person_id` is `nil`.
 
@@ -91,13 +88,9 @@ defmodule Zaq.Agent.HistoryLoader do
   def load(_person_id, nil, _opts), do: AIContext.new()
 
   def load(person_id, channel_type, opts) do
-    max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
-
-    messages = fetch_recent_messages(person_id, channel_type)
-
-    messages
-    |> accumulate_within_budget(max_tokens, opts)
-    |> build_context(opts)
+    person_id
+    |> fetch_recent_messages(channel_type)
+    |> to_budgeted_context(opts)
   end
 
   defp fetch_recent_messages(person_id, channel_type) do
@@ -121,18 +114,17 @@ defmodule Zaq.Agent.HistoryLoader do
     |> Repo.all()
   end
 
-  defp accumulate_within_budget(messages, max_tokens, opts) do
-    Enum.reduce_while(messages, {[], 0}, fn msg, {acc, total} ->
-      tokens = TokenEstimator.estimate(history_content(msg, opts))
-      new_total = total + tokens
+  # Messages arrive newest-first from the DB. Build the context chronologically,
+  # then let `ContextWindow` apply the budget — trimming the built entries rather
+  # than the raw rows means the estimate covers what is actually sent (the
+  # rendered timestamp prefix included) and skips rows `build_context/2` drops.
+  defp to_budgeted_context(messages, opts) do
+    max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
 
-      if new_total > max_tokens do
-        {:halt, {acc, total}}
-      else
-        {:cont, {[msg | acc], new_total}}
-      end
-    end)
-    |> elem(0)
+    messages
+    |> Enum.reverse()
+    |> build_context(opts)
+    |> ContextWindow.fit(max_tokens: max_tokens, anchor: :newest, label: "cold")
   end
 
   defp build_context(messages, opts) do
