@@ -2,13 +2,14 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-28T13:24:05Z",
   "created": "2026-08-28T13:15:29Z",
   "description": "Reuse the regular BO login session and CSRF token for authenticated server-side AI credential seeding, then remove repeated UI setup and duplicate navigation from System Config E2E tests.",
   "id": "zaq-x2b",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-x2b] Optimize authenticated E2E credential setup",
   "type": "epic",
-  "updated_at": "2026-08-28T13:15:29Z"
+  "updated_at": "2026-08-28T13:24:05Z"
 }
