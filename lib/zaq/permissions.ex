@@ -141,6 +141,21 @@ defmodule Zaq.Permissions do
   @spec list_direct(struct(), keyword()) :: [ResourcePermission.t()]
   def list_direct(resource, opts \\ []), do: list(resource, opts)
 
+  @doc "Counts distinct person and team principals granted to the given resources."
+  @spec count_principals([struct()]) :: non_neg_integer()
+  def count_principals(resources) when is_list(resources) do
+    resources
+    |> resource_coords_by_type()
+    |> case do
+      coords_by_type when map_size(coords_by_type) == 0 ->
+        0
+
+      coords_by_type ->
+        principal_count_query(coords_by_type)
+        |> Repo.one()
+    end
+  end
+
   @doc "Lists direct and inherited grants for a resource and its supplied ancestors."
   @spec list_effective(struct(), keyword()) :: [map()]
   def list_effective(resource, opts \\ []) do
@@ -242,6 +257,34 @@ defmodule Zaq.Permissions do
         preload: [:person, :team],
         limit: 1
     )
+  end
+
+  defp principal_count_query(coords_by_type) do
+    from p in ResourcePermission,
+      where: ^resource_scope(coords_by_type),
+      select:
+        type(
+          fragment("COUNT(DISTINCT ?) + COUNT(DISTINCT ?)", p.person_id, p.team_id),
+          :integer
+        )
+  end
+
+  defp resource_scope(coords_by_type) do
+    Enum.reduce(coords_by_type, dynamic(false), fn {resource_type, resource_ids}, dynamic ->
+      dynamic(
+        [p],
+        ^dynamic or (p.resource_type == ^resource_type and p.resource_id in ^resource_ids)
+      )
+    end)
+  end
+
+  defp resource_coords_by_type(resources) do
+    resources
+    |> Enum.map(&resource_coords/1)
+    |> Enum.uniq()
+    |> Enum.group_by(fn {resource_type, _resource_id} -> resource_type end, fn {_type, id} ->
+      id
+    end)
   end
 
   defp resources_with_ancestors(resource, ancestors), do: [resource | List.wrap(ancestors)]

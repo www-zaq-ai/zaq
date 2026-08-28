@@ -375,6 +375,36 @@ defmodule Zaq.StorageTest do
     assert stats.root_folders == ["alpha", "zeta"]
   end
 
+  test "volume_stats counts distinct direct and inherited principals with one permissions query",
+       %{
+         root: root,
+         storage_opts: opts
+       } do
+    File.mkdir_p!(Path.join(root, "parent"))
+    File.write!(Path.join(root, "parent/child.md"), "child")
+
+    {:ok, root_entry} = EntryCatalog.ensure("archives", ".", :directory)
+    assert {:ok, folder_entry} = Storage.file_info("archives", "parent", opts)
+    assert {:ok, file_entry} = Storage.file_info("archives", "parent/child.md", opts)
+
+    {:ok, person} = People.create_person(%{full_name: "Storage Stats Person"})
+    {:ok, other_person} = People.create_person(%{full_name: "Other Storage Stats Person"})
+    {:ok, team} = People.create_team(%{name: "Storage Stats Team"})
+
+    {:ok, _} = Permissions.grant_public(%StorageEntry{id: root_entry.id})
+    {:ok, _} = Storage.grant_document_access(folder_entry.id, %{person_id: person.id}, opts)
+    {:ok, _} = Storage.grant_document_access(file_entry.id, %{person_id: person.id}, opts)
+    {:ok, _} = Storage.grant_document_access(file_entry.id, %{team_id: team.id}, opts)
+
+    {:ok, unrelated} = EntryCatalog.ensure("archives", "missing.md", :file)
+    {:ok, _} = Storage.grant_document_access(unrelated.id, %{person_id: other_person.id}, opts)
+
+    assert {{:ok, stats}, [_query]} =
+             capture_resource_permission_queries(fn -> Storage.volume_stats(opts) end)
+
+    assert stats.principals_count == 3
+  end
+
   test "listing can include exact permissions for each entry", %{root: root, storage_opts: opts} do
     File.write!(Path.join(root, "permitted.md"), "permitted")
     assert {:ok, entry} = Storage.file_info("archives", "permitted.md", opts)
@@ -1107,6 +1137,39 @@ defmodule Zaq.StorageTest do
     assert grant.target_id == "42"
     assert grant.access_rights == ["read"]
     assert grant.name == nil
+  end
+
+  defp capture_resource_permission_queries(fun) do
+    handler_id = {__MODULE__, :resource_permission_queries, make_ref()}
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:zaq, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          if metadata[:source] == "resource_permissions" do
+            send(test_pid, {:resource_permission_query, metadata[:query]})
+          end
+        end,
+        nil
+      )
+
+    try do
+      result = fun.()
+      {result, collect_resource_permission_queries([])}
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp collect_resource_permission_queries(queries) do
+    receive do
+      {:resource_permission_query, query} ->
+        collect_resource_permission_queries([query | queries])
+    after
+      0 -> Enum.reverse(queries)
+    end
   end
 
   defp person_fixture do

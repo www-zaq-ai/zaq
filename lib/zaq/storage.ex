@@ -237,14 +237,31 @@ defmodule Zaq.Storage do
       entries =
         Enum.flat_map(volumes, fn {volume, _root} -> search_volume(volume, ".", "", opts) end)
 
+      principal_resources = principal_count_resources(volumes, entries, opts)
+
       {:ok,
        %{
          files_count: Enum.count(entries, &(&1.type == :file)),
          folders_count: Enum.count(entries, &(&1.type == :directory)),
-         principals_count: 0,
+         principals_count: permissions(opts).count_principals(principal_resources),
          root_folders: volumes |> Map.keys() |> Enum.sort()
        }}
     end
+  end
+
+  defp principal_count_resources(volumes, entries, opts) do
+    root_resources =
+      Enum.map(volumes, fn {volume, _root} -> catalog_volume_root(volume, opts) end)
+
+    (root_resources ++ entries)
+    |> Enum.flat_map(fn
+      %{id: id, parent_id: parent_id} -> [id, parent_id]
+      %{id: id} -> [id]
+      _entry -> []
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.map(&storage_resource/1)
   end
 
   defp list_volume_roots(params, opts) do

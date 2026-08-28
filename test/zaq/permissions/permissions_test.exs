@@ -313,6 +313,60 @@ defmodule Zaq.PermissionsTest do
     end
   end
 
+  describe "count_principals/1" do
+    test "counts distinct person and team principals across resources with one query" do
+      person = create_person()
+      other_person = create_person()
+      team = create_team()
+      first = fake_workflow()
+      second = fake_workflow()
+      unrelated = fake_document()
+
+      {:ok, _} = Permissions.grant(first, %{person_id: person.id, access_rights: ["read"]})
+      {:ok, _} = Permissions.grant(second, %{person_id: person.id, access_rights: ["run"]})
+      {:ok, _} = Permissions.grant(first, %{team_id: team.id, access_rights: ["view"]})
+
+      {:ok, _} =
+        Permissions.grant(unrelated, %{person_id: other_person.id, access_rights: ["read"]})
+
+      assert {2, [_query]} =
+               capture_resource_permission_queries(fn ->
+                 Permissions.count_principals([first, second, first])
+               end)
+    end
+
+    test "keeps person and team identifiers in separate namespaces" do
+      person = create_person()
+      team = create_team()
+      workflow = fake_workflow()
+
+      {:ok, _} = Permissions.grant(workflow, %{person_id: person.id, access_rights: ["read"]})
+      {:ok, _} = Permissions.grant(workflow, %{team_id: team.id, access_rights: ["read"]})
+
+      assert Permissions.count_principals([workflow]) == 2
+    end
+
+    test "returns zero without querying when no resources are provided" do
+      assert {0, []} =
+               capture_resource_permission_queries(fn -> Permissions.count_principals([]) end)
+    end
+  end
+
+  property "count_principals/1 is stable when resource inputs are duplicated" do
+    check all(duplicate_count <- integer(1..5), max_runs: 10) do
+      person = create_person()
+      team = create_team()
+      workflow = fake_workflow()
+
+      {:ok, _} = Permissions.grant(workflow, %{person_id: person.id, access_rights: ["read"]})
+      {:ok, _} = Permissions.grant(workflow, %{team_id: team.id, access_rights: ["read"]})
+
+      resources = List.duplicate(workflow, duplicate_count)
+
+      assert Permissions.count_principals(resources) == 2
+    end
+  end
+
   property "replace/2 is atomic for an invalid grant after a valid prefix" do
     check all(valid_prefix_length <- integer(0..3), max_runs: 10) do
       workflow = fake_workflow()
@@ -334,6 +388,39 @@ defmodule Zaq.PermissionsTest do
       assert changeset.errors[:person_id]
       assert Repo.get(ResourcePermission, original.id).access_rights == ["run"]
       assert Enum.map(Permissions.list(workflow), & &1.id) == [original.id]
+    end
+  end
+
+  defp capture_resource_permission_queries(fun) do
+    handler_id = {__MODULE__, :resource_permission_queries, make_ref()}
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:zaq, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          if metadata[:source] == "resource_permissions" do
+            send(test_pid, {:resource_permission_query, metadata[:query]})
+          end
+        end,
+        nil
+      )
+
+    try do
+      result = fun.()
+      {result, collect_resource_permission_queries([])}
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp collect_resource_permission_queries(queries) do
+    receive do
+      {:resource_permission_query, query} ->
+        collect_resource_permission_queries([query | queries])
+    after
+      0 -> Enum.reverse(queries)
     end
   end
 end
