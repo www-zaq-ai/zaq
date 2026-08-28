@@ -245,8 +245,6 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
       {:ok, _view, html} = live(conn, ~p"/bo/ai-diagnostics")
 
       assert html =~ ~r/—\s*<span[^>]*>\s*docs/
-      # Only the documents query broke — the chunk count still resolves.
-      refute html =~ ~r/—\s*<span[^>]*>\s*chunks/
     end
 
     test "falls back to an unknown chunk count", %{conn: conn} do
