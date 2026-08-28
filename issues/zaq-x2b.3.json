@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T13:15:30Z",
+  "description": "Functional spec: seed one authenticated Custom AI credential per project run, reuse it across configuration tests, retain UI creation only for credential-creation journeys, and navigate directly to /bo/system-config. Tests first: existing System Config journeys serve as regression coverage; compare helper call sites and run the targeted suite. Mocking: none.",
+  "id": "zaq-x2b.3",
+  "labels": [],
+  "parent": "zaq-x2b",
+  "priority": 2,
+  "status": "open",
+  "title": "Collapse System Config prerequisite setup",
+  "type": "task",
+  "updated_at": "2026-08-28T13:15:30Z"
+}
