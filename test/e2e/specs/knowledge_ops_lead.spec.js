@@ -51,12 +51,21 @@ function fileRow(page, fileName) {
 }
 
 async function ingestSelectedInline(page) {
+  // Dormant while inline mode is hidden from the UI. Re-enable this helper if
+  // the inline mode selector becomes available in the ingestion toolbar again.
   await expect(page.locator("#ingest-selected-button")).toContainText("(1)");
   await page.locator("#ingest-mode-inline").click();
   await page.locator("#ingest-selected-button").click();
   // Wait for the LiveView to respond — selection resets to (0) only after the server
   // finishes processing ingest_selected (inline ingestion runs synchronously on the server).
   await expect(page.locator("#ingest-selected-button")).toContainText("(0)");
+}
+
+async function ingestSelectedAsync(page, fileName) {
+  await expect(page.locator("#ingest-selected-button")).toContainText("(1)");
+  await page.locator("#ingest-selected-button").click();
+  await expect(page.locator("#ingest-selected-button")).toContainText("(0)");
+  await expect(fileRow(page, fileName)).toContainText("ingested", { timeout: 30_000 });
 }
 
 async function askQuestion(page, question) {
@@ -109,7 +118,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
     );
 
     await selectFileRow(page, fileName);
-    await ingestSelectedInline(page);
+    await ingestSelectedAsync(page, fileName);
 
     await gotoBackOfficeLive(page, "/bo/ingestion");
 
@@ -160,7 +169,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
 
     await addRawMarkdown(page, fileBase, "# Hygiene v1\n\nInitial content for stale check.");
     await selectFileRow(page, fileName);
-    await ingestSelectedInline(page);
+    await ingestSelectedAsync(page, fileName);
     // Wait for the PubSub handle_info cycle: job_updated → load_entries → doc.updated_at = T1.
     // Only after this is the document recorded in the DB with its ingested timestamp.
     await expect(fileRow(page, fileName)).toContainText("ingested");
