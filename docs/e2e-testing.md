@@ -119,17 +119,14 @@ This is slow, fragile, and tests the wrong thing. If System Config is broken, th
 
 ```js
 // DO THIS
-const req = await apiRequest.newContext()
-const credential = await createE2EAiCredential(req, {
+await loginToBackOffice(page)
+const credential = await createE2EAiCredential(page, {
   name: `E2E Cred ${Date.now()}`,
   provider: "OpenRouter",
   endpoint: "https://openrouter.ai/api/v1",
   api_key: `e2e-key-${Date.now()}`,
   description: "Seeded for agents spec",
 })
-await req.dispose()
-
-await loginToBackOffice(page)
 // Now test the Agent page directly
 ```
 
@@ -152,36 +149,42 @@ These functions are in `test/e2e/support/bo.js` and hit the `/e2e/*` endpoints:
 |---|---|
 | `resetE2EState(request)` | Truncates test tables and resets to baseline. Call in `beforeAll`. |
 | `setE2ESystemConfig(request, key, value)` | Sets a system config key directly in DB. |
-| `createE2EAiCredential(request, attrs)` | Inserts an AI provider credential. Returns `{ id, name, provider }`. |
+| `createE2EAiCredential(page, attrs)` | Inserts an AI provider credential through the authenticated BO session. Returns `{ id, name, provider }`. |
 | `createE2EConversation(request, attrs)` | Inserts a conversation for the E2E admin user. Body: required `channel_type`; optional `title`, `channel_user_id`, `status` (`active` / `archived`), `user_id`. Returns `{ ok, id, title, channel_type, status }`. |
 | `createE2EMcpEndpoint(request, attrs)` | Inserts an MCP endpoint record. Returns the created record. |
 
-`loginToBackOffice` uses the authenticated browser state created in global setup — see [Logging In](#logging-in).
+`loginToBackOffice` uses the authenticated browser state created in global setup.
+`createE2EAiCredential` must receive a logged-in page; it reads the CSRF token from
+that page and posts with `page.request` so the token and BO session cookie stay in
+the same browser context. See [Logging In](#logging-in).
 
-### Pattern: `beforeAll` with reset + seed
+### Pattern: reset in `beforeAll`, log in, then seed once
 
 ```js
 const { createE2EAiCredential, resetE2EState, loginToBackOffice } = require("../support/bo")
 
 test.describe("Agent page", () => {
-  let apiRequest
   let credential
 
   test.beforeAll(async ({ playwright }) => {
-    apiRequest = await playwright.request.newContext()
-    await resetE2EState(apiRequest)                    // clean slate
-    credential = await createE2EAiCredential(apiRequest, {
+    const request = await playwright.request.newContext()
+    await resetE2EState(request)                    // clean slate
+    await request.dispose()
+  })
+
+  test.beforeEach(async ({ page }) => {
+    await loginToBackOffice(page)
+
+    credential ||= await createE2EAiCredential(page, {
       name: "E2E Credential",
       provider: "OpenRouter",
       endpoint: "https://openrouter.ai/api/v1",
       api_key: "e2e-key",
       description: "Seeded",
     })
-    await apiRequest.dispose()
   })
 
   test("creates an agent", async ({ page }) => {
-    await loginToBackOffice(page)
     // test the agent page directly
   })
 })
@@ -191,10 +194,13 @@ test.describe("Agent page", () => {
 
 ## Logging In
 
-Global setup signs in once through the regular BO login form and saves the
-resulting Phoenix session cookie to Playwright storage state at
-`test/e2e/.auth/bo-admin.json`. Journey projects load that state for every test,
+Global setup signs in once through the regular BO login form, saves the resulting
+Phoenix session cookie to Playwright storage state at
+`test/e2e/.auth/bo-admin.json`. Journey projects load that state for every page,
 so `loginToBackOffice(page)` normally just navigates to the target BO route.
+Authenticated E2E setup requests should use `page.request` after `loginToBackOffice`
+so they reuse that page's current session cookie and CSRF token without repeating
+the login flow.
 
 ```js
 await loginToBackOffice(page)                              // cached regular-login session

@@ -174,16 +174,15 @@ test.describe("Agents", () => {
   })
 
   test("custom model shows tool-calling warning and disables MCP/tools actions", async ({ page }) => {
-    const req = await apiRequest.newContext()
-    const credential = await createE2EAiCredential(req, {
+    await loginToBackOffice(page)
+
+    const credential = await createE2EAiCredential(page, {
       name: `E2E Custom ${Date.now()}`,
       provider: "Custom",
       endpoint: "https://custom-endpoint.com",
       api_key: `e2e-key-${Date.now()}`,
       description: "Agents spec seeded credential",
     })
-    await req.dispose()
-    await loginToBackOffice(page)
 
     await openNewAgentForm(page, `E2E Agent Custom ${Date.now()}`)
     await selectAgentCredential(page, credential.name)

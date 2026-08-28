@@ -6,6 +6,7 @@ const {
   waitForLiveViewSettled,
   pickSearchableSelect,
   createAiCredential,
+  createE2EAiCredential,
 } = require("../support/bo")
 
 // At least one of the two locators becomes visible. Use in place of
@@ -66,15 +67,29 @@ async function differentDimension(page) {
 }
 
 test.describe("System Config", () => {
+  let seededCredential
+
   test.beforeAll(async () => {
     const req = await apiRequest.newContext()
     await resetE2EState(req)
     await req.dispose()
+    seededCredential = undefined
   })
 
   test.beforeEach(async ({ page }) => {
-    await loginToBackOffice(page)
-    await gotoBackOfficeLive(page, CONFIG_PATH)
+    await loginToBackOffice(page, { returnTo: CONFIG_PATH })
+
+    if (!seededCredential) {
+      seededCredential = await createE2EAiCredential(page, {
+        name: `E2E System Config ${Date.now()}`,
+        provider: "Custom",
+        endpoint: E2E_ENDPOINT,
+        api_key: `e2e-key-${Date.now()}`,
+        description: "System Config prerequisite",
+      })
+
+      await gotoBackOfficeLive(page, CONFIG_PATH)
+    }
   })
 
   // ── Tab navigation ─────────────────────────────────────────────────────
@@ -159,20 +174,13 @@ test.describe("System Config", () => {
   // ── LLM tab ────────────────────────────────────────────────────────────
 
   test.describe("LLM tab", () => {
-    test.beforeAll(async () => {
-      const req = await apiRequest.newContext()
-      await resetE2EState(req)
-      await req.dispose()
-    })
-
     test.beforeEach(async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()
       // Wait for the tab's phx-click to settle so the credential dropdown is
       // fully populated before pickSearchableSelect tries to search it.
       await waitForLiveViewSettled(page)
-      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+      await pickSearchableSelect(page, "#llm-credential-select", seededCredential.name)
       // Wait for the phx-change from credential selection to fully settle before
       // the test starts. Without this, LiveView's DOM patch can overwrite fill()
       // calls made immediately after pickSearchableSelect.
@@ -193,13 +201,12 @@ test.describe("System Config", () => {
     })
 
     test("credential selector opens and accepts option filtering", async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabLLM).click()
       await expect(page.locator(SEL.llmForm)).toBeVisible()
 
-      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+      await pickSearchableSelect(page, "#llm-credential-select", seededCredential.name)
       await expect(page.locator("#llm-credential-select [data-select-label]")).toContainText(
-        credential.name
+        seededCredential.name
       )
     })
 
@@ -208,9 +215,8 @@ test.describe("System Config", () => {
     // This is a real UI bug — the default can never be saved without first adjusting top_p.
     // Tests that save must set top_p to a valid step value first.
     test("successful save shows flash message (requires valid top_p step value)", async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabLLM).click()
-      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+      await pickSearchableSelect(page, "#llm-credential-select", seededCredential.name)
 
       // Set top_p to 0.91 — the nearest valid value on the step grid (0.01 + n×0.05)
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
@@ -312,9 +318,8 @@ test.describe("System Config", () => {
     // ── API key persistence ───────────────────────────────────────────────
 
     test("changing credential saves and persists after page reload", async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabLLM).click()
-      await pickSearchableSelect(page, "#llm-credential-select", credential.name)
+      await pickSearchableSelect(page, "#llm-credential-select", seededCredential.name)
 
       // Set top_p to a valid step value before saving (see NOTE above)
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
@@ -325,7 +330,7 @@ test.describe("System Config", () => {
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
       await expect(page.locator(SEL.llmForm)).toBeVisible()
       await expect(page.locator("#llm-credential-select [data-select-label]")).toContainText(
-        credential.name
+        seededCredential.name
       )
     })
   })
@@ -334,11 +339,10 @@ test.describe("System Config", () => {
 
   test.describe("Embedding tab", () => {
     test.beforeEach(async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabEmbedding).click()
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
       await waitForLiveViewSettled(page)
-      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
+      await pickSearchableSelect(page, "#embedding-credential-select", seededCredential.name)
       await waitForLiveViewSettled(page, { timeout: process.env.CI ? 20_000 : 10_000 })
     })
 
@@ -350,13 +354,12 @@ test.describe("System Config", () => {
     })
 
     test("credential selector opens and accepts option filtering", async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabEmbedding).click()
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
 
-      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
+      await pickSearchableSelect(page, "#embedding-credential-select", seededCredential.name)
       await expect(page.locator("#embedding-credential-select [data-select-label]")).toContainText(
-        credential.name
+        seededCredential.name
       )
     })
 
@@ -536,9 +539,8 @@ test.describe("System Config", () => {
     // ── API key persistence ───────────────────────────────────────────────
 
     test("changing credential saves and persists after page reload", async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabEmbedding).click()
-      await pickSearchableSelect(page, "#embedding-credential-select", credential.name)
+      await pickSearchableSelect(page, "#embedding-credential-select", seededCredential.name)
 
       await page.getByRole("button", { name: "Save Embedding Settings" }).click()
       await expect(page.getByText("Embedding settings saved.")).toBeVisible()
@@ -548,7 +550,7 @@ test.describe("System Config", () => {
       await expect(page.locator(SEL.embeddingForm)).toBeVisible()
       await expect(
         page.locator("#embedding-credential-select [data-select-label]")
-      ).toContainText(credential.name)
+      ).toContainText(seededCredential.name)
     })
   })
 
@@ -556,11 +558,10 @@ test.describe("System Config", () => {
 
   test.describe("Image to Text tab", () => {
     test.beforeEach(async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabImageToText).click()
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
       await waitForLiveViewSettled(page)
-      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
+      await pickSearchableSelect(page, "#image-to-text-credential-select", seededCredential.name)
       await waitForLiveViewSettled(page, { timeout: process.env.CI ? 20_000 : 10_000 })
     })
 
@@ -573,20 +574,26 @@ test.describe("System Config", () => {
     })
 
     test("credential selector opens and accepts option filtering", async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabImageToText).click()
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
 
-      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
+      await pickSearchableSelect(
+        page,
+        "#image-to-text-credential-select",
+        seededCredential.name
+      )
       await expect(
         page.locator("#image-to-text-credential-select [data-select-label]")
-      ).toContainText(credential.name)
+      ).toContainText(seededCredential.name)
     })
 
     test("successful save shows flash message", async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabImageToText).click()
-      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
+      await pickSearchableSelect(
+        page,
+        "#image-to-text-credential-select",
+        seededCredential.name
+      )
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
@@ -601,9 +608,12 @@ test.describe("System Config", () => {
     // ── API key persistence ───────────────────────────────────────────────
 
     test("changing credential saves and persists after page reload", async ({ page }) => {
-      const credential = await createAiCredential(page, { endpoint: E2E_ENDPOINT })
       await page.locator(SEL.tabImageToText).click()
-      await pickSearchableSelect(page, "#image-to-text-credential-select", credential.name)
+      await pickSearchableSelect(
+        page,
+        "#image-to-text-credential-select",
+        seededCredential.name
+      )
 
       await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
       await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
@@ -613,7 +623,7 @@ test.describe("System Config", () => {
       await expect(page.locator(SEL.imageToTextForm)).toBeVisible()
       await expect(
         page.locator("#image-to-text-credential-select [data-select-label]")
-      ).toContainText(credential.name)
+      ).toContainText(seededCredential.name)
     })
   })
 
