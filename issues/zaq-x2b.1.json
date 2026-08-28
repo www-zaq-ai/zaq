@@ -9,9 +9,15 @@
   "id": "zaq-x2b.1",
   "labels": [],
   "parent": "zaq-x2b",
+  "comments": [
+    {
+      "text": "Implemented route protection with the existing browser, bo_node_only, and bo_auth pipelines. Added authenticated and unauthenticated integration coverage; no custom auth pipeline or plug.",
+      "timestamp": "2026-08-28T13:22:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-x2b.1] Protect AI credential seed with existing BO auth",
   "type": "task",
-  "updated_at": "2026-08-28T13:15:30Z"
+  "updated_at": "2026-08-28T13:22:27Z"
 }
