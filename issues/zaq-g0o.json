@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T12:45:57Z",
+  "description": "Remove redundant size/type metadata from encode_json and decode_json outputs while preserving the required action result map.",
+  "id": "zaq-g0o",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Clean JSON action result metadata",
+  "type": "task",
+  "updated_at": "2026-08-28T12:45:57Z"
+}
