@@ -82,12 +82,6 @@ async function closeJobsDrawer(page) {
   }
 }
 
-async function ensureAsyncMode(page) {
-  await page.locator("#ingest-mode-async").click()
-  await waitForLiveViewSettled(page)
-  await expect(page.locator("#ingest-mode-async")).toHaveClass(/zaq-btn-tertiary--active/)
-}
-
 // Async enqueue: flash confirms dispatch; the jobs drawer auto-opens on success.
 // Do not assert "(N active)" on the monitor button — jobs can finish before the
 // next LiveView patch in CI, leaving the counter at zero while ingest still succeeded.
@@ -234,7 +228,6 @@ test.describe("Ingestion", () => {
 
     await gotoBackOfficeLive(page, INGESTION_PATH)
     await waitForLiveViewSettled(page)
-    await ensureAsyncMode(page)
 
     await expect(
       page.locator(SEL.warningHeading, { hasText: "Embedding not configured" })
@@ -353,7 +346,6 @@ test.describe("Ingestion", () => {
 
     await gotoBackOfficeLive(page, INGESTION_PATH)
     await waitForLiveViewSettled(page)
-    await ensureAsyncMode(page)
 
     const rowAfterReset = fileRow(page, pdfFilename)
     await expect(rowAfterReset).toBeVisible()
@@ -393,7 +385,6 @@ test.describe("Ingestion", () => {
     const pdfFilename = `e2e-in-folder-${ts}.pdf`
     await gotoBackOfficeLive(page, INGESTION_PATH)
     await waitForLiveViewSettled(page)
-    await ensureAsyncMode(page)
 
     // ── Create folder via UI ───────────────────────────────────────────────
     await page.locator("#new-folder-button").click()
