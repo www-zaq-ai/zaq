@@ -2292,17 +2292,17 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   # ────────────────────────────────────────────────────────────────
 
   describe "ingest mode and triggering ingestion" do
-    test "set_mode switches between available modes", %{conn: conn} do
+    test "hides mode controls while set_mode still accepts inline", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-      # Template renders mode buttons for ~w(async inline) — switch to inline
+      refute has_element?(view, "#ingest-mode-async")
+      refute has_element?(view, "#ingest-mode-inline")
+
       render_hook(view, "set_mode", %{"mode" => "inline"})
-      # The active button gets the highlight class; inactive buttons do not
-      assert render(view) =~ "bg-\\[#03b6d4\\].*inline|inline.*bg-\\[#03b6d4\\]" or
-               render(view) =~ "inline"
+      assert :sys.get_state(view.pid).socket.assigns.ingest_mode == "inline"
 
       render_hook(view, "set_mode", %{"mode" => "async"})
-      assert render(view) =~ "async"
+      assert :sys.get_state(view.pid).socket.assigns.ingest_mode == "async"
     end
 
     test "ingest_selected clears selection and shows flash for a file", %{conn: conn} do
@@ -3136,6 +3136,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert html =~ "Sources"
       assert html =~ "docs"
       assert html =~ "archives"
+    end
+
+    test "shows data source setup guidance when no data source is enabled", %{conn: conn} do
+      from(c in ChannelConfig, where: c.kind == "data_source")
+      |> Repo.update_all(set: [enabled: false])
+
+      {:ok, view, html} = live(conn, ~p"/bo/ingestion")
+
+      assert html =~ "No data source enabled."
+      assert html =~ "Enable a data source to see files available for ingestion."
+      assert html =~ ~s(href="/bo/channels/data_source")
+      refute has_element?(view, "#ingest-selected-button")
+      refute html =~ "alpha.md"
     end
 
     test "shows enabled data source providers as source buttons", %{conn: conn} do

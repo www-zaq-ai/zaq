@@ -21,4 +21,15 @@ defmodule ZaqWeb.Components.DesignSystem.EmptyStateTest do
     assert html =~ "No teams yet."
     assert html =~ "Click &quot;New Team&quot; to add one."
   end
+
+  test "empty_state/1 renders optional action" do
+    html =
+      render_component(&EmptyState.empty_state/1,
+        title: "No data source enabled.",
+        action: [%{inner_block: fn _, _ -> "Enable a data source" end}]
+      )
+
+    assert html =~ "No data source enabled."
+    assert html =~ "Enable a data source"
+  end
 end

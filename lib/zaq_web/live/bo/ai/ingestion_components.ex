@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   alias ZaqWeb.Components.BOModal
   alias ZaqWeb.Components.DesignSystem.Breadcrumb
   alias ZaqWeb.Components.DesignSystem.Dropzone
+  alias ZaqWeb.Components.DesignSystem.EmptyState
   alias ZaqWeb.Components.DesignSystem.IngestionEmbeddingBanner
   alias ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader
   alias ZaqWeb.Components.DesignSystem.IngestionFileGridView
@@ -39,6 +40,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   defdelegate status_pill_classes(status), to: StatusPill
   defdelegate folder_count_pill_classes(done?), to: StatusPill
+
+  def no_data_source_enabled_empty_state(assigns) do
+    ~H"""
+    <EmptyState.empty_state
+      title="No data source enabled."
+      hint="Enable a data source to see files available for ingestion."
+    >
+      <:action>
+        <.link navigate={~p"/bo/channels/data_source"} class="zaq-link-underline zaq-text-body-sm">
+          Enable a data source
+        </.link>
+      </:action>
+    </EmptyState.empty_state>
+    """
+  end
 
   attr :volumes, :map, required: true
   attr :current_volume, :string, required: true

@@ -9,7 +9,11 @@
 >
   <.ingestion_embedding_banner :if={not @embedding_ready} />
 
-  <div class="space-y-6 min-w-0">
+  <div :if={not @data_source_enabled?} class="space-y-6 min-w-0">
+    <.no_data_source_enabled_empty_state />
+  </div>
+
+  <div :if={@data_source_enabled?} class="space-y-6 min-w-0">
     <.volume_selector
       :if={map_size(@volumes) > 1 or @data_source_sources != []}
       volumes={@volumes}
