@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-x2b.2"
@@ -10,7 +10,7 @@
   "labels": [],
   "parent": "zaq-x2b",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-x2b.1] Protect AI credential seed with existing BO auth",
   "type": "task",
   "updated_at": "2026-08-28T13:15:30Z"
