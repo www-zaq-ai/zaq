@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-ai4"
+  ],
   "created": "2026-08-28T06:58:49Z",
   "description": "Add a one-query Zaq.Permissions aggregate for counting distinct person/team principals across storage resources, with tests proving deduplication and no N+1.",
   "id": "zaq-7ym",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[storage-principals-1] Add distinct permission principal count primitive",
   "type": "task",
-  "updated_at": "2026-08-28T06:58:49Z"
+  "updated_at": "2026-08-28T06:58:58Z"
 }

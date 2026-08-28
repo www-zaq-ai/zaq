@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-7ym"
+  ],
   "blocks": [],
   "created": "2026-08-28T06:58:49Z",
   "description": "Replace Storage.volume_stats hardcoded principals_count with the aggregate count for scanned active entries and their parents, with storage integration coverage.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[storage-principals-2] Wire storage volume stats to principal count",
   "type": "task",
-  "updated_at": "2026-08-28T06:58:49Z"
+  "updated_at": "2026-08-28T06:58:58Z"
 }
