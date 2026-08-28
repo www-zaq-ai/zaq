@@ -50,6 +50,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     provider = normalize_provider(Map.get(params, "provider"))
     volumes = fetch_volumes()
     current_volume = volumes |> Map.keys() |> List.first()
+    data_source_enabled? = data_source_enabled?()
 
     action_capabilities = action_capabilities(provider)
 
@@ -89,6 +90,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # Volume state
        volumes: volumes,
        current_volume: current_volume,
+       data_source_enabled?: data_source_enabled?,
        data_source_sources: enabled_data_source_sources(),
        # Embedding readiness
        embedding_ready: System.embedding_ready?(),
@@ -1323,6 +1325,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     |> Event.new(:storage, opts: [action: :list_volumes])
     |> NodeRouter.dispatch()
     |> Map.get(:response, %{})
+  end
+
+  defp data_source_enabled? do
+    ChannelConfig
+    |> where([c], c.kind == "data_source" and c.enabled == true)
+    |> Repo.exists?()
   end
 
   defp enabled_data_source_sources do

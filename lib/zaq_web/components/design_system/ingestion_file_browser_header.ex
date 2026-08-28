@@ -90,20 +90,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
       >
         Unwatch ({@selected_watched_count})
       </button>
-      <button
-        :for={mode <- ~w(async inline)}
-        :if={not @provider_mode}
-        id={"ingest-mode-#{mode}"}
-        phx-click="set_mode"
-        phx-value-mode={mode}
-        type="button"
-        class={[
-          "zaq-btn zaq-btn-tertiary zaq-btn-text_label-default",
-          @ingest_mode == mode && "zaq-btn-tertiary--active"
-        ]}
-      >
-        {mode}
-      </button>
       <.button
         id="monitor-jobs-button"
         variant={:secondary}

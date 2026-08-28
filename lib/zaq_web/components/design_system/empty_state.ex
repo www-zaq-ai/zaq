@@ -10,6 +10,7 @@ defmodule ZaqWeb.Components.DesignSystem.EmptyState do
   attr :title, :string, required: true
   attr :hint, :string, default: nil
   attr :class, :string, default: ""
+  slot :action
 
   def empty_state(assigns) do
     ~H"""
@@ -25,6 +26,9 @@ defmodule ZaqWeb.Components.DesignSystem.EmptyState do
         >
           {@hint}
         </p>
+        <div :if={@action != []}>
+          {render_slot(@action)}
+        </div>
       </div>
     </div>
     """
