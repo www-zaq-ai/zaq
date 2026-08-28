@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-28T13:15:30Z",
+  "description": "Functional spec: global setup captures the CSRF token after its regular BO form login; createE2EAiCredential sends it while callers use Playwright request contexts backed by the saved BO storage state. Tests first: route coverage from prerequisite plus targeted Agents E2E regression. Mocking: none.",
+  "id": "zaq-x2b.2",
+  "labels": [],
+  "parent": "zaq-x2b",
+  "priority": 2,
+  "status": "open",
+  "title": "Reuse regular login artifacts in E2E requests",
+  "type": "task",
+  "updated_at": "2026-08-28T13:15:30Z"
+}
