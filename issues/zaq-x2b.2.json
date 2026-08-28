@@ -11,6 +11,12 @@
   "id": "zaq-x2b.2",
   "labels": [],
   "parent": "zaq-x2b",
+  "comments": [
+    {
+      "text": "Global regular login now captures CSRF alongside storageState; createE2EAiCredential sends it with authenticated Playwright request fixtures. Updated Agents consumer and E2E docs. Targeted Agents Chromium test passed.",
+      "timestamp": "2026-08-28T13:22:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-x2b.2] Reuse regular login artifacts in E2E requests",
