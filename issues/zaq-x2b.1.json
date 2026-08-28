@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-x2b.2"
+  ],
   "created": "2026-08-28T13:15:29Z",
   "description": "Functional spec: POST /e2e/ai-credentials runs through the existing browser, BO-node, and BO-auth pipelines and therefore requires the normal session cookie and CSRF token. Tests first: add route/controller coverage for accepted authenticated requests and rejected requests missing regular auth/CSRF. Mocking: none; use ConnCase and the real Accounts/System boundaries.",
   "id": "zaq-x2b.1",
