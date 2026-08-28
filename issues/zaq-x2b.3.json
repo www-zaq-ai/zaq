@@ -9,9 +9,15 @@
   "id": "zaq-x2b.3",
   "labels": [],
   "parent": "zaq-x2b",
+  "comments": [
+    {
+      "text": "System Config now seeds one shared credential, retains two UI creation journeys, removes the nested reset and double navigation. Chromium suite passed all 53 tests.",
+      "timestamp": "2026-08-28T13:22:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-x2b.3] Collapse System Config prerequisite setup",
   "type": "task",
-  "updated_at": "2026-08-28T13:22:27Z"
+  "updated_at": "2026-08-28T13:22:28Z"
 }
