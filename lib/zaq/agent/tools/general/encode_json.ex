@@ -39,7 +39,7 @@ defmodule Zaq.Agent.Tools.General.EncodeJson do
     false for anything sent to an API, hashed, or signed — the compact form is
     what those expect.
 
-    The result has `encoded` (the JSON text) and `byte_size`.
+    The result has `encoded` (the JSON text).
 
     Use this when another tool needs JSON as a STRING — a raw HTTP body, a file
     to write, a payload to sign. Do NOT use it to look at a value you already
@@ -61,14 +61,13 @@ defmodule Zaq.Agent.Tools.General.EncodeJson do
       }),
     output_schema:
       Zoi.object(%{
-        encoded: Zoi.string(description: "The JSON text"),
-        byte_size: Zoi.integer(description: "Size of the JSON text in bytes, not codepoints")
+        encoded: Zoi.string(description: "The JSON text")
       })
 
   @impl Jido.Action
   def run(%{data: data} = params, _context) do
     case Jason.encode(data, pretty: Map.get(params, :pretty, false)) do
-      {:ok, encoded} -> {:ok, %{encoded: encoded, byte_size: byte_size(encoded)}}
+      {:ok, encoded} -> {:ok, %{encoded: encoded}}
       {:error, error} -> {:error, "could not encode as JSON: #{Exception.message(error)}"}
     end
   end

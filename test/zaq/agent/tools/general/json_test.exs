@@ -47,14 +47,6 @@ defmodule Zaq.Agent.Tools.General.JsonTest do
       assert {:ok, %{encoded: "null"}} = encode(%{data: nil})
     end
 
-    test "byte_size counts bytes, not codepoints" do
-      assert {:ok, result} = encode(%{data: "héllo"})
-
-      # 5 codepoints, 6 bytes, plus the two quote characters.
-      assert result.encoded == ~s("héllo")
-      assert result.byte_size == 8
-    end
-
     test "returns an error for a value JSON cannot represent" do
       assert {:error, message} = EncodeJson.run(%{data: <<0xFF, 0xFE>>, pretty: false}, %{})
       assert message =~ "could not encode as JSON"
@@ -70,36 +62,24 @@ defmodule Zaq.Agent.Tools.General.JsonTest do
   end
 
   describe "decoding" do
-    test "decodes an object and reports its shape" do
-      assert {:ok, result} = decode(%{data: ~s({"a":1,"b":2})})
-
-      assert result.decoded == %{"a" => 1, "b" => 2}
-      assert result.type == "object"
-      assert result.size == 2
+    test "decodes an object" do
+      assert {:ok, %{decoded: %{"a" => 1, "b" => 2}}} = decode(%{data: ~s({"a":1,"b":2})})
     end
 
-    test "decodes an array and counts its elements" do
-      assert {:ok, result} = decode(%{data: "[1,2,3]"})
-
-      assert result.decoded == [1, 2, 3]
-      assert result.type == "array"
-      assert result.size == 3
+    test "decodes an array" do
+      assert {:ok, %{decoded: [1, 2, 3]}} = decode(%{data: "[1,2,3]"})
     end
 
-    test "decodes every scalar top-level value with size 0" do
-      for {json, value, type} <- [
-            {~s("hi"), "hi", "string"},
-            {"5", 5, "number"},
-            {"1.5", 1.5, "number"},
-            {"true", true, "boolean"},
-            {"false", false, "boolean"},
-            {"null", nil, "null"}
+    test "decodes every scalar top-level value" do
+      for {json, value} <- [
+            {~s("hi"), "hi"},
+            {"5", 5},
+            {"1.5", 1.5},
+            {"true", true},
+            {"false", false},
+            {"null", nil}
           ] do
-        assert {:ok, result} = decode(%{data: json})
-
-        assert result.decoded == value, "wrong value for #{json}"
-        assert result.type == type, "wrong type for #{json}"
-        assert result.size == 0
+        assert {:ok, %{decoded: ^value}} = decode(%{data: json}), "wrong value for #{json}"
       end
     end
 
@@ -129,9 +109,6 @@ defmodule Zaq.Agent.Tools.General.JsonTest do
                "items" => [%{"id" => 1}, %{"id" => 2}],
                "meta" => %{"total" => 2}
              }
-
-      assert result.type == "object"
-      assert result.size == 2
     end
 
     test "reports where malformed JSON broke" do

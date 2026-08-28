@@ -18,13 +18,6 @@ defmodule Zaq.Agent.Tools.General.DecodeJson do
   `"null"` and `"[1,2]"` are all valid JSON documents, and an API that returns
   one should not need a different tool.
 
-  ## Reporting the shape
-
-  `decoded` holds the value, `type` names its JSON type, and `size` counts the
-  keys of an object or the elements of an array (0 for a scalar). A caller
-  that must branch — iterate an array, read a field, use a scalar — can do so
-  from `type` without inspecting the value first.
-
   A parse failure is returned as `{:error, message}` carrying Jason's position
   information, so a model that produced malformed JSON can see *where* it broke
   rather than only *that* it broke.
@@ -40,9 +33,7 @@ defmodule Zaq.Agent.Tools.General.DecodeJson do
     ```json code fence is stripped, so text copied from documentation or from
     another tool's output parses as-is.
 
-    The result has `decoded` (the value), `type` (one of "object", "array",
-    "string", "number", "boolean", "null") and `size` (keys for an object,
-    elements for an array, 0 otherwise).
+    The result has `decoded` (the parsed value).
 
     Use this on JSON that arrived as TEXT — a raw HTTP body, a file's contents,
     a field holding an embedded JSON document. Most tools already return
@@ -58,15 +49,7 @@ defmodule Zaq.Agent.Tools.General.DecodeJson do
       }),
     output_schema:
       Zoi.object(%{
-        decoded: Zoi.any(description: "The parsed value") |> Zoi.nullable(),
-        type:
-          Zoi.enum(["object", "array", "string", "number", "boolean", "null"],
-            description: "JSON type of the parsed value"
-          ),
-        size:
-          Zoi.integer(
-            description: "Keys for an object, elements for an array, 0 for a scalar or null"
-          )
+        decoded: Zoi.any(description: "The parsed value") |> Zoi.nullable()
       })
 
   @fence ~r/\A```[a-zA-Z0-9_-]*\s*\n(?<body>.*)\n?```\z/s
@@ -74,7 +57,7 @@ defmodule Zaq.Agent.Tools.General.DecodeJson do
   @impl Jido.Action
   def run(%{data: data}, _context) do
     case data |> String.trim() |> strip_fence() |> Jason.decode() do
-      {:ok, decoded} -> {:ok, describe(decoded)}
+      {:ok, decoded} -> {:ok, %{decoded: decoded}}
       {:error, error} -> {:error, "not valid JSON: #{Exception.message(error)}"}
     end
   end
@@ -85,19 +68,4 @@ defmodule Zaq.Agent.Tools.General.DecodeJson do
       nil -> data
     end
   end
-
-  defp describe(decoded) do
-    %{decoded: decoded, type: type(decoded), size: size(decoded)}
-  end
-
-  defp type(value) when is_map(value), do: "object"
-  defp type(value) when is_list(value), do: "array"
-  defp type(value) when is_binary(value), do: "string"
-  defp type(value) when is_number(value), do: "number"
-  defp type(value) when is_boolean(value), do: "boolean"
-  defp type(nil), do: "null"
-
-  defp size(value) when is_map(value), do: map_size(value)
-  defp size(value) when is_list(value), do: length(value)
-  defp size(_value), do: 0
 end
