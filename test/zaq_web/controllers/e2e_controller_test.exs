@@ -1,6 +1,9 @@
 defmodule ZaqWeb.E2EControllerTest do
   use ZaqWeb.ConnCase, async: false
 
+  import Zaq.AccountsFixtures
+
+  alias Zaq.Accounts
   alias Zaq.E2E.LogCollector
   alias Zaq.E2E.PortalState
 
@@ -114,6 +117,31 @@ defmodule ZaqWeb.E2EControllerTest do
     end
   end
 
+  describe "POST /e2e/ai-credentials" do
+    @tag :integration
+    test "creates a credential through an authenticated BO session", %{conn: conn} do
+      user = user_fixture()
+      {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+
+      conn =
+        conn
+        |> init_test_session(%{user_id: user.id})
+        |> post("/e2e/ai-credentials", ai_credential_params())
+
+      body = json_response(conn, 200)
+      assert body["ok"] == true
+      assert body["name"] == "Authenticated E2E Credential"
+    end
+
+    @tag :integration
+    test "rejects a request without an authenticated BO session", %{conn: conn} do
+      conn = post(conn, "/e2e/ai-credentials", ai_credential_params())
+
+      assert redirected_to(conn) == "/bo/login"
+      assert conn.halted
+    end
+  end
+
   describe "GET /e2e/telemetry/points" do
     test "returns 200 with correct shape", %{conn: conn} do
       conn = get(conn, "/e2e/telemetry/points")
@@ -157,5 +185,15 @@ defmodule ZaqWeb.E2EControllerTest do
       body = json_response(conn, 200)
       assert body["count"] == 2
     end
+  end
+
+  defp ai_credential_params do
+    %{
+      name: "Authenticated E2E Credential",
+      provider: "Custom",
+      endpoint: "http://localhost:11434/v1",
+      api_key: "e2e-key",
+      description: "Seeded through authenticated E2E route"
+    }
   end
 end

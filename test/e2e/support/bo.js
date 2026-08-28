@@ -308,9 +308,20 @@ async function writeE2EFile(request, relativePath, content, options = {}) {
   }
 }
 
-async function createE2EAiCredential(request, attrs, options = {}) {
+// Requires a page that has already completed the regular BO login flow. Using
+// page.request keeps the CSRF token and Phoenix session cookie in one context.
+async function createE2EAiCredential(page, attrs, options = {}) {
   const baseURL = normalizeBaseURL(options.baseURL);
-  const res = await request.post(`${baseURL}/e2e/ai-credentials`, { data: attrs });
+  const csrfToken = await page.locator('meta[name="csrf-token"]').getAttribute("content");
+
+  if (!csrfToken) {
+    throw new Error("Authenticated BO page did not expose a CSRF token.");
+  }
+
+  const res = await page.request.post(`${baseURL}/e2e/ai-credentials`, {
+    data: attrs,
+    headers: { "x-csrf-token": csrfToken },
+  });
   if (!res.ok()) {
     throw new Error(`/e2e/ai-credentials returned ${res.status()} ${await res.text()}`);
   }

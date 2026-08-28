@@ -146,6 +146,12 @@ defmodule ZaqWeb.Router do
 
   if Application.compile_env(:zaq, :e2e_routes, false) do
     scope "/e2e", ZaqWeb do
+      pipe_through [:browser, :bo_node_only, :bo_auth]
+
+      post "/ai-credentials", E2EController, :create_ai_credential
+    end
+
+    scope "/e2e", ZaqWeb do
       pipe_through :api
 
       get "/processor/fail", E2EController, :fail
@@ -156,7 +162,6 @@ defmodule ZaqWeb.Router do
       post "/reset", E2EController, :reset_all
       post "/addon-package", E2EController, :seed_addon_package
       post "/system-config", E2EController, :set_system_config
-      post "/ai-credentials", E2EController, :create_ai_credential
       post "/mcp-endpoints", E2EController, :create_mcp_endpoint
       post "/agents", E2EController, :create_agent
       post "/conversations", E2EController, :create_conversation
