@@ -7,9 +7,15 @@
   "description": "Reuse the regular BO login session and CSRF token for authenticated server-side AI credential seeding, then remove repeated UI setup and duplicate navigation from System Config E2E tests.",
   "id": "zaq-x2b",
   "labels": [],
+  "comments": [
+    {
+      "text": "CI follow-up: replaced process-wide E2E_BO_CSRF_TOKEN with page-bound CSRF extraction and page.request, so credential seeding uses the same browser context as login. Targeted Global tab and Agents Chromium checks passed; full System Config run reports passed; mix format and mix q completed.",
+      "timestamp": "2026-08-28T14:08:58Z"
+    }
+  ],
   "priority": 2,
   "status": "closed",
   "title": "[zaq-x2b] Optimize authenticated E2E credential setup",
   "type": "epic",
-  "updated_at": "2026-08-28T13:24:05Z"
+  "updated_at": "2026-08-28T14:08:58Z"
 }
