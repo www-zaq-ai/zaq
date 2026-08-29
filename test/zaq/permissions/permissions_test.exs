@@ -335,6 +335,28 @@ defmodule Zaq.PermissionsTest do
                end)
     end
 
+    test "query capture ignores concurrent resource permission telemetry" do
+      person = create_person()
+      workflow = fake_workflow()
+
+      {:ok, _} = Permissions.grant(workflow, %{person_id: person.id, access_rights: ["read"]})
+
+      assert {1, [_query]} =
+               capture_resource_permission_queries(fn ->
+                 task =
+                   Task.async(fn ->
+                     :telemetry.execute(
+                       [:zaq, :repo, :query],
+                       %{},
+                       %{source: "resource_permissions", query: "SELECT leaked"}
+                     )
+                   end)
+
+                 Task.await(task)
+                 Permissions.count_principals([workflow])
+               end)
+    end
+
     test "keeps person and team identifiers in separate namespaces" do
       person = create_person()
       team = create_team()
@@ -400,7 +422,7 @@ defmodule Zaq.PermissionsTest do
         handler_id,
         [:zaq, :repo, :query],
         fn _event, _measurements, metadata, _config ->
-          if metadata[:source] == "resource_permissions" do
+          if self() == test_pid and metadata[:source] == "resource_permissions" do
             send(test_pid, {:resource_permission_query, metadata[:query]})
           end
         end,

@@ -241,7 +241,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalShare do
           <p class="font-mono text-[0.72rem] text-black/40 mb-2 uppercase tracking-wide">
             Add person or team
           </p>
-          <form phx-change="add_permission_target">
+          <form id="share-add-permission-target-form" phx-change="add_permission_target">
             <.searchable_select
               id="share-target-select"
               name="value"

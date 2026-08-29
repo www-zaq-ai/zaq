@@ -53,12 +53,12 @@ defmodule ZaqWeb.Components.DesignSystem.ToggleTest do
   test "renders channel provider icon with label" do
     html =
       render_component(&Toggle.toggle/1,
-        value: "provider:google_drive",
+        value: "source:google_drive:2:2",
         event: "switch_source",
         value_param: "source",
         choices: [
-          %{value: "volume:documents", label: "documents", provider: "disk"},
-          %{value: "provider:google_drive", label: "Google Drive", provider: "google_drive"}
+          %{value: "source:disk:1:documents", label: "documents", provider: "disk"},
+          %{value: "source:google_drive:2:2", label: "Google Drive", provider: "google_drive"}
         ]
       )
 
@@ -84,6 +84,22 @@ defmodule ZaqWeb.Components.DesignSystem.ToggleTest do
     assert html =~ "zaq-toggle-group-pill"
     assert count_occurrences(html, "class=\"zaq-toggle-segment") == 3
     assert html =~ "phx-value-theme=\"dark\""
+  end
+
+  test "allows graphic-only choices without title or label" do
+    html =
+      render_component(&Toggle.toggle/1,
+        value: "compact",
+        event: "set_density",
+        choices: [
+          %{value: "compact", icon: "hero-arrows-pointing-in-micro"}
+        ]
+      )
+
+    assert html =~ "hero-arrows-pointing-in-micro"
+    assert html =~ "phx-value-value=\"compact\""
+    refute html =~ "aria-label="
+    refute html =~ "title="
   end
 
   defp count_occurrences(haystack, needle) do

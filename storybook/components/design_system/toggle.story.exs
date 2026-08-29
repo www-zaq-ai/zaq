@@ -54,13 +54,13 @@ defmodule Storybook.Components.DesignSystem.Toggle do
         id: :text_and_provider_icon,
         description: "Text + channel provider icon (ingestion sources)",
         attributes: %{
-          value: "volume:documents",
+          value: "source:disk:1:documents",
           event: "noop",
           value_param: "source",
           choices: [
-            %{value: "volume:documents", label: "documents", provider: "disk"},
-            %{value: "volume:archives", label: "archives", provider: "disk"},
-            %{value: "provider:google_drive", label: "Google Drive", provider: "google_drive"}
+            %{value: "source:disk:1:documents", label: "documents", provider: "disk"},
+            %{value: "source:disk:1:archives", label: "archives", provider: "disk"},
+            %{value: "source:google_drive:2:2", label: "Google Drive", provider: "google_drive"}
           ]
         }
       },

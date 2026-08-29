@@ -18,7 +18,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon
   alias ZaqWeb.Components.DesignSystem.IngestionFileListView
   alias ZaqWeb.Components.DesignSystem.IngestionJobsPanel
-  alias ZaqWeb.Components.DesignSystem.IngestionVolumeSelector
+  alias ZaqWeb.Components.DesignSystem.IngestionSourceSelector
   alias ZaqWeb.Components.DesignSystem.ModalAddRaw
   alias ZaqWeb.Components.DesignSystem.ModalDelete
   alias ZaqWeb.Components.DesignSystem.ModalDeleteSelected
@@ -56,19 +56,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
     """
   end
 
-  attr :volumes, :map, required: true
-  attr :current_volume, :string, required: true
-  attr :current_provider, :string, default: "local"
-  attr :data_sources, :list, default: []
+  attr :active_source_id, :string, required: true
+  attr :sources, :list, default: []
 
-  def volume_selector(assigns) do
-    IngestionVolumeSelector.volume_selector(assigns)
+  def source_selector(assigns) do
+    IngestionSourceSelector.source_selector(assigns)
   end
 
   attr :selected, :any, required: true
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
-  attr :provider_mode, :boolean, default: false
   attr :action_capabilities, :map, default: %{}
   attr :create_item_supported, :boolean, default: false
   attr :selected_watchable_count, :integer, default: 0
@@ -109,9 +106,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :entries, :list, required: true
   attr :selected, :any, required: true
   attr :current_dir, :string, required: true
-  attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
-  attr :provider_mode, :boolean, default: false
   attr :action_capabilities, :map, default: %{}
   attr :watch_supported, :boolean, default: true
   attr :watch_disabled_reason, :string, default: nil
@@ -125,9 +120,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
   attr :entries, :list, required: true
   attr :selected, :any, required: true
   attr :current_dir, :string, required: true
-  attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
-  attr :provider_mode, :boolean, default: false
   attr :action_capabilities, :map, default: %{}
   attr :watch_supported, :boolean, default: true
   attr :watch_disabled_reason, :string, default: nil

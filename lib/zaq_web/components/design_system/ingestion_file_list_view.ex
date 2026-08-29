@@ -29,9 +29,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   attr :entries, :list, required: true
   attr :selected, :any, required: true
   attr :current_dir, :string, required: true
-  attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
-  attr :provider_mode, :boolean, default: false
   attr :action_capabilities, :map, default: %{}
   attr :watch_supported, :boolean, default: true
   attr :watch_disabled_reason, :string, default: nil
@@ -118,7 +116,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <button
                     type="button"
                     phx-click="open_preview"
-                    phx-value-path={preview_path(entry, @current_volume, @provider_mode)}
+                    phx-value-path={record_path(entry)}
                     class="zaq-table-name-action-target flex items-center gap-2 min-w-0 w-full text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
                     title={entry.name}
                   >
@@ -141,7 +139,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                 <.table_actions reveal={:hover} class="zaq-table-actions--overlay">
                   <.entry_row_actions
                     entry={entry}
-                    provider_mode={@provider_mode}
                     action_capabilities={@action_capabilities}
                     ingestion_map={@ingestion_map}
                   />
@@ -173,7 +170,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
               <.entry_access_cell
                 entry={entry}
                 ingestion_map={@ingestion_map}
-                provider_mode={@provider_mode}
               />
             </.table_cell>
             <.table_cell align={:right} nowrap>
@@ -187,17 +183,15 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   end
 
   attr :entry, :map, required: true
-  attr :provider_mode, :boolean, required: true
   attr :action_capabilities, :map, required: true
   attr :ingestion_map, :map, required: true
 
   defp entry_row_actions(assigns) do
     ~H"""
     <button
-      :if={not @provider_mode and Map.get(@action_capabilities, :update, false)}
+      :if={Map.get(@action_capabilities, :move, false)}
       phx-click="move_item"
       phx-value-path={record_path(@entry)}
-      phx-value-type={record_local_type(@entry)}
       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
       title="Move to…"
     >
@@ -214,7 +208,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       :if={Map.get(@action_capabilities, :update, false)}
       phx-click="rename_item"
       phx-value-path={record_path(@entry)}
-      phx-value-type={record_local_type(@entry)}
       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
       title="Rename"
     >
@@ -231,7 +224,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       :if={shareable?(@entry, @action_capabilities, @ingestion_map)}
       phx-click="share_item"
       phx-value-path={record_path(@entry)}
-      phx-value-type={record_local_type(@entry)}
       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
       title="Share with roles"
     >
@@ -247,7 +239,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       :if={Map.get(@action_capabilities, :delete, false)}
       phx-click="delete_item"
       phx-value-path={record_path(@entry)}
-      phx-value-type={record_local_type(@entry)}
       class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-icon"
       title="Delete"
     >
@@ -338,7 +329,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
 
   attr :entry, :map, required: true
   attr :ingestion_map, :map, required: true
-  attr :provider_mode, :boolean, required: true
 
   defp entry_access_cell(assigns) do
     ~H"""

@@ -19,9 +19,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   attr :entries, :list, required: true
   attr :selected, :any, required: true
   attr :current_dir, :string, required: true
-  attr :current_volume, :string, required: true
   attr :ingestion_map, :map, required: true
-  attr :provider_mode, :boolean, default: false
   attr :action_capabilities, :map, default: %{}
   attr :watch_supported, :boolean, default: true
   attr :watch_disabled_reason, :string, default: nil
@@ -63,7 +61,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
             <.table_actions reveal={:hover} align={:right}>
               <.grid_entry_actions
                 entry={entry}
-                provider_mode={@provider_mode}
                 action_capabilities={@action_capabilities}
                 ingestion_map={@ingestion_map}
               />
@@ -80,8 +77,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
             <.grid_file_body
               entry={entry}
               ingestion_map={@ingestion_map}
-              provider_mode={@provider_mode}
-              current_volume={@current_volume}
               watch_supported={@watch_supported}
               watch_disabled_reason={@watch_disabled_reason}
             />
@@ -171,8 +166,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
 
   attr :entry, :map, required: true
   attr :ingestion_map, :map, required: true
-  attr :provider_mode, :boolean, required: true
-  attr :current_volume, :string, required: true
   attr :watch_supported, :boolean, required: true
   attr :watch_disabled_reason, :string, default: nil
 
@@ -183,7 +176,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       role="button"
       tabindex="0"
       phx-click="open_preview"
-      phx-value-path={preview_path(@entry, @current_volume, @provider_mode)}
+      phx-value-path={record_path(@entry)}
     >
       <img
         :if={record_icon_url(@entry)}
@@ -211,7 +204,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       >
         {SizeFormat.format_size(@entry.size)}
       </span>
-      <.grid_file_status entry={@entry} ingestion_map={@ingestion_map} provider_mode={@provider_mode} />
+      <.grid_file_status entry={@entry} ingestion_map={@ingestion_map} />
       <% status = file_ingestion_status(@ingestion_map, @entry.name) %>
       <span class="mt-2">
         <.watch_status_dot
@@ -230,7 +223,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
 
   attr :entry, :map, required: true
   attr :ingestion_map, :map, required: true
-  attr :provider_mode, :boolean, required: true
 
   defp grid_file_status(assigns) do
     status = file_ingestion_status(assigns.ingestion_map, assigns.entry.name)
@@ -292,17 +284,15 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   end
 
   attr :entry, :map, required: true
-  attr :provider_mode, :boolean, required: true
   attr :action_capabilities, :map, required: true
   attr :ingestion_map, :map, required: true
 
   defp grid_entry_actions(assigns) do
     ~H"""
     <button
-      :if={Map.get(@action_capabilities, :update, false)}
+      :if={Map.get(@action_capabilities, :move, false)}
       phx-click="move_item"
       phx-value-path={record_path(@entry)}
-      phx-value-type={record_local_type(@entry)}
       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
       title="Move to…"
     >
@@ -319,7 +309,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       :if={Map.get(@action_capabilities, :update, false)}
       phx-click="rename_item"
       phx-value-path={record_path(@entry)}
-      phx-value-type={record_local_type(@entry)}
       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
       title="Rename"
     >
@@ -336,7 +325,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       :if={grid_shareable?(@entry, @action_capabilities, @ingestion_map)}
       phx-click="share_item"
       phx-value-path={record_path(@entry)}
-      phx-value-type={record_local_type(@entry)}
       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
       title="Share with roles"
     >
@@ -352,7 +340,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
       :if={Map.get(@action_capabilities, :delete, false)}
       phx-click="delete_item"
       phx-value-path={record_path(@entry)}
-      phx-value-type={record_local_type(@entry)}
       class="zaq-btn zaq-btn-tertiary zaq-btn-danger zaq-btn-icon"
       title="Delete"
     >
