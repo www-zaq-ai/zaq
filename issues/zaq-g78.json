@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-29T15:10:01Z",
+  "description": "Remove dead provider_mode, volume sentinel, duplicate source alias, modal_type/phx-value-type, and stale tests/stories left after source-scope ingestion migration. Leave provider_page/current_dir alone.",
+  "id": "zaq-g78",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[cleanup] Remove stale ingestion local-mode wiring",
+  "type": "task",
+  "updated_at": "2026-08-29T15:10:01Z"
+}
