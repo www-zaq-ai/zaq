@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-29T11:45:12Z",
+  "description": "Ingestion page still fetches Storage volumes directly, causing Storage's synthetic default volume to appear when disk is disabled and another data source is enabled. Refactor source tabs to be driven by data-source bridge source scopes.",
+  "id": "zaq-7e6",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[ingestion-source-scopes] Remove ghost default volume tab",
+  "type": "bug",
+  "updated_at": "2026-08-29T11:45:12Z"
+}
