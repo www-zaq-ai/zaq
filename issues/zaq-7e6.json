@@ -2,13 +2,15 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-29T14:34:15Z",
+  "close_reason": "Migrated ingestion page to source-scope-driven source management and removed local/volume fallback behavior.",
   "created": "2026-08-29T11:45:12Z",
   "description": "Ingestion page still fetches Storage volumes directly, causing Storage's synthetic default volume to appear when disk is disabled and another data source is enabled. Refactor source tabs to be driven by data-source bridge source scopes.",
   "id": "zaq-7e6",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[ingestion-source-scopes] Remove ghost default volume tab",
   "type": "bug",
-  "updated_at": "2026-08-29T11:45:17Z"
+  "updated_at": "2026-08-29T14:34:15Z"
 }
