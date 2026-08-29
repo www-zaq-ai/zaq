@@ -2,13 +2,15 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-29T17:19:45Z",
+  "close_reason": "Scoped permission query telemetry capture to the emitting test process and added a cross-process contamination regression.",
   "created": "2026-08-29T17:09:30Z",
   "description": "CI-only flake: async permissions tests capture resource_permissions telemetry emitted by concurrent processes, causing one-query assertions to see unrelated queries.",
   "id": "zaq-vzq",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[regression] Scope permission query capture to test process",
   "type": "bug",
-  "updated_at": "2026-08-29T17:09:34Z"
+  "updated_at": "2026-08-29T17:19:45Z"
 }
