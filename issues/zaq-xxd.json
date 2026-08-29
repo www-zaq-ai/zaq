@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-29T16:25:53Z",
+  "description": "E2E regression: failed re-ingestion reaches terminal job state but row badge stays ingested because provider record enrichment no longer overlays latest job status.",
+  "id": "zaq-xxd",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[regression] Restore ingestion failed-job row overlay",
+  "type": "bug",
+  "updated_at": "2026-08-29T16:25:53Z"
+}
