@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-08-29T11:45:12Z",
@@ -7,8 +7,8 @@
   "id": "zaq-7e6",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[ingestion-source-scopes] Remove ghost default volume tab",
   "type": "bug",
-  "updated_at": "2026-08-29T11:45:12Z"
+  "updated_at": "2026-08-29T11:45:17Z"
 }
