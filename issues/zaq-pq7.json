@@ -2,13 +2,15 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-08-29T16:39:22Z",
+  "close_reason": "Restored canonical source-keyed ingestion job overlays and fixed content-cleared document status regression.",
   "created": "2026-08-29T16:26:07Z",
   "description": "E2E regression: failed re-ingestion reaches terminal job state but row badge stays ingested because provider record enrichment no longer overlays latest job status.",
   "id": "zaq-pq7",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[regression] Restore ingestion failed-job row overlay",
   "type": "bug",
-  "updated_at": "2026-08-29T16:26:11Z"
+  "updated_at": "2026-08-29T16:39:22Z"
 }
