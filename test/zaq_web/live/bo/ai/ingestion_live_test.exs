@@ -472,6 +472,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     "data_source/disk/#{config_id}/#{entry.id}"
   end
 
+  defp config_id_for(provider), do: Repo.get_by!(ChannelConfig, provider: provider).id
+
   defp source_entry(relative_path, kind \\ "file") do
     EntryCatalog.get_active("default", relative_path) ||
       elem(EntryCatalog.ensure("default", relative_path, kind), 1)
@@ -540,6 +542,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert has_element?(view, "button", "Nested Folder")
       assert has_element?(view, "span", "No Preview.txt")
+    end
+
+    test "provider rename modal uses the record name instead of the provider id", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+
+      render_hook(view, "rename_item", %{"path" => "file-1", "type" => "file"})
+
+      assert has_element?(view, "#rename-modal", "Budget.pdf")
+      assert has_element?(view, ~s(input[name="name"][value="Budget.pdf"]))
+
+      render_hook(view, "confirm_rename", %{"name" => "Budget.pdf"})
+
+      refute has_element?(view, "#rename-modal")
     end
 
     test "shows creation CTAs when provider create_item is supported", %{conn: conn} do
@@ -1618,9 +1633,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert state.socket.assigns.watch_error_message == "Watch setup failed."
   end
 
-  test "toggle_watch_status on a non-ingested local file shows unsupported-source flash", %{
-    conn: conn
-  } do
+  test "toggle_watch_status on a non-ingested disk data-source file shows watch setup guidance",
+       %{
+         conn: conn
+       } do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
     render_hook(view, "toggle_watch_status", %{"path" => "notes.txt"})
@@ -1628,7 +1644,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     state = :sys.get_state(view.pid)
 
     assert Phoenix.Flash.get(state.socket.assigns.flash, :info) ==
-             "Watching is not supported for this data source."
+             "Set System Configuration > Global > Base URL to enable external data-source watching."
   end
 
   test "opens file preview inside modal", %{conn: conn} do
@@ -1674,7 +1690,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert render(view) =~ "/bo/files/ref/"
   end
 
-  test "local preview ignores blank filename override", %{conn: conn} do
+  test "disk data-source preview ignores blank filename override", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
     render_hook(view, "open_preview", %{"path" => "alpha.md", "filename" => ""})
@@ -1682,7 +1698,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     state = :sys.get_state(view.pid)
 
     assert state.socket.assigns.modal == :preview
-    assert state.socket.assigns.preview.relative_path == "alpha.md"
     assert state.socket.assigns.preview.filename == "alpha.md"
   end
 
@@ -1745,7 +1760,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     render_hook(view, "delete_item", %{"path" => "missing.txt", "type" => "file"})
     render_hook(view, "confirm_delete", %{})
-    assert has_element?(view, "p", "Delete failed: :enoent")
+    assert has_element?(view, "p", "Delete failed: :not_found")
   end
 
   describe "single-file delete RAG cleanup" do
@@ -1878,6 +1893,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     refute File.exists?(Path.join(tmp_dir, "bulk-b.txt"))
 
     File.write!(Path.join(tmp_dir, "bulk-ok.txt"), "ok")
+    render_hook(view, "navigate", %{"path" => "."})
     render_hook(view, "toggle_select", %{"path" => "bulk-ok.txt"})
     render_hook(view, "toggle_select", %{"path" => "missing-bulk.txt"})
     render_hook(view, "show_delete_confirmation", %{})
@@ -1960,24 +1976,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "p", "fresh.txt")
   end
 
-  test "latest failed local job overrides an existing ingested badge", %{conn: conn} do
-    source = disk_source("notes.txt")
-    create_document_with_chunk(source)
-
-    create_job(%{
-      file_path: source,
-      status: "failed",
-      source_record: %{"name" => "notes.txt"}
-    })
-
-    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-    assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
-    assert has_element?(view, "#ingestion-file-list tr span", "failed")
-    refute has_element?(view, "#ingestion-file-list tr span", "ingested")
-  end
-
-  test "local file shows stale when modified after indexing", %{conn: conn, tmp_dir: tmp_dir} do
+  test "disk data-source file shows stale when modified after indexing", %{
+    conn: conn,
+    tmp_dir: tmp_dir
+  } do
     source = disk_source("notes.txt")
     doc = create_document_with_chunk(source)
     ingested_at = ~U[2024-01-01 00:00:00Z]
@@ -1990,6 +1992,77 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
     assert has_element?(view, "#ingestion-file-list tr span", "stale")
     refute has_element?(view, "#ingestion-file-list tr span", "ingested")
+  end
+
+  test "disk data-source document with cleared content is not shown as ingested", %{conn: conn} do
+    source = disk_source("notes.txt")
+
+    {:ok, _doc} =
+      Document.create(%{
+        source: source,
+        content: nil
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
+    refute has_element?(view, "#ingestion-file-list tr span", "ingested")
+    refute has_element?(view, "#ingestion-file-list tr span", "stale")
+  end
+
+  test "disk data-source failed job overrides existing ingested badge", %{conn: conn} do
+    source = disk_source("notes.txt")
+    create_document_with_chunk(source)
+    create_job(%{file_path: source, status: "failed", volume_name: nil})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
+    assert has_element?(view, "#ingestion-file-list tr span", "failed")
+    refute has_element?(view, "#ingestion-file-list tr span", "ingested")
+  end
+
+  test "disk data-source completed re-ingestion restores ingested badge after failure", %{
+    conn: conn
+  } do
+    source = disk_source("notes.txt")
+    create_document_with_chunk(source)
+    create_job(%{file_path: source, status: "failed", volume_name: nil})
+    create_job(%{file_path: source, status: "completed", volume_name: nil})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
+    assert has_element?(view, "#ingestion-file-list tr span", "ingested")
+    refute has_element?(view, "#ingestion-file-list tr span", "failed")
+  end
+
+  test "disk data-source job overlay matches canonical source instead of filename", %{conn: conn} do
+    source = disk_source("notes.txt")
+    create_document_with_chunk(source)
+
+    create_job(%{
+      file_path: "data_source/disk/#{config_id_for("disk")}/other-id",
+      status: "failed"
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
+    assert has_element?(view, "#ingestion-file-list tr span", "ingested")
+    refute has_element?(view, "#ingestion-file-list tr span", "failed")
+  end
+
+  test "disk data-source ignores malformed jobs without canonical source", %{conn: conn} do
+    source = disk_source("notes.txt")
+    create_document_with_chunk(source)
+    create_job(%{file_path: "notes.txt", status: "failed"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(view, "#ingestion-file-list tr", "notes.txt")
+    assert has_element?(view, "#ingestion-file-list tr span", "ingested")
+    refute has_element?(view, "#ingestion-file-list tr span", "failed")
   end
 
   test "others job filter includes active non-terminal statuses", %{conn: conn} do
@@ -2541,13 +2614,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
   end
 
-  test "empty configured volumes fall back to the default current volume", %{
-    conn: conn,
-    tmp_dir: tmp_dir
-  } do
+  test "disk tabs come from disk source scopes instead of storage fallback", %{conn: conn} do
     original_ingestion = Application.get_env(:zaq, Zaq.Ingestion)
     original_storage = Application.get_env(:zaq, Zaq.Storage)
-    storage_config = [base_path: tmp_dir, volumes: %{}]
+    storage_config = [base_path: "/tmp/unused-ingestion-storage", volumes: %{}]
 
     Application.put_env(:zaq, Zaq.Ingestion, storage_config)
     Application.put_env(:zaq, Zaq.Storage, storage_config)
@@ -2561,18 +2631,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     state = :sys.get_state(view.pid)
 
-    assert state.socket.assigns.current_volume == "default"
-    assert state.socket.assigns.volumes == %{"default" => Path.expand(tmp_dir)}
-  end
-
-  describe "mount/provider normalization" do
-    test "mounting /bo/ingestion/local normalizes provider to local", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/local")
-      state = :sys.get_state(view.pid)
-
-      assert state.socket.assigns.provider == "local"
-      assert state.socket.assigns.current_path == "/bo/ingestion"
-    end
+    assert state.socket.assigns.provider == "disk"
+    assert Enum.any?(state.socket.assigns.source_scopes, &(&1.provider == "disk"))
+    assert state.socket.assigns.active_source.provider == "disk"
   end
 
   # ────────────────────────────────────────────────────────────────
@@ -3151,7 +3212,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       refute html =~ "alpha.md"
     end
 
-    test "shows enabled data source providers as source buttons", %{conn: conn} do
+    test "shows enabled data source scopes as source buttons", %{conn: conn} do
       %ChannelConfig{}
       |> ChannelConfig.changeset(%{
         name: "Google Drive Source",
@@ -3177,9 +3238,37 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert html =~ "Sources"
       assert html =~ "Google Drive"
       assert html =~ ~s(phx-click="switch_source")
-      assert html =~ ~s(phx-value-source="provider:google_drive")
+      google_drive_config_id = config_id_for("google_drive")
+
+      assert html =~
+               ~s(phx-value-source="source:google_drive:#{google_drive_config_id}:#{google_drive_config_id}")
+
       refute html =~ "SharePoint"
-      refute html =~ ~s(phx-value-source="provider:sharepoint")
+      refute html =~ ~s(phx-value-source="source:sharepoint")
+    end
+
+    test "does not show a default disk tab when only an external source is enabled", %{conn: conn} do
+      Repo.get_by!(ChannelConfig, provider: "disk")
+      |> ChannelConfig.changeset(%{enabled: false})
+      |> Repo.update!()
+
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Google Drive Source",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+      {:ok, view, html} = live(conn, ~p"/bo/ingestion")
+
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.provider == "google_drive"
+      refute html =~ "Sources"
+      refute html =~ "No data source enabled"
+      refute html =~ ~s(phx-value-source="source:disk")
     end
 
     test "shows the same source selector on provider pages", %{conn: conn} do
@@ -3197,8 +3286,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert html =~ "Sources"
       assert html =~ "Google Drive"
-      assert html =~ ~s(phx-value-source="volume:archives")
-      assert html =~ ~s(phx-value-source="volume:docs")
+      disk_config_id = config_id_for("disk")
+      assert html =~ ~s(phx-value-source="source:disk:#{disk_config_id}:archives")
+      assert html =~ ~s(phx-value-source="source:disk:#{disk_config_id}:docs")
     end
 
     test "switch_source navigates to a data source provider", %{conn: conn} do
@@ -3214,44 +3304,80 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
-      assert {:error, {:live_redirect, %{to: "/bo/ingestion/google_drive"}}} =
-               render_click(view, "switch_source", %{"source" => "provider:google_drive"})
+      google_drive_config_id = config_id_for("google_drive")
+      source = "source:google_drive:#{google_drive_config_id}:#{google_drive_config_id}"
+
+      assert {:error, {:live_redirect, %{to: to}}} =
+               render_click(view, "switch_source", %{"source" => source})
+
+      assert to =~ "/bo/ingestion/google_drive?"
+      assert to =~ "config_id=#{google_drive_config_id}"
+      assert to =~ "scope_id=#{google_drive_config_id}"
     end
 
-    test "switch_volume changes current volume and loads entries", %{conn: conn} do
+    test "switch_source changes disk scope and loads entries", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      disk_config_id = config_id_for("disk")
 
-      render_hook(view, "switch_volume", %{"volume" => "archives"})
+      assert {:error, {:live_redirect, %{to: to}}} =
+               render_hook(view, "switch_source", %{
+                 "source" => "source:disk:#{disk_config_id}:archives"
+               })
+
+      {:ok, view, _html} = live(conn, to)
 
       assert has_element?(view, "span", "old.md")
       refute has_element?(view, "span", "manual.md")
     end
 
-    test "switch_volume resets current_dir to root", %{conn: conn} do
+    test "switch_source resets current_dir to root", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      disk_config_id = config_id_for("disk")
 
-      render_hook(view, "switch_volume", %{"volume" => "archives"})
+      assert {:error, {:live_redirect, %{to: to}}} =
+               render_hook(view, "switch_source", %{
+                 "source" => "source:disk:#{disk_config_id}:archives"
+               })
+
+      {:ok, view, _html} = live(conn, to)
 
       state = :sys.get_state(view.pid)
       assert state.socket.assigns.current_dir == "."
-      assert state.socket.assigns.current_volume == "archives"
+      assert state.socket.assigns.active_source.scope_id == "archives"
     end
 
     test "files in the selected volume are listed after switching", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
 
+      disk_config_id = config_id_for("disk")
+
       # Switch to docs explicitly
-      render_hook(view, "switch_volume", %{"volume" => "docs"})
+      assert {:error, {:live_redirect, %{to: to}}} =
+               render_hook(view, "switch_source", %{
+                 "source" => "source:disk:#{disk_config_id}:docs"
+               })
+
+      {:ok, view, _html} = live(conn, to)
       assert has_element?(view, "span", "manual.md")
       refute has_element?(view, "span", "old.md")
 
       # Switch to archives
-      render_hook(view, "switch_volume", %{"volume" => "archives"})
+      assert {:error, {:live_redirect, %{to: to}}} =
+               render_hook(view, "switch_source", %{
+                 "source" => "source:disk:#{disk_config_id}:archives"
+               })
+
+      {:ok, view, _html} = live(conn, to)
       assert has_element?(view, "span", "old.md")
       refute has_element?(view, "span", "manual.md")
 
       # Switch back to docs
-      render_hook(view, "switch_volume", %{"volume" => "docs"})
+      assert {:error, {:live_redirect, %{to: to}}} =
+               render_hook(view, "switch_source", %{
+                 "source" => "source:disk:#{disk_config_id}:docs"
+               })
+
+      {:ok, view, _html} = live(conn, to)
       assert has_element?(view, "span", "manual.md")
       refute has_element?(view, "span", "old.md")
     end
@@ -3976,14 +4102,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert :sys.get_state(view.pid).socket.assigns.jobs == []
       open_jobs_drawer(view)
     end
-
-    test "failed record enrichment leaves empty status maps", %{conn: conn} do
-      Application.put_env(:zaq, :ingestion_call_responses, %{enrich_records: {:error, :timeout}})
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      statuses = :sys.get_state(view.pid).socket.assigns.ingestion_map
-      assert statuses != %{}
-      assert Enum.all?(statuses, fn {_path, status} -> Map.get(status, :ingested_at) == nil end)
-    end
   end
 
   describe "permission round trips" do
@@ -4086,10 +4204,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "bridge-backed provider deletion accepts plain ok and refreshes", %{conn: conn} do
+      create_provider_config()
       Application.put_env(:zaq, :provider_browser_delete_response, :ok)
       Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      render_hook(view, "delete_item", %{"path" => "alpha.md", "type" => "file"})
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      render_hook(view, "delete_item", %{"path" => "file-1", "type" => "file"})
       render_hook(view, "confirm_delete", %{})
       refute has_element?(view, "h3", "Delete")
       state = :sys.get_state(view.pid)
@@ -4112,13 +4231,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   describe "provider source scopes" do
-    test "falls back to storage when local configuration is missing", %{
-      conn: conn,
-      tmp_dir: tmp_dir
-    } do
+    test "does not fall back to storage when disk configuration is missing", %{conn: conn} do
       Repo.delete_all(from c in ChannelConfig, where: c.provider == "disk")
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      assert :sys.get_state(view.pid).socket.assigns.volumes["default"] == Path.expand(tmp_dir)
+      state = :sys.get_state(view.pid)
+      assert state.socket.assigns.source_scopes == []
+      refute state.socket.assigns.data_source_enabled?
     end
 
     test "omits failed provider scopes and labels unnamed scopes", %{conn: conn} do
@@ -4234,22 +4352,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert :sys.get_state(view.pid).socket.assigns.modal_error == "Save failed: :provider_down"
     end
 
-    test "local navigation with no volume reports the disabled Disk source", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      :sys.replace_state(view.pid, fn state ->
-        assign = Map.merge(state.socket.assigns, %{volumes: %{}, current_volume: nil})
-        put_in(state.socket.assigns, assign)
-      end)
-
-      render_hook(view, "navigate", %{"path" => "docs"})
-      state = :sys.get_state(view.pid)
-      assert state.socket.assigns.entries == []
-      assert state.socket.assigns.records_by_path == %{}
-      assert state.socket.assigns.ingestion_map == %{}
-      assert state.socket.assigns.provider_error == "No Disk volume is enabled."
-    end
-
     test "provider preview events distinguish URL, unavailable, missing, and malformed paths", %{
       conn: conn
     } do
@@ -4286,46 +4388,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       state = :sys.get_state(view.pid)
       assert state.socket.assigns.selected == MapSet.new()
       assert Phoenix.Flash.get(state.socket.assigns.flash, :error) == "Ingestion failed."
-    end
-
-    test "local preview uses an explicit nonblank filename and preserves errors for missing files",
-         %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      render_hook(view, "open_preview", %{"path" => "alpha.md", "filename" => "renamed.md"})
-      state = :sys.get_state(view.pid)
-      assert state.socket.assigns.preview.filename == "renamed.md"
-      render_hook(view, "close_preview_modal", %{})
-      render_hook(view, "open_preview", %{"path" => "does-not-exist.md"})
-      state = :sys.get_state(view.pid)
-      assert state.socket.assigns.preview.kind == :not_found
-    end
-
-    test "malformed nameless ingestion jobs do not create a local overlay", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-      send(view.pid, {:job_updated, %IngestJob{source_record: %{}, file_path: nil}})
-      render_hook(view, "navigate", %{"path" => "docs"})
-      refute has_element?(view, "[data-testid='ingestion-overlay']")
-    end
-
-    test "share reports local source-id traversal failures", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
-
-      :sys.replace_state(view.pid, fn state ->
-        record = %Record{id: "invalid", kind: :file, name: "Invalid", path: "../invalid"}
-
-        assigns =
-          Map.merge(state.socket.assigns, %{
-            current_volume: nil,
-            records_by_path: %{"../invalid" => record}
-          })
-
-        put_in(state.socket.assigns, assigns)
-      end)
-
-      render_hook(view, "share_item", %{"path" => "../invalid"})
-
-      assert Phoenix.Flash.get(:sys.get_state(view.pid).socket.assigns.flash, :error) =~
-               "Permissions unavailable"
     end
 
     test "provider share reports a blank source id and permission failures", %{conn: conn} do

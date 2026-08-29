@@ -9,11 +9,6 @@ defmodule Zaq.Storage.Api do
   alias Zaq.InternalBoundaries
   alias Zaq.Storage
 
-  @impl true
-  def handle_event(%Event{} = event, :list_volumes, _context) do
-    %{event | response: Storage.list_volumes(event.opts)}
-  end
-
   def handle_event(%Event{} = event, :volumes_configured?, _context) do
     %{event | response: Storage.volumes_configured?(event.opts)}
   end

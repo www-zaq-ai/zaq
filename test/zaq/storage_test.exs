@@ -1148,7 +1148,7 @@ defmodule Zaq.StorageTest do
         handler_id,
         [:zaq, :repo, :query],
         fn _event, _measurements, metadata, _config ->
-          if metadata[:source] == "resource_permissions" do
+          if self() == test_pid and metadata[:source] == "resource_permissions" do
             send(test_pid, {:resource_permission_query, metadata[:query]})
           end
         end,

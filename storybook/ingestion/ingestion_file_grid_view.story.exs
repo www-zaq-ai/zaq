@@ -27,7 +27,6 @@ defmodule Storybook.Ingestion.IngestionFileGridView do
           entries={[]}
           selected={@empty}
           current_dir="."
-          current_volume="default"
           ingestion_map={%{}}
         />
       </.story_block>
@@ -40,7 +39,6 @@ defmodule Storybook.Ingestion.IngestionFileGridView do
           entries={fixture_entries()}
           selected={@selected_one}
           current_dir="."
-          current_volume="default"
           ingestion_map={fixture_ingestion_map()}
         />
       </.story_block>

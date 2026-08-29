@@ -14,12 +14,10 @@
   </div>
 
   <div :if={@data_source_enabled?} class="space-y-6 min-w-0">
-    <.volume_selector
-      :if={map_size(@volumes) > 1 or @data_source_sources != []}
-      volumes={@volumes}
-      current_volume={@current_volume}
-      current_provider={@provider}
-      data_sources={@data_source_sources}
+    <.source_selector
+      :if={@active_source_id && length(@source_scopes) > 1}
+      active_source_id={@active_source_id}
+      sources={@source_scopes}
     />
 
     <div>
@@ -38,7 +36,6 @@
           selected={@selected}
           ingest_mode={@ingest_mode}
           embedding_ready={@embedding_ready}
-          provider_mode={@provider != "local"}
           selected_watchable_count={
             selected_watchable_count(@selected, @records_by_path, @ingestion_map)
           }
@@ -65,9 +62,7 @@
         entries={@entries}
         selected={@selected}
         current_dir={@current_dir}
-        current_volume={@current_volume}
         ingestion_map={@ingestion_map}
-        provider_mode={@provider != "local"}
         action_capabilities={@action_capabilities}
         watch_supported={@watch_supported}
         watch_disabled_reason={@watch_disabled_reason}
@@ -77,9 +72,7 @@
         entries={@entries}
         selected={@selected}
         current_dir={@current_dir}
-        current_volume={@current_volume}
         ingestion_map={@ingestion_map}
-        provider_mode={@provider != "local"}
         action_capabilities={@action_capabilities}
         watch_supported={@watch_supported}
         watch_disabled_reason={@watch_disabled_reason}

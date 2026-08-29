@@ -156,7 +156,7 @@ defmodule Zaq.Engine.TelemetryTest do
   end
 
   test "record_feedback/3 ignores invalid feedback_reasons values" do
-    assert :ok = Telemetry.record_feedback(2, %{feedback_reasons: 123, source: :chat})
+    assert :ok = Telemetry.record_feedback(2, %{feedback_reasons: [123, %{}], source: :chat})
     assert :ok = Buffer.flush()
 
     assert Repo.aggregate(
@@ -171,6 +171,18 @@ defmodule Zaq.Engine.TelemetryTest do
                where: p.metric_key == "feedback.negative.count",
                where: fragment("?->>?", p.dimensions, "source") == "chat"
            )
+  end
+
+  test "dimension_key/1 truncates oversized keys with a hash suffix" do
+    dimensions =
+      for i <- 1..40, into: %{} do
+        {"dimension_#{i}", String.duplicate("x", 20)}
+      end
+
+    key = Telemetry.dimension_key(dimensions)
+
+    assert byte_size(key) <= 255
+    assert key =~ ~r/\|h=[0-9a-f]{12}$/
   end
 
   test "list_recent_points/1 parses defaults and supports wildcard metric filtering" do
@@ -274,6 +286,52 @@ defmodule Zaq.Engine.TelemetryTest do
     assert updated.value_min == 12.1
     assert updated.value_max == 99.9
     assert updated.last_value == 51.0
+  end
+
+  test "upsert_benchmark_rollups/1 tolerates malformed remote benchmark values" do
+    bucket_start =
+      DateTime.utc_now() |> DateTime.add(-600, :second) |> DateTime.truncate(:microsecond)
+
+    assert {3, nil} =
+             Telemetry.upsert_benchmark_rollups([
+               %{
+                 "metric_key" => "qa.answer.invalid_float",
+                 "bucket_start" => bucket_start,
+                 "dimensions" => %{"case" => "float-error"},
+                 "value_sum" => "not-a-number",
+                 "value_count" => "1",
+                 "last_at" => bucket_start
+               },
+               %{
+                 "metric_key" => "qa.answer.float_count",
+                 "bucket_start" => DateTime.to_iso8601(bucket_start),
+                 "dimensions" => %{"case" => "float-count"},
+                 "value_sum" => 1,
+                 "value_count" => 2.9,
+                 "last_at" => DateTime.to_iso8601(bucket_start)
+               },
+               %{
+                 "metric_key" => "qa.answer.invalid_count",
+                 "bucket_start" => DateTime.to_iso8601(bucket_start),
+                 "dimensions" => %{"case" => "invalid-count"},
+                 "value_sum" => 1,
+                 "value_count" => nil,
+                 "last_at" => DateTime.to_iso8601(bucket_start)
+               }
+             ])
+
+    rows =
+      Repo.all(
+        from r in Rollup,
+          where: r.source == "benchmark",
+          order_by: [asc: r.metric_key]
+      )
+
+    assert Enum.map(rows, &{&1.metric_key, &1.value_sum, &1.value_count}) == [
+             {"qa.answer.float_count", 1.0, 2},
+             {"qa.answer.invalid_count", 1.0, 0},
+             {"qa.answer.invalid_float", 0.0, 1}
+           ]
   end
 
   test "config helpers read defaults and stored values" do

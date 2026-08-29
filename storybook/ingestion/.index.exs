@@ -1,6 +1,6 @@
 defmodule Storybook.Ingestion do
   @moduledoc """
-  BO ingestion UI: file browser, volume selector, jobs panel, and related modals.
+  BO ingestion UI: file browser, source selector, jobs panel, and related modals.
   """
   use PhoenixStorybook.Index
 
@@ -22,8 +22,8 @@ defmodule Storybook.Ingestion do
   def entry("ingestion_jobs_panel"),
     do: [name: "Ingestion Jobs Panel", index: 5]
 
-  def entry("ingestion_volume_selector"),
-    do: [name: "Ingestion Volume Selector", index: 6]
+  def entry("ingestion_source_selector"),
+    do: [name: "Ingestion Source Selector", index: 6]
 
   def entry("ingestion_embedding_banner"),
     do: [name: "Ingestion Embedding Banner", index: 7]

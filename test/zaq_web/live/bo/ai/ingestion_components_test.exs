@@ -191,10 +191,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       refute status.can_share?
     end
 
-    test "renders provider-mode shared badge as permission button" do
+    test "renders read-only shared badge as permission button" do
       html =
         render_component(&IngestionFileStatus.shared_badge/1,
-          provider_mode: true,
           permissions_count: 7,
           path: "provider-file-1"
         )
@@ -208,19 +207,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
       refute html =~ "Shared with 7 person(s)/team(s)"
     end
 
-    test "renders local shared badge as share button with permissions title" do
+    test "renders editable shared badge as share button with permissions title" do
       html =
         render_component(&IngestionFileStatus.shared_badge/1,
-          provider_mode: false,
           share_editable: true,
           permissions_count: 3,
-          path: "local-file.md"
+          path: "source-file.md"
         )
 
       assert html =~ ~s(<button)
       assert html =~ "zaq-pill zaq-pill--shared zaq-text-caption"
       assert html =~ ~s(phx-click="share_item")
-      assert html =~ ~s(phx-value-path="local-file.md")
+      assert html =~ ~s(phx-value-path="source-file.md")
       assert html =~ ~s[title="Shared with 3 person(s)/team(s)"]
       assert html =~ "shared"
       refute html =~ ~s(phx-click="view_provider_permissions")
@@ -236,6 +234,28 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
   end
 
   describe "list view rendering" do
+    test "shows move action when move is supported" do
+      html =
+        render_component(&IngestionFileListView.file_list_view/1,
+          entries: [
+            %{
+              name: "alpha.md",
+              path: "alpha.md",
+              kind: :file,
+              size: 10,
+              modified_at: ~U[2026-01-01 00:00:00Z]
+            }
+          ],
+          selected: MapSet.new(),
+          current_dir: ".",
+          ingestion_map: %{},
+          action_capabilities: %{move: true, update: true}
+        )
+
+      assert html =~ ~s(phx-click="move_item")
+      assert html =~ ~s(title="Move to…")
+    end
+
     test "applies selected row variant when entry is in selected set" do
       html =
         render_component(&IngestionFileListView.file_list_view/1,
@@ -244,7 +264,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
           ],
           selected: MapSet.new(["alpha.md"]),
           current_dir: ".",
-          current_volume: "default",
           ingestion_map: %{}
         )
 
@@ -268,7 +287,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
           entries: entries,
           selected: MapSet.new(),
           current_dir: ".",
-          current_volume: "default",
           ingestion_map: %{
             "processing.md" => %{job_status: "processing"},
             "pending.md" => %{job_status: "pending"},
@@ -308,7 +326,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
           ],
           selected: MapSet.new(),
           current_dir: ".",
-          current_volume: "default",
           ingestion_map: %{
             "complete" => %{total_size: 2048, file_count: 3, ingested_count: 3},
             "partial" => %{total_size: 4096, file_count: 5, ingested_count: 2}
@@ -331,7 +348,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
           entries: [],
           selected: MapSet.new(),
           current_dir: ".",
-          current_volume: "default",
           ingestion_map: %{}
         )
 
@@ -347,7 +363,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
           ],
           selected: MapSet.new(["docs"]),
           current_dir: ".",
-          current_volume: "default",
           ingestion_map: %{
             "docs" => %{total_size: 2048, file_count: 3, ingested_count: 3},
             "empty" => %{total_size: 0, file_count: 0, ingested_count: 0}
@@ -373,7 +388,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
           ],
           selected: MapSet.new(),
           current_dir: ".",
-          current_volume: "default",
           ingestion_map: %{
             "report.pdf" => %{
               ingested_at: ~U[2026-06-23 06:00:00Z],
@@ -398,7 +412,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
           entries: [%{name: "draft.md", kind: :file, size: 10}],
           selected: MapSet.new(),
           current_dir: ".",
-          current_volume: "default",
           ingestion_map: %{
             "draft.md" => %{permissions_count: 1, is_public: true, can_share?: false}
           }

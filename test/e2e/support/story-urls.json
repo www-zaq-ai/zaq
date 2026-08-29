@@ -54,7 +54,7 @@
   "/storybook/ingestion/ingestion_file_icon",
   "/storybook/ingestion/ingestion_file_list_view",
   "/storybook/ingestion/ingestion_jobs_panel",
-  "/storybook/ingestion/ingestion_volume_selector",
+  "/storybook/ingestion/ingestion_source_selector",
   "/storybook/ingestion/modal_add_raw",
   "/storybook/ingestion/modal_delete",
   "/storybook/ingestion/modal_delete_selected",

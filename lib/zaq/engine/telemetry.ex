@@ -146,8 +146,6 @@ defmodule Zaq.Engine.Telemetry do
     |> normalize_feedback_reasons()
   end
 
-  defp extract_feedback_reasons(_), do: []
-
   defp normalize_feedback_reasons(reasons) when is_list(reasons) do
     reasons
     |> Enum.map(&normalize_feedback_reason/1)
@@ -468,7 +466,6 @@ defmodule Zaq.Engine.Telemetry do
 
   defp normalize_dim_value(value) when is_binary(value), do: truncate_dim_string(value)
   defp normalize_dim_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_dim_value(value) when is_boolean(value), do: to_string(value)
   defp normalize_dim_value(value) when is_integer(value) or is_float(value), do: value
   defp normalize_dim_value(value), do: value |> inspect() |> truncate_dim_string()
 

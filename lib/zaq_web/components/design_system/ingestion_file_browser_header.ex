@@ -14,7 +14,6 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileBrowserHeader do
   attr :selected, :any, required: true
   attr :ingest_mode, :string, required: true
   attr :embedding_ready, :boolean, default: true
-  attr :provider_mode, :boolean, default: false
   attr :action_capabilities, :map, default: %{}
   attr :create_item_supported, :boolean, default: false
   attr :selected_watchable_count, :integer, default: 0
