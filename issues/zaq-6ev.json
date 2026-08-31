@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T08:22:31Z",
+  "description": "Rename memory_context_max_size to model_max_context_tokens, backfill existing values, require positive values, and update runtime sync fingerprinting.",
+  "id": "zaq-6ev",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-713] Fix model context configuration semantics",
+  "type": "task",
+  "updated_at": "2026-08-31T08:22:31Z"
+}
