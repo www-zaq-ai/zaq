@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-ftz"
+  ],
   "blocks": [],
   "created": "2026-08-31T08:22:31Z",
   "description": "Add unit/property/LiveView/E2E coverage and run mix format plus mix q.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-713] Validate context window enforcement",
   "type": "task",
-  "updated_at": "2026-08-31T08:22:31Z"
+  "updated_at": "2026-08-31T08:22:32Z"
 }

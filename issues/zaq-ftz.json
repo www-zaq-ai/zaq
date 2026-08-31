@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-z8z"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-tp0"
+  ],
   "created": "2026-08-31T08:22:31Z",
   "description": "Add ContextWindow estimator and request transformer, wire it through Factory/ServerManager, and reject impossible mandatory payloads.",
   "id": "zaq-ftz",
@@ -12,5 +14,5 @@
   "status": "open",
   "title": "[zaq-713] Enforce outbound model request context window",
   "type": "task",
-  "updated_at": "2026-08-31T08:22:31Z"
+  "updated_at": "2026-08-31T08:22:32Z"
 }
