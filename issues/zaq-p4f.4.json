@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-p4f.2"
+  ],
   "blocks": [],
   "created": "2026-08-31T17:06:18Z",
   "description": "Migrate existing-resource mutation tools and Channels boundaries to verified Record inputs; keep create operations unchanged.",
