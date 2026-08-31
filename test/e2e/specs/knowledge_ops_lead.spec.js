@@ -3,6 +3,7 @@ const {
   gotoBackOfficeLive,
   loginToBackOffice,
   resetE2EState,
+  setE2ESystemConfig,
   touchE2EFile,
   writeE2EFile,
   dismissFlash,
@@ -98,6 +99,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
   test.beforeAll(async () => {
     const req = await apiRequest.newContext();
     await resetE2EState(req);
+    await setE2ESystemConfig(req, "llm.max_context_window", "128000");
     await req.dispose();
   });
 

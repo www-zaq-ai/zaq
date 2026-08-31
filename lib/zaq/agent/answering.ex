@@ -63,6 +63,7 @@ defmodule Zaq.Agent.Answering do
       active: true,
       advanced_options: ProviderSpec.default_advanced_options(cfg),
       model: cfg.model,
+      model_max_context_tokens: cfg.max_context_window,
       credential: %AIProviderCredential{
         provider: cfg.provider,
         api_key: cfg.api_key,
