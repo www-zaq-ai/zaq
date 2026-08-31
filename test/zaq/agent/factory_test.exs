@@ -60,6 +60,14 @@ defmodule Zaq.Agent.FactoryTest do
       assert agent.active == true
       assert agent.conversation_enabled == true
     end
+
+    test "uses the configured LLM context window" do
+      Zaq.System.set_config("llm.max_context_window", "128000")
+
+      agent = Answering.answering_configured_agent()
+
+      assert agent.model_max_context_tokens == 128_000
+    end
   end
 
   test "strategy_opts does not include model option" do
