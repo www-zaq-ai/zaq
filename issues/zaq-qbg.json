@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T14:00:35Z",
+  "description": "Require data-source document deletion to flow through canonical Record input from agent tools and BO, with Channels translating Record to provider params at the boundary.",
+  "id": "zaq-qbg",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Make delete document record-only",
+  "type": "task",
+  "updated_at": "2026-08-31T14:00:35Z"
+}
