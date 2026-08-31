@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T08:22:31Z",
+  "description": "Update BO agents form to set model_max_context_tokens from ProviderModels.model_for_credential/2 only when model selection changes, preserving manual overrides.",
+  "id": "zaq-jjd",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-713] Populate context window from model metadata",
+  "type": "task",
+  "updated_at": "2026-08-31T08:22:31Z"
+}
