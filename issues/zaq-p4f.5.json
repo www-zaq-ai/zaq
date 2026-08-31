@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T17:06:18Z",
+  "description": "Run focused provenance/mutation tests, mix format, and mix q; update service docs.",
+  "id": "zaq-p4f.5",
+  "labels": [],
+  "parent": "zaq-p4f",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-p4f] Validate provenance mutation flow",
+  "type": "task",
+  "updated_at": "2026-08-31T17:06:18Z"
+}
