@@ -101,6 +101,7 @@ defmodule Zaq.Storage do
   def persist_document(request, opts \\ []) when is_map(request) do
     with {:ok, opts} <- disk_config_opts(request, opts),
          {:ok, {volume_name, dir}} <- destination(request, opts),
+         :ok <- authorize_create_in_parent(volume_name, dir, opts),
          {:ok, name} <- required(request, "name", :name_required),
          {:ok, content} <- decode_content(request),
          dest = dir |> Path.join(name) |> SourcePath.normalize_relative(),
@@ -115,6 +116,7 @@ defmodule Zaq.Storage do
   def persist_directory(request, opts \\ []) when is_map(request) do
     with {:ok, opts} <- disk_config_opts(request, opts),
          {:ok, {volume_name, dir}} <- destination(request, opts),
+         :ok <- authorize_create_in_parent(volume_name, dir, opts),
          {:ok, name} <- required(request, "name", :name_required),
          dest = dir |> Path.join(name) |> SourcePath.normalize_relative(),
          :ok <- create_directory(volume_name, dest, opts),
@@ -138,8 +140,11 @@ defmodule Zaq.Storage do
     with {:ok, opts} <- disk_config_opts(request, opts),
          {:ok, file_id} <- required(request, "file_id", :file_id_required),
          {:ok, {volume_name, path}} <- resolve_entry_ref(file_id, opts),
-         :ok <- write_content(volume_name, path, request, opts),
+         {:ok, %Entry{} = current_entry} <- file_info(volume_name, path, opts),
+         :ok <- authorize_entry(current_entry, :update, opts),
          {:ok, target} <- move_target(volume_name, path, request, opts),
+         :ok <- authorize_move_destination(volume_name, path, target, opts),
+         :ok <- write_content(volume_name, path, request, opts),
          :ok <- move(volume_name, path, target, opts),
          {:ok, entry} <- file_info(volume_name, target, opts) do
       {:ok, %{status: "updated", entry: entry}}
@@ -159,7 +164,8 @@ defmodule Zaq.Storage do
 
   def delete_document(file_id, opts) when is_binary(file_id) do
     with {:ok, {volume_name, path}} <- resolve_entry_ref(file_id, opts),
-         {:ok, %Entry{type: type}} <- file_info(volume_name, path, opts),
+         {:ok, %Entry{type: type} = entry} <- file_info(volume_name, path, opts),
+         :ok <- authorize_entry(entry, :delete, opts),
          :ok <- delete_entry(volume_name, path, type, opts) do
       {:ok, %{status: "deleted"}}
     end
@@ -462,7 +468,7 @@ defmodule Zaq.Storage do
   defp entry_from_source(source, opts) do
     with {:ok, {volume_name, path}} <- resolve_entry_ref(source, opts),
          {:ok, %Entry{} = entry} <- file_info(volume_name, path, opts),
-         :ok <- authorize_entry(entry, opts) do
+         :ok <- authorize_entry(entry, :read, opts) do
       {:ok, entry}
     end
   end
@@ -470,7 +476,7 @@ defmodule Zaq.Storage do
   defp materialize_source(source, request, opts) do
     with {:ok, {volume_name, path}} <- resolve_entry_ref(source, opts),
          {:ok, %Entry{} = entry} <- file_info(volume_name, path, opts),
-         :ok <- authorize_entry(entry, opts),
+         :ok <- authorize_entry(entry, :read, opts),
          {:ok, absolute_path} <- resolve_path(volume_name, entry.relative_path, opts),
          {:ok, binary} <- File.read(absolute_path) do
       {:ok, content_answer(entry, binary, request, opts)}
@@ -610,13 +616,13 @@ defmodule Zaq.Storage do
   defp storage_resource(file_id), do: %StorageEntry{id: file_id}
 
   defp can_read_entry?(%Entry{} = entry, opts) do
-    case authorize_entry(entry, opts) do
+    case authorize_entry(entry, :read, opts) do
       :ok -> true
       {:error, :unauthorized} -> false
     end
   end
 
-  defp authorize_entry(%Entry{id: id} = entry, opts) when is_binary(id) do
+  defp authorize_entry(%Entry{id: id} = entry, right, opts) when is_binary(id) do
     resource = storage_resource(id)
 
     cond do
@@ -625,7 +631,7 @@ defmodule Zaq.Storage do
 
       permissions(opts).can?(
         person_from_opts(opts),
-        :read,
+        right,
         resource,
         Keyword.put(opts, :ancestors, entry_ancestor_resources(entry.id, opts))
       ) ->
@@ -636,8 +642,51 @@ defmodule Zaq.Storage do
     end
   end
 
-  defp authorize_entry(_entry, opts) do
+  defp authorize_entry(_entry, _right, opts) do
     if Keyword.get(opts, :skip_permissions, false), do: :ok, else: {:error, :unauthorized}
+  end
+
+  defp authorize_create_in_parent(volume_name, dir, opts) do
+    with {:ok, %Entry{} = parent} <- nearest_existing_entry(volume_name, dir, opts) do
+      authorize_entry(parent, :write, opts)
+    end
+  end
+
+  defp authorize_move_destination(_volume_name, path, path, _opts), do: :ok
+
+  defp authorize_move_destination(volume_name, path, target, opts) do
+    if Path.dirname(path) == Path.dirname(target) do
+      :ok
+    else
+      authorize_create_in_parent(volume_name, Path.dirname(target), opts)
+    end
+  end
+
+  defp nearest_existing_entry(volume_name, dir, opts) do
+    normalized = SourcePath.normalize_relative(dir || ".")
+
+    case file_info(volume_name, normalized, opts) do
+      {:ok, %Entry{type: :directory} = entry} ->
+        {:ok, entry}
+
+      {:ok, %Entry{type: "directory"} = entry} ->
+        {:ok, entry}
+
+      {:ok, _entry} ->
+        {:error, :not_a_directory}
+
+      {:error, :enoent} ->
+        parent = Path.dirname(normalized)
+
+        if parent == normalized do
+          {:error, :not_found}
+        else
+          nearest_existing_entry(volume_name, parent, opts)
+        end
+
+      error ->
+        error
+    end
   end
 
   defp authorize_manage_entry(%EntryCatalog{id: id}, opts) do

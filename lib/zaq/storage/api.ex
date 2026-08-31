@@ -38,7 +38,7 @@ defmodule Zaq.Storage.Api do
 
   def handle_event(%Event{request: request} = event, :persist_directory, _context)
       when is_map(request) do
-    %{event | response: Storage.persist_directory(request, event.opts)}
+    %{event | response: Storage.persist_directory(request, opts(event))}
   end
 
   def handle_event(
