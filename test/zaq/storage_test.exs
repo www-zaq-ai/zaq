@@ -306,11 +306,12 @@ defmodule Zaq.StorageTest do
     assert {:ok, file} = Storage.file_info("archives", "folder/sub/file.md", opts)
     assert {:ok, folder} = Storage.file_info("archives", "folder", opts)
 
-    assert {:ok, %{status: "deleted"}} = Storage.delete_document(file.id)
+    assert {:ok, %{status: "deleted"}} = Storage.delete_document(file.id, skip_permissions: true)
     refute File.exists?(Path.join(root, "folder/sub/file.md"))
     assert Repo.get(EntryCatalog, file.id).deleted_at != nil
 
-    assert {:ok, %{status: "deleted"}} = Storage.delete_document(folder.id)
+    assert {:ok, %{status: "deleted"}} =
+             Storage.delete_document(folder.id, skip_permissions: true)
 
     refute File.exists?(Path.join(root, "folder"))
     assert Repo.get(EntryCatalog, folder.id).deleted_at != nil
@@ -502,21 +503,21 @@ defmodule Zaq.StorageTest do
     root: root,
     storage_opts: opts
   } do
+    admin_opts = Keyword.put(opts, :skip_permissions, true)
+
     File.write!(Path.join(root, "binary.bin"), <<255, 0, 1>>)
     assert {:ok, binary_entry} = Storage.file_info("archives", "binary.bin", opts)
 
     assert {:ok, %{content: encoded, encoding: "base64"}} =
-             Storage.materialize_document(
-               %{"file_id" => binary_entry.id},
-               Keyword.put(opts, :skip_permissions, true)
-             )
+             Storage.materialize_document(%{"file_id" => binary_entry.id}, admin_opts)
 
     assert Base.decode64!(encoded) == <<255, 0, 1>>
 
     assert {:ok, %{entry: entry}} =
              Storage.persist_document(
                %{"name" => "draft.md", "content" => "old"},
-               Keyword.put(opts, :storage_config,
+               admin_opts
+               |> Keyword.put(:storage_config,
                  base_path: root,
                  volumes: %{"archives" => root},
                  default_volume: "archives"
@@ -524,13 +525,13 @@ defmodule Zaq.StorageTest do
              )
 
     assert {:ok, %{status: "updated", entry: updated}} =
-             Storage.update_document(%{"file_id" => entry.id, "content" => "new"}, opts)
+             Storage.update_document(%{"file_id" => entry.id, "content" => "new"}, admin_opts)
 
     assert File.read!(Path.join(root, "draft.md")) == "new"
     assert updated.relative_path == "draft.md"
 
     assert {:ok, %{entry: moved}} =
-             Storage.update_document(%{"file_id" => entry.id, "name" => "renamed.md"}, opts)
+             Storage.update_document(%{"file_id" => entry.id, "name" => "renamed.md"}, admin_opts)
 
     refute File.exists?(Path.join(root, "draft.md"))
     assert File.read!(Path.join(root, "renamed.md")) == "new"
@@ -538,10 +539,11 @@ defmodule Zaq.StorageTest do
     assert moved.relative_path == "renamed.md"
 
     assert {:error, :volume_required} =
-             Storage.update_document(%{"file_id" => moved.id, "path" => "other"}, opts)
+             Storage.update_document(%{"file_id" => moved.id, "path" => "other"}, admin_opts)
 
     multi_opts =
-      Keyword.put(opts, :storage_config,
+      admin_opts
+      |> Keyword.put(:storage_config,
         base_path: root,
         volumes: %{"archives" => root, "other" => Path.join(root, "other")}
       )
@@ -552,15 +554,16 @@ defmodule Zaq.StorageTest do
     assert {:error, :invalid_base64} =
              Storage.update_document(
                %{"file_id" => moved.id, "content" => "%%%", "encoding" => "base64"},
-               opts
+               admin_opts
              )
 
-    assert {:error, :file_id_required} = Storage.update_document(%{"content" => "x"}, opts)
+    assert {:error, :file_id_required} = Storage.update_document(%{"content" => "x"}, admin_opts)
 
     assert {:error, :name_required} =
              Storage.persist_document(
                %{"name" => "", "content" => "x"},
-               Keyword.put(opts, :storage_config,
+               admin_opts
+               |> Keyword.put(:storage_config,
                  base_path: root,
                  volumes: %{"archives" => root},
                  default_volume: "archives"
@@ -686,6 +689,7 @@ defmodule Zaq.StorageTest do
         volumes: %{"primary" => primary, "secondary" => secondary},
         default_volume: "secondary"
       )
+      |> Keyword.put(:skip_permissions, true)
 
     assert {:ok, %{entry: entry}} =
              Storage.persist_document(
@@ -714,6 +718,7 @@ defmodule Zaq.StorageTest do
         volumes: %{"primary" => primary, "secondary" => secondary},
         default_volume: "secondary"
       )
+      |> Keyword.put(:skip_permissions, true)
 
     assert {:ok, %{entry: entry}} =
              Storage.persist_document(
@@ -739,6 +744,7 @@ defmodule Zaq.StorageTest do
         volumes: %{"docs" => docs},
         default_volume: "docs"
       )
+      |> Keyword.put(:skip_permissions, true)
 
     assert {:ok, %{entry: entry}} =
              Storage.persist_document(%{"name" => "readme.md", "content" => "readme"}, opts)
@@ -754,7 +760,7 @@ defmodule Zaq.StorageTest do
     assert {:error, :volume_required} =
              Storage.persist_document(
                %{"name" => "notes.md", "path" => "docs", "content" => "# notes"},
-               opts
+               Keyword.put(opts, :skip_permissions, true)
              )
   end
 
@@ -891,6 +897,157 @@ defmodule Zaq.StorageTest do
                %{"file_id" => entry.id},
                Keyword.put(opts, :skip_permissions, true)
              )
+  end
+
+  test "persist_document requires write on nearest existing parent", %{
+    root: root,
+    storage_opts: opts
+  } do
+    {:ok, root_entry} = EntryCatalog.ensure("archives", ".", "directory")
+    person = person_fixture()
+
+    assert {:error, :unauthorized} =
+             Storage.persist_document(
+               %{"name" => "draft.md", "path" => "archives", "content" => "draft"},
+               opts
+             )
+
+    refute File.exists?(Path.join(root, "draft.md"))
+
+    {:ok, _permission} =
+      Permissions.grant(%StorageEntry{id: root_entry.id}, %{
+        person_id: person.id,
+        access_rights: ["write"]
+      })
+
+    assert {:ok, %{entry: entry}} =
+             Storage.persist_document(
+               %{"name" => "draft.md", "path" => "archives/missing/nested", "content" => "draft"},
+               Keyword.put(opts, :actor, %{person_id: person.id})
+             )
+
+    assert entry.relative_path == "missing/nested/draft.md"
+    assert File.read!(Path.join(root, "missing/nested/draft.md")) == "draft"
+  end
+
+  test "update_document requires update on the source and write on move destination", %{
+    root: root,
+    storage_opts: opts
+  } do
+    admin_opts = Keyword.put(opts, :skip_permissions, true)
+    File.mkdir_p!(Path.join(root, "dest"))
+    File.write!(Path.join(root, "source.md"), "old")
+    assert {:ok, source} = Storage.file_info("archives", "source.md", opts)
+    assert {:ok, dest} = Storage.file_info("archives", "dest", opts)
+    person = person_fixture()
+
+    assert {:error, :unauthorized} =
+             Storage.update_document(%{"file_id" => source.id, "content" => "new"}, opts)
+
+    assert File.read!(Path.join(root, "source.md")) == "old"
+
+    {:ok, _permission} =
+      Permissions.grant(%StorageEntry{id: source.id}, %{
+        person_id: person.id,
+        access_rights: ["update"]
+      })
+
+    actor_opts = Keyword.put(opts, :actor, %{person_id: person.id})
+
+    assert {:ok, %{entry: renamed}} =
+             Storage.update_document(
+               %{"file_id" => source.id, "name" => "renamed.md"},
+               actor_opts
+             )
+
+    assert renamed.relative_path == "renamed.md"
+    assert File.read!(Path.join(root, "renamed.md")) == "old"
+
+    assert {:error, :unauthorized} =
+             Storage.update_document(
+               %{"file_id" => source.id, "path" => "archives/dest"},
+               actor_opts
+             )
+
+    assert File.exists?(Path.join(root, "renamed.md"))
+    refute File.exists?(Path.join(root, "dest/renamed.md"))
+
+    {:ok, _permission} =
+      Permissions.grant(%StorageEntry{id: dest.id}, %{
+        person_id: person.id,
+        access_rights: ["write"]
+      })
+
+    assert {:ok, %{entry: moved}} =
+             Storage.update_document(
+               %{"file_id" => source.id, "path" => "archives/dest"},
+               actor_opts
+             )
+
+    assert moved.relative_path == "dest/renamed.md"
+    assert File.read!(Path.join(root, "dest/renamed.md")) == "old"
+
+    assert {:ok, %{entry: _}} =
+             Storage.update_document(%{"file_id" => moved.id, "content" => "admin"}, admin_opts)
+  end
+
+  test "delete_document requires delete permission and leaves denied entries intact", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.write!(Path.join(root, "protected.md"), "protected")
+    assert {:ok, entry} = Storage.file_info("archives", "protected.md", opts)
+    person = person_fixture()
+
+    {:ok, _read_permission} =
+      Permissions.grant(%StorageEntry{id: entry.id}, %{
+        person_id: person.id,
+        access_rights: ["read"]
+      })
+
+    actor_opts = Keyword.put(opts, :actor, %{person_id: person.id})
+
+    assert {:error, :unauthorized} = Storage.delete_document(entry.id, actor_opts)
+    assert File.exists?(Path.join(root, "protected.md"))
+    assert Repo.get(EntryCatalog, entry.id).deleted_at == nil
+
+    {:ok, _delete_permission} =
+      Permissions.grant(%StorageEntry{id: entry.id}, %{
+        person_id: person.id,
+        access_rights: ["delete"]
+      })
+
+    assert {:ok, %{status: "deleted"}} = Storage.delete_document(entry.id, actor_opts)
+    refute File.exists?(Path.join(root, "protected.md"))
+    assert Repo.get(EntryCatalog, entry.id).deleted_at != nil
+  end
+
+  test "folder grants authorize child mutations through inherited permissions", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.mkdir_p!(Path.join(root, "folder"))
+    File.write!(Path.join(root, "folder/child.md"), "child")
+    assert {:ok, folder} = Storage.file_info("archives", "folder", opts)
+    assert {:ok, child} = Storage.file_info("archives", "folder/child.md", opts)
+    person = person_fixture()
+
+    {:ok, _permission} =
+      Permissions.grant(%StorageEntry{id: folder.id}, %{
+        person_id: person.id,
+        access_rights: ["update", "delete"]
+      })
+
+    actor_opts = Keyword.put(opts, :actor, %{person_id: person.id})
+
+    assert {:ok, %{entry: updated}} =
+             Storage.update_document(%{"file_id" => child.id, "content" => "updated"}, actor_opts)
+
+    assert updated.relative_path == "folder/child.md"
+    assert File.read!(Path.join(root, "folder/child.md")) == "updated"
+
+    assert {:ok, %{status: "deleted"}} = Storage.delete_document(child.id, actor_opts)
+    refute File.exists?(Path.join(root, "folder/child.md"))
   end
 
   test "search_documents/1 and describe_document/2 keep ungranted entries private", %{
