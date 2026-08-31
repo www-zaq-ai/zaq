@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T17:06:18Z",
+  "description": "Preserve and reconstruct provenance_token through JSON, materialization, ingestion RecordSource, and workflow result persistence.",
+  "id": "zaq-p4f.3",
+  "labels": [],
+  "parent": "zaq-p4f",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-p4f] Preserve provenance across serialization seams",
+  "type": "task",
+  "updated_at": "2026-08-31T17:06:18Z"
+}
