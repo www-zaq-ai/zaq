@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jjd"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ftz"
+  ],
   "created": "2026-08-31T08:22:31Z",
   "description": "Remove max token trimming from HistoryLoader so persisted Jido state is separate from outbound provider request projection.",
   "id": "zaq-z8z",

@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-z8z"
+  ],
   "blocks": [],
   "created": "2026-08-31T08:22:31Z",
   "description": "Add ContextWindow estimator and request transformer, wire it through Factory/ServerManager, and reject impossible mandatory payloads.",
