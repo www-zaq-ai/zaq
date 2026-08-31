@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-p4f.4"
+  ],
   "blocks": [],
   "created": "2026-08-31T17:06:18Z",
   "description": "Run focused provenance/mutation tests, mix format, and mix q; update service docs.",
