@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-jjd"
+  ],
   "created": "2026-08-31T08:22:31Z",
   "description": "Rename memory_context_max_size to model_max_context_tokens, backfill existing values, require positive values, and update runtime sync fingerprinting.",
   "id": "zaq-6ev",

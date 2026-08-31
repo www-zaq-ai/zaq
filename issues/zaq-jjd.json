@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-6ev"
+  ],
   "blocks": [],
   "created": "2026-08-31T08:22:31Z",
   "description": "Update BO agents form to set model_max_context_tokens from ProviderModels.model_for_credential/2 only when model selection changes, preserving manual overrides.",
