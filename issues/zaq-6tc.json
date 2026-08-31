@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-w7d"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-2zh"
+  ],
   "created": "2026-08-31T12:09:16Z",
   "description": "Add BO Agents reset control that restores model_max_context_tokens from LLMDB metadata without clobbering other form fields.",
   "id": "zaq-6tc",
@@ -12,5 +14,5 @@
   "status": "open",
   "title": "[zaq-713] Add context-window model-default reset",
   "type": "task",
-  "updated_at": "2026-08-31T12:09:16Z"
+  "updated_at": "2026-08-31T12:09:17Z"
 }

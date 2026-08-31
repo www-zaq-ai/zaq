@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-6tc"
+  ],
   "blocks": [],
   "created": "2026-08-31T12:09:16Z",
   "description": "Add ExUnit/LiveView/E2E coverage and run mix format plus mix q.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-713] Validate context-window UX follow-up",
   "type": "task",
-  "updated_at": "2026-08-31T12:09:16Z"
+  "updated_at": "2026-08-31T12:09:17Z"
 }
