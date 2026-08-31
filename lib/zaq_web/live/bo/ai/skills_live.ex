@@ -603,7 +603,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp delete_resource_dir(socket, volume, root) do
     file_id = Path.join(volume, root)
 
-    case data_source_action(:data_source_delete_file, %{"file_id" => file_id}, socket) do
+    case storage_action(:delete_document, %{file_id: file_id}, socket) do
       {:ok, %{status: "deleted"}} -> :ok
       {:error, reason} when reason in [:enoent, :not_found, :not_a_directory] -> :absent
       other -> other
@@ -664,6 +664,16 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     event =
       Event.new(%{provider: resource_data_source_provider(), params: params}, :channels,
         opts: [action: action, data_source_bridge_module: data_source_bridge_module()],
+        actor: resource_actor(socket)
+      )
+
+    node_router().dispatch(event).response
+  end
+
+  defp storage_action(action, request, socket) do
+    event =
+      Event.new(request, :storage,
+        opts: [action: action],
         actor: resource_actor(socket)
       )
 

@@ -2,6 +2,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Channels.{Bridge, ChannelConfig, DataSourceBridge, DiskBridge}
+  alias Zaq.Contracts.Record
   alias Zaq.Repo
 
   defmodule StubDataSourceBridge do
@@ -365,13 +366,36 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:update_file, ^config_id,
                      %{"file_id" => "f1", "name" => "Renamed", config_id: ^config_id}}
 
-    assert {:ok, %{status: "deleted", result: %{}}} =
-             DataSourceBridge.delete_file(:google_drive, %{
-               "file_id" => "f1",
-               config_id: config_id
-             })
+    delete_record = %Record{
+      id: "record-f1",
+      kind: :file,
+      attributes: %{
+        "provider" => "google_drive",
+        "config_id" => config_id,
+        "provider_record_id" => "f1"
+      }
+    }
 
-    assert_received {:delete_file, ^config_id, %{"file_id" => "f1", config_id: ^config_id}}
+    assert {:ok, %{status: "deleted", result: %{}}} = DataSourceBridge.delete_file(delete_record)
+
+    assert_received {:delete_file, ^config_id, %{"file_id" => "f1", "config_id" => ^config_id}}
+
+    fallback_record = %Record{
+      id: "fallback-f1",
+      kind: :file,
+      attributes: %{"provider" => "google_drive", "config_id" => config_id}
+    }
+
+    assert {:ok, %{status: "deleted", result: %{}}} =
+             DataSourceBridge.delete_file(fallback_record)
+
+    assert_received {:delete_file, ^config_id,
+                     %{"file_id" => "fallback-f1", "config_id" => ^config_id}}
+
+    invalid_record = %Record{id: "f1", kind: :file, attributes: %{}}
+
+    assert {:error, {:invalid_record, :provider_required}} =
+             DataSourceBridge.delete_file(invalid_record)
 
     assert {:ok, %{records: [%{"id" => "f1"}]}} =
              DataSourceBridge.search_files(:google_drive, %{
@@ -843,9 +867,10 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              })
 
     assert {:error, :unsupported} =
-             DataSourceBridge.delete_file(:google_drive, %{
-               "config_id" => config.id,
-               "file_id" => "f1"
+             DataSourceBridge.delete_file(%Record{
+               id: "f1",
+               kind: :file,
+               attributes: %{"provider" => "google_drive", "config_id" => config.id}
              })
 
     assert {:error, :unsupported} =

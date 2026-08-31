@@ -224,8 +224,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
   # Everything works except removing the resource directory.
   defmodule ResourceDeleteFailureRouter do
-    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
-      if Keyword.get(opts, :action) == :data_source_delete_file do
+    def dispatch(%{next_hop: %{destination: :storage}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :delete_document do
         %{event | response: {:error, :eperm}}
       else
         RealRouter.dispatch(event)

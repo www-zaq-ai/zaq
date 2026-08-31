@@ -3,6 +3,7 @@ defmodule Zaq.Channels.ApiTest do
 
   alias Zaq.Channels.Api
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
@@ -193,8 +194,8 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{status: "updated", record: %{"id" => "f1"}}}
     end
 
-    def delete_file(provider, params, context) do
-      send(self(), {:ds_delete_file, provider, params, context})
+    def delete_file(record, context) do
+      send(self(), {:ds_delete_file, record, context})
       {:ok, %{status: "deleted", result: %{}}}
     end
 
@@ -870,14 +871,30 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   test "handles data_source_delete_file action" do
+    record = %Record{
+      id: "zaq-f1",
+      kind: :file,
+      attributes: %{"provider" => "google_drive", "provider_record_id" => "f1"}
+    }
+
+    event =
+      Event.new(%{record: record}, :channels,
+        opts: [action: :data_source_delete_file, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_delete_file, nil)
+    assert {:ok, %{status: "deleted", result: %{}}} = result.response
+    assert_received {:ds_delete_file, ^record, %TrustedContext{}}
+  end
+
+  test "rejects legacy data_source_delete_file provider params" do
     event =
       Event.new(%{provider: :google_drive, params: %{"file_id" => "f1"}}, :channels,
         opts: [action: :data_source_delete_file, data_source_bridge_module: StubDataSourceBridge]
       )
 
     result = Api.handle_event(event, :data_source_delete_file, nil)
-    assert {:ok, %{status: "deleted", result: %{}}} = result.response
-    assert_received {:ds_delete_file, :google_drive, %{"file_id" => "f1"}, %TrustedContext{}}
+    assert {:error, {:invalid_request, :record_required}} = result.response
   end
 
   test "handles data_source_search_files action" do

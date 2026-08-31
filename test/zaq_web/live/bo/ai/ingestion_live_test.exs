@@ -133,8 +133,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       end
     end
 
-    def delete_file(_provider, _params, _context),
-      do: Application.get_env(:zaq, :provider_browser_delete_response, :ok)
+    def delete_file(record, _context) do
+      if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
+        send(pid, {:delete_file, record})
+      end
+
+      Application.get_env(:zaq, :provider_browser_delete_response, :ok)
+    end
 
     def list_permissions(_provider, _params, _context),
       do:
@@ -4207,9 +4212,21 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       create_provider_config()
       Application.put_env(:zaq, :provider_browser_delete_response, :ok)
       Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
+      Application.put_env(:zaq, :ingestion_provider_browser_test_pid, self())
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
       render_hook(view, "delete_item", %{"path" => "file-1", "type" => "file"})
       render_hook(view, "confirm_delete", %{})
+
+      assert_received {:delete_file,
+                       %Record{
+                         id: "file-1",
+                         attributes: %{
+                           "provider" => "google_drive",
+                           "config_id" => _,
+                           "provider_record_id" => "file-1"
+                         }
+                       }}
+
       refute has_element?(view, "h3", "Delete")
       state = :sys.get_state(view.pid)
       assert state.socket.assigns.selected == MapSet.new()
