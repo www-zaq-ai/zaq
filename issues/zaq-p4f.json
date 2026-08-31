@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T17:06:00Z",
+  "description": "Add signed provenance_token to data-source Records and require verified Records for sensitive existing-resource mutations.",
+  "id": "zaq-p4f",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[provenance] Authenticate data-source Records",
+  "type": "epic",
+  "updated_at": "2026-08-31T17:06:00Z"
+}
