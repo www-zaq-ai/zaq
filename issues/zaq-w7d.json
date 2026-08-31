@@ -4,13 +4,15 @@
   "blocks": [
     "zaq-6tc"
   ],
+  "closed_at": "2026-08-31T12:14:29Z",
+  "close_reason": "completed",
   "created": "2026-08-31T12:09:16Z",
   "description": "Map context_window_exceeded request-transformer failures to clear user-facing messages and structured error metadata.",
   "id": "zaq-w7d",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-713] Surface context-window execution errors",
   "type": "task",
-  "updated_at": "2026-08-31T12:09:16Z"
+  "updated_at": "2026-08-31T12:14:29Z"
 }
