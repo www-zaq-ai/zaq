@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T17:06:18Z",
+  "description": "Seal successful data-source Record/RecordPage responses at Channels egress while excluding tombstones and synthetic records.",
+  "id": "zaq-p4f.2",
+  "labels": [],
+  "parent": "zaq-p4f",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-p4f] Seal data-source bridge records",
+  "type": "task",
+  "updated_at": "2026-08-31T17:06:18Z"
+}
