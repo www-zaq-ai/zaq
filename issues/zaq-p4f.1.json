@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-p4f.2",
@@ -11,8 +11,8 @@
   "labels": [],
   "parent": "zaq-p4f",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-p4f] Add Record provenance token contract",
   "type": "task",
-  "updated_at": "2026-08-31T17:06:18Z"
+  "updated_at": "2026-08-31T17:06:19Z"
 }
