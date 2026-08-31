@@ -6,9 +6,15 @@
   "description": "Require data-source document deletion to flow through canonical Record input from agent tools and BO, with Channels translating Record to provider params at the boundary.",
   "id": "zaq-qbg",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented record-only data-source delete flow across DeleteDocument, Channels API/DataSourceBridge, ingestion UI, and Skills cleanup. Validation: mix format, affected targeted tests, mix q.",
+      "timestamp": "2026-08-31T14:13:13Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-qbg] Make delete document record-only",
   "type": "task",
-  "updated_at": "2026-08-31T14:00:39Z"
+  "updated_at": "2026-08-31T14:13:13Z"
 }
