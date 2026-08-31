@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T13:22:05Z",
+  "description": "Add agent-facing data_source.delete_document tool.",
+  "id": "zaq-310",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[manual] Add datasource document deletion tool",
+  "type": "task",
+  "updated_at": "2026-08-31T13:22:05Z"
+}
