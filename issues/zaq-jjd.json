@@ -6,13 +6,15 @@
   "blocks": [
     "zaq-z8z"
   ],
+  "closed_at": "2026-08-31T08:43:36Z",
+  "close_reason": "completed",
   "created": "2026-08-31T08:22:31Z",
   "description": "Update BO agents form to set model_max_context_tokens from ProviderModels.model_for_credential/2 only when model selection changes, preserving manual overrides.",
   "id": "zaq-jjd",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-713] Populate context window from model metadata",
   "type": "task",
-  "updated_at": "2026-08-31T08:22:31Z"
+  "updated_at": "2026-08-31T08:43:36Z"
 }
