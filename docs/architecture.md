@@ -205,7 +205,7 @@ Configured-agent execution path:
 Field behavior categories:
 
 - **Hot patch only**: `job`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`
-- **Stop now, recreate on next message**: `model`, `credential_id`, `strategy`, `advanced_options`, `idle_time_seconds`, `memory_context_max_size`
+- **Stop now, recreate on next message**: `model`, `credential_id`, `strategy`, `advanced_options`, `idle_time_seconds`, `model_max_context_tokens`
 - **Routing-only flag (no runtime restart/patch by itself)**: `conversation_enabled`
 - **Drain and stop**: `active = false`
 

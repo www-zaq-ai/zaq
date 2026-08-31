@@ -498,7 +498,7 @@ defmodule Zaq.Agent.RuntimeSync do
       :job,
       :strategy,
       :idle_time_seconds,
-      :memory_context_max_size
+      :model_max_context_tokens
     ]
 
     Enum.all?(fields, fn field -> Map.get(previous, field) == Map.get(current, field) end)

@@ -179,7 +179,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - Schema: `Zaq.Agent.ConfiguredAgent` (`configured_agents` table)
 - BO CRUD route: `/bo/agents`
 - Chat selector route: `/bo/chat` top bar dropdown
-- Key fields: `name`, `job`, `model`, `credential_id`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `enabled_skill_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+- Key fields: `name`, `job`, `model`, `credential_id`, `model_max_context_tokens`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `enabled_skill_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
 
 ### Skills (`Zaq.Agent.Skills` context)
 
@@ -393,6 +393,7 @@ from the storage volume) are **Part 2 (M8)** — deferred until a skill ships bu
 - Supports per-request runtime tool/module selection and LLM options
 - Supports runtime server configuration via system-prompt signal
 - `runtime_config/1` is the canonical runtime-config builder (other modules should delegate, not duplicate logic)
+- Stores `context_window` runtime state (`max_context_tokens`, fixed `tokens_per_character`, safety margin) and forwards it through Jido `tool_context` for each request transformer run
 
 ### Server Manager (`Zaq.Agent.ServerManager`)
 - Ensures server presence and reconciles tracked runtimes.
@@ -468,6 +469,14 @@ from the storage volume) are **Part 2 (M8)** — deferred until a skill ships bu
 - Loads initial context for runtime agent cold starts
 - Supports conversation-scoped and person/provider-scoped history hydration
 - Used by `Factory.build_initial_context/2`
+- Does not enforce model context-window limits. It only bounds DB reads; outbound LLM projection owns request-size enforcement.
+
+### Context Window (`Zaq.Agent.ContextWindow.*`)
+- `RequestEstimator` estimates a full outbound request from messages, tools, schemas, options, model metadata, and structured-output config using the runtime fixed character/token coefficient.
+- `RequestTransformer` is registered as the Jido ReAct `request_transformer` and runs before every model turn.
+- Enforcement is non-destructive: it may omit older history from a provider request, but it does not truncate Jido's retained context/state.
+- Mandatory request material is preserved: system messages, the latest user turn, active ReAct/tool interaction, tools, and output schema. If mandatory material cannot fit after reserving output tokens and safety margin, the transformer returns `context_window_exceeded` instead of sending an invalid provider request.
+- `Zaq.Agent.ErrorMessage` maps `context_window_exceeded` failures to safe, actionable user-facing messages and metadata `error_type: :context_window_exceeded`.
 
 ### Prompt Security (`Zaq.Agent.PromptGuard`)
 - `validate/1` — blocks prompt injection and persona hijacking at entry point

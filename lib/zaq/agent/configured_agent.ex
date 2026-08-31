@@ -25,15 +25,15 @@ defmodule Zaq.Agent.ConfiguredAgent do
     field :active, :boolean, default: true
     field :max_iterations, :integer
     field :idle_time_seconds, :integer
-    field :memory_context_max_size, :integer
+    field :model_max_context_tokens, :integer, default: 5_000
 
     belongs_to :credential, AIProviderCredential
 
     timestamps(type: :utc_datetime)
   end
 
-  @required_fields ~w(name job model credential_id strategy)a
-  @optional_fields ~w(description enabled_tool_keys enabled_mcp_endpoint_ids enabled_skill_ids conversation_enabled advanced_options active max_iterations idle_time_seconds memory_context_max_size)a
+  @required_fields ~w(name job model credential_id strategy model_max_context_tokens)a
+  @optional_fields ~w(description enabled_tool_keys enabled_mcp_endpoint_ids enabled_skill_ids conversation_enabled advanced_options active max_iterations idle_time_seconds)a
 
   def changeset(configured_agent, attrs) do
     configured_agent
@@ -46,7 +46,7 @@ defmodule Zaq.Agent.ConfiguredAgent do
     |> normalize_skill_ids()
     |> validate_number(:max_iterations, greater_than: 0)
     |> validate_number(:idle_time_seconds, greater_than: 0)
-    |> validate_number(:memory_context_max_size, greater_than: 0)
+    |> validate_number(:model_max_context_tokens, greater_than: 0)
     |> unique_constraint(:name)
     |> foreign_key_constraint(:credential_id)
   end

@@ -217,6 +217,24 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:ok, config} = Factory.runtime_config(configured_agent)
     assert is_list(config.llm_opts)
     assert config.system_prompt == ""
+
+    assert config.context_window == %{
+             max_context_tokens: 5_000,
+             safety_margin: 0.05,
+             tokens_per_character: 0.5
+           }
+  end
+
+  test "runtime_config carries configured model context window" do
+    configured_agent = %Agent.ConfiguredAgent{
+      enabled_tool_keys: [],
+      credential: nil,
+      model_max_context_tokens: 128_000
+    }
+
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+    assert config.context_window.max_context_tokens == 128_000
+    assert config.context_window.tokens_per_character == 0.5
   end
 
   test "runtime_config does not expose max iterations directly" do
@@ -540,7 +558,7 @@ defmodule Zaq.Agent.FactoryTest do
   end
 
   test "build_initial_context returns empty context for non-scoped server ids" do
-    configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
+    configured_agent = %ConfiguredAgent{model_max_context_tokens: 5_000}
 
     result = Factory.build_initial_context(configured_agent, "configured_agent_123")
 
@@ -549,7 +567,7 @@ defmodule Zaq.Agent.FactoryTest do
   end
 
   test "build_initial_context returns empty context for malformed scoped server ids" do
-    configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
+    configured_agent = %ConfiguredAgent{model_max_context_tokens: 5_000}
 
     result = Factory.build_initial_context(configured_agent, "agent::person:42")
 
@@ -558,7 +576,7 @@ defmodule Zaq.Agent.FactoryTest do
   end
 
   test "build_initial_context returns a supplied context as-is (skips history loading)" do
-    configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
+    configured_agent = %ConfiguredAgent{model_max_context_tokens: 5_000}
 
     # A per-step workflow scope loads no DB history; RunAgent supplies the agent's
     # entire starting context pre-built, so Factory uses it verbatim.
@@ -585,7 +603,7 @@ defmodule Zaq.Agent.FactoryTest do
   end
 
   test "build_initial_context with nil context loads history (empty for a per-step scope)" do
-    configured_agent = %ConfiguredAgent{memory_context_max_size: 5_000}
+    configured_agent = %ConfiguredAgent{model_max_context_tokens: 5_000}
 
     result =
       Factory.build_initial_context(configured_agent, "agent:workflow:run:abc:step:4", nil)

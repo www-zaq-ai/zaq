@@ -34,6 +34,20 @@ defmodule Zaq.Agent.ErrorMessage do
   def from_reason({:persist_failed, _reason}, _fallback),
     do: "I couldn't save this exchange, so I can't safely deliver the answer. Please try again."
 
+  def from_reason({:request_transformer, inner}, fallback), do: from_reason(inner, fallback)
+
+  def from_reason({:context_window_exceeded, :mandatory_payload_too_large}, _fallback),
+    do:
+      "This request exceeds the selected model's context window. Shorten the request or ask an administrator to increase the agent's Model Context Window setting."
+
+  def from_reason({:context_window_exceeded, :no_input_budget}, _fallback),
+    do:
+      "The selected agent's Model Context Window setting is too small for the reserved response size. Ask an administrator to increase the setting."
+
+  def from_reason({:context_window_exceeded, _reason}, _fallback),
+    do:
+      "This request exceeds the selected model's context window. Shorten the request or adjust the agent configuration before trying again."
+
   def from_reason(
         %ReqLLM.Error.API.Request{response_body: %{"error" => %{"type" => "budget_exceeded"}}},
         _fallback
@@ -75,7 +89,7 @@ defmodule Zaq.Agent.ErrorMessage do
   Used by pipeline/executor to set `error_type` in the result map so all channels
   can render budget exceeded (and future typed errors) in their own way.
   """
-  @spec error_type_for(term()) :: :budget_exceeded | nil
+  @spec error_type_for(term()) :: :budget_exceeded | :context_window_exceeded | nil
   def error_type_for(%ReqLLM.Error.API.Request{
         response_body: %{"error" => %{"type" => "budget_exceeded"}}
       }),
@@ -86,6 +100,8 @@ defmodule Zaq.Agent.ErrorMessage do
 
   def error_type_for(%ReqLLM.Error.API.Stream{cause: inner}), do: error_type_for(inner)
   def error_type_for({:failed, :error, inner}), do: error_type_for(inner)
+  def error_type_for({:request_transformer, inner}), do: error_type_for(inner)
+  def error_type_for({:context_window_exceeded, _reason}), do: :context_window_exceeded
   def error_type_for(_), do: nil
 
   defp provider_error_message(status, detail) do

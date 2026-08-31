@@ -648,6 +648,32 @@ defmodule Zaq.Agent.ExecutorTest do
       end
     end
 
+    test "surfaces context-window transformer failures as actionable user errors" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 14}}
+
+      Process.put(
+        :coverage_await_result,
+        {:error, {:request_transformer, {:context_window_exceeded, :mandatory_payload_too_large}}}
+      )
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CoverageStubServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          scope: "coverage"
+        )
+
+      assert outgoing.metadata[:error] == true
+      assert outgoing.metadata[:error_type] == :context_window_exceeded
+
+      assert outgoing.body ==
+               "This request exceeds the selected model's context window. Shorten the request or ask an administrator to increase the agent's Model Context Window setting."
+    end
+
     test "non-binary question bypasses timestamp prefixing" do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 15}}
 

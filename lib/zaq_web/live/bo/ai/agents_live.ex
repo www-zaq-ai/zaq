@@ -48,6 +48,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> assign(:selected_agent_id, nil)
       |> assign(:selected_agent, nil)
       |> assign(:model_options, [])
+      |> assign(:model_context_catalog_tokens, nil)
       |> assign(:selected_model_supports_tools, nil)
       |> assign(:advanced_options_json, "{}")
       |> assign(:advanced_options_error, nil)
@@ -244,8 +245,9 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
      |> assign_changeset(Agent.change_agent(agent))}
   end
 
-  def handle_event("validate", %{"configured_agent" => attrs}, socket) do
+  def handle_event("validate", %{"configured_agent" => attrs} = params, socket) do
     base = current_form_agent(socket)
+    attrs = maybe_populate_model_context_tokens(attrs, Map.get(params, "_target", []), socket)
 
     case parse_form_attrs(attrs) do
       {:ok, parsed_attrs} ->
@@ -298,6 +300,20 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
          |> assign(:advanced_options_json, Map.get(attrs, "advanced_options_json", "{}"))
          |> assign(:advanced_options_error, message)
          |> assign(:form_notice, nil)}
+    end
+  end
+
+  def handle_event("reset_model_context_tokens", _params, socket) do
+    case socket.assigns.model_context_catalog_tokens do
+      tokens when is_integer(tokens) and tokens > 0 ->
+        changeset =
+          socket.assigns.changeset
+          |> Changeset.put_change(:model_max_context_tokens, tokens)
+
+        {:noreply, assign_changeset(socket, changeset)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -454,6 +470,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   defp assign_changeset(socket, %Changeset{} = changeset) do
     socket
     |> assign(:changeset, changeset)
+    |> assign(:model_context_catalog_tokens, model_context_catalog_tokens(changeset, socket))
     |> assign(:selected_model_supports_tools, selected_model_supports_tools(changeset, socket))
     |> assign(:mcp_notice, nil)
     |> assign(:form, to_form(changeset, as: :configured_agent))
@@ -486,6 +503,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     |> assign(:selected_agent_id, nil)
     |> assign(:selected_agent, nil)
     |> assign(:model_options, [])
+    |> assign(:model_context_catalog_tokens, nil)
     |> assign(:advanced_options_json, "{}")
     |> assign(:advanced_options_error, nil)
     |> assign(:form_notice, nil)
@@ -604,6 +622,44 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   defp parse_advanced_options(_), do: {:error, "advanced options must be valid JSON"}
 
+  defp maybe_populate_model_context_tokens(attrs, ["configured_agent", field], socket)
+       when field in ["credential_id", "model"] do
+    Map.put(
+      attrs,
+      "model_max_context_tokens",
+      model_context_tokens_from_attrs(attrs, socket) || ""
+    )
+  end
+
+  defp maybe_populate_model_context_tokens(attrs, _target, _socket), do: attrs
+
+  defp model_context_tokens_from_attrs(attrs, socket) do
+    credential_id = Map.get(attrs, "credential_id")
+    model_id = Map.get(attrs, "model")
+
+    case model_context_catalog_tokens(credential_id, model_id, socket) do
+      tokens when is_integer(tokens) and tokens > 0 -> Integer.to_string(tokens)
+      _ -> nil
+    end
+  end
+
+  defp model_context_catalog_tokens(%Changeset{} = changeset, socket) do
+    changeset
+    |> Changeset.get_field(:credential_id)
+    |> model_context_catalog_tokens(Changeset.get_field(changeset, :model), socket)
+  end
+
+  defp model_context_catalog_tokens(credential_id, model_id, socket) do
+    with credential when not is_nil(credential) <- credential_for_form_id(credential_id, socket),
+         model when not is_nil(model) <- ProviderModels.model_for_credential(credential, model_id),
+         limits when is_map(limits) <- Map.get(model, :limits),
+         tokens when is_integer(tokens) and tokens > 0 <- Map.get(limits, :context) do
+      tokens
+    else
+      _ -> nil
+    end
+  end
+
   defp normalize_tool_keys(keys) when is_list(keys), do: Enum.reject(keys, &(&1 in [nil, ""]))
   defp normalize_tool_keys(key) when is_binary(key) and key != "", do: [key]
   defp normalize_tool_keys(_), do: []
@@ -697,6 +753,22 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       _ -> nil
     end
   end
+
+  defp credential_for_form_id(nil, _socket), do: nil
+  defp credential_for_form_id("", _socket), do: nil
+
+  defp credential_for_form_id(credential_id, socket) when is_binary(credential_id) do
+    case Integer.parse(credential_id) do
+      {int_id, ""} -> credential_for_form_id(int_id, socket)
+      _ -> nil
+    end
+  end
+
+  defp credential_for_form_id(credential_id, socket) when is_integer(credential_id) do
+    credential_for_id(socket.assigns.credentials_by_id, credential_id)
+  end
+
+  defp credential_for_form_id(_credential_id, _socket), do: nil
 
   defp credential_for_id(credentials_by_id, credential_id) when is_map(credentials_by_id) do
     Map.get(credentials_by_id, credential_id) || System.get_ai_provider_credential(credential_id)

@@ -123,6 +123,37 @@ test.describe("Agents", () => {
     await expect(page.getByText(agentName)).toBeVisible()
   })
 
+  test("model selection populates context window and preserves manual overrides", async ({ page }) => {
+    await loginToBackOffice(page)
+
+    const credential = await createE2EAiCredential(page, {
+      name: `E2E OpenAI Context ${Date.now()}`,
+      provider: "OpenAI",
+      endpoint: "https://api.openai.com/v1",
+      api_key: `e2e-key-${Date.now()}`,
+      description: "Agents spec context-window credential",
+    })
+
+    await openNewAgentForm(page, `E2E Agent Context Window ${Date.now()}`)
+    await selectAgentCredential(page, credential.name)
+    await selectModelFromPicker(page, "gpt-4.1-mini")
+
+    const contextWindow = page.locator('input[name="configured_agent[model_max_context_tokens]"]')
+    await expect(contextWindow).toHaveValue(/[1-9][0-9]+/)
+    const modelDefault = await contextWindow.inputValue()
+
+    await contextWindow.fill("120000")
+    await page.locator('input[name="configured_agent[name]"]').fill(`E2E Agent Context Override ${Date.now()}`)
+    await waitForLiveViewSettled(page)
+
+    await expect(contextWindow).toHaveValue("120000")
+
+    await page.locator("#reset-model-context-tokens").click()
+    await waitForLiveViewSettled(page)
+
+    await expect(contextWindow).toHaveValue(modelDefault)
+  })
+
   test("add tools and MCP endpoint for a tool-capable model", async ({ page }) => {
     const req = await apiRequest.newContext()
     const credential = await getZaqRouterCredential(req)

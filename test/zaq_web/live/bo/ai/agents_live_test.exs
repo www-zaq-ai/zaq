@@ -719,6 +719,142 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert has_element?(view, "#configured-agent-model-select")
   end
 
+  test "populates model context window from selected model metadata", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_change(view, "validate", %{
+      "_target" => ["configured_agent", "model"],
+      "configured_agent" => %{
+        "name" => "Context Agent",
+        "description" => "",
+        "job" => "You are a helper",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    assert has_element?(
+             view,
+             ~s(input[name="configured_agent[model_max_context_tokens]"][value="1047576"])
+           )
+
+    assert has_element?(view, "#reset-model-context-tokens[disabled]")
+  end
+
+  test "preserves manually overridden context window during unrelated validation", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_change(view, "validate", %{
+      "_target" => ["configured_agent", "name"],
+      "configured_agent" => %{
+        "name" => "Context Agent Override",
+        "description" => "",
+        "job" => "You are a helper",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "model_max_context_tokens" => "120000",
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    assert has_element?(
+             view,
+             ~s(input[name="configured_agent[model_max_context_tokens]"][value="120000"])
+           )
+
+    refute has_element?(view, "#reset-model-context-tokens[disabled]")
+  end
+
+  test "reset context window restores selected model metadata without clobbering fields", %{
+    conn: conn
+  } do
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_change(view, "validate", %{
+      "_target" => ["configured_agent", "name"],
+      "configured_agent" => %{
+        "name" => "Unsaved Context Agent",
+        "description" => "Draft description",
+        "job" => "Draft job",
+        "model" => "gpt-4.1-mini",
+        "credential_id" => to_string(credential.id),
+        "model_max_context_tokens" => "120000",
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    render_click(element(view, "#reset-model-context-tokens"))
+
+    assert has_element?(
+             view,
+             ~s(input[name="configured_agent[model_max_context_tokens]"][value="1047576"])
+           )
+
+    assert has_element?(
+             view,
+             ~s(input[name="configured_agent[name]"][value="Unsaved Context Agent"])
+           )
+
+    assert render(view) =~ "Draft job"
+    assert render(view) =~ "Draft description"
+  end
+
+  test "clears context window when selected model has no catalog metadata", %{conn: conn} do
+    credential = ai_credential_fixture(%{provider: "custom", endpoint: "https://example.com/v1"})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    render_change(view, "validate", %{
+      "_target" => ["configured_agent", "model"],
+      "configured_agent" => %{
+        "name" => "Custom Context Agent",
+        "description" => "",
+        "job" => "You are a helper",
+        "model" => "custom-model",
+        "credential_id" => to_string(credential.id),
+        "model_max_context_tokens" => "120000",
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "conversation_enabled" => "false",
+        "active" => "true"
+      }
+    })
+
+    assert has_element?(
+             view,
+             ~s(input[name="configured_agent[model_max_context_tokens]"][value=""])
+           )
+
+    refute has_element?(view, "#reset-model-context-tokens")
+  end
+
   test "creates agent from form", %{conn: conn} do
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
