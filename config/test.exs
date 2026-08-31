@@ -1,13 +1,24 @@
 import Config
 
+# Configure your database
+# Database name is derived from the current git branch so each worktree gets isolation automatically.
+db_name_slug =
+  case System.cmd("git", ["branch", "--show-current"], stderr_to_stdout: false) do
+    {branch, 0} ->
+      branch |> String.trim() |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_")
+
+    _ ->
+      ""
+  end
+
 e2e? = System.get_env("E2E") == "1"
 test_partition = System.get_env("MIX_TEST_PARTITION", "")
 
 test_database =
   if e2e? do
-    "zaq_test_e2e#{test_partition}"
+    "zaq_test_e2e_#{db_name_slug}#{test_partition}"
   else
-    "zaq_test#{test_partition}"
+    "zaq_test_#{db_name_slug}#{test_partition}"
   end
 
 # Configure your database

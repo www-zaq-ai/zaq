@@ -1393,13 +1393,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp delete_data_source_path(socket, path) do
     with {:ok, record} <- data_source_record(socket, path) do
+      record = with_provider_attrs(record, socket)
+
       result =
-        dispatch_data_source_action(
-          :data_source_delete_file,
-          data_source_provider(socket),
-          %{"file_id" => record.id},
-          socket
-        )
+        dispatch_data_source_delete(record, socket)
 
       if delete_success?(result) do
         dispatch_data_source_removed(record)
@@ -1407,6 +1404,18 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
       result
     end
+  end
+
+  defp dispatch_data_source_delete(record, socket) do
+    opts = [action: :data_source_delete_file]
+    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
+
+    Event.new(%{record: record}, :channels,
+      opts: opts,
+      actor: BOActor.build(socket.assigns.current_user)
+    )
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
   end
 
   defp delete_success?(:ok), do: true

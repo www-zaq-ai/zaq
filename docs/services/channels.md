@@ -226,7 +226,7 @@ Channels action after locator and actor validation.
 - `:data_source_create_file`
 - `:data_source_get_file`
 - `:data_source_update_file`
-- `:data_source_delete_file`
+- `:data_source_delete_file` — accepts `%{record: %Zaq.Contracts.Record{}}`; Channels translates the record to provider parameters at the data-source bridge boundary.
 - `:data_source_search_files`
 - `:data_source_list_permissions`
 - `:data_source_setup_listener`

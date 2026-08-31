@@ -144,6 +144,12 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.DataSource.UpdateDocument
     },
     %{
+      key: "data_source.delete_document",
+      label: "Delete document",
+      description: "Delete a loaded datasource record",
+      module: Zaq.Agent.Tools.DataSource.DeleteDocument
+    },
+    %{
       key: "data_source.get_sheet",
       label: "Get sheet",
       description: "Read spreadsheet data from a specific datasource provider",

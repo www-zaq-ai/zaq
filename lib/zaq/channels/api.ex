@@ -21,6 +21,7 @@ defmodule Zaq.Channels.Api do
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
   alias Zaq.Channels.MessageFormatter
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
@@ -352,18 +353,20 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
-        %Event{request: %{provider: provider, params: params}} = event,
+        %Event{request: %{record: %Record{} = record}} = event,
         :data_source_delete_file,
         _context
-      )
-      when is_map(params) do
+      ) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
 
     %{
       event
-      | response:
-          data_source_module.delete_file(provider, params, TrustedContext.from_event(event))
+      | response: data_source_module.delete_file(record, TrustedContext.from_event(event))
     }
+  end
+
+  def handle_event(%Event{} = event, :data_source_delete_file, _context) do
+    %{event | response: {:error, {:invalid_request, :record_required}}}
   end
 
   def handle_event(

@@ -42,6 +42,7 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Contracts.Record
   alias Zaq.Contracts.RecordPage
   alias Zaq.Events.TrustedContext
 
@@ -379,12 +380,12 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  @doc "Deletes a provider file through the configured DataSource bridge."
-  @spec delete_file(atom() | String.t(), map(), map() | TrustedContext.t()) ::
-          {:ok, map()} | {:error, term()}
-  def delete_file(provider, params \\ %{}, context \\ %{})
-      when is_map(params) and is_map(context) do
-    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+  @doc "Deletes the provider file identified by a canonical data-source record."
+  @spec delete_file(Record.t(), map() | TrustedContext.t()) :: {:ok, map()} | {:error, term()}
+  def delete_file(%Record{} = record, context \\ %{}) when is_map(context) do
+    with {:ok, provider} <- record_provider(record),
+         params <- delete_file_params(record),
+         {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :delete_file, 3) || {:error, :unsupported} do
       bridge.delete_file(config, params, TrustedContext.normalize(context))
@@ -550,6 +551,35 @@ defmodule Zaq.Channels.DataSourceBridge do
   end
 
   defp fetch_unscoped_data_source_config(provider), do: Bridge.fetch_channel_config(provider)
+
+  defp delete_file_params(%Record{} = record) do
+    %{"file_id" => record_file_id(record)}
+    |> maybe_put("config_id", record_config_id(record))
+  end
+
+  defp record_provider(%Record{} = record) do
+    case record_attr(record, "provider") || record_attr(record, :provider) do
+      provider when is_binary(provider) and provider != "" -> {:ok, provider}
+      provider when is_atom(provider) and not is_nil(provider) -> {:ok, provider}
+      _ -> {:error, {:invalid_record, :provider_required}}
+    end
+  end
+
+  defp record_config_id(%Record{} = record),
+    do: record_attr(record, "config_id") || record_attr(record, :config_id)
+
+  defp record_file_id(%Record{id: id} = record),
+    do:
+      to_string(
+        record_attr(record, "provider_record_id") || record_attr(record, :provider_record_id) ||
+          id
+      )
+
+  defp record_attr(%Record{attributes: attrs}, key) when is_map(attrs), do: Map.get(attrs, key)
+  defp record_attr(%Record{}, _key), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp normalize_config_id(params) do
     case Map.get(params, "config_id") || Map.get(params, :config_id) do
