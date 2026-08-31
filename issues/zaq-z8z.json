@@ -6,13 +6,15 @@
   "blocks": [
     "zaq-ftz"
   ],
+  "closed_at": "2026-08-31T08:43:36Z",
+  "close_reason": "completed",
   "created": "2026-08-31T08:22:31Z",
   "description": "Remove max token trimming from HistoryLoader so persisted Jido state is separate from outbound provider request projection.",
   "id": "zaq-z8z",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-713] Remove cold-start token enforcement",
   "type": "task",
-  "updated_at": "2026-08-31T08:22:31Z"
+  "updated_at": "2026-08-31T08:43:36Z"
 }
