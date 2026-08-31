@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-w7d"
+  ],
   "blocks": [],
   "created": "2026-08-31T12:09:16Z",
   "description": "Add BO Agents reset control that restores model_max_context_tokens from LLMDB metadata without clobbering other form fields.",

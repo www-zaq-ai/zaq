@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-6tc"
+  ],
   "created": "2026-08-31T12:09:16Z",
   "description": "Map context_window_exceeded request-transformer failures to clear user-facing messages and structured error metadata.",
   "id": "zaq-w7d",
