@@ -1,7 +1,9 @@
 {
   "assignee": "Julien",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-8o8.4"
+  ],
   "created": "2026-08-26T14:36:30Z",
   "description": "Implement global resource_permissions-backed source ACLs for Disk sharing with Everyone public grants, inherited folder permissions, and immediate document permission synchronization. Legacy document/folder public tags were removed: existing tags are migrated to Everyone grants before documents.tags and folder_settings are dropped; access tests and current ingestion docs now use ACL-only semantics. Validation: focused ACL suites 209/209, search integration 4/4, migration up/down/up, mix q. Full precommit was not rerun after the final nil-person fix; the four previously failing locations pass targeted validation.",
   "id": "zaq-w4c",
@@ -10,5 +12,5 @@
   "status": "in_progress",
   "title": "[source-acl] Implement source-backed sharing ACLs",
   "type": "task",
-  "updated_at": "2026-08-27T07:37:58Z"
+  "updated_at": "2026-08-31T14:45:14Z"
 }

@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-w4c"
+  ],
   "blocks": [],
   "created": "2026-08-23T07:45:49Z",
   "description": "Store ZAQ source ACLs for disk entries independently from Document rows and expose static bridge capabilities for add/edit/delete/share.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8o8] Add storage ACLs and disk capabilities",
   "type": "task",
-  "updated_at": "2026-08-23T07:45:49Z"
+  "updated_at": "2026-08-31T14:45:14Z"
 }
