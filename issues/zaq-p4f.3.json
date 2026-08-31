@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-p4f.1"
+  ],
   "blocks": [],
   "created": "2026-08-31T17:06:18Z",
   "description": "Preserve and reconstruct provenance_token through JSON, materialization, ingestion RecordSource, and workflow result persistence.",
