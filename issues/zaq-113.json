@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T13:22:05Z",
+  "description": "Add an agent-facing data_source.delete_document tool that deletes provider documents via the existing Channels :data_source_delete_file action only. Indexed ZAQ document cleanup remains owned by provider delta/tombstone handling; related but separate from zaq-lon.",
+  "id": "zaq-113",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Add datasource document deletion tool",
+  "type": "task",
+  "updated_at": "2026-08-31T13:22:05Z"
+}
