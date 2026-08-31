@@ -36,6 +36,7 @@ defmodule Zaq.Agent.Factory do
     name: "agent_factory",
     description: "Runtime-configured standard ZAQ agent",
     request_policy: :reject,
+    request_transformer: Zaq.Agent.ContextWindow.RequestTransformer,
     plugins: [
       {Jido.MCP.Plugins.MCP, %{allowed_endpoints: :all}},
       Jido.MCP.JidoAI.Plugins.MCPAI
@@ -111,7 +112,8 @@ defmodule Zaq.Agent.Factory do
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
          llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
-         system_prompt: Skills.system_prompt(configured_agent, skills)
+         system_prompt: Skills.system_prompt(configured_agent, skills),
+         context_window: context_window_config(configured_agent)
        }}
     end
   end
@@ -135,14 +137,10 @@ defmodule Zaq.Agent.Factory do
 
   def build_initial_context(%ConfiguredAgent{}, _server_id, %AIContext{} = context), do: context
 
-  def build_initial_context(%ConfiguredAgent{} = configured_agent, server_id, _context) do
+  def build_initial_context(%ConfiguredAgent{}, server_id, _context) do
     spawn_opts = spawn_opts_from_server_id(server_id)
 
-    HistoryLoader.load_context(
-      spawn_opts,
-      max_tokens: configured_agent.memory_context_max_size || 5_000,
-      materialization_alias_scope: server_id
-    )
+    HistoryLoader.load_context(spawn_opts, materialization_alias_scope: server_id)
   end
 
   def spawn_opts_from_server_id(server_id) when is_binary(server_id) do
@@ -214,6 +212,7 @@ defmodule Zaq.Agent.Factory do
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
         |> Keyword.put(:max_iterations, configured_agent.max_iterations || 10)
         |> Keyword.put_new(:timeout, 300_000)
+        |> put_context_window(config)
         |> maybe_put_tool_timeout(config)
 
       ask_stream(server, query, ask_opts)
@@ -228,6 +227,27 @@ defmodule Zaq.Agent.Factory do
       nil -> opts
       ms -> Keyword.put_new(opts, :tool_timeout_ms, ms)
     end
+  end
+
+  defp context_window_config(%ConfiguredAgent{} = configured_agent) do
+    %{
+      max_context_tokens: configured_agent.model_max_context_tokens || 5_000,
+      tokens_per_character: 0.5,
+      safety_margin: 0.05
+    }
+  end
+
+  defp put_context_window(opts, config) do
+    context =
+      opts
+      |> Keyword.get(:tool_context, %{})
+      |> case do
+        %{} = context -> context
+        _ -> %{}
+      end
+      |> Map.put(:context_window, Map.get(config, :context_window, %{}))
+
+    Keyword.put(opts, :tool_context, context)
   end
 
   @doc """

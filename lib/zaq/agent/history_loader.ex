@@ -12,12 +12,10 @@ defmodule Zaq.Agent.HistoryLoader do
 
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.MaterializationAliases
-  alias Zaq.Agent.TokenEstimator
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
   alias Zaq.Utils.DateUtils
 
-  @default_max_tokens 5_000
   @max_db_fetch 500
 
   @doc """
@@ -26,9 +24,8 @@ defmodule Zaq.Agent.HistoryLoader do
   Routes to `load_for_conversation/2` when `:conversation_id` is present,
   otherwise falls back to `load/3` using `:person_id` + `:channel_type`.
 
-  ## Options
-
-    * `:max_tokens` — token budget (default: #{@default_max_tokens})
+  Loads at most #{@max_db_fetch} rows. Model context-window enforcement happens
+  later when projecting a concrete outbound LLM request.
   """
   @spec load_context(map(), keyword()) :: AIContext.t()
   def load_context(spawn_opts, opts \\ []) do
@@ -42,14 +39,10 @@ defmodule Zaq.Agent.HistoryLoader do
   end
 
   @doc """
-  Loads the most recent messages for the given `conversation_id`, accumulates
-  them up to `max_tokens`, and returns a `Jido.AI.Context`.
+  Loads the most recent messages for the given `conversation_id` and returns a
+  `Jido.AI.Context`.
 
   Returns an empty context immediately when `conversation_id` is `nil` or `""`.
-
-  ## Options
-
-    * `:max_tokens` — token budget (default: #{@default_max_tokens})
   """
   @spec load_for_conversation(String.t() | nil, keyword()) :: AIContext.t()
   def load_for_conversation(conversation_id, opts \\ [])
@@ -57,8 +50,6 @@ defmodule Zaq.Agent.HistoryLoader do
   def load_for_conversation("", _opts), do: AIContext.new()
 
   def load_for_conversation(conversation_id, opts) do
-    max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
-
     from(m in Message,
       where: m.conversation_id == ^conversation_id,
       order_by: [desc: m.inserted_at],
@@ -71,19 +62,15 @@ defmodule Zaq.Agent.HistoryLoader do
       }
     )
     |> Repo.all()
-    |> accumulate_within_budget(max_tokens, opts)
+    |> Enum.reverse()
     |> build_context(opts)
   end
 
   @doc """
-  Loads the most recent messages for the given `person_id` + `channel_type`
-  pair, accumulates them up to `max_tokens`, and returns a `Jido.AI.Context`.
+  Loads the most recent messages for the given `person_id` + `channel_type` pair
+  and returns a `Jido.AI.Context`.
 
   Returns an empty context immediately when `person_id` is `nil`.
-
-  ## Options
-
-    * `:max_tokens` — token budget (default: #{@default_max_tokens})
   """
   @spec load(integer() | nil, String.t() | nil, keyword()) :: AIContext.t()
   def load(person_id, channel_type, opts \\ [])
@@ -91,12 +78,10 @@ defmodule Zaq.Agent.HistoryLoader do
   def load(_person_id, nil, _opts), do: AIContext.new()
 
   def load(person_id, channel_type, opts) do
-    max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
-
     messages = fetch_recent_messages(person_id, channel_type)
 
     messages
-    |> accumulate_within_budget(max_tokens, opts)
+    |> Enum.reverse()
     |> build_context(opts)
   end
 
@@ -119,20 +104,6 @@ defmodule Zaq.Agent.HistoryLoader do
       }
     )
     |> Repo.all()
-  end
-
-  defp accumulate_within_budget(messages, max_tokens, opts) do
-    Enum.reduce_while(messages, {[], 0}, fn msg, {acc, total} ->
-      tokens = TokenEstimator.estimate(history_content(msg, opts))
-      new_total = total + tokens
-
-      if new_total > max_tokens do
-        {:halt, {acc, total}}
-      else
-        {:cont, {[msg | acc], new_total}}
-      end
-    end)
-    |> elem(0)
   end
 
   defp build_context(messages, opts) do

@@ -106,7 +106,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
         job: "job",
         strategy: "react",
         idle_time_seconds: 1800,
-        memory_context_max_size: 5000
+        model_max_context_tokens: 5000
       }
     end
 
@@ -792,7 +792,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
                  job: "job",
                  strategy: "react",
                  idle_time_seconds: 1800,
-                 memory_context_max_size: 5000
+                 model_max_context_tokens: 5000
                },
                agent_module: StubAgentNoRuntimeChangeModule,
                server_manager_module: StubServerManagerForPatch
@@ -821,11 +821,11 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              )
   end
 
-  test "configured_agent_updated treats memory_context_max_size change as runtime change" do
+  test "configured_agent_updated treats model_max_context_tokens change as runtime change" do
     assert {:ok, %{runtime: %{strategy: :hot_runtime_patch}}} =
              RuntimeSync.configured_agent_updated(
                79,
-               %{memory_context_max_size: 3000},
+               %{model_max_context_tokens: 3000},
                agent_module: StubAgentNoRuntimeChangeModule,
                server_manager_module: StubServerManagerForPatch,
                signal_adapter_module: StubSignalAdapter

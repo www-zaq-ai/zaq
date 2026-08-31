@@ -117,7 +117,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       assert m2.content == "second"
     end
 
-    test "respects max_tokens budget" do
+    test "loads all fetched conversation messages without token trimming" do
       person = insert_person()
       conv = insert_conversation(person.id, "bo")
 
@@ -135,11 +135,11 @@ defmodule Zaq.Agent.HistoryLoaderTest do
         ~U[2026-04-01 10:01:00.000000Z]
       )
 
-      result = HistoryLoader.load_for_conversation(conv.id, max_tokens: 15)
+      result = HistoryLoader.load_for_conversation(conv.id)
       messages = AIContext.to_messages(result)
 
-      assert length(messages) == 1
-      assert hd(messages).role == :assistant
+      assert length(messages) == 2
+      assert Enum.map(messages, & &1.role) == [:user, :assistant]
     end
 
     test "includes safe attachment descriptors without loading media bytes" do
@@ -282,7 +282,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
         insert_message(conv, "user", "message #{i}")
       end
 
-      result = HistoryLoader.load_for_conversation(conv.id, max_tokens: 1_000_000)
+      result = HistoryLoader.load_for_conversation(conv.id)
       messages = AIContext.to_messages(result)
       assert length(messages) <= 500
     end
@@ -359,10 +359,10 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       assert String.ends_with?(m3.content, "third")
     end
 
-    test "truncates to stay within max_tokens (keeps most recent)" do
+    test "loads all fetched person/provider messages without token trimming" do
       person = insert_person()
       conv = insert_conversation(person.id, "mattermost")
-      # ~10 words × 1.3 ≈ 13 tokens per message; max_tokens: 15 → only 1 fits
+
       insert_message(
         conv,
         "user",
@@ -377,14 +377,14 @@ defmodule Zaq.Agent.HistoryLoaderTest do
         ~U[2026-04-01 10:01:00.000000Z]
       )
 
-      result = HistoryLoader.load(person.id, "mattermost", max_tokens: 15)
+      result = HistoryLoader.load(person.id, "mattermost")
       messages = AIContext.to_messages(result)
 
-      assert length(messages) == 1
-      assert hd(messages).role == :assistant
+      assert length(messages) == 2
+      assert Enum.map(messages, & &1.role) == [:user, :assistant]
     end
 
-    test "uses default 5000 tokens when max_tokens not supplied" do
+    test "loads matching history when no optional arguments are supplied" do
       person = insert_person()
       conv = insert_conversation(person.id, "mattermost")
       insert_message(conv, "user", "short message")
@@ -423,8 +423,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
         insert_message(conv, "user", "message #{i}")
       end
 
-      # Use a high token budget so only the DB limit applies, not the token budget.
-      result = HistoryLoader.load(person.id, "mattermost", max_tokens: 1_000_000)
+      result = HistoryLoader.load(person.id, "mattermost")
       messages = AIContext.to_messages(result)
       assert length(messages) <= 500
     end

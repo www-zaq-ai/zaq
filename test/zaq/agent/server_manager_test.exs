@@ -457,7 +457,7 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert pid_before == pid_after
   end
 
-  test "ensure_server restarts when memory_context_max_size changes" do
+  test "ensure_server restarts when model_max_context_tokens changes" do
     credential =
       ai_credential_fixture(%{
         name: "OpenAI Credential #{System.unique_integer([:positive, :monotonic])}",
@@ -476,7 +476,7 @@ defmodule Zaq.Agent.ServerManagerTest do
         strategy: "react",
         enabled_tool_keys: [],
         conversation_enabled: false,
-        memory_context_max_size: 5000,
+        model_max_context_tokens: 5000,
         active: true,
         advanced_options: %{}
       })
@@ -490,7 +490,7 @@ defmodule Zaq.Agent.ServerManagerTest do
     pid_before = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid_before)
 
-    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{memory_context_max_size: 3000})
+    {:ok, updated_agent} = Agent.update_agent(configured_agent, %{model_max_context_tokens: 3000})
 
     assert {:ok, _server_ref} =
              ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")

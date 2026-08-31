@@ -60,6 +60,17 @@ defmodule Zaq.Agent.ErrorMessageTest do
                "The AI service is temporarily unavailable."
     end
 
+    test "maps context-window failures to actionable user-facing messages" do
+      assert ErrorMessage.from_reason(
+               {:request_transformer, {:context_window_exceeded, :mandatory_payload_too_large}},
+               "fallback"
+             ) ==
+               "This request exceeds the selected model's context window. Shorten the request or ask an administrator to increase the agent's Model Context Window setting."
+
+      assert ErrorMessage.from_reason({:context_window_exceeded, :no_input_budget}) ==
+               "The selected agent's Model Context Window setting is too small for the reserved response size. Ask an administrator to increase the setting."
+    end
+
     test "surfaces reason from ReqLLM API request errors (e.g. LiteLLM budget exceeded)" do
       error = %ReqLLM.Error.API.Request{reason: "Budget has been exceeded.", status: 429}
 
@@ -168,6 +179,14 @@ defmodule Zaq.Agent.ErrorMessageTest do
       }
 
       assert ErrorMessage.error_type_for({:failed, :error, inner}) == :budget_exceeded
+    end
+
+    test "returns :context_window_exceeded for nested transformer failures" do
+      reason =
+        {:failed, :error,
+         {:request_transformer, {:context_window_exceeded, :mandatory_payload_too_large}}}
+
+      assert ErrorMessage.error_type_for(reason) == :context_window_exceeded
     end
 
     test "returns nil for unrecognised reasons" do

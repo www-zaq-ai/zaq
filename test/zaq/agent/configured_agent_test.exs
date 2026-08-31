@@ -17,22 +17,26 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
       assert changeset.changes[:idle_time_seconds] == 3600
     end
 
-    test "changeset accepts positive integer for memory_context_max_size" do
-      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{memory_context_max_size: 2000})
-      assert changeset.changes[:memory_context_max_size] == 2000
+    test "changeset accepts positive integer for model_max_context_tokens" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{model_max_context_tokens: 2000})
+      assert changeset.changes[:model_max_context_tokens] == 2000
     end
 
-    test "changeset accepts nil for runtime limit fields" do
+    test "changeset accepts nil for optional runtime limit fields" do
       changeset =
         ConfiguredAgent.changeset(%ConfiguredAgent{}, %{
           max_iterations: nil,
-          idle_time_seconds: nil,
-          memory_context_max_size: nil
+          idle_time_seconds: nil
         })
 
       refute Keyword.has_key?(changeset.errors, :max_iterations)
       refute Keyword.has_key?(changeset.errors, :idle_time_seconds)
-      refute Keyword.has_key?(changeset.errors, :memory_context_max_size)
+    end
+
+    test "changeset rejects nil model_max_context_tokens" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{model_max_context_tokens: nil})
+
+      assert "can't be blank" in errors_on(changeset).model_max_context_tokens
     end
 
     test "changeset rejects zero max_iterations" do
@@ -55,14 +59,14 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
       assert "must be greater than 0" in errors_on(changeset).idle_time_seconds
     end
 
-    test "changeset rejects zero memory_context_max_size" do
-      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{memory_context_max_size: 0})
-      assert "must be greater than 0" in errors_on(changeset).memory_context_max_size
+    test "changeset rejects zero model_max_context_tokens" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{model_max_context_tokens: 0})
+      assert "must be greater than 0" in errors_on(changeset).model_max_context_tokens
     end
 
-    test "changeset rejects negative memory_context_max_size" do
-      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{memory_context_max_size: -5})
-      assert "must be greater than 0" in errors_on(changeset).memory_context_max_size
+    test "changeset rejects negative model_max_context_tokens" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{model_max_context_tokens: -5})
+      assert "must be greater than 0" in errors_on(changeset).model_max_context_tokens
     end
   end
 

@@ -548,24 +548,41 @@
             </p>
           </div>
           <div>
-            <label class="zaq-field-label-uppercase block mb-1">
-              Memory Context Size (tokens)
-            </label>
+            <div class="mb-1 flex items-center justify-between gap-3">
+              <label class="zaq-field-label-uppercase block">
+                Model Context Window (tokens)
+              </label>
+              <DSButton.button
+                :if={@model_context_catalog_tokens}
+                id="reset-model-context-tokens"
+                variant={:tertiary}
+                icon="hero-arrow-path"
+                type="button"
+                phx-click="reset_model_context_tokens"
+                disabled={
+                  to_string(@form[:model_max_context_tokens].value) ==
+                    to_string(@model_context_catalog_tokens)
+                }
+                title="Reset to model default"
+              >
+                Reset
+              </DSButton.button>
+            </div>
             <input
               type="number"
-              name="configured_agent[memory_context_max_size]"
-              value={@form[:memory_context_max_size].value || ""}
-              placeholder="Default: 5000"
+              name="configured_agent[model_max_context_tokens]"
+              value={@form[:model_max_context_tokens].value || ""}
+              placeholder="Populated from selected model"
               class="w-full zaq-control-text"
             />
             <p
               class="mt-1 zaq-text-caption"
               style="color: var(--zaq-text-color-body-tertiary)"
             >
-              Max conversation history tokens loaded on process restart.
+              Maximum complete provider request size. Auto-filled from model metadata when available.
             </p>
             <p
-              :for={msg <- error_messages(@changeset, :memory_context_max_size)}
+              :for={msg <- error_messages(@changeset, :model_max_context_tokens)}
               data-error-message
               class="zaq-field-error mt-1"
             >

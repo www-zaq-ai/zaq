@@ -78,7 +78,7 @@ defmodule Zaq.Agent.ServerManager do
     server fingerprint.
 
   - `:model`, `:credential_id`, `:strategy`,
-    `:advanced_options`, `:idle_time_seconds`, `:memory_context_max_size` -> forced shutdown for tracked servers -
+    `:advanced_options`, `:idle_time_seconds`, `:model_max_context_tokens` -> forced shutdown for tracked servers -
     Lazy restart will carry new settings, because these fields are both
     runtime-tracked and part of the fingerprint.
 
@@ -388,7 +388,7 @@ defmodule Zaq.Agent.ServerManager do
       configured_agent.advanced_options,
       configured_agent.active,
       configured_agent.idle_time_seconds,
-      configured_agent.memory_context_max_size
+      configured_agent.model_max_context_tokens
     })
     |> Integer.to_string()
   end
