@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-08-31T17:06:18Z",
+  "description": "Add provenance_token to Record, implement Zaq.Contracts.Record.Provenance signing/verification, and cover permission projection semantics.",
+  "id": "zaq-p4f.1",
+  "labels": [],
+  "parent": "zaq-p4f",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-p4f] Add Record provenance token contract",
+  "type": "task",
+  "updated_at": "2026-08-31T17:06:18Z"
+}
