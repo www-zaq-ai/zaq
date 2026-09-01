@@ -54,9 +54,6 @@ defmodule Zaq.Contracts.Record.Provenance do
          {:ok, claims} <- validate_payload(payload),
          :ok <- verify_claims(record, claims) do
       {:ok, claims}
-    else
-      :error -> {:error, :invalid_record_provenance}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -219,8 +216,6 @@ defmodule Zaq.Contracts.Record.Provenance do
 
   defp string_key(map, key) do
     Map.get(map, key) || Map.get(map, String.to_existing_atom(key))
-  rescue
-    ArgumentError -> Map.get(map, key)
   end
 
   defp first_present(values),

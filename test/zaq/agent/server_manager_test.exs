@@ -2,6 +2,7 @@ defmodule Zaq.Agent.ServerManagerTest do
   use Zaq.DataCase, async: false
 
   import Zaq.SystemConfigFixtures
+  import ExUnit.CaptureLog
 
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
@@ -60,6 +61,29 @@ defmodule Zaq.Agent.ServerManagerTest do
 
   defmodule StubRuntimeSyncError do
     def sync_agent_runtime(_agent, _server_ref, _opts \\ []), do: {:error, :runtime_sync_failed}
+  end
+
+  defmodule FakeDynamicSupervisor do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Zaq.Agent.AgentServerSupervisor)
+    end
+
+    def init(opts), do: {:ok, opts}
+
+    def start_child(supervisor, spec), do: GenServer.call(supervisor, {:start_child, spec})
+    def terminate_child(supervisor, pid), do: GenServer.call(supervisor, {:terminate_child, pid})
+
+    def handle_call({operation, value}, _from, state)
+        when operation in [:start_child, :terminate_child] do
+      send(state[:notify_pid], {operation, value})
+      {:reply, state[String.to_atom("#{operation}_response")], state}
+    end
+  end
+
+  defmodule RaisingStrategyAgent do
+    def strategy_snapshot(_agent), do: raise("status snapshot failed")
   end
 
   test "ensure_server returns a resolvable server reference" do
@@ -622,6 +646,59 @@ defmodule Zaq.Agent.ServerManagerTest do
              )
   end
 
+  test "ensure_server accepts already-started child when registry is temporarily missing" do
+    configured_agent = valid_configured_agent(200_001)
+    server_id = "configured_agent_200001"
+    fake = swap_dynamic_supervisor(start_child_response: {:error, {:already_started, self()}})
+    stop_jido_registry()
+
+    Application.put_env(:zaq, :agent_runtime_sync_module, StubRuntimeSync)
+    on_exit(fn -> Application.delete_env(:zaq, :agent_runtime_sync_module) end)
+
+    assert {:reply, {:ok, {:via, Registry, {registry, ^server_id}}}, state} =
+             ServerManager.handle_call(
+               {:ensure_server, configured_agent, server_id},
+               self(),
+               empty_server_manager_state()
+             )
+
+    assert registry == Jido.registry_name(Zaq.Agent.Jido)
+    assert state.fingerprints[server_id]
+    assert state.agent_servers[configured_agent.id] == MapSet.new([server_id])
+    assert state.monitors == %{}
+
+    assert_receive {:start_child,
+                    {{Jido.AgentServer, :start_link, [opts]}, :permanent, 5_000, :worker,
+                     [Jido.AgentServer]}}
+
+    assert opts[:id] == server_id
+    assert opts[:registry] == registry
+    assert opts[:jido] == Zaq.Agent.Jido
+    assert Process.alive?(fake)
+  end
+
+  test "ensure_server preserves state and logs unavailable registry on child start error" do
+    configured_agent = valid_configured_agent(200_002)
+    server_id = "configured_agent_200002"
+    _fake = swap_dynamic_supervisor(start_child_response: {:error, :spawn_failed})
+    stop_jido_registry()
+
+    log =
+      capture_log(fn ->
+        assert {:reply, {:error, :spawn_failed}, state} =
+                 ServerManager.handle_call(
+                   {:ensure_server, configured_agent, server_id},
+                   self(),
+                   empty_server_manager_state()
+                 )
+
+        assert state == empty_server_manager_state()
+      end)
+
+    assert log =~ "Jido registry"
+    assert log =~ "not available yet"
+  end
+
   test "handle_call ensure_server clears stale drain before returning an error" do
     configured_agent = %ConfiguredAgent{
       id: 123_456_789,
@@ -817,6 +894,75 @@ defmodule Zaq.Agent.ServerManagerTest do
              draining: %{},
              monitors: %{}
            }
+  end
+
+  test "force stop kills a child when supervisor reports successful termination" do
+    server_id = "configured_agent_200003:force_stop"
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+    drain_ref = make_ref()
+    pid = start_registered_dummy_server(registry, server_id)
+    monitor_ref = Process.monitor(pid)
+    _fake = swap_dynamic_supervisor(terminate_child_response: :ok)
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{200_003 => MapSet.new([server_id])},
+      server_to_agent: %{server_id => 200_003},
+      draining: %{server_id => drain_ref},
+      monitors: %{}
+    }
+
+    assert {:noreply, next_state} =
+             ServerManager.handle_info({:force_stop_server, server_id, drain_ref}, state)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :killed}, 2_000
+    assert next_state == empty_server_manager_state()
+  end
+
+  test "stop_server treats status exceptions as no in-flight requests" do
+    server_id = "configured_agent_200004:status_error"
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+
+    pid =
+      start_registered_status_stub(
+        registry,
+        server_id,
+        %Jido.AgentServer.State{
+          id: server_id,
+          agent_module: RaisingStrategyAgent,
+          agent: %{state: %{requests: %{}}},
+          lifecycle: %{},
+          registry: registry,
+          jido: Zaq.Agent.Jido
+        }
+      )
+
+    monitor_ref = Process.monitor(pid)
+    previous_force_drain = Application.get_env(:zaq, :agent_server_force_drain)
+    Application.put_env(:zaq, :agent_server_force_drain, false)
+
+    on_exit(fn ->
+      restore_env(:agent_server_force_drain, previous_force_drain)
+      stop_registered_dummy_server(pid)
+    end)
+
+    state = %{
+      fingerprints: %{server_id => "current"},
+      agent_servers: %{200_004 => MapSet.new([server_id])},
+      server_to_agent: %{server_id => 200_004},
+      draining: %{},
+      monitors: %{}
+    }
+
+    assert {:reply, :ok, next_state} =
+             ServerManager.handle_call(
+               {:stop_server, %ConfiguredAgent{id: 200_004}, server_id},
+               self(),
+               state
+             )
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :killed}, 2_000
+    assert next_state == empty_server_manager_state()
   end
 
   test "handle_call stop_server kills tracked registry GenServer with non-Jido state" do
@@ -1790,6 +1936,57 @@ defmodule Zaq.Agent.ServerManagerTest do
 
   defp extract_request_content(_), do: ""
 
+  defp empty_server_manager_state do
+    %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}, draining: %{}, monitors: %{}}
+  end
+
+  defp valid_configured_agent(id) do
+    %ConfiguredAgent{
+      id: id,
+      name: "Fake Supervisor Agent #{id}",
+      job: "test job",
+      model: "gpt-4.1-mini",
+      credential: %{provider: "openai", endpoint: "https://api.openai.com/v1", api_key: "x"},
+      credential_id: nil,
+      strategy: "react",
+      enabled_tool_keys: [],
+      enabled_mcp_endpoint_ids: [],
+      conversation_enabled: false,
+      active: true,
+      advanced_options: %{}
+    }
+  end
+
+  defp swap_dynamic_supervisor(opts) do
+    assert :ok = Supervisor.terminate_child(Zaq.Agent.Supervisor, Zaq.Agent.AgentServerSupervisor)
+    {:ok, pid} = FakeDynamicSupervisor.start_link(Keyword.put_new(opts, :notify_pid, self()))
+    Process.unlink(pid)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+
+      assert {:ok, restored_pid} =
+               Supervisor.restart_child(Zaq.Agent.Supervisor, Zaq.Agent.AgentServerSupervisor)
+
+      assert is_pid(restored_pid)
+    end)
+
+    pid
+  end
+
+  defp stop_jido_registry do
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+    assert :ok = Supervisor.terminate_child(Zaq.Agent.Jido, registry)
+
+    on_exit(fn ->
+      assert {:ok, pid} = Supervisor.restart_child(Zaq.Agent.Jido, registry)
+      assert is_pid(pid)
+    end)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:zaq, key)
+  defp restore_env(key, value), do: Application.put_env(:zaq, key, value)
+
   defp start_registered_dummy_server(registry, server_id) do
     parent = self()
 
@@ -1807,25 +2004,25 @@ defmodule Zaq.Agent.ServerManagerTest do
     pid
   end
 
-  defp start_registered_status_stub(registry, server_id) do
+  defp start_registered_status_stub(registry, server_id, get_state \\ %{raw_state: %{}}) do
     parent = self()
 
     pid =
       spawn(fn ->
         {:ok, _} = Registry.register(registry, server_id, nil)
         send(parent, {:status_stub_registered, self(), server_id})
-        status_stub_loop()
+        status_stub_loop(get_state)
       end)
 
     assert_receive {:status_stub_registered, ^pid, ^server_id}, 1_000
     pid
   end
 
-  defp status_stub_loop do
+  defp status_stub_loop(get_state) do
     receive do
       {:"$gen_call", from, :get_state} ->
-        GenServer.reply(from, {:ok, %{raw_state: %{}}})
-        status_stub_loop()
+        GenServer.reply(from, {:ok, get_state})
+        status_stub_loop(get_state)
 
       :stop ->
         :ok

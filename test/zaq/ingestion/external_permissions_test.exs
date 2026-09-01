@@ -1,5 +1,6 @@
 defmodule Zaq.Ingestion.ExternalPermissionsTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Accounts.{PersonChannel, Team}
   alias Zaq.Contracts.Record
@@ -196,6 +197,81 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
     [permission] = permissions_for(doc)
     assert permission.team_id == team.id
     assert permission.access_rights == ["read", "write"]
+  end
+
+  test "skips a direct team target with explicit empty rights" do
+    doc = create_document()
+    record_id = "no-rights-entry-#{System.unique_integer([:positive])}"
+
+    {:ok, team} =
+      %Team{}
+      |> Team.changeset(%{name: "No Rights Team #{System.unique_integer([:positive])}"})
+      |> Repo.insert()
+
+    record = %Record{
+      id: record_id,
+      kind: :file,
+      permissions: [
+        %Record{
+          id: "no-rights-team-perm",
+          kind: :permission,
+          raw: %{
+            "type" => "team",
+            "target_id" => to_string(team.id),
+            "access_rights" => [],
+            "role" => "reader"
+          }
+        }
+      ]
+    }
+
+    log =
+      capture_log(fn ->
+        assert :ok = ExternalPermissions.apply(record, [doc])
+      end)
+
+    assert log =~ "Skipped external permission principal"
+    assert log =~ "record #{inspect(record_id)}"
+    assert log =~ ":no_rights"
+    assert log =~ ~s(role="reader")
+    assert permissions_for(doc) == []
+  end
+
+  property "skips unsupported direct target types" do
+    check all(
+            type <- string(:alphanumeric, min_length: 1),
+            type not in ["person", "team"]
+          ) do
+      doc = create_document()
+      record_id = "unsupported-target-#{System.unique_integer([:positive])}"
+
+      record = %Record{
+        id: record_id,
+        kind: :file,
+        permissions: [
+          %Record{
+            id: "unsupported-target-perm",
+            kind: :permission,
+            raw: %{
+              "type" => type,
+              "target_id" => "direct-target",
+              "access_rights" => ["read"],
+              "role" => "reader"
+            }
+          }
+        ]
+      }
+
+      log =
+        capture_log(fn ->
+          assert :ok = ExternalPermissions.apply(record, [doc])
+        end)
+
+      assert log =~ ":unsupported_target_type"
+      assert log =~ "record #{inspect(record_id)}"
+      assert log =~ ~s(role="reader")
+      assert permissions_for(doc) == []
+    end
   end
 
   test "prunes stale document grants when record carries a complete permission snapshot" do

@@ -469,8 +469,6 @@ defmodule Zaq.Agent.Executor do
     )
   end
 
-  defp record_token_telemetry(_measurements, _dims), do: :ok
-
   defp maybe_record_token_metric(_metric_key, value, _dims) when not is_integer(value), do: :ok
 
   defp maybe_record_token_metric(metric_key, value, dims),

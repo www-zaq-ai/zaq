@@ -5,6 +5,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
+  alias Zaq.Events.TrustedContext
   alias Zaq.Repo
 
   defmodule StubDataSourceBridge do
@@ -91,6 +92,11 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     def list_permissions(config, params, _context) do
       send(self(), {:list_permissions, config.id, params})
       {:ok, %{records: []}}
+    end
+
+    def replace_permissions(config, params, context) do
+      send(self(), {:replace_permissions, config.id, params, context})
+      {:ok, %{status: "updated"}}
     end
 
     def channel_stats(config, params) do
@@ -190,6 +196,44 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   end
 
   defmodule StubRecordReturningDataSourceBridge do
+    def replace_permissions(config, %{"response" => "record_page"}, _context) do
+      permission = %Record{id: self(), kind: :permission}
+
+      record = %Record{
+        id: "file-permissions",
+        kind: :file,
+        permissions: [permission],
+        attributes: %{"provider" => config.provider, "config_id" => config.id}
+      }
+
+      {:ok, %RecordPage{resource_type: :file, records: [record]}}
+    end
+
+    def replace_permissions(config, %{"response" => "map"}, _context) do
+      {:ok,
+       %{
+         record: %Record{
+           id: self(),
+           kind: :file,
+           attributes: %{"provider" => config.provider, "config_id" => config.id}
+         }
+       }}
+    end
+
+    def replace_permissions(config, %{"response" => "non_list"}, _context) do
+      {:ok,
+       %{
+         record: %Record{
+           id: "file-invalid-permissions",
+           kind: :file,
+           permissions: %{"raw" => "reader"},
+           attributes: %{"provider" => config.provider, "config_id" => config.id}
+         }
+       }}
+    end
+
+    def replace_permissions(_config, _params, _context), do: {:ok, %{status: "updated"}}
+
     def list_files(config, _params, _context) do
       permission = %Record{
         id: "perm-1",
@@ -383,6 +427,98 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert empty_claims["permissions"] == %{"state" => "loaded", "entries" => []}
   end
 
+  test "replace_permissions delegates scoped config and trusted context" do
+    config = insert_data_source_config(:google_drive)
+    actor = %{person_id: 7, provider: "bo"}
+    params = %{"config_id" => config.id, "file_id" => "f1", "permissions" => []}
+    context = %{actor: actor, skip_permissions: true, untrusted: "discard"}
+
+    assert {:ok, %{status: "updated"}} =
+             DataSourceBridge.replace_permissions(:google_drive, params, context)
+
+    assert_received {:replace_permissions, config_id, ^params, %TrustedContext{} = trusted}
+    assert config_id == config.id
+    assert trusted == %TrustedContext{actor: actor, skip_permissions: true}
+  end
+
+  test "replace_permissions returns unsupported when callback not implemented" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, original_channels) end)
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.replace_permissions(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "returns invalid provenance when nested permission record cannot be sealed" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: StubRecordReturningDataSourceBridge,
+        adapter: __MODULE__.StubAdapter
+      }
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, original_channels) end)
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :invalid_record_provenance} =
+             DataSourceBridge.replace_permissions(:google_drive, %{
+               "config_id" => config.id,
+               "response" => "record_page"
+             })
+  end
+
+  test "does not return a partially sealed map when nested record sealing fails" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: StubRecordReturningDataSourceBridge,
+        adapter: __MODULE__.StubAdapter
+      }
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, original_channels) end)
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, :invalid_record_provenance} =
+             DataSourceBridge.replace_permissions(:google_drive, %{
+               "config_id" => config.id,
+               "response" => "map"
+             })
+  end
+
+  test "seals a map response with non-list permissions as an invalid projection" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: StubRecordReturningDataSourceBridge,
+        adapter: __MODULE__.StubAdapter
+      }
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, original_channels) end)
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %{record: %Record{} = record}} =
+             DataSourceBridge.replace_permissions(:google_drive, %{
+               "config_id" => config.id,
+               "response" => "non_list"
+             })
+
+    assert is_binary(record.provenance_ref)
+    assert {:ok, claims} = Provenance.verify(record)
+    assert claims["permissions"] == %{"state" => "invalid", "entries" => nil}
+  end
+
   test "sync_config_runtime delegates when bridge implements sync_runtime" do
     before_config = %{id: 1, provider: "google_drive", enabled: true}
     after_config = %{id: 1, provider: "google_drive", enabled: false}
@@ -512,6 +648,22 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              DataSourceBridge.list_files("google_drive", %{"config_id" => config_id})
 
     assert_received {:list_files, ^config_id, %{"config_id" => ^config_id}}
+  end
+
+  test "delete_file omits config_id when provenance has only provider" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    record = %Record{
+      id: "stable-file-id",
+      kind: :file,
+      attributes: %{"provider" => "google_drive"}
+    }
+
+    assert {:ok, sealed_record} = Provenance.seal(record, %{"provider" => "google_drive"})
+    assert {:ok, %{status: "deleted", result: %{}}} = DataSourceBridge.delete_file(sealed_record)
+    assert_received {:delete_file, ^config_id, %{"file_id" => "stable-file-id"}}
+    refute_received {:delete_file, ^config_id, %{"file_id" => _, "config_id" => _}}
   end
 
   test "scoped config provider mismatch returns channel_not_configured" do
