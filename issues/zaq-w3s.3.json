@@ -11,9 +11,15 @@
   "id": "zaq-w3s.3",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Added http_credential_providers schema/table migration, System CRUD APIs, and HttpCredentialProviderRef parser/formatter for http:\u003cid\u003e sentinel refs. Focused tests pass with policy/provider/ref tests.",
+      "timestamp": "2026-09-01T13:06:24Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Dynamic provider model",
   "type": "task",
-  "updated_at": "2026-09-01T13:04:13Z"
+  "updated_at": "2026-09-01T13:06:24Z"
 }
