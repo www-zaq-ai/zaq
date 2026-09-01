@@ -9,9 +9,15 @@
   "id": "zaq-w3s.10",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Updated docs and module documentation for BO-managed outbound HTTP: system config policy/provider model, http_request credential_id contract, channels-boundary DNS/IP validation, and channels-only secret injection. Ran mix format and mix q successfully; Credo reports no issues.",
+      "timestamp": "2026-09-01T14:20:02Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Integration validation and docs",
   "type": "task",
-  "updated_at": "2026-09-01T14:15:37Z"
+  "updated_at": "2026-09-01T14:20:02Z"
 }
