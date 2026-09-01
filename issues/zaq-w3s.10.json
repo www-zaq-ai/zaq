@@ -4,6 +4,8 @@
     "zaq-w3s.9"
   ],
   "blocks": [],
+  "closed_at": "2026-09-01T14:20:02Z",
+  "close_reason": "done",
   "created": "2026-09-01T12:57:00Z",
   "description": "Add integration/E2E coverage, update docs, run mix format and mix q, and remove obsolete behavior.",
   "id": "zaq-w3s.10",
@@ -16,7 +18,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-w3s] Integration validation and docs",
   "type": "task",
   "updated_at": "2026-09-01T14:20:02Z"
