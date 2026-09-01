@@ -11,9 +11,15 @@
   "id": "zaq-w3s.8",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Aligned http_request tool/request schema with credential references. The tool now exposes optional credential_id, keeps auth/api_key/access_token secret fields out of the schema, carries credential_id through Zaq.HttpRequest.to_map/1, and focused tool/request/validator tests pass.",
+      "timestamp": "2026-09-01T13:40:17Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Action schema alignment",
   "type": "task",
-  "updated_at": "2026-09-01T13:39:05Z"
+  "updated_at": "2026-09-01T13:40:17Z"
 }
