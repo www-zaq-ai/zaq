@@ -31,7 +31,7 @@ defmodule Zaq.Contracts.Record do
     :owners,
     :attributes,
     :materialization_handle,
-    :provenance_token
+    :provenance_ref
   ]
 
   @derive {Jason.Encoder, only: @public_fields}
@@ -57,7 +57,7 @@ defmodule Zaq.Contracts.Record do
     :deleted_at,
     :permissions,
     :materialization_handle,
-    :provenance_token,
+    :provenance_ref,
     parent_ids: [],
     owners: [],
     attributes: %{},
@@ -87,7 +87,7 @@ defmodule Zaq.Contracts.Record do
           attributes: map(),
           raw: map(),
           materialization_handle: String.t() | nil,
-          provenance_token: String.t() | nil
+          provenance_ref: String.t() | nil
         }
 
   @doc """
@@ -165,7 +165,7 @@ defmodule Zaq.Contracts.Record do
          owners: public_value(map, "owners") || [],
          attributes: public_value(map, "attributes") || %{},
          materialization_handle: public_value(map, "materialization_handle"),
-         provenance_token: public_value(map, "provenance_token")
+         provenance_ref: public_value(map, "provenance_ref")
        }}
     else
       _ -> {:error, :invalid_record}

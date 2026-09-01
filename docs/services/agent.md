@@ -43,13 +43,14 @@ Before writing any new agent-service code, verify which entry point already cove
 If the existing entry point does not cover your case, **extend it** — do not create a parallel path.
 
 Datasource file tools and communication attachments may return records with signed
-`materialization_handle` values. Tools that need content should redeem those
-handles through `Zaq.Materialization` rather than accepting records with embedded
-events or constructing cross-service events inline. For communication media,
-including IMAP email attachments, persisted conversation history stores
-descriptors and signed handles, not bytes. Agent context may expose server-scoped
-materialization aliases; tool calls expand those aliases and materialize only the
-requested record.
+`materialization_handle` values and data-source `provenance_ref` values. Tools
+that need content should redeem materialization handles through
+`Zaq.Materialization` rather than accepting records with embedded events or
+constructing cross-service events inline. For communication media, including IMAP
+email attachments, persisted conversation history stores descriptors and signed
+handles, not bytes. Agent context may expose server-scoped short aliases for
+signed handles and provenance tokens; tool calls expand those aliases only on
+schema-declared paths before validation.
 
 ---
 
@@ -539,7 +540,7 @@ lib/zaq/agent/
 ├── history_loader.ex           # Loads initial runtime context from stored history
 ├── idle_lifecycle.ex           # Runtime idle-lifecycle policy helpers
 ├── logprobs_analyzer.ex        # Confidence scoring from logprobs
-├── materialization_aliases.ex  # Scoped short aliases for model-facing materialization handles
+├── opaque_aliases.ex  # Scoped short aliases for model-facing signed Record values
 ├── media_result_transformer.ex # Projects materialized media into ReqLLM content parts
 ├── mcp.ex                      # MCP endpoint context + orchestration
 ├── mcp/

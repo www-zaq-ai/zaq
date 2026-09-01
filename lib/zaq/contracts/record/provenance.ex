@@ -19,8 +19,6 @@ defmodule Zaq.Contracts.Record.Provenance do
     "provider_record_id",
     "kind",
     "parent_id",
-    "parent_ids",
-    "modified_at",
     "permissions"
   ]
 
@@ -42,16 +40,16 @@ defmodule Zaq.Contracts.Record.Provenance do
 
   @spec seal(Record.t(), map(), keyword()) :: {:ok, Record.t()} | {:error, term()}
   def seal(%Record{} = record, claims \\ %{}, opts \\ []) do
-    with {:ok, token} <- issue(%{record | provenance_token: nil}, claims, opts) do
-      {:ok, %{record | provenance_token: token}}
+    with {:ok, ref} <- issue(%{record | provenance_ref: nil}, claims, opts) do
+      {:ok, %{record | provenance_ref: ref}}
     end
   end
 
   @spec verify(Record.t(), keyword()) :: {:ok, claims()} | {:error, term()}
   def verify(record, opts \\ [])
 
-  def verify(%Record{provenance_token: token} = record, opts) when is_binary(token) do
-    with {:ok, encoded} <- verify_signature(token, opts),
+  def verify(%Record{provenance_ref: ref} = record, opts) when is_binary(ref) do
+    with {:ok, encoded} <- verify_signature(ref, opts),
          {:ok, payload} <- Jason.decode(encoded),
          {:ok, claims} <- validate_payload(payload),
          :ok <- verify_claims(record, claims) do
@@ -86,8 +84,8 @@ defmodule Zaq.Contracts.Record.Provenance do
 
   def permission_projection(_permissions), do: %{"state" => "invalid", "entries" => nil}
 
-  defp verify_signature(token, opts) do
-    case MessageVerifier.verify(token, secret(opts)) do
+  defp verify_signature(ref, opts) do
+    case MessageVerifier.verify(ref, secret(opts)) do
       {:ok, encoded} -> {:ok, encoded}
       :error -> {:error, :invalid_record_provenance}
     end
@@ -114,7 +112,7 @@ defmodule Zaq.Contracts.Record.Provenance do
 
   defp verify_claims(%Record{} = record, claims) do
     expected =
-      canonical_claims(%{record | provenance_token: nil}, Map.drop(claims, record_claim_keys()))
+      canonical_claims(%{record | provenance_ref: nil}, Map.drop(claims, record_claim_keys()))
 
     if claims == expected do
       :ok
@@ -129,9 +127,6 @@ defmodule Zaq.Contracts.Record.Provenance do
       "provider_record_id" => provider_record_id(record),
       "kind" => json_safe_value(record.kind),
       "parent_id" => json_safe_value(record.parent_id),
-      "parent_ids" =>
-        record.parent_ids |> List.wrap() |> Enum.map(&json_safe_value/1) |> Enum.sort(),
-      "modified_at" => json_safe_value(record.modified_at),
       "permissions" => permission_projection(record.permissions)
     }
     |> reject_nil_values()

@@ -104,7 +104,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert status.raw_state.runtime_config.system_prompt == "You are a test agent"
 
-    assert status.raw_state.tool_context.materialization_alias_scope ==
+    assert status.raw_state.tool_context.opaque_alias_scope ==
              "configured_agent_#{configured_agent.id}"
   end
 
@@ -1411,7 +1411,7 @@ defmodule Zaq.Agent.ServerManagerTest do
   describe "history context injection on cold spawn" do
     alias Jido.AI.Context, as: AIContext
     alias Zaq.Accounts.Person
-    alias Zaq.Agent.MaterializationAliases
+    alias Zaq.Agent.OpaqueAliases
     alias Zaq.Engine.Conversations.{Conversation, Message}
     alias Zaq.Repo
 
@@ -1537,8 +1537,8 @@ defmodule Zaq.Agent.ServerManagerTest do
       canonical = "signed-handle-#{System.unique_integer([:positive])}"
       server_id = "routing_email_attach_test_:scope:email%3Aimap:person:#{person.id}"
 
-      MaterializationAliases.clear_scope(server_id)
-      on_exit(fn -> MaterializationAliases.clear_scope(server_id) end)
+      OpaqueAliases.clear_scope(server_id)
+      on_exit(fn -> OpaqueAliases.clear_scope(server_id) end)
 
       insert_message_for_sm(email_conv, "user", "see attached", %{
         "attachments" => [
@@ -1578,7 +1578,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       }
 
       assert {:ok, expanded} =
-               Factory.before_tool_call(tool_call, %{materialization_alias_scope: server_id})
+               Factory.before_tool_call(tool_call, %{opaque_alias_scope: server_id})
 
       assert expanded.arguments.materialization_handle == canonical
     end
