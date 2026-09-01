@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-w3s.10"
   ],
+  "closed_at": "2026-09-01T14:15:37Z",
+  "close_reason": "done",
   "created": "2026-09-01T12:57:00Z",
   "description": "Run UX/prototype gate, then add Outbound HTTP tab and dynamic provider management under system config.",
   "id": "zaq-w3s.9",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-w3s] BO UX and implementation",
   "type": "task",
-  "updated_at": "2026-09-01T14:15:36Z"
+  "updated_at": "2026-09-01T14:15:37Z"
 }
