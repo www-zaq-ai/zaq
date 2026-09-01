@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T12:56:59Z",
+  "description": "Validate connect credential dynamic HTTP provider references and enforce deletion/reference behavior without moving placement concerns into credentials.",
+  "id": "zaq-w3s.4",
+  "labels": [],
+  "parent": "zaq-w3s",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-w3s] Credential integration",
+  "type": "task",
+  "updated_at": "2026-09-01T12:56:59Z"
+}
