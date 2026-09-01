@@ -11,9 +11,15 @@
   "id": "zaq-p4f.3",
   "labels": [],
   "parent": "zaq-p4f",
+  "comments": [
+    {
+      "text": "Renamed Record provenance_token to provenance_ref, removed parent_ids and modified_at from provenance claims, and added Jido turn-boundary regression coverage for prov_ alias expansion into DeleteDocument validation. Validation: targeted affected tests and mix q passed.",
+      "timestamp": "2026-09-01T10:15:07Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-p4f] Preserve provenance across serialization seams",
   "type": "task",
-  "updated_at": "2026-08-31T17:06:18Z"
+  "updated_at": "2026-09-01T10:15:07Z"
 }
