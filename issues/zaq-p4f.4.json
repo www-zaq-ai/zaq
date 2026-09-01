@@ -16,11 +16,15 @@
     {
       "text": "Implemented Record-based data_source_update_file flow: UpdateDocument now accepts Record input, Channels API rejects legacy provider params, DataSourceBridge verifies provenance and derives provider/config/file identity from signed claims, BO update dispatch sends Record+params, docs/tests updated. Validation: mix format, focused data-source/channel suites, mix q.",
       "timestamp": "2026-09-01T14:21:28Z"
+    },
+    {
+      "text": "Follow-up fix after real update payload: update_document now supports explicit nested changes, copied current Record path is scrubbed before provider dispatch, and Storage resolves relative move destinations against the source volume instead of returning :volume_required. Validation: mix format, focused update/channel/storage tests, mix q.",
+      "timestamp": "2026-09-01T15:36:18Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-p4f] Require verified Records for mutations",
   "type": "task",
-  "updated_at": "2026-09-01T14:21:28Z"
+  "updated_at": "2026-09-01T15:36:18Z"
 }
