@@ -73,6 +73,40 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformerTest do
     assert List.last(messages).content == "current question"
   end
 
+  test "drops old tool interactions before newer text history" do
+    tool_call = %{id: "call_1", name: "lookup", arguments: %{}}
+
+    old_tool_call = %{role: "assistant", content: nil, tool_calls: [tool_call]}
+
+    old_tool_result = %{
+      role: "tool",
+      content: String.duplicate("tool output ", 100),
+      tool_call_id: "call_1"
+    }
+
+    recent_assistant = %{role: "assistant", content: "recent assistant answer"}
+    current_user = %{role: "user", content: "current question"}
+
+    request = %{
+      messages: [old_tool_call, old_tool_result, recent_assistant, current_user],
+      llm_opts: [],
+      tools: [],
+      model: :test
+    }
+
+    desired_messages = [recent_assistant, current_user]
+
+    desired_budget =
+      RequestEstimator.estimate(%{request | messages: desired_messages}, window(1))
+
+    assert {:ok, %{messages: messages}} =
+             RequestTransformer.transform_request(request, nil, config(1), %{
+               context_window: window(desired_budget + 1)
+             })
+
+    assert messages == desired_messages
+  end
+
   test "returns an explicit error when mandatory content cannot fit" do
     request = %{
       messages: [%{role: "user", content: String.duplicate("current ", 1_000)}],
