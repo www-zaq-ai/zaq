@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-w3s.1"
+  ],
   "blocks": [],
   "created": "2026-09-01T12:56:59Z",
   "description": "Add global outbound HTTP policy defaults, persisted system-config read/write APIs, changeset validation, and tests.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-w3s] Policy persistence",
   "type": "task",
-  "updated_at": "2026-09-01T12:56:59Z"
+  "updated_at": "2026-09-01T12:57:00Z"
 }
