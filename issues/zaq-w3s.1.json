@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-w3s.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-w3s",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-w3s] Threat model and contracts",
   "type": "task",
-  "updated_at": "2026-09-01T12:57:00Z"
+  "updated_at": "2026-09-01T12:57:07Z"
 }
