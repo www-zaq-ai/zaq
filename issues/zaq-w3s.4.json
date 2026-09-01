@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-w3s.3"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-w3s",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-w3s] Credential integration",
   "type": "task",
-  "updated_at": "2026-09-01T12:57:00Z"
+  "updated_at": "2026-09-01T13:09:08Z"
 }
