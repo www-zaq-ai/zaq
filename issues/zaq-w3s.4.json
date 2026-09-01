@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-w3s.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-w3s.5"
+  ],
   "created": "2026-09-01T12:56:59Z",
   "description": "Validate connect credential dynamic HTTP provider references and enforce deletion/reference behavior without moving placement concerns into credentials.",
   "id": "zaq-w3s.4",
