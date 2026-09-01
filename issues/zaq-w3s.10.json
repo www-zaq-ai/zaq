@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T12:57:00Z",
+  "description": "Add integration/E2E coverage, update docs, run mix format and mix q, and remove obsolete behavior.",
+  "id": "zaq-w3s.10",
+  "labels": [],
+  "parent": "zaq-w3s",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-w3s] Integration validation and docs",
+  "type": "task",
+  "updated_at": "2026-09-01T12:57:00Z"
+}
