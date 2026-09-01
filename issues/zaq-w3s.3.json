@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-w3s.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-w3s.4"
+  ],
   "created": "2026-09-01T12:56:59Z",
   "description": "Add BO-managed dynamic HTTP credential provider persistence, provider-reference parser/formatter, and reference integrity tests.",
   "id": "zaq-w3s.3",
