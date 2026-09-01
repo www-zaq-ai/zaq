@@ -90,7 +90,13 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     }
 
     assert RecordSource.kind(record) == :folder
+    assert RecordSource.kind(%Record{id: "folder", kind: "folder"}) == :folder
     assert RecordSource.job_path(record) == "data_source/disk/docs/r1"
+  end
+
+  test "from_storage_map/1 rejects non-map values" do
+    assert RecordSource.from_storage_map(nil) == {:error, :invalid_source_record}
+    assert RecordSource.from_storage_map([]) == {:error, :invalid_source_record}
   end
 
   test "records without provider config are unsupported as ingestion sources" do
@@ -182,6 +188,12 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert materialized.processor_opts[:document_metadata]["provider"] == "google_drive"
   end
 
+  test "materialize/1 propagates materialization-handle issuance errors" do
+    record = %{external_record() | mime_type: {:invalid, :json}}
+
+    assert RecordSource.materialize(record) == {:error, :invalid_materialization_locator}
+  end
+
   test "materialize/1 handles empty row downloads as empty markdown" do
     record = external_record(%{"provider_record_id" => "sheet-empty"})
 
@@ -194,6 +206,46 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert {:ok, materialized} = RecordSource.materialize(record)
     assert File.read!(materialized.path) == ""
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
+  end
+
+  test "materialize/1 renders nil table cells as empty markdown" do
+    record = external_record(%{"provider_record_id" => "nil-cell"})
+    downloaded = %Record{id: "nil-cell", kind: :file, content: [%{"Nullable" => nil}]}
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert File.read!(materialized.path) == "| Nullable |\n| --- |\n|  |"
+    assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
+    assert Path.dirname(materialized.path) in materialized.cleanup_paths
+  end
+
+  test "materialize/1 returns temporary markdown write errors unchanged", %{tmp_dir: tmp_dir} do
+    error_tmp_dir = Path.join(tmp_dir, "temporary-write-error")
+    File.mkdir_p!(error_tmp_dir)
+    temporary_root = Path.join(error_tmp_dir, "zaq_temporary_materializations")
+    File.write!(temporary_root, "not a directory")
+
+    previous_tmpdir = System.get_env("TMPDIR")
+    System.put_env("TMPDIR", error_tmp_dir)
+
+    on_exit(fn ->
+      if previous_tmpdir,
+        do: System.put_env("TMPDIR", previous_tmpdir),
+        else: System.delete_env("TMPDIR")
+
+      File.rm_rf!(error_tmp_dir)
+    end)
+
+    downloaded = %Record{id: "markdown", kind: :file, content: "markdown"}
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert RecordSource.materialize(external_record()) == {:error, :enotdir}
   end
 
   test "materialize/1 converts non-map row downloads without Elixir inspect syntax" do
@@ -297,6 +349,48 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert {:ok, materialized} = RecordSource.materialize(blob_record)
     assert String.ends_with?(materialized.path, ".bin")
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
+  end
+
+  test "materialize/1 derives PDF extension from MIME type" do
+    source = %{external_record(%{"provider_record_id" => "pdf-mime"}) | name: "download"}
+
+    downloaded = %Record{
+      id: "pdf-mime",
+      kind: :file,
+      name: nil,
+      mime_type: "application/pdf",
+      content: Base.encode64("PDF bytes"),
+      attributes: %{"encoding" => "base64"}
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(source)
+    assert String.ends_with?(materialized.path, ".pdf")
+    assert File.read!(materialized.path) == "PDF bytes"
+    assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
+  end
+
+  test "materialize/1 handles nil downloaded attributes" do
+    source = external_record(%{"provider_record_id" => "plain-text"})
+
+    downloaded = %Record{
+      id: "plain-text",
+      kind: :file,
+      name: nil,
+      content: "markdown",
+      attributes: nil
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(source)
+    assert String.ends_with?(materialized.path, ".md")
+    assert File.read!(materialized.path) == "markdown"
   end
 
   test "materialize/1 preserves original extension for flat base64 materializations" do
@@ -439,6 +533,13 @@ defmodule Zaq.Ingestion.RecordSourceTest do
              %{"id" => "perm-1", "emailAddress" => "a@example.com", "role" => "reader"},
              %{}
            ]
+
+    assert RecordSource.to_storage_map(%Record{
+             id: "invalid-permissions",
+             kind: :file,
+             permissions: :invalid
+           })["permissions"] ==
+             []
 
     assert {:error, :invalid_source_record} =
              RecordSource.from_storage_map(%{

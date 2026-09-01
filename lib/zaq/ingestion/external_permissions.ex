@@ -91,11 +91,23 @@ defmodule Zaq.Ingestion.ExternalPermissions do
 
   defp permission_principal(permission), do: normalize_map(permission)
 
-  defp ensure_target(%Record{} = _record, %{"type" => type, "target_id" => target_id})
-       when type in ["person", "team"] and is_binary(target_id) and target_id != "" do
-    {:ok, String.to_existing_atom(type), target_id}
-  rescue
-    ArgumentError -> {:error, :unsupported_target_type}
+  defp ensure_target(%Record{} = _record, %{"type" => "person", "target_id" => target_id})
+       when is_binary(target_id) and target_id != "" do
+    {:ok, :person, target_id}
+  end
+
+  defp ensure_target(%Record{} = _record, %{"type" => "team", "target_id" => target_id})
+       when is_binary(target_id) and target_id != "" do
+    {:ok, :team, target_id}
+  end
+
+  defp ensure_target(
+         %Record{} = _record,
+         %{"type" => type, "target_id" => target_id}
+       )
+       when is_binary(type) and type != "" and type not in ["person", "team"] and
+              is_binary(target_id) and target_id != "" do
+    {:error, :unsupported_target_type}
   end
 
   defp ensure_target(%Record{} = record, principal) do

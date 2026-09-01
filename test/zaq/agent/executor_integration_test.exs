@@ -1,13 +1,19 @@
 defmodule Zaq.Agent.ExecutorIntegrationTest do
   use Zaq.DataCase, async: false
 
+  import Ecto.Query
   import Zaq.SystemConfigFixtures
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Agent
   alias Zaq.Agent.Executor
   alias Zaq.Agent.ServerManager
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Telemetry.Buffer
+  alias Zaq.Engine.Telemetry.Point
   alias Zaq.{Event, NodeRouter}
+  alias Zaq.Repo
   alias Zaq.TestSupport.OpenAIStub
 
   defmodule StubAgent do
@@ -62,6 +68,20 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
              }
            }
          ]
+       }}
+    end
+
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
+  defmodule StubFactoryAttachment do
+    def ask_with_config(_server, content, _configured_agent, _opts \\ []) do
+      send(self(), {:executor_question, content})
+
+      {:ok,
+       %{
+         request: :request,
+         events: [%{kind: :request_completed, at_ms: 1, data: %{result: "done"}}]
        }}
     end
 
@@ -577,6 +597,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     assert outgoing.metadata.error == true
     assert outgoing.body =~ "something went wrong"
+    refute outgoing.metadata[:suppressed] == true
   end
 
   test "surfaces stream error when no status_message_id is set in incoming metadata" do
@@ -599,17 +620,24 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   test "telemetry_dimensions silently drops unknown string keys in incoming metadata" do
+    unknown_key = "definitely_not_an_existing_atom_zxqy_#{System.unique_integer([:positive])}"
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_key) end
+
     incoming = %Incoming{
       content: "hi",
       channel_id: "ch",
       provider: :web,
       metadata: %{
         "telemetry_dimensions" => %{
-          "definitely_not_an_existing_atom_zxqy_#{System.unique_integer()}" => "value",
-          "execution_path" => "custom_agent"
+          unknown_key => "value",
+          "channel_type" => "mattermost"
         }
       }
     }
+
+    Sandbox.allow(Repo, self(), Process.whereis(Buffer))
+    Buffer.flush()
+    Repo.delete_all(Point)
 
     outgoing =
       Executor.run(incoming,
@@ -620,6 +648,106 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       )
 
     assert outgoing.metadata.error == false
+    assert :ok = Buffer.flush()
+
+    [dimensions] =
+      Repo.all(
+        from p in Point,
+          where: p.metric_key == "qa.custom_agent.execution.complete",
+          select: p.dimensions
+      )
+
+    assert dimensions["channel_type"] == "mattermost"
+    refute Map.has_key?(dimensions, unknown_key)
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_key) end
+  end
+
+  test "telemetry_dimensions accepts atom pairs and ignores malformed entries" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "ch",
+      provider: :web,
+      metadata: %{
+        "telemetry_dimensions" => [{:channel_type, "mattermost"}, :malformed_entry]
+      }
+    }
+
+    Sandbox.allow(Repo, self(), Process.whereis(Buffer))
+    Buffer.flush()
+    Repo.delete_all(Point)
+
+    outgoing =
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: StubAgent,
+        server_manager_module: StubServerManager,
+        factory_module: StubFactoryAnswer
+      )
+
+    assert outgoing.metadata.error == false
+    assert :ok = Buffer.flush()
+
+    [dimensions] =
+      Repo.all(
+        from p in Point,
+          where: p.metric_key == "qa.custom_agent.execution.complete",
+          select: p.dimensions
+      )
+
+    assert dimensions["channel_type"] == "mattermost"
+    assert dimensions["execution_path"] == "custom_agent"
+    refute Map.has_key?(dimensions, "malformed_entry")
+  end
+
+  test "attachment metadata falls back to canonical values when runtime storage is unavailable" do
+    handle = "signed-handle-#{System.unique_integer([:positive])}"
+    raw_secret = "provider-secret-#{System.unique_integer([:positive])}"
+
+    attachment = %Record{
+      id: "record-123",
+      kind: :file,
+      name: "report.pdf",
+      mime_type: "application/pdf",
+      materialization_handle: handle,
+      raw: %{secret: raw_secret}
+    }
+
+    incoming = %Incoming{
+      content: "summarize this",
+      channel_id: "ch",
+      provider: :web,
+      attachments: [attachment]
+    }
+
+    runtime_store_name = Jido.runtime_store_name(Zaq.Agent.Jido)
+    runtime_store_pid = Process.whereis(runtime_store_name)
+    assert is_pid(runtime_store_pid)
+    Process.unregister(runtime_store_name)
+
+    try do
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: StubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryAttachment
+        )
+
+      assert outgoing.metadata.error == false
+      assert_receive {:executor_question, question}
+      [_prompt, encoded] = String.split(question, "Attachments:\n", parts: 2)
+      [metadata] = Jason.decode!(encoded)
+      assert metadata["id"] == "record-123"
+      assert metadata["name"] == "report.pdf"
+      assert metadata["mime_type"] == "application/pdf"
+      assert metadata["materialization_handle"] == handle
+      refute encoded =~ raw_secret
+      refute encoded =~ "mat_"
+    after
+      if Process.whereis(runtime_store_name) == nil and Process.alive?(runtime_store_pid) do
+        Process.register(runtime_store_pid, runtime_store_name)
+      end
+    end
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do

@@ -212,8 +212,6 @@ defmodule Zaq.Contracts.Record do
     else
       Map.get(map, String.to_existing_atom(key))
     end
-  rescue
-    ArgumentError -> Map.get(map, key)
   end
 
   defp normalize_kind("file"), do: :file
