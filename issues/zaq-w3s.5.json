@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T12:56:59Z",
+  "description": "Implement shared structural/policy request validator with method, URL, timeout, host, port, blacklist, and credential-reference checks.",
+  "id": "zaq-w3s.5",
+  "labels": [],
+  "parent": "zaq-w3s",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-w3s] Shared validator",
+  "type": "task",
+  "updated_at": "2026-09-01T12:56:59Z"
+}
