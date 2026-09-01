@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-w3s.7"
   ],
+  "closed_at": "2026-09-01T13:17:48Z",
+  "close_reason": "done",
   "created": "2026-09-01T12:56:59Z",
   "description": "Move authoritative validation to channels boundary with DNS/IP/CIDR/special-range blocking and immutable transport options.",
   "id": "zaq-w3s.6",
@@ -18,7 +20,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-w3s] Channels DNS enforcement",
   "type": "task",
   "updated_at": "2026-09-01T13:17:48Z"
