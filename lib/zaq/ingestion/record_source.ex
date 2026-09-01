@@ -54,31 +54,26 @@ defmodule Zaq.Ingestion.RecordSource do
       "owners" => safe_owners(record.owners),
       "permissions" => safe_permissions(record.permissions),
       "attributes" => safe_attributes(record.attributes || %{}),
-      "materialization_handle" => record.materialization_handle
+      "materialization_handle" => record.materialization_handle,
+      "provenance_token" => record.provenance_token
     }
   end
 
   @doc "Deserializes a persisted source record map into a canonical record."
   @spec from_storage_map(map()) :: {:ok, Record.t()} | {:error, :invalid_source_record}
-  def from_storage_map(%{"id" => id, "kind" => kind} = map) do
-    {:ok,
-     %Record{
-       id: id,
-       kind: normalize_kind(kind),
-       name: Map.get(map, "name"),
-       path: Map.get(map, "path"),
-       url: Map.get(map, "url"),
-       icon: Map.get(map, "icon"),
-       parent_id: Map.get(map, "parent_id"),
-       parent_ids: Map.get(map, "parent_ids", []),
-       mime_type: Map.get(map, "mime_type"),
-       size: Map.get(map, "size"),
-       modified_at: decode_datetime(Map.get(map, "modified_at")),
-       owners: Map.get(map, "owners", []),
-       permissions: storage_permissions(Map.get(map, "permissions", [])),
-       attributes: Map.get(map, "attributes", %{}),
-       materialization_handle: Map.get(map, "materialization_handle")
-     }}
+  def from_storage_map(%{} = map) do
+    case Record.from_map(map) do
+      {:ok, record} ->
+        {:ok,
+         %{
+           record
+           | kind: normalize_kind(record.kind),
+             modified_at: decode_datetime(record.modified_at)
+         }}
+
+      {:error, _reason} ->
+        {:error, :invalid_source_record}
+    end
   end
 
   def from_storage_map(_), do: {:error, :invalid_source_record}
@@ -317,47 +312,20 @@ defmodule Zaq.Ingestion.RecordSource do
 
   defp safe_owners(_), do: []
 
-  defp safe_permissions(permissions) when is_list(permissions) do
-    Enum.map(permissions, fn
-      %Record{} = permission ->
-        raw = stringify_map(permission.raw || %{})
+  defp safe_permissions(nil), do: nil
 
-        %{
-          "id" => permission.id,
-          "name" => permission.name,
-          "email" => raw["emailAddress"] || raw["email_address"] || permission.name,
-          "display_name" => raw["displayName"] || raw["display_name"] || permission.name,
-          "role" => raw["role"],
-          "type" => raw["type"]
-        }
-        |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
-        |> Map.new()
-
-      permission ->
-        permission
-        |> stringify_map()
-        |> Map.take(
-          ~w(id name email emailAddress email_address displayName display_name role type)
-        )
-    end)
-  end
+  defp safe_permissions(permissions) when is_list(permissions),
+    do: Enum.map(permissions, &safe_permission/1)
 
   defp safe_permissions(_), do: []
 
-  defp storage_permissions(permissions) when is_list(permissions) do
-    Enum.map(permissions, fn permission ->
-      %Record{
-        id: Map.get(permission, "id") || Map.get(permission, "email") || "permission",
-        kind: :permission,
-        name:
-          Map.get(permission, "display_name") || Map.get(permission, "name") ||
-            Map.get(permission, "email"),
-        raw: permission
-      }
-    end)
-  end
+  defp safe_permission(%Record{} = permission), do: Record.metadata(permission)
 
-  defp storage_permissions(_), do: []
+  defp safe_permission(permission) do
+    permission
+    |> stringify_map()
+    |> Map.take(~w(id name email emailAddress email_address displayName display_name role type))
+  end
 
   defp stringify_map(map) when is_map(map),
     do: Map.new(map, fn {key, value} -> {to_string(key), value} end)

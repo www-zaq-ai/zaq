@@ -6,6 +6,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
   import Mox
 
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
   alias Zaq.Ingestion.RecordSource
 
@@ -365,17 +366,19 @@ defmodule Zaq.Ingestion.RecordSourceTest do
   test "serializes and deserializes storage maps with datetime fallbacks" do
     datetime = ~U[2026-06-23 06:00:00Z]
 
-    record = %Record{
-      id: "r5",
-      kind: :directory,
-      name: "Docs",
-      path: ".",
-      mime_type: "inode/directory",
-      size: 12,
-      modified_at: datetime,
-      materialization_handle: "signed-handle",
-      attributes: %{"volume" => "docs"}
-    }
+    {:ok, record} =
+      %Record{
+        id: "r5",
+        kind: :directory,
+        name: "Docs",
+        path: ".",
+        mime_type: "inode/directory",
+        size: 12,
+        modified_at: datetime,
+        materialization_handle: "signed-handle",
+        attributes: %{"volume" => "docs"}
+      }
+      |> Provenance.seal(%{"provider" => "disk", "config_id" => "1"})
 
     storage = RecordSource.to_storage_map(record)
     assert storage["kind"] == "directory"
@@ -391,21 +394,25 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     assert nil_storage["modified_at"] == nil
     assert nil_storage["attributes"] == %{}
 
+    {:ok, invalid_datetime_record} =
+      %Record{id: "r6", kind: :file, modified_at: "not-a-date"}
+      |> Provenance.seal(%{"provider" => "disk", "config_id" => "1"})
+
     assert {:ok, invalid_datetime} =
-             RecordSource.from_storage_map(%{
-               "id" => "r6",
-               "kind" => "file",
-               "modified_at" => "not-a-date"
-             })
+             invalid_datetime_record
+             |> RecordSource.to_storage_map()
+             |> RecordSource.from_storage_map()
 
     assert invalid_datetime.modified_at == "not-a-date"
 
+    {:ok, nil_datetime_record} =
+      %Record{id: "r8", kind: :folder, modified_at: nil}
+      |> Provenance.seal(%{"provider" => "disk", "config_id" => "1"})
+
     assert {:ok, nil_datetime} =
-             RecordSource.from_storage_map(%{
-               "id" => "r8",
-               "kind" => "folder",
-               "modified_at" => nil
-             })
+             nil_datetime_record
+             |> RecordSource.to_storage_map()
+             |> RecordSource.from_storage_map()
 
     assert nil_datetime.kind == :folder
     assert nil_datetime.modified_at == nil
@@ -433,7 +440,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
              %{}
            ]
 
-    assert {:ok, decoded_permissions_fallback} =
+    assert {:error, :invalid_source_record} =
              RecordSource.from_storage_map(%{
                "id" => "permissions",
                "kind" => :directory,
@@ -443,19 +450,12 @@ defmodule Zaq.Ingestion.RecordSourceTest do
                ]
              })
 
-    assert decoded_permissions_fallback.kind == :folder
-    assert Enum.at(decoded_permissions_fallback.permissions, 0).id == "fallback@example.com"
-    assert Enum.at(decoded_permissions_fallback.permissions, 0).name == "fallback@example.com"
-    assert Enum.at(decoded_permissions_fallback.permissions, 1).name == "Display"
-
-    assert {:ok, decoded_bad_permissions} =
+    assert {:error, :invalid_source_record} =
              RecordSource.from_storage_map(%{
                "id" => "bad-permissions",
                "kind" => "file",
                "permissions" => :not_a_list
              })
-
-    assert decoded_bad_permissions.permissions == []
 
     assert RecordSource.kind(%Record{id: "r9", kind: :file}) == :file
     assert RecordSource.kind(%Record{id: "r10", kind: "file"}) == :file

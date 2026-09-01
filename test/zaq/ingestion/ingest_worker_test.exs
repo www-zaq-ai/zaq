@@ -8,6 +8,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   import Ecto.Query
 
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob, IngestWorker}
   alias Zaq.Ingestion.RecordSource
   alias Zaq.Repo
@@ -86,6 +87,20 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
     %Document{}
     |> Document.changeset(Map.merge(default, attrs))
     |> Repo.insert!()
+  end
+
+  defp signed_record(%Record{} = record) do
+    {:ok, signed} = Provenance.seal(record, provenance_claims(record))
+    signed
+  end
+
+  defp provenance_claims(%Record{attributes: attrs}) when is_map(attrs) do
+    %{
+      "provider" => Map.get(attrs, "provider") || Map.get(attrs, :provider),
+      "config_id" => Map.get(attrs, "config_id") || Map.get(attrs, :config_id)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defmodule ExternalDataSourceBridgeStub do
@@ -232,7 +247,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
         }
       }
 
-      source_record = RecordSource.to_storage_map(record)
+      source_record = record |> signed_record() |> RecordSource.to_storage_map()
       job = create_job(%{source_record: source_record})
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, _opts ->
@@ -283,7 +298,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
         }
       }
 
-      source_record = RecordSource.to_storage_map(record)
+      source_record = record |> signed_record() |> RecordSource.to_storage_map()
       job = create_job(%{source_record: source_record})
 
       cleanup_dir_ref = make_ref()
@@ -353,7 +368,9 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       }
 
       source = "data_source/disk/cfg-disk/pdf-canonical-source"
-      job = create_job(%{source_record: RecordSource.to_storage_map(record)})
+
+      job =
+        create_job(%{source_record: record |> signed_record() |> RecordSource.to_storage_map()})
 
       expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, opts ->
         assert File.exists?(path)

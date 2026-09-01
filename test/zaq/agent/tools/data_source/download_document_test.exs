@@ -5,6 +5,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
   alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Event
   alias Zaq.Materialization
   alias Zaq.Materialization.Handle
@@ -16,8 +17,29 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
 
       %{
         event
-        | response: {:ok, %{record: %{"id" => params["file_id"], "content" => "abc"}}}
+        | response: {:ok, %{record: signed_record(params)}}
       }
+    end
+
+    defp signed_record(params) do
+      record = %Record{
+        id: params["file_id"],
+        kind: :file,
+        content: "abc",
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => params["config_id"],
+          "provider_record_id" => params["file_id"]
+        }
+      }
+
+      {:ok, record} =
+        Provenance.seal(record, %{
+          "provider" => "google_drive",
+          "config_id" => params["config_id"]
+        })
+
+      record
     end
   end
 

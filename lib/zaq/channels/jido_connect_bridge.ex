@@ -1806,9 +1806,40 @@ defmodule Zaq.Channels.JidoConnectBridge do
       change_type: nil,
       lifecycle_state: :active,
       deleted_at: nil,
-      attributes: %{},
+      attributes: permission_attributes(raw),
       raw: raw
     }
+  end
+
+  defp permission_attributes(raw) when is_map(raw) do
+    %{
+      "permission_id" => read_stringish(raw, ["id", :id, "permission_id", :permission_id]),
+      "principal_type" => read_stringish(raw, ["type", :type]),
+      "principal_key" =>
+        read_stringish(raw, [
+          "emailAddress",
+          :emailAddress,
+          "email_address",
+          :email_address,
+          "domain",
+          :domain,
+          "id",
+          :id,
+          "permission_id",
+          :permission_id
+        ]),
+      "role" => read_stringish(raw, ["role", :role]),
+      "inherited" => read_any(raw, ["inherited", :inherited, "inherited?", :inherited?]),
+      "origin_resource_id" =>
+        read_stringish(raw, [
+          "permissionDetails.fileId",
+          :permissionDetails_fileId,
+          "origin_resource_id",
+          :origin_resource_id
+        ])
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+    |> Map.new()
   end
 
   defp map_embedded_permissions(raw) when is_map(raw) do
