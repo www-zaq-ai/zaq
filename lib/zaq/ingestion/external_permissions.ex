@@ -80,7 +80,8 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   end
 
   defp permission_principal(%Record{} = permission) do
-    raw = normalize_map(permission.raw || %{})
+    raw =
+      Map.merge(normalize_map(permission.raw || %{}), normalize_map(permission.attributes || %{}))
 
     raw
     |> Map.put_new("id", permission.id)

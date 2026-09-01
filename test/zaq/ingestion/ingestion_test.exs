@@ -6,6 +6,7 @@ defmodule Zaq.IngestionTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Api
@@ -119,6 +120,27 @@ defmodule Zaq.IngestionTest do
     end
 
     document
+  end
+
+  defp signed_record(%Record{} = record) do
+    permissions =
+      case record.permissions do
+        permissions when is_list(permissions) -> Enum.map(permissions, &signed_record/1)
+        other -> other
+      end
+
+    record = %{record | permissions: permissions}
+    {:ok, signed} = Provenance.seal(record, provenance_claims(record))
+    signed
+  end
+
+  defp provenance_claims(%Record{attributes: attrs}) when is_map(attrs) do
+    %{
+      "provider" => Map.get(attrs, "provider") || Map.get(attrs, :provider),
+      "config_id" => Map.get(attrs, "config_id") || Map.get(attrs, :config_id)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   test "mark_watch_active stores watched status without provider runtime metadata" do
@@ -367,37 +389,49 @@ defmodule Zaq.IngestionTest do
     end
 
     test "stores converted content on the canonical source and imports permissions" do
-      record = %Record{
-        id: "file-123",
-        kind: :file,
-        name: "External Doc",
-        url: "https://drive.example/file-123",
-        mime_type: "application/vnd.google-apps.document",
-        parent_id: "folder-123",
-        parent_ids: ["folder-123"],
-        owners: [%{"email" => "owner@example.com", "display_name" => "Owner Person"}],
-        permissions: [
-          %Record{
-            id: "perm-reader",
-            kind: :permission,
-            name: "Reader Person",
-            raw: %{"emailAddress" => "reader@example.com", "role" => "reader"}
+      record =
+        %Record{
+          id: "file-123",
+          kind: :file,
+          name: "External Doc",
+          url: "https://drive.example/file-123",
+          mime_type: "application/vnd.google-apps.document",
+          parent_id: "folder-123",
+          parent_ids: ["folder-123"],
+          owners: [%{"email" => "owner@example.com", "display_name" => "Owner Person"}],
+          permissions: [
+            %Record{
+              id: "perm-reader",
+              kind: :permission,
+              name: "Reader Person",
+              attributes: %{
+                "email" => "reader@example.com",
+                "principal_key" => "reader@example.com",
+                "role" => "reader"
+              },
+              raw: %{"emailAddress" => "reader@example.com", "role" => "reader"}
+            },
+            %Record{
+              id: "perm-writer",
+              kind: :permission,
+              name: "Writer Person",
+              attributes: %{
+                "email" => "writer@example.com",
+                "principal_key" => "writer@example.com",
+                "role" => "writer"
+              },
+              raw: %{"emailAddress" => "writer@example.com", "role" => "writer"}
+            }
+          ],
+          attributes: %{
+            "provider" => "google_drive",
+            "config_id" => 42,
+            "provider_record_id" => "file-123"
           },
-          %Record{
-            id: "perm-writer",
-            kind: :permission,
-            name: "Writer Person",
-            raw: %{"emailAddress" => "writer@example.com", "role" => "writer"}
-          }
-        ],
-        attributes: %{
-          "provider" => "google_drive",
-          "config_id" => 42,
-          "provider_record_id" => "file-123"
-        },
-        content: "must not be stored",
-        raw: %{"content" => "must not be stored"}
-      }
+          content: "must not be stored",
+          raw: %{"content" => "must not be stored"}
+        }
+        |> signed_record()
 
       job =
         Oban.Testing.with_testing_mode(:manual, fn ->
@@ -440,16 +474,20 @@ defmodule Zaq.IngestionTest do
     end
 
     test "base64 external originals use job-scoped temporary artifacts" do
-      record = %Record{
-        id: "pdf-123",
-        kind: :file,
-        name: "External Deck.pdf",
-        attributes: %{
-          "provider" => "google_drive",
-          "config_id" => 42,
-          "provider_record_id" => "pdf-123"
+      record =
+        %Record{
+          id: "pdf-123",
+          kind: :file,
+          name: "External Deck.pdf",
+          attributes: %{
+            "provider" => "google_drive",
+            "config_id" => 42,
+            "provider_record_id" => "pdf-123"
+          }
         }
-      }
+        |> signed_record()
+        |> signed_record()
+        |> signed_record()
 
       assert {:ok, materialized} = RecordSource.materialize(record)
       assert String.ends_with?(materialized.path, ".pdf")
@@ -575,18 +613,20 @@ defmodule Zaq.IngestionTest do
     test "base64 external PDFs store canonical data-source document rows" do
       Application.put_env(:zaq, :pdf_pipeline_module, ExternalPdfPipelineStub)
 
-      record = %Record{
-        id: "pdf-123",
-        kind: :file,
-        name: "External Deck.pdf",
-        url: "https://drive.example/pdf-123",
-        mime_type: "application/pdf",
-        attributes: %{
-          "provider" => "google_drive",
-          "config_id" => 42,
-          "provider_record_id" => "pdf-123"
+      record =
+        %Record{
+          id: "pdf-123",
+          kind: :file,
+          name: "External Deck.pdf",
+          url: "https://drive.example/pdf-123",
+          mime_type: "application/pdf",
+          attributes: %{
+            "provider" => "google_drive",
+            "config_id" => 42,
+            "provider_record_id" => "pdf-123"
+          }
         }
-      }
+        |> signed_record()
 
       Oban.Testing.with_testing_mode(:manual, fn ->
         assert {:ok, [job]} = Ingestion.ingest_records([record], %{mode: "async"})

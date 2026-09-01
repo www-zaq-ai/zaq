@@ -43,6 +43,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
   alias Zaq.Events.TrustedContext
 
@@ -195,6 +196,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- supports_callback?(bridge, :list_resources, 2) || {:error, :unsupported} do
       bridge.list_resources(config, params)
+      |> seal_response(config)
     end
   end
 
@@ -342,6 +344,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :list_files, 3) || {:error, :unsupported} do
       bridge.list_files(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
     end
   end
 
@@ -354,6 +357,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :create_file, 3) || {:error, :unsupported} do
       bridge.create_file(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
     end
   end
 
@@ -365,6 +369,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :get_file, 3) || {:error, :unsupported} do
       bridge.get_file(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
     end
   end
 
@@ -377,14 +382,16 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :update_file, 3) || {:error, :unsupported} do
       bridge.update_file(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
     end
   end
 
   @doc "Deletes the provider file identified by a canonical data-source record."
   @spec delete_file(Record.t(), map() | TrustedContext.t()) :: {:ok, map()} | {:error, term()}
   def delete_file(%Record{} = record, context \\ %{}) when is_map(context) do
-    with {:ok, provider} <- record_provider(record),
-         params <- delete_file_params(record),
+    with {:ok, claims} <- Provenance.verify(record),
+         {:ok, provider} <- claim_provider(claims),
+         params <- delete_file_params(claims),
          {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :delete_file, 3) || {:error, :unsupported} do
@@ -401,6 +408,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :search_files, 3) || {:error, :unsupported} do
       bridge.search_files(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
     end
   end
 
@@ -413,6 +421,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :download_document, 3) || {:error, :unsupported} do
       bridge.download_document(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
     end
   end
 
@@ -425,6 +434,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :list_permissions, 3) || {:error, :unsupported} do
       bridge.list_permissions(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
     end
   end
 
@@ -437,6 +447,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :replace_permissions, 3) || {:error, :unsupported} do
       bridge.replace_permissions(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
     end
   end
 
@@ -470,6 +481,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :sheet_inspect, 2) || {:error, :unsupported} do
       bridge.sheet_inspect(config, params)
+      |> seal_response(config)
     end
   end
 
@@ -480,6 +492,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :sheet_get, 2) || {:error, :unsupported} do
       bridge.sheet_get(config, params)
+      |> seal_response(config)
     end
   end
 
@@ -490,6 +503,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :sheet_create, 2) || {:error, :unsupported} do
       bridge.sheet_create(config, params)
+      |> seal_response(config)
     end
   end
 
@@ -500,6 +514,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :sheet_add_tab, 2) || {:error, :unsupported} do
       bridge.sheet_add_tab(config, params)
+      |> seal_response(config)
     end
   end
 
@@ -510,6 +525,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :sheet_update_values, 2) || {:error, :unsupported} do
       bridge.sheet_update_values(config, params)
+      |> seal_response(config)
     end
   end
 
@@ -520,6 +536,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :sheet_append_values, 2) || {:error, :unsupported} do
       bridge.sheet_append_values(config, params)
+      |> seal_response(config)
     end
   end
 
@@ -530,6 +547,7 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :sheet_clear_values, 2) || {:error, :unsupported} do
       bridge.sheet_clear_values(config, params)
+      |> seal_response(config)
     end
   end
 
@@ -540,7 +558,70 @@ defmodule Zaq.Channels.DataSourceBridge do
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :sheet_delete_tab, 2) || {:error, :unsupported} do
       bridge.sheet_delete_tab(config, params)
+      |> seal_response(config)
     end
+  end
+
+  defp seal_response({:ok, payload}, %ChannelConfig{} = config) do
+    seal_value(payload, config)
+  end
+
+  defp seal_response(other, _config), do: other
+
+  defp seal_value(%RecordPage{records: records} = page, %ChannelConfig{} = config)
+       when is_list(records) do
+    with {:ok, records} <- seal_list(page.records, config) do
+      {:ok, %{page | records: records}}
+    end
+  end
+
+  defp seal_value(%RecordPage{} = page, _config), do: {:ok, page}
+
+  defp seal_value(%Record{} = record, %ChannelConfig{} = config) do
+    case seal_permissions(record.permissions, config) do
+      {:ok, permissions} ->
+        Provenance.seal(%{record | permissions: permissions}, provenance_claims(config))
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp seal_value(%{} = map, %ChannelConfig{} = config) do
+    map
+    |> Enum.reduce_while({:ok, %{}}, fn {key, value}, {:ok, acc} ->
+      case seal_value(value, config) do
+        {:ok, sealed} -> {:cont, {:ok, Map.put(acc, key, sealed)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp seal_value(list, %ChannelConfig{} = config) when is_list(list), do: seal_list(list, config)
+  defp seal_value(value, _config), do: {:ok, value}
+
+  defp seal_permissions(nil, _config), do: {:ok, nil}
+
+  defp seal_permissions(permissions, config) when is_list(permissions),
+    do: seal_list(permissions, config)
+
+  defp seal_permissions(permissions, _config), do: {:ok, permissions}
+
+  defp seal_list(list, config) do
+    Enum.reduce_while(list, {:ok, []}, fn value, {:ok, acc} ->
+      case seal_value(value, config) do
+        {:ok, sealed} -> {:cont, {:ok, [sealed | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp provenance_claims(%ChannelConfig{id: id, provider: provider}) do
+    %{"provider" => provider, "config_id" => id}
   end
 
   defp resolve_data_source_config(provider, params) do
@@ -552,31 +633,17 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   defp fetch_unscoped_data_source_config(provider), do: Bridge.fetch_channel_config(provider)
 
-  defp delete_file_params(%Record{} = record) do
-    %{"file_id" => record_file_id(record)}
-    |> maybe_put("config_id", record_config_id(record))
+  defp delete_file_params(claims) do
+    %{"file_id" => Map.fetch!(claims, "provider_record_id")}
+    |> maybe_put("config_id", Map.get(claims, "config_id"))
   end
 
-  defp record_provider(%Record{} = record) do
-    case record_attr(record, "provider") || record_attr(record, :provider) do
+  defp claim_provider(claims) do
+    case Map.get(claims, "provider") do
       provider when is_binary(provider) and provider != "" -> {:ok, provider}
-      provider when is_atom(provider) and not is_nil(provider) -> {:ok, provider}
       _ -> {:error, {:invalid_record, :provider_required}}
     end
   end
-
-  defp record_config_id(%Record{} = record),
-    do: record_attr(record, "config_id") || record_attr(record, :config_id)
-
-  defp record_file_id(%Record{id: id} = record),
-    do:
-      to_string(
-        record_attr(record, "provider_record_id") || record_attr(record, :provider_record_id) ||
-          id
-      )
-
-  defp record_attr(%Record{attributes: attrs}, key) when is_map(attrs), do: Map.get(attrs, key)
-  defp record_attr(%Record{}, _key), do: nil
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

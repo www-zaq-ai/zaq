@@ -296,9 +296,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   end
 
   defmodule CreateDocumentStub do
-    def run(params, _context) do
+    def run(params, context) do
       response = Application.get_env(:zaq, :ingestion_create_document_response, {:ok, %{}})
-      if is_function(response, 1), do: response.(params), else: response
+
+      cond do
+        is_function(response, 2) -> response.(params, context)
+        is_function(response, 1) -> response.(params)
+        true -> response
+      end
     end
   end
 
@@ -2160,11 +2165,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   } do
     Application.put_env(:zaq, :ingestion_create_document_module, CreateDocumentStub)
 
-    Application.put_env(:zaq, :ingestion_create_document_response, fn params ->
+    Application.put_env(:zaq, :ingestion_create_document_response, fn params, context ->
       if params[:name] == "bad.md" do
         {:error, :invalid_upload}
       else
-        CreateDocument.run(params, %{})
+        CreateDocument.run(params, context)
       end
     end)
 

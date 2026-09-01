@@ -2,6 +2,7 @@ defmodule Zaq.MaterializationTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Event
   alias Zaq.Materialization
 
@@ -199,14 +200,14 @@ defmodule Zaq.MaterializationTest do
           {"file", :file, nil},
           {"folder", :folder, nil},
           {"permission", :permission, %{}},
-          {"spreadsheet", :spreadsheet, nil},
-          {"document", :file, nil}
+          {"spreadsheet", :spreadsheet, nil}
         ] do
-      Process.put(:materialization_record_payload, %{
-        "kind" => kind,
-        "content" => "x",
-        "attributes" => attributes
-      })
+      {:ok, record} =
+        %Record{id: "f1", kind: kind, content: "x", attributes: attributes}
+        |> Provenance.seal(%{"provider" => "disk", "config_id" => "1"})
+
+      payload = record |> Jason.encode!() |> Jason.decode!()
+      Process.put(:materialization_record_payload, payload)
 
       assert {:ok, %{record: %Record{kind: ^expected_kind, content: "x", attributes: %{}}}} =
                Materialization.materialize(issue_handle!("f1"), %{

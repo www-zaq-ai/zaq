@@ -85,9 +85,9 @@ defmodule Zaq.Materialization do
     do: {:ok, %{record: clear_handle(record)}}
 
   defp normalize_record(%{} = map, context, prefix, depth) do
-    map
-    |> record_from_map()
-    |> normalize_record(context, prefix, depth)
+    with {:ok, record} <- Record.from_map(map) do
+      normalize_record(record, context, prefix, depth)
+    end
   end
 
   defp merge_record(%Record{} = original, %Record{} = materialized) do
@@ -124,39 +124,6 @@ defmodule Zaq.Materialization do
     do: Map.get(attrs, "encoding") || Map.get(attrs, :encoding)
 
   defp encoding_from_attrs(_attrs), do: nil
-
-  defp record_from_map(map) do
-    %Record{
-      id: MapUtils.fetch(map, :id) || "materialized",
-      kind: normalize_kind(MapUtils.fetch(map, :kind) || :file),
-      content: MapUtils.fetch(map, :content),
-      name: MapUtils.fetch(map, :name),
-      parent_id: MapUtils.fetch(map, :parent_id),
-      parent_ids: MapUtils.fetch(map, :parent_ids) || [],
-      mime_type: MapUtils.fetch(map, :mime_type),
-      path: MapUtils.fetch(map, :path),
-      url: MapUtils.fetch(map, :url),
-      size: MapUtils.fetch(map, :size),
-      description: MapUtils.fetch(map, :description),
-      icon: MapUtils.fetch(map, :icon),
-      created_at: MapUtils.fetch(map, :created_at),
-      modified_at: MapUtils.fetch(map, :modified_at),
-      change_type: MapUtils.fetch(map, :change_type),
-      lifecycle_state: MapUtils.fetch(map, :lifecycle_state),
-      deleted_at: MapUtils.fetch(map, :deleted_at),
-      permissions: MapUtils.fetch(map, :permissions),
-      owners: MapUtils.fetch(map, :owners) || [],
-      attributes: MapUtils.fetch(map, :attributes) || %{},
-      materialization_handle: MapUtils.fetch(map, :materialization_handle)
-    }
-  end
-
-  defp normalize_kind("file"), do: :file
-  defp normalize_kind("folder"), do: :folder
-  defp normalize_kind("permission"), do: :permission
-  defp normalize_kind("spreadsheet"), do: :spreadsheet
-  defp normalize_kind(kind) when is_binary(kind), do: :file
-  defp normalize_kind(kind), do: kind
 
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)

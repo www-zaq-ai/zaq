@@ -3,6 +3,8 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
   alias Zaq.Channels.{Bridge, ChannelConfig, DataSourceBridge, DiskBridge}
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Contracts.RecordPage
   alias Zaq.Repo
 
   defmodule StubDataSourceBridge do
@@ -187,6 +189,38 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   defmodule StubNoDataSourceCallbacks do
   end
 
+  defmodule StubRecordReturningDataSourceBridge do
+    def list_files(config, _params, _context) do
+      permission = %Record{
+        id: "perm-1",
+        kind: :permission,
+        attributes: %{"target_id" => "user@example.com", "role" => "reader"}
+      }
+
+      record = %Record{
+        id: "file-1",
+        kind: :file,
+        permissions: [permission],
+        attributes: %{"provider" => config.provider, "config_id" => config.id}
+      }
+
+      {:ok, %RecordPage{resource_type: :file, records: [record]}}
+    end
+
+    def get_file(config, _params, _context) do
+      {:ok,
+       %{
+         status: "ok",
+         record: %Record{
+           id: "file-2",
+           kind: :file,
+           permissions: [],
+           attributes: %{"provider" => config.provider, "config_id" => config.id}
+         }
+       }}
+    end
+  end
+
   setup do
     original_channels = Application.get_env(:zaq, :channels)
 
@@ -311,6 +345,44 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert {:error, :unsupported} = DataSourceBridge.auth_handshake(:google_drive, %{})
   end
 
+  test "seals returned Records and nested permission Records at data-source egress" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: StubRecordReturningDataSourceBridge,
+        adapter: __MODULE__.StubAdapter
+      }
+    })
+
+    on_exit(fn ->
+      Application.put_env(:zaq, :channels, original_channels)
+    end)
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:ok, %RecordPage{records: [%Record{} = record]}} =
+             DataSourceBridge.list_files(:google_drive, %{config_id: config.id})
+
+    assert is_binary(record.provenance_token)
+    assert {:ok, claims} = Provenance.verify(record)
+    assert claims["provider"] == "google_drive"
+    assert claims["config_id"] == config.id
+    assert claims["permissions"]["state"] == "loaded"
+    assert [%Record{} = permission] = record.permissions
+    assert is_binary(permission.provenance_token)
+    assert {:ok, _permission_claims} = Provenance.verify(permission)
+
+    assert {:ok, %{record: %Record{} = empty_permissions_record}} =
+             DataSourceBridge.get_file(:google_drive, %{
+               "file_id" => "file-2",
+               config_id: config.id
+             })
+
+    assert {:ok, empty_claims} = Provenance.verify(empty_permissions_record)
+    assert empty_claims["permissions"] == %{"state" => "loaded", "entries" => []}
+  end
+
   test "sync_config_runtime delegates when bridge implements sync_runtime" do
     before_config = %{id: 1, provider: "google_drive", enabled: true}
     after_config = %{id: 1, provider: "google_drive", enabled: false}
@@ -376,6 +448,9 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       }
     }
 
+    {:ok, delete_record} =
+      Provenance.seal(delete_record, %{"provider" => "google_drive", "config_id" => config_id})
+
     assert {:ok, %{status: "deleted", result: %{}}} = DataSourceBridge.delete_file(delete_record)
 
     assert_received {:delete_file, ^config_id, %{"file_id" => "f1", "config_id" => ^config_id}}
@@ -386,6 +461,9 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       attributes: %{"provider" => "google_drive", "config_id" => config_id}
     }
 
+    {:ok, fallback_record} =
+      Provenance.seal(fallback_record, %{"provider" => "google_drive", "config_id" => config_id})
+
     assert {:ok, %{status: "deleted", result: %{}}} =
              DataSourceBridge.delete_file(fallback_record)
 
@@ -393,6 +471,8 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                      %{"file_id" => "fallback-f1", "config_id" => ^config_id}}
 
     invalid_record = %Record{id: "f1", kind: :file, attributes: %{}}
+
+    {:ok, invalid_record} = Provenance.seal(invalid_record)
 
     assert {:error, {:invalid_record, :provider_required}} =
              DataSourceBridge.delete_file(invalid_record)
@@ -866,12 +946,15 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                "file_id" => "f1"
              })
 
-    assert {:error, :unsupported} =
-             DataSourceBridge.delete_file(%Record{
-               id: "f1",
-               kind: :file,
-               attributes: %{"provider" => "google_drive", "config_id" => config.id}
-             })
+    {:ok, delete_record} =
+      %Record{
+        id: "f1",
+        kind: :file,
+        attributes: %{"provider" => "google_drive", "config_id" => config.id}
+      }
+      |> Provenance.seal(%{"provider" => "google_drive", "config_id" => config.id})
+
+    assert {:error, :unsupported} = DataSourceBridge.delete_file(delete_record)
 
     assert {:error, :unsupported} =
              DataSourceBridge.search_files(:google_drive, %{
@@ -1127,6 +1210,8 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     end
 
     test "exports the file callbacks it implements" do
+      Code.ensure_loaded!(DiskBridge)
+
       for {callback, arity} <- [
             list_files: 2,
             create_file: 2,
