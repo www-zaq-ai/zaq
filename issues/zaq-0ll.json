@@ -16,11 +16,15 @@
     {
       "text": "Fixed follow-up test regressions: updated stale authorization-header message assertion and rewrote the real Channels.Api boundary test to use application-level HttpClient config rather than the removed event opts http_module bypass. Focused suites passed: 124 tests, 0 failures. mix q passed.",
       "timestamp": "2026-09-01T18:15:43Z"
+    },
+    {
+      "text": "Corrected unsafe follow-up: removed config forwarding from HttpRequest.run/2 and Channels.Api, restored event boundary so HttpClient.request/1 receives no event-derived opts. Reworked tests to stay async without Application env mutation and added regression coverage that transport override keys in event opts do not execute. Focused suites passed: 125 tests, 0 failures. mix q passed.",
+      "timestamp": "2026-09-01T18:21:27Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Use Zaq.Config for outbound HTTP test seams",
   "type": "task",
-  "updated_at": "2026-09-01T18:15:43Z"
+  "updated_at": "2026-09-01T18:21:27Z"
 }
