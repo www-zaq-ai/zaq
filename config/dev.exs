@@ -31,7 +31,6 @@ in_worktree? = not File.dir?(Path.join([__DIR__, "..", ".git"]))
 
 config :git_hooks,
   auto_install: not in_worktree?,
-  project_path: Path.expand("..", __DIR__),
   verbose: true,
   hooks: [
     pre_commit: [
