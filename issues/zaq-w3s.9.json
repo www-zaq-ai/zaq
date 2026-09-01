@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T12:57:00Z",
+  "description": "Run UX/prototype gate, then add Outbound HTTP tab and dynamic provider management under system config.",
+  "id": "zaq-w3s.9",
+  "labels": [],
+  "parent": "zaq-w3s",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-w3s] BO UX and implementation",
+  "type": "task",
+  "updated_at": "2026-09-01T12:57:00Z"
+}
