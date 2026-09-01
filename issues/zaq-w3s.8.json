@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-w3s.7"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-w3s.9"
+  ],
   "created": "2026-09-01T12:57:00Z",
   "description": "Align http_request action input/output contracts and runtime validation with effective policy.",
   "id": "zaq-w3s.8",
