@@ -11,9 +11,15 @@
   "id": "zaq-w3s.4",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Implemented Connect credential validation for dynamic http:\u003cid\u003e provider references and guarded HTTP provider deletion while Auth Credentials reference it. Focused tests pass: connect/provider/ref tests.",
+      "timestamp": "2026-09-01T13:11:38Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Credential integration",
   "type": "task",
-  "updated_at": "2026-09-01T13:09:08Z"
+  "updated_at": "2026-09-01T13:11:38Z"
 }
