@@ -11,9 +11,15 @@
   "id": "zaq-w3s.2",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Added OutboundHttpPolicy embedded schema plus System get/save APIs. Focused test passes: mix test test/zaq/system/outbound_http_policy_test.exs.",
+      "timestamp": "2026-09-01T13:03:57Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Policy persistence",
   "type": "task",
-  "updated_at": "2026-09-01T12:58:11Z"
+  "updated_at": "2026-09-01T13:03:57Z"
 }
