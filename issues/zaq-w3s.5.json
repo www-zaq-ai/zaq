@@ -11,9 +11,15 @@
   "id": "zaq-w3s.5",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Added Zaq.HttpRequest.Validator for shared structural and non-DNS policy validation: enabled policy, methods, URL syntax/userinfo/query/fragment, ports, host/IP blacklists, headers, query, body, timeout, credential_id. Focused validator/ref/policy tests pass.",
+      "timestamp": "2026-09-01T13:13:25Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Shared validator",
   "type": "task",
-  "updated_at": "2026-09-01T13:11:38Z"
+  "updated_at": "2026-09-01T13:13:25Z"
 }
