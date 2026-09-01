@@ -11,9 +11,15 @@
   "id": "zaq-w3s.6",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Added AddressPolicy IP/CIDR classifier and wired Channels.HttpClient to reload policy lazily, validate maps/structs at the execution boundary, resolve DNS on the channels node, check all resolved addresses, and construct protected Req options internally. Focused channel/address/validator tests pass.",
+      "timestamp": "2026-09-01T13:17:48Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Channels DNS enforcement",
   "type": "task",
-  "updated_at": "2026-09-01T13:13:25Z"
+  "updated_at": "2026-09-01T13:17:48Z"
 }
