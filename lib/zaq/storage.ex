@@ -593,7 +593,7 @@ defmodule Zaq.Storage do
       new_path ->
         case split_parent(new_path, opts) do
           {^volume_name, dir} -> {:ok, dir |> Path.join(name) |> SourcePath.normalize_relative()}
-          {nil, _dir} -> {:error, :volume_required}
+          {nil, dir} -> {:ok, dir |> Path.join(name) |> SourcePath.normalize_relative()}
           {_other_volume, _dir} -> {:error, :cross_volume_move_unsupported}
         end
     end

@@ -338,7 +338,7 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
-        %Event{request: %{provider: provider, params: params}} = event,
+        %Event{request: %{record: %Record{} = record, params: params}} = event,
         :data_source_update_file,
         _context
       )
@@ -347,9 +347,12 @@ defmodule Zaq.Channels.Api do
 
     %{
       event
-      | response:
-          data_source_module.update_file(provider, params, TrustedContext.from_event(event))
+      | response: data_source_module.update_file(record, params, TrustedContext.from_event(event))
     }
+  end
+
+  def handle_event(%Event{} = event, :data_source_update_file, _context) do
+    %{event | response: {:error, {:invalid_request, :record_required}}}
   end
 
   def handle_event(

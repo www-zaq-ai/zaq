@@ -374,9 +374,26 @@ defmodule Zaq.Channels.DataSourceBridge do
   end
 
   @doc "Updates a provider file through the configured DataSource bridge."
+  @spec update_file(Record.t(), map(), map() | TrustedContext.t()) ::
+          {:ok, map()} | {:error, term()}
+  def update_file(provider_or_record, params \\ %{}, context \\ %{})
+
+  def update_file(%Record{} = record, params, context)
+      when is_map(params) and is_map(context) do
+    with {:ok, claims} <- Provenance.verify(record),
+         {:ok, provider} <- claim_provider(claims),
+         params <- update_file_params(record, claims, params),
+         {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :update_file, 3) || {:error, :unsupported} do
+      bridge.update_file(config, params, TrustedContext.normalize(context))
+      |> seal_response(config)
+    end
+  end
+
   @spec update_file(atom() | String.t(), map(), map() | TrustedContext.t()) ::
           {:ok, map()} | {:error, term()}
-  def update_file(provider, params \\ %{}, context \\ %{})
+  def update_file(provider, params, context)
       when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
@@ -636,6 +653,42 @@ defmodule Zaq.Channels.DataSourceBridge do
   defp delete_file_params(claims) do
     %{"file_id" => Map.fetch!(claims, "provider_record_id")}
     |> maybe_put("config_id", Map.get(claims, "config_id"))
+  end
+
+  defp update_file_params(record, claims, params) do
+    params
+    |> Enum.reject(fn {key, _value} ->
+      key in ["provider", :provider, "file_id", :file_id, "config_id", :config_id]
+    end)
+    |> Map.new()
+    |> drop_copied_record_path(record)
+    |> Map.put("file_id", Map.fetch!(claims, "provider_record_id"))
+    |> maybe_put("config_id", Map.get(claims, "config_id"))
+  end
+
+  defp drop_copied_record_path(params, %Record{} = record) do
+    case Map.get(params, "path") || Map.get(params, :path) do
+      path when is_binary(path) ->
+        if path in current_record_paths(record),
+          do: Map.drop(params, ["path", :path]),
+          else: params
+
+      _other ->
+        params
+    end
+  end
+
+  defp current_record_paths(%Record{} = record) do
+    attrs = record.attributes || %{}
+
+    [
+      record.path,
+      Map.get(attrs, "relative_path"),
+      Map.get(attrs, :relative_path),
+      Map.get(attrs, "source"),
+      Map.get(attrs, :source)
+    ]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
   end
 
   defp claim_provider(claims) do

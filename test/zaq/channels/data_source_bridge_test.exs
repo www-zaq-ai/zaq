@@ -1,5 +1,6 @@
 defmodule Zaq.Channels.DataSourceBridgeTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   alias Zaq.Channels.{Bridge, ChannelConfig, DataSourceBridge, DiskBridge}
   alias Zaq.Contracts.Record
@@ -564,15 +565,28 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert_received {:get_file, ^config_id, %{"file_id" => "f1", config_id: ^config_id}}
 
+    update_record = %Record{
+      id: "record-f1",
+      kind: :file,
+      attributes: %{
+        "provider" => "google_drive",
+        "config_id" => config_id,
+        "provider_record_id" => "f1"
+      }
+    }
+
+    {:ok, update_record} =
+      Provenance.seal(update_record, %{"provider" => "google_drive", "config_id" => config_id})
+
     assert {:ok, %{status: "updated", record: %{"id" => "f1"}}} =
-             DataSourceBridge.update_file(:google_drive, %{
-               "file_id" => "f1",
+             DataSourceBridge.update_file(update_record, %{
+               "file_id" => "attacker-file",
                "name" => "Renamed",
-               config_id: config_id
+               config_id: "999"
              })
 
     assert_received {:update_file, ^config_id,
-                     %{"file_id" => "f1", "name" => "Renamed", config_id: ^config_id}}
+                     %{"file_id" => "f1", "name" => "Renamed", "config_id" => ^config_id}}
 
     delete_record = %Record{
       id: "record-f1",
@@ -613,6 +627,9 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert {:error, {:invalid_record, :provider_required}} =
              DataSourceBridge.delete_file(invalid_record)
 
+    assert {:error, {:invalid_record, :provider_required}} =
+             DataSourceBridge.update_file(invalid_record, %{"name" => "Renamed"})
+
     assert {:ok, %{records: [%{"id" => "f1"}]}} =
              DataSourceBridge.search_files(:google_drive, %{
                "query" => "invoice",
@@ -638,6 +655,91 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              DataSourceBridge.channel_stats(:google_drive, %{config_id: config_id})
 
     assert_received {:channel_stats, ^config_id, %{config_id: ^config_id}}
+  end
+
+  property "update_file uses signed record identity instead of caller-supplied routing params" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    check all(
+            provider_file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 24),
+            attempted_file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 24),
+            attempted_config_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 24),
+            max_runs: 20
+          ) do
+      record = %Record{
+        id: "record-#{provider_file_id}",
+        kind: :file,
+        attributes: %{
+          "provider" => "google_drive",
+          "config_id" => config_id,
+          "provider_record_id" => provider_file_id
+        }
+      }
+
+      {:ok, record} =
+        Provenance.seal(record, %{"provider" => "google_drive", "config_id" => config_id})
+
+      assert {:ok, %{status: "updated"}} =
+               DataSourceBridge.update_file(record, %{
+                 "file_id" => attempted_file_id,
+                 :config_id => attempted_config_id,
+                 "name" => "Renamed"
+               })
+
+      assert_received {:update_file, ^config_id,
+                       %{
+                         "file_id" => ^provider_file_id,
+                         "config_id" => ^config_id,
+                         "name" => "Renamed"
+                       }}
+    end
+  end
+
+  test "update_file drops path when the caller copied current record metadata" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    record = %Record{
+      id: "f1",
+      kind: :file,
+      path: "Tesla model 3.png",
+      attributes: %{
+        "provider" => "google_drive",
+        "config_id" => config_id,
+        "provider_record_id" => "provider-f1",
+        "relative_path" => "Tesla model 3.png",
+        "source" => "archives/Tesla model 3.png",
+        "volume" => "archives"
+      }
+    }
+
+    {:ok, record} =
+      Provenance.seal(record, %{"provider" => "google_drive", "config_id" => config_id})
+
+    assert {:ok, %{status: "updated"}} =
+             DataSourceBridge.update_file(record, %{"path" => "Tesla model 3.png"})
+
+    assert_received {:update_file, ^config_id,
+                     %{"file_id" => "provider-f1", "config_id" => ^config_id}}
+  end
+
+  test "update_file rejects missing and tampered provenance" do
+    config = insert_data_source_config(:google_drive)
+
+    record = %Record{
+      id: "f1",
+      kind: :file,
+      attributes: %{"provider" => "google_drive", "config_id" => config.id}
+    }
+
+    assert {:error, :missing_record_provenance} = DataSourceBridge.update_file(record, %{})
+
+    {:ok, sealed} =
+      Provenance.seal(record, %{"provider" => "google_drive", "config_id" => config.id})
+
+    assert {:error, :record_provenance_mismatch} =
+             DataSourceBridge.update_file(%{sealed | id: "other"}, %{})
   end
 
   test "scoped config provider match succeeds for string/atom provider parity" do
@@ -1092,11 +1194,15 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                "file_id" => "f1"
              })
 
-    assert {:error, :unsupported} =
-             DataSourceBridge.update_file(:google_drive, %{
-               "config_id" => config.id,
-               "file_id" => "f1"
-             })
+    {:ok, update_record} =
+      %Record{
+        id: "f1",
+        kind: :file,
+        attributes: %{"provider" => "google_drive", "config_id" => config.id}
+      }
+      |> Provenance.seal(%{"provider" => "google_drive", "config_id" => config.id})
+
+    assert {:error, :unsupported} = DataSourceBridge.update_file(update_record, %{})
 
     {:ok, delete_record} =
       %Record{

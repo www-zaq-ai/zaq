@@ -1380,15 +1380,22 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp update_data_source_file(socket, path, attrs) do
     with {:ok, record} <- data_source_record(socket, path) do
-      params = Map.put(attrs, "file_id", record.id)
+      record = with_provider_attrs(record, socket)
 
-      dispatch_data_source_action(
-        :data_source_update_file,
-        data_source_provider(socket),
-        params,
-        socket
-      )
+      dispatch_data_source_update(record, attrs, socket)
     end
+  end
+
+  defp dispatch_data_source_update(record, params, socket) do
+    opts = [action: :data_source_update_file]
+    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
+
+    Event.new(%{record: record, params: params}, :channels,
+      opts: opts,
+      actor: BOActor.build(socket.assigns.current_user)
+    )
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
   end
 
   defp delete_data_source_path(socket, path) do
