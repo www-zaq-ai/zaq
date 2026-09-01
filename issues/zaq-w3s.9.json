@@ -11,9 +11,15 @@
   "id": "zaq-w3s.9",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Added BO Outbound HTTP tab under /bo/system-config with global policy editing and dynamic HTTP credential provider create/delete management. Added Engine API dispatch actions and LiveView coverage. Updated existing mocked router test fixtures to honor the new system-config dispatch actions. Focused outbound HTTP backend + BO suite passes: 285 tests, 0 failures.",
+      "timestamp": "2026-09-01T14:15:36Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] BO UX and implementation",
   "type": "task",
-  "updated_at": "2026-09-01T13:40:32Z"
+  "updated_at": "2026-09-01T14:15:36Z"
 }
