@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-w3s.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-w3s.3"
+  ],
   "created": "2026-09-01T12:56:59Z",
   "description": "Add global outbound HTTP policy defaults, persisted system-config read/write APIs, changeset validation, and tests.",
   "id": "zaq-w3s.2",
