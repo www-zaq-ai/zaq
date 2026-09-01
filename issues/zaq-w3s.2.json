@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-w3s.3"
   ],
+  "closed_at": "2026-09-01T13:04:12Z",
+  "close_reason": "done",
   "created": "2026-09-01T12:56:59Z",
   "description": "Add global outbound HTTP policy defaults, persisted system-config read/write APIs, changeset validation, and tests.",
   "id": "zaq-w3s.2",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-w3s] Policy persistence",
   "type": "task",
-  "updated_at": "2026-09-01T13:03:57Z"
+  "updated_at": "2026-09-01T13:04:12Z"
 }
