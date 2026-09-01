@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-w3s.2"
   ],
+  "closed_at": "2026-09-01T12:58:11Z",
+  "close_reason": "done",
   "created": "2026-09-01T12:56:59Z",
   "description": "Document threat model, effective policy contract, request/result contract, provider-reference contract, and test-first acceptance criteria.",
   "id": "zaq-w3s.1",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-w3s] Threat model and contracts",
   "type": "task",
-  "updated_at": "2026-09-01T12:58:02Z"
+  "updated_at": "2026-09-01T12:58:11Z"
 }
