@@ -12,11 +12,15 @@
     {
       "text": "Replaced HttpClient Application.get_env usage with Zaq.Config.get(:zaq, __MODULE__, [], opts). Removed the test_opts_enabled Application env gate. Updated HTTP client and credential tests to inject test seams through explicit ConfigStub modules via opts[:config], preserving production Channels.Api behavior where event opts are not forwarded. Verified no direct Application.get_env/http_client_test_opts_enabled usage remains in HttpClient. Focused tests passed: 109 tests, 0 failures. mix q passed with Credo no issues.",
       "timestamp": "2026-09-01T15:51:33Z"
+    },
+    {
+      "text": "Fixed follow-up test regressions: updated stale authorization-header message assertion and rewrote the real Channels.Api boundary test to use application-level HttpClient config rather than the removed event opts http_module bypass. Focused suites passed: 124 tests, 0 failures. mix q passed.",
+      "timestamp": "2026-09-01T18:15:43Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "Use Zaq.Config for outbound HTTP test seams",
   "type": "task",
-  "updated_at": "2026-09-01T15:51:33Z"
+  "updated_at": "2026-09-01T18:15:43Z"
 }
