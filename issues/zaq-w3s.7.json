@@ -11,9 +11,15 @@
   "id": "zaq-w3s.7",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Added Channels.HttpClient.CredentialInjector. It resolves Auth Credentials only on the channels node, validates http:\u003cprovider_id\u003e dynamic provider refs, enforces provider enabled/host-pattern rules, injects bearer/header/query credentials into final Req options, and keeps plaintext out of response/error values. Focused credential/channel tests pass.",
+      "timestamp": "2026-09-01T13:39:05Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Req secret injection",
   "type": "task",
-  "updated_at": "2026-09-01T13:36:27Z"
+  "updated_at": "2026-09-01T13:39:05Z"
 }
