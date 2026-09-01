@@ -8,6 +8,12 @@ defmodule Zaq.Repo.Migrations.AddPgTextsearchBm25SimpleIndex do
   Wrapped in a DO/EXCEPTION block so deployments without pg_search apply
   cleanly without breaking. The GIN index is only dropped when the extension
   is successfully created.
+
+  The silent skip is not a dead end: when pg_search is available but was not
+  created here (e.g. a ZAQ database created separately from the ParadeDB
+  image's default `paradedb` database, or migrations that ran before ParadeDB
+  was ready), `Zaq.Ingestion.FTSBackend.self_heal/0` recreates the extension
+  and BM25 index at startup. See docs/exec-plans/issues/paraddb.md.
   """
   def up do
     execute("""
