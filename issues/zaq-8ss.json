@@ -6,9 +6,15 @@
   "description": "Fix the outbound HTTP system-config tab after implementation review: expose every policy field, align provider management with BO design-system patterns, add warnings for weakened security defaults, and validate with LiveView/browser checks plus mix q.",
   "id": "zaq-8ss",
   "labels": [],
+  "comments": [
+    {
+      "text": "Corrected the outbound HTTP BO tab: exposed all policy fields, added weakened-protection warning, migrated to design-system card/input/switch/button/table primitives, added provider edit coverage and metadata field handling, inspected logged-in desktop/mobile rendering, and ran mix format plus mix q successfully. Focused LiveView suite: 173 tests, 0 failures.",
+      "timestamp": "2026-09-01T14:42:33Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Outbound HTTP BO UI correction",
   "type": "task",
-  "updated_at": "2026-09-01T14:31:19Z"
+  "updated_at": "2026-09-01T14:42:33Z"
 }
