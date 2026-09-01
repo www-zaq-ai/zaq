@@ -333,6 +333,66 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :system_config_get_outbound_http_policy, _context),
+    do: %{event | response: System.get_outbound_http_policy()}
+
+  def handle_event(%Event{} = event, :system_config_save_outbound_http_policy, _context) do
+    case event.request do
+      %{changeset: changeset} -> %{event | response: System.save_outbound_http_policy(changeset)}
+      other -> %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_list_http_credential_providers, _context),
+    do: %{event | response: System.list_http_credential_providers()}
+
+  def handle_event(%Event{} = event, :system_config_get_http_credential_provider_bang, _context) do
+    case event.request do
+      %{id: id} -> %{event | response: {:ok, System.get_http_credential_provider!(id)}}
+      other -> %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_change_http_credential_provider, _context) do
+    case event.request do
+      %{provider: provider, attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.change_http_credential_provider(provider, attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_create_http_credential_provider, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.create_http_credential_provider(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_update_http_credential_provider, _context) do
+    case event.request do
+      %{provider: provider, attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.update_http_credential_provider(provider, attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_delete_http_credential_provider, _context) do
+    case event.request do
+      %{provider: provider} ->
+        %{event | response: System.delete_http_credential_provider(provider)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :system_config_get_telemetry_config, _context),
     do: %{event | response: System.get_telemetry_config()}
 

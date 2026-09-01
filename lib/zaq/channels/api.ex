@@ -726,8 +726,7 @@ defmodule Zaq.Channels.Api do
         :http_request,
         _context
       ) do
-    http_module = Keyword.get(event.opts, :http_module, HttpClient)
-    %{event | response: http_module.request(request, event.opts)}
+    %{event | response: HttpClient.request(request)}
   end
 
   # A plain map never reaches the executor: only `Zaq.HttpRequest`

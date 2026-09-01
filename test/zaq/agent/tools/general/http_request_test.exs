@@ -24,7 +24,7 @@ defmodule Zaq.Agent.Tools.General.HttpRequestTest do
   defmodule StubNodeRouter do
     @moduledoc false
     def dispatch(%Event{request: request, opts: opts} = event) do
-      send(self(), {:dispatch, Keyword.get(opts, :action), request})
+      send(self(), {:dispatch, Keyword.get(opts, :action), request, opts})
 
       %{
         event
@@ -89,19 +89,22 @@ defmodule Zaq.Agent.Tools.General.HttpRequestTest do
                    headers: %{"X-Trace" => "abc"},
                    query: %{"page" => 2},
                    body: %{"sku" => "A1"},
-                   timeout_ms: 5_000
+                   timeout_ms: 5_000,
+                   credential_id: 123
                  })
                )
 
-      assert_received {:dispatch, :http_request, %{request: request}}
+      assert_received {:dispatch, :http_request, %{request: request}, opts}
 
       assert %HttpRequest{} = request
+      assert opts == [action: :http_request]
       assert request.method == :post
       assert request.url == "https://api.acme.test/v1/things"
       assert request.headers == %{"x-trace" => "abc"}
       assert request.query == %{"page" => "2"}
       assert request.body == %{"sku" => "A1"}
       assert request.timeout_ms == 5_000
+      assert request.credential_id == 123
     end
 
     test "a build failure short-circuits and never dispatches" do
@@ -118,7 +121,7 @@ defmodule Zaq.Agent.Tools.General.HttpRequestTest do
                  %{node_router: NeverRouter}
                )
 
-      assert message =~ "do not pass authorization as a header"
+      assert message =~ "literal authorization headers are not allowed"
       refute message =~ "sk_live_secret"
     end
 
@@ -172,49 +175,75 @@ defmodule Zaq.Agent.Tools.General.HttpRequestTest do
       assert :ok = Schema.validate_config_schema(Tool.output_schema())
     end
 
-    test "there is no auth parameter to pass a credential through" do
+    test "there is no auth parameter or secret field to pass a credential through" do
       refute Keyword.has_key?(Tool.schema().fields, :auth)
+      refute Keyword.has_key?(Tool.schema().fields, :api_key)
+      refute Keyword.has_key?(Tool.schema().fields, :access_token)
+      assert Keyword.has_key?(Tool.schema().fields, :credential_id)
     end
   end
 
   describe "through the real channels boundary" do
-    defmodule StubHttp do
-      @moduledoc false
-      def request(request, opts) do
-        send(self(), {:http, request, opts})
-        {:ok, %{status: 204, success: true, headers: %{}, body: "", truncated: false, url: "u"}}
-      end
-    end
-
     defmodule LocalNodeRouter do
       @moduledoc false
       def dispatch(%Event{opts: opts} = event) do
-        event = %{event | opts: Keyword.put(opts, :http_module, StubHttp)}
         Api.handle_event(event, Keyword.fetch!(opts, :action), nil)
       end
     end
 
-    test "the tool reaches the real Api clause end to end" do
-      assert {:ok, %{status: 204}} = run(base(), %{node_router: LocalNodeRouter})
+    defmodule MaliciousConfig do
+      @moduledoc false
 
-      assert_received {:http, %HttpRequest{} = request, _opts}
-      assert request.url == "https://api.acme.test/v1/things"
+      def get(:zaq, Zaq.Channels.HttpClient, [], _opts) do
+        [
+          req_options: [
+            plug: fn conn ->
+              send(self(), {:unsafe_transport_override, conn.method})
+              Plug.Conn.resp(conn, 204, "")
+            end
+          ]
+        ]
+      end
+    end
+
+    test "the tool does not forward transport config through event opts" do
+      assert {:ok, @response} =
+               run(base(), %{node_router: StubNodeRouter, config: MaliciousConfig})
+
+      assert_received {:dispatch, :http_request, %{request: %HttpRequest{}}, opts}
+      refute Keyword.has_key?(opts, :config)
     end
 
     test "Channels.Api rejects an :http_request event carrying a bare map" do
       event =
         Event.new(%{request: %{method: :get, url: "https://api.acme.test/x"}}, :channels,
-          opts: [action: :http_request, http_module: StubHttp]
+          opts: [action: :http_request]
         )
 
       assert %Event{response: {:error, {:invalid_request, :unvalidated_spec}}} =
                LocalNodeRouter.dispatch(event)
 
-      refute_received {:http, _request, _opts}
+      refute_received {:http, _method, _path}
+    end
+
+    test "Channels.Api rejects a bare map even when event opts carry transport overrides" do
+      event =
+        Event.new(%{request: %{method: :get, url: "https://api.acme.test/x"}}, :channels,
+          opts: [
+            action: :http_request,
+            config: MaliciousConfig,
+            req_options: [plug: fn conn -> conn end]
+          ]
+        )
+
+      assert %Event{response: {:error, {:invalid_request, :unvalidated_spec}}} =
+               LocalNodeRouter.dispatch(event)
+
+      refute_received {:unsafe_transport_override, _method}
     end
 
     test "Channels.Api rejects an :http_request event with no spec" do
-      event = Event.new(%{}, :channels, opts: [action: :http_request, http_module: StubHttp])
+      event = Event.new(%{}, :channels, opts: [action: :http_request])
 
       assert %Event{response: {:error, {:invalid_request, :missing_http_request_spec}}} =
                LocalNodeRouter.dispatch(event)

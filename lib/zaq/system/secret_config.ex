@@ -36,10 +36,12 @@ defmodule Zaq.System.SecretConfig do
 
   - `{:error, :missing_encryption_key}` when no key is configured
   - `{:error, :invalid_encryption_key}` when key format/size is invalid
+  - `{:error, :encryption_failed}` when encryption cannot be completed
   """
   @spec encrypt(String.t()) :: {:ok, String.t()} | {:error, atom()}
   def encrypt(value) when is_binary(value) do
-    with {:ok, key, key_id} <- fetch_key_material() do
+    with {:ok, key, key_id} <- fetch_key_material(),
+         {:ok, key_id} <- validate_key_id(key_id) do
       nonce = :crypto.strong_rand_bytes(@nonce_size)
 
       {ciphertext, tag} =
@@ -57,7 +59,20 @@ defmodule Zaq.System.SecretConfig do
          ":"
        )}
     end
+  rescue
+    ArgumentError -> {:error, :encryption_failed}
+    ErlangError -> {:error, :encryption_failed}
   end
+
+  defp validate_key_id(key_id) when is_binary(key_id) do
+    if key_id != "" and not String.contains?(key_id, ":") do
+      {:ok, key_id}
+    else
+      {:error, :encryption_failed}
+    end
+  end
+
+  defp validate_key_id(_), do: {:error, :encryption_failed}
 
   @doc """
   Decrypts a stored value.
@@ -135,7 +150,7 @@ defmodule Zaq.System.SecretConfig do
     end
   end
 
-  defp normalize_key(key, key_id) do
+  defp normalize_key(key, key_id) when is_binary(key) do
     cond do
       byte_size(key) == 32 ->
         {:ok, key, key_id}
@@ -153,4 +168,6 @@ defmodule Zaq.System.SecretConfig do
         end
     end
   end
+
+  defp normalize_key(_key, _key_id), do: {:error, :invalid_encryption_key}
 end

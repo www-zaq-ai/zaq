@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
+  alias Zaq.System.OutboundHttpPolicy, as: SystemOutboundHttpPolicy
   alias Zaq.System.TelemetryConfig
   alias Zaq.Utils.Map, as: MapUtils
   alias Zaq.Utils.ParseUtils
@@ -54,6 +55,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:mcp_filter_status, "all")
      |> assign(:mcp_page, 1)
      |> assign(:mcp_per_page, 20)
+     |> assign(:http_credential_provider_modal, false)
+     |> assign(:http_credential_provider_action, :new)
+     |> assign(:http_credential_provider_id, nil)
      |> assign(:global_agent_options, global_agent_options())
      |> assign(:global_default_agent_id, engine_get_global_default_agent_id())
      |> assign(:global_base_url, engine_get_global_base_url() || "")
@@ -78,6 +82,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> load_connect_credentials()
      |> load_mcp_endpoint_form()
      |> load_mcp_endpoints()
+     |> load_outbound_http_policy_form()
+     |> load_http_credential_provider_form()
+     |> load_http_credential_providers()
      |> load_telemetry_form()
      |> load_llm_form()
      |> load_embedding_form()
@@ -85,7 +92,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(ai_credentials auth_credentials mcps global llm embedding image_to_text telemetry) do
+      when tab in ~w(ai_credentials auth_credentials outbound_http mcps global llm embedding image_to_text telemetry) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -229,6 +236,114 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
       {:other, _grant, _other} ->
         {:noreply, put_flash(socket, :error, "Unable to erase grant.")}
+    end
+  end
+
+  def handle_event("save_outbound_http_policy", %{"outbound_http_policy" => params}, socket) do
+    params = normalize_outbound_http_policy_params(params)
+    changeset = SystemOutboundHttpPolicy.changeset(engine_get_outbound_http_policy(), params)
+
+    case engine_save_outbound_http_policy(changeset) do
+      {:ok, _policy} ->
+        {:noreply,
+         socket
+         |> load_outbound_http_policy_form()
+         |> put_flash(:info, "Outbound HTTP policy saved.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         assign(
+           socket,
+           :outbound_http_policy_form,
+           to_form(Map.put(changeset, :action, :validate), as: :outbound_http_policy)
+         )}
+    end
+  end
+
+  def handle_event("new_http_credential_provider", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:http_credential_provider_action, :new)
+     |> assign(:http_credential_provider_id, nil)
+     |> load_http_credential_provider_form()
+     |> assign(:http_credential_provider_modal, true)}
+  end
+
+  def handle_event("edit_http_credential_provider", %{"id" => id}, socket) do
+    case engine_get_http_credential_provider!(id) do
+      {:ok, provider} ->
+        {:noreply,
+         socket
+         |> assign(:http_credential_provider_action, :edit)
+         |> assign(:http_credential_provider_id, provider.id)
+         |> assign(
+           :http_credential_provider_form,
+           to_form(engine_change_http_credential_provider(provider, %{}),
+             as: :http_credential_provider
+           )
+         )
+         |> assign(:http_credential_provider_modal, true)}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "HTTP credential provider not found.")}
+    end
+  end
+
+  def handle_event("close_http_credential_provider_modal", _params, socket) do
+    {:noreply, assign(socket, :http_credential_provider_modal, false)}
+  end
+
+  def handle_event(
+        "save_http_credential_provider",
+        %{"http_credential_provider" => params},
+        socket
+      ) do
+    params = normalize_http_credential_provider_params(params)
+
+    result =
+      case socket.assigns.http_credential_provider_action do
+        :edit ->
+          {:ok, provider} =
+            engine_get_http_credential_provider!(socket.assigns.http_credential_provider_id)
+
+          engine_update_http_credential_provider(provider, params)
+
+        _ ->
+          engine_create_http_credential_provider(params)
+      end
+
+    case result do
+      {:ok, _provider} ->
+        {:noreply,
+         socket
+         |> assign(:http_credential_provider_modal, false)
+         |> load_http_credential_provider_form()
+         |> load_http_credential_providers()
+         |> put_flash(:info, "HTTP credential provider saved.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         assign(
+           socket,
+           :http_credential_provider_form,
+           to_form(Map.put(changeset, :action, :validate), as: :http_credential_provider)
+         )}
+    end
+  end
+
+  def handle_event("delete_http_credential_provider", %{"id" => id}, socket) do
+    with {:ok, provider} <- engine_get_http_credential_provider!(id),
+         {:ok, _provider} <- engine_delete_http_credential_provider(provider) do
+      {:noreply,
+       socket
+       |> load_http_credential_providers()
+       |> put_flash(:info, "HTTP credential provider deleted.")}
+    else
+      {:error, :referenced_by_credentials} ->
+        {:noreply, put_flash(socket, :error, "Provider is still used by Auth Credentials.")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Unable to delete HTTP credential provider.")}
     end
   end
 
@@ -798,6 +913,25 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp load_connect_credentials(socket) do
     assign(socket, :connect_credentials, engine_connect_list_credentials())
+  end
+
+  defp load_outbound_http_policy_form(socket) do
+    changeset = SystemOutboundHttpPolicy.changeset(engine_get_outbound_http_policy(), %{})
+    assign(socket, :outbound_http_policy_form, to_form(changeset, as: :outbound_http_policy))
+  end
+
+  defp load_http_credential_providers(socket) do
+    assign(socket, :http_credential_providers, engine_list_http_credential_providers())
+  end
+
+  defp load_http_credential_provider_form(socket) do
+    changeset = engine_change_http_credential_provider(%Zaq.System.HttpCredentialProvider{}, %{})
+
+    assign(
+      socket,
+      :http_credential_provider_form,
+      to_form(changeset, as: :http_credential_provider)
+    )
   end
 
   defp load_ai_credential_form(socket) do
@@ -1470,6 +1604,38 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp engine_delete_ai_provider_credential(credential),
     do: dispatch_engine(:system_config_delete_ai_provider_credential, %{credential: credential})
 
+  defp engine_get_outbound_http_policy,
+    do: dispatch_engine(:system_config_get_outbound_http_policy)
+
+  defp engine_save_outbound_http_policy(changeset),
+    do: dispatch_engine(:system_config_save_outbound_http_policy, %{changeset: changeset})
+
+  defp engine_list_http_credential_providers,
+    do: dispatch_engine(:system_config_list_http_credential_providers)
+
+  defp engine_get_http_credential_provider!(id),
+    do: dispatch_engine(:system_config_get_http_credential_provider_bang, %{id: id})
+
+  defp engine_change_http_credential_provider(provider, attrs),
+    do:
+      dispatch_engine(:system_config_change_http_credential_provider, %{
+        provider: provider,
+        attrs: attrs
+      })
+
+  defp engine_create_http_credential_provider(attrs),
+    do: dispatch_engine(:system_config_create_http_credential_provider, %{attrs: attrs})
+
+  defp engine_update_http_credential_provider(provider, attrs),
+    do:
+      dispatch_engine(:system_config_update_http_credential_provider, %{
+        provider: provider,
+        attrs: attrs
+      })
+
+  defp engine_delete_http_credential_provider(provider),
+    do: dispatch_engine(:system_config_delete_http_credential_provider, %{provider: provider})
+
   defp engine_connect_list_credentials,
     do: dispatch_engine(:system_config_connect_list_credentials)
 
@@ -1578,4 +1744,47 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     |> assign(:selected_connect_grants, grants)
     |> assign(:selected_connect_refresh_schedule, refresh_schedule)
   end
+
+  defp normalize_outbound_http_policy_params(params) do
+    params
+    |> Map.put("allowed_methods", split_text(params["allowed_methods_text"]))
+    |> Map.put(
+      "allowed_ports",
+      split_text(params["allowed_ports_text"]) |> Enum.map(&parse_port/1)
+    )
+    |> Map.put("blacklisted_hosts", split_text(params["blacklisted_hosts_text"]))
+    |> Map.put("blacklisted_ips", split_text(params["blacklisted_ips_text"]))
+    |> Map.put("blacklisted_cidrs", split_text(params["blacklisted_cidrs_text"]))
+  end
+
+  defp normalize_http_credential_provider_params(params) do
+    params
+    |> Map.put("host_patterns", split_text(params["host_patterns_text"]))
+    |> Map.put("metadata", decode_metadata(params["metadata_text"]))
+  end
+
+  defp parse_port(value) do
+    case Integer.parse(value) do
+      {port, ""} -> port
+      _ -> value
+    end
+  end
+
+  defp decode_metadata(value) when value in [nil, ""], do: %{}
+
+  defp decode_metadata(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, metadata} when is_map(metadata) -> metadata
+      _ -> %{}
+    end
+  end
+
+  defp split_text(value) when is_binary(value) do
+    value
+    |> String.split([",", "\n"], trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp split_text(_), do: []
 end

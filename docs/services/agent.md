@@ -588,6 +588,16 @@ LLM keys stored in System Config:
 Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 `ai_provider_credentials` using `llm.credential_id`.
 
+## Outbound HTTP Tool
+
+`general.http_request` sends external HTTP requests through the channels role, never directly from the agent node.
+
+- The tool accepts method, URL, non-secret headers/query/body fields, timeout, doc reference, and optional `credential_id`.
+- Plaintext credentials are forbidden in headers, query, body, URL userinfo, events, logs, and responses.
+- `credential_id` references a BO-managed Auth Credential whose provider is `http:<provider_id>`.
+- `Zaq.Channels.HttpClient` reloads global policy, validates request shape, resolves DNS, blocks private/special-use addresses, disables redirects/retries, and injects the credential into final Req options.
+- BO policy and provider management live under `/bo/system-config?tab=outbound_http`.
+
 ---
 
 ## Key Design Decisions

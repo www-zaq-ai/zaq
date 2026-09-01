@@ -1,11 +1,22 @@
 defmodule Zaq.SystemTest do
   use Zaq.DataCase, async: false
 
+  import Ecto.Query
+
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Ingestion.Chunk
   alias Zaq.Repo
   alias Zaq.System
-  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, LLMConfig, TelemetryConfig}
+
+  alias Zaq.System.{
+    AIProviderCredential,
+    Config,
+    EmbeddingConfig,
+    ImageToTextConfig,
+    LLMConfig,
+    TelemetryConfig
+  }
+
   alias Zaq.SystemConfigFixtures
 
   describe "get_config/1 and set_config/2" do
@@ -123,6 +134,15 @@ defmodule Zaq.SystemTest do
       assert System.get_global_base_url() == nil
     end
 
+    test "set_global_base_url/1 returns a uniqueness changeset without persisting" do
+      collision_value = "https://collision.example"
+      create_config_value_collision(collision_value)
+
+      assert {:error, changeset} = System.set_global_base_url(collision_value)
+      assert "has already been taken" in errors_on(changeset).key
+      assert System.get_config("system.global.base_url") == nil
+    end
+
     test "set_global_base_url/1 raises when the config table is missing" do
       Repo.query!("DROP TABLE IF EXISTS system_configs CASCADE", [])
 
@@ -145,6 +165,14 @@ defmodule Zaq.SystemTest do
       assert System.get_system_language() == "en"
     end
 
+    test "set_system_language/1 returns a uniqueness changeset without persisting" do
+      create_config_value_collision("fr")
+
+      assert {:error, changeset} = System.set_system_language("fr")
+      assert "has already been taken" in errors_on(changeset).key
+      assert System.get_config("system.global.language") == nil
+    end
+
     test "get_system_timezone/0 returns nil when unset" do
       assert System.get_system_timezone() == nil
     end
@@ -163,6 +191,14 @@ defmodule Zaq.SystemTest do
 
       assert :ok = System.set_system_timezone("   ")
       assert System.get_system_timezone() == nil
+    end
+
+    test "set_system_timezone/1 returns a uniqueness changeset without persisting" do
+      create_config_value_collision("GMT+03:00")
+
+      assert {:error, changeset} = System.set_system_timezone("GMT+03:00")
+      assert "has already been taken" in errors_on(changeset).key
+      assert System.get_config("system.global.timezone") == nil
     end
   end
 
@@ -394,6 +430,29 @@ defmodule Zaq.SystemTest do
       assert_raise Postgrex.Error, fn ->
         System.save_embedding_config(changeset)
       end
+    end
+
+    test "rolls back embedding config when the first config write collides" do
+      credential =
+        SystemConfigFixtures.ai_credential_fixture(%{
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      Chunk.drop_table()
+      create_config_value_collision(Integer.to_string(credential.id))
+
+      changeset =
+        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
+          model: "bge-multilingual-gemma2",
+          dimension: "768"
+        })
+
+      assert {:error, error_changeset} = System.save_embedding_config(changeset)
+      assert "has already been taken" in errors_on(error_changeset).key
+      assert Repo.all(from c in Config, where: like(c.key, "embedding.%")) == []
+      refute Chunk.table_exists?()
     end
   end
 
@@ -677,5 +736,47 @@ defmodule Zaq.SystemTest do
                repo_query_duration_threshold_ms: 45
              }
     end
+  end
+
+  describe "AI provider credential encryption" do
+    test "returns a generic error and does not persist plaintext on unexpected encryption failure" do
+      previous = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
+      on_exit(fn -> Application.put_env(:zaq, Zaq.System.SecretConfig, previous) end)
+
+      plaintext = "super-secret-api-key"
+      name = "Malformed encryption #{Ecto.UUID.generate()}"
+
+      Application.put_env(
+        :zaq,
+        Zaq.System.SecretConfig,
+        encryption_key: Base.encode64(:crypto.strong_rand_bytes(32)),
+        key_id: %{}
+      )
+
+      assert {:error, changeset} =
+               System.create_ai_provider_credential(%{
+                 name: name,
+                 provider: "openai",
+                 endpoint: "https://api.openai.com/v1",
+                 api_key: plaintext
+               })
+
+      assert errors_on(changeset).api_key == ["could not be encrypted"]
+      assert Repo.get_by(AIProviderCredential, name: name) == nil
+      refute inspect(changeset) =~ plaintext
+    end
+  end
+
+  defp create_config_value_collision(value) do
+    Repo.query!(
+      "ALTER INDEX system_configs_key_index RENAME TO system_configs_key_index_original"
+    )
+
+    Repo.query!("CREATE UNIQUE INDEX system_configs_key_index ON system_configs (value)")
+
+    Repo.query!(
+      "INSERT INTO system_configs (key, value, inserted_at, updated_at) VALUES ($1, $2, NOW(), NOW())",
+      ["collision.#{:erlang.unique_integer([:positive])}", value]
+    )
   end
 end

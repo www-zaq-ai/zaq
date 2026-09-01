@@ -32,16 +32,12 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
 
   A build failure short-circuits: nothing is dispatched and no socket opens.
 
-  ## Authenticated endpoints are not supported
+  ## Credentials
 
-  There is no credential mechanism here, deliberately. A literal
-  `authorization` or `proxy-authorization` header is rejected: the model writes
-  tool parameters, so a token passed that way would enter its context and be
-  persisted in conversation history and every export of it.
-
-  That confines this tool to endpoints needing no authorization. Supporting the
-  rest needs a named reference resolved on the channels node — see
-  `Zaq.HttpRequest`.
+  A request may reference a BO-managed Auth Credential by `credential_id`. The
+  credential value itself is resolved only on the channels node. Literal
+  `authorization` or `proxy-authorization` headers are still rejected because
+  they would put secrets in the model context.
 
   ## Expected context keys
 
@@ -67,11 +63,10 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
     "form" for form-encoded fields, "raw" for a pre-serialised string body.
     GET and DELETE must not carry a body.
 
-    This tool CANNOT authenticate. It works only against endpoints that need
-    no credentials. NEVER put an API key, token, or password in `headers` —
-    an `authorization` header is rejected, because anything you write here is
-    stored in this conversation's history. If an endpoint needs a credential,
-    say so and stop; do not try to work around it.
+    To authenticate, pass `credential_id` for a BO-managed HTTP credential. Do
+    not put API keys, tokens, or passwords in `headers`, `query`, or `body` —
+    literal authorization headers are rejected because anything written here is
+    stored in this conversation's history.
 
     The response has `status`, `success` (true for 2xx), `headers`, and `body`.
     A large body is truncated and `truncated` is set to true; if you need the
@@ -115,6 +110,13 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
           Zoi.integer(description: "Receive timeout in milliseconds")
           |> Zoi.positive()
           |> Zoi.default(30_000),
+        credential_id:
+          Zoi.integer(
+            description:
+              "Optional BO-managed HTTP Auth Credential id. Pass only the id, never the secret value."
+          )
+          |> Zoi.positive()
+          |> Zoi.optional(),
         doc_reference:
           Zoi.string(
             description:

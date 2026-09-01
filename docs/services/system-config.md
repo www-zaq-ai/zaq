@@ -58,6 +58,16 @@ These keys are no longer configured through `LLM_*`, `EMBEDDING_*`, or
 Connection fields (`provider`, `endpoint`, `api_key`) are sourced from
 `ai_provider_credentials` referenced by each `*.credential_id`.
 
+## Outbound HTTP
+
+Outbound HTTP for agents/workflows is controlled from `/bo/system-config?tab=outbound_http`.
+
+- Global policy is persisted under `outbound_http.*` system config keys and read through `Zaq.System.get_outbound_http_policy/0`.
+- The default posture is fail-closed: disabled, redirects off, safe methods only, and private/special-use networks blocked.
+- Dynamic HTTP credential providers live in `http_credential_providers` and define auth kind, placement, parameter name, enabled state, and destination host patterns.
+- Auth Credentials store encrypted secret material in `connect_credentials`; HTTP credentials reference providers with `provider: "http:<provider_id>"`.
+- Agents pass only `credential_id` to `http_request`; plaintext secrets are resolved and rendered only on the channels node.
+
 ## MCP Endpoint Runtime Configuration
 
 MCP endpoint changes from Back Office (`/bo/system-config`) are applied through

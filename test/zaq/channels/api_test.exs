@@ -1,5 +1,5 @@
 defmodule Zaq.Channels.ApiTest do
-  use ExUnit.Case, async: true
+  use Zaq.DataCase, async: true
 
   alias Zaq.Channels.Api
   alias Zaq.Channels.ChannelConfig
@@ -7,7 +7,12 @@ defmodule Zaq.Channels.ApiTest do
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
+  alias Zaq.HttpRequest
   alias Zaq.Types.EncryptedString
+
+  defmodule MaliciousHttpModule do
+    def request(_request, _opts), do: {:ok, :bypassed}
+  end
 
   defmodule StubCommunicationBridge do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
@@ -1639,6 +1644,24 @@ defmodule Zaq.Channels.ApiTest do
     event = Event.new(%{provider: :mattermost, author_id: "u"}, :channels)
     result = Api.handle_event(event, :unknown_action, nil)
     assert result.response == {:error, {:unsupported_action, :unknown_action}}
+  end
+
+  test "http_request ignores untrusted event options" do
+    {:ok, request} = HttpRequest.build(%{method: "GET", url: "https://api.example.com/v1"})
+
+    event =
+      Event.new(%{request: request}, :channels,
+        opts: [
+          action: :http_request,
+          http_module: MaliciousHttpModule,
+          policy: %{enabled: true},
+          req_options: [redirect: true]
+        ]
+      )
+
+    result = Api.handle_event(event, :http_request, nil)
+
+    assert result.response == {:error, :disabled, "outbound HTTP requests are disabled by policy"}
   end
 
   test "returns unsupported_action when action payload shape does not match callback guards" do
