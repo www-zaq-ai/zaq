@@ -657,6 +657,22 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:channel_stats, ^config_id, %{config_id: ^config_id}}
   end
 
+  test "update_file delegates provider-based updates through scoped config" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    params = %{
+      "config_id" => Integer.to_string(config_id),
+      "file_id" => "f1",
+      "name" => "Renamed"
+    }
+
+    assert {:ok, %{status: "updated", record: %{"id" => "f1"}}} =
+             DataSourceBridge.update_file(:google_drive, params)
+
+    assert_received {:update_file, ^config_id, ^params}
+  end
+
   property "update_file uses signed record identity instead of caller-supplied routing params" do
     config = insert_data_source_config(:google_drive)
     config_id = config.id
