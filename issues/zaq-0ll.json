@@ -6,9 +6,15 @@
   "description": "Replace newly added Application.get_env usage in outbound HTTP code with Zaq.Config and move direct HTTP client test seams behind explicit config stubs instead of raw per-call runtime overrides.",
   "id": "zaq-0ll",
   "labels": [],
+  "comments": [
+    {
+      "text": "Replaced HttpClient Application.get_env usage with Zaq.Config.get(:zaq, __MODULE__, [], opts). Removed the test_opts_enabled Application env gate. Updated HTTP client and credential tests to inject test seams through explicit ConfigStub modules via opts[:config], preserving production Channels.Api behavior where event opts are not forwarded. Verified no direct Application.get_env/http_client_test_opts_enabled usage remains in HttpClient. Focused tests passed: 109 tests, 0 failures. mix q passed with Credo no issues.",
+      "timestamp": "2026-09-01T15:51:33Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Use Zaq.Config for outbound HTTP test seams",
   "type": "task",
-  "updated_at": "2026-09-01T15:48:53Z"
+  "updated_at": "2026-09-01T15:51:33Z"
 }
