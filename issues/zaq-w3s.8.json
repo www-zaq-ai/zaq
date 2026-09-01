@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-w3s.7"
+  ],
   "blocks": [],
   "created": "2026-09-01T12:57:00Z",
   "description": "Align http_request action input/output contracts and runtime validation with effective policy.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-w3s] Action schema alignment",
   "type": "task",
-  "updated_at": "2026-09-01T12:57:00Z"
+  "updated_at": "2026-09-01T12:57:01Z"
 }

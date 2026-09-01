@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-w3s.6"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-w3s.8"
+  ],
   "created": "2026-09-01T12:56:59Z",
   "description": "Resolve Auth Credentials on the channels node and inject secrets through a final Req step without exposing plaintext.",
   "id": "zaq-w3s.7",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-w3s] Req secret injection",
   "type": "task",
-  "updated_at": "2026-09-01T12:57:00Z"
+  "updated_at": "2026-09-01T12:57:01Z"
 }
