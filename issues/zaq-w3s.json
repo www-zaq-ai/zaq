@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T12:56:59Z",
+  "description": "Implement the agreed outbound HTTP security plan for PR #675 / issue #679. Scope: global BO-managed outbound HTTP policy, dynamic HTTP credential providers referenced by connect_credentials provider sentinel strings, shared request validation, authoritative channels-boundary DNS/SSRF enforcement, Req final-step credential injection, action schema alignment, BO settings UI, and full validation. Secure defaults: action disabled until enabled, private/special-use networks blocked, URL userinfo rejected, redirects disabled, safe methods only by default.",
+  "id": "zaq-w3s",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[outbound-http-security] Secure BO-managed outbound HTTP requests",
+  "type": "epic",
+  "updated_at": "2026-09-01T12:56:59Z"
+}
