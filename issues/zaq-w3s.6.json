@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-w3s.5"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-w3s.7"
+  ],
   "created": "2026-09-01T12:56:59Z",
   "description": "Move authoritative validation to channels boundary with DNS/IP/CIDR/special-range blocking and immutable transport options.",
   "id": "zaq-w3s.6",
