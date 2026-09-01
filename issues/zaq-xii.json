@@ -6,9 +6,15 @@
   "description": "Consolidate duplicated outbound HTTP validation, remove obsolete allowed_hosts/to_req_options paths, harden channels execution against event option bypasses, and keep redirects visible in BO as disabled/future-only while persisting false.",
   "id": "zaq-xii",
   "labels": [],
+  "comments": [
+    {
+      "text": "Hardened outbound HTTP cleanup: Channels.Api no longer forwards event opts/http_module into HttpClient, HttpClient test req_options can no longer override protected method/url/redirect/retry, response size now comes from BO policy only, HttpRequest.build delegates to Validator and obsolete allowed_hosts/to_req_options code/tests were removed. Redirect remains visible in BO but disabled and forced false in policy changesets with future-update copy. Focused cleanup suite passed: 301 tests, 0 failures. mix q passed with Credo no issues.",
+      "timestamp": "2026-09-01T15:40:24Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Outbound HTTP cleanup and security hardening",
   "type": "task",
-  "updated_at": "2026-09-01T15:30:48Z"
+  "updated_at": "2026-09-01T15:40:24Z"
 }
