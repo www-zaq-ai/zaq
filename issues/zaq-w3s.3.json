@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-w3s.4"
   ],
+  "closed_at": "2026-09-01T13:06:24Z",
+  "close_reason": "done",
   "created": "2026-09-01T12:56:59Z",
   "description": "Add BO-managed dynamic HTTP credential provider persistence, provider-reference parser/formatter, and reference integrity tests.",
   "id": "zaq-w3s.3",
@@ -18,7 +20,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-w3s] Dynamic provider model",
   "type": "task",
   "updated_at": "2026-09-01T13:06:24Z"
