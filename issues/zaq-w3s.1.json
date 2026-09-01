@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T12:56:59Z",
+  "description": "Document threat model, effective policy contract, request/result contract, provider-reference contract, and test-first acceptance criteria.",
+  "id": "zaq-w3s.1",
+  "labels": [],
+  "parent": "zaq-w3s",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-w3s] Threat model and contracts",
+  "type": "task",
+  "updated_at": "2026-09-01T12:56:59Z"
+}
