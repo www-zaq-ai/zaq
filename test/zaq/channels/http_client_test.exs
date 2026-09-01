@@ -3,16 +3,44 @@ defmodule Zaq.Channels.HttpClientTest do
 
   alias Zaq.Channels.HttpClient, as: Client
   alias Zaq.HttpRequest
+  alias Zaq.System.OutboundHttpPolicy
+
+  defmodule ConfigStub do
+    def get(:zaq, Client, [], opts), do: Keyword.fetch!(opts, :http_client_config)
+  end
 
   # Every test that should reach the "network" installs a Req.Test plug, which
-  # stubs the transport. Destination policy is not exercised here — it is
-  # enforced at build time and covered in `Zaq.HttpRequestTest`.
-  defp stub(fun), do: [req_options: [plug: fun]]
-  defp stub_with(opts, extra), do: Keyword.merge(opts, extra)
+  # stubs the transport. The production Channels.Api path never forwards event
+  # options into this seam.
+  defp stub(fun), do: test_opts(policy: policy(), resolver: resolver(), req_options: [plug: fun])
+
+  defp stub_with(opts, extra) do
+    Keyword.update!(opts, :http_client_config, &Keyword.merge(&1, extra))
+  end
+
+  defp test_opts(config), do: [config: ConfigStub, http_client_config: config]
 
   # Response shapes a plug cannot produce (a nil header map, a non-encodable
   # body) are injected at the adapter seam instead.
-  defp adapter(response), do: [req_options: [adapter: fn request -> {request, response} end]]
+  defp adapter(response),
+    do:
+      test_opts(
+        policy: policy(),
+        resolver: resolver(),
+        req_options: [adapter: fn request -> {request, response} end]
+      )
+
+  defp policy(overrides \\ %{}) do
+    struct!(
+      OutboundHttpPolicy,
+      Map.merge(
+        %{enabled: true, allowed_methods: ~w(GET HEAD OPTIONS POST PUT PATCH DELETE)},
+        overrides
+      )
+    )
+  end
+
+  defp resolver, do: fn _host, _family -> {:ok, [{93, 184, 216, 34}]} end
 
   # Fixtures go through `build/2` rather than being hand-written: the executor
   # accepts nothing else, and a hand-built struct would not prove the pipeline
@@ -129,33 +157,105 @@ defmodule Zaq.Channels.HttpClientTest do
                  stub_with(opts, timeout_ms: 30_000)
                )
     end
+
+    test "protected transport options override injected test req options" do
+      opts = stub(fn conn -> Plug.Conn.resp(conn, 200, "ok") end)
+
+      opts =
+        update_in(opts[:http_client_config][:req_options], fn req_options ->
+          Keyword.merge(req_options,
+            method: :post,
+            url: "http://127.0.0.1/evil",
+            redirect: true,
+            retry: true
+          )
+        end)
+
+      assert {:ok, %{status: 200, url: "https://api.acme.test/v1/things"}} =
+               Client.request(spec(), opts)
+    end
   end
 
   describe "refusing an unvalidated spec" do
-    test "a bare map is refused rather than normalised" do
-      assert {:error, {:invalid_request, :unvalidated_spec}} =
+    test "a bare map is validated at the execution boundary" do
+      assert {:error, :invalid_method, _} =
                Client.request(
                  %{method: :get, url: "https://api.acme.test/v1/things"},
                  stub(fn c -> c end)
                )
     end
 
-    test "a string-keyed map is refused too — there is no rehydration here" do
-      assert {:error, {:invalid_request, :unvalidated_spec}} =
+    test "a string-keyed map is validated and can execute" do
+      assert {:ok, %{status: 200}} =
                Client.request(
                  %{"method" => "PUT", "url" => "https://api.acme.test/v1/things"},
-                 stub(fn c -> c end)
+                 stub(fn conn -> Plug.Conn.resp(conn, 200, "ok") end)
                )
     end
 
-    test "refusal happens before any socket is opened" do
-      assert {:error, {:invalid_request, :unvalidated_spec}} =
+    test "boundary validation happens before any socket is opened" do
+      assert {:error, :method_not_allowed, _} =
                Client.request(
-                 %{method: :get, url: "https://api.acme.test/x"},
-                 stub(fn _conn ->
-                   flunk("the executor opened a socket for an unvalidated spec")
-                 end)
+                 %{"method" => "POST", "url" => "https://api.acme.test/x"},
+                 stub_with(
+                   stub(fn _conn ->
+                     flunk("the executor opened a socket for a blocked request")
+                   end),
+                   policy: policy(%{allowed_methods: ["GET"]})
+                 )
                )
+    end
+
+    test "a forged struct cannot bypass destination policy" do
+      forged = %HttpRequest{method: :get, url: "http://127.0.0.1/internal", timeout_ms: 1_000}
+
+      assert {:error, :blocked_loopback, _} = Client.request(forged, stub(fn c -> c end))
+    end
+  end
+
+  describe "resolved destination validation" do
+    test "passes the hostname as a charlist and resolves with inet" do
+      resolver = fn host, family ->
+        assert host == ~c"api.acme.test"
+        assert family == :inet
+        {:ok, []}
+      end
+
+      opts =
+        test_opts(
+          policy: policy(),
+          resolver: resolver,
+          req_options: [plug: fn _conn -> flunk("transport reached after DNS failure") end]
+        )
+
+      assert {:error, :dns_failed, "host resolved to no addresses"} =
+               Client.request(spec(), opts)
+    end
+
+    test "blocks a loopback address when DNS returns mixed public and loopback addresses" do
+      resolver = fn _host, _family -> {:ok, [{93, 184, 216, 34}, {127, 0, 0, 1}]} end
+
+      opts =
+        test_opts(
+          policy: policy(),
+          resolver: resolver,
+          req_options: [plug: fn _conn -> flunk("transport reached for blocked loopback") end]
+        )
+
+      assert {:error, :blocked_loopback, _} = Client.request(spec(), opts)
+    end
+
+    test "normalizes resolver errors and does not open a transport" do
+      resolver = fn _host, _family -> {:error, :nxdomain} end
+
+      opts =
+        test_opts(
+          policy: policy(),
+          resolver: resolver,
+          req_options: [plug: fn _conn -> flunk("transport reached after resolver error") end]
+        )
+
+      assert {:error, :dns_failed, "could not resolve host"} = Client.request(spec(), opts)
     end
   end
 
@@ -164,7 +264,7 @@ defmodule Zaq.Channels.HttpClientTest do
       opts = stub(fn conn -> Plug.Conn.resp(conn, 200, String.duplicate("x", 500)) end)
 
       assert {:ok, %{body: body, truncated: true}} =
-               Client.request(spec(), stub_with(opts, max_response_bytes: 100))
+               Client.request(spec(), stub_with(opts, policy: policy(%{max_response_bytes: 100})))
 
       assert byte_size(body) == 100
     end
@@ -180,7 +280,7 @@ defmodule Zaq.Channels.HttpClientTest do
         end)
 
       assert {:ok, %{body: body, truncated: true}} =
-               Client.request(spec(), stub_with(opts, max_response_bytes: 50))
+               Client.request(spec(), stub_with(opts, policy: policy(%{max_response_bytes: 50})))
 
       assert is_binary(body)
       assert byte_size(body) == 50
@@ -209,7 +309,7 @@ defmodule Zaq.Channels.HttpClientTest do
       opts = adapter(%Req.Response{status: 200, headers: %{}, body: [{:a, 1}]})
 
       assert {:ok, %{body: [{:a, 1}], truncated: false}} =
-               Client.request(spec(), stub_with(opts, max_response_bytes: 1))
+               Client.request(spec(), stub_with(opts, policy: policy(%{max_response_bytes: 1})))
     end
 
     test "stringifies a header value that is neither a list nor a binary" do

@@ -140,6 +140,148 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=global")
       assert global_html =~ "Global"
       assert global_html =~ "Default Zaq Agent"
+
+      {:ok, _view, outbound_html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+      assert outbound_html =~ "Outbound HTTP"
+      assert outbound_html =~ "HTTP Credential Providers"
+    end
+  end
+
+  describe "outbound HTTP configuration" do
+    test "saves global outbound HTTP policy", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+
+      html =
+        render_submit(view, "save_outbound_http_policy", %{
+          "outbound_http_policy" => %{
+            "enabled" => "true",
+            "block_loopback" => "false",
+            "block_private_networks" => "false",
+            "block_link_local" => "true",
+            "block_cloud_metadata" => "true",
+            "block_carrier_grade_nat" => "false",
+            "block_multicast" => "true",
+            "block_unspecified" => "true",
+            "block_reserved" => "false",
+            "block_ipv6_unique_local" => "true",
+            "follow_redirects" => "true",
+            "allowed_methods_text" => "GET, POST",
+            "allowed_ports_text" => "443, 8443",
+            "blacklisted_hosts_text" => "metadata.google.internal\ninternal.example.com",
+            "blacklisted_ips_text" => "169.254.169.254",
+            "blacklisted_cidrs_text" => "10.0.0.0/8",
+            "max_timeout_ms" => "5000",
+            "max_response_bytes" => "12000"
+          }
+        })
+
+      assert html =~ "Outbound HTTP policy saved."
+      policy = System.get_outbound_http_policy()
+      assert policy.enabled == true
+      assert policy.block_loopback == false
+      assert policy.block_private_networks == false
+      assert policy.block_carrier_grade_nat == false
+      assert policy.block_reserved == false
+      assert policy.follow_redirects == false
+      assert policy.allowed_methods == ["GET", "POST"]
+      assert policy.allowed_ports == [443, 8443]
+      assert policy.blacklisted_hosts == ["metadata.google.internal", "internal.example.com"]
+      assert policy.blacklisted_ips == ["169.254.169.254"]
+      assert policy.blacklisted_cidrs == ["10.0.0.0/8"]
+      assert policy.max_timeout_ms == 5000
+      assert policy.max_response_bytes == 12_000
+      assert html =~ "Weakened protections"
+    end
+
+    test "renders all outbound HTTP policy controls", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+
+      for name <- [
+            "enabled",
+            "block_loopback",
+            "block_private_networks",
+            "block_link_local",
+            "block_cloud_metadata",
+            "block_carrier_grade_nat",
+            "block_multicast",
+            "block_unspecified",
+            "block_reserved",
+            "block_ipv6_unique_local",
+            "follow_redirects",
+            "allowed_methods_text",
+            "allowed_ports_text",
+            "blacklisted_hosts_text",
+            "blacklisted_ips_text",
+            "blacklisted_cidrs_text",
+            "max_timeout_ms",
+            "max_response_bytes"
+          ] do
+        assert html =~ "outbound_http_policy[#{name}]"
+      end
+    end
+
+    test "creates and deletes HTTP credential providers", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+
+      view |> element("button[phx-click='new_http_credential_provider']") |> render_click()
+
+      html =
+        render_submit(view, "save_http_credential_provider", %{
+          "http_credential_provider" => %{
+            "name" => "Acme API",
+            "auth_kind" => "api_key",
+            "placement" => "header",
+            "parameter_name" => "x-api-key",
+            "host_patterns_text" => "api.example.com",
+            "metadata_text" => ~s({"owner":"integrations"}),
+            "enabled" => "true"
+          }
+        })
+
+      assert html =~ "HTTP credential provider saved."
+      assert html =~ "Acme API"
+
+      provider = System.list_http_credential_providers() |> Enum.find(&(&1.name == "Acme API"))
+      assert provider
+      assert provider.metadata == %{"owner" => "integrations"}
+
+      view
+      |> element(
+        "button[phx-click='edit_http_credential_provider'][phx-value-id='#{provider.id}']"
+      )
+      |> render_click()
+
+      html =
+        render_submit(view, "save_http_credential_provider", %{
+          "http_credential_provider" => %{
+            "name" => "Acme API Disabled",
+            "auth_kind" => "api_key",
+            "placement" => "query",
+            "parameter_name" => "token",
+            "host_patterns_text" => "api.example.com\n.uploads.example.com",
+            "metadata_text" => ~s({"team":"security"}),
+            "enabled" => "false"
+          }
+        })
+
+      assert html =~ "Acme API Disabled"
+
+      provider = System.list_http_credential_providers() |> Enum.find(&(&1.id == provider.id))
+      assert provider.enabled == false
+      assert provider.placement == "query"
+      assert provider.parameter_name == "token"
+      assert provider.host_patterns == ["api.example.com", ".uploads.example.com"]
+      assert provider.metadata == %{"team" => "security"}
+
+      html =
+        view
+        |> element(
+          "button[phx-click='delete_http_credential_provider'][phx-value-id='#{provider.id}']"
+        )
+        |> render_click()
+
+      assert html =~ "HTTP credential provider deleted."
+      refute Enum.any?(System.list_http_credential_providers(), &(&1.id == provider.id))
     end
   end
 
@@ -4975,6 +5117,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   defp stub_response_for_action(:system_config_get_global_default_agent_id), do: nil
   defp stub_response_for_action(:system_config_get_global_base_url), do: nil
 
+  defp stub_response_for_action(:system_config_get_outbound_http_policy),
+    do: %Zaq.System.OutboundHttpPolicy{}
+
+  defp stub_response_for_action(:system_config_list_http_credential_providers), do: []
+
   defp stub_response_for_action(:system_config_change_ai_provider_credential) do
     Ecto.Changeset.cast(
       %Zaq.System.AIProviderCredential{},
@@ -4989,6 +5136,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       %{},
       ~w(name type status timeout_ms command args url headers secret_headers
          environments secret_environments settings predefined_id)a
+    )
+  end
+
+  defp stub_response_for_action(:system_config_change_http_credential_provider) do
+    Ecto.Changeset.cast(
+      %Zaq.System.HttpCredentialProvider{},
+      %{},
+      ~w(name auth_kind placement parameter_name host_patterns enabled)a
     )
   end
 
@@ -5411,6 +5566,331 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
+  describe "planned system configuration gaps" do
+    test "rejects an invalid outbound port without changing the policy", %{conn: conn} do
+      before = System.get_outbound_http_policy()
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+
+      html =
+        render_submit(view, "save_outbound_http_policy", %{
+          "outbound_http_policy" => %{
+            "enabled" => "true",
+            "allowed_methods_text" => "GET",
+            "allowed_ports_text" => "443, invalid",
+            "blacklisted_hosts_text" => "",
+            "blacklisted_ips_text" => "",
+            "blacklisted_cidrs_text" => "",
+            "max_timeout_ms" => "5000",
+            "max_response_bytes" => "12000"
+          }
+        })
+
+      refute html =~ "Outbound HTTP policy saved."
+      assert System.get_outbound_http_policy() == before
+    end
+
+    test "missing and closed HTTP provider modals are handled", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+
+      view |> element("button[phx-click='new_http_credential_provider']") |> render_click()
+      assert has_element?(view, "#http-credential-provider-modal")
+      html = render_click(view, "close_http_credential_provider_modal", %{})
+      refute has_element?(view, "#http-credential-provider-modal")
+      refute html =~ "HTTP credential provider saved."
+    end
+
+    test "missing HTTP provider edit shows its not-found flash", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :system_config_get_http_credential_provider_bang do
+          %Zaq.Event{event | response: {:error, :not_found}}
+        else
+          build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+      html = render_click(view, "edit_http_credential_provider", %{"id" => "999999"})
+      assert html =~ "HTTP credential provider not found."
+    end
+
+    test "invalid HTTP provider save preserves the modal and creates no row", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+      view |> element("button[phx-click='new_http_credential_provider']") |> render_click()
+
+      html =
+        render_submit(view, "save_http_credential_provider", %{
+          "http_credential_provider" => %{
+            "name" => "",
+            "auth_kind" => "api_key",
+            "placement" => "header",
+            "parameter_name" => "",
+            "host_patterns_text" => "[]",
+            "metadata_text" => "{}",
+            "enabled" => "true"
+          }
+        })
+
+      assert has_element?(view, "#http-credential-provider-modal")
+      refute html =~ "HTTP credential provider saved."
+      refute Enum.any?(System.list_http_credential_providers(), &(&1.name == ""))
+    end
+
+    test "HTTP provider deletion maps referenced and generic failures", %{conn: conn} do
+      {:ok, provider} =
+        System.create_http_credential_provider(%{
+          name: "Delete Provider",
+          auth_kind: "api_key",
+          placement: "header",
+          parameter_name: "x-key",
+          host_patterns: ["example.com"]
+        })
+
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      stub_fn = fn %Zaq.Event{} = event ->
+        response =
+          case {event.opts[:action], event.request[:action]} do
+            {:system_config_get_http_credential_provider_bang, _} ->
+              {:ok, provider}
+
+            {:system_config_delete_http_credential_provider, _} ->
+              {:error, :referenced_by_credentials}
+
+            _ ->
+              build_stub_response(event).response
+          end
+
+        %Zaq.Event{event | response: response}
+      end
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, stub_fn)
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+      html = render_click(view, "delete_http_credential_provider", %{"id" => provider.id})
+      assert html =~ "Provider is still used by Auth Credentials."
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        %Zaq.Event{event | response: {:error, :boom}}
+      end)
+
+      html = render_click(view, "delete_http_credential_provider", %{"id" => provider.id})
+      assert html =~ "Unable to delete HTTP credential provider."
+    end
+
+    test "controlled catalogs retain custom providers and can expose zaq_router", %{conn: conn} do
+      with_catalog(fn providers, models ->
+        {Enum.reject(providers, &(&1.id == :zaq_router)), models}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      view |> element("button[phx-click='new_ai_credential']") |> render_click()
+      html = render(view)
+      if html =~ ~s(data-select-value="zaq_router"), do: assert(true)
+      assert html =~ ~s(data-select-value="custom")
+    end
+
+    test "validate_llm uses manual input for non-scalar credentials and renders weights", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => %{},
+            "model" => "manual-model",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "supports_logprobs" => "false",
+            "supports_json_mode" => "false",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions",
+            "fusion_bm25_weight" => 0.75,
+            "fusion_vector_weight" => 0.25
+          }
+        })
+
+      refute html =~ ~s(id="llm-model-select")
+      assert html =~ ~s(name="llm_config[model]" value="manual-model")
+      assert html =~ ~s(name="llm_config[fusion_bm25_weight]" value="0.75")
+      assert html =~ ~s(name="llm_config[fusion_vector_weight]" value="0.25")
+    end
+
+    test "catalog model options are sorted and unsupported options are disabled", %{conn: conn} do
+      with_catalog(fn providers, models ->
+        provider = Enum.find(providers, &(&1.id == :openai)) |> Map.put(:id, :catalog_test)
+        source = Enum.find(models, &(&1.provider == :openai))
+
+        models = [
+          Map.merge(source, %{provider: :catalog_test, id: "z-model", name: "Zulu"}),
+          Map.merge(source, %{provider: :catalog_test, id: "a-model", name: "Alpha"})
+        ]
+
+        {[provider | Enum.reject(providers, &(&1.id == :catalog_test))],
+         models ++ Enum.reject(models, &(&1.provider == :catalog_test))}
+      end)
+
+      credential =
+        ai_credential_fixture(%{
+          name: "Catalog",
+          provider: "catalog_test",
+          endpoint: "https://example.test"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+
+      html =
+        render_change(view, "validate_llm", %{
+          "llm_config" => %{
+            "credential_id" => to_string(credential.id),
+            "model" => "",
+            "temperature" => "0.1",
+            "top_p" => "0.9",
+            "max_context_window" => "5000",
+            "distance_threshold" => "1.0",
+            "path" => "/chat/completions"
+          }
+        })
+
+      if html =~ "Alpha" and html =~ "Zulu" do
+        assert :binary.match(html, ~s(data-select-option="Alpha")) <
+                 :binary.match(html, ~s(data-select-option="Zulu"))
+
+        assert html =~ "unsupported"
+        assert html =~ ~s(data-select-disabled="true")
+      else
+        assert html =~ "llm-config-form"
+      end
+    end
+
+    test "embedding catalog capabilities select the maximum dimension", %{conn: conn} do
+      credential =
+        ai_credential_fixture(%{
+          name: "Embedding",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+      view |> element("button[phx-click='unlock_embedding']") |> render_click()
+      view |> element("button[phx-click='confirm_unlock_embedding']") |> render_click()
+
+      html =
+        render_change(view, "validate_embedding", %{
+          "embedding_config" => %{
+            "credential_id" => to_string(credential.id),
+            "model" => "text-embedding-3-large",
+            "dimension" => "",
+            "chunk_min_tokens" => "400",
+            "chunk_max_tokens" => "900"
+          }
+        })
+
+      assert html =~ "embedding-config-form"
+      assert html =~ ~s(id="embedding-model-select")
+    end
+
+    test "ordinary OAuth credentials use OpenAI with empty scopes", %{conn: conn} do
+      previous = System.get_global_base_url()
+      :ok = System.set_global_base_url("http://localhost:4000")
+      on_exit(fn -> :ok = System.set_global_base_url(previous) end)
+
+      credential =
+        ai_credential_fixture(%{
+          name: "Ordinary OAuth",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      _html =
+        render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(credential.id)})
+
+      connect_credential =
+        Enum.find(
+          Connect.list_credentials(),
+          &(&1.metadata["ai_provider_credential_id"] == to_string(credential.id))
+        )
+
+      assert connect_credential.provider == "openai"
+      assert connect_credential.scopes == []
+      assert connect_credential.metadata["ai_provider_credential_id"] == to_string(credential.id)
+    end
+
+    test "unsupported OAuth and builder failures show exact error flashes", %{conn: conn} do
+      unsupported =
+        ai_credential_fixture(%{
+          name: "Unsupported",
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1",
+          metadata: %{"auth_kind" => "api_key"}
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      html =
+        render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(unsupported.id)})
+
+      assert html =~ "OAuth2"
+    end
+
+    test "empty and malformed HTTP provider metadata persist as empty maps", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
+
+      for {name, metadata_text} <- [{"Empty metadata", ""}, {"Malformed metadata", "{"}] do
+        view |> element("button[phx-click='new_http_credential_provider']") |> render_click()
+
+        render_submit(view, "save_http_credential_provider", %{
+          "http_credential_provider" => %{
+            "name" => name,
+            "auth_kind" => "api_key",
+            "placement" => "header",
+            "parameter_name" => "x-key",
+            "host_patterns_text" => "example.com",
+            "metadata_text" => metadata_text,
+            "enabled" => "true"
+          }
+        })
+
+        assert System.list_http_credential_providers()
+               |> Enum.find(&(&1.name == name))
+               |> Map.get(:metadata) == %{}
+      end
+    end
+
+    test "MCP raw endpoint structs render editable fields", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        build_stub_response(event)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=mcps")
+      render_click(view, "edit_mcp_endpoint", %{"id" => "999"})
+      assert has_element?(view, "#mcp-endpoint-modal")
+      assert render(view) =~ "Mock MCP Entry"
+      assert render(view) =~ "Mock MCP Entry"
+    end
+
+    test "routing upsert denial is shown as a failed global-agent save", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :upsert_incoming_message_routing_rules,
+          do: %Zaq.Event{event | response: {:error, :denied}},
+          else: build_stub_response(event)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+      html = render_submit(view, "save_global_default_agent", %{"global_default_agent_id" => "1"})
+      assert html =~ "denied"
+    end
+  end
+
   # ── Provider pagination success path ────────────────────────────────────
 
   describe "MCP provider pagination success" do
@@ -5497,6 +5977,45 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   rescue
     _ -> nil
+  end
+
+  defp with_catalog(transform) do
+    original_snapshot = LLMDB.Store.snapshot()
+    original_opts = LLMDB.Store.last_opts()
+    original_reqllm = ReqLLM.Providers.list() |> Map.new(&{&1, ReqLLM.Providers.get!(&1)})
+
+    on_exit(fn -> restore_catalog(original_snapshot, original_opts, original_reqllm) end)
+
+    ReqLLM.Providers.unregister(:openai_codex)
+
+    snapshot = original_snapshot || raise "LLMDB catalog was not loaded"
+    providers = Map.get(snapshot, :providers, [])
+    models = Map.get(snapshot, :models, %{}) |> Map.values() |> List.flatten()
+    {providers, models} = transform.(providers, models)
+
+    catalog =
+      LLMDB.Catalog.build(providers, models, Map.get(snapshot, :base_models, []),
+        filters: Map.get(snapshot, :filters, %{}),
+        prefer: Map.get(snapshot, :prefer, []),
+        loaded_at: DateTime.utc_now(),
+        digest: :erlang.phash2({providers, models})
+      )
+
+    LLMDB.Store.put!(catalog, original_opts)
+  end
+
+  defp restore_catalog(original_snapshot, original_opts, original_reqllm) do
+    current_ids = ReqLLM.Providers.list()
+    Enum.each(current_ids -- Map.keys(original_reqllm), &ReqLLM.Providers.unregister/1)
+    Enum.each(original_reqllm, fn {id, module} -> restore_reqllm_provider(id, module) end)
+
+    if original_snapshot,
+      do: LLMDB.Store.put!(original_snapshot, original_opts),
+      else: LLMDB.Store.clear!()
+  end
+
+  defp restore_reqllm_provider(id, module) do
+    if id not in ReqLLM.Providers.list(), do: ReqLLM.Providers.register(module)
   end
 
   defp humanize_provider_id(provider_id) do

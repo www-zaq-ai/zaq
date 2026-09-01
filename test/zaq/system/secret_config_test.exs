@@ -36,6 +36,17 @@ defmodule Zaq.System.SecretConfigTest do
 
       assert {:error, :missing_encryption_key} = SecretConfig.encrypt("smtp-secret")
     end
+
+    test "returns a generic error for malformed encryption metadata" do
+      Application.put_env(
+        :zaq,
+        Zaq.System.SecretConfig,
+        encryption_key: Base.encode64(:crypto.strong_rand_bytes(32)),
+        key_id: %{}
+      )
+
+      assert {:error, :encryption_failed} = SecretConfig.encrypt("smtp-secret")
+    end
   end
 
   describe "validate_encryption_key/1 (boot validation)" do

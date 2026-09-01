@@ -17,8 +17,11 @@ defmodule Zaq.System do
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.Config
   alias Zaq.System.EmbeddingConfig
+  alias Zaq.System.HttpCredentialProvider
+  alias Zaq.System.HttpCredentialProviderRef
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
+  alias Zaq.System.OutboundHttpPolicy
   alias Zaq.System.TelemetryConfig
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
@@ -39,6 +42,27 @@ defmodule Zaq.System do
   @global_base_url_key "system.global.base_url"
   @system_language_key "system.global.language"
   @system_timezone_key "system.global.timezone"
+  @outbound_http_policy_fields ~w(
+    enabled
+    block_loopback
+    block_private_networks
+    block_link_local
+    block_cloud_metadata
+    block_carrier_grade_nat
+    block_multicast
+    block_unspecified
+    block_reserved
+    block_ipv6_unique_local
+    blacklisted_hosts
+    blacklisted_ips
+    blacklisted_cidrs
+    allowed_methods
+    allowed_ports
+    max_timeout_ms
+    max_response_bytes
+    follow_redirects
+  )
+
   # ── Generic key/value ─────────────────────────────────────────────────
 
   @doc "Returns the stored value for `key`, or `nil`."
@@ -193,6 +217,109 @@ defmodule Zaq.System do
 
   def save_telemetry_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
 
+  # ── Outbound HTTP ─────────────────────────────────────────────────────
+
+  @doc "Loads the global outbound HTTP security policy."
+  def get_outbound_http_policy do
+    keys = Enum.map(@outbound_http_policy_fields, &"outbound_http.#{&1}")
+    rows = Repo.all(from c in Config, where: c.key in ^keys)
+
+    raw =
+      Map.new(rows, fn row ->
+        {String.replace_prefix(row.key, "outbound_http.", ""), row.value}
+      end)
+
+    %OutboundHttpPolicy{
+      enabled: ParseUtils.parse_bool(raw["enabled"], false),
+      block_loopback: ParseUtils.parse_bool(raw["block_loopback"], true),
+      block_private_networks: ParseUtils.parse_bool(raw["block_private_networks"], true),
+      block_link_local: ParseUtils.parse_bool(raw["block_link_local"], true),
+      block_cloud_metadata: ParseUtils.parse_bool(raw["block_cloud_metadata"], true),
+      block_carrier_grade_nat: ParseUtils.parse_bool(raw["block_carrier_grade_nat"], true),
+      block_multicast: ParseUtils.parse_bool(raw["block_multicast"], true),
+      block_unspecified: ParseUtils.parse_bool(raw["block_unspecified"], true),
+      block_reserved: ParseUtils.parse_bool(raw["block_reserved"], true),
+      block_ipv6_unique_local: ParseUtils.parse_bool(raw["block_ipv6_unique_local"], true),
+      blacklisted_hosts: parse_string_list(raw["blacklisted_hosts"]),
+      blacklisted_ips: parse_string_list(raw["blacklisted_ips"]),
+      blacklisted_cidrs: parse_string_list(raw["blacklisted_cidrs"]),
+      allowed_methods:
+        parse_string_list(raw["allowed_methods"], OutboundHttpPolicy.safe_methods()),
+      allowed_ports: parse_integer_list(raw["allowed_ports"]),
+      max_timeout_ms: ParseUtils.parse_int(raw["max_timeout_ms"], 30_000),
+      max_response_bytes: ParseUtils.parse_int(raw["max_response_bytes"], 100_000),
+      follow_redirects: ParseUtils.parse_bool(raw["follow_redirects"], false)
+    }
+  end
+
+  @doc "Persists a validated global outbound HTTP security policy."
+  def save_outbound_http_policy(%Ecto.Changeset{valid?: true} = changeset) do
+    policy = Ecto.Changeset.apply_changes(changeset)
+    persist_config_values(@outbound_http_policy_fields, "outbound_http", policy)
+    {:ok, get_outbound_http_policy()}
+  end
+
+  def save_outbound_http_policy(%Ecto.Changeset{valid?: false} = changeset),
+    do: {:error, changeset}
+
+  # ── HTTP Credential Providers ────────────────────────────────────────
+
+  @doc "Lists BO-managed dynamic HTTP credential providers."
+  def list_http_credential_providers do
+    HttpCredentialProvider
+    |> order_by([provider], asc: provider.name)
+    |> Repo.all()
+  end
+
+  @doc "Gets a BO-managed dynamic HTTP credential provider by id."
+  def get_http_credential_provider(id), do: Repo.get(HttpCredentialProvider, id)
+
+  @doc "Gets a BO-managed dynamic HTTP credential provider by id, raising when absent."
+  def get_http_credential_provider!(id), do: Repo.get!(HttpCredentialProvider, id)
+
+  @doc "Returns a changeset for BO-managed dynamic HTTP credential providers."
+  def change_http_credential_provider(%HttpCredentialProvider{} = provider, attrs \\ %{}) do
+    HttpCredentialProvider.changeset(provider, attrs)
+  end
+
+  @doc "Creates a BO-managed dynamic HTTP credential provider."
+  def create_http_credential_provider(attrs \\ %{}) do
+    %HttpCredentialProvider{}
+    |> HttpCredentialProvider.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc "Updates a BO-managed dynamic HTTP credential provider."
+  def update_http_credential_provider(%HttpCredentialProvider{} = provider, attrs) do
+    provider
+    |> HttpCredentialProvider.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc "Deletes a BO-managed dynamic HTTP credential provider."
+  def delete_http_credential_provider(%HttpCredentialProvider{} = provider) do
+    {:ok, provider_ref} = HttpCredentialProviderRef.format(provider.id)
+
+    usage_count =
+      Connect.Credential
+      |> where([credential], credential.provider == ^provider_ref)
+      |> Repo.aggregate(:count, :id)
+
+    if usage_count == 0 do
+      Repo.delete(provider)
+    else
+      changeset =
+        provider
+        |> Ecto.Changeset.change()
+        |> Ecto.Changeset.add_error(
+          :id,
+          "is referenced by #{usage_count} Auth Credential#{if usage_count == 1, do: "", else: "s"}"
+        )
+
+      {:error, changeset}
+    end
+  end
+
   # ── LLM ───────────────────────────────────────────────────────────────
 
   @doc "Loads LLM configuration from DB as `%LLMConfig{}`."
@@ -228,7 +355,7 @@ defmodule Zaq.System do
   @doc "Persists LLM settings from a validated `%LLMConfig{}` changeset."
   def save_llm_config(%Ecto.Changeset{valid?: true} = changeset) do
     config = Ecto.Changeset.apply_changes(changeset)
-    persist_config_values(@llm_write_fields, "llm", config, :skip)
+    persist_config_values(@llm_write_fields, "llm", config)
     {:ok, get_llm_config()}
   end
 
@@ -271,7 +398,7 @@ defmodule Zaq.System do
     new_config = Ecto.Changeset.apply_changes(changeset)
     saved_model = get_config("embedding.model")
 
-    multi = build_embedding_multi(new_config, :skip, saved_model)
+    multi = build_embedding_multi(new_config, saved_model)
 
     case Repo.transaction(multi) do
       {:ok, _} -> {:ok, get_embedding_config()}
@@ -308,7 +435,7 @@ defmodule Zaq.System do
   @doc "Persists Image-to-Text settings from a validated `%ImageToTextConfig{}` changeset."
   def save_image_to_text_config(%Ecto.Changeset{valid?: true} = changeset) do
     config = Ecto.Changeset.apply_changes(changeset)
-    persist_config_values(@image_to_text_write_fields, "image_to_text", config, :skip)
+    persist_config_values(@image_to_text_write_fields, "image_to_text", config)
     {:ok, get_image_to_text_config()}
   end
 
@@ -464,24 +591,65 @@ defmodule Zaq.System do
 
   defp persist_embedding_field(field, value), do: set_config("embedding.#{field}", value)
 
-  defp persist_config_values(fields, namespace, config, encrypted_api_key) do
+  defp persist_config_values(fields, namespace, config) do
     Enum.each(fields, fn field ->
-      case encrypted_field_value(field, config, encrypted_api_key) do
-        :skip -> :ok
-        value -> set_config("#{namespace}.#{field}", value)
-      end
+      value = encrypted_field_value(field, config)
+      set_config("#{namespace}.#{field}", value)
     end)
   end
 
-  defp encrypted_field_value("api_key", _config, encrypted_api_key), do: encrypted_api_key
+  defp encrypted_field_value(field, config)
+       when field in [
+              "blacklisted_hosts",
+              "blacklisted_ips",
+              "blacklisted_cidrs",
+              "allowed_methods",
+              "allowed_ports"
+            ] do
+    config
+    |> Map.get(String.to_existing_atom(field))
+    |> Jason.encode!()
+  end
 
-  defp encrypted_field_value(field, config, _encrypted_api_key),
+  defp encrypted_field_value(field, config),
     do: Map.get(config, String.to_existing_atom(field))
 
-  defp build_embedding_multi(new_config, encrypted_api_key, saved_model) do
+  defp parse_string_list(nil), do: []
+  defp parse_string_list(""), do: []
+  defp parse_string_list(value), do: parse_string_list(value, [])
+
+  defp parse_string_list(nil, default), do: default
+  defp parse_string_list("", default), do: default
+
+  defp parse_string_list(value, default) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, values} when is_list(values) -> Enum.map(values, &to_string/1)
+      _ -> default
+    end
+  end
+
+  defp parse_integer_list(nil), do: []
+  defp parse_integer_list(""), do: []
+
+  defp parse_integer_list(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, values} when is_list(values) ->
+        values
+        |> Enum.map(fn
+          value when is_integer(value) -> value
+          value -> ParseUtils.parse_int(value, nil)
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp build_embedding_multi(new_config, saved_model) do
     @embedding_write_fields
     |> Enum.reduce(Ecto.Multi.new(), fn field, multi ->
-      value = encrypted_field_value(field, new_config, encrypted_api_key)
+      value = encrypted_field_value(field, new_config)
 
       Ecto.Multi.run(multi, {:config, field}, fn _repo, _changes ->
         persist_embedding_field(field, value)
@@ -521,7 +689,7 @@ defmodule Zaq.System do
 
   defp secret_encryption_error(changeset, field, :missing_encryption_key) do
     Ecto.Changeset.add_error(
-      changeset,
+      Ecto.Changeset.delete_change(changeset, field),
       field,
       "could not be encrypted: missing SYSTEM_CONFIG_ENCRYPTION_KEY"
     )
@@ -529,14 +697,16 @@ defmodule Zaq.System do
 
   defp secret_encryption_error(changeset, field, :invalid_encryption_key) do
     Ecto.Changeset.add_error(
-      changeset,
+      Ecto.Changeset.delete_change(changeset, field),
       field,
       "could not be encrypted: invalid SYSTEM_CONFIG_ENCRYPTION_KEY"
     )
   end
 
   defp secret_encryption_error(changeset, field, _reason) do
-    Ecto.Changeset.add_error(changeset, field, "could not be encrypted")
+    changeset
+    |> Ecto.Changeset.delete_change(field)
+    |> Ecto.Changeset.add_error(field, "could not be encrypted")
   end
 
   defp maybe_reload_telemetry_collector do

@@ -57,6 +57,19 @@
           </button>
           <button
             phx-click="switch_tab"
+            phx-value-tab="outbound_http"
+            class={[
+              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
+              if(@active_tab == :outbound_http,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
+                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
+              )
+            ]}
+          >
+            Outbound HTTP
+          </button>
+          <button
+            phx-click="switch_tab"
             phx-value-tab="global"
             class={[
               "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
@@ -164,6 +177,14 @@
         modal={@mcp_endpoint_modal}
         action={@mcp_endpoint_action}
         delete_confirm_modal={@mcp_endpoint_delete_confirm_modal}
+      />
+      <ZaqWeb.Live.BO.System.SystemConfig.OutboundHttpTab.panel
+        :if={@active_tab == :outbound_http}
+        policy_form={@outbound_http_policy_form}
+        providers={@http_credential_providers}
+        provider_modal={@http_credential_provider_modal}
+        provider_form={@http_credential_provider_form}
+        provider_action={@http_credential_provider_action}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.GlobalTab.panel
         :if={@active_tab == :global}

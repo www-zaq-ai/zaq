@@ -6,6 +6,7 @@ defmodule Zaq.Engine.ConnectTest do
   alias Zaq.Engine.Connect.{Credential, Grant}
   alias Zaq.Engine.Connect.GrantRefreshWorker
   alias Zaq.Repo
+  alias Zaq.System.HttpCredentialProviderRef
   alias Zaq.Types.EncryptedString
 
   defmodule StubOAuthInvalidResponse do
@@ -220,6 +221,59 @@ defmodule Zaq.Engine.ConnectTest do
       changeset = Connect.change_credential(credential, %{name: "Changed"})
       assert changeset.valid?
       assert Ecto.Changeset.get_field(changeset, :name) == "Changed"
+    end
+
+    test "accepts dynamic HTTP provider references when the provider exists" do
+      {:ok, provider} =
+        Zaq.System.create_http_credential_provider(%{
+          name: "GitHub API",
+          auth_kind: "bearer",
+          placement: "authorization",
+          host_patterns: ["api.github.com"]
+        })
+
+      {:ok, provider_ref} = HttpCredentialProviderRef.format(provider.id)
+
+      assert {:ok, credential} =
+               Connect.create_credential(%{
+                 name: "GitHub Token",
+                 provider: provider_ref,
+                 auth_kind: "api_key",
+                 request_format: "raw",
+                 user_level: false,
+                 metadata: %{},
+                 api_key: "ghp_secret"
+               })
+
+      assert credential.provider == provider_ref
+    end
+
+    test "rejects dynamic HTTP provider references when malformed or missing" do
+      assert {:error, changeset} =
+               Connect.create_credential(%{
+                 name: "Bad HTTP Token",
+                 provider: "http:abc",
+                 auth_kind: "api_key",
+                 request_format: "raw",
+                 user_level: false,
+                 metadata: %{},
+                 api_key: "secret"
+               })
+
+      assert "is not a valid HTTP provider reference" in errors_on(changeset).provider
+
+      assert {:error, changeset} =
+               Connect.create_credential(%{
+                 name: "Missing HTTP Token",
+                 provider: "http:999999",
+                 auth_kind: "api_key",
+                 request_format: "raw",
+                 user_level: false,
+                 metadata: %{},
+                 api_key: "secret"
+               })
+
+      assert "does not reference an existing HTTP provider" in errors_on(changeset).provider
     end
 
     test "update_credential drops blank atom-keyed secret attrs" do

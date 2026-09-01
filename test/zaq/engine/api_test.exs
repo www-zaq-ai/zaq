@@ -12,6 +12,8 @@ defmodule Zaq.Engine.ApiTest do
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
+  import Zaq.AccountsFixtures
+
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
@@ -26,6 +28,11 @@ defmodule Zaq.Engine.ApiTest do
     def persist_message_history(incoming, message) do
       send(self(), {:persist_message_history_called, incoming, message})
       {:ok, %{conversation_id: "conversation-1", message_id: "message-1"}}
+    end
+
+    def get_authorized_trace_artifact(artifact_id, user) do
+      send(self(), {:trace_artifact_called, artifact_id, user.id})
+      {:ok, %{artifact_id: artifact_id, user_id: user.id}}
     end
   end
 
@@ -114,6 +121,56 @@ defmodule Zaq.Engine.ApiTest do
     result = Api.handle_event(event, :persist_message_history, nil)
 
     assert result.response == {:error, {:invalid_request, %{incoming: :bad, message: %{}}}}
+  end
+
+  test "handles get_message_trace_artifact with a string-key actor user_id" do
+    user = user_fixture()
+    user_id = user.id
+    request = "artifact-719"
+
+    event =
+      Event.new(request, :engine,
+        actor: %{"user_id" => user.id},
+        assigns: %{source: "api"},
+        opts: [action: :get_message_trace_artifact, conversations_module: StubConversations]
+      )
+
+    result = Api.handle_event(event, :get_message_trace_artifact, nil)
+
+    assert result.response == {:ok, %{artifact_id: request, user_id: user.id}}
+    assert_received {:trace_artifact_called, ^request, ^user_id}
+    assert result.request == event.request
+    assert result.assigns == event.assigns
+    assert result.actor == event.actor
+    assert result.opts == event.opts
+  end
+
+  test "rejects trace artifact requests without an authenticated actor" do
+    for actor <- [nil, %{}, %{user_id: nil}, %{"user_id" => nil}, :anonymous] do
+      event =
+        Event.new("artifact-720", :engine,
+          actor: actor,
+          opts: [action: :get_message_trace_artifact, conversations_module: StubConversations]
+        )
+
+      result = Api.handle_event(event, :get_message_trace_artifact, nil)
+
+      assert result.response == {:error, :unauthorized}
+      refute_received {:trace_artifact_called, _, _}
+    end
+  end
+
+  test "rejects trace artifact requests for a nonexistent atom-key user_id" do
+    event =
+      Event.new("missing-artifact-user", :engine,
+        actor: %{user_id: -1},
+        opts: [action: :get_message_trace_artifact, conversations_module: StubConversations]
+      )
+
+    result = Api.handle_event(event, :get_message_trace_artifact, nil)
+
+    assert result.response == {:error, :unauthorized}
+    refute_received {:trace_artifact_called, _, _}
   end
 
   test "handles people_command action" do
@@ -248,6 +305,26 @@ defmodule Zaq.Engine.ApiTest do
              IncomingMessageRouting.get_rule(%{})
 
     assert configured_agent_id == agent.id
+  end
+
+  test "returns invalid request for an incoming route with a non-Incoming request" do
+    request = %{content: "not an incoming struct"}
+    event = Event.new(request, :engine, assigns: %{source: "route"}, opts: [marker: 64])
+
+    result = Api.handle_event(event, :route_incoming_message, nil)
+
+    assert result.response == {:error, {:invalid_request, request}}
+    assert result == %{event | response: {:error, {:invalid_request, request}}}
+  end
+
+  test "returns invalid request when incoming routing rules are missing" do
+    request = %{raw_errors: true}
+    event = Event.new(request, :engine, assigns: %{source: "routing"})
+
+    result = Api.handle_event(event, :upsert_incoming_message_routing_rules, %{})
+
+    assert result.response == {:error, {:invalid_request, request}}
+    assert result == %{event | response: {:error, {:invalid_request, request}}}
   end
 
   test "returns unsupported action" do
@@ -766,6 +843,12 @@ defmodule Zaq.Engine.ApiTest do
       {:system_config_create_ai_provider_credential, %{attrs: :bad}},
       {:system_config_update_ai_provider_credential, %{credential: %{id: 1}, attrs: :bad}},
       {:system_config_delete_ai_provider_credential, %{}},
+      {:system_config_save_outbound_http_policy, %{}},
+      {:system_config_get_http_credential_provider_bang, %{}},
+      {:system_config_change_http_credential_provider, %{provider: :test, attrs: :bad}},
+      {:system_config_create_http_credential_provider, %{attrs: :bad}},
+      {:system_config_update_http_credential_provider, %{provider: :test, attrs: :bad}},
+      {:system_config_delete_http_credential_provider, %{}},
       {:system_config_save_telemetry_config, %{}},
       {:system_config_set_global_default_agent_id, %{}},
       {:system_config_save_llm_config, %{}},
@@ -786,6 +869,18 @@ defmodule Zaq.Engine.ApiTest do
       result = Api.handle_event(Event.new(request, :engine), action, nil)
       assert result.response == {:error, {:invalid_request, request}}
     end)
+  end
+
+  test "sets and persists a valid global default agent id" do
+    agent = insert_agent!()
+    request = %{id: agent.id}
+    event = Event.new(request, :engine, assigns: %{source: "system-config"})
+
+    result = Api.handle_event(event, :system_config_set_global_default_agent_id, nil)
+
+    assert result.response == :ok
+    assert Zaq.System.get_global_default_agent_id() == agent.id
+    assert result == %{event | response: :ok}
   end
 
   # --- :trigger handler ---

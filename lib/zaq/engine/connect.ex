@@ -12,6 +12,8 @@ defmodule Zaq.Engine.Connect do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
+  alias Zaq.System.HttpCredentialProvider
+  alias Zaq.System.HttpCredentialProviderRef
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.Map, as: MapUtils
 
@@ -47,6 +49,7 @@ defmodule Zaq.Engine.Connect do
   def create_credential(attrs) do
     %Credential{}
     |> Credential.changeset(attrs)
+    |> validate_provider_reference()
     |> encrypt_secret_fields(@secret_fields)
     |> Repo.insert()
   end
@@ -58,6 +61,7 @@ defmodule Zaq.Engine.Connect do
 
     credential
     |> Credential.changeset(attrs)
+    |> validate_provider_reference()
     |> encrypt_secret_fields(@secret_fields)
     |> Repo.update()
   end
@@ -116,6 +120,34 @@ defmodule Zaq.Engine.Connect do
 
       _ ->
         :ok
+    end
+  end
+
+  defp validate_provider_reference(%Changeset{} = changeset) do
+    provider = Changeset.get_field(changeset, :provider)
+
+    case HttpCredentialProviderRef.parse(provider) do
+      {:ok, {:static, _provider}} ->
+        changeset
+
+      {:ok, {:http, id}} ->
+        validate_http_provider_exists(changeset, id)
+
+      {:error, :invalid_http_provider_id} ->
+        Changeset.add_error(changeset, :provider, "is not a valid HTTP provider reference")
+
+      {:error, :invalid_provider_ref} ->
+        Changeset.add_error(changeset, :provider, "is invalid")
+    end
+  end
+
+  defp validate_http_provider_exists(changeset, id) do
+    case Repo.get(HttpCredentialProvider, id) do
+      %HttpCredentialProvider{} ->
+        changeset
+
+      nil ->
+        Changeset.add_error(changeset, :provider, "does not reference an existing HTTP provider")
     end
   end
 
