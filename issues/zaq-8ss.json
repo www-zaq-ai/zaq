@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T14:31:19Z",
+  "description": "Fix the outbound HTTP system-config tab after implementation review: expose every policy field, align provider management with BO design-system patterns, add warnings for weakened security defaults, and validate with LiveView/browser checks plus mix q.",
+  "id": "zaq-8ss",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Outbound HTTP BO UI correction",
+  "type": "task",
+  "updated_at": "2026-09-01T14:31:19Z"
+}
