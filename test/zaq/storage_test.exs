@@ -538,8 +538,12 @@ defmodule Zaq.StorageTest do
     assert moved.id == entry.id
     assert moved.relative_path == "renamed.md"
 
-    assert {:error, :volume_required} =
+    File.mkdir_p!(Path.join(root, "other"))
+
+    assert {:ok, %{entry: moved}} =
              Storage.update_document(%{"file_id" => moved.id, "path" => "other"}, admin_opts)
+
+    assert moved.relative_path == "other/renamed.md"
 
     multi_opts =
       admin_opts

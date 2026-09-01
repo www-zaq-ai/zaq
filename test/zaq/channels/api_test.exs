@@ -189,8 +189,8 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{record: %{"id" => "f1"}}}
     end
 
-    def update_file(provider, params, context) do
-      send(self(), {:ds_update_file, provider, params, context})
+    def update_file(record, params, context) do
+      send(self(), {:ds_update_file, record, params, context})
       {:ok, %{status: "updated", record: %{"id" => "f1"}}}
     end
 
@@ -856,9 +856,15 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   test "handles data_source_update_file action" do
+    record = %Record{
+      id: "zaq-f1",
+      kind: :file,
+      attributes: %{"provider" => "google_drive", "provider_record_id" => "f1"}
+    }
+
     event =
       Event.new(
-        %{provider: :google_drive, params: %{"file_id" => "f1", "name" => "Renamed"}},
+        %{record: record, params: %{"name" => "Renamed"}},
         :channels,
         opts: [action: :data_source_update_file, data_source_bridge_module: StubDataSourceBridge]
       )
@@ -866,8 +872,17 @@ defmodule Zaq.Channels.ApiTest do
     result = Api.handle_event(event, :data_source_update_file, nil)
     assert {:ok, %{status: "updated", record: %{"id" => "f1"}}} = result.response
 
-    assert_received {:ds_update_file, :google_drive, %{"file_id" => "f1", "name" => "Renamed"},
-                     %TrustedContext{}}
+    assert_received {:ds_update_file, ^record, %{"name" => "Renamed"}, %TrustedContext{}}
+  end
+
+  test "rejects legacy data_source_update_file provider params" do
+    event =
+      Event.new(%{provider: :google_drive, params: %{"file_id" => "f1"}}, :channels,
+        opts: [action: :data_source_update_file, data_source_bridge_module: StubDataSourceBridge]
+      )
+
+    result = Api.handle_event(event, :data_source_update_file, nil)
+    assert {:error, {:invalid_request, :record_required}} = result.response
   end
 
   test "handles data_source_delete_file action" do
