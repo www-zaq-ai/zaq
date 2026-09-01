@@ -9,9 +9,15 @@
   "id": "zaq-w3s.1",
   "labels": [],
   "parent": "zaq-w3s",
+  "comments": [
+    {
+      "text": "Added docs/exec-plans/active/outbound-http-security-contracts.md covering threat model, policy, credential provider, request, transport, BO, and test contracts.",
+      "timestamp": "2026-09-01T12:58:02Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-w3s] Threat model and contracts",
   "type": "task",
-  "updated_at": "2026-09-01T12:57:07Z"
+  "updated_at": "2026-09-01T12:58:02Z"
 }
