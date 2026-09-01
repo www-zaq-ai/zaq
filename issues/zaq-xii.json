@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T15:30:48Z",
+  "description": "Consolidate duplicated outbound HTTP validation, remove obsolete allowed_hosts/to_req_options paths, harden channels execution against event option bypasses, and keep redirects visible in BO as disabled/future-only while persisting false.",
+  "id": "zaq-xii",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Outbound HTTP cleanup and security hardening",
+  "type": "task",
+  "updated_at": "2026-09-01T15:30:48Z"
+}
