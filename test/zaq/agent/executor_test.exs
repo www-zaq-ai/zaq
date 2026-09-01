@@ -5,7 +5,7 @@ defmodule Zaq.Agent.ExecutorTest do
   doctest Zaq.Agent.Executor
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.{Executor, Factory, MaterializationAliases}
+  alias Zaq.Agent.{Executor, Factory, OpaqueAliases}
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Materialization.Handle
@@ -736,8 +736,8 @@ defmodule Zaq.Agent.ExecutorTest do
       scope = "coverage-#{System.unique_integer([:positive])}"
       logical_server_id = "Stub Agent:#{scope}"
       handle = "signed-handle-#{System.unique_integer([:positive])}"
-      MaterializationAliases.clear_scope(logical_server_id)
-      on_exit(fn -> MaterializationAliases.clear_scope(logical_server_id) end)
+      OpaqueAliases.clear_scope(logical_server_id)
+      on_exit(fn -> OpaqueAliases.clear_scope(logical_server_id) end)
 
       incoming = %Incoming{
         content: "inspect this",
@@ -778,16 +778,16 @@ defmodule Zaq.Agent.ExecutorTest do
 
       assert {:ok, expanded} =
                Factory.before_tool_call(tool_call, %{
-                 materialization_alias_scope: logical_server_id
+                 opaque_alias_scope: logical_server_id
                })
 
       assert expanded.arguments.materialization_handle == handle
 
-      MaterializationAliases.clear_scope(logical_server_id)
+      OpaqueAliases.clear_scope(logical_server_id)
 
-      assert {:error, {:unknown_materialization_alias, ^alias}} =
+      assert {:error, {:unknown_opaque_alias, ^alias}} =
                Factory.before_tool_call(tool_call, %{
-                 materialization_alias_scope: logical_server_id
+                 opaque_alias_scope: logical_server_id
                })
     end
   end

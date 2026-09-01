@@ -1,33 +1,34 @@
-defmodule Zaq.Agent.MaterializationAliases do
+defmodule Zaq.Agent.OpaqueAliases do
   @moduledoc """
-  Agent-only aliases for materialization handles in model-facing tool calls.
+  Agent-only aliases for signed Record values in model-facing tool calls.
 
-  Canonical signed handles remain the contract for actions, workflows, and stored
-  results. This module only rewrites schema-declared handle paths as data moves
-  through Jido AI tool interception.
+  Canonical signed handles and provenance tokens remain the contract for actions,
+  workflows, and stored results. This module only rewrites schema-declared paths
+  as data moves through Jido AI tool interception.
   """
 
   alias Jido.RuntimeStore
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Materialization.Handle
 
-  @hive :materialization_aliases
+  @hive :opaque_aliases
   @jido_instance Zaq.Agent.Jido
   @alias_prefix "mat_"
+  @provenance_alias_prefix "prov_"
   @alias_bytes 18
 
   @type tool_call :: %{required(:arguments) => map(), required(:action_module) => module()}
   @type result :: {:ok, term(), [term()]} | {:error, term(), [term()]}
 
-  @doc "Expands short materialization aliases in a tool call to full signed handles."
+  @doc "Expands short opaque aliases in a tool call to full signed values."
   @spec expand_tool_call(tool_call(), map()) :: {:ok, tool_call()} | {:error, term()}
   def expand_tool_call(%{arguments: arguments, action_module: action_module} = tool_call, context)
       when is_map(arguments) and is_atom(action_module) do
     original_module = action_module
 
     with {:ok, schema} <- action_schema(action_module, :schema),
-         paths <- handle_paths(schema) do
-      maybe_map_scoped(arguments, paths, context, &expand_value/2, fn arguments ->
+         paths <- alias_paths(schema) do
+      maybe_map_scoped(arguments, paths, context, &expand_value/3, fn arguments ->
         %{tool_call | arguments: arguments, action_module: original_module}
       end)
     end
@@ -35,13 +36,13 @@ defmodule Zaq.Agent.MaterializationAliases do
 
   def expand_tool_call(tool_call, _context), do: {:ok, tool_call}
 
-  @doc "Projects full signed materialization handles in a tool result to short aliases."
+  @doc "Projects full signed opaque values in a tool result to short aliases."
   @spec alias_tool_result(tool_call(), result(), map()) :: {:ok, result()} | {:error, term()}
   def alias_tool_result(%{action_module: action_module}, {:ok, output, effects}, context)
       when is_atom(action_module) do
     with {:ok, schema} <- action_schema(action_module, :output_schema),
-         paths <- handle_paths(schema) do
-      maybe_map_scoped(output, paths, context, &alias_value/2, fn output ->
+         paths <- alias_paths(schema) do
+      maybe_map_scoped(output, paths, context, &alias_value/3, fn output ->
         {:ok, output, effects}
       end)
     end
@@ -62,7 +63,7 @@ defmodule Zaq.Agent.MaterializationAliases do
     :ok
   end
 
-  @doc "Returns JSON-safe Record metadata with materialization handles scoped to short aliases."
+  @doc "Returns JSON-safe Record metadata with signed values scoped to short aliases."
   @spec alias_record_metadata(Record.t(), term()) :: {:ok, map()} | {:error, term()}
   def alias_record_metadata(%Record{} = record, scope) do
     record
@@ -75,31 +76,39 @@ defmodule Zaq.Agent.MaterializationAliases do
   def alias_metadata(metadata, scope) when is_map(metadata) do
     map_paths(
       metadata,
-      [[:materialization_handle], ["materialization_handle"]],
-      &alias_value(&1, scope)
+      [
+        {[:materialization_handle], :handle},
+        {["materialization_handle"], :handle},
+        {[:provenance_ref], :provenance},
+        {["provenance_ref"], :provenance}
+      ],
+      &alias_value(&1, &2, scope)
     )
   end
 
-  defp fetch_scope(%{materialization_alias_scope: scope}) when not is_nil(scope), do: {:ok, scope}
+  defp fetch_scope(%{opaque_alias_scope: scope}) when not is_nil(scope), do: {:ok, scope}
 
-  defp fetch_scope(%{"materialization_alias_scope" => scope}) when not is_nil(scope),
+  defp fetch_scope(%{"opaque_alias_scope" => scope}) when not is_nil(scope),
     do: {:ok, scope}
 
-  defp fetch_scope(_context), do: {:error, :missing_materialization_alias_scope}
+  defp fetch_scope(_context), do: {:error, :missing_opaque_alias_scope}
 
   defp action_schema(module, function) do
-    if function_exported?(module, function, 0),
-      do: {:ok, apply(module, function, [])},
-      else: {:ok, []}
+    with {:module, ^module} <- Code.ensure_loaded(module),
+         true <- function_exported?(module, function, 0) do
+      {:ok, apply(module, function, [])}
+    else
+      _other -> {:ok, []}
+    end
   end
 
-  defp handle_paths(schema), do: collect_paths(schema, []) |> Enum.uniq()
+  defp alias_paths(schema), do: collect_paths(schema, []) |> Enum.uniq()
 
   defp maybe_map_scoped(value, [], _context, _mapper, wrap), do: {:ok, wrap.(value)}
 
   defp maybe_map_scoped(value, paths, context, mapper, wrap) do
     with {:ok, scope} <- fetch_scope(context),
-         {:ok, value} <- map_paths(value, paths, &mapper.(&1, scope)) do
+         {:ok, value} <- map_paths(value, paths, &mapper.(&1, &2, scope)) do
       {:ok, wrap.(value)}
     end
   end
@@ -109,10 +118,10 @@ defmodule Zaq.Agent.MaterializationAliases do
   end
 
   defp collect_paths(%Zoi.Types.Struct{module: Record}, path),
-    do: [path ++ [:materialization_handle]]
+    do: record_alias_paths(path)
 
   defp collect_paths(%Zoi.Types.Struct{module: RecordPage, fields: nil}, path),
-    do: [path ++ [:records, :*, :materialization_handle]]
+    do: record_alias_paths(path ++ [:records, :*])
 
   defp collect_paths(%Zoi.Types.Struct{module: RecordPage, fields: fields}, path)
        when is_list(fields) do
@@ -123,6 +132,10 @@ defmodule Zaq.Agent.MaterializationAliases do
     Enum.flat_map(fields, fn {key, schema} -> collect_paths(schema, path ++ [key]) end)
   end
 
+  defp collect_paths(%Zoi.Types.Array{inner: %{meta: %{metadata: metadata}} = inner}, path) do
+    semantic_paths(metadata, path ++ [:*]) ++ collect_paths(inner, path ++ [:*])
+  end
+
   defp collect_paths(%Zoi.Types.Array{inner: inner}, path), do: collect_paths(inner, path ++ [:*])
   defp collect_paths(%Zoi.Types.Default{inner: inner}, path), do: collect_paths(inner, path)
 
@@ -130,14 +143,12 @@ defmodule Zaq.Agent.MaterializationAliases do
     Enum.flat_map(schemas, &collect_paths(&1, path))
   end
 
-  defp collect_paths(%{meta: %{metadata: metadata}}, path) do
-    semantic_type = Keyword.get(metadata || [], :zaq_semantic_type)
+  defp collect_paths(%Zoi.Types.Any{meta: %{metadata: metadata}}, path) do
+    semantic_paths(metadata, path)
+  end
 
-    cond do
-      semantic_type == Handle.semantic_type() -> [path]
-      semantic_type == Record.semantic_type() -> [path ++ [:materialization_handle]]
-      true -> []
-    end
+  defp collect_paths(%{meta: %{metadata: metadata}}, path) do
+    semantic_paths(metadata, path)
   end
 
   defp collect_paths(schema, path) when is_list(schema) do
@@ -149,28 +160,45 @@ defmodule Zaq.Agent.MaterializationAliases do
 
   defp collect_paths(_schema, _path), do: []
 
+  defp semantic_paths(metadata, path) do
+    semantic_type = Keyword.get(metadata || [], :zaq_semantic_type)
+
+    cond do
+      semantic_type == Handle.semantic_type() -> [{path, :handle}]
+      semantic_type == Record.semantic_type() -> record_alias_paths(path)
+      true -> []
+    end
+  end
+
   defp collect_nimble_path(key, opts, path) do
     case Keyword.get(opts, :type) do
-      {:struct, Record} -> [path ++ [key, :materialization_handle]]
-      {:struct, RecordPage} -> [path ++ [key, :records, :*, :materialization_handle]]
-      {:list, {:struct, Record}} -> [path ++ [key, :*, :materialization_handle]]
+      {:struct, Record} -> record_alias_paths(path ++ [key])
+      {:struct, RecordPage} -> record_alias_paths(path ++ [key, :records, :*])
+      {:list, {:struct, Record}} -> record_alias_paths(path ++ [key, :*])
       _other -> []
     end
   end
 
+  defp record_alias_paths(path) do
+    [
+      {path ++ [:materialization_handle], :handle},
+      {path ++ [:provenance_ref], :provenance}
+    ]
+  end
+
   defp map_paths(value, paths, fun) do
-    Enum.reduce_while(paths, {:ok, value}, fn path, {:ok, acc} ->
-      case update_path(acc, path, fun) do
+    Enum.reduce_while(paths, {:ok, value}, fn {path, kind}, {:ok, acc} ->
+      case update_path(acc, path, kind, fun) do
         {:ok, updated} -> {:cont, {:ok, updated}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp update_path(values, [:* | rest], fun) when is_list(values) do
+  defp update_path(values, [:* | rest], kind, fun) when is_list(values) do
     values
     |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
-      case update_path(value, rest, fun) do
+      case update_path(value, rest, kind, fun) do
         {:ok, updated} -> {:cont, {:ok, [updated | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -181,13 +209,13 @@ defmodule Zaq.Agent.MaterializationAliases do
     end)
   end
 
-  defp update_path(value, [:* | _rest], _fun), do: {:ok, value}
-  defp update_path(value, [], fun), do: fun.(value)
+  defp update_path(value, [:* | _rest], _kind, _fun), do: {:ok, value}
+  defp update_path(value, [], kind, fun), do: fun.(value, kind)
 
-  defp update_path(value, [key | rest], fun) when is_map(value) do
+  defp update_path(value, [key | rest], kind, fun) when is_map(value) do
     case fetch_existing_key(value, key) do
       {:ok, actual_key, child} ->
-        with {:ok, updated_child} <- update_path(child, rest, fun) do
+        with {:ok, updated_child} <- update_path(child, rest, kind, fun) do
           {:ok, Map.put(value, actual_key, updated_child)}
         end
 
@@ -196,7 +224,7 @@ defmodule Zaq.Agent.MaterializationAliases do
     end
   end
 
-  defp update_path(value, _path, _fun), do: {:ok, value}
+  defp update_path(value, _path, _kind, _fun), do: {:ok, value}
 
   defp fetch_existing_key(map, key) do
     cond do
@@ -223,22 +251,29 @@ defmodule Zaq.Agent.MaterializationAliases do
     ArgumentError -> :error
   end
 
-  defp expand_value(value, _scope) when not is_binary(value), do: {:ok, value}
-  defp expand_value(@alias_prefix <> _ = alias, scope), do: fetch_alias(scope, alias)
-  defp expand_value(value, _scope), do: {:ok, value}
+  defp expand_value(value, _kind, _scope) when not is_binary(value), do: {:ok, value}
+  defp expand_value(@alias_prefix <> _ = alias, :handle, scope), do: fetch_alias(scope, alias)
 
-  defp alias_value(value, _scope) when not is_binary(value), do: {:ok, value}
-  defp alias_value(@alias_prefix <> _ = value, _scope), do: {:ok, value}
+  defp expand_value(@provenance_alias_prefix <> _ = alias, :provenance, scope),
+    do: fetch_alias(scope, alias)
 
-  defp alias_value(value, scope) do
-    key = {scope, :handle, value}
+  defp expand_value(value, _kind, _scope), do: {:ok, value}
+
+  defp alias_value(value, _kind, _scope) when not is_binary(value), do: {:ok, value}
+  defp alias_value(@alias_prefix <> _ = value, :handle, _scope), do: {:ok, value}
+
+  defp alias_value(@provenance_alias_prefix <> _ = value, :provenance, _scope),
+    do: {:ok, value}
+
+  defp alias_value(value, kind, scope) do
+    key = {scope, kind, value}
 
     case RuntimeStore.fetch(@jido_instance, @hive, key) do
       {:ok, alias} ->
         {:ok, alias}
 
       :error ->
-        alias = short_alias(value)
+        alias = short_alias(kind, value)
 
         with :ok <- RuntimeStore.put(@jido_instance, @hive, {scope, :alias, alias}, value),
              :ok <- RuntimeStore.put(@jido_instance, @hive, key, alias) do
@@ -250,12 +285,15 @@ defmodule Zaq.Agent.MaterializationAliases do
   defp fetch_alias(scope, alias) do
     case RuntimeStore.fetch(@jido_instance, @hive, {scope, :alias, alias}) do
       {:ok, handle} -> {:ok, handle}
-      :error -> {:error, {:unknown_materialization_alias, alias}}
+      :error -> {:error, {:unknown_opaque_alias, alias}}
     end
   end
 
-  defp short_alias(handle) do
-    digest = :crypto.hash(:sha256, handle) |> Base.url_encode64(padding: false)
-    @alias_prefix <> binary_part(digest, 0, @alias_bytes)
+  defp short_alias(:handle, value), do: short_alias(@alias_prefix, value)
+  defp short_alias(:provenance, value), do: short_alias(@provenance_alias_prefix, value)
+
+  defp short_alias(prefix, value) do
+    digest = :crypto.hash(:sha256, value) |> Base.url_encode64(padding: false)
+    prefix <> binary_part(digest, 0, @alias_bytes)
   end
 end

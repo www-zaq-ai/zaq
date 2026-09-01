@@ -364,13 +364,13 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert {:ok, %RecordPage{records: [%Record{} = record]}} =
              DataSourceBridge.list_files(:google_drive, %{config_id: config.id})
 
-    assert is_binary(record.provenance_token)
+    assert is_binary(record.provenance_ref)
     assert {:ok, claims} = Provenance.verify(record)
     assert claims["provider"] == "google_drive"
     assert claims["config_id"] == config.id
     assert claims["permissions"]["state"] == "loaded"
     assert [%Record{} = permission] = record.permissions
-    assert is_binary(permission.provenance_token)
+    assert is_binary(permission.provenance_ref)
     assert {:ok, _permission_claims} = Provenance.verify(permission)
 
     assert {:ok, %{record: %Record{} = empty_permissions_record}} =

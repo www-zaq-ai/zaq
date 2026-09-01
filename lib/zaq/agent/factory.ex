@@ -48,8 +48,8 @@ defmodule Zaq.Agent.Factory do
   alias Zaq.Agent.{
     ConfiguredAgent,
     HistoryLoader,
-    MaterializationAliases,
     MediaResultTransformer,
+    OpaqueAliases,
     ProviderSpec,
     Skills
   }
@@ -64,12 +64,12 @@ defmodule Zaq.Agent.Factory do
 
   @impl Jido.AI.ToolInterceptor
   def before_tool_call(tool_call, context) do
-    MaterializationAliases.expand_tool_call(tool_call, context)
+    OpaqueAliases.expand_tool_call(tool_call, context)
   end
 
   @impl Jido.AI.ToolInterceptor
   def after_tool_call(tool_call, result, context) do
-    case MaterializationAliases.alias_tool_result(tool_call, result, context) do
+    case OpaqueAliases.alias_tool_result(tool_call, result, context) do
       {:ok, result} -> MediaResultTransformer.project_tool_result(tool_call, result, context)
       {:error, reason} -> {:error, reason}
     end
@@ -140,7 +140,7 @@ defmodule Zaq.Agent.Factory do
   def build_initial_context(%ConfiguredAgent{}, server_id, _context) do
     spawn_opts = spawn_opts_from_server_id(server_id)
 
-    HistoryLoader.load_context(spawn_opts, materialization_alias_scope: server_id)
+    HistoryLoader.load_context(spawn_opts, opaque_alias_scope: server_id)
   end
 
   def spawn_opts_from_server_id(server_id) when is_binary(server_id) do

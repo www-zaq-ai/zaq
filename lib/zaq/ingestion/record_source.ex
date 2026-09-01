@@ -55,7 +55,7 @@ defmodule Zaq.Ingestion.RecordSource do
       "permissions" => safe_permissions(record.permissions),
       "attributes" => safe_attributes(record.attributes || %{}),
       "materialization_handle" => record.materialization_handle,
-      "provenance_token" => record.provenance_token
+      "provenance_ref" => record.provenance_ref
     }
   end
 

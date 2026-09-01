@@ -11,7 +11,7 @@ defmodule Zaq.Agent.HistoryLoader do
   import Ecto.Query
 
   alias Jido.AI.Context, as: AIContext
-  alias Zaq.Agent.MaterializationAliases
+  alias Zaq.Agent.OpaqueAliases
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
   alias Zaq.Utils.DateUtils
@@ -131,7 +131,7 @@ defmodule Zaq.Agent.HistoryLoader do
     content = Map.get(message, :content) || ""
     metadata = Map.get(message, :metadata)
 
-    case safe_attachments(metadata, Keyword.get(opts, :materialization_alias_scope)) do
+    case safe_attachments(metadata, Keyword.get(opts, :opaque_alias_scope)) do
       [] -> content
       attachments -> Enum.join([content, "Attachments:", Jason.encode!(attachments)], "\n")
     end
@@ -161,7 +161,7 @@ defmodule Zaq.Agent.HistoryLoader do
         safe
 
       scope ->
-        case MaterializationAliases.alias_metadata(safe, scope) do
+        case OpaqueAliases.alias_metadata(safe, scope) do
           {:ok, aliased} -> aliased
           {:error, _reason} -> safe
         end

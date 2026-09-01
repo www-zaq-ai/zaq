@@ -19,7 +19,7 @@ defmodule Zaq.Contracts.RecordTest do
         content: "# guide",
         path: "manuals/guide.md",
         materialization_handle: "signed-handle",
-        provenance_token: "signed-provenance",
+        provenance_ref: "signed-provenance",
         attributes: %{"provider" => "disk"},
         raw: %{local_entry: %{name: "guide.md"}}
       },
@@ -52,7 +52,7 @@ defmodule Zaq.Contracts.RecordTest do
       assert decoded["content"] == "# guide"
       assert decoded["attributes"] == %{"provider" => "disk"}
       assert decoded["materialization_handle"] == "signed-handle"
-      assert decoded["provenance_token"] == "signed-provenance"
+      assert decoded["provenance_ref"] == "signed-provenance"
       assert decoded["parent_ids"] == []
       assert decoded["owners"] == []
     end
@@ -73,7 +73,7 @@ defmodule Zaq.Contracts.RecordTest do
 
   describe "round trip through JSON" do
     test "keeps the materialization handle but not raw provider internals" do
-      {:ok, sealed} = Provenance.seal(record(%{provenance_token: nil}))
+      {:ok, sealed} = Provenance.seal(record(%{provenance_ref: nil}))
 
       assert {:ok, rebuilt} =
                sealed
@@ -92,7 +92,7 @@ defmodule Zaq.Contracts.RecordTest do
         |> Provenance.seal()
 
       {:ok, sealed} =
-        record(%{permissions: [sealed_permission], provenance_token: nil})
+        record(%{permissions: [sealed_permission], provenance_ref: nil})
         |> Provenance.seal()
 
       encoded =
@@ -102,7 +102,7 @@ defmodule Zaq.Contracts.RecordTest do
 
       assert {:ok, rebuilt} = Record.from_map(encoded)
       assert [%Record{id: "p1", kind: :permission, raw: %{}}] = rebuilt.permissions
-      assert rebuilt.provenance_token == sealed.provenance_token
+      assert rebuilt.provenance_ref == sealed.provenance_ref
     end
   end
 
@@ -114,7 +114,7 @@ defmodule Zaq.Contracts.RecordTest do
       assert metadata["kind"] == "file"
       assert metadata["name"] == "guide.md"
       assert metadata["attributes"] == %{"provider" => "disk"}
-      assert metadata["provenance_token"] == "signed-provenance"
+      assert metadata["provenance_ref"] == "signed-provenance"
       refute Map.has_key?(metadata, "content")
       refute Map.has_key?(metadata, "raw")
       refute Map.has_key?(metadata, "materializing_event")
@@ -128,10 +128,10 @@ defmodule Zaq.Contracts.RecordTest do
   describe "zoi_type/1" do
     test "accepts signed records and rejects unsigned records and maps" do
       schema = Record.zoi_type()
-      {:ok, sealed} = Provenance.seal(record(%{provenance_token: nil}))
+      {:ok, sealed} = Provenance.seal(record(%{provenance_ref: nil}))
 
       assert {:ok, %Record{}} = Zoi.parse(schema, sealed)
-      assert {:error, _errors} = Zoi.parse(schema, record(%{provenance_token: nil}))
+      assert {:error, _errors} = Zoi.parse(schema, record(%{provenance_ref: nil}))
       assert {:error, _errors} = Zoi.parse(schema, %{"id" => "42", "kind" => "file"})
     end
 
@@ -142,14 +142,14 @@ defmodule Zaq.Contracts.RecordTest do
 
   describe "zoi_type/1 with JSON-safe maps" do
     test "rebuilds and verifies JSON-safe Records" do
-      {:ok, sealed} = Provenance.seal(record(%{provenance_token: nil}))
+      {:ok, sealed} = Provenance.seal(record(%{provenance_ref: nil}))
       decoded = sealed |> Jason.encode!() |> Jason.decode!()
 
       assert {:ok, %Record{id: "42"}} = Zoi.parse(Record.zoi_type(), decoded)
     end
 
     test "rejects unsigned public Record maps" do
-      decoded = record(%{provenance_token: nil}) |> Jason.encode!() |> Jason.decode!()
+      decoded = record(%{provenance_ref: nil}) |> Jason.encode!() |> Jason.decode!()
 
       assert {:error, _errors} = Zoi.parse(Record.zoi_type(), decoded)
     end
@@ -160,12 +160,12 @@ defmodule Zaq.Contracts.RecordTest do
 
     test "seals and verifies canonical record claims" do
       {:ok, sealed} =
-        record(%{provenance_token: nil})
+        record(%{provenance_ref: nil})
         |> Provenance.seal(%{"provider" => "disk", "config_id" => "1"},
           secret_key_base: @secret_key_base
         )
 
-      assert is_binary(sealed.provenance_token)
+      assert is_binary(sealed.provenance_ref)
       assert {:ok, claims} = Provenance.verify(sealed, secret_key_base: @secret_key_base)
       assert claims["provider"] == "disk"
       assert claims["config_id"] == "1"
@@ -176,7 +176,7 @@ defmodule Zaq.Contracts.RecordTest do
 
     test "distinguishes not-loaded permissions from loaded-empty permissions" do
       {:ok, not_loaded} =
-        record(%{permissions: nil, provenance_token: nil})
+        record(%{permissions: nil, provenance_ref: nil})
         |> Provenance.seal(%{}, secret_key_base: @secret_key_base)
 
       loaded_empty = %{not_loaded | permissions: []}
@@ -192,7 +192,7 @@ defmodule Zaq.Contracts.RecordTest do
       ]
 
       {:ok, sealed} =
-        record(%{permissions: permissions, provenance_token: nil})
+        record(%{permissions: permissions, provenance_ref: nil})
         |> Provenance.seal(%{}, secret_key_base: @secret_key_base)
 
       reordered = %{sealed | permissions: Enum.reverse(permissions)}
@@ -204,7 +204,7 @@ defmodule Zaq.Contracts.RecordTest do
       permission = permission("p1", %{"target_id" => "team", "access_rights" => ["read"]})
 
       {:ok, sealed} =
-        record(%{permissions: [permission], provenance_token: nil})
+        record(%{permissions: [permission], provenance_ref: nil})
         |> Provenance.seal(%{}, secret_key_base: @secret_key_base)
 
       tampered_permission = %{
@@ -220,11 +220,34 @@ defmodule Zaq.Contracts.RecordTest do
 
     test "record identity tampering invalidates verification" do
       {:ok, sealed} =
-        record(%{provenance_token: nil})
+        record(%{provenance_ref: nil})
         |> Provenance.seal(%{}, secret_key_base: @secret_key_base)
 
       assert {:error, :record_provenance_mismatch} =
                Provenance.verify(%{sealed | id: "other"}, secret_key_base: @secret_key_base)
+    end
+
+    test "parent_ids and modified_at are metadata, not provenance claims" do
+      {:ok, sealed} =
+        record(%{
+          parent_ids: ["parent-a"],
+          modified_at: ~U[2026-08-27 10:19:18Z],
+          provenance_ref: nil
+        })
+        |> Provenance.seal(%{}, secret_key_base: @secret_key_base)
+
+      changed = %{
+        sealed
+        | parent_ids: [],
+          modified_at: %{
+            "__struct__" => "DateTime",
+            "year" => 2026,
+            "month" => 8,
+            "day" => 27
+          }
+      }
+
+      assert {:ok, _claims} = Provenance.verify(changed, secret_key_base: @secret_key_base)
     end
   end
 

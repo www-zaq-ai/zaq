@@ -4,7 +4,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Accounts.Person
   alias Zaq.Agent.HistoryLoader
-  alias Zaq.Agent.MaterializationAliases
+  alias Zaq.Agent.OpaqueAliases
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
 
@@ -213,8 +213,8 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       scope = "history-scope-#{System.unique_integer([:positive])}"
       canonical = "signed-materialization-handle"
 
-      MaterializationAliases.clear_scope(scope)
-      on_exit(fn -> MaterializationAliases.clear_scope(scope) end)
+      OpaqueAliases.clear_scope(scope)
+      on_exit(fn -> OpaqueAliases.clear_scope(scope) end)
 
       insert_message(conv, "user", "history", nil, %{
         "attachments" => [
@@ -229,7 +229,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
       [message] =
         conv.id
-        |> HistoryLoader.load_for_conversation(materialization_alias_scope: scope)
+        |> HistoryLoader.load_for_conversation(opaque_alias_scope: scope)
         |> AIContext.to_messages()
 
       [attachment] = rendered_attachments(message)
@@ -262,7 +262,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       with_runtime_store_unregistered(fn ->
         [message] =
           conv.id
-          |> HistoryLoader.load_for_conversation(materialization_alias_scope: scope)
+          |> HistoryLoader.load_for_conversation(opaque_alias_scope: scope)
           |> AIContext.to_messages()
 
         [attachment] = rendered_attachments(message)

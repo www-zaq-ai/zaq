@@ -1,9 +1,12 @@
-defmodule Zaq.Agent.MaterializationAliasesTest do
+defmodule Zaq.Agent.OpaqueAliasesTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
-  alias Zaq.Agent.{Factory, MaterializationAliases}
+  alias Jido.AI.Turn
+  alias Zaq.Agent.{Factory, OpaqueAliases}
+  alias Zaq.Agent.Tools.DataSource.{DeleteDocument, SearchDocuments}
   alias Zaq.Contracts.{Record, RecordPage}
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Materialization.Handle
 
   defmodule DirectHandleAction do
@@ -39,6 +42,15 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
 
   defmodule RecordStructAction do
     def schema, do: Zoi.object(%{record: Zoi.struct(Record)})
+  end
+
+  defmodule DirectHandleAndRecordAction do
+    def schema do
+      Zoi.object(%{
+        materialization_handle: Handle.zoi_type(),
+        record: Record.zoi_type()
+      })
+    end
   end
 
   defmodule RecordPageAction do
@@ -99,8 +111,8 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
 
   setup do
     scope = "test-scope-#{System.unique_integer([:positive])}"
-    MaterializationAliases.clear_scope(scope)
-    on_exit(fn -> MaterializationAliases.clear_scope(scope) end)
+    OpaqueAliases.clear_scope(scope)
+    on_exit(fn -> OpaqueAliases.clear_scope(scope) end)
     {:ok, scope: scope}
   end
 
@@ -114,8 +126,8 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     tool_call = %{id: "call-1", name: "direct", arguments: %{}, action_module: DirectHandleAction}
 
     assert {:ok, {:ok, %{record: %Record{materialization_handle: alias}, raw: ^handle}, ^effects}} =
-             MaterializationAliases.alias_tool_result(tool_call, result, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.alias_tool_result(tool_call, result, %{
+               opaque_alias_scope: scope
              })
 
     assert String.starts_with?(alias, "mat_")
@@ -123,8 +135,8 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     aliased_call = %{tool_call | arguments: %{"materialization_handle" => alias, "note" => alias}}
 
     assert {:ok, expanded} =
-             MaterializationAliases.expand_tool_call(aliased_call, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.expand_tool_call(aliased_call, %{
+               opaque_alias_scope: scope
              })
 
     assert expanded.action_module == DirectHandleAction
@@ -140,7 +152,7 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     result = {:ok, %{records: [record("file-1", first), record("file-2", second)]}, []}
 
     assert {:ok, {:ok, %{records: records}, []}} =
-             Factory.after_tool_call(tool_call, result, %{materialization_alias_scope: scope})
+             Factory.after_tool_call(tool_call, result, %{opaque_alias_scope: scope})
 
     assert [
              %Record{materialization_handle: first_alias},
@@ -153,11 +165,116 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     refute first_alias == second_alias
   end
 
+  test "aliases and expands provenance tokens on record paths", %{scope: scope} do
+    handle = handle!("file-1")
+    provenance = provenance!("file-1")
+    output_record = record("file-1", handle, provenance)
+
+    tool_call = %{id: "call-1", name: "direct", arguments: %{}, action_module: DirectHandleAction}
+
+    assert {:ok,
+            {:ok,
+             %{
+               record: %Record{
+                 materialization_handle: materialization_alias,
+                 provenance_ref: provenance_alias
+               }
+             }, []}} =
+             OpaqueAliases.alias_tool_result(
+               tool_call,
+               {:ok, %{record: output_record}, []},
+               %{opaque_alias_scope: scope}
+             )
+
+    assert String.starts_with?(materialization_alias, "mat_")
+    assert String.starts_with?(provenance_alias, "prov_")
+
+    input_call = %{
+      arguments: %{record: record("file-1", materialization_alias, provenance_alias)},
+      action_module: RecordStructAction
+    }
+
+    assert {:ok,
+            %{
+              arguments: %{
+                record: %Record{
+                  materialization_handle: ^handle,
+                  provenance_ref: ^provenance
+                }
+              }
+            }} =
+             OpaqueAliases.expand_tool_call(input_call, %{
+               opaque_alias_scope: scope
+             })
+  end
+
+  test "search document provenance refs survive model turn formatting for delete validation", %{
+    scope: scope
+  } do
+    {:ok, output_record} =
+      %{
+        record("file-1", nil, nil)
+        | parent_id: "parent-1",
+          parent_ids: ["parent-1"],
+          modified_at: ~U[2026-08-27 10:19:18Z],
+          attributes: %{"provider_record_id" => "file-1"}
+      }
+      |> Provenance.seal()
+
+    provenance = output_record.provenance_ref
+
+    assert {:ok,
+            transformed_result =
+              {:ok, %RecordPage{records: [%Record{provenance_ref: provenance_alias}]}, []}} =
+             OpaqueAliases.alias_tool_result(
+               %{action_module: SearchDocuments},
+               {:ok, %RecordPage{resource_type: :item, records: [output_record]}, []},
+               %{opaque_alias_scope: scope}
+             )
+
+    assert String.starts_with?(provenance_alias, "prov_")
+
+    assert {:ok, model_record} =
+             transformed_result
+             |> Turn.format_tool_result_content()
+             |> Jason.decode!()
+             |> get_in(["result", "records", Access.at(0)])
+             |> then(&{:ok, &1})
+
+    assert model_record["provenance_ref"] == provenance_alias
+    refute model_record["provenance_ref"] == "[REDACTED]"
+
+    model_record =
+      model_record
+      |> Map.delete("parent_ids")
+      |> Map.put("modified_at", %{
+        "__struct__" => "DateTime",
+        "year" => 2026,
+        "month" => 8,
+        "day" => 27
+      })
+
+    tool_call = %{
+      arguments: %{record: model_record},
+      action_module: DeleteDocument
+    }
+
+    assert {:ok, %{arguments: %{record: %{} = arguments_record} = arguments}} =
+             OpaqueAliases.expand_tool_call(tool_call, %{
+               opaque_alias_scope: scope
+             })
+
+    assert arguments_record["provenance_ref"] == provenance
+
+    assert {:ok, %{record: %Record{provenance_ref: ^provenance}}} =
+             Zoi.parse(DeleteDocument.schema(), arguments)
+  end
+
   test "propagates missing alias scope errors through the Factory interceptor" do
     tool_call = %{id: "call-1", name: "direct", arguments: %{}, action_module: DirectHandleAction}
     result = {:ok, %{record: record("file-1", handle!("file-1"))}, []}
 
-    assert {:error, :missing_materialization_alias_scope} =
+    assert {:error, :missing_opaque_alias_scope} =
              Factory.after_tool_call(tool_call, result, %{})
   end
 
@@ -169,9 +286,21 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
       action_module: DirectHandleAction
     }
 
-    assert {:error, {:unknown_materialization_alias, "mat_unknown"}} =
-             MaterializationAliases.expand_tool_call(tool_call, %{
-               materialization_alias_scope: scope
+    assert {:error, {:unknown_opaque_alias, "mat_unknown"}} =
+             OpaqueAliases.expand_tool_call(tool_call, %{
+               opaque_alias_scope: scope
+             })
+  end
+
+  test "unknown provenance aliases fail before tool execution", %{scope: scope} do
+    tool_call = %{
+      arguments: %{record: record("unknown", nil, "prov_unknown")},
+      action_module: RecordStructAction
+    }
+
+    assert {:error, {:unknown_opaque_alias, "prov_unknown"}} =
+             OpaqueAliases.expand_tool_call(tool_call, %{
+               opaque_alias_scope: scope
              })
   end
 
@@ -181,9 +310,9 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
       action_module: LegacyNimbleAction
     }
 
-    assert {:error, {:unknown_materialization_alias, "mat_unknown"}} =
-             MaterializationAliases.expand_tool_call(tool_call, %{
-               materialization_alias_scope: scope
+    assert {:error, {:unknown_opaque_alias, "mat_unknown"}} =
+             OpaqueAliases.expand_tool_call(tool_call, %{
+               opaque_alias_scope: scope
              })
   end
 
@@ -195,10 +324,10 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
       action_module: NoHandleAction
     }
 
-    assert {:ok, ^tool_call} = MaterializationAliases.expand_tool_call(tool_call, %{})
+    assert {:ok, ^tool_call} = OpaqueAliases.expand_tool_call(tool_call, %{})
 
     assert {:ok, {:ok, %{answer: "hello"}, []}} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                tool_call,
                {:ok, %{answer: "hello"}, []},
                %{}
@@ -207,10 +336,10 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
 
   test "invalid tool calls pass through unchanged" do
     invalid = %{arguments: [], action_module: DirectHandleAction}
-    assert {:ok, ^invalid} = MaterializationAliases.expand_tool_call(invalid, %{})
+    assert {:ok, ^invalid} = OpaqueAliases.expand_tool_call(invalid, %{})
 
     missing_shape = %{arguments: %{}}
-    assert {:ok, ^missing_shape} = MaterializationAliases.expand_tool_call(missing_shape, %{})
+    assert {:ok, ^missing_shape} = OpaqueAliases.expand_tool_call(missing_shape, %{})
   end
 
   test "clearing one scope does not remove aliases from another scope", %{scope: scope} do
@@ -218,21 +347,21 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     handle = handle!("other-scope")
     tool_call = %{arguments: %{}, action_module: DirectHandleAction}
 
-    on_exit(fn -> MaterializationAliases.clear_scope(other_scope) end)
+    on_exit(fn -> OpaqueAliases.clear_scope(other_scope) end)
 
     assert {:ok, {:ok, %{record: %Record{materialization_handle: alias}}, []}} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                tool_call,
                {:ok, %{record: record("other-scope", handle)}, []},
-               %{materialization_alias_scope: other_scope}
+               %{opaque_alias_scope: other_scope}
              )
 
-    MaterializationAliases.clear_scope(scope)
+    OpaqueAliases.clear_scope(scope)
 
     assert {:ok, %{arguments: %{materialization_handle: ^handle}}} =
-             MaterializationAliases.expand_tool_call(
+             OpaqueAliases.expand_tool_call(
                %{tool_call | arguments: %{materialization_handle: alias}},
-               %{materialization_alias_scope: other_scope}
+               %{opaque_alias_scope: other_scope}
              )
   end
 
@@ -241,16 +370,16 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     tool_call = %{arguments: %{}, action_module: DirectHandleAction}
 
     assert {:ok, {:ok, %{record: %Record{materialization_handle: alias}}, []}} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                tool_call,
                {:ok, %{record: record("string-scope", handle)}, []},
-               %{"materialization_alias_scope" => scope}
+               %{"opaque_alias_scope" => scope}
              )
 
     assert {:ok, %{arguments: %{materialization_handle: ^handle}}} =
-             MaterializationAliases.expand_tool_call(
+             OpaqueAliases.expand_tool_call(
                %{tool_call | arguments: %{materialization_handle: alias}},
-               %{"materialization_alias_scope" => scope}
+               %{"opaque_alias_scope" => scope}
              )
   end
 
@@ -260,8 +389,8 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
       action_module: DirectHandleAction
     }
 
-    assert {:error, :missing_materialization_alias_scope} =
-             MaterializationAliases.expand_tool_call(tool_call, %{})
+    assert {:error, :missing_opaque_alias_scope} =
+             OpaqueAliases.expand_tool_call(tool_call, %{})
   end
 
   test "collects handles from Zoi record and record page structs", %{scope: scope} do
@@ -269,22 +398,22 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     alias = alias_for(scope, RecordStructAction, %{record: record("struct", handle)})
 
     assert {:ok, %{arguments: %{record: %Record{materialization_handle: ^handle}}}} =
-             MaterializationAliases.expand_tool_call(
+             OpaqueAliases.expand_tool_call(
                %{
                  arguments: %{record: record("struct", alias)},
                  action_module: RecordStructAction
                },
-               %{materialization_alias_scope: scope}
+               %{opaque_alias_scope: scope}
              )
 
     page = page([record("page", alias)])
 
     assert {:ok,
             {:ok, %{page: %RecordPage{records: [%Record{materialization_handle: ^alias}]}}, []}} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                %{action_module: RecordPageAction},
                {:ok, %{page: page}, []},
-               %{materialization_alias_scope: scope}
+               %{opaque_alias_scope: scope}
              )
   end
 
@@ -297,10 +426,10 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     }
 
     assert {:ok, {:ok, %{page: %RecordPage{records: records}}, []}} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                %{action_module: RecordPageFieldsAction},
                {:ok, result, []},
-               %{materialization_alias_scope: scope}
+               %{opaque_alias_scope: scope}
              )
 
     assert Enum.all?(records, &String.starts_with?(&1.materialization_handle, "mat_"))
@@ -316,8 +445,8 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     }
 
     assert {:ok, %{arguments: %{wrapper: %TestWrapper{handle: alias}}}} =
-             MaterializationAliases.expand_tool_call(wrapper_call, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.expand_tool_call(wrapper_call, %{
+               opaque_alias_scope: scope
              })
 
     call = %{
@@ -326,7 +455,7 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     }
 
     assert {:ok, %{arguments: %{default_handle: ^handle, union_handle: ^handle}}} =
-             MaterializationAliases.expand_tool_call(call, %{materialization_alias_scope: scope})
+             OpaqueAliases.expand_tool_call(call, %{opaque_alias_scope: scope})
   end
 
   test "collects handles from legacy Nimble schemas", %{scope: scope} do
@@ -334,10 +463,10 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     [record_handle, page_handle, list_handle] = handles
 
     assert {:ok, aliases} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                %{action_module: DirectHandleAction},
                {:ok, %{record: record("record", record_handle)}, []},
-               %{materialization_alias_scope: scope}
+               %{opaque_alias_scope: scope}
              )
 
     record_alias =
@@ -357,7 +486,7 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     }
 
     assert {:ok, %{arguments: arguments}} =
-             MaterializationAliases.expand_tool_call(call, %{materialization_alias_scope: scope})
+             OpaqueAliases.expand_tool_call(call, %{opaque_alias_scope: scope})
 
     assert arguments.record.materialization_handle == record_handle
     assert hd(arguments.page.records).materialization_handle == page_handle
@@ -370,26 +499,26 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     output = %{page: %{records: "not-a-list"}}
 
     assert {:ok, {:ok, ^output, []}} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                tool_call,
                {:ok, output, []},
-               %{materialization_alias_scope: scope}
+               %{opaque_alias_scope: scope}
              )
 
     missing = %{}
 
     assert {:ok, {:ok, ^missing, []}} =
-             MaterializationAliases.alias_tool_result(tool_call, {:ok, missing, []}, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.alias_tool_result(tool_call, {:ok, missing, []}, %{
+               opaque_alias_scope: scope
              })
 
     output = %{page: %{records: ["not-a-map"]}}
 
     assert {:ok, {:ok, ^output, []}} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                tool_call,
                {:ok, output, []},
-               %{materialization_alias_scope: scope}
+               %{opaque_alias_scope: scope}
              )
   end
 
@@ -400,8 +529,8 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     }
 
     assert {:ok, ^tool_call} =
-             MaterializationAliases.expand_tool_call(tool_call, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.expand_tool_call(tool_call, %{
+               opaque_alias_scope: scope
              })
   end
 
@@ -411,7 +540,7 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     call = %{arguments: %{materialization_handle: alias}, action_module: BinaryKeyAction}
 
     assert {:ok, %{arguments: %{materialization_handle: ^handle}}} =
-             MaterializationAliases.expand_tool_call(call, %{materialization_alias_scope: scope})
+             OpaqueAliases.expand_tool_call(call, %{opaque_alias_scope: scope})
   end
 
   test "value guards leave invalid and already aliased values unchanged", %{scope: scope} do
@@ -419,22 +548,22 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
       call = %{arguments: %{materialization_handle: value}, action_module: DirectHandleAction}
 
       assert {:ok, ^call} =
-               MaterializationAliases.expand_tool_call(call, %{materialization_alias_scope: scope})
+               OpaqueAliases.expand_tool_call(call, %{opaque_alias_scope: scope})
     end
 
     output = %{record: record("invalid", 123)}
     tool_call = %{action_module: DirectHandleAction}
 
     assert {:ok, {:ok, ^output, []}} =
-             MaterializationAliases.alias_tool_result(tool_call, {:ok, output, []}, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.alias_tool_result(tool_call, {:ok, output, []}, %{
+               opaque_alias_scope: scope
              })
 
     already = %{record: record("existing", "mat_existing")}
 
     assert {:ok, {:ok, ^already, []}} =
-             MaterializationAliases.alias_tool_result(tool_call, {:ok, already, []}, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.alias_tool_result(tool_call, {:ok, already, []}, %{
+               opaque_alias_scope: scope
              })
   end
 
@@ -444,21 +573,24 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     result = {:ok, %{record: record("cached", handle)}, []}
 
     assert {:ok, {:ok, %{record: %Record{materialization_handle: first}}, []}} =
-             MaterializationAliases.alias_tool_result(tool_call, result, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.alias_tool_result(tool_call, result, %{
+               opaque_alias_scope: scope
              })
 
     assert {:ok, {:ok, %{record: %Record{materialization_handle: second}}, []}} =
-             MaterializationAliases.alias_tool_result(tool_call, result, %{
-               materialization_alias_scope: scope
+             OpaqueAliases.alias_tool_result(tool_call, result, %{
+               opaque_alias_scope: scope
              })
 
     assert first == second
   end
 
-  property "aliasing and expansion round trip signed handles", %{scope: scope} do
+  property "aliasing and expansion round trip signed handles and provenance tokens", %{
+    scope: scope
+  } do
     check all(file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 24)) do
       handle = handle!(file_id)
+      provenance = provenance!(file_id)
 
       tool_call = %{
         id: "call-1",
@@ -467,18 +599,38 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
         action_module: DirectHandleAction
       }
 
-      result = {:ok, %{record: record(file_id, handle)}, []}
+      result = {:ok, %{record: record(file_id, handle, provenance)}, []}
 
-      assert {:ok, {:ok, %{record: %Record{materialization_handle: alias}}, []}} =
-               MaterializationAliases.alias_tool_result(tool_call, result, %{
-                 materialization_alias_scope: scope
+      assert {:ok,
+              {:ok,
+               %{
+                 record: %Record{
+                   materialization_handle: handle_alias,
+                   provenance_ref: provenance_alias
+                 }
+               }, []}} =
+               OpaqueAliases.alias_tool_result(tool_call, result, %{
+                 opaque_alias_scope: scope
                })
 
-      assert {:ok, %{arguments: %{materialization_handle: ^handle}}} =
-               MaterializationAliases.expand_tool_call(
-                 %{tool_call | arguments: %{materialization_handle: alias}},
+      assert {:ok,
+              %{
+                arguments: %{
+                  materialization_handle: ^handle,
+                  record: %Record{provenance_ref: ^provenance}
+                }
+              }} =
+               OpaqueAliases.expand_tool_call(
                  %{
-                   materialization_alias_scope: scope
+                   tool_call
+                   | arguments: %{
+                       materialization_handle: handle_alias,
+                       record: record(file_id, nil, provenance_alias)
+                     },
+                     action_module: DirectHandleAndRecordAction
+                 },
+                 %{
+                   opaque_alias_scope: scope
                  }
                )
     end
@@ -494,7 +646,14 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     handle
   end
 
-  defp record(id, handle), do: %Record{id: id, kind: :file, materialization_handle: handle}
+  defp provenance!(file_id) do
+    record = %Record{id: file_id, kind: :file}
+    assert {:ok, sealed} = Provenance.seal(record)
+    sealed.provenance_ref
+  end
+
+  defp record(id, handle, provenance \\ nil),
+    do: %Record{id: id, kind: :file, materialization_handle: handle, provenance_ref: provenance}
 
   defp page(records), do: %RecordPage{resource_type: :file, records: records}
 
@@ -502,10 +661,10 @@ defmodule Zaq.Agent.MaterializationAliasesTest do
     tool_call = %{action_module: DirectHandleAction}
 
     assert {:ok, {:ok, %{record: %Record{materialization_handle: alias}}, []}} =
-             MaterializationAliases.alias_tool_result(
+             OpaqueAliases.alias_tool_result(
                tool_call,
                {:ok, %{record: record}, []},
-               %{materialization_alias_scope: scope}
+               %{opaque_alias_scope: scope}
              )
 
     alias

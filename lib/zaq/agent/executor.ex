@@ -38,7 +38,7 @@ defmodule Zaq.Agent.Executor do
     ErrorMessage,
     Factory,
     LogprobsAnalyzer,
-    MaterializationAliases,
+    OpaqueAliases,
     ServerManager,
     StreamEvents
   }
@@ -552,7 +552,7 @@ defmodule Zaq.Agent.Executor do
        when is_binary(content) and is_list(attachments) and attachments != [] do
     metadata =
       Enum.map(attachments, fn attachment ->
-        case MaterializationAliases.alias_record_metadata(attachment, scope) do
+        case OpaqueAliases.alias_record_metadata(attachment, scope) do
           {:ok, metadata} -> metadata
           {:error, _reason} -> Record.metadata(attachment)
         end
