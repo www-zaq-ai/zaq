@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-w3s.9"
   ],
+  "closed_at": "2026-09-01T13:40:17Z",
+  "close_reason": "done",
   "created": "2026-09-01T12:57:00Z",
   "description": "Align http_request action input/output contracts and runtime validation with effective policy.",
   "id": "zaq-w3s.8",
@@ -18,7 +20,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-w3s] Action schema alignment",
   "type": "task",
   "updated_at": "2026-09-01T13:40:17Z"
