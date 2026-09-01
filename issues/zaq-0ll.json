@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-01T15:48:53Z",
+  "description": "Replace newly added Application.get_env usage in outbound HTTP code with Zaq.Config and move direct HTTP client test seams behind explicit config stubs instead of raw per-call runtime overrides.",
+  "id": "zaq-0ll",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Use Zaq.Config for outbound HTTP test seams",
+  "type": "task",
+  "updated_at": "2026-09-01T15:48:53Z"
+}
