@@ -10,7 +10,7 @@ defmodule Zaq.Engine.OutboundHttp do
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
   alias Zaq.HttpRequest
-  alias Zaq.HttpRequest.{Prepared, Validator}
+  alias Zaq.HttpRequest.{HostMatcher, Prepared, Validator}
   alias Zaq.System
   alias Zaq.System.{HttpCredentialProvider, HttpCredentialProviderRef}
 
@@ -83,13 +83,10 @@ defmodule Zaq.Engine.OutboundHttp do
   defp ensure_host_allowed(host, %HttpCredentialProvider{host_patterns: patterns}) do
     host = String.downcase(host)
 
-    if Enum.any?(patterns, &host_matches?(host, &1)),
+    if Enum.any?(patterns, &HostMatcher.matches?(host, &1)),
       do: :ok,
       else: {:error, :credential_host_not_allowed, "credential is not allowed for this host"}
   end
-
-  defp host_matches?(host, "." <> suffix), do: String.ends_with?(host, "." <> suffix)
-  defp host_matches?(host, allowed), do: host == allowed
 
   defp credential_secret(%Credential{auth_kind: "api_key", api_key: value})
        when is_binary(value) and value != "",

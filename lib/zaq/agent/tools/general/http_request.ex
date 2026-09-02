@@ -75,7 +75,7 @@ defmodule Zaq.Agent.Tools.General.HttpRequest do
     schema:
       Zoi.object(%{
         method:
-          Zoi.enum(["GET", "POST", "PUT", "PATCH", "DELETE"],
+          Zoi.enum(["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE", "QUERY"],
             description: "HTTP method the documentation specifies for this endpoint"
           ),
         url:

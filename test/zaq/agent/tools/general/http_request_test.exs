@@ -11,6 +11,7 @@ defmodule Zaq.Agent.Tools.General.HttpRequestTest do
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Event
   alias Zaq.HttpRequest
+  alias Zaq.System.OutboundHttpPolicy
 
   @response %{
     status: 200,
@@ -173,6 +174,13 @@ defmodule Zaq.Agent.Tools.General.HttpRequestTest do
       assert Schema.schema_type(Tool.output_schema()) == :zoi
       assert :ok = Schema.validate_config_schema(Tool.schema())
       assert :ok = Schema.validate_config_schema(Tool.output_schema())
+    end
+
+    test "method schema stays aligned with outbound HTTP policy support" do
+      %{values: methods} = Tool.schema().fields[:method]
+
+      assert Enum.map(methods, fn {method, method} -> method end) ==
+               OutboundHttpPolicy.supported_methods()
     end
 
     test "there is no auth parameter or secret field to pass a credential through" do

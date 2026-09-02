@@ -7,6 +7,7 @@ defmodule Zaq.HttpRequest.Validator do
   transport.
   """
 
+  alias Zaq.HttpRequest.HostMatcher
   alias Zaq.System.HttpCredentialProviderRef
   alias Zaq.System.OutboundHttpPolicy
 
@@ -123,13 +124,10 @@ defmodule Zaq.HttpRequest.Validator do
   defp validate_host_blacklist(host, %OutboundHttpPolicy{blacklisted_hosts: hosts}) do
     host = String.downcase(host)
 
-    if Enum.any?(hosts, &host_matches?(host, &1)),
+    if Enum.any?(hosts, &HostMatcher.matches?(host, &1)),
       do: {:error, :host_blacklisted, "host #{host} is blacklisted"},
       else: :ok
   end
-
-  defp host_matches?(host, "." <> suffix), do: String.ends_with?(host, "." <> suffix)
-  defp host_matches?(host, allowed), do: host == allowed
 
   defp normalize_headers(nil), do: {:ok, %{}}
 
