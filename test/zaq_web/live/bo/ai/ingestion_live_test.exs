@@ -645,6 +645,31 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
                        }}
     end
 
+    test "provider move folder browser keeps the selected config", %{
+      conn: conn,
+      provider_config: config
+    } do
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{list_items: true, update_item: true}}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", _params}
+
+      render_hook(view, "move_item", %{"path" => "file-1", "type" => "file"})
+
+      assert_received {:list_files, "google_drive",
+                       %{
+                         "config_id" => config_id,
+                         "filters" => %{"parent" => nil},
+                         "include_permissions" => false
+                       }}
+
+      assert config_id == config.id
+    end
+
     test "provider browsing dispatches root and nested shared filters distinctly", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
 
@@ -696,10 +721,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert_received {:watch_item, "google_drive",
                        %{
+                         "config_id" => config_id,
                          "file_id" => "file-1",
                          "webhook_url" =>
                            "https://zaq.example/root/channels/webhook/data_source/google_drive"
                        }}
+
+      assert config_id == config.id
 
       assert Document.get_by_source("data_source/google_drive/#{config.id}/file-1").watch_status ==
                "watched"
@@ -722,11 +750,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert_received {:watch_collection, "google_drive",
                        %{
+                         "config_id" => config_id,
                          "file_id" => "folder-1",
                          "kind" => "folder",
                          "webhook_url" =>
                            "https://zaq.example/channels/webhook/data_source/google_drive"
                        }}
+
+      assert config_id == config.id
 
       assert %Document{} = doc = Document.get_by_source(source)
       assert doc.content == nil
@@ -986,7 +1017,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_select", %{"path" => "file-1"})
       render_hook(view, "unwatch_selected", %{})
 
-      assert_received {:unwatch_item, "google_drive", %{"target_source" => target_source}}
+      assert_received {:unwatch_item, "google_drive",
+                       %{"config_id" => config_id, "target_source" => target_source}}
+
+      assert config_id == config.id
       assert target_source == "data_source/google_drive/#{config.id}"
       assert Document.get_by_source(source).watch_status == "unwatched"
 
@@ -1014,7 +1048,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "toggle_select", %{"path" => "file-1"})
       render_hook(view, "unwatch_selected", %{})
 
-      assert_received {:unwatch_item, "google_drive", %{"target_source" => _target_source}}
+      assert_received {:unwatch_item, "google_drive",
+                       %{"config_id" => config_id, "target_source" => _target_source}}
+
+      assert config_id == config.id
       assert Document.get_by_source(source).watch_status == "unwatched"
 
       state = :sys.get_state(view.pid)
@@ -1726,6 +1763,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     render_hook(view, "create_folder", %{"name" => "reports"})
     assert File.dir?(Path.join(tmp_dir, "reports"))
     refute has_element?(view, "#new-folder-input")
+  end
+
+  test "folder share CTA carries the directory discriminator", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+
+    assert has_element?(
+             view,
+             ~s(button[phx-click="share_item"][phx-value-path="docs"][phx-value-type="directory"])
+           )
   end
 
   test "renames files and handles validation branches", %{conn: conn, tmp_dir: tmp_dir} do
@@ -3159,6 +3205,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       state = :sys.get_state(view.pid)
 
       assert state.socket.assigns.share_modal_public_inherited?
+      assert render(view) =~ "inherited"
     end
   end
 
@@ -3390,6 +3437,50 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       {:ok, view, _html} = live(conn, to)
       assert has_element?(view, "span", "manual.md")
       refute has_element?(view, "span", "old.md")
+    end
+
+    test "create CTAs write into the selected nested non-default volume", %{
+      conn: conn,
+      vol_docs: vol_docs,
+      vol_archives: vol_archives
+    } do
+      File.mkdir_p!(Path.join(vol_docs, "sub"))
+      File.mkdir_p!(Path.join(vol_archives, "sub"))
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      disk_config_id = config_id_for("disk")
+
+      assert {:error, {:live_redirect, %{to: to}}} =
+               render_hook(view, "switch_source", %{
+                 "source" => "source:disk:#{disk_config_id}:archives"
+               })
+
+      {:ok, view, _html} = live(conn, to)
+      render_hook(view, "navigate", %{"path" => "sub"})
+
+      render_hook(view, "show_new_folder_modal", %{})
+      render_hook(view, "create_folder", %{"name" => "reports"})
+
+      render_hook(view, "show_add_raw_modal", %{})
+      render_hook(view, "save_raw_content", %{"filename" => "brief", "content" => "# Brief"})
+
+      open_upload_modal(view)
+
+      upload =
+        file_input(view, "#upload-form", :files, [
+          %{name: "upload.txt", content: "archives upload", type: "text/plain"}
+        ])
+
+      assert render_upload(upload, "upload.txt")
+      view |> form("#upload-form") |> render_submit()
+
+      assert File.dir?(Path.join(vol_archives, "sub/reports"))
+      assert File.read!(Path.join(vol_archives, "sub/brief.md")) == "# Brief"
+      assert File.read!(Path.join(vol_archives, "sub/upload.txt")) == "archives upload"
+
+      refute File.exists?(Path.join(vol_docs, "sub/reports"))
+      refute File.exists?(Path.join(vol_docs, "sub/brief.md"))
+      refute File.exists?(Path.join(vol_docs, "sub/upload.txt"))
     end
   end
 

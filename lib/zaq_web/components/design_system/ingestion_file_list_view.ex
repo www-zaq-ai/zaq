@@ -224,6 +224,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
       :if={shareable?(@entry, @action_capabilities, @ingestion_map)}
       phx-click="share_item"
       phx-value-path={record_path(@entry)}
+      phx-value-type={if record_folder?(@entry), do: "directory", else: "file"}
       class="zaq-btn zaq-btn-ghost zaq-btn-icon"
       title="Share with roles"
     >
