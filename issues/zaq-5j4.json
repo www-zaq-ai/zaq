@@ -12,11 +12,15 @@
     {
       "text": "Implemented Channels-first outbound HTTP preparation. Added Zaq.HttpRequest.Prepared and Zaq.Engine.OutboundHttp. Channels.Api now receives untrusted HttpRequest, dispatches fixed Engine :prepare_http_request, then executes the prepared contract locally. HttpClient now accepts only Prepared and no longer loads System policy or credentials. Deleted Channels CredentialInjector and moved credential rendering coverage to Engine.OutboundHttp tests. Focused suites passed: 1 property, 136 tests, 0 failures. mix q passed.",
       "timestamp": "2026-09-02T07:47:57Z"
+    },
+    {
+      "text": "Removed the generic HttpClient config/req_options test seam. HttpClient.request/1 now accepts only Prepared and builds Req options entirely from the prepared contract plus fixed transport safety settings. Reworked HttpClient tests to use real local Bandit servers instead of plug/adapter injection, and added a source regression for no Config/Application/Repo/Connect/req_options/adapter/plug seam. Focused suites passed: 1 property, 122 tests, 0 failures. mix q passed.",
+      "timestamp": "2026-09-02T08:15:56Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "[outbound-http-engine-prepare] Channels-first outbound HTTP preparation",
   "type": "task",
-  "updated_at": "2026-09-02T07:47:57Z"
+  "updated_at": "2026-09-02T08:15:56Z"
 }
