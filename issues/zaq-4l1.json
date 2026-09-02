@@ -6,13 +6,15 @@
   "blocks": [
     "zaq-ybo"
   ],
+  "closed_at": "2026-09-02T10:13:30Z",
+  "close_reason": "completed",
   "created": "2026-09-02T09:56:45Z",
   "description": "Switch production code, BO form, fixtures, and tests from legacy tool_keys to provided_tool_keys; remove dual-write/fallback and drop column when safe.",
   "id": "zaq-4l1",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[agent-skills-2] Remove legacy tool_keys usage",
   "type": "task",
-  "updated_at": "2026-09-02T10:08:02Z"
+  "updated_at": "2026-09-02T10:13:30Z"
 }
