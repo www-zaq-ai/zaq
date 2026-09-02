@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-4l1"
+  ],
   "blocks": [],
   "created": "2026-09-02T09:56:46Z",
   "description": "Add global Skills resource data-source configuration and per-skill pinned resource location semantics.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[agent-skills-3] Wire Skills resource source configuration",
   "type": "task",
-  "updated_at": "2026-09-02T09:56:46Z"
+  "updated_at": "2026-09-02T09:56:53Z"
 }

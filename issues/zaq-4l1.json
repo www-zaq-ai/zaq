@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-nd0"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ybo"
+  ],
   "created": "2026-09-02T09:56:45Z",
   "description": "Switch production code, BO form, fixtures, and tests from legacy tool_keys to provided_tool_keys; remove dual-write/fallback and drop column when safe.",
   "id": "zaq-4l1",
