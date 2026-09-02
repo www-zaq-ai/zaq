@@ -8,9 +8,15 @@
   "description": "",
   "id": "zaq-jfi",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented generic Record authorization for provider data-source Records, JidoConnect permission normalization, Disk opt-out, materialization handle bearer documentation, and focused regression coverage. Validation: affected suites passed; mix q passed.",
+      "timestamp": "2026-09-02T08:20:59Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jfi] Generic Record authorization and bridge opt-out contract",
   "type": "task",
-  "updated_at": "2026-09-02T07:35:10Z"
+  "updated_at": "2026-09-02T08:20:59Z"
 }
