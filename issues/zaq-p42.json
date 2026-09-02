@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-eb0"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-gtf"
+  ],
   "created": "2026-09-02T09:56:46Z",
   "description": "Use Jido.AI.Skill.AgentIntegration.prepare/1 in Factory and replace custom load_skill path with native skill/resource tools.",
   "id": "zaq-p42",
