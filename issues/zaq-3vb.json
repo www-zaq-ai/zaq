@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-02T07:35:08Z",
+  "description": "",
+  "id": "zaq-3vb",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Normalize JidoConnect permission Records to canonical grants",
+  "type": "task",
+  "updated_at": "2026-09-02T07:35:08Z"
+}
