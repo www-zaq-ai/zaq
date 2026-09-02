@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-nr5"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-gdu"
+  ],
   "created": "2026-09-02T17:21:25Z",
   "description": "",
   "id": "zaq-pem",
