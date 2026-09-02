@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-3vb"
+  ],
   "created": "2026-09-02T07:35:08Z",
   "description": "",
   "id": "zaq-jfi",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-jfi] Generic Record authorization and bridge opt-out contract",
   "type": "task",
-  "updated_at": "2026-09-02T07:35:08Z"
+  "updated_at": "2026-09-02T07:35:09Z"
 }
