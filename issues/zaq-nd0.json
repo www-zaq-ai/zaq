@@ -4,13 +4,15 @@
   "blocks": [
     "zaq-4l1"
   ],
+  "closed_at": "2026-09-02T10:08:02Z",
+  "close_reason": "completed",
   "created": "2026-09-02T09:56:45Z",
   "description": "Add Agent Skills manifest fields license, compatibility, metadata; remove diagnostics persistence; define target schema responsibilities.",
   "id": "zaq-nd0",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[agent-skills-1] Align Agent Skill schema with manifest fields",
   "type": "task",
-  "updated_at": "2026-09-02T09:56:53Z"
+  "updated_at": "2026-09-02T10:08:02Z"
 }
