@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-mim"
   ],
+  "closed_at": "2026-09-02T08:21:00Z",
   "created": "2026-09-02T07:35:08Z",
   "description": "",
   "id": "zaq-s27",
@@ -17,7 +18,7 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-s27] Enforce DataSourceBridge authorization for provider Records",
   "type": "task",
   "updated_at": "2026-09-02T08:21:00Z"
