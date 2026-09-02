@@ -55,7 +55,12 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
              "mimeType" => "application/pdf",
              "parents" => ["root"],
              "permissions" => [
-               %{"id" => "ep1", "type" => "user", "emailAddress" => "owner@example.com"}
+               %{
+                 "id" => "ep1",
+                 "type" => "user",
+                 "role" => "writer",
+                 "emailAddress" => "owner@example.com"
+               }
              ]
            }
          ]
@@ -68,8 +73,18 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       {:ok,
        %{
          permissions: [
-           %{"id" => "u1", "type" => "user", "emailAddress" => "a@example.com"},
-           %{"id" => "u2", "type" => "group", "emailAddress" => "team@example.com"}
+           %{
+             "id" => "u1",
+             "type" => "user",
+             "role" => "reader",
+             "emailAddress" => "a@example.com"
+           },
+           %{
+             "id" => "u2",
+             "type" => "group",
+             "role" => "reader",
+             "emailAddress" => "team@example.com"
+           }
          ]
        }}
     end
@@ -1367,7 +1382,14 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     item = Enum.find(records, &(&1.id == "f2"))
     assert is_list(item.permissions)
-    assert [%Zaq.Contracts.Record{id: "ep1", kind: :permission}] = item.permissions
+    assert [%Zaq.Contracts.Record{id: "ep1", kind: :permission} = permission] = item.permissions
+
+    assert permission.attributes["principal"] == %{
+             "channel" => "email",
+             "identifier" => "owner@example.com"
+           }
+
+    assert permission.attributes["access_rights"] == ["delete", "edit", "move", "read"]
   end
 
   test "list_files adds google drive permission fields when include_permissions is true" do

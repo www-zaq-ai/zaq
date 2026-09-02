@@ -11,7 +11,7 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
 
   @type_key "data_source_document"
   @locator_fields ~w(config_id document_mime_type)
-  @option_fields ~w(export_mime_type)
+  @option_fields ~w(document_mime_type export_mime_type)
 
   @spec issue(atom() | String.t(), String.t(), map(), keyword()) ::
           {:ok, String.t()} | {:error, term()}

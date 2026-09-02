@@ -16,6 +16,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
     :ok = ZaqSystem.set_global_base_url("https://zaq.example")
     Application.put_env(:zaq, Zaq.Storage, base_path: "priv/documents")
+    Application.delete_env(:zaq, :provider_live_data_source_bridge_module)
 
     on_exit(fn ->
       :ok = ZaqSystem.set_global_base_url(original_base_url)
@@ -29,6 +30,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
         nil -> Application.delete_env(:zaq, Zaq.Storage)
         storage -> Application.put_env(:zaq, Zaq.Storage, storage)
       end
+
+      Application.delete_env(:zaq, :provider_live_data_source_bridge_module)
     end)
 
     :ok
@@ -39,12 +42,52 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       assigns
       |> Map.put(:__changed__, %{})
       |> Map.put_new(:flash, %{})
+      |> Map.put_new(:current_user, %{id: 10, person_id: 20, username: "bo-user"})
 
     %Phoenix.LiveView.Socket{assigns: assigns}
   end
 
   defp use_data_source_bridge(provider, bridge_module) do
     BridgeStubs.put_bridge(provider, bridge_module)
+    Application.put_env(:zaq, :provider_live_data_source_bridge_module, bridge_module)
+  end
+
+  defp credential_id(provider \\ "google_drive") do
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "cred-#{System.unique_integer([:positive])}",
+        provider: provider,
+        auth_kind: "api_key",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        scopes: ["read", "write", "files.read", "files.metadata.read", "drive.readonly"],
+        api_key: "token"
+      })
+
+    credential.id
+  end
+
+  defp connect_settings(attrs \\ %{}) do
+    Map.put_new(attrs, "credential_id", credential_id())
+  end
+
+  defp issue_active_grant!(config) do
+    credential_id = get_in(config.settings, ["connect", "credential_id"])
+
+    {:ok, _grant} =
+      Connect.issue_grant(%{
+        credential_id: credential_id,
+        provider: config.provider,
+        resource_type: "data_source",
+        resource_id: to_string(config.id),
+        owner_type: "org",
+        status: "active",
+        scopes: ["read", "write", "files.read", "files.metadata.read", "drive.readonly"],
+        api_key: "token"
+      })
+
+    config
   end
 
   defp config_changeset(provider) do
@@ -83,6 +126,85 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
     refute closed.assigns.credential_modal
     assert closed.assigns.credential_changeset == nil
+  end
+
+  test "open_test passes BO actor context to root folder listing" do
+    use_data_source_bridge("google_drive", BridgeStubs.CaptureContext)
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-context-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{"connect" => connect_settings()}
+      })
+      |> Repo.insert!()
+      |> issue_active_grant!()
+
+    current_user = %{id: 11, person_id: 21, username: "admin", role: %{name: "super_admin"}}
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        current_user: current_user,
+        root_folders_by_config: %{},
+        root_folder_meta_by_config: %{},
+        stats_errors_by_config: %{}
+      })
+
+    assert {:noreply, _updated} =
+             ProviderLive.handle_event(
+               "open_test",
+               %{"id" => Integer.to_string(config.id)},
+               socket
+             )
+
+    assert_received {:provider_live_list_files, params, context}
+    assert params["config_id"] == config.id
+    assert context.actor.person_id == 21
+    assert context.actor.provider == "bo"
+    assert context.skip_permissions == true
+  end
+
+  test "fetch_more passes BO actor context to paginated root folder listing" do
+    use_data_source_bridge("google_drive", BridgeStubs.CaptureContext)
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        "name" => "cfg-context-page-#{System.unique_integer([:positive])}",
+        "provider" => "google_drive",
+        "kind" => "data_source",
+        "enabled" => true,
+        "settings" => %{"connect" => connect_settings()}
+      })
+      |> Repo.insert!()
+      |> issue_active_grant!()
+
+    current_user = %{id: 12, person_id: 22, username: "regular"}
+
+    socket =
+      socket_with(%{
+        provider: "google_drive",
+        current_user: current_user,
+        root_folders_by_config: %{config.id => []},
+        root_folder_meta_by_config: %{config.id => %{next_page_token: "page-2"}},
+        stats_errors_by_config: %{}
+      })
+
+    assert {:noreply, _updated} =
+             ProviderLive.handle_event(
+               "fetch_more",
+               %{"id" => Integer.to_string(config.id)},
+               socket
+             )
+
+    assert_received {:provider_live_list_files, params, context}
+    assert params["page_token"] == "page-2"
+    assert context.actor.person_id == 22
+    assert context.skip_permissions == false
   end
 
   test "disk new config starts with an editable default volume" do
@@ -659,9 +781,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
         "provider" => "google_drive",
         "kind" => "data_source",
         "enabled" => true,
-        "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+        "settings" => %{
+          "connect" => connect_settings(%{"root_selector" => "root", "max_pages" => 1})
+        }
       })
       |> Repo.insert!()
+      |> issue_active_grant!()
 
     use_data_source_bridge(:google_drive, BridgeStubs.UnexpectedResponse)
 
@@ -1713,9 +1838,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
         "provider" => "google_drive",
         "kind" => "data_source",
         "enabled" => true,
-        "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+        "settings" => %{
+          "connect" => connect_settings(%{"root_selector" => "root", "max_pages" => 1})
+        }
       })
       |> Repo.insert!()
+      |> issue_active_grant!()
 
     use_data_source_bridge(:google_drive, BridgeStubs.DisplayMessageError)
 
@@ -1759,9 +1887,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
         "provider" => "google_drive",
         "kind" => "data_source",
         "enabled" => true,
-        "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+        "settings" => %{
+          "connect" => connect_settings(%{"root_selector" => "root", "max_pages" => 1})
+        }
       })
       |> Repo.insert!()
+      |> issue_active_grant!()
 
     use_data_source_bridge(:google_drive, BridgeStubs.NilError)
 
@@ -1947,9 +2078,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
           "provider" => "google_drive",
           "kind" => "data_source",
           "enabled" => true,
-          "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 2}}
+          "settings" => %{
+            "connect" => connect_settings(%{"root_selector" => "root", "max_pages" => 2})
+          }
         })
         |> Repo.insert!()
+        |> issue_active_grant!()
 
       use_data_source_bridge(:google_drive, BridgeStubs.ContinuationThenHalt)
 
@@ -1990,9 +2124,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
           "provider" => "google_drive",
           "kind" => "data_source",
           "enabled" => true,
-          "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+          "settings" => %{
+            "connect" => connect_settings(%{"root_selector" => "root", "max_pages" => 1})
+          }
         })
         |> Repo.insert!()
+        |> issue_active_grant!()
 
       use_data_source_bridge(:google_drive, BridgeStubs.StillMore)
 
@@ -2133,9 +2270,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
           "provider" => "google_drive",
           "kind" => "data_source",
           "enabled" => true,
-          "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 1}}
+          "settings" => %{
+            "connect" => connect_settings(%{"root_selector" => "root", "max_pages" => 1})
+          }
         })
         |> Repo.insert!()
+        |> issue_active_grant!()
 
       use_data_source_bridge(:google_drive, BridgeStubs.NilIdDuplicate)
 
@@ -2232,7 +2372,9 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
               "provider" => "google_drive",
               "kind" => "data_source",
               "enabled" => true,
-              "settings" => %{"connect" => %{"root_selector" => "root", "max_pages" => 5}}
+              "settings" => %{
+                "connect" => connect_settings(%{"root_selector" => "root", "max_pages" => 5})
+              }
             }),
           modal: :new,
           form: nil,

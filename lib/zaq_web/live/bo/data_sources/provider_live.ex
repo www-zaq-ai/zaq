@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
   alias ZaqWeb.Live.BO.Communication.OAuthClaimState
   alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
+  alias ZaqWeb.Live.BO.DataSourceEvents
   alias ZaqWeb.Live.BO.EngineDispatch
   require Logger
 
@@ -371,7 +372,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
     {folders, error, meta} =
       root_folders_for_provider(socket.assigns.provider, config.id, root_selector,
-        max_pages: max_pages
+        max_pages: max_pages,
+        current_user: socket.assigns.current_user
       )
 
     {:noreply,
@@ -407,7 +409,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
         {new_folders, error, new_meta} =
           root_folders_for_provider(socket.assigns.provider, config.id, root_selector,
             max_pages: max_pages,
-            page_token: token
+            page_token: token,
+            current_user: socket.assigns.current_user
           )
 
         merged_folders =
@@ -685,10 +688,19 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp root_folders_for_provider(provider, config_id, root_selector, opts) do
     max_pages = Keyword.get(opts, :max_pages, @max_pages_default)
     start_page_token = Keyword.get(opts, :page_token)
+    current_user = Keyword.get(opts, :current_user)
 
     filters = datasource_list_filters(root_selector)
 
-    do_list_root_folders(provider, config_id, filters, root_selector, max_pages, start_page_token)
+    do_list_root_folders(
+      provider,
+      config_id,
+      filters,
+      root_selector,
+      max_pages,
+      start_page_token,
+      current_user
+    )
   end
 
   defp do_list_root_folders(
@@ -697,7 +709,8 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
          filters,
          root_selector,
          max_pages,
-         start_page_token
+         start_page_token,
+         current_user
        ) do
     base_params = %{
       "config_id" => config_id,
@@ -712,7 +725,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
       params = with_page_token(base_params, token)
 
       handle_root_folder_page_response(
-        dispatch_list_files(provider, params),
+        dispatch_list_files(provider, params, current_user),
         provider,
         config_id,
         root_selector,
@@ -875,15 +888,17 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     end
   end
 
-  defp dispatch_list_files(provider, params) do
-    event =
-      Event.new(
-        %{provider: provider, params: params},
-        :channels,
-        opts: [action: :data_source_list_files]
-      )
+  defp dispatch_list_files(provider, params, current_user) do
+    DataSourceEvents.build_and_dispatch(
+      :data_source_list_files,
+      %{provider: provider, params: params},
+      current_user,
+      event_opts: [data_source_bridge_module: data_source_bridge_module()]
+    ).response
+  end
 
-    NodeRouter.dispatch(event).response
+  defp data_source_bridge_module do
+    Zaq.Config.get(:zaq, :provider_live_data_source_bridge_module, DataSourceBridge, [])
   end
 
   defp dispatch_export_options(provider, params) do

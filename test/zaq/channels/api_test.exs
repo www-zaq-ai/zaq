@@ -970,6 +970,25 @@ defmodule Zaq.Channels.ApiTest do
     assert context == %TrustedContext{actor: nil, skip_permissions: true}
   end
 
+  test "carries trusted bypass projected from BO actor" do
+    actor = %{person_id: 7, provider: "bo", skip_permissions: true}
+
+    event =
+      Event.new(%{provider: :disk, params: %{"query" => "invoice"}}, :channels,
+        actor: actor,
+        opts: [
+          action: :data_source_search_files,
+          data_source_bridge_module: StubDataSourceBridge
+        ]
+      )
+
+    result = Api.handle_event(event, :data_source_search_files, nil)
+    assert {:ok, %{records: [%{"id" => "f1"}]}} = result.response
+
+    assert_received {:ds_search_files, :disk, %{"query" => "invoice"}, context}
+    assert context == %TrustedContext{actor: actor, skip_permissions: true}
+  end
+
   test "does not trust bypass or actor markers from request params" do
     actor = %{person_id: 7, provider: "bo"}
 

@@ -6,15 +6,17 @@
 available from another service role.
 
 Records carry metadata plus optional `materialization_handle`. The handle is a signed
-locator, not an authorization grant. It contains only:
+bearer locator: possession is enough to redeem content because handles are only disclosed
+on Records after the data-source boundary authorizes `read` access. It contains only:
 
 - `v` — handle version
 - `type` — allowlisted materializer key
 - `locator` — materializer-specific primitive fields
 
 Handles intentionally do not contain destination roles, actions, modules, credentials,
-actors, or permission decisions. Current authorization must come from the trusted runtime
-context that redeems the handle.
+actors, or permission decisions. Do not mint or expose a materialization handle for a
+Record until its caller is authorized to read that Record; redemption does not re-check
+provider ACLs.
 
 `Zaq.Events.TrustedContext` is the only reusable projection of that runtime context across
 role and bridge boundaries. It retains the canonical actor and literal
@@ -48,6 +50,8 @@ Locator fields:
 
 Per-redemption options:
 
+- `document_mime_type` — optional source MIME type when the caller needs to override or
+  supply representation metadata outside the signed locator.
 - `export_mime_type` — optional requested export MIME type. This is request-time
   representation state, not document identity, so it is passed separately from the
   signed locator. When present it overrides any configured default for the source

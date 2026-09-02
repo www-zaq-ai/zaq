@@ -57,6 +57,9 @@ defmodule Zaq.Channels.DiskBridge do
   @impl Zaq.Channels.Bridge
   def to_internal(_payload, _config), do: {:error, :unsupported}
 
+  @impl Zaq.Channels.DataSourceBridge
+  def owns_permission_checks?, do: true
+
   @impl Zaq.Channels.Bridge
   def capability_snapshot(_config) do
     resolved =
