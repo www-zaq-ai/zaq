@@ -4,6 +4,7 @@
     "zaq-mim"
   ],
   "blocks": [],
+  "closed_at": "2026-09-02T08:21:00Z",
   "created": "2026-09-02T07:35:09Z",
   "description": "",
   "id": "zaq-vym",
@@ -15,7 +16,7 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-vym] Validate provider Record authorization end-to-end",
   "type": "task",
   "updated_at": "2026-09-02T08:21:00Z"
