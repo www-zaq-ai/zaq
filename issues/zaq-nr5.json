@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-02T17:21:24Z",
+  "description": "",
+  "id": "zaq-nr5",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Extract shared data-source folder picker UI",
+  "type": "task",
+  "updated_at": "2026-09-02T17:21:24Z"
+}
