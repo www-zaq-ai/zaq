@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-ybo"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-p42"
+  ],
   "created": "2026-09-02T09:56:46Z",
   "description": "Implement ZAQ MFA provider using Jido.Exec and secure data-source document actions with provenance_ref.",
   "id": "zaq-eb0",
