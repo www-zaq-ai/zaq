@@ -51,14 +51,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     provider = active_source_provider(active_source, Map.get(params, "provider"))
     data_source_enabled? = data_source_config_enabled?()
 
-    action_capabilities = action_capabilities(provider)
+    provider_config_id = active_source_config_id(active_source, provider)
+    action_capabilities = action_capabilities(provider, provider_config_id)
 
     {:ok,
      socket
      |> assign(
        current_path: ingestion_path(provider),
        provider: provider,
-       provider_config_id: active_source_config_id(active_source, provider),
+       provider_config_id: provider_config_id,
        provider_folder_stack: [],
        provider_page: nil,
        provider_page_token: nil,
@@ -1342,13 +1343,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp create_document_destination(socket) do
     folder = List.last(socket.assigns.provider_folder_stack)
-    parent_id = provider_parent_id(folder) || active_source_parent(socket)
+    folder_parent_id = provider_parent_id(folder)
+    parent_id = folder_parent_id || active_source_parent(socket)
 
     %{
       config_id:
         socket.assigns.provider_config_id && to_string(socket.assigns.provider_config_id),
       parent_id: parent_id,
-      path: parent_id
+      path: data_source_parent(socket, folder_parent_id)
     }
   end
 
@@ -1961,6 +1963,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     case ChannelEvents.build_and_dispatch_data_source_watch_item_event(
            data_source_provider(socket),
            params,
+           actor: BOActor.build(socket.assigns.current_user),
            event_opts: [data_source_bridge_module: data_source_bridge_module()]
          ).response do
       {:ok, result} -> {:ok, result}
@@ -1970,11 +1973,15 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp dispatch_provider_unwatch(socket) do
-    params = %{"target_source" => provider_config_watch_source(socket)}
+    params = %{
+      "config_id" => data_source_config_id(socket),
+      "target_source" => provider_config_watch_source(socket)
+    }
 
     case ChannelEvents.build_and_dispatch_data_source_unwatch_item_event(
            data_source_provider(socket),
            params,
+           actor: BOActor.build(socket.assigns.current_user),
            event_opts: [data_source_bridge_module: data_source_bridge_module()]
          ).response do
       :ok -> :ok
@@ -2251,8 +2258,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp action_capabilities(provider) do
-    resolved = capability_snapshot_resolved(provider)
+  defp action_capabilities(provider, config_id) do
+    resolved = capability_snapshot_resolved(provider, config_id)
 
     %{
       create: capability_resolved?(resolved, :create_item),
@@ -2279,10 +2286,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     end
   end
 
-  defp capability_snapshot_resolved(provider) do
+  defp capability_snapshot_resolved(provider, config_id) do
     provider
     |> capability_provider()
-    |> dispatch_capability_snapshot(capability_params(provider))
+    |> dispatch_capability_snapshot(capability_params(config_id))
     |> case do
       {:ok, %{resolved: resolved}} when is_map(resolved) ->
         resolved
@@ -2297,7 +2304,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp capability_provider(provider), do: provider
 
-  defp capability_params(provider), do: maybe_config_param(provider_config_id(provider))
+  defp capability_params(config_id), do: maybe_config_param(config_id)
 
   defp maybe_config_param(nil), do: %{}
   defp maybe_config_param(id), do: %{"config_id" => id}
@@ -2483,6 +2490,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     moving_path = socket.assigns.modal_path
 
     params = %{
+      "config_id" => socket.assigns.provider_config_id,
       "filters" => %{"parent" => data_source_parent(socket, dir)},
       "include_permissions" => false
     }
