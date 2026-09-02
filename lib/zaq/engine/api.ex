@@ -15,6 +15,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Notifications
+  alias Zaq.Engine.OutboundHttp
   alias Zaq.Engine.PeopleGateway
   alias Zaq.Engine.Workflows
   alias Zaq.Event
@@ -210,6 +211,16 @@ defmodule Zaq.Engine.Api do
       %{credential_id: credential_id} ->
         connect_module = Keyword.get(event.opts, :connect_module, Connect)
         %{event | response: connect_module.fetch_credential(credential_id)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :prepare_http_request, _context) do
+    case event.request do
+      %Zaq.HttpRequest{} = request ->
+        %{event | response: OutboundHttp.prepare(request)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}

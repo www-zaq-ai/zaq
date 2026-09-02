@@ -1,18 +1,27 @@
 defmodule Zaq.Channels.HttpClientCredentialTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Channels.HttpClient
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.OutboundHttp
+  alias Zaq.HttpRequest
   alias Zaq.System, as: ZaqSystem
   alias Zaq.System.{HttpCredentialProviderRef, OutboundHttpPolicy}
 
-  defmodule ConfigStub do
-    def get(:zaq, HttpClient, [], opts), do: Keyword.fetch!(opts, :http_client_config)
+  defmodule SystemStub do
+    alias Zaq.System.OutboundHttpPolicy
+
+    def get_outbound_http_policy do
+      %OutboundHttpPolicy{
+        enabled: true,
+        allowed_methods: ~w(GET POST),
+        max_response_bytes: 100_000
+      }
+    end
+
+    def get_http_credential_provider(id), do: Zaq.System.get_http_credential_provider(id)
   end
 
-  defp test_opts(config), do: [config: ConfigStub, http_client_config: config]
-
-  defp policy(overrides \\ %{}) do
+  def policy(overrides \\ %{}) do
     struct!(
       OutboundHttpPolicy,
       Map.merge(
@@ -22,7 +31,15 @@ defmodule Zaq.Channels.HttpClientCredentialTest do
     )
   end
 
-  defp resolver, do: fn _host, _family -> {:ok, [{93, 184, 216, 34}]} end
+  defp prepared(attrs) do
+    {:ok, request} =
+      HttpRequest.build(Map.merge(%{method: "GET", url: "https://api.example.com/v1"}, attrs))
+
+    {:ok, prepared} =
+      OutboundHttp.prepare(request, system_module: SystemStub, connect_module: Connect)
+
+    prepared
+  end
 
   defp provider(attrs \\ %{}) do
     base = %{
@@ -56,26 +73,10 @@ defmodule Zaq.Channels.HttpClientCredentialTest do
   test "injects bearer credentials only at the channels transport boundary" do
     credential = credential(provider())
 
-    opts =
-      test_opts(
-        policy: policy(),
-        resolver: resolver(),
-        req_options: [
-          plug: fn conn ->
-            assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer secret-token"]
-            Plug.Conn.resp(conn, 200, "ok")
-          end
-        ]
-      )
+    prepared = prepared(%{credential_id: credential.id})
 
-    assert {:ok, response} =
-             HttpClient.request(
-               %{method: "GET", url: "https://api.example.com/v1", credential_id: credential.id},
-               opts
-             )
-
-    assert response.status == 200
-    refute inspect(response) =~ "secret-token"
+    assert prepared.credential == {:header, "authorization", "Bearer secret-token"}
+    refute inspect(prepared) =~ "secret-token"
   end
 
   test "injects custom header and query credentials from provider placement" do
@@ -85,24 +86,8 @@ defmodule Zaq.Channels.HttpClientCredentialTest do
         %{api_key: "header-secret"}
       )
 
-    assert {:ok, _} =
-             HttpClient.request(
-               %{
-                 method: "GET",
-                 url: "https://api.example.com/v1",
-                 credential_id: header_credential.id
-               },
-               test_opts(
-                 policy: policy(),
-                 resolver: resolver(),
-                 req_options: [
-                   plug: fn conn ->
-                     assert Plug.Conn.get_req_header(conn, "x-api-key") == ["header-secret"]
-                     Plug.Conn.resp(conn, 200, "ok")
-                   end
-                 ]
-               )
-             )
+    assert prepared(%{credential_id: header_credential.id}).credential ==
+             {:header, "x-api-key", "header-secret"}
 
     query_credential =
       credential(
@@ -110,41 +95,19 @@ defmodule Zaq.Channels.HttpClientCredentialTest do
         %{api_key: "query-secret"}
       )
 
-    assert {:ok, response} =
-             HttpClient.request(
-               %{
-                 method: "GET",
-                 url: "https://api.example.com/v1",
-                 credential_id: query_credential.id
-               },
-               test_opts(
-                 policy: policy(),
-                 resolver: resolver(),
-                 req_options: [
-                   plug: fn conn ->
-                     assert conn.query_params["api_key"] == "query-secret"
-                     Plug.Conn.resp(conn, 200, "ok")
-                   end
-                 ]
-               )
-             )
+    prepared = prepared(%{credential_id: query_credential.id})
 
-    assert response.url == "https://api.example.com/v1"
-    refute inspect(response) =~ "query-secret"
+    assert prepared.credential == {:query, "api_key", "query-secret"}
+    refute inspect(prepared) =~ "query-secret"
   end
 
   test "rejects missing, disabled, and host-mismatched credential providers without exposing secrets" do
     disabled_credential = credential(provider(%{enabled: false}), %{api_key: "disabled-secret"})
 
     assert {:error, :credential_provider_disabled, message} =
-             HttpClient.request(
-               %{
-                 method: "GET",
-                 url: "https://api.example.com/v1",
-                 credential_id: disabled_credential.id
-               },
-               test_opts(policy: policy(), resolver: resolver())
-             )
+             disabled_credential.id
+             |> request_for_credential()
+             |> OutboundHttp.prepare(system_module: SystemStub, connect_module: Connect)
 
     refute message =~ "disabled-secret"
 
@@ -152,21 +115,26 @@ defmodule Zaq.Channels.HttpClientCredentialTest do
       credential(provider(%{host_patterns: ["api.other.test"]}), %{api_key: "wrong-host-secret"})
 
     assert {:error, :credential_host_not_allowed, message} =
-             HttpClient.request(
-               %{
-                 method: "GET",
-                 url: "https://api.example.com/v1",
-                 credential_id: wrong_host_credential.id
-               },
-               test_opts(policy: policy(), resolver: resolver())
-             )
+             wrong_host_credential.id
+             |> request_for_credential()
+             |> OutboundHttp.prepare(system_module: SystemStub, connect_module: Connect)
 
     refute message =~ "wrong-host-secret"
 
     assert {:error, :credential_not_found, _} =
-             HttpClient.request(
-               %{method: "GET", url: "https://api.example.com/v1", credential_id: 999_999},
-               test_opts(policy: policy(), resolver: resolver())
-             )
+             999_999
+             |> request_for_credential()
+             |> OutboundHttp.prepare(system_module: SystemStub, connect_module: Connect)
+  end
+
+  defp request_for_credential(credential_id) do
+    {:ok, request} =
+      HttpRequest.build(%{
+        method: "GET",
+        url: "https://api.example.com/v1",
+        credential_id: credential_id
+      })
+
+    request
   end
 end

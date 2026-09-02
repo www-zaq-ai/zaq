@@ -31,10 +31,66 @@ defmodule Zaq.System.SecretConfigTest do
       assert {:ok, "legacy-plaintext"} = SecretConfig.decrypt("legacy-plaintext")
     end
 
+    test "decrypt keeps nil values" do
+      assert {:ok, nil} = SecretConfig.decrypt(nil)
+    end
+
+    test "decrypt rejects malformed encrypted payloads" do
+      assert {:error, :invalid_ciphertext} = SecretConfig.decrypt("enc:not-enough-parts")
+    end
+
+    test "decrypt rejects encrypted payloads when key is not configured" do
+      Application.put_env(:zaq, Zaq.System.SecretConfig, [])
+
+      assert {:error, :missing_encryption_key} =
+               SecretConfig.decrypt("enc:v1:nonce:tag:ciphertext")
+    end
+
+    test "decrypt rejects encrypted payloads with invalid base64 metadata" do
+      Application.put_env(
+        :zaq,
+        Zaq.System.SecretConfig,
+        encryption_key: Base.encode64(:crypto.strong_rand_bytes(32)),
+        key_id: "test-v1"
+      )
+
+      assert {:error, :invalid_ciphertext} = SecretConfig.decrypt("enc:test-v1:!:tag:ciphertext")
+    end
+
+    test "decrypt rejects encrypted payloads from unknown key ids" do
+      key = Base.encode64(:crypto.strong_rand_bytes(32))
+
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: key,
+        key_id: "old-key"
+      )
+
+      assert {:ok, encrypted} = SecretConfig.encrypt("smtp-secret")
+
+      Application.put_env(:zaq, Zaq.System.SecretConfig,
+        encryption_key: key,
+        key_id: "new-key"
+      )
+
+      assert {:error, {:unknown_key_id, "old-key"}} = SecretConfig.decrypt(encrypted)
+    end
+
     test "returns missing_encryption_key when key is not configured" do
       Application.put_env(:zaq, Zaq.System.SecretConfig, [])
 
       assert {:error, :missing_encryption_key} = SecretConfig.encrypt("smtp-secret")
+    end
+
+    test "returns missing_encryption_key when configured key is blank" do
+      Application.put_env(:zaq, Zaq.System.SecretConfig, encryption_key: "")
+
+      assert {:error, :missing_encryption_key} = SecretConfig.encrypt("smtp-secret")
+    end
+
+    test "returns invalid_encryption_key when configured key is not binary" do
+      Application.put_env(:zaq, Zaq.System.SecretConfig, encryption_key: :invalid)
+
+      assert {:error, :invalid_encryption_key} = SecretConfig.encrypt("smtp-secret")
     end
 
     test "returns a generic error for malformed encryption metadata" do

@@ -6,7 +6,8 @@ defmodule Zaq.Channels.HttpClient do
 
       http_request tool  (agent decides what to send, and validates it)
         → NodeRouter :http_request → Zaq.Channels.Api
-        → this module        (resolves credentials, opens the socket)
+        → Engine prepare  (loads policy and credentials)
+        → this module     (checks addresses, opens the socket)
 
   The split matters: the agent never opens a socket and never holds a token.
 
@@ -18,26 +19,18 @@ defmodule Zaq.Channels.HttpClient do
 
   ## Boundary validation
 
-  This module treats both maps and `%Zaq.HttpRequest{}` structs as untrusted
-  input. It reruns shared validation, resolves DNS on the channels node, and
-  checks every resolved address before opening a socket.
+  This module accepts only `%Zaq.HttpRequest.Prepared{}` values returned by
+  Engine. It resolves DNS on the channels node and checks every resolved
+  address before opening a socket.
 
   Redirects are **not** followed yet: a redirect would send the request to a
   host that never passed destination validation.
 
   ## Credentials
 
-  Requests carry only `credential_id`. Auth Credentials and dynamic HTTP
-  provider placement rules are resolved here, immediately before `Req.request/1`,
-  so plaintext secrets never cross the agent boundary or appear in responses.
-
-  ## Configuration
-
-      config :zaq, Zaq.Channels.HttpClient,
-        req_options: []
-
-  `req_options` is a test seam for plugs/adapters. Production calls through
-  `Zaq.Channels.Api` do not forward untrusted event options into this module.
+  Requests carry only Engine-rendered credential material. Auth Credentials and
+  dynamic HTTP provider placement rules are loaded by Engine so Channels remains
+  stateless and database-free.
 
   ## Response
 
@@ -52,11 +45,7 @@ defmodule Zaq.Channels.HttpClient do
   > bounds what reaches the agent, not what crosses the network.
   """
 
-  alias Zaq.Channels.HttpClient.CredentialInjector
-  alias Zaq.Config
-  alias Zaq.HttpRequest
-  alias Zaq.HttpRequest.{AddressPolicy, Validator}
-  alias Zaq.System
+  alias Zaq.HttpRequest.{AddressPolicy, Prepared}
   alias Zaq.System.OutboundHttpPolicy
 
   @default_max_response_bytes 100_000
@@ -74,49 +63,32 @@ defmodule Zaq.Channels.HttpClient do
   @doc """
   Sends `request`.
 
-  Only a `%Zaq.HttpRequest{}` is accepted — see the module note on why
-  a map is refused instead of normalised.
-
-  `opts` are accepted only for direct test seams; production event options are
-  never forwarded here.
+  Only a `%Zaq.HttpRequest.Prepared{}` is accepted.
   """
-  @spec request(HttpRequest.t() | map(), keyword()) :: {:ok, response()} | {:error, term()}
-  def request(request, opts \\ [])
+  @spec request(Prepared.t() | term()) :: {:ok, response()} | {:error, term()}
+  def request(request)
 
-  def request(%HttpRequest{} = request, opts) when is_list(opts),
-    do: request(HttpRequest.to_map(request), opts)
+  def request(%Prepared{} = prepared), do: perform(prepared)
 
-  def request(spec, opts) when is_map(spec) and is_list(opts),
-    do: perform(spec, config(opts))
-
-  # -- Config -----------------------------------------------------------------
-
-  defp config(opts) do
-    Config.get(:zaq, __MODULE__, [], opts)
-  end
+  def request(_request),
+    do: {:error, :unprepared_request, "request was not prepared by Engine"}
 
   # -- Execution --------------------------------------------------------------
 
-  defp perform(request, config) do
-    policy = Keyword.get_lazy(config, :policy, &System.get_outbound_http_policy/0)
-
-    with {:ok, request} <- Validator.validate(request, policy),
-         :ok <- validate_destination_addresses(request.uri.host, policy, config) do
+  defp perform(%Prepared{policy: policy} = request) do
+    with :ok <- validate_destination_addresses(request.uri.host, policy) do
       max_bytes = policy.max_response_bytes || @default_max_response_bytes
 
-      with {:ok, req_options} <-
-             request |> req_options(config) |> CredentialInjector.inject(request, config) do
-        req_options
-        |> Req.request()
-        |> handle_response(request, max_bytes)
-      end
+      request
+      |> request_options()
+      |> Req.request()
+      |> handle_response(request, max_bytes)
     end
   end
 
-  # The spec contributes what to send; this module contributes transport policy.
-  # The timeout comes from the spec, never from config — every `HttpRequest`
-  # carries one, so a config fallback here could never be reached.
-  defp req_options(request, config) do
+  # The prepared request contributes what to send; this module adds fixed
+  # transport safety options.
+  defp request_options(request) do
     transport = [receive_timeout: request.timeout_ms, redirect: false, retry: false]
 
     request_options = [
@@ -125,29 +97,39 @@ defmodule Zaq.Channels.HttpClient do
       headers: request.headers
     ]
 
-    test_req_options(config)
-    |> Keyword.merge(request_options)
+    request_options
     |> maybe_put(:params, request.query, &(is_map(&1) and map_size(&1) > 0))
     |> maybe_put(body_key(request.body_format), request.body, &(not is_nil(&1)))
+    |> merge_credential(request.credential)
     |> Keyword.merge(transport)
   end
 
-  defp validate_destination_addresses(host, %OutboundHttpPolicy{} = policy, config) do
+  defp merge_credential(request_options, nil), do: request_options
+
+  defp merge_credential(request_options, {:header, name, value}) do
+    Keyword.update(request_options, :headers, %{name => value}, &Map.put(&1, name, value))
+  end
+
+  defp merge_credential(request_options, {:auth, auth}),
+    do: Keyword.put(request_options, :auth, auth)
+
+  defp merge_credential(request_options, {:query, name, value}) do
+    Keyword.update(request_options, :params, %{name => value}, &Map.put(&1, name, value))
+  end
+
+  defp validate_destination_addresses(host, %OutboundHttpPolicy{} = policy) do
     case AddressPolicy.parse_ip(host) do
       {:ok, ip} ->
         AddressPolicy.validate(ip, policy)
 
       {:error, :invalid_ip} ->
         host
-        |> resolve_host(config)
+        |> resolve_host()
         |> validate_resolved_addresses(policy)
     end
   end
 
-  defp resolve_host(host, config) do
-    resolver = Keyword.get(config, :resolver, &:inet.getaddrs/2)
-    resolver.(String.to_charlist(host), :inet)
-  end
+  defp resolve_host(host), do: :inet.getaddrs(String.to_charlist(host), :inet)
 
   defp validate_resolved_addresses({:ok, []}, _policy),
     do: {:error, :dns_failed, "host resolved to no addresses"}
@@ -163,8 +145,6 @@ defmodule Zaq.Channels.HttpClient do
 
   defp validate_resolved_addresses({:error, _reason}, _policy),
     do: {:error, :dns_failed, "could not resolve host"}
-
-  defp test_req_options(config), do: Keyword.get(config, :req_options, [])
 
   defp maybe_put(opts, key, value, predicate) do
     if predicate.(value), do: Keyword.put(opts, key, value), else: opts

@@ -6,6 +6,7 @@ The Channels service provides transport and runtime infrastructure for communica
 
 - **Data Sources** (ingestion channels in routes/API) ingest external documents (Google Drive, SharePoint, etc.).
 - **Retrieval channels** receive user messages and deliver ZAQ responses (Mattermost, Slack, Teams, Email, Telegram, Discord).
+- **Outbound HTTP** receives untrusted `http_request` events, asks Engine to prepare policy and credentials, then performs stateless DNS validation and transport execution.
 
 All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For channel event creation/dispatch, use `Zaq.Channels.Events` helpers; these helpers emit `%Zaq.Event{}` envelopes for cross-node routing.
 
