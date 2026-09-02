@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-4l1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-eb0"
+  ],
   "created": "2026-09-02T09:56:46Z",
   "description": "Add global Skills resource data-source configuration and per-skill pinned resource location semantics.",
   "id": "zaq-ybo",
