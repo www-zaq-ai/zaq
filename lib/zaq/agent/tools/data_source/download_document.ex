@@ -2,9 +2,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
   @moduledoc """
   ReAct tool: materializes Record content.
 
-  Pass either a `materialization_handle` returned by a Record, or a `provider` +
-  `document_id` pair. The provider pair may include `config_id` to select an explicit
-  data-source configuration.
+  Pass a `materialization_handle` returned by an authorized Record.
 
   Delegates to Channels through `NodeRouter.dispatch/1`.
   """
@@ -17,12 +15,6 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
                     "Signed materialization handle returned by any supported unmaterialized Record, including data-source documents and communication-channel attachments."
                 )
                 |> Zoi.optional(),
-              provider:
-                Zoi.string(description: "Datasource provider key.")
-                |> Zoi.optional(),
-              document_id:
-                Zoi.string(description: "Provider document identifier.")
-                |> Zoi.optional(),
               document_mime_type:
                 Zoi.string(
                   description:
@@ -34,9 +26,6 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
                   description:
                     "Optional target MIME type to request provider export when supported."
                 )
-                |> Zoi.optional(),
-              config_id:
-                Zoi.string(description: "Optional scoped datasource config id.")
                 |> Zoi.optional()
             },
             unrecognized_keys: :preserve
@@ -60,17 +49,17 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
     description: """
     Materialize a record to retrieve its full content.
 
-    Pass either a materialization_handle, or a data-source provider plus document_id.
-    Handles can materialize any supported Record, including communication-channel attachments.
-    Include config_id with provider/document_id when a specific data-source config is required.
+    Handles can materialize any supported Record, including data-source documents and
+    communication-channel attachments. Data-source handles are bearer capabilities that are
+    disclosed only on Records the actor was authorized to read.
+    Optional MIME fields control source/export representation only; they are not identity or
+    authorization inputs.
 
     Returns the normalized record including its materialized content.
     """,
     schema: @schema
 
   alias Jido.Action.Tool
-  alias Zaq.Agent.Tools.DataSourceTool
-  alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Helpers
   alias Zaq.Materialization
 
@@ -90,24 +79,14 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
         Map.get(params, :materialization_handle) || Map.get(params, "materialization_handle")
       )
 
-    has_provider? = not Helpers.blank?(Map.get(params, :provider) || Map.get(params, "provider"))
-
-    has_document_id? =
-      not Helpers.blank?(Map.get(params, :document_id) || Map.get(params, "document_id"))
-
-    has_provider_mode? = has_provider? and has_document_id?
-
-    validate_input_mode_flags(has_handle?, has_provider_mode?)
+    validate_input_mode_flags(has_handle?)
   end
 
   def validate_input_mode(_params, _opts),
     do: {:error, "download_document input must be an object"}
 
-  defp validate_input_mode_flags(true, false), do: :ok
-  defp validate_input_mode_flags(false, true), do: :ok
-
-  defp validate_input_mode_flags(_has_handle?, _has_provider_mode?),
-    do: {:error, "provide either materialization_handle or provider with document_id"}
+  defp validate_input_mode_flags(true), do: :ok
+  defp validate_input_mode_flags(false), do: {:error, "provide materialization_handle"}
 
   @impl Jido.Action
 
@@ -120,37 +99,22 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
     )
   end
 
-  def run(%{provider: provider, document_id: document_id} = params, context) do
-    error_prefix = "Data source document download failed"
-    attrs = optional_attrs(params)
-
-    with {:ok, handle} <- DataSourceDocument.issue(provider, document_id, attrs),
-         {:ok, payload} <-
-           Materialization.materialize(
-             handle,
-             context,
-             error_prefix,
-             materialization_options(params)
-           ) do
-      {:ok, payload}
-    else
-      {:error, reason} when is_binary(reason) -> {:error, reason}
-      {:error, reason} -> {:error, "#{error_prefix}: #{inspect(reason)}"}
-    end
-  end
-
   def run(_params, _context),
-    do: {:error, "Provide either materialization_handle or provider with document_id"}
-
-  defp optional_attrs(params) do
-    %{}
-    |> DataSourceTool.merge_optional(params, [:document_mime_type, :config_id])
-    |> Map.reject(fn {_key, value} -> Helpers.blank?(value) end)
-  end
+    do: {:error, "Provide materialization_handle"}
 
   defp materialization_options(params) do
     %{}
-    |> DataSourceTool.merge_optional(params, [:export_mime_type])
+    |> put_if_present(
+      "document_mime_type",
+      Map.get(params, :document_mime_type) || Map.get(params, "document_mime_type")
+    )
+    |> put_if_present(
+      "export_mime_type",
+      Map.get(params, :export_mime_type) || Map.get(params, "export_mime_type")
+    )
     |> Map.reject(fn {_key, value} -> Helpers.blank?(value) end)
   end
+
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
 end

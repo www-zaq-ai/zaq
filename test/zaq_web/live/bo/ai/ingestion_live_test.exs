@@ -25,9 +25,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.SystemConfigFixtures
 
   defmodule ProviderBrowserBridgeStub do
-    def list_files(provider, params, _context) do
+    def list_files(provider, params, context) do
       if pid = Application.get_env(:zaq, :ingestion_provider_browser_test_pid) do
         send(pid, {:list_files, provider, params})
+        send(pid, {:list_files, provider, params, context})
       end
 
       response = Application.get_env(:zaq, :provider_browser_list_response, :default)
@@ -531,8 +532,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     test "lists provider records from the route provider and navigates folders", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
 
-      assert_received {:list_files, "google_drive", %{"config_id" => config_id, "filters" => %{}}}
+      assert_received {:list_files, "google_drive", %{"config_id" => config_id, "filters" => %{}},
+                       context}
+
       assert is_integer(config_id)
+      assert context.actor.provider == "bo"
+      assert context.skip_permissions == true
       assert has_element?(view, "button", "Project Docs")
       assert has_element?(view, "span", "Budget.pdf")
       assert has_element?(view, ~s(img[src="https://drive.example/icons/folder.png"]), "")
@@ -548,7 +553,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       render_hook(view, "navigate", %{"path" => "folder-1"})
 
       assert_received {:list_files, "google_drive",
-                       %{"filters" => %{"parent" => "folder-1", "include_shared" => false}}}
+                       %{"filters" => %{"parent" => "folder-1", "include_shared" => false}},
+                       context}
+
+      assert context.actor.provider == "bo"
+      assert context.skip_permissions == true
 
       assert has_element?(view, "button", "Nested Folder")
       assert has_element?(view, "span", "No Preview.txt")

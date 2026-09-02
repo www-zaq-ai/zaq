@@ -43,6 +43,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Authorization
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
   alias Zaq.Events.TrustedContext
@@ -86,6 +87,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback sheet_append_values(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback sheet_clear_values(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback sheet_delete_tab(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback owns_permission_checks?() :: boolean()
 
   # Every callback above is optional. This module already dispatches through
   # `supports_callback?/3` and answers `{:error, :unsupported}` for anything a bridge does
@@ -127,7 +129,8 @@ defmodule Zaq.Channels.DataSourceBridge do
                       sheet_update_values: 2,
                       sheet_append_values: 2,
                       sheet_clear_values: 2,
-                      sheet_delete_tab: 2
+                      sheet_delete_tab: 2,
+                      owns_permission_checks?: 0
 
   @required_capabilities [
     :list_items,
@@ -340,10 +343,17 @@ defmodule Zaq.Channels.DataSourceBridge do
           {:ok, RecordPage.t()} | {:error, term()}
   def list_files(provider, params \\ %{}, context \\ %{})
       when is_map(params) and is_map(context) do
+    trusted_context = TrustedContext.normalize(context)
+
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :list_files, 3) || {:error, :unsupported} do
-      bridge.list_files(config, params, TrustedContext.normalize(context))
+      bridge.list_files(
+        config,
+        permission_projection_params(params, trusted_context),
+        trusted_context
+      )
+      |> authorize_response(bridge, :read, trusted_context)
       |> seal_response(config)
     end
   end
@@ -365,10 +375,17 @@ defmodule Zaq.Channels.DataSourceBridge do
   @spec get_file(atom() | String.t(), map(), map() | TrustedContext.t()) ::
           {:ok, map()} | {:error, term()}
   def get_file(provider, params \\ %{}, context \\ %{}) when is_map(params) and is_map(context) do
+    trusted_context = TrustedContext.normalize(context)
+
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :get_file, 3) || {:error, :unsupported} do
-      bridge.get_file(config, params, TrustedContext.normalize(context))
+      bridge.get_file(
+        config,
+        permission_projection_params(params, trusted_context),
+        trusted_context
+      )
+      |> authorize_response(bridge, :read, trusted_context)
       |> seal_response(config)
     end
   end
@@ -385,7 +402,8 @@ defmodule Zaq.Channels.DataSourceBridge do
          params <- update_file_params(record, claims, params),
          {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :update_file, 3) || {:error, :unsupported} do
+         true <- supports_callback?(bridge, :update_file, 3) || {:error, :unsupported},
+         :ok <- authorize_record(bridge, record, update_rights(params), context) do
       bridge.update_file(config, params, TrustedContext.normalize(context))
       |> seal_response(config)
     end
@@ -397,6 +415,9 @@ defmodule Zaq.Channels.DataSourceBridge do
       when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
+         true <-
+           bridge_owns_permission_checks?(bridge) ||
+             {:error, {:invalid_request, :record_required}},
          true <- supports_callback?(bridge, :update_file, 3) || {:error, :unsupported} do
       bridge.update_file(config, params, TrustedContext.normalize(context))
       |> seal_response(config)
@@ -408,10 +429,11 @@ defmodule Zaq.Channels.DataSourceBridge do
   def delete_file(%Record{} = record, context \\ %{}) when is_map(context) do
     with {:ok, claims} <- Provenance.verify(record),
          {:ok, provider} <- claim_provider(claims),
-         params <- delete_file_params(claims),
+         params <- delete_file_params(record, claims),
          {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :delete_file, 3) || {:error, :unsupported} do
+         true <- supports_callback?(bridge, :delete_file, 3) || {:error, :unsupported},
+         :ok <- authorize_record(bridge, record, [:delete], context) do
       bridge.delete_file(config, params, TrustedContext.normalize(context))
     end
   end
@@ -421,10 +443,17 @@ defmodule Zaq.Channels.DataSourceBridge do
           {:ok, RecordPage.t()} | {:error, term()}
   def search_files(provider, params \\ %{}, context \\ %{})
       when is_map(params) and is_map(context) do
+    trusted_context = TrustedContext.normalize(context)
+
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
          true <- supports_callback?(bridge, :search_files, 3) || {:error, :unsupported} do
-      bridge.search_files(config, params, TrustedContext.normalize(context))
+      bridge.search_files(
+        config,
+        permission_projection_params(params, trusted_context),
+        trusted_context
+      )
+      |> authorize_response(bridge, :read, trusted_context)
       |> seal_response(config)
     end
   end
@@ -641,6 +670,96 @@ defmodule Zaq.Channels.DataSourceBridge do
     %{"provider" => provider, "config_id" => id}
   end
 
+  defp authorize_response({:ok, %RecordPage{records: records} = page}, bridge, right, context)
+       when is_list(records) do
+    if bridge_owns_permission_checks?(bridge) or
+         TrustedContext.normalize(context).skip_permissions do
+      {:ok, page}
+    else
+      records =
+        Enum.filter(
+          records,
+          &(Authorization.can?(TrustedContext.normalize(context).actor, &1, right) == true)
+        )
+
+      {:ok,
+       %{page | records: records, stats: Map.put(page.stats || %{}, :returned, length(records))}}
+    end
+  end
+
+  defp authorize_response({:ok, %{record: %Record{} = record} = payload}, bridge, right, context) do
+    with :ok <- authorize_record(bridge, record, [right], context) do
+      {:ok, payload}
+    end
+  end
+
+  defp authorize_response(other, _bridge, _right, _context), do: other
+
+  defp permission_projection_params(params, %TrustedContext{skip_permissions: true}) do
+    put_include_permissions(params, explicitly_requested_permissions?(params))
+  end
+
+  defp permission_projection_params(params, %TrustedContext{}),
+    do: put_include_permissions(params, true)
+
+  defp explicitly_requested_permissions?(params) do
+    Map.get(params, "include_permissions") == true or
+      Map.get(params, :include_permissions) == true
+  end
+
+  defp put_include_permissions(params, value) do
+    params
+    |> Map.delete(:include_permissions)
+    |> Map.put("include_permissions", value)
+  end
+
+  defp authorize_record(bridge, %Record{} = record, rights, context) when is_list(rights) do
+    cond do
+      rights == [] ->
+        {:error, {:invalid_request, :changes_required}}
+
+      bridge_owns_permission_checks?(bridge) ->
+        :ok
+
+      TrustedContext.normalize(context).skip_permissions ->
+        :ok
+
+      Enum.all?(rights, &Authorization.can?(TrustedContext.normalize(context).actor, record, &1)) ->
+        :ok
+
+      true ->
+        {:error, :unauthorized}
+    end
+  end
+
+  defp bridge_owns_permission_checks?(bridge) do
+    function_exported?(bridge, :owns_permission_checks?, 0) and
+      bridge.owns_permission_checks?() == true
+  end
+
+  defp update_rights(params) do
+    rights = []
+
+    rights =
+      if present_update_value?(params, [
+           "name",
+           :name,
+           "content",
+           :content,
+           "mime_type",
+           :mime_type
+         ]), do: [:edit | rights], else: rights
+
+    rights =
+      if present_update_value?(params, ["path", :path, "parent_id", :parent_id]),
+        do: [:move | rights],
+        else: rights
+
+    Enum.uniq(rights)
+  end
+
+  defp present_update_value?(params, keys), do: Enum.any?(keys, &Map.has_key?(params, &1))
+
   defp resolve_data_source_config(provider, params) do
     case normalize_config_id(params) do
       {:ok, id} -> fetch_scoped_data_source_config(provider, id)
@@ -650,8 +769,9 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   defp fetch_unscoped_data_source_config(provider), do: Bridge.fetch_channel_config(provider)
 
-  defp delete_file_params(claims) do
+  defp delete_file_params(record, claims) do
     %{"file_id" => Map.fetch!(claims, "provider_record_id")}
+    |> Map.put("record", record)
     |> maybe_put("config_id", Map.get(claims, "config_id"))
   end
 
@@ -663,6 +783,7 @@ defmodule Zaq.Channels.DataSourceBridge do
     |> Map.new()
     |> drop_copied_record_path(record)
     |> Map.put("file_id", Map.fetch!(claims, "provider_record_id"))
+    |> Map.put("record", record)
     |> maybe_put("config_id", Map.get(claims, "config_id"))
   end
 

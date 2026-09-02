@@ -79,6 +79,16 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Zaq.Utils.Scopes
   require Logger
 
+  @provider_read_permissions MapSet.new(["read", "reader", "commenter"])
+  @provider_edit_permissions MapSet.new([
+                               "edit",
+                               "write",
+                               "writer",
+                               "owner",
+                               "organizer",
+                               "fileorganizer"
+                             ])
+
   @impl true
   def auth_handshake(config, params) when is_map(config) and is_map(params),
     do: {:error, :unsupported}
@@ -111,6 +121,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def get_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
+    params = maybe_embed_permissions_projection(params, config)
+
     with {:ok, payload} <- invoke_intent(config, :get_item_metadata, params),
          {:ok, record} <- map_file_from_payload(payload, config, params) do
       {:ok, %{record: record}}
@@ -119,7 +131,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def update_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
-    with {:ok, payload} <- invoke_intent(config, :update_item, params),
+    with {:ok, payload} <- invoke_intent(config, :update_item, provider_params(params)),
          {:ok, record} <- map_file_from_payload(payload) do
       {:ok, %{status: "updated", record: record}}
     end
@@ -127,13 +139,15 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def delete_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
-    with {:ok, payload} <- invoke_intent(config, :delete_item, params) do
+    with {:ok, payload} <- invoke_intent(config, :delete_item, provider_params(params)) do
       {:ok, %{status: "deleted", result: payload}}
     end
   end
 
   @impl true
   def search_files(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
+    params = maybe_embed_permissions_projection(params, config)
+
     with {:ok, payload} <- invoke_intent(config, :search_items, params) do
       map_file_page(payload, config, params)
     end
@@ -1815,6 +1829,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
     %{
       "permission_id" => read_stringish(raw, ["id", :id, "permission_id", :permission_id]),
       "principal_type" => read_stringish(raw, ["type", :type]),
+      "principal" => permission_principal(raw),
       "principal_key" =>
         read_stringish(raw, [
           "emailAddress",
@@ -1829,6 +1844,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
           :permission_id
         ]),
       "role" => read_stringish(raw, ["role", :role]),
+      "access_rights" => permission_access_rights(raw),
       "inherited" => read_any(raw, ["inherited", :inherited, "inherited?", :inherited?]),
       "origin_resource_id" =>
         read_stringish(raw, [
@@ -1853,6 +1869,69 @@ defmodule Zaq.Channels.JidoConnectBridge do
         nil
     end
   end
+
+  defp permission_principal(raw) do
+    channel = permission_principal_channel(raw)
+    identifier = permission_principal_identifier(raw)
+
+    if is_binary(channel) and is_binary(identifier) do
+      %{"channel" => channel, "identifier" => identifier}
+    end
+  end
+
+  defp permission_principal_channel(raw) do
+    cond do
+      read_stringish(raw, ["emailAddress", :emailAddress, "email_address", :email_address]) ->
+        "email"
+
+      read_stringish(raw, ["email", :email]) ->
+        "email"
+
+      true ->
+        read_stringish(raw, ["channel", :channel, "principal_channel", :principal_channel])
+    end
+  end
+
+  defp permission_principal_identifier(raw) do
+    read_stringish(raw, [
+      "emailAddress",
+      :emailAddress,
+      "email_address",
+      :email_address,
+      "email",
+      :email,
+      "channel_identifier",
+      :channel_identifier,
+      "principal_key",
+      :principal_key
+    ])
+  end
+
+  defp permission_access_rights(raw) do
+    raw
+    |> read_any(["access_rights", :access_rights])
+    |> List.wrap()
+    |> case do
+      [] -> [read_stringish(raw, ["role", :role])]
+      rights -> rights
+    end
+    |> Enum.flat_map(&canonical_access_rights/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp canonical_access_rights(value) when is_binary(value) do
+    value = value |> String.trim() |> String.downcase()
+
+    cond do
+      MapSet.member?(@provider_read_permissions, value) -> ["read"]
+      MapSet.member?(@provider_edit_permissions, value) -> ["read", "edit", "move", "delete"]
+      value in ["move", "delete"] -> [value]
+      true -> []
+    end
+  end
+
+  defp canonical_access_rights(_value), do: []
 
   defp maybe_embed_permissions_projection(params, %{provider: provider} = _config)
        when is_map(params) and (is_binary(provider) or is_atom(provider)) do
@@ -3389,6 +3468,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp webhook_worker_module,
     do: Application.get_env(:zaq, :jido_connect_bridge_webhook_worker_module, WebhookWorker)
+
+  defp provider_params(params) when is_map(params),
+    do: Map.drop(params, ["record", :record])
 
   defp oban_module,
     do: Application.get_env(:zaq, :jido_connect_bridge_oban_module, Oban)

@@ -178,10 +178,19 @@ never derive actors or `skip_permissions` from request parameters. Bridges that 
 another role, such as `DiskBridge` dispatching to Storage, project the same trusted context
 through that role's event helper.
 
+`Zaq.Channels.DataSourceBridge` enforces Record permissions by default for file reads and
+mutations. Bridges normalize provider principals into permission Records with canonical
+`principal.channel`, `principal.identifier`, and `access_rights`; the global boundary matches
+those grants against the trusted actor's People-directory identity. A bridge may opt out only
+by implementing `owns_permission_checks?/0` and returning `true`; Disk does this because
+Storage owns source ACLs and checks them with current filesystem context.
+
 Unmaterialized data-source file records carry a signed `materialization_handle` of type
 `data_source_document`. The handle survives agent/tool JSON serialization and is redeemed
 through `Zaq.Materialization`; the Channels materializer validates the locator and dispatches
-the fixed `:data_source_download_document` action.
+the fixed `:data_source_download_document` action. The handle is a bearer capability disclosed
+only on Records the caller was authorized to read, so redemption does not repeat the provider
+permission check.
 
 Unmaterialized communication-media records carry a signed `materialization_handle`
 of type `communication_media`. The handle is redeemed through the same

@@ -96,6 +96,17 @@ defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.StillMore do
   end
 end
 
+defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.CaptureContext do
+  @moduledoc false
+
+  alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: Stubs
+
+  def list_files(_config, params, context) do
+    send(self(), {:provider_live_list_files, params, context})
+    {:ok, Stubs.page([Stubs.record("folder-captured", "Captured")], nil)}
+  end
+end
+
 defmodule Zaq.Test.ProviderLiveDataSourceBridgeStubs.DisplayMessageError do
   @moduledoc false
 

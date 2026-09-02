@@ -26,6 +26,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.System
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Live.BO.AI.BOActor
+  alias ZaqWeb.Live.BO.DataSourceEvents
   alias ZaqWeb.Live.BO.PreviewHelpers
 
   import Ecto.Query
@@ -1303,26 +1304,22 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp dispatch_list_files(provider, params, socket) do
-    opts = [action: :data_source_list_files]
-    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
-
-    Event.new(%{provider: provider, params: params}, :channels,
-      opts: opts,
-      actor: BOActor.build(socket.assigns.current_user)
+    DataSourceEvents.build_and_dispatch(
+      :data_source_list_files,
+      %{provider: provider, params: params},
+      socket.assigns.current_user,
+      event_opts: [data_source_bridge_module: data_source_bridge_module()]
     )
-    |> NodeRouter.dispatch()
     |> Map.get(:response)
   end
 
   defp dispatch_data_source_action(action, provider, params, socket) do
-    opts = [action: action]
-    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
-
-    Event.new(%{provider: provider, params: params}, :channels,
-      opts: opts,
-      actor: BOActor.build(socket.assigns.current_user)
+    DataSourceEvents.build_and_dispatch(
+      action,
+      %{provider: provider, params: params},
+      socket.assigns.current_user,
+      event_opts: [data_source_bridge_module: data_source_bridge_module()]
     )
-    |> NodeRouter.dispatch()
     |> Map.get(:response)
   end
 
@@ -1389,14 +1386,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp dispatch_data_source_update(record, params, socket) do
-    opts = [action: :data_source_update_file]
-    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
-
-    Event.new(%{record: record, params: params}, :channels,
-      opts: opts,
-      actor: BOActor.build(socket.assigns.current_user)
+    DataSourceEvents.build_and_dispatch(
+      :data_source_update_file,
+      %{record: record, params: params},
+      socket.assigns.current_user,
+      event_opts: [data_source_bridge_module: data_source_bridge_module()]
     )
-    |> NodeRouter.dispatch()
     |> Map.get(:response)
   end
 
@@ -1416,14 +1411,12 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp dispatch_data_source_delete(record, socket) do
-    opts = [action: :data_source_delete_file]
-    opts = Keyword.put(opts, :data_source_bridge_module, data_source_bridge_module())
-
-    Event.new(%{record: record}, :channels,
-      opts: opts,
-      actor: BOActor.build(socket.assigns.current_user)
+    DataSourceEvents.build_and_dispatch(
+      :data_source_delete_file,
+      %{record: record},
+      socket.assigns.current_user,
+      event_opts: [data_source_bridge_module: data_source_bridge_module()]
     )
-    |> NodeRouter.dispatch()
     |> Map.get(:response)
   end
 

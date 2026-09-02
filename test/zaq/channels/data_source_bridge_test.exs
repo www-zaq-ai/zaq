@@ -2,6 +2,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   use Zaq.DataCase, async: false
   use ExUnitProperties
 
+  alias Zaq.Accounts.{People, PersonChannel}
   alias Zaq.Channels.{Bridge, ChannelConfig, DataSourceBridge, DiskBridge}
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
@@ -239,7 +240,10 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       permission = %Record{
         id: "perm-1",
         kind: :permission,
-        attributes: %{"target_id" => "user@example.com", "role" => "reader"}
+        attributes: %{
+          "principal" => %{"channel" => "email", "identifier" => "user@example.com"},
+          "access_rights" => ["read"]
+        }
       }
 
       record = %Record{
@@ -304,6 +308,54 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   defp disk_settings(:disk), do: %{"volumes" => [%{"name" => "docs", "path" => "docs"}]}
   defp disk_settings("disk"), do: %{"volumes" => [%{"name" => "docs", "path" => "docs"}]}
   defp disk_settings(_provider), do: %{}
+
+  defp person_fixture(email \\ nil) do
+    unique = System.unique_integer([:positive])
+    email = email || "actor-#{unique}@example.com"
+
+    {:ok, person} =
+      People.create_person(%{
+        "full_name" => "Actor #{unique}",
+        "email" => email,
+        "phone" => "+1555#{unique}"
+      })
+
+    person
+  end
+
+  defp permission_fixture(email, rights) do
+    %Record{
+      id: "perm-#{System.unique_integer([:positive])}",
+      kind: :permission,
+      attributes: %{
+        "principal" => %{"channel" => "email", "identifier" => email},
+        "access_rights" => rights
+      }
+    }
+  end
+
+  defp actor_context(person), do: %{actor: %{person: %{id: person.id}}}
+
+  defp use_record_returning_bridge do
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: StubRecordReturningDataSourceBridge,
+        adapter: __MODULE__.StubAdapter
+      }
+    })
+  end
+
+  defp person_channel_fixture(person, attrs) do
+    params =
+      %{
+        platform: "mattermost",
+        channel_identifier: "channel-#{System.unique_integer([:positive])}",
+        person_id: person.id
+      }
+      |> Map.merge(attrs)
+
+    Repo.insert!(%PersonChannel{} |> PersonChannel.changeset(params))
+  end
 
   test "delegates datasource operations to provider bridge" do
     insert_data_source_config(:google_drive)
@@ -405,9 +457,14 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     end)
 
     config = insert_data_source_config(:google_drive)
+    person = person_fixture("USER@example.com")
 
     assert {:ok, %RecordPage{records: [%Record{} = record]}} =
-             DataSourceBridge.list_files(:google_drive, %{config_id: config.id})
+             DataSourceBridge.list_files(
+               :google_drive,
+               %{config_id: config.id},
+               actor_context(person)
+             )
 
     assert is_binary(record.provenance_ref)
     assert {:ok, claims} = Provenance.verify(record)
@@ -419,13 +476,55 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert {:ok, _permission_claims} = Provenance.verify(permission)
 
     assert {:ok, %{record: %Record{} = empty_permissions_record}} =
-             DataSourceBridge.get_file(:google_drive, %{
-               "file_id" => "file-2",
-               config_id: config.id
-             })
+             DataSourceBridge.get_file(
+               :google_drive,
+               %{
+                 "file_id" => "file-2",
+                 config_id: config.id
+               },
+               %{skip_permissions: true}
+             )
 
     assert {:ok, empty_claims} = Provenance.verify(empty_permissions_record)
     assert empty_claims["permissions"] == %{"state" => "loaded", "entries" => []}
+  end
+
+  test "globally filters and denies provider records by normalized permissions" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: StubRecordReturningDataSourceBridge,
+        adapter: __MODULE__.StubAdapter
+      }
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, original_channels) end)
+
+    config = insert_data_source_config(:google_drive)
+    actor = person_fixture("user@example.com")
+    other = person_fixture("other@example.com")
+
+    assert {:ok, %RecordPage{records: [%Record{id: "file-1"}]}} =
+             DataSourceBridge.list_files(
+               :google_drive,
+               %{config_id: config.id},
+               actor_context(actor)
+             )
+
+    assert {:ok, %RecordPage{records: []}} =
+             DataSourceBridge.list_files(
+               :google_drive,
+               %{config_id: config.id},
+               actor_context(other)
+             )
+
+    assert {:error, :unauthorized} =
+             DataSourceBridge.get_file(
+               :google_drive,
+               %{"file_id" => "file-2", config_id: config.id},
+               actor_context(actor)
+             )
   end
 
   test "replace_permissions delegates scoped config and trusted context" do
@@ -579,14 +678,23 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       Provenance.seal(update_record, %{"provider" => "google_drive", "config_id" => config_id})
 
     assert {:ok, %{status: "updated", record: %{"id" => "f1"}}} =
-             DataSourceBridge.update_file(update_record, %{
-               "file_id" => "attacker-file",
-               "name" => "Renamed",
-               config_id: "999"
-             })
+             DataSourceBridge.update_file(
+               update_record,
+               %{
+                 "file_id" => "attacker-file",
+                 "name" => "Renamed",
+                 config_id: "999"
+               },
+               %{skip_permissions: true}
+             )
 
     assert_received {:update_file, ^config_id,
-                     %{"file_id" => "f1", "name" => "Renamed", "config_id" => ^config_id}}
+                     %{
+                       "file_id" => "f1",
+                       "name" => "Renamed",
+                       "config_id" => ^config_id,
+                       "record" => ^update_record
+                     }}
 
     delete_record = %Record{
       id: "record-f1",
@@ -601,9 +709,15 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     {:ok, delete_record} =
       Provenance.seal(delete_record, %{"provider" => "google_drive", "config_id" => config_id})
 
-    assert {:ok, %{status: "deleted", result: %{}}} = DataSourceBridge.delete_file(delete_record)
+    assert {:ok, %{status: "deleted", result: %{}}} =
+             DataSourceBridge.delete_file(delete_record, %{skip_permissions: true})
 
-    assert_received {:delete_file, ^config_id, %{"file_id" => "f1", "config_id" => ^config_id}}
+    assert_received {:delete_file, ^config_id,
+                     %{
+                       "file_id" => "f1",
+                       "config_id" => ^config_id,
+                       "record" => ^delete_record
+                     }}
 
     fallback_record = %Record{
       id: "fallback-f1",
@@ -615,10 +729,14 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       Provenance.seal(fallback_record, %{"provider" => "google_drive", "config_id" => config_id})
 
     assert {:ok, %{status: "deleted", result: %{}}} =
-             DataSourceBridge.delete_file(fallback_record)
+             DataSourceBridge.delete_file(fallback_record, %{skip_permissions: true})
 
     assert_received {:delete_file, ^config_id,
-                     %{"file_id" => "fallback-f1", "config_id" => ^config_id}}
+                     %{
+                       "file_id" => "fallback-f1",
+                       "config_id" => ^config_id,
+                       "record" => ^fallback_record
+                     }}
 
     invalid_record = %Record{id: "f1", kind: :file, attributes: %{}}
 
@@ -657,7 +775,124 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:channel_stats, ^config_id, %{config_id: ^config_id}}
   end
 
-  test "update_file delegates provider-based updates through scoped config" do
+  test "read wrappers force permission projection unless permissions are bypassed" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_files(:google_drive, %{
+               config_id: config_id,
+               include_permissions: false
+             })
+
+    assert_received {:list_files, ^config_id, list_params}
+    assert list_params["include_permissions"] == true
+    assert list_params[:include_permissions] == nil
+
+    assert {:ok, %{records: [%{"id" => "f1"}]}} =
+             DataSourceBridge.search_files(:google_drive, %{
+               "query" => "invoice",
+               "include_permissions" => false,
+               config_id: config_id
+             })
+
+    assert_received {:search_files, ^config_id, search_params}
+    assert search_params["include_permissions"] == true
+    assert search_params[:include_permissions] == nil
+
+    assert {:ok, %{record: %{"id" => "f1"}}} =
+             DataSourceBridge.get_file(:google_drive, %{
+               "file_id" => "f1",
+               config_id: config_id
+             })
+
+    assert_received {:get_file, ^config_id, get_params}
+    assert get_params["include_permissions"] == true
+    assert get_params[:include_permissions] == nil
+  end
+
+  test "trusted bypass omits permission projection unless explicitly requested" do
+    config = insert_data_source_config(:google_drive)
+    config_id = config.id
+
+    assert {:ok, %{records: []}} =
+             DataSourceBridge.list_files(
+               :google_drive,
+               %{config_id: config_id},
+               %{skip_permissions: true}
+             )
+
+    assert_received {:list_files, ^config_id, list_params}
+    assert list_params["include_permissions"] == false
+    assert list_params[:include_permissions] == nil
+
+    assert {:ok, %{records: [%{"id" => "f1"}]}} =
+             DataSourceBridge.search_files(
+               :google_drive,
+               %{"query" => "invoice", config_id: config_id, include_permissions: true},
+               %{skip_permissions: true}
+             )
+
+    assert_received {:search_files, ^config_id, search_params}
+    assert search_params["include_permissions"] == true
+    assert search_params[:include_permissions] == nil
+
+    assert {:ok, %{record: %{"id" => "f1"}}} =
+             DataSourceBridge.get_file(
+               :google_drive,
+               %{"file_id" => "f1", "include_permissions" => false, config_id: config_id},
+               %{skip_permissions: true}
+             )
+
+    assert_received {:get_file, ^config_id, get_params}
+    assert get_params["include_permissions"] == false
+    assert get_params[:include_permissions] == nil
+  end
+
+  test "list_files authorizes email principals through email person channels" do
+    use_record_returning_bridge()
+
+    config = insert_data_source_config(:google_drive)
+    person = person_fixture("mattermost-user-#{System.unique_integer([:positive])}@example.com")
+
+    person_channel_fixture(person, %{
+      platform: "mattermost",
+      channel_identifier: "MM_USER_1"
+    })
+
+    person_channel_fixture(person, %{
+      platform: "email",
+      channel_identifier: "User@Example.COM"
+    })
+
+    assert {:ok, %{records: [%Record{id: "file-1"}], stats: %{returned: 1}}} =
+             DataSourceBridge.list_files(
+               :google_drive,
+               %{config_id: config.id},
+               actor_context(person)
+             )
+  end
+
+  test "list_files rejects email principals not associated to the actor person" do
+    use_record_returning_bridge()
+
+    config = insert_data_source_config(:google_drive)
+    person = person_fixture("different-#{System.unique_integer([:positive])}@example.com")
+
+    person_channel_fixture(person, %{
+      platform: "mattermost",
+      channel_identifier: "MM_USER_2"
+    })
+
+    assert {:ok, %{records: [], stats: %{returned: 0}}} =
+             DataSourceBridge.list_files(
+               :google_drive,
+               %{config_id: config.id},
+               actor_context(person)
+             )
+  end
+
+  test "update_file rejects provider-based updates for globally authorized bridges" do
     config = insert_data_source_config(:google_drive)
     config_id = config.id
 
@@ -667,15 +902,16 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       "name" => "Renamed"
     }
 
-    assert {:ok, %{status: "updated", record: %{"id" => "f1"}}} =
+    assert {:error, {:invalid_request, :record_required}} =
              DataSourceBridge.update_file(:google_drive, params)
 
-    assert_received {:update_file, ^config_id, ^params}
+    refute_received {:update_file, ^config_id, ^params}
   end
 
   property "update_file uses signed record identity instead of caller-supplied routing params" do
     config = insert_data_source_config(:google_drive)
     config_id = config.id
+    person = person_fixture()
 
     check all(
             provider_file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 24),
@@ -690,24 +926,30 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
           "provider" => "google_drive",
           "config_id" => config_id,
           "provider_record_id" => provider_file_id
-        }
+        },
+        permissions: [permission_fixture(person.email, ["edit"])]
       }
 
       {:ok, record} =
         Provenance.seal(record, %{"provider" => "google_drive", "config_id" => config_id})
 
       assert {:ok, %{status: "updated"}} =
-               DataSourceBridge.update_file(record, %{
-                 "file_id" => attempted_file_id,
-                 :config_id => attempted_config_id,
-                 "name" => "Renamed"
-               })
+               DataSourceBridge.update_file(
+                 record,
+                 %{
+                   "file_id" => attempted_file_id,
+                   :config_id => attempted_config_id,
+                   "name" => "Renamed"
+                 },
+                 actor_context(person)
+               )
 
       assert_received {:update_file, ^config_id,
                        %{
                          "file_id" => ^provider_file_id,
                          "config_id" => ^config_id,
-                         "name" => "Renamed"
+                         "name" => "Renamed",
+                         "record" => ^record
                        }}
     end
   end
@@ -715,6 +957,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   test "update_file drops path when the caller copied current record metadata" do
     config = insert_data_source_config(:google_drive)
     config_id = config.id
+    person = person_fixture()
 
     record = %Record{
       id: "f1",
@@ -727,17 +970,21 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
         "relative_path" => "Tesla model 3.png",
         "source" => "archives/Tesla model 3.png",
         "volume" => "archives"
-      }
+      },
+      permissions: [permission_fixture(person.email, ["edit"])]
     }
 
     {:ok, record} =
       Provenance.seal(record, %{"provider" => "google_drive", "config_id" => config_id})
 
-    assert {:ok, %{status: "updated"}} =
-             DataSourceBridge.update_file(record, %{"path" => "Tesla model 3.png"})
+    assert {:error, {:invalid_request, :changes_required}} =
+             DataSourceBridge.update_file(
+               record,
+               %{"path" => "Tesla model 3.png"},
+               actor_context(person)
+             )
 
-    assert_received {:update_file, ^config_id,
-                     %{"file_id" => "provider-f1", "config_id" => ^config_id}}
+    refute_received {:update_file, ^config_id, _params}
   end
 
   test "update_file rejects missing and tampered provenance" do
@@ -771,16 +1018,23 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   test "delete_file omits config_id when provenance has only provider" do
     config = insert_data_source_config(:google_drive)
     config_id = config.id
+    person = person_fixture()
 
     record = %Record{
       id: "stable-file-id",
       kind: :file,
-      attributes: %{"provider" => "google_drive"}
+      attributes: %{"provider" => "google_drive"},
+      permissions: [permission_fixture(person.email, ["delete"])]
     }
 
     assert {:ok, sealed_record} = Provenance.seal(record, %{"provider" => "google_drive"})
-    assert {:ok, %{status: "deleted", result: %{}}} = DataSourceBridge.delete_file(sealed_record)
-    assert_received {:delete_file, ^config_id, %{"file_id" => "stable-file-id"}}
+
+    assert {:ok, %{status: "deleted", result: %{}}} =
+             DataSourceBridge.delete_file(sealed_record, actor_context(person))
+
+    assert_received {:delete_file, ^config_id,
+                     %{"file_id" => "stable-file-id", "record" => ^sealed_record}}
+
     refute_received {:delete_file, ^config_id, %{"file_id" => _, "config_id" => _}}
   end
 

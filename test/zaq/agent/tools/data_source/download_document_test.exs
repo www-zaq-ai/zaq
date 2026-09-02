@@ -3,12 +3,10 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
 
   alias Jido.Action.Schema
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
-  alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Event
   alias Zaq.Materialization
-  alias Zaq.Materialization.Handle
   alias Zaq.Storage.Materializers.DiskDocument
 
   defmodule StubNodeRouter do
@@ -61,16 +59,8 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
       assert :ok = DownloadDocument.validate_input_mode(%{materialization_handle: "handle"})
     end
 
-    test "accepts provider and document_id input" do
-      assert :ok =
-               DownloadDocument.validate_input_mode(%{
-                 provider: "google_drive",
-                 document_id: "f1"
-               })
-    end
-
-    test "rejects missing, partial, and ambiguous input modes" do
-      message = "provide either materialization_handle or provider with document_id"
+    test "rejects missing and provider/document_id input modes" do
+      message = "provide materialization_handle"
 
       assert {:error, ^message} = DownloadDocument.validate_input_mode(%{})
 
@@ -81,7 +71,6 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
 
       assert {:error, ^message} =
                DownloadDocument.validate_input_mode(%{
-                 materialization_handle: "handle",
                  provider: "google_drive",
                  document_id: "f1"
                })
@@ -90,15 +79,15 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     test "pre-validation converts map params using the action schema" do
       assert {:ok, converted} =
                DownloadDocument.on_before_validate_params(%{
-                 "provider" => "google_drive",
-                 "document_id" => "f1",
-                 "config_id" => "12",
+                 "materialization_handle" => "handle",
+                 "document_mime_type" => "text/markdown",
+                 "export_mime_type" => "text/plain",
                  "ignored" => "kept"
                })
 
-      assert converted.provider == "google_drive"
-      assert converted.document_id == "f1"
-      assert converted.config_id == "12"
+      assert converted.materialization_handle == "handle"
+      assert converted.document_mime_type == "text/markdown"
+      assert converted.export_mime_type == "text/plain"
       assert converted["ignored"] == "kept"
     end
 
@@ -132,7 +121,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     assert_received {:dispatch, :channels, :data_source_download_document, %{"file_id" => "f1"}}
   end
 
-  test "materializes a signed handle with an explicit export MIME override" do
+  test "materializes a signed handle with MIME representation options" do
     assert {:ok, handle} =
              Materialization.issue("data_source_document", %{
                "provider" => "google_drive",
@@ -141,81 +130,48 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
 
     assert {:ok, %{record: %Record{} = record}} =
              DownloadDocument.run(
-               %{materialization_handle: handle, export_mime_type: "text/plain"},
-               %{node_router: StubNodeRouter}
-             )
-
-    assert record.id == "f1"
-    assert record.content == "abc"
-
-    assert_received {:dispatch, :channels, :data_source_download_document,
-                     %{"file_id" => "f1", "export_mime_type" => "text/plain"}}
-  end
-
-  test "provider and document_id mode issues then redeems a data-source handle" do
-    assert {:ok, %{record: %Record{} = record}} =
-             DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
-               node_router: StubNodeRouter
-             })
-
-    assert record.id == "f1"
-    assert record.content == "abc"
-    assert_received {:dispatch, :channels, :data_source_download_document, %{"file_id" => "f1"}}
-  end
-
-  test "provider mode preserves config and MIME options in the download request" do
-    assert {:ok, _} =
-             DownloadDocument.run(
                %{
-                 provider: "google_drive",
-                 document_id: "f1",
-                 config_id: "12",
+                 materialization_handle: handle,
                  document_mime_type: "application/vnd.google-apps.document",
                  export_mime_type: "text/plain"
                },
                %{node_router: StubNodeRouter}
              )
 
+    assert record.id == "f1"
+    assert record.content == "abc"
+
     assert_received {:dispatch, :channels, :data_source_download_document,
                      %{
                        "file_id" => "f1",
-                       "config_id" => "12",
                        "document_mime_type" => "application/vnd.google-apps.document",
                        "export_mime_type" => "text/plain"
                      }}
   end
 
-  test "provider mode keeps export MIME out of the signed locator" do
+  test "returns formatted errors" do
     assert {:ok, handle} =
-             DataSourceDocument.issue("google_drive", "f1", %{
-               "config_id" => "12",
-               "document_mime_type" => "application/vnd.google-apps.document",
-               "export_mime_type" => "text/plain"
+             Materialization.issue("data_source_document", %{
+               "provider" => "google_drive",
+               "file_id" => "f1"
              })
 
-    assert {:ok, %{locator: locator}} = Handle.verify(handle)
-
-    refute Map.has_key?(locator, "export_mime_type")
-  end
-
-  test "returns formatted errors" do
-    assert {:error, "Data source document download failed: :timeout"} =
-             DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
+    assert {:error, "Record materialization failed: :timeout"} =
+             DownloadDocument.run(%{materialization_handle: handle}, %{
                node_router: ErrorNodeRouter
              })
 
     assert {:error,
-            "Data source document download failed: unexpected materialize response :weird_response"} =
-             DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
+            "Record materialization failed: unexpected materialize response :weird_response"} =
+             DownloadDocument.run(%{materialization_handle: handle}, %{
                node_router: UnexpectedNodeRouter
              })
   end
 
   test "run returns an error when params do not contain a valid mode" do
-    assert {:error, "Provide either materialization_handle or provider with document_id"} =
-             DownloadDocument.run(%{}, %{})
+    assert {:error, "Provide materialization_handle"} = DownloadDocument.run(%{}, %{})
 
-    assert {:error, "Provide either materialization_handle or provider with document_id"} =
+    assert {:error, "Provide materialization_handle"} =
              DownloadDocument.run(%{provider: "google_drive"}, %{})
   end
 
@@ -288,23 +244,24 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     end
 
     test "takes the second hop and returns text content for a text file" do
+      {:ok, handle} = DiskDocument.issue("guide.md")
+
       assert {:ok, %{record: %Record{} = record}} =
-               DownloadDocument.run(%{provider: "disk", document_id: "guide.md"}, %{
+               DownloadDocument.run(%{materialization_handle: handle}, %{
                  node_router: DiskNodeRouter
                })
 
       assert record.content == "# guide"
       refute Map.has_key?(record.attributes, "encoding")
 
-      assert_received {:first_hop, :channels, :data_source_download_document,
-                       %{"file_id" => "guide.md"}}
-
       assert_received {:second_hop, :storage, :materialize_document, "guide.md"}
     end
 
     test "returns base64 content for a binary file, flagged in attributes" do
+      {:ok, handle} = DiskDocument.issue("deck.pdf")
+
       assert {:ok, %{record: %Record{} = record}} =
-               DownloadDocument.run(%{provider: "disk", document_id: "deck.pdf"}, %{
+               DownloadDocument.run(%{materialization_handle: handle}, %{
                  node_router: DiskNodeRouter
                })
 
@@ -313,8 +270,14 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     end
 
     test "a provider answering with content directly takes exactly one hop" do
+      assert {:ok, handle} =
+               Materialization.issue("data_source_document", %{
+                 "provider" => "google_drive",
+                 "file_id" => "f1"
+               })
+
       assert {:ok, %{record: %Record{id: "f1", content: "abc"}}} =
-               DownloadDocument.run(%{provider: "google_drive", document_id: "f1"}, %{
+               DownloadDocument.run(%{materialization_handle: handle}, %{
                  node_router: StubNodeRouter
                })
 
@@ -324,36 +287,19 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
     end
 
     test "an error on the first hop is prefixed and no second hop is attempted" do
-      assert {:error, "Data source document download failed: :not_found"} =
-               DownloadDocument.run(%{provider: "disk", document_id: "guide.md"}, %{
+      {:ok, handle} =
+        Materialization.issue("data_source_document", %{
+          "provider" => "disk",
+          "file_id" => "guide.md"
+        })
+
+      assert {:error, "Record materialization failed: :not_found"} =
+               DownloadDocument.run(%{materialization_handle: handle}, %{
                  node_router: DiskFirstHopErrorRouter
                })
 
       assert_received :first_hop
       refute_received :second_hop
-    end
-
-    test "still merges the optional mime type and config keys into the first request" do
-      assert {:ok, _} =
-               DownloadDocument.run(
-                 %{
-                   provider: "disk",
-                   document_id: "guide.md",
-                   document_mime_type: "text/markdown",
-                   export_mime_type: "text/plain",
-                   config_id: "12"
-                 },
-                 %{node_router: DiskNodeRouter}
-               )
-
-      assert_received {:first_hop, :channels, :data_source_download_document, params}
-
-      assert params == %{
-               "file_id" => "guide.md",
-               "document_mime_type" => "text/markdown",
-               "export_mime_type" => "text/plain",
-               "config_id" => "12"
-             }
     end
   end
 end

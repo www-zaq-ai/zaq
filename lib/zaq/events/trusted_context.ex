@@ -40,9 +40,14 @@ defmodule Zaq.Events.TrustedContext do
   def from_event(%Event{} = event) do
     %__MODULE__{
       actor: event.actor,
-      skip_permissions: Keyword.get(event.opts, :skip_permissions) == true
+      skip_permissions:
+        Keyword.get(event.opts, :skip_permissions) == true or actor_skip_permissions?(event.actor)
     }
   end
+
+  defp actor_skip_permissions?(%{skip_permissions: true}), do: true
+  defp actor_skip_permissions?(%{"skip_permissions" => true}), do: true
+  defp actor_skip_permissions?(_actor), do: false
 
   @doc "Projects context into options accepted by role event builders."
   @spec event_builder_opts(t() | map(), keyword()) :: keyword()
