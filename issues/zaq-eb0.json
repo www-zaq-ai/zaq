@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-02T09:56:46Z",
+  "description": "Implement ZAQ MFA provider using Jido.Exec and secure data-source document actions with provenance_ref.",
+  "id": "zaq-eb0",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[agent-skills-4] Implement Jido skill resource provider",
+  "type": "task",
+  "updated_at": "2026-09-02T09:56:46Z"
+}
