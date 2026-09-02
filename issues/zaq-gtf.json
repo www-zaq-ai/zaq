@@ -4,13 +4,15 @@
     "zaq-p42"
   ],
   "blocks": [],
+  "closed_at": "2026-09-02T12:04:49Z",
+  "close_reason": "completed",
   "created": "2026-09-02T09:56:46Z",
   "description": "Restart/refresh affected agent servers and refactor SkillsLive resource operations to use pinned source identity.",
   "id": "zaq-gtf",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[agent-skills-6] Refresh runtimes and BO resource workflow",
   "type": "task",
-  "updated_at": "2026-09-02T10:47:37Z"
+  "updated_at": "2026-09-02T12:04:49Z"
 }
