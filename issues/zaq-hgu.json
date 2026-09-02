@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-02T17:21:25Z",
+  "description": "",
+  "id": "zaq-hgu",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Wire Ingestion folder creation to shared helper",
+  "type": "task",
+  "updated_at": "2026-09-02T17:21:25Z"
+}
