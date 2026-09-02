@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "zaq-hgu",
     "zaq-pem"
   ],
   "blocks": [],
@@ -12,5 +13,5 @@
   "status": "open",
   "title": "[zaq-gdu] Add disk-backed folder creation integration coverage",
   "type": "task",
-  "updated_at": "2026-09-02T17:21:46Z"
+  "updated_at": "2026-09-02T17:21:47Z"
 }

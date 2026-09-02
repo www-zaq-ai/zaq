@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-dqu"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-gdu"
+  ],
   "created": "2026-09-02T17:21:25Z",
   "description": "",
   "id": "zaq-hgu",
@@ -12,5 +14,5 @@
   "status": "open",
   "title": "[zaq-hgu] Wire Ingestion folder creation to shared helper",
   "type": "task",
-  "updated_at": "2026-09-02T17:21:46Z"
+  "updated_at": "2026-09-02T17:21:47Z"
 }
