@@ -6,9 +6,15 @@
   "description": "Fix BO ingestion CTAs and action dispatch so create/upload/raw, move browsing, share modal state, and watch events preserve selected data-source config and disk volume identity. Add non-default nested volume regression coverage.",
   "id": "zaq-jvi",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented volume-preserving create destination, selected-config move/capability routing, folder Share CTA type, Share modal inherited/removed state wiring, and watch/unwatch config+actor event context. Validation: mix format; isolated new/updated ingestion tests passed; full ingestion_live_test.exs passed (193 tests, 0 failures); mix q passed. mix test --stale completed with one unrelated timeout in test/zaq/agent/agent_test.exs:595.",
+      "timestamp": "2026-09-02T14:40:31Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jvi] Preserve selected storage volume for ingestion mutations",
   "type": "task",
-  "updated_at": "2026-09-02T14:23:04Z"
+  "updated_at": "2026-09-02T14:40:31Z"
 }
