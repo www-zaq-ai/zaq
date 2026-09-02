@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jfi"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-s27"
+  ],
   "created": "2026-09-02T07:35:08Z",
   "description": "",
   "id": "zaq-3vb",

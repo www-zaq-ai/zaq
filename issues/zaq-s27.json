@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-3vb"
+  ],
   "blocks": [],
   "created": "2026-09-02T07:35:08Z",
   "description": "",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-s27] Enforce DataSourceBridge authorization for provider Records",
   "type": "task",
-  "updated_at": "2026-09-02T07:35:08Z"
+  "updated_at": "2026-09-02T07:35:09Z"
 }
