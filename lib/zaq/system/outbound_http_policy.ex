@@ -74,6 +74,7 @@ defmodule Zaq.System.OutboundHttpPolicy do
     |> validate_number(:max_timeout_ms, greater_than: 0, less_than_or_equal_to: 120_000)
     |> validate_number(:max_response_bytes, greater_than: 0, less_than_or_equal_to: 10_000_000)
     |> validate_allowed_ports()
+    # Redirect targets must repeat the full destination validation before this can be configurable.
     |> put_change(:follow_redirects, false)
     |> normalize_string_list(:blacklisted_hosts)
     |> normalize_string_list(:blacklisted_ips)
