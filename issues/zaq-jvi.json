@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-02T14:22:57Z",
@@ -7,7 +7,7 @@
   "id": "zaq-jvi",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jvi] Preserve selected storage volume for ingestion mutations",
   "type": "task",
   "updated_at": "2026-09-02T14:23:04Z"
