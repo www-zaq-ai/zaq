@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-dqu"
+  ],
   "blocks": [],
   "created": "2026-09-02T17:21:25Z",
   "description": "",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-hgu] Wire Ingestion folder creation to shared helper",
   "type": "task",
-  "updated_at": "2026-09-02T17:21:36Z"
+  "updated_at": "2026-09-02T17:21:46Z"
 }
