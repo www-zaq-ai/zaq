@@ -2,6 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-02T07:47:57Z",
+  "close_reason": "done",
   "created": "2026-09-02T07:38:04Z",
   "description": "Implement safer Channels-first outbound HTTP preparation: Channels receives untrusted requests, asks Engine to load policy/credentials and prepare a minimal execution contract, then executes locally without DB/config access or event-derived transport opts.",
   "id": "zaq-5j4",
@@ -13,7 +15,7 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[outbound-http-engine-prepare] Channels-first outbound HTTP preparation",
   "type": "task",
   "updated_at": "2026-09-02T07:47:57Z"
