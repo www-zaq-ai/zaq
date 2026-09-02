@@ -593,9 +593,9 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 `general.http_request` sends external HTTP requests through the channels role, never directly from the agent node.
 
 - The tool accepts method, URL, non-secret headers/query/body fields, timeout, doc reference, and optional `credential_id`.
-- Plaintext credentials are forbidden in headers, query, body, URL userinfo, events, logs, and responses.
+- Plaintext credentials are forbidden in agent-supplied headers, query, body, URL userinfo, event opts, logs, and responses.
 - `credential_id` references a BO-managed Auth Credential whose provider is `http:<provider_id>`.
-- `Zaq.Channels.HttpClient` reloads global policy, validates request shape, resolves DNS, blocks private/special-use addresses, disables redirects/retries, and injects the credential into final Req options.
+- `Zaq.Channels.Api` asks Engine to load policy and credentials, then `Zaq.Channels.HttpClient` resolves DNS, blocks private/special-use addresses, disables redirects/retries, and injects the Engine-rendered credential into final Req options.
 - BO policy and provider management live under `/bo/system-config?tab=outbound_http`.
 
 ---

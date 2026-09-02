@@ -59,9 +59,6 @@ defmodule Zaq.System.SecretConfig do
          ":"
        )}
     end
-  rescue
-    ArgumentError -> {:error, :encryption_failed}
-    ErlangError -> {:error, :encryption_failed}
   end
 
   defp validate_key_id(key_id) when is_binary(key_id) do
@@ -109,7 +106,6 @@ defmodule Zaq.System.SecretConfig do
       {:ok, plaintext}
     else
       :error -> {:error, :invalid_ciphertext}
-      false -> {:error, :invalid_ciphertext}
       {:error, _} = error -> error
       _ -> {:error, :invalid_ciphertext}
     end
@@ -156,10 +152,8 @@ defmodule Zaq.System.SecretConfig do
         {:ok, key, key_id}
 
       String.length(key) == 64 and String.match?(key, ~r/^[0-9a-fA-F]+$/) ->
-        case Base.decode16(key, case: :mixed) do
-          {:ok, decoded} when byte_size(decoded) == 32 -> {:ok, decoded, key_id}
-          _ -> {:error, :invalid_encryption_key}
-        end
+        {:ok, decoded} = Base.decode16(key, case: :mixed)
+        {:ok, decoded, key_id}
 
       true ->
         case Base.decode64(key) do

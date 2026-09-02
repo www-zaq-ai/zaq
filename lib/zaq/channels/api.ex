@@ -33,6 +33,7 @@ defmodule Zaq.Channels.Api do
   alias Zaq.Events.TrustedContext
   alias Zaq.HttpRequest
   alias Zaq.InternalBoundaries
+  alias Zaq.NodeRouter
 
   @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
 
@@ -726,7 +727,19 @@ defmodule Zaq.Channels.Api do
         :http_request,
         _context
       ) do
-    %{event | response: HttpClient.request(request)}
+    response =
+      request
+      |> Event.new(:engine, opts: [action: :prepare_http_request])
+      |> NodeRouter.dispatch()
+      |> Map.fetch!(:response)
+      |> case do
+        {:ok, prepared} -> HttpClient.request(prepared)
+        {:error, _reason, _message} = error -> error
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:invalid_preparation_response, other}}
+      end
+
+    %{event | response: response}
   end
 
   # A plain map never reaches the executor: only `Zaq.HttpRequest`

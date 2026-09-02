@@ -66,7 +66,7 @@ Outbound HTTP for agents/workflows is controlled from `/bo/system-config?tab=out
 - The default posture is fail-closed: disabled, redirects off, safe methods only, and private/special-use networks blocked.
 - Dynamic HTTP credential providers live in `http_credential_providers` and define auth kind, placement, parameter name, enabled state, and destination host patterns.
 - Auth Credentials store encrypted secret material in `connect_credentials`; HTTP credentials reference providers with `provider: "http:<provider_id>"`.
-- Agents pass only `credential_id` to `http_request`; plaintext secrets are resolved and rendered only on the channels node.
+- Agents pass only `credential_id` to `http_request`; plaintext secrets are resolved and rendered by Engine, then consumed only by Channels for the immediate transport call.
 
 ## MCP Endpoint Runtime Configuration
 

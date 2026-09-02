@@ -69,15 +69,15 @@ Validation is shared and phase-based:
 
 - structural validation normalizes URL, method, headers, query, body, timeout, and credential reference;
 - policy validation applies action enablement, methods, ports, blacklists, literal IP/CIDR checks, and timeout limits;
-- channels edge validation reloads authoritative policy, resolves DNS on the channels node, checks every resolved address, verifies credential/provider compatibility, injects secrets, and then opens the socket.
+- channels edge validation asks Engine to prepare the request, resolves DNS on the channels node, checks every resolved address against Engine's policy snapshot, injects Engine-rendered credential material, and then opens the socket.
 
 A `%Zaq.HttpRequest{}` value is not validation proof. Every public network execution path must invoke the edge validation sequence.
 
 ## Transport Contract
 
-`Zaq.Channels.HttpClient` is the authoritative execution boundary. It must construct protected `Req` options internally and must not allow production callers to override URL, method, headers, query, authentication, redirect policy, retry policy, adapter, transport, timeout limits, or security request steps through event opts.
+`Zaq.Channels.Api` is the public execution boundary. It accepts only untrusted request specs, calls Engine to load policy/credentials and prepare the execution contract, then invokes `Zaq.Channels.HttpClient` locally. `HttpClient` must construct protected `Req` options internally and must not allow production callers to override URL, method, headers, query, authentication, redirect policy, retry policy, adapter, transport, timeout limits, or security request steps through event opts.
 
-Credentials are resolved on the channels node and injected through a final `Req` request step immediately before transport. Plaintext may not cross `NodeRouter` and may not appear in events, workflow state, action output, traces, telemetry metadata, logs, errors, inspected structs, or returned URLs.
+Credentials are resolved on the Engine node and returned to Channels only as Engine-rendered execution material for the immediate transport call. Plaintext may not cross Agent or BO boundaries and may not appear in event opts, workflow state, action output, traces, telemetry metadata, logs, errors, inspected structs, or returned URLs.
 
 Redirects remain disabled until each redirect target can repeat the full destination and credential-forwarding validation.
 
