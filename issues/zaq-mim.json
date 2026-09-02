@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-vym"
   ],
+  "closed_at": "2026-09-02T08:21:00Z",
   "created": "2026-09-02T07:35:09Z",
   "description": "",
   "id": "zaq-mim",
@@ -17,7 +18,7 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-mim] Document materialization handle bearer capability contract",
   "type": "task",
   "updated_at": "2026-09-02T08:21:00Z"
