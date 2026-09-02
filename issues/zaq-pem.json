@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-nr5"
+  ],
   "blocks": [],
   "created": "2026-09-02T17:21:25Z",
   "description": "",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-pem] Wire System Config skills picker to shared browser flow",
   "type": "task",
-  "updated_at": "2026-09-02T17:21:36Z"
+  "updated_at": "2026-09-02T17:21:46Z"
 }
