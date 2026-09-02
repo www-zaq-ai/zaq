@@ -6,13 +6,15 @@
   "blocks": [
     "zaq-gtf"
   ],
+  "closed_at": "2026-09-02T10:47:36Z",
+  "close_reason": "completed",
   "created": "2026-09-02T09:56:46Z",
   "description": "Use Jido.AI.Skill.AgentIntegration.prepare/1 in Factory and replace custom load_skill path with native skill/resource tools.",
   "id": "zaq-p42",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[agent-skills-5] Integrate native Jido Agent Skills runtime",
   "type": "task",
-  "updated_at": "2026-09-02T10:37:34Z"
+  "updated_at": "2026-09-02T10:47:36Z"
 }
