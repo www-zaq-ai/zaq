@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-02T09:56:46Z",
+  "description": "Restart/refresh affected agent servers and refactor SkillsLive resource operations to use pinned source identity.",
+  "id": "zaq-gtf",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[agent-skills-6] Refresh runtimes and BO resource workflow",
+  "type": "task",
+  "updated_at": "2026-09-02T09:56:46Z"
+}
