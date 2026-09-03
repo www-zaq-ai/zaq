@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-0l6.2"
+  ],
   "blocks": [],
   "created": "2026-09-03T06:00:38Z",
   "description": "Use the batched ancestor and permission primitives in list/search paths and verify mix q.",
