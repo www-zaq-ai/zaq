@@ -4,20 +4,42 @@ defmodule Zaq.Contracts.Record.Authorization do
   """
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.Person
   alias Zaq.Contracts.Record
   alias Zaq.Identity.ActorNormalizer
 
-  @spec can?(map() | nil, Record.t(), atom()) :: boolean()
-  def can?(actor, %Record{permissions: permissions}, right) when is_list(permissions) do
+  @spec can?(Person.t() | map() | nil, Record.t(), atom()) :: boolean()
+  def can?(%Person{} = person, %Record{permissions: permissions}, right)
+      when is_list(permissions) do
+    Enum.any?(permissions, &permission_matches?(&1, person, right))
+  end
+
+  def can?(actor, %Record{} = record, right) do
     with person_id when not is_nil(person_id) <- ActorNormalizer.person_id(actor),
          person when not is_nil(person) <- People.get_person_with_channels(person_id) do
-      Enum.any?(permissions, &permission_matches?(&1, person, right))
+      can?(person, record, right)
     else
       _ -> false
     end
   end
 
   def can?(_actor, _record, _right), do: false
+
+  @spec filter(Person.t() | map() | nil, [Record.t()], atom()) :: [Record.t()]
+  def filter(%Person{} = person, records, right) when is_list(records) do
+    Enum.filter(records, &(can?(person, &1, right) == true))
+  end
+
+  def filter(actor, records, right) when is_list(records) do
+    with person_id when not is_nil(person_id) <- ActorNormalizer.person_id(actor),
+         person when not is_nil(person) <- People.get_person_with_channels(person_id) do
+      filter(person, records, right)
+    else
+      _ -> []
+    end
+  end
+
+  def filter(_actor, _records, _right), do: []
 
   defp permission_matches?(%Record{attributes: attrs}, person, right) when is_map(attrs) do
     principal_matches?(attrs, person) and right in access_rights(attrs)
@@ -29,10 +51,10 @@ defmodule Zaq.Contracts.Record.Authorization do
     case principal(attrs) do
       {"email", identifier} ->
         normalized(identifier) == normalized(person.email) or
-          Enum.any?(person.channels || [], &channel_matches?(&1, "email", identifier))
+          Enum.any?(person_channels(person), &channel_matches?(&1, "email", identifier))
 
       {channel, identifier} ->
-        Enum.any?(person.channels || [], &channel_matches?(&1, channel, identifier))
+        Enum.any?(person_channels(person), &channel_matches?(&1, channel, identifier))
 
       _ ->
         false
@@ -43,6 +65,9 @@ defmodule Zaq.Contracts.Record.Authorization do
     channel.platform == platform and
       normalized(channel.channel_identifier) == normalized(identifier)
   end
+
+  defp person_channels(%Person{channels: channels}) when is_list(channels), do: channels
+  defp person_channels(_person), do: []
 
   defp principal(attrs) do
     case get(attrs, "principal") do
