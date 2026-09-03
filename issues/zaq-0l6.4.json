@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-03T06:00:38Z",
+  "description": "Use the batched ancestor and permission primitives in list/search paths and verify mix q.",
+  "id": "zaq-0l6.4",
+  "labels": [],
+  "parent": "zaq-0l6",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-0l6] Wire Storage listing to batched permissions",
+  "type": "task",
+  "updated_at": "2026-09-03T06:00:38Z"
+}
