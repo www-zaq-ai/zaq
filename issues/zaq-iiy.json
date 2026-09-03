@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-9tc"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-3ov"
+  ],
   "created": "2026-09-03T08:51:58Z",
   "description": "Add UI to classify uploaded skill resources, show resource type cues, and remove pending or persisted resource files safely.",
   "id": "zaq-iiy",

@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-iiy"
+  ],
   "blocks": [],
   "created": "2026-09-03T08:51:58Z",
   "description": "Update tests/docs and run required validation for the skill resource UI/path/type work.",
