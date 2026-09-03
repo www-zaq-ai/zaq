@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-03T06:00:37Z",
+  "description": "Eliminate N+1 Storage record permission checks by batching ancestor and resource_permission loading, while preserving nil actor/public-only semantics and include_permissions behavior.",
+  "id": "zaq-0l6",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Batch Storage record permission checks",
+  "type": "epic",
+  "updated_at": "2026-09-03T06:00:37Z"
+}
