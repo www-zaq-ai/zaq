@@ -4,12 +4,13 @@
     "zaq-iiy"
   ],
   "blocks": [],
+  "closed_at": "2026-09-03T09:16:12Z",
   "created": "2026-09-03T08:51:58Z",
   "description": "Update tests/docs and run required validation for the skill resource UI/path/type work.",
   "id": "zaq-3ov",
   "labels": [],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-3ov] Skill resources validation",
   "type": "task",
   "updated_at": "2026-09-03T09:16:12Z"
