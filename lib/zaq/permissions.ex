@@ -180,6 +180,7 @@ defmodule Zaq.Permissions do
   end
 
   @doc "Builds a reusable principal/right filter for effective permission checks."
+  @spec access(Person.t() | nil, atom()) :: map()
   def access(person, right),
     do: %{person: person, team_ids: effective_team_ids(person), right: right}
 

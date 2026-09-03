@@ -419,26 +419,14 @@ defmodule Zaq.Storage do
       ancestors_by_id = entry_ancestor_resources_many(entries_with_ids, opts)
       access = permissions(opts).access(person_from_opts(opts), :read)
 
-      {grants_by_id, display_grants_by_id} =
-        if include_permissions? do
-          grants_by_id = effective_grants_by_id(entries_with_ids, ancestors_by_id, opts)
-          {grants_by_id, grants_by_id}
-        else
-          grants_by_id =
-            effective_grants_by_id(
-              entries_with_ids,
-              ancestors_by_id,
-              Keyword.put(opts, :access, access)
-            )
-
-          {grants_by_id, grants_by_id}
-        end
+      effective_opts = if include_permissions?, do: opts, else: Keyword.put(opts, :access, access)
+      grants_by_id = effective_grants_by_id(entries_with_ids, ancestors_by_id, effective_opts)
 
       %{
         access: access,
         ancestors_by_id: ancestors_by_id,
         grants_by_id: grants_by_id,
-        display_grants_by_id: display_grants_by_id
+        display_grants_by_id: grants_by_id
       }
     end
   end
@@ -732,14 +720,11 @@ defmodule Zaq.Storage do
       not is_binary(id) ->
         false
 
-      Map.has_key?(permission_data, :access) ->
+      true ->
         permissions(opts).grants_allow?(
           Map.get(permission_data.grants_by_id, id, []),
           permission_data.access
         )
-
-      true ->
-        Map.get(permission_data.grants_by_id, id, []) != []
     end
   end
 
