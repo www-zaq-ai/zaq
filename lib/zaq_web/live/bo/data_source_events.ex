@@ -4,7 +4,8 @@ defmodule ZaqWeb.Live.BO.DataSourceEvents do
 
   BO actor identity is trusted by the LiveView boundary. Super-admin permission bypass is
   projected into allowlisted event options so downstream services do not need to inspect the
-  actor map for authorization flags.
+  actor map for authorization flags. New BO data-source events should treat
+  `event.opts[:skip_permissions]` as the transport location for bypass decisions.
   """
 
   alias Zaq.Event

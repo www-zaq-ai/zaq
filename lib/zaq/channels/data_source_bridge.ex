@@ -37,7 +37,15 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   File operations receive a normalized `Zaq.Events.TrustedContext` as their third callback
   argument. Identity and explicit permission bypass therefore remain separate from provider
-  parameters and cannot be supplied by model-controlled request fields.
+  parameters and cannot be supplied by model-controlled request fields. Bridge callback params
+  contain only provider business fields such as `file_id`, `config_id`, metadata, and content;
+  they never carry the full `%Zaq.Contracts.Record{}`.
+
+  Mutations through a signed Record are authorized here before the bridge callback runs.
+  Provider-based `update_file/3` is available only to bridges that implement
+  `owns_permission_checks?/0`, because those bridges re-check permissions in their source
+  system. Other bridges must mutate via signed Records so this boundary can enforce the
+  Record permissions.
   """
 
   alias Zaq.Channels.Bridge
@@ -690,6 +698,9 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
+  defp authorize_response({:ok, _payload}, _bridge, _right, _context),
+    do: {:error, {:invalid_bridge_response, :authorization_required}}
+
   defp authorize_response(other, _bridge, _right, _context), do: other
 
   defp permission_projection_params(params, %TrustedContext{skip_permissions: true}) do
@@ -768,9 +779,8 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   defp fetch_unscoped_data_source_config(provider), do: Bridge.fetch_channel_config(provider)
 
-  defp delete_file_params(record, claims) do
+  defp delete_file_params(_record, claims) do
     %{"file_id" => Map.fetch!(claims, "provider_record_id")}
-    |> Map.put("record", record)
     |> maybe_put("config_id", Map.get(claims, "config_id"))
   end
 
@@ -782,7 +792,6 @@ defmodule Zaq.Channels.DataSourceBridge do
     |> Map.new()
     |> drop_copied_record_path(record)
     |> Map.put("file_id", Map.fetch!(claims, "provider_record_id"))
-    |> Map.put("record", record)
     |> maybe_put("config_id", Map.get(claims, "config_id"))
   end
 
