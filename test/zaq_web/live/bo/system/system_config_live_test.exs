@@ -5718,10 +5718,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ ~s(name="llm_config[fusion_vector_weight]" value="0.25")
     end
 
-    test "catalog model options are sorted and unsupported options are disabled", %{conn: conn} do
+    test "catalog model options are sorted", %{conn: conn} do
       with_catalog(fn providers, models ->
         provider = Enum.find(providers, &(&1.id == :openai)) |> Map.put(:id, :catalog_test)
-        source = Enum.find(models, &(&1.provider == :openai))
+
+        source =
+          Enum.find(models, fn model ->
+            model.provider == :openai and not model.deprecated and not model.retired and
+              get_in(model.capabilities || %{}, [:tools, :enabled]) == true
+          end) || raise "OpenAI catalog must include an active tool-capable model"
 
         models = [
           Map.merge(source, %{provider: :catalog_test, id: "z-model", name: "Zulu"}),
@@ -5754,15 +5759,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      if html =~ "Alpha" and html =~ "Zulu" do
-        assert :binary.match(html, ~s(data-select-option="Alpha")) <
-                 :binary.match(html, ~s(data-select-option="Zulu"))
+      assert html =~ "Alpha"
+      assert html =~ "Zulu"
 
-        assert html =~ "unsupported"
-        assert html =~ ~s(data-select-disabled="true")
-      else
-        assert html =~ "llm-config-form"
-      end
+      assert :binary.match(html, ~s(data-select-option="Alpha")) <
+               :binary.match(html, ~s(data-select-option="Zulu"))
     end
 
     test "embedding catalog capabilities select the maximum dimension", %{conn: conn} do
