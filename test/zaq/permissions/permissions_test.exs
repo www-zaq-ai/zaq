@@ -185,6 +185,67 @@ defmodule Zaq.PermissionsTest do
     end
   end
 
+  describe "list_effective_many/2" do
+    test "returns direct and inherited grants for many resources with one query" do
+      parent = fake_workflow()
+      child = fake_document()
+      sibling = fake_document()
+      person = create_person()
+      team = create_team()
+
+      {:ok, parent_grant} =
+        Permissions.grant(parent, %{person_id: person.id, access_rights: ["read"]})
+
+      {:ok, child_grant} =
+        Permissions.grant(child, %{team_id: team.id, access_rights: ["manage"]})
+
+      {:ok, sibling_grant} =
+        Permissions.grant(sibling, %{team_id: team.id, access_rights: ["read"]})
+
+      assert {results, [_query]} =
+               capture_resource_permission_queries(fn ->
+                 Permissions.list_effective_many([
+                   {child, [parent]},
+                   {sibling, []},
+                   {child, [parent]}
+                 ])
+               end)
+
+      assert [{^child, child_grants}, {^sibling, sibling_grants}, {^child, repeated_grants}] =
+               results
+
+      assert Enum.map(child_grants, & &1.permission.id) == [child_grant.id, parent_grant.id]
+      assert Enum.map(child_grants, & &1.inherited?) == [false, true]
+      assert Enum.map(sibling_grants, & &1.permission.id) == [sibling_grant.id]
+
+      assert Enum.map(repeated_grants, & &1.permission.id) ==
+               Enum.map(child_grants, & &1.permission.id)
+    end
+
+    test "filters by explicit actor access while nil actor only matches Everyone" do
+      public_resource = fake_workflow()
+      team_resource = fake_workflow()
+      person_resource = fake_workflow()
+      person = create_person()
+      team = create_team()
+      {:ok, person} = People.assign_team(person, team.id)
+
+      {:ok, _} = Permissions.grant_public(public_resource)
+      {:ok, _} = Permissions.grant(team_resource, %{team_id: team.id, access_rights: ["read"]})
+
+      {:ok, _} =
+        Permissions.grant(person_resource, %{person_id: person.id, access_rights: ["write"]})
+
+      chains = [{public_resource, []}, {team_resource, []}, {person_resource, []}]
+
+      assert [{^public_resource, [_]}, {^team_resource, [_]}, {^person_resource, []}] =
+               Permissions.list_effective_many(chains, access: Permissions.access(person, :read))
+
+      assert [{^public_resource, [_]}, {^team_resource, []}, {^person_resource, []}] =
+               Permissions.list_effective_many(chains, access: Permissions.access(nil, :read))
+    end
+  end
+
   # --- Polymorphic resource types ---
 
   describe "grant/3 with document resource" do
@@ -386,6 +447,25 @@ defmodule Zaq.PermissionsTest do
       resources = List.duplicate(workflow, duplicate_count)
 
       assert Permissions.count_principals(resources) == 2
+    end
+  end
+
+  property "list_effective_many/2 matches singular effective grant loading" do
+    check all(duplicate_count <- integer(1..4), max_runs: 8) do
+      parent = fake_workflow()
+      child = fake_document()
+      team = create_team()
+
+      {:ok, _} = Permissions.grant(parent, %{team_id: team.id, access_rights: ["read"]})
+
+      chains = List.duplicate({child, [parent]}, duplicate_count)
+
+      singular_ids =
+        Enum.map(Permissions.list_effective(child, ancestors: [parent]), & &1.permission.id)
+
+      assert Enum.all?(Permissions.list_effective_many(chains), fn {_resource, grants} ->
+               Enum.map(grants, & &1.permission.id) == singular_ids
+             end)
     end
   end
 

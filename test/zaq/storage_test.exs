@@ -59,6 +59,12 @@ defmodule Zaq.StorageTest do
         }
       ]
 
+    def list_effective_many(resource_chains, _opts) do
+      Enum.map(resource_chains, fn {resource, _ancestors} ->
+        {resource, list_effective(resource, [])}
+      end)
+    end
+
     def everyone_team_id, do: 999
   end
 
@@ -426,6 +432,62 @@ defmodule Zaq.StorageTest do
     assert grant.type == "team"
     assert grant.target_id == to_string(team.id)
     assert grant.access_rights == ["read"]
+  end
+
+  test "authorized listing checks all entry permissions with one permissions query", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.write!(Path.join(root, "a.md"), "a")
+    File.write!(Path.join(root, "b.md"), "b")
+    File.write!(Path.join(root, "c.md"), "c")
+    person = person_fixture()
+
+    for filename <- ["a.md", "b.md", "c.md"] do
+      assert {:ok, entry} = Storage.file_info("archives", filename, opts)
+      {:ok, _permission} = Permissions.grant(%StorageEntry{id: entry.id}, %{person_id: person.id})
+    end
+
+    assert {{:ok, page}, [_query]} =
+             capture_resource_permission_queries(fn ->
+               Storage.list_documents(
+                 %{"filters" => %{"parent" => "archives"}, "page_size" => 2},
+                 Keyword.put(opts, :actor, %{person_id: person.id})
+               )
+             end)
+
+    assert Enum.map(page.entries, & &1.name) == ["a.md", "b.md"]
+  end
+
+  test "include_permissions reuses one unfiltered permissions load for authorization and display",
+       %{
+         root: root,
+         storage_opts: opts
+       } do
+    File.mkdir_p!(Path.join(root, "docs"))
+    File.write!(Path.join(root, "docs/a.md"), "a")
+    File.write!(Path.join(root, "docs/b.md"), "b")
+    assert {:ok, folder} = Storage.file_info("archives", "docs", opts)
+    assert {:ok, hidden} = Storage.file_info("archives", "docs/b.md", opts)
+    person = person_fixture()
+    other = person_fixture()
+
+    {:ok, _} = Permissions.grant(%StorageEntry{id: folder.id}, %{person_id: person.id})
+    {:ok, _} = Permissions.grant(%StorageEntry{id: hidden.id}, %{person_id: other.id})
+
+    assert {{:ok, page}, [_query]} =
+             capture_resource_permission_queries(fn ->
+               Storage.list_documents(
+                 %{"filters" => %{"parent" => "archives/docs"}, "include_permissions" => true},
+                 Keyword.put(opts, :actor, %{person_id: person.id})
+               )
+             end)
+
+    assert Enum.map(page.entries, & &1.name) == ["a.md", "b.md"]
+
+    assert Enum.all?(page.permissions_by_id, fn {_id, grants} ->
+             Enum.any?(grants, & &1.inherited?)
+           end)
   end
 
   test "list_documents validates and clamps page sizes", %{storage_opts: opts} do
@@ -1075,6 +1137,31 @@ defmodule Zaq.StorageTest do
 
     assert {:ok, ^entry} =
              Storage.describe_document(entry.id, Keyword.put(opts, :skip_permissions, true))
+  end
+
+  test "search_documents/1 checks matching entry permissions with one permissions query", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.write!(Path.join(root, "visible-one.md"), "one")
+    File.write!(Path.join(root, "visible-two.md"), "two")
+    File.write!(Path.join(root, "hidden.md"), "hidden")
+    person = person_fixture()
+
+    for filename <- ["visible-one.md", "visible-two.md"] do
+      assert {:ok, entry} = Storage.file_info("archives", filename, opts)
+      {:ok, _permission} = Permissions.grant(%StorageEntry{id: entry.id}, %{person_id: person.id})
+    end
+
+    assert {{:ok, page}, [_query]} =
+             capture_resource_permission_queries(fn ->
+               Storage.search_documents(
+                 %{"query" => "visible"},
+                 Keyword.put(opts, :actor, %{person_id: person.id})
+               )
+             end)
+
+    assert Enum.map(page.entries, & &1.name) == ["visible-one.md", "visible-two.md"]
   end
 
   property "ungranted storage entries are private by default", %{root: root, storage_opts: opts} do
