@@ -672,15 +672,12 @@ defmodule Zaq.Channels.DataSourceBridge do
 
   defp authorize_response({:ok, %RecordPage{records: records} = page}, bridge, right, context)
        when is_list(records) do
-    if bridge_owns_permission_checks?(bridge) or
-         TrustedContext.normalize(context).skip_permissions do
+    context = TrustedContext.normalize(context)
+
+    if bridge_owns_permission_checks?(bridge) or context.skip_permissions do
       {:ok, page}
     else
-      records =
-        Enum.filter(
-          records,
-          &(Authorization.can?(TrustedContext.normalize(context).actor, &1, right) == true)
-        )
+      records = Authorization.filter(context.actor, records, right)
 
       {:ok,
        %{page | records: records, stats: Map.put(page.stats || %{}, :returned, length(records))}}
@@ -714,6 +711,8 @@ defmodule Zaq.Channels.DataSourceBridge do
   end
 
   defp authorize_record(bridge, %Record{} = record, rights, context) when is_list(rights) do
+    context = TrustedContext.normalize(context)
+
     cond do
       rights == [] ->
         {:error, {:invalid_request, :changes_required}}
@@ -721,10 +720,10 @@ defmodule Zaq.Channels.DataSourceBridge do
       bridge_owns_permission_checks?(bridge) ->
         :ok
 
-      TrustedContext.normalize(context).skip_permissions ->
+      context.skip_permissions ->
         :ok
 
-      Enum.all?(rights, &Authorization.can?(TrustedContext.normalize(context).actor, record, &1)) ->
+      Enum.all?(rights, &Authorization.can?(context.actor, record, &1)) ->
         :ok
 
       true ->
