@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-0l6.1"
+  ],
   "blocks": [],
   "created": "2026-09-03T06:00:38Z",
   "description": "Add list_effective_many and helpers to load filtered or unfiltered resource_permissions in one reusable query.",
