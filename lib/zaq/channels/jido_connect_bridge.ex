@@ -121,7 +121,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   @impl true
   def get_file(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
-    params = maybe_embed_permissions_projection(params, config)
+    params = maybe_embed_permissions_projection(params, config, :get_item_metadata)
 
     with {:ok, payload} <- invoke_intent(config, :get_item_metadata, params),
          {:ok, record} <- map_file_from_payload(payload, config, params) do
@@ -1933,23 +1933,28 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp canonical_access_rights(_value), do: []
 
-  defp maybe_embed_permissions_projection(params, %{provider: provider} = _config)
+  defp maybe_embed_permissions_projection(params, %{provider: provider} = config)
+       when is_map(params) and (is_binary(provider) or is_atom(provider)) do
+    maybe_embed_permissions_projection(params, config, :list_items)
+  end
+
+  defp maybe_embed_permissions_projection(params, _), do: params
+
+  defp maybe_embed_permissions_projection(params, %{provider: provider}, action_intent)
        when is_map(params) and (is_binary(provider) or is_atom(provider)) do
     if truthy?(Map.get(params, :include_permissions) || Map.get(params, "include_permissions")) do
-      enrich_permissions_projection(provider, params)
+      enrich_permissions_projection(provider, params, action_intent)
     else
       params
     end
   end
 
-  defp maybe_embed_permissions_projection(params, _), do: params
-
-  defp enrich_permissions_projection(provider, params) do
+  defp enrich_permissions_projection(provider, params, action_intent) do
     provider = to_string(provider)
 
-    with {:ok, action} <- resolve_action(provider, :list_items),
+    with {:ok, action} <- resolve_action(provider, action_intent),
          true <- action_supports_fields_input?(provider, action) do
-      maybe_set_provider_permission_fields(provider, params)
+      maybe_set_provider_permission_fields(provider, params, action_intent)
     else
       _ -> params
     end
@@ -1998,7 +2003,30 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp fields_input?(_), do: false
 
-  defp maybe_set_provider_permission_fields("google_drive", params) do
+  defp maybe_set_provider_permission_fields("google_drive", params, :get_item_metadata) do
+    permission_fields =
+      "permissions(id,type,role,emailAddress,domain,displayName,allowFileDiscovery,deleted,expirationTime)"
+
+    fields = Map.get(params, :fields) || Map.get(params, "fields")
+
+    merged_fields =
+      cond do
+        is_binary(fields) and String.contains?(fields, "permissions(") ->
+          fields
+
+        is_binary(fields) ->
+          fields <> ",#{permission_fields}"
+
+        true ->
+          default_google_drive_file_fields_with_permissions(permission_fields)
+      end
+
+    params
+    |> Map.put(:fields, merged_fields)
+    |> Map.put("fields", merged_fields)
+  end
+
+  defp maybe_set_provider_permission_fields("google_drive", params, _action_intent) do
     permission_fields =
       "permissions(id,type,role,emailAddress,domain,displayName,allowFileDiscovery,deleted,expirationTime)"
 
@@ -2031,7 +2059,14 @@ defmodule Zaq.Channels.JidoConnectBridge do
     |> Map.put("fields", merged_fields)
   end
 
-  defp maybe_set_provider_permission_fields(_provider, params), do: params
+  defp maybe_set_provider_permission_fields(_provider, params, _action_intent), do: params
+
+  defp default_google_drive_file_fields_with_permissions(permission_fields) do
+    file_fields =
+      "id,name,mimeType,description,webViewLink,webContentLink,iconLink,thumbnailLink,size,md5Checksum,createdTime,modifiedTime,parents,owners,shared,trashed,starred,driveId"
+
+    "#{file_fields},#{permission_fields}"
+  end
 
   defp default_google_drive_list_fields_with_permissions(permission_fields) do
     file_fields =
