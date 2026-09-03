@@ -159,14 +159,39 @@ defmodule Zaq.Permissions do
   @doc "Lists direct and inherited grants for a resource and its supplied ancestors."
   @spec list_effective(struct(), keyword()) :: [map()]
   def list_effective(resource, opts \\ []) do
-    resource
-    |> resources_with_ancestors(Keyword.get(opts, :ancestors, []))
-    |> Enum.with_index()
-    |> Enum.flat_map(fn {res, index} ->
-      Enum.map(list(res), fn permission ->
-        %{permission: permission, origin: res, inherited?: index > 0}
-      end)
+    [{_resource, grants}] =
+      list_effective_many([{resource, Keyword.get(opts, :ancestors, [])}], opts)
+
+    grants
+  end
+
+  @doc "Lists direct and inherited grants for many resources with one permissions query."
+  @spec list_effective_many([{struct(), [struct()]}], keyword()) :: [{struct(), [map()]}]
+  def list_effective_many(resource_chains, opts \\ []) when is_list(resource_chains) do
+    chains =
+      Enum.map(resource_chains, fn {resource, ancestors} -> {resource, List.wrap(ancestors)} end)
+
+    chains
+    |> Enum.flat_map(fn {resource, ancestors} ->
+      resources_with_ancestors(resource, ancestors)
     end)
+    |> resource_coords_by_type()
+    |> effective_results(chains, opts)
+  end
+
+  @doc "Builds a reusable principal/right filter for effective permission checks."
+  def access(person, right),
+    do: %{person: person, team_ids: effective_team_ids(person), right: right}
+
+  @doc "Returns true when already-loaded effective grants include the requested access."
+  @spec grants_allow?([map()], map()) :: boolean()
+  def grants_allow?(grants, %{right: right} = access) when is_list(grants) do
+    right = to_string(right)
+
+    Enum.any?(
+      grants,
+      &(right in (&1.permission.access_rights || []) and principal_matches?(&1.permission, access))
+    )
   end
 
   @doc "Replaces all direct grants on a resource with the desired grant maps."
@@ -210,7 +235,7 @@ defmodule Zaq.Permissions do
     |> Repo.all()
   end
 
-  @doc false
+  @doc "Returns the system Everyone team id used for public grants."
   def everyone_team_id do
     Repo.one!(from t in Team, where: t.system_key == "everyone", select: t.id)
   end
@@ -244,6 +269,68 @@ defmodule Zaq.Permissions do
 
   defp principal_condition(%Person{id: id}, team_ids),
     do: dynamic([p], p.person_id == ^id or p.team_id in ^team_ids)
+
+  defp effective_results(coords_by_type, chains, _opts) when map_size(coords_by_type) == 0,
+    do: Enum.map(chains, fn {resource, _ancestors} -> {resource, []} end)
+
+  defp effective_results(coords_by_type, chains, opts) do
+    permissions_by_coord =
+      coords_by_type
+      |> effective_permissions_query(Keyword.get(opts, :access))
+      |> Repo.all()
+      |> Enum.group_by(&{&1.resource_type, &1.resource_id})
+
+    Enum.map(chains, &effective_result(&1, permissions_by_coord))
+  end
+
+  defp effective_result({resource, ancestors}, permissions_by_coord) do
+    grants =
+      resource
+      |> resources_with_ancestors(ancestors)
+      |> Enum.with_index()
+      |> Enum.flat_map(&effective_grants(&1, permissions_by_coord))
+
+    {resource, grants}
+  end
+
+  defp effective_grants({origin, index}, permissions_by_coord) do
+    {resource_type, resource_id} = resource_coords(origin)
+
+    permissions_by_coord
+    |> Map.get({resource_type, resource_id}, [])
+    |> Enum.map(&%{permission: &1, origin: origin, inherited?: index > 0})
+  end
+
+  defp effective_permissions_query(coords_by_type, nil) do
+    from p in ResourcePermission,
+      left_join: person in assoc(p, :person),
+      left_join: team in assoc(p, :team),
+      where: ^resource_scope(coords_by_type),
+      preload: [person: person, team: team]
+  end
+
+  defp effective_permissions_query(coords_by_type, %{person: person, right: right} = access) do
+    right_str = to_string(right)
+    team_ids = Map.get(access, :team_ids) || effective_team_ids(person)
+    principal_condition = principal_condition(person, team_ids)
+
+    from p in ResourcePermission,
+      left_join: person in assoc(p, :person),
+      left_join: team in assoc(p, :team),
+      where: ^resource_scope(coords_by_type),
+      where: fragment("? = ANY(?)", ^right_str, p.access_rights),
+      where: ^principal_condition,
+      preload: [person: person, team: team]
+  end
+
+  defp principal_matches?(%{person_id: person_id}, %{person: %Person{id: person_id}})
+       when not is_nil(person_id),
+       do: true
+
+  defp principal_matches?(%{team_id: team_id}, %{team_ids: team_ids}) when is_list(team_ids),
+    do: team_id in team_ids
+
+  defp principal_matches?(_permission, _access), do: false
 
   defp direct_public_permission(resource) do
     {resource_type, resource_id} = resource_coords(resource)

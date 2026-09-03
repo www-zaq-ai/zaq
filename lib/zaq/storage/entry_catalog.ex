@@ -66,9 +66,51 @@ defmodule Zaq.Storage.EntryCatalog do
 
   @doc "Returns active ancestors from nearest parent to root."
   def ancestors(id) when is_binary(id) do
-    id
-    |> by_id()
-    |> do_ancestors([])
+    ancestors_many([id]) |> Map.get(id, [])
+  end
+
+  @doc "Returns active ancestors from nearest parent to root for many entries."
+  def ancestors_many(ids) when is_list(ids) do
+    ids = ids |> Enum.filter(&is_binary/1) |> Enum.uniq()
+
+    if ids == [] do
+      %{}
+    else
+      uuid_ids = Enum.map(ids, &Ecto.UUID.dump!/1)
+
+      %{rows: rows} =
+        Repo.query!(
+          """
+          WITH RECURSIVE ancestors(target_id, id, parent_id, depth) AS (
+            SELECT child.id, parent.id, parent.parent_id, 1
+            FROM storage_entries child
+            JOIN storage_entries parent
+              ON parent.id = child.parent_id AND parent.deleted_at IS NULL
+            WHERE child.id = ANY($1::uuid[]) AND child.deleted_at IS NULL
+            UNION ALL
+            SELECT ancestors.target_id, parent.id, parent.parent_id, ancestors.depth + 1
+            FROM ancestors
+            JOIN storage_entries parent
+              ON parent.id = ancestors.parent_id AND parent.deleted_at IS NULL
+          )
+          SELECT target_id::text, id::text, parent_id::text, depth
+          FROM ancestors
+          ORDER BY target_id, depth
+          """,
+          [uuid_ids]
+        )
+
+      rows
+      |> Enum.group_by(fn [target_id, _id, _parent_id, _depth] -> target_id end, fn [
+                                                                                      _target_id,
+                                                                                      id,
+                                                                                      parent_id,
+                                                                                      _depth
+                                                                                    ] ->
+        %__MODULE__{id: id, parent_id: parent_id}
+      end)
+      |> then(fn ancestors_by_id -> Map.new(ids, &{&1, Map.get(ancestors_by_id, &1, [])}) end)
+    end
   end
 
   @doc "Returns active descendants for an entry, excluding the entry itself."
@@ -177,14 +219,6 @@ defmodule Zaq.Storage.EntryCatalog do
         {:ok, parent.id}
       end
     end
-  end
-
-  defp do_ancestors(nil, acc), do: acc
-  defp do_ancestors(%__MODULE__{parent_id: nil}, acc), do: acc
-
-  defp do_ancestors(%__MODULE__{parent_id: parent_id}, acc) do
-    parent = by_id(parent_id)
-    do_ancestors(parent, acc ++ List.wrap(parent))
   end
 
   defp descendants_for(%__MODULE__{volume: volume, relative_path: path}) do

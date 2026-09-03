@@ -227,7 +227,12 @@ defmodule Zaq.Storage do
       entries =
         list_volumes(opts)
         |> Enum.flat_map(fn {volume, _root} -> search_volume(volume, ".", query, opts) end)
-        |> Enum.filter(&can_read_entry?(&1, opts))
+
+      permission_data = listing_permission_data(entries, false, opts)
+
+      entries =
+        entries
+        |> Enum.filter(&can_read_entry?(&1, permission_data, opts))
         |> Enum.take(100)
 
       {:ok, entry_page(entries, length(entries))}
@@ -354,7 +359,13 @@ defmodule Zaq.Storage do
   defp paginate_entries(entries, volume_name, path, params, opts) do
     with {:ok, page_size} <- page_size(params),
          {:ok, last_source} <- cursor_source(params, volume_name, path) do
-      ordered = entries |> Enum.filter(&can_read_entry?(&1, opts)) |> Enum.sort_by(& &1.source)
+      include_permissions? = MapUtils.present_value(params, "include_permissions") == true
+      permission_data = listing_permission_data(entries, include_permissions?, opts)
+
+      ordered =
+        entries
+        |> Enum.filter(&can_read_entry?(&1, permission_data, opts))
+        |> Enum.sort_by(& &1.source)
 
       filtered =
         if last_source, do: Enum.filter(ordered, &(&1.source > last_source)), else: ordered
@@ -379,43 +390,141 @@ defmodule Zaq.Storage do
           truncated?: false
         })
 
-      {:ok, maybe_put_permissions(page, params, opts)}
+      permission_data =
+        maybe_load_returned_permissions(permission_data, returned, include_permissions?, opts)
+
+      {:ok, maybe_put_permissions(page, permission_data, include_permissions?, opts)}
     end
   end
 
-  defp maybe_put_permissions(%{entries: entries} = page, params, opts) do
-    if MapUtils.present_value(params, "include_permissions") == true do
-      Map.put(
-        page,
-        :permissions_by_id,
-        Map.new(entries, &{&1.id, permissions_for_entry(&1, opts)})
-      )
+  defp maybe_put_permissions(%{entries: entries} = page, permission_data, true, opts) do
+    opts =
+      Keyword.put_new_lazy(opts, :everyone_team_id, fn -> permissions(opts).everyone_team_id() end)
+
+    Map.put(
+      page,
+      :permissions_by_id,
+      Map.new(entries, &{&1.id, permissions_for_entry(&1, permission_data, opts)})
+    )
+  end
+
+  defp maybe_put_permissions(page, _permission_data, _include_permissions?, _opts), do: page
+
+  defp listing_permission_data(entries, include_permissions?, opts) do
+    entries_with_ids = Enum.filter(entries, &is_binary(&1.id))
+
+    if Keyword.get(opts, :skip_permissions, false) do
+      %{ancestors_by_id: %{}, grants_by_id: %{}}
     else
-      page
+      ancestors_by_id = entry_ancestor_resources_many(entries_with_ids, opts)
+      access = permissions(opts).access(person_from_opts(opts), :read)
+
+      {grants_by_id, display_grants_by_id} =
+        if include_permissions? do
+          grants_by_id = effective_grants_by_id(entries_with_ids, ancestors_by_id, opts)
+          {grants_by_id, grants_by_id}
+        else
+          grants_by_id =
+            effective_grants_by_id(
+              entries_with_ids,
+              ancestors_by_id,
+              Keyword.put(opts, :access, access)
+            )
+
+          {grants_by_id, grants_by_id}
+        end
+
+      %{
+        access: access,
+        ancestors_by_id: ancestors_by_id,
+        grants_by_id: grants_by_id,
+        display_grants_by_id: display_grants_by_id
+      }
     end
   end
 
-  defp permissions_for_entry(%Entry{id: id}, opts) when is_binary(id) do
-    ancestors = entry_ancestor_resources(id, opts)
+  defp maybe_load_returned_permissions(
+         %{display_grants_by_id: _} = data,
+         _entries,
+         _include?,
+         _opts
+       ),
+       do: data
 
-    id
-    |> storage_resource()
-    |> permissions(opts).list_effective(Keyword.put(opts, :ancestors, ancestors))
-    |> Enum.map(&permission_grant(&1, opts))
-    |> Enum.map(fn grant ->
-      %{
-        id: grant.id,
-        type: grant.type,
-        target_id: grant.target_id,
-        name: grant.name,
-        access_rights: grant.access_rights,
-        inherited?: Map.get(grant, :inherited?, false),
-        origin_resource_id: Map.get(grant, :origin_resource_id)
-      }
+  defp maybe_load_returned_permissions(data, entries, true, opts) do
+    entries_with_ids = Enum.filter(entries, &is_binary(&1.id))
+    ancestors_by_id = ensure_ancestors_by_id(data.ancestors_by_id, entries_with_ids, opts)
+
+    Map.put(
+      data,
+      :display_grants_by_id,
+      effective_grants_by_id(entries_with_ids, ancestors_by_id, opts)
+    )
+    |> Map.put(:ancestors_by_id, ancestors_by_id)
+  end
+
+  defp maybe_load_returned_permissions(data, _entries, _include?, _opts), do: data
+
+  defp ensure_ancestors_by_id(ancestors_by_id, entries, opts) when map_size(ancestors_by_id) == 0,
+    do: entry_ancestor_resources_many(entries, opts)
+
+  defp ensure_ancestors_by_id(ancestors_by_id, _entries, _opts), do: ancestors_by_id
+
+  defp permissions_for_entry(%Entry{id: id}, %{display_grants_by_id: grants_by_id}, opts)
+       when is_binary(id) do
+    grants_by_id
+    |> Map.get(id, [])
+    |> Enum.map(&entry_permission_grant(&1, opts))
+  end
+
+  defp permissions_for_entry(%Entry{id: id}, %{grants_by_id: grants_by_id}, opts)
+       when is_binary(id) do
+    grants_by_id
+    |> Map.get(id, [])
+    |> Enum.map(&entry_permission_grant(&1, opts))
+  end
+
+  defp permissions_for_entry(_entry, _permission_data, _opts), do: []
+
+  defp effective_grants_by_id([], _ancestors_by_id, _opts), do: %{}
+
+  defp effective_grants_by_id(entries, ancestors_by_id, opts) do
+    chains =
+      Enum.map(entries, fn %Entry{id: id} ->
+        {storage_resource(id), Map.get(ancestors_by_id, id, [])}
+      end)
+
+    permissions = permissions(opts)
+
+    results =
+      if function_exported?(permissions, :list_effective_many, 2) do
+        permissions.list_effective_many(chains, opts)
+      else
+        Enum.map(chains, fn {resource, ancestors} ->
+          {resource,
+           permissions.list_effective(resource, Keyword.put(opts, :ancestors, ancestors))}
+        end)
+      end
+
+    Map.new(results, fn {%StorageEntry{id: id}, grants} -> {id, grants} end)
+  end
+
+  defp entry_ancestor_resources_many(entries, opts) do
+    ids = Enum.map(entries, & &1.id)
+    catalog = entry_catalog(opts)
+
+    ancestors_by_id =
+      if function_exported?(catalog, :ancestors_many, 1) do
+        catalog.ancestors_many(ids)
+      else
+        Map.new(ids, &{&1, catalog.ancestors(&1)})
+      end
+
+    Map.new(ids, fn id ->
+      ancestors = ancestors_by_id |> Map.get(id, []) |> Enum.map(&storage_resource(&1.id))
+      {id, ancestors}
     end)
   end
-
-  defp permissions_for_entry(_entry, _opts), do: []
 
   defp page_size(params) do
     raw = MapUtils.present_value(params, "page_size") || 100
@@ -615,10 +724,22 @@ defmodule Zaq.Storage do
 
   defp storage_resource(file_id), do: %StorageEntry{id: file_id}
 
-  defp can_read_entry?(%Entry{} = entry, opts) do
-    case authorize_entry(entry, :read, opts) do
-      :ok -> true
-      {:error, :unauthorized} -> false
+  defp can_read_entry?(%Entry{id: id}, permission_data, opts) do
+    cond do
+      Keyword.get(opts, :skip_permissions, false) ->
+        true
+
+      not is_binary(id) ->
+        false
+
+      Map.has_key?(permission_data, :access) ->
+        permissions(opts).grants_allow?(
+          Map.get(permission_data.grants_by_id, id, []),
+          permission_data.access
+        )
+
+      true ->
+        Map.get(permission_data.grants_by_id, id, []) != []
     end
   end
 
@@ -766,7 +887,9 @@ defmodule Zaq.Storage do
   end
 
   defp permission_grant(permission, opts) do
-    public? = permission.team_id == permissions(opts).everyone_team_id()
+    public? =
+      permission.team_id ==
+        Keyword.get_lazy(opts, :everyone_team_id, fn -> permissions(opts).everyone_team_id() end)
 
     %{
       id: permission.id,
@@ -774,6 +897,20 @@ defmodule Zaq.Storage do
       target_id: to_string(permission.person_id || permission.team_id),
       name: permission_name(permission, public?),
       access_rights: permission.access_rights || []
+    }
+  end
+
+  defp entry_permission_grant(grant, opts) do
+    grant = permission_grant(grant, opts)
+
+    %{
+      id: grant.id,
+      type: grant.type,
+      target_id: grant.target_id,
+      name: grant.name,
+      access_rights: grant.access_rights,
+      inherited?: Map.get(grant, :inherited?, false),
+      origin_resource_id: Map.get(grant, :origin_resource_id)
     }
   end
 
