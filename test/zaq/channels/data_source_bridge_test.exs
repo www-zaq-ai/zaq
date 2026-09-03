@@ -58,7 +58,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     def list_files(config, params, _context) do
       send(self(), {:list_files, config.id, params})
-      {:ok, %{records: []}}
+      {:ok, %RecordPage{resource_type: :file, records: []}}
     end
 
     def create_file(config, params, _context) do
@@ -68,7 +68,16 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     def get_file(config, params, _context) do
       send(self(), {:get_file, config.id, params})
-      {:ok, %{record: %{"id" => "f1"}}}
+
+      {:ok,
+       %{
+         record: %Record{
+           id: "f1",
+           kind: :file,
+           permissions: [permission("user@example.com", ["read"])],
+           attributes: %{"provider" => config.provider, "config_id" => config.id}
+         }
+       }}
     end
 
     def update_file(config, params, _context) do
@@ -83,7 +92,19 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     def search_files(config, params, _context) do
       send(self(), {:search_files, config.id, params})
-      {:ok, %{records: [%{"id" => "f1"}]}}
+
+      {:ok,
+       %RecordPage{
+         resource_type: :file,
+         records: [
+           %Record{
+             id: "f1",
+             kind: :file,
+             permissions: [permission("user@example.com", ["read"])],
+             attributes: %{"provider" => config.provider, "config_id" => config.id}
+           }
+         ]
+       }}
     end
 
     def download_document(config, params, _context) do
@@ -192,6 +213,21 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
       send(self(), {:oauth_default_scopes, config.id})
       {:ok, ["read", "write"]}
     end
+
+    defp permission(email, rights) do
+      %Record{
+        id: "perm-#{System.unique_integer([:positive])}",
+        kind: :permission,
+        attributes: %{
+          "principal" => %{"channel" => "email", "identifier" => email},
+          "access_rights" => rights
+        }
+      }
+    end
+  end
+
+  defmodule StubMalformedDataSourceBridge do
+    def list_files(_config, _params, _context), do: {:ok, %{records: [%{"id" => "f1"}]}}
   end
 
   defmodule StubNoDataSourceCallbacks do
@@ -235,6 +271,27 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     end
 
     def replace_permissions(_config, _params, _context), do: {:ok, %{status: "updated"}}
+
+    def list_files(config, %{"with_handle" => true}, _context) do
+      permission = %Record{
+        id: "perm-handle",
+        kind: :permission,
+        attributes: %{
+          "principal" => %{"channel" => "email", "identifier" => "user@example.com"},
+          "access_rights" => ["read"]
+        }
+      }
+
+      record = %Record{
+        id: "file-with-handle",
+        kind: :file,
+        materialization_handle: "signed-handle",
+        permissions: [permission],
+        attributes: %{"provider" => config.provider, "config_id" => config.id}
+      }
+
+      {:ok, %RecordPage{resource_type: :file, records: [record]}}
+    end
 
     def list_files(config, _params, _context) do
       permission = %Record{
@@ -659,8 +716,12 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert_received {:create_file, ^config_id, %{"name" => "Doc", config_id: ^config_id}}
 
-    assert {:ok, %{record: %{"id" => "f1"}}} =
-             DataSourceBridge.get_file(:google_drive, %{"file_id" => "f1", config_id: config_id})
+    assert {:ok, %{record: %Record{id: "f1"}}} =
+             DataSourceBridge.get_file(
+               :google_drive,
+               %{"file_id" => "f1", config_id: config_id},
+               %{skip_permissions: true}
+             )
 
     assert_received {:get_file, ^config_id, %{"file_id" => "f1", config_id: ^config_id}}
 
@@ -689,12 +750,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              )
 
     assert_received {:update_file, ^config_id,
-                     %{
-                       "file_id" => "f1",
-                       "name" => "Renamed",
-                       "config_id" => ^config_id,
-                       "record" => ^update_record
-                     }}
+                     %{"file_id" => "f1", "name" => "Renamed", "config_id" => ^config_id}}
 
     delete_record = %Record{
       id: "record-f1",
@@ -712,12 +768,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert {:ok, %{status: "deleted", result: %{}}} =
              DataSourceBridge.delete_file(delete_record, %{skip_permissions: true})
 
-    assert_received {:delete_file, ^config_id,
-                     %{
-                       "file_id" => "f1",
-                       "config_id" => ^config_id,
-                       "record" => ^delete_record
-                     }}
+    assert_received {:delete_file, ^config_id, %{"file_id" => "f1", "config_id" => ^config_id}}
 
     fallback_record = %Record{
       id: "fallback-f1",
@@ -732,11 +783,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
              DataSourceBridge.delete_file(fallback_record, %{skip_permissions: true})
 
     assert_received {:delete_file, ^config_id,
-                     %{
-                       "file_id" => "fallback-f1",
-                       "config_id" => ^config_id,
-                       "record" => ^fallback_record
-                     }}
+                     %{"file_id" => "fallback-f1", "config_id" => ^config_id}}
 
     invalid_record = %Record{id: "f1", kind: :file, attributes: %{}}
 
@@ -748,11 +795,15 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert {:error, {:invalid_record, :provider_required}} =
              DataSourceBridge.update_file(invalid_record, %{"name" => "Renamed"})
 
-    assert {:ok, %{records: [%{"id" => "f1"}]}} =
-             DataSourceBridge.search_files(:google_drive, %{
-               "query" => "invoice",
-               config_id: config_id
-             })
+    assert {:ok, %{records: [%Record{id: "f1"}]}} =
+             DataSourceBridge.search_files(
+               :google_drive,
+               %{
+                 "query" => "invoice",
+                 config_id: config_id
+               },
+               %{skip_permissions: true}
+             )
 
     assert_received {:search_files, ^config_id, %{"query" => "invoice", config_id: ^config_id}}
 
@@ -789,22 +840,32 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert list_params["include_permissions"] == true
     assert list_params[:include_permissions] == nil
 
-    assert {:ok, %{records: [%{"id" => "f1"}]}} =
-             DataSourceBridge.search_files(:google_drive, %{
-               "query" => "invoice",
-               "include_permissions" => false,
-               config_id: config_id
-             })
+    person = person_fixture("user@example.com")
+
+    assert {:ok, %{records: [%Record{id: "f1"}]}} =
+             DataSourceBridge.search_files(
+               :google_drive,
+               %{
+                 "query" => "invoice",
+                 "include_permissions" => false,
+                 config_id: config_id
+               },
+               actor_context(person)
+             )
 
     assert_received {:search_files, ^config_id, search_params}
     assert search_params["include_permissions"] == true
     assert search_params[:include_permissions] == nil
 
-    assert {:ok, %{record: %{"id" => "f1"}}} =
-             DataSourceBridge.get_file(:google_drive, %{
-               "file_id" => "f1",
-               config_id: config_id
-             })
+    assert {:ok, %{record: %Record{id: "f1"}}} =
+             DataSourceBridge.get_file(
+               :google_drive,
+               %{
+                 "file_id" => "f1",
+                 config_id: config_id
+               },
+               actor_context(person)
+             )
 
     assert_received {:get_file, ^config_id, get_params}
     assert get_params["include_permissions"] == true
@@ -826,7 +887,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert list_params["include_permissions"] == false
     assert list_params[:include_permissions] == nil
 
-    assert {:ok, %{records: [%{"id" => "f1"}]}} =
+    assert {:ok, %{records: [%Record{id: "f1"}]}} =
              DataSourceBridge.search_files(
                :google_drive,
                %{"query" => "invoice", config_id: config_id, include_permissions: true},
@@ -837,7 +898,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert search_params["include_permissions"] == true
     assert search_params[:include_permissions] == nil
 
-    assert {:ok, %{record: %{"id" => "f1"}}} =
+    assert {:ok, %{record: %Record{id: "f1"}}} =
              DataSourceBridge.get_file(
                :google_drive,
                %{"file_id" => "f1", "include_permissions" => false, config_id: config_id},
@@ -890,6 +951,34 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                %{config_id: config.id},
                actor_context(person)
              )
+  end
+
+  test "list_files does not disclose handles on unauthorized records" do
+    use_record_returning_bridge()
+
+    config = insert_data_source_config(:google_drive)
+    other = person_fixture("other-#{System.unique_integer([:positive])}@example.com")
+
+    assert {:ok, %{records: [], stats: %{returned: 0}}} =
+             DataSourceBridge.list_files(
+               :google_drive,
+               %{"with_handle" => true, config_id: config.id},
+               actor_context(other)
+             )
+  end
+
+  test "authorized read wrappers reject malformed successful record lists" do
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{
+        bridge: StubMalformedDataSourceBridge,
+        adapter: __MODULE__.StubAdapter
+      }
+    })
+
+    config = insert_data_source_config(:google_drive)
+
+    assert {:error, {:invalid_bridge_response, :authorization_required}} =
+             DataSourceBridge.list_files(:google_drive, %{config_id: config.id})
   end
 
   test "update_file rejects provider-based updates for globally authorized bridges" do
@@ -948,8 +1037,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
                        %{
                          "file_id" => ^provider_file_id,
                          "config_id" => ^config_id,
-                         "name" => "Renamed",
-                         "record" => ^record
+                         "name" => "Renamed"
                        }}
     end
   end
@@ -1032,8 +1120,7 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert {:ok, %{status: "deleted", result: %{}}} =
              DataSourceBridge.delete_file(sealed_record, actor_context(person))
 
-    assert_received {:delete_file, ^config_id,
-                     %{"file_id" => "stable-file-id", "record" => ^sealed_record}}
+    assert_received {:delete_file, ^config_id, %{"file_id" => "stable-file-id"}}
 
     refute_received {:delete_file, ^config_id, %{"file_id" => _, "config_id" => _}}
   end

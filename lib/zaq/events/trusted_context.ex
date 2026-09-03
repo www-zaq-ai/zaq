@@ -5,6 +5,13 @@ defmodule Zaq.Events.TrustedContext do
   Callers may provide a larger runtime context, but only canonical identity and an explicit
   permission bypass are retained. Runtime dependencies such as the node router and config are
   consumed locally when producing event-builder options and are never stored in this struct.
+
+  Put new permission-bypass decisions in one of two places: top-level
+  `context.skip_permissions` before a local call, or `event.opts[:skip_permissions]` before an
+  event crosses a role boundary. Actors carry identity; new code should not put authorization
+  decisions in actor maps. `from_event/1` still recognizes `actor.skip_permissions` as a
+  compatibility input for older BO call paths. Request parameters are never trusted for
+  permission bypass.
   """
 
   alias Zaq.Event

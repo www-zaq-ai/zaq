@@ -174,16 +174,21 @@ again before returning content.
 
 Data-source file callbacks receive `%Zaq.Events.TrustedContext{}` separately from provider
 parameters. `Zaq.Channels.Api` derives it only from the incoming event envelope; bridges must
-never derive actors or `skip_permissions` from request parameters. Bridges that dispatch to
-another role, such as `DiskBridge` dispatching to Storage, project the same trusted context
-through that role's event helper.
+never derive actors or `skip_permissions` from request parameters. New code puts permission
+bypass in top-level runtime context or `event.opts[:skip_permissions]`, not in actor maps;
+actor-carried bypass is a compatibility input only. Bridges that dispatch to another role,
+such as `DiskBridge` dispatching to Storage, project the same trusted context through that
+role's event helper.
 
 `Zaq.Channels.DataSourceBridge` enforces Record permissions by default for file reads and
 mutations. Bridges normalize provider principals into permission Records with canonical
 `principal.channel`, `principal.identifier`, and `access_rights`; the global boundary matches
-those grants against the trusted actor's People-directory identity. A bridge may opt out only
-by implementing `owns_permission_checks?/0` and returning `true`; Disk does this because
-Storage owns source ACLs and checks them with current filesystem context.
+those grants against the trusted actor's People-directory identity. Signed-Record mutations
+are authorized before the bridge callback runs, and callback params contain only provider
+business fields such as `file_id`, `config_id`, metadata, and content. Provider-based updates
+are available only to bridges that implement `owns_permission_checks?/0` and return `true`;
+Disk does this because Storage owns source ACLs and checks them with current filesystem
+context.
 
 Unmaterialized data-source file records carry a signed `materialization_handle` of type
 `data_source_document`. The handle survives agent/tool JSON serialization and is redeemed
