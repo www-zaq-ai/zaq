@@ -92,6 +92,43 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     def triggers(_integration), do: {:ok, []}
   end
 
+  defmodule StubJidoConnectGetFileWithFields do
+    def actions(_integration) do
+      {:ok,
+       [
+         %{
+           id: "stub.file.get",
+           resource: :file,
+           verb: :get,
+           auth_profile: :user,
+           auth_profiles: [:user],
+           input: [%{name: :fields}]
+         }
+       ]}
+    end
+
+    def invoke(_integration, "stub.file.get", params, opts) do
+      send(self(), {:invoke_get_file, params, opts})
+
+      {:ok,
+       %{
+         file: %{
+           "id" => Map.get(params, "file_id") || Map.get(params, :file_id),
+           "name" => "Doc 1",
+           "mimeType" => "application/pdf",
+           "permissions" => [
+             %{
+               "id" => "u1",
+               "type" => "user",
+               "role" => "reader",
+               "emailAddress" => "a@example.com"
+             }
+           ]
+         }
+       }}
+    end
+  end
+
   defmodule StubJidoConnectStructPermissions do
     def actions(_integration) do
       StubJidoConnect.actions(nil)
@@ -2006,6 +2043,31 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     fields = Map.get(params, :fields) || Map.get(params, "fields")
     assert String.contains?(fields, "nextPageToken,")
     assert String.contains?(fields, "permissions(")
+  end
+
+  test "get_file with include_permissions uses a single-file Google Drive field mask" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectGetFileWithFields
+    )
+
+    assert {:ok, %{record: %Record{id: "f1"}}} =
+             JidoConnectBridge.get_file(config, %{
+               "file_id" => "f1",
+               "include_permissions" => true
+             })
+
+    assert_received {:invoke_get_file, params, _opts}
+    fields = Map.get(params, :fields) || Map.get(params, "fields")
+
+    assert String.contains?(fields, "permissions(")
+    refute String.contains?(fields, "nextPageToken")
+    refute String.contains?(fields, "files(")
   end
 
   # ---------------------------------------------------------------------------
