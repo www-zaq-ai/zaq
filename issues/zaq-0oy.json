@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-03T08:12:35Z",
+  "description": "Fix BO and runtime skill resource access for legacy unpinned skills after Agent Skills resource migration. Acceptance: selected folder scope_id is preserved; missing global resource config disables Add Resource without blocking skill save; malformed listings return errors instead of crashing.",
+  "id": "zaq-0oy",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[agent-skills] Fix legacy skill resource scope handling",
+  "type": "bug",
+  "updated_at": "2026-09-03T08:12:35Z"
+}
