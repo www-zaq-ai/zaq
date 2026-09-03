@@ -6,9 +6,15 @@
   "description": "Fix BO and runtime skill resource access for legacy unpinned skills after Agent Skills resource migration. Acceptance: selected folder scope_id is preserved; missing global resource config disables Add Resource without blocking skill save; malformed listings return errors instead of crashing.",
   "id": "zaq-0oy",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented scoped skill resource handling and disabled BO resource uploads when no global/pinned resource location exists. Focused tests and mix q pass.",
+      "timestamp": "2026-09-03T08:24:27Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[agent-skills] Fix legacy skill resource scope handling",
   "type": "bug",
-  "updated_at": "2026-09-03T08:12:35Z"
+  "updated_at": "2026-09-03T08:24:27Z"
 }
