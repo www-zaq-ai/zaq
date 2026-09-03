@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-03T08:51:58Z",
+  "description": "Update tests/docs and run required validation for the skill resource UI/path/type work.",
+  "id": "zaq-3ov",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Skill resources validation",
+  "type": "task",
+  "updated_at": "2026-09-03T08:51:58Z"
+}
