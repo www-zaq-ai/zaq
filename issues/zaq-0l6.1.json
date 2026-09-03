@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-0l6.2"
+  ],
   "created": "2026-09-03T06:00:37Z",
   "description": "Add tests for bulk effective permissions and Storage query-budget regressions before implementation.",
   "id": "zaq-0l6.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-0l6] Add permission batching regression tests",
   "type": "task",
-  "updated_at": "2026-09-03T06:00:37Z"
+  "updated_at": "2026-09-03T06:00:38Z"
 }

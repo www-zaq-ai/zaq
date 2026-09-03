@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-0l6.1"
+  ],
   "blocks": [],
   "created": "2026-09-03T06:00:37Z",
   "description": "Add an ancestors_many primitive so Storage can load ancestor chains for listed records in one operation.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-0l6] Batch EntryCatalog ancestor loading",
   "type": "task",
-  "updated_at": "2026-09-03T06:00:37Z"
+  "updated_at": "2026-09-03T06:00:38Z"
 }
