@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-03T06:00:38Z",
+  "description": "Add list_effective_many and helpers to load filtered or unfiltered resource_permissions in one reusable query.",
+  "id": "zaq-0l6.3",
+  "labels": [],
+  "parent": "zaq-0l6",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-0l6] Add reusable bulk permission loader",
+  "type": "task",
+  "updated_at": "2026-09-03T06:00:38Z"
+}
