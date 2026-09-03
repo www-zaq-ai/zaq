@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-iiy"
+  ],
   "created": "2026-09-03T08:51:57Z",
   "description": "Update Agent Skill resource path derivation to use the globally configured folder as base, per-skill flat folders, and persist resource classifications for callbacks.",
   "id": "zaq-9tc",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-9tc] Skill resources flat folders and type metadata",
   "type": "task",
-  "updated_at": "2026-09-03T08:52:12Z"
+  "updated_at": "2026-09-03T08:52:13Z"
 }

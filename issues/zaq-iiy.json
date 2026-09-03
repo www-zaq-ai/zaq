@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-9tc"
+  ],
   "blocks": [],
   "created": "2026-09-03T08:51:58Z",
   "description": "Add UI to classify uploaded skill resources, show resource type cues, and remove pending or persisted resource files safely.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-iiy] Skill resources BO type selector and removal",
   "type": "task",
-  "updated_at": "2026-09-03T08:52:12Z"
+  "updated_at": "2026-09-03T08:52:13Z"
 }
