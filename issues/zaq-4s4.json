@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-04T15:38:46Z",
+  "description": "Replace VM-global provider browser test state with an injected Zaq.Config seam for IngestionLive provider browser tests. Keep production behavior unchanged.",
+  "id": "zaq-4s4",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[flaky] Scope ingestion provider browser test config",
+  "type": "bug",
+  "updated_at": "2026-09-04T15:38:46Z"
+}
