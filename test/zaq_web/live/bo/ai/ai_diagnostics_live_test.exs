@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
   alias Zaq.Accounts
   alias Zaq.Agent.PromptTemplate
   alias Zaq.Embedding.Client, as: EmbeddingClient
+  alias Zaq.Ingestion.Python.Runner
   alias Zaq.TestSupport.OpenAIStub
 
   setup %{conn: conn} do
@@ -147,6 +148,113 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     |> render_click()
 
     assert has_element?(view, "span", "connected")
+  end
+
+  # Points Runner.scripts_dir/0 at `dir` for the duration of the test.
+  defp put_scripts_dir(dir) do
+    previous = Application.get_env(:zaq, Runner)
+    Application.put_env(:zaq, Runner, scripts_dir: dir)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:zaq, Runner)
+        config -> Application.put_env(:zaq, Runner, config)
+      end
+    end)
+  end
+
+  defp temp_dir do
+    dir = Path.join(System.tmp_dir!(), "zaq_ai_diag_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf(dir) end)
+    dir
+  end
+
+  # Shadows `table` on this test's connection with a temp view whose rows cannot be
+  # produced, so exactly one of mount's queries raises while every other query keeps
+  # working. Session-local and rolled back with the sandbox transaction — it takes no
+  # lock on the real table, so concurrent tests are unaffected.
+  defp break_table(table) do
+    Zaq.Repo.query!("""
+    CREATE FUNCTION pg_temp.zaq_diag_boom() RETURNS boolean AS $$
+    BEGIN RAISE EXCEPTION 'zaq diagnostics test'; END $$ LANGUAGE plpgsql
+    """)
+
+    Zaq.Repo.query!("CREATE TEMP VIEW #{table} AS SELECT 1 AS id WHERE pg_temp.zaq_diag_boom()")
+  end
+
+  describe "test_image_to_text" do
+    @tag capture_log: true
+    test "reports an error when the python step cannot run", %{conn: conn} do
+      # No image_to_text.py under the scripts dir, so ImageToText.ping/0 always
+      # comes back {:error, output} — whether python resolves or not.
+      put_scripts_dir(temp_dir())
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
+
+      view
+      |> element("button[phx-click='test_image_to_text']")
+      |> render_click()
+
+      assert_diagnostic_error(view)
+    end
+  end
+
+  describe "test_pdf_pipeline" do
+    test "reports missing scripts when the scripts dir does not exist", %{conn: conn} do
+      put_scripts_dir(
+        Path.join(System.tmp_dir!(), "zaq_absent_#{System.unique_integer([:positive])}")
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
+
+      assert render_hook(view, "test_pdf_pipeline", %{}) =~ "Scripts not found"
+    end
+
+    test "probes the python executable when the scripts dir exists", %{conn: conn} do
+      put_scripts_dir(temp_dir())
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
+
+      html = render_hook(view, "test_pdf_pipeline", %{})
+
+      # The probe runs `python3 --version`; the reported status follows whether a
+      # python executable is resolvable in this environment.
+      if System.find_executable(Runner.python_executable()) do
+        assert html =~ "available"
+      else
+        assert html =~ "Python unavailable" or html =~ "enoent"
+      end
+
+      refute html =~ "Scripts not found"
+    end
+  end
+
+  describe "mount degrades when a query fails" do
+    test "falls back to an empty template list", %{conn: conn} do
+      break_table("prompt_templates")
+
+      {:ok, _view, html} = live(conn, ~p"/bo/ai-diagnostics")
+
+      assert html =~ "No Templates Found"
+    end
+
+    test "falls back to an unknown document count", %{conn: conn} do
+      break_table("documents")
+
+      {:ok, _view, html} = live(conn, ~p"/bo/ai-diagnostics")
+
+      assert html =~ ~r/—\s*<span[^>]*>\s*docs/
+    end
+
+    test "falls back to an unknown chunk count", %{conn: conn} do
+      break_table("chunks")
+
+      {:ok, _view, html} = live(conn, ~p"/bo/ai-diagnostics")
+
+      assert html =~ ~r/—\s*<span[^>]*>\s*chunks/
+      refute html =~ ~r/—\s*<span[^>]*>\s*docs/
+    end
   end
 
   defp assert_diagnostic_error(view, message_fragment \\ nil) do

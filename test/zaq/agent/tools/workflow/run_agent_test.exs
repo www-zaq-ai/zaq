@@ -288,29 +288,17 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     test "accepts fully string-keyed params without crashing (atomize_keys fallback shape)" do
       # When a workflow node carries a param key with no existing atom, the DAG
       # builder leaves the whole param map string-keyed. run/2 must still resolve
-      # agent_id/input and keep substitution working.
+      # agent_id/input from that shape.
       agent = create_agent()
 
       RunAgent.run(
-        %{"agent_id" => agent.id, "input" => "hello {{who}}", "who" => "world"},
+        %{"agent_id" => agent.id, "input" => "hello world"},
         %{node_router: OkRouter}
       )
 
       assert_received {:dispatched, event}
       assert event.request.content == "hello world"
       assert event.assigns["agent_selection"]["agent_id"] == agent.id
-    end
-
-    test "does not expose string-keyed agent_id/input as substitution vars" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{"agent_id" => agent.id, "input" => "{{agent_id}} and {{input}} are empty"},
-        %{node_router: OkRouter}
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == " and  are empty"
     end
 
     test "accepts run_id from string context key" do
@@ -390,210 +378,14 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
     end
   end
 
-  describe "run/2 — template substitution" do
-    test "substitutes {{variable}} in input from extra params" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input: "Draft for {{name}} at {{company}}",
-          name: "Alice",
-          company: "Acme"
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "Draft for Alice at Acme"
-    end
-
-    test "does not pass an agent job as a system_prompt override" do
-      agent = create_agent(%{job: "You assist {{role}} teams at {{company}}."})
-
-      RunAgent.run(
-        %{agent_id: agent.id, input: "hello", role: "sales", company: "Globex"},
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      refute Keyword.has_key?(event.opts[:pipeline_opts], :system_prompt)
-    end
-
-    test "leaves unmatched {{placeholders}} in input as empty string" do
-      agent = create_agent()
-
-      RunAgent.run(%{agent_id: agent.id, input: "Hello {{missing}}."}, ok_ctx())
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "Hello ."
-    end
-
-    test "handles integer extra params in substitution" do
-      agent = create_agent()
-
-      RunAgent.run(%{agent_id: agent.id, input: "Sequence {{seq}}", seq: 3}, ok_ctx())
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "Sequence 3"
-    end
-
-    test "stringifies floats, booleans, nils and structured values in substitution" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input: "{{score}} {{enabled}} {{missing_value}} {{payload}}",
-          score: 1.5,
-          enabled: false,
-          missing_value: nil,
-          payload: [:a, 1]
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "1.5 false  [:a, 1]"
-    end
-
-    test "does not pass agent_id or input as substitution vars" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{agent_id: agent.id, input: "{{agent_id}} and {{input}} should be empty."},
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == " and  should be empty."
-    end
-  end
-
-  # The substitution regex is ~r/\{\{(\w+)\}\}/, and \w is [A-Za-z0-9_] — it does
-  # NOT include spaces. So a placeholder must use a single-token name like
-  # `company_summary`; `{{company summary}}` (with a space) never matches and is
-  # left verbatim in the prompt. This pins that contract.
-  describe "run/2 — placeholder tokens cannot contain spaces" do
-    test "{{company summary}} (with a space) is NOT substituted, even when the value is present" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          # Value supplied under the spaced key — it must still NOT be injected.
-          "company summary" => "Acme builds rockets.",
-          agent_id: agent.id,
-          input:
-            "Based on the following company summary: {{company summary}}, write a concise list of the top services ZAQ can provide to this business and for each provide a clear benefit and a short explanation of how is it relevant."
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      # The spaced placeholder is left untouched (verbatim), not replaced.
-      assert event.request.content =~ "{{company summary}}"
-      refute event.request.content =~ "Acme builds rockets."
-    end
-
-    test "{{company_summary}} (underscore) IS substituted" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input:
-            "Based on the following company summary: {{company_summary}}, write a concise list of the top services ZAQ can provide to this business and for each provide a clear benefit and a short explanation of how is it relevant.",
-          company_summary: "Acme builds rockets."
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content =~ "company summary: Acme builds rockets., write"
-      refute event.request.content =~ "{{"
-    end
-  end
-
-  describe "run/2 — nested map (row) flattening" do
-    test "flattens row map fields into substitution vars" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input: "Draft for {{name}} at {{company}}, position: {{position}}",
-          row: %{"name" => "John Doe", "company" => "Acme", "position" => "CTO"}
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "Draft for John Doe at Acme, position: CTO"
-    end
-
-    test "flat top-level params win over same-key nested map values" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input: "Hello {{name}}",
-          name: "FlatAlice",
-          row: %{"name" => "NestedBob"}
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "Hello FlatAlice"
-    end
-
-    test "atom-keyed row fields are also flattened" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{agent_id: agent.id, input: "{{email}}", row: %{email: "lead@example.com"}},
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "lead@example.com"
-    end
-
-    test "excludes __cascade__ from substitution vars" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input: "{{__cascade__}} check",
-          __cascade__: %{some_step: %{result: "data"}}
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == " check"
-    end
-
-    test "multiple nested maps are all flattened" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input: "{{name}} — {{city}}",
-          row: %{"name" => "Jane"},
-          extra: %{"city" => "Beirut"}
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "Jane — Beirut"
-    end
-  end
-
+  # Substitution runs through `Zaq.Engine.Workflows.Placeholders`, whose key class
+  # allows spaces and hyphens — human-authored sheet headers ("Company Context
+  # Content") are real keys. This used to be RunAgent's own `~r/\{\{(\w+)\}\}/`,
+  # which silently left a spaced placeholder verbatim in the prompt while the same
+  # key substituted fine in `Concat` and `DispatchEvent`.
+  # Sharing `Placeholders` with `Concat` and `DispatchEvent` gives a RunAgent prompt
+  # the same reach they have. Previously `build_vars/1` was the only source, so a
+  # placeholder could name nothing beyond the node's own params.
   describe "run/2 — context (seeded AIContext)" do
     test "builds normalised context turns into the seeded AIContext, order preserved" do
       agent = create_agent()
@@ -688,24 +480,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert [%{role: :user, content: "hi"}] = seeded_messages(event)
     end
 
-    test "substitutes {{variable}} inside context turn content" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input: "go",
-          context: [%{role: "user", content: "Hi {{name}} from {{company}}"}],
-          name: "Alice",
-          company: "Acme"
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert [%{content: "Hi Alice from Acme"}] = seeded_messages(event)
-    end
-
     test "drops entries with an unknown role but still dispatches the run" do
       agent = create_agent()
 
@@ -759,22 +533,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
       assert seeded_context(event) == nil
-    end
-
-    test "does not expose the context list as a {{context}} substitution var" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{
-          agent_id: agent.id,
-          input: "before {{context}} after",
-          context: [%{role: "user", content: "x"}]
-        },
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "before  after"
     end
 
     test "stringifies non-string content in a context turn" do
@@ -837,7 +595,64 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       assert [%{role: :user, content: "solo"}] = seeded_messages(event)
     end
 
-    test "keeps a turn whose content is missing or resolves to empty as an empty string" do
+    test "drops entries whose role is neither a string nor an atom" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [
+            %{role: 42, content: "numeric role"},
+            %{role: nil, content: "nil role"},
+            %{role: ["user"], content: "list role"},
+            %{content: "missing role"},
+            %{role: "user", content: "keep me"}
+          ]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [%{role: :user, content: "keep me"}] = seeded_messages(event)
+    end
+
+    test "stringifies float and boolean content in a context turn" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{role: "user", content: 1.5}, %{role: "assistant", content: true}]
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+
+      assert [
+               %{role: :user, content: "1.5"},
+               %{role: :assistant, content: "true"}
+             ] = seeded_messages(event)
+    end
+
+    # `entry_field/2` reads a turn's key as `atom_key || string_key`, so a literal
+    # `false` content is indistinguishable from an absent key and normalises to "".
+    # Pinned here so the behaviour is visible rather than surprising.
+    test "treats a literal false content as absent (empty string)" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{agent_id: agent.id, input: "go", context: [%{role: "tool", content: false}]},
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert [%{role: :tool, content: ""}] = seeded_messages(event)
+    end
+
+    test "keeps a turn whose content is missing or empty as an empty string" do
       # Carrier is a mechanical normaliser: it does not drop empty turns — deciding
       # what to do with an empty message is the consumer's job (Issue 2).
       agent = create_agent()
@@ -848,7 +663,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
           input: "go",
           context: [
             %{role: "user"},
-            %{role: "tool", content: "{{missing}}"}
+            %{role: "tool", content: ""}
           ]
         },
         ok_ctx()
@@ -915,18 +730,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
       refute Map.has_key?(event.request.metadata, :context_max_size)
     end
 
-    test "does not expose context_max_size as a substitution var" do
-      agent = create_agent()
-
-      RunAgent.run(
-        %{agent_id: agent.id, input: "budget {{context_max_size}} here", context_max_size: 3000},
-        ok_ctx()
-      )
-
-      assert_received {:dispatched, event}
-      assert event.request.content == "budget  here"
-    end
-
     # Each turn below is ~10 words ≈ 13 tokens (TokenEstimator: words × 1.3, ceil).
     # A budget of 20 fits only the newest turn (13 ok; +13 = 26 > 20 halts), proving
     # the seed context is trimmed here rather than passed through unbounded.
@@ -964,6 +767,28 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgentTest do
 
       assert_received {:dispatched, event}
       assert [%{content: "a"}, %{content: "b"}] = seeded_messages(event)
+    end
+
+    # When even the newest turn overflows the budget, `within_budget/2` keeps
+    # nothing. No `:context` is then sent, so the agent falls back to normal
+    # history loading rather than spawning with an empty seeded context.
+    test "sends no :context when every seed turn overflows the budget" do
+      agent = create_agent()
+
+      RunAgent.run(
+        %{
+          agent_id: agent.id,
+          input: "go",
+          context: [%{role: "user", content: "one two three four five"}],
+          context_max_size: 1
+        },
+        ok_ctx()
+      )
+
+      assert_received {:dispatched, event}
+      assert seeded_context(event) == nil
+      # The budget is still carried as data for downstream observability.
+      assert event.request.metadata[:context_max_size] == 1
     end
   end
 

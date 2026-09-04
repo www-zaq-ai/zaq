@@ -890,6 +890,27 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "fetch"
     end
 
+    # Regression: a running edge StepRun is not a node, so focusing it looked up an
+    # empty node_info entry and crashed the render.
+    test "a running edge step does not become the selected step", %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+
+      edge_step =
+        step_run_fixture(run, %{
+          step_name: "fetch__to__send__edge",
+          step_index: 1,
+          status: "running"
+        })
+
+      Phoenix.PubSub.broadcast(Zaq.PubSub, "workflow_run:#{run.id}", {:step_updated, edge_step})
+
+      html = render(view)
+      refute html =~ "fetch__to__send__edge"
+    end
+
     test "broadcasting {:step_updated, step_run} updates an existing step on the page", %{
       conn: conn
     } do

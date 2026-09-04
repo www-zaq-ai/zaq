@@ -992,6 +992,125 @@ defmodule Zaq.Engine.ApiTest do
     end
   end
 
+  describe "workflow_input_contract action" do
+    setup do
+      workflow =
+        Repo.insert!(
+          Workflows.Workflow.changeset(%Workflows.Workflow{}, %{
+            "name" => "Greet",
+            "status" => "draft",
+            "nodes" => [
+              %{
+                "name" => "greet",
+                "type" => "action",
+                "module" => "Zaq.Agent.Tools.Workflow.Concat",
+                "index" => 0,
+                "params" => %{"parts" => ["{{start.name}}"]}
+              }
+            ],
+            "edges" => []
+          })
+        )
+
+      %{workflow: workflow}
+    end
+
+    test "derives the contract on the engine node", %{workflow: workflow} do
+      event = Event.new(%{workflow_id: workflow.id, input: %{"name" => "Ada"}}, :engine)
+
+      assert %Event{response: {:ok, contract}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+
+      assert contract.valid?
+      assert contract.valid?
+    end
+
+    # The bucket has to survive the node hop: the tool runs on the Agent node and only
+    # the derived contract crosses back, so a key the Engine adds is invisible to an
+    # agent unless it travels.
+    test "a wrong-typed payload field crosses back as an invalid_type error" do
+      workflow =
+        Repo.insert!(
+          Workflows.Workflow.changeset(%Workflows.Workflow{}, %{
+            "name" => "Update",
+            "status" => "draft",
+            "nodes" => [
+              %{
+                "name" => "update",
+                "type" => "action",
+                "module" => "Zaq.Agent.Tools.People.UpdatePerson",
+                "index" => 0,
+                "params" => %{}
+              }
+            ],
+            "edges" => []
+          })
+        )
+
+      event = Event.new(%{workflow_id: workflow.id, input: %{"person_id" => "42"}}, :engine)
+
+      assert %Event{response: {:ok, contract}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+
+      refute contract.valid?
+
+      assert [
+               %{
+                 path: ["person_id"],
+                 code: :invalid_type,
+                 message: "expected integer, got string"
+               }
+             ] =
+               contract.errors
+    end
+
+    test "a valid payload crosses back with both buckets empty", %{workflow: workflow} do
+      event = Event.new(%{workflow_id: workflow.id, input: %{"name" => "Ada"}}, :engine)
+
+      assert %Event{response: {:ok, %{valid?: true, errors: []}}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+    end
+
+    test "a missing payload field is reported, not raised", %{workflow: workflow} do
+      event = Event.new(%{workflow_id: workflow.id, input: %{}}, :engine)
+
+      assert %Event{response: {:ok, %{valid?: false, errors: [%{path: ["name"]}]}}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+    end
+
+    test "a scalar payload is derived against rather than rejected", %{workflow: workflow} do
+      event = Event.new(%{workflow_id: workflow.id, input: "not a map"}, :engine)
+
+      assert %Event{response: {:ok, %{valid?: false}}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+    end
+
+    test "an unknown workflow returns a correctable error" do
+      event = Event.new(%{workflow_id: Ecto.UUID.generate(), input: %{}}, :engine)
+
+      assert %Event{response: {:error, message}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+
+      assert message =~ "workflow not found"
+    end
+
+    test "a non-uuid workflow_id returns a correctable error instead of raising" do
+      event = Event.new(%{workflow_id: "not-a-uuid", input: %{}}, :engine)
+
+      assert %Event{response: {:error, message}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+
+      assert message =~ "not a valid uuid"
+    end
+
+    test "a request missing workflow_id is an invalid request" do
+      event = Event.new(%{input: %{}}, :engine)
+
+      assert %Event{response: {:error, {:invalid_request, _}}} =
+               Api.handle_event(event, :workflow_input_contract, nil)
+    end
+  end
+
   defp insert_agent! do
     credential = SystemConfigFixtures.ai_credential_fixture()
 

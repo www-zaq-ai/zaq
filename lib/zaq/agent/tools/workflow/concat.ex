@@ -96,29 +96,16 @@ defmodule Zaq.Agent.Tools.Workflow.Concat do
       ]
     ]
 
-  alias Zaq.Engine.Workflows.FactLookup
-
-  @reserved_keys [:parts, :separator, :as_matrix, "parts", "separator", "as_matrix"]
-  # The key class matches what `FactLookup` resolves: dotted segments that may
-  # contain spaces/hyphens (human-authored sheet headers like "Company Context
-  # Content"). Non-greedy + the trailing `\s*` keep surrounding padding out of the
-  # captured key, and `[^{}]` never crosses a `}}` boundary.
-  @placeholder ~r/\{\{\s*([\w.][\w.\s-]*?)\s*\}\}/
-  @sole_placeholder ~r/^\s*\{\{\s*([\w.][\w.\s-]*?)\s*\}\}\s*$/
-
   @impl Jido.Action
-  def run(params, context) do
+  def run(params, _context) do
     parts = Map.get(params, :parts, Map.get(params, "parts"))
 
     case parts do
       list when is_list(list) ->
-        fact = lookup_fact(params, context)
-        resolved = Enum.map(list, &resolve_part(&1, fact))
-
-        if Enum.any?(resolved, &is_list/1) do
-          {:ok, %{list: concat_lists(resolved)}}
+        if Enum.any?(list, &is_list/1) do
+          {:ok, %{list: concat_lists(list)}}
         else
-          string_result(resolved, params)
+          string_result(list, params)
         end
 
       _ ->
@@ -152,48 +139,5 @@ defmodule Zaq.Agent.Tools.Workflow.Concat do
       part -> [part]
     end)
     |> Enum.concat()
-  end
-
-  # ── Cascade-aware, type-preserving substitution ──────────────────────────────
-
-  # The lookup fact is the node's non-reserved params augmented with the run's
-  # `__cascade__` (handed through `context` by `StepRunner`), so a `{{key}}` can
-  # reference a plain param, a node-qualified result, or the `start.*` namespace.
-  defp lookup_fact(params, context) do
-    params
-    |> Map.drop(@reserved_keys)
-    |> Map.put(:__cascade__, cascade(context))
-  end
-
-  defp cascade(context),
-    do: Map.get(context, :__cascade__) || Map.get(context, "__cascade__") || %{}
-
-  # A struct is a domain value, not a container — never walk into it.
-  defp resolve_part(part, _fact) when is_struct(part), do: part
-  defp resolve_part(part, fact) when is_list(part), do: Enum.map(part, &resolve_part(&1, fact))
-
-  defp resolve_part(part, fact) when is_map(part),
-    do: Map.new(part, fn {k, v} -> {k, resolve_part(v, fact)} end)
-
-  defp resolve_part(part, fact) when is_binary(part), do: substitute_string(part, fact)
-  defp resolve_part(part, _fact), do: part
-
-  # A whole-string placeholder keeps the raw resolved value (type preserved); an
-  # embedded placeholder is stringified in place.
-  defp substitute_string(str, fact) do
-    case Regex.run(@sole_placeholder, str) do
-      [_full, key] ->
-        lookup(fact, key)
-
-      _ ->
-        Regex.replace(@placeholder, str, fn _full, key -> to_string(lookup(fact, key)) end)
-    end
-  end
-
-  defp lookup(fact, key) do
-    case FactLookup.fetch(fact, key) do
-      {:ok, value} -> value
-      :error -> ""
-    end
   end
 end

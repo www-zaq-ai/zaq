@@ -600,7 +600,7 @@ defmodule Zaq.Engine.Workflows.Test.ListClients do
   use Jido.Action,
     name: "test_list_clients",
     schema: [source: [type: :string, required: false]],
-    output_schema: [clients: [type: :list, required: true]]
+    output_schema: [clients: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -625,8 +625,8 @@ defmodule Zaq.Engine.Workflows.Test.CategorizeBySize do
   @moduledoc false
   use Jido.Action,
     name: "test_categorize_by_size",
-    schema: [items: [type: :list, required: true]],
-    output_schema: [results: [type: :list, required: true]]
+    schema: [items: [type: {:list, :any}, required: true]],
+    output_schema: [results: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -655,10 +655,10 @@ defmodule Zaq.Engine.Workflows.Test.Sleep do
   use Jido.Action,
     name: "test_sleep",
     schema: [
-      results: [type: :list, required: true],
+      results: [type: {:list, :any}, required: true],
       duration_ms: [type: :integer, required: false, default: 200]
     ],
-    output_schema: [results: [type: :list, required: true]]
+    output_schema: [results: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -724,8 +724,8 @@ defmodule Zaq.Engine.Workflows.Test.FlattenClients do
   @moduledoc false
   use Jido.Action,
     name: "test_flatten_clients",
-    schema: [results: [type: :list, required: true]],
-    output_schema: [clients: [type: :list, required: true]]
+    schema: [results: [type: {:list, :any}, required: true]],
+    output_schema: [clients: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -750,7 +750,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitItems do
   use Jido.Action,
     name: "test_emit_items",
     schema: [input: [type: :any]],
-    output_schema: [items: [type: :list, required: true]]
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -859,7 +859,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitNumbers do
   use Jido.Action,
     name: "test_emit_numbers",
     schema: [input: [type: :any]],
-    output_schema: [nums: [type: :list, required: true]]
+    output_schema: [nums: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -925,7 +925,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitIndexedItems do
   use Jido.Action,
     name: "test_emit_indexed_items",
     schema: [count: [type: :integer, required: false, default: 3]],
-    output_schema: [items: [type: :list, required: true]]
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -946,8 +946,8 @@ defmodule Zaq.Engine.Workflows.Test.RecordItemTime do
   """
   use Jido.Action,
     name: "test_record_item_time",
-    schema: [items: [type: :list, required: true]],
-    output_schema: [items: [type: :list, required: true]]
+    schema: [items: [type: {:list, :any}, required: true]],
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -1127,4 +1127,183 @@ defmodule Zaq.Engine.Workflows.Test.EmitStructRow do
 
     {:ok, %{row: row, metadata: %{last_message_date: nil}}}
   end
+end
+
+# ---------------------------------------------------------------------------
+# Placeholder / cascade collision test support
+# ---------------------------------------------------------------------------
+
+defmodule Zaq.Engine.Workflows.Test.EmitBracedBody do
+  @moduledoc """
+  Emits runtime content that happens to contain a literal `{{...}}` token — the
+  lead/user-supplied text shape behind the `resolve_placeholders` finding.
+  """
+
+  use Jido.Action,
+    name: "test_emit_braced_body",
+    schema: [input: [type: :any]],
+    output_schema: [body: [type: :string, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{body: "lead wrote {{start.secret}} verbatim"}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitNestedX do
+  @moduledoc """
+  Emits a nested `x` that shadows a trigger payload key of the same name — the
+  `%{x: %{a: 1, b: 3}}` vs `start`'s `%{x: %{a: 1, b: 2}}` shape.
+  """
+
+  use Jido.Action,
+    name: "test_emit_nested_x",
+    schema: [input: [type: :any]],
+    output_schema: [x: [type: :map, required: true]]
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{x: %{"a" => 1, "b" => 3}}}
+
+  use Zaq.Engine.Workflows.Action
+end
+
+defmodule Zaq.Engine.Workflows.Test.EchoResolved do
+  @moduledoc """
+  Echoes the params it was handed back out as `seen`, so a test can assert what
+  `StepRunner` actually passed the action after placeholder resolution.
+  """
+
+  use Jido.Action,
+    name: "test_echo_resolved",
+    schema: [
+      text: [type: :any],
+      from_start: [type: :any],
+      from_node: [type: :any],
+      unqualified: [type: :any]
+    ],
+    output_schema: [seen: [type: :map, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @echoed [:text, :from_start, :from_node, :unqualified]
+
+  @impl Jido.Action
+  def run(params, _context) do
+    seen =
+      Map.new(@echoed, fn key ->
+        {key, Zaq.MapUtils.fetch_either(params, key, Atom.to_string(key))}
+      end)
+
+    {:ok, %{seen: seen}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitTag do
+  @moduledoc """
+  Emits `%{tag: <tag>}` — two of these on parallel branches give two cascade
+  entries that share a field name, so a downstream node can be asked whether it
+  can still reach both by node key.
+  """
+
+  use Jido.Action,
+    name: "test_emit_tag",
+    schema: [tag: [type: :string, required: true]],
+    output_schema: [tag: [type: :string, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context),
+    do: {:ok, %{tag: Zaq.MapUtils.fetch_either(params, :tag, "tag")}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.EmitPartialX do
+  @moduledoc """
+  Emits an `x` carrying only `b` — shadowing a trigger `x` that also had `a`, so
+  a test can show the root merge is shallow (root `x.a` is gone) while
+  `start.x.a` survives.
+  """
+
+  use Jido.Action,
+    name: "test_emit_partial_x",
+    schema: [input: [type: :any]],
+    output_schema: [x: [type: :map, required: true]]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{x: %{"b" => 3}}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.TypedParamAction do
+  @moduledoc """
+  Declares a typed required param and records whether `run/2` was ever entered.
+
+  Exists to prove that `StepRunner` enforces an action's declared schema *before*
+  calling it: a wrong-typed param must fail the step without the action running.
+  """
+  use Jido.Action,
+    name: "typed_param_action",
+    description: "Records entry; declares a typed required param",
+    schema: [
+      count: [type: :integer, required: true, doc: "An integer, and only an integer"],
+      label: [type: :string, required: false, default: "unset", doc: "Optional label"]
+    ],
+    output_schema: [
+      count: [type: :integer, required: true, doc: "The count it received"]
+    ]
+
+  @impl Jido.Action
+  def run(params, _context) do
+    send(self(), {:typed_param_action_ran, params})
+    {:ok, %{count: params[:count], label: params[:label], extra: params[:extra]}}
+  end
+end
+
+defmodule Zaq.Engine.Workflows.Test.OptionalTypedParamAction do
+  @moduledoc """
+  `TypedParamAction`'s schema on a module that satisfies the workflow action
+  contract, so it can be a node in a real workflow rather than only a direct
+  `StepRunner.run/2` call.
+
+  Declares one required typed field and one **optional** typed field — the pair
+  `InputContract` and `StepRunner` must agree about: optional means the payload
+  may omit `label`, not that any value will do for it.
+  """
+  use Jido.Action,
+    name: "optional_typed_param_action",
+    description: "Declares a required typed param and an optional typed one",
+    schema: [
+      count: [type: :integer, required: true, doc: "An integer, and only an integer"],
+      label: [type: :string, required: false, doc: "A string, and only a string"]
+    ],
+    output_schema: [
+      count: [type: :integer, required: true, doc: "The count it received"],
+      label: [type: :string, required: false, doc: "The label it received"]
+    ]
+
+  use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def run(params, _context), do: {:ok, %{count: params[:count], label: params[:label]}}
+end
+
+defmodule Zaq.Engine.Workflows.Test.CredentialAction do
+  @moduledoc false
+  # Declares Zoi *refinements*, not only types: a well-typed string can still be
+  # refused. `email` must contain `@`, `password` must be 8..12 characters, and the
+  # optional `nickname` must be at least 3 — so an optional field carries a rule too.
+  use Zaq.Engine.Workflows.Action,
+    name: "test_credential_action",
+    description: "Test action declaring Zoi refinements on top of its field types.",
+    schema:
+      Zoi.object(%{
+        email: Zoi.string() |> Zoi.regex(~r/@/, message: "must contain @"),
+        password: Zoi.string() |> Zoi.min(8) |> Zoi.max(12),
+        nickname: Zoi.string() |> Zoi.min(3) |> Zoi.optional()
+      }),
+    output_schema: Zoi.object(%{accepted: Zoi.boolean()})
+
+  @impl Jido.Action
+  def run(_params, _context), do: {:ok, %{accepted: true}}
 end

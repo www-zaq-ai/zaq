@@ -62,6 +62,15 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   All other params in the accumulated workflow state are available as
   `{{variable_name}}` substitutions in `input` (and in each context turn's `content`).
+  Substitution runs through `Zaq.Engine.Workflows.Placeholders`, the same resolver
+  `Concat` and `DispatchEvent` use, so a placeholder may also name a nested param
+  path (`{{row.email}}`), a node-qualified result (`{{extract_summary.output}}`), or
+  the trigger namespace (`{{start.language}}`), and a key may carry spaces or
+  hyphens (`{{company official name}}`). An unresolved reference becomes `""`.
+
+  > **Changed:** a bare key is a flat lookup at the fact root. Nested map params are
+  > no longer spread one level deep, so `{{email}}` against a `row` param resolves to
+  > `""` — write the path, `{{row.email}}`.
 
   ## Example
 
@@ -141,12 +150,10 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   defp dispatch_agent_run(agent_id, input, params, context) do
     node_router = node_router(context)
-    vars = build_vars(params)
-    resolved_input = substitute(input, vars)
-    ai_context = build_context(params, vars)
+    ai_context = build_context(params)
     context_max_size = context_max_size(params)
 
-    resolved_input
+    input
     |> build_incoming(context, context_max_size)
     |> build_event(agent_id, context, ai_context)
     |> node_router.dispatch()
@@ -314,8 +321,8 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # `Factory.build_initial_context/3` uses it as-is, applying no further budget — so
   # the token budget is enforced here, before assembly, by dropping the oldest turns
   # that overflow `context_max_size` (default 5000).
-  defp build_context(params, vars) do
-    case build_context_messages(params, vars) do
+  defp build_context(params) do
+    case build_context_messages(params) do
       [] ->
         nil
 
@@ -352,15 +359,15 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   # vocabulary shared with `Zaq.Agent.History`, ReqLLM, and Jido.AI. `content` gets
   # the same {{variable}} substitution as `input`; entries with an unsupported/missing
   # role, or non-map entries, are dropped rather than failing the run.
-  defp build_context_messages(params, vars) do
+  defp build_context_messages(params) do
     params
     |> fetch_param(:context, [])
     |> List.wrap()
-    |> Enum.flat_map(&normalize_context_entry(&1, vars))
+    |> Enum.flat_map(&normalize_context_entry/1)
   end
 
-  defp normalize_context_entry(entry, vars) when is_map(entry) do
-    content = entry |> entry_field(:content) |> to_string_safe() |> substitute(vars)
+  defp normalize_context_entry(entry) when is_map(entry) do
+    content = entry |> entry_field(:content) |> to_string_safe()
 
     case normalize_role(entry_field(entry, :role)) do
       "user" ->
@@ -388,7 +395,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     end
   end
 
-  defp normalize_context_entry(other, _vars) do
+  defp normalize_context_entry(other) do
     Logger.warning("[RunAgent] dropping non-map context turn: #{inspect(other)}")
     []
   end
@@ -424,52 +431,6 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
 
   defp fetch_param(params, key, default) when is_atom(key),
     do: Map.get(params, key) || Map.get(params, Atom.to_string(key)) || default
-
-  # Build substitution vars from all params except the action-level ones.
-  #
-  # Nested maps (e.g. `row` as set by EnsurePerson) are spread one level deep
-  # so their keys become top-level {{variable}} substitutions. Flat keys always
-  # win over keys that came from a nested map. Internal workflow keys
-  # (__cascade__) and the structured `context` param are excluded entirely.
-  defp build_vars(params) do
-    dropped =
-      Map.drop(params, [
-        :agent_id,
-        :input,
-        :context,
-        :context_max_size,
-        :__cascade__,
-        "agent_id",
-        "input",
-        "context",
-        "context_max_size",
-        "__cascade__"
-      ])
-
-    nested_vars =
-      dropped
-      |> Enum.flat_map(fn
-        {_k, v} when is_map(v) ->
-          Enum.map(v, fn {nk, nv} -> {to_string(nk), to_string_safe(nv)} end)
-
-        _ ->
-          []
-      end)
-      |> Map.new()
-
-    flat_vars =
-      dropped
-      |> Enum.reject(fn {_k, v} -> is_map(v) end)
-      |> Map.new(fn {k, v} -> {to_string(k), to_string_safe(v)} end)
-
-    Map.merge(nested_vars, flat_vars)
-  end
-
-  defp substitute(template, vars) when is_binary(template) do
-    Regex.replace(~r/\{\{(\w+)\}\}/, template, fn _, key ->
-      Map.get(vars, key, "")
-    end)
-  end
 
   defp to_string_safe(v) when is_binary(v), do: v
   defp to_string_safe(v) when is_integer(v), do: Integer.to_string(v)

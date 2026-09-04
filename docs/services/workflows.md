@@ -112,6 +112,140 @@ Iteration is **not** an authorable node type. Authors express it through the `Ba
 
 ---
 
+## Param References (`{{...}}`)
+
+A node param may reference a value produced elsewhere in the run by writing
+`{{key}}`. `StepRunner` resolves every reference in a node's params **before**
+calling the action, so an action always receives literal values — no action
+implements substitution itself.
+
+- **Key class** — `{{name}}`, `{{extract_summary.output}}`, `{{start.language}}`.
+  Segments may carry spaces or hyphens, so a human-authored sheet header reads
+  naturally: `{{start.company context content}}`.
+- **What a key names** — a bare key reads the node's own params (what the incoming
+  edge mapping delivered). A dotted key is resolved by `FactLookup`: a leading
+  segment naming an upstream node descends that node's result, `start.*` reaches the
+  persistent trigger payload, and anything else descends the params as a nested path.
+  A bare key is a *flat* lookup: it does not reach into a nested param map, so a
+  field inside `row` is `{{row.email}}`, never `{{email}}`.
+- **Types** — a param that is *only* a placeholder keeps the raw value, so a list or
+  map survives as itself (`"input": "{{build_history.rows}}"` arrives as the list).
+  An embedded reference is stringified.
+- **Unresolved** — a reference interpolated into a larger string and resolving to
+  nothing becomes `""`; a *lone* `{{...}}` resolving to nothing is `nil`. There is no
+  string for it to render into there, so `""` would be a value invented for a
+  reference that found none — and an optional field wired that way and then omitted
+  would be handed `""`, which its schema refuses for any type but a string. `nil` is
+  a param the step skips, which is what "not supplied" means. Engine plumbing
+  (`__cascade__` and friends) is never substitutable.
+- **Cost control** — `DagBuilder` scans each node's params once at build time and
+  stamps the referencing keys onto the wrapper, so a bulk payload param is never
+  walked at run time.
+
+`Zaq.Engine.Workflows.InputContract` scans the same params with the same function,
+so what the contract calls a reference and what the runtime resolves cannot drift.
+Every reference is visible to it — there is no module-specific reference syntax.
+
+### The verdict
+
+`contract/2`, the name the Engine dispatches, returns one thing:
+
+```elixir
+%{
+  valid?: false,
+  errors: [
+    %{path: ["email topic"], code: :required, message: "is required"},
+    %{path: ["input", "name"], code: :invalid_type,
+      message: "expected string, got integer"}
+  ]
+}
+```
+
+One entry per problem, carrying everything about it — where to fix it, a
+machine-readable `code`, and a sentence. `valid?` is `errors == []`. There is
+nothing to cross-reference: a reader asking "what do I do about `input.name`?"
+reads one entry rather than joining four lists.
+
+`path` is a list of segments, not a dotted string, so `["input", "name"]` *is* the
+nesting and cannot be misread as a flat key called `"input.name"` — and a list index
+(`["rows", 0, "email"]`) has a spelling at all.
+
+`code` is Zoi's own vocabulary, which already separates the three levels of the
+check: `:required` (the key), `:invalid_type` (the kind), and everything else
+(`:invalid_length`, `:invalid_format`, `:invalid_enum_value`, …) — a rule the author
+declared that the value breaks.
+
+Describing a workflow — what it *can* be sent — is a different question, answered by
+`required_inputs/1`, `optional_inputs/1`, `input_types/1` and
+`required_input_shape/1`. They walk the same graph and are not part of the verdict.
+
+**Required and optional are two lists.** A payload path is *required* when it
+reaches a field some action's schema declares required, and *optional* when every
+field it reaches is declared optional. A path reaching a required field on one node
+and an optional one on another is required: every node in the graph runs. Wiring an
+optional field does not make the payload owe it; the step runs without it, and
+demanding it would make an agent invent a value for a field the action has its own
+default or branch for.
+
+**Optional is about presence, not type.** `StepRunner` validates every declared
+field it is handed a value for, required or not, so an optional field given the
+wrong *kind* of value fails the run. `contract/2` therefore type-checks the optional
+paths a payload actually supplies — it only skips the ones the payload omits.
+Absence is the only thing optional forgives.
+
+**A declared type is not the whole contract.** A field may carry Zoi refinements —
+a pattern, a length, an enum — and a value of exactly the right kind can still be
+refused. `contract/2` runs `Zoi.parse/2`, the same judge `StepRunner` runs, so it sees
+every rule the author declared; there is no schema feature the pre-flight is blind to.
+
+**One judge, one phrasing.** Both sides render errors through `Action.field_errors/2`,
+so neither can phrase a mismatch its own way. Zoi's `code` decides how it reads:
+`:invalid_type` at the value itself is a bare kind mismatch, phrased
+`"expected integer, got string"` — Zoi names what was wanted but never what arrived,
+which is the half a caller needs. Every other code is a rule the value broke, or a
+failure Zoi located *inside* the value, and Zoi has already phrased it against the
+rule the author wrote — `"too small: must have at least 8 character(s)"` — so its own
+rendering is used verbatim, with its path lifted onto the payload path so the entry
+points at the offending key rather than describing its container.
+
+**A required path present but `nil` is missing.** `contract/2` counts a path as
+supplied only when it resolves to a value, the same rule the authoring side applies
+to a node's params (`pinned_params/1`: a `nil` param pins nothing). `false`, `0` and
+`""` are values a caller can mean, and they supply.
+
+**An empty input is refused, not judged.** `%{}`, `nil` and an omitted key carry
+nothing to check, so `validate_workflow_input` returns `{:error, "input is required"}`
+before the workflow is read — no contract is derived for a call that proposes nothing.
+
+**Everything a failing verdict owes the agent travels as a field of the result map,
+never inside its message.** The contract was once returned as `{:error, _}` with the
+paths named in prose and a payload skeleton rendered as JSON on the end — and the
+transport truncated the message past its instruction, leaving the agent four bare
+path names. It answered by writing a payload template out of what was left, quoting
+two integer paths as strings. Steering a reader with wording it may never finish
+reading is not a contract, and a map cannot be truncated into something that still
+reads as an answer. For the same reason the verdict carries no skeleton: a
+payload-shaped map with `nil` leaves is a template an agent fills with invented
+values. `path` names the gap without modelling a payload around it.
+
+**A path is type-checked where its value reaches a schema-declared field whole.**
+`Action.field_specs/1` reads each field's declared type out of the action's own
+schema, translating both dialects — NimbleOptions and Zoi — into Zoi. `contract/2` runs
+the payload value through `Zoi.parse/2` against that spec. A path is typed only where
+the value arrives whole — a mapping target, a schema-required field of an entry node,
+or a param written as a lone `{{...}}`. An interpolated reference resolves to a string
+whatever the payload holds, and a condition field has no schema, so neither is typed
+and both keep presence-only semantics.
+
+**Condition keys are not references.** A `Condition` node's `conditions[].key`
+selects a field *inside* `input` (`"record.id"` reads `input["record"]["id"]`) and
+never reaches the run cascade, so a key means the same thing however the graph
+around it is named. To evaluate an upstream result, bring it in first — with
+`"input": "{{build_history.metadata}}"` or via the edge mapping — then address it
+locally.
+
+---
+
 ## Fact Flow
 
 For **event-driven triggers** (e.g., email received, webhook posted):

@@ -19,8 +19,8 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   `build_spec/4` returns a plain spec map; `DagBuilder.add_map_chain/5` wires the
   extract head to incoming edges and appends the Map/Reduce/Collect chain — the same
   way `DagBuilder` assembles a regular node. The shared node-building primitives
-  (`node_atom/1`, `atomize_keys/1`, `build_action_node/5`) live in `DagBuilder` and
-  are reused here.
+  (`node_atom/1`, `atomize_keys/1`, `build_action_node/5`, `wrapper_params/5`) live in
+  `DagBuilder` and are reused here.
   """
 
   alias Runic.Workflow.Step
@@ -122,6 +122,9 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   # fork fact, which is merged in at run time). `run_fork/2` calls `StepRunner.run/2`
   # with `Map.merge(fork_fact, spec)`, so the fork carries the same per-step StepRun
   # writing, retry, isolation and cascade as the old chained pipeline.
+  #
+  # The map is built by `DagBuilder.wrapper_params/5`, the same producer a regular
+  # node uses, so a body node resolves its `{{...}}` exactly like a top-level one.
   defp build_fork_spec(bnode, map_name, strategy, run_id) do
     type = Map.get(bnode, "type")
     bname = Map.get(bnode, "name")
@@ -132,13 +135,7 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
            :ok <- Action.validate(mod) do
         base = bparams |> DagBuilder.atomize_keys() |> Map.put(:__map_strategy__, strategy)
 
-        {:ok,
-         Map.merge(base, %{
-           wrapped_module: mod,
-           run_id: run_id,
-           step_name: "#{map_name}/#{bname}",
-           step_index: 0
-         })}
+        {:ok, DagBuilder.wrapper_params(mod, base, "#{map_name}/#{bname}", 0, run_id)}
       end
     else
       {:error, {:unsupported_map_body_node_type, type}}
@@ -251,14 +248,27 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   defp extract_items(input, name, index, over, opts, run_id) when is_map(input) do
     items = input |> fetch_over(over) |> List.wrap()
     enforce_max_items!(name, index, length(items), opts, run_id)
+    cascade = cascade_of(input)
 
     items
     |> group_units(opts)
     |> Enum.with_index()
-    |> Enum.map(fn {unit, i} -> stamp_unit(unit, i, opts) end)
+    |> Enum.map(fn {unit, i} -> unit |> stamp_unit(i, opts) |> seed_cascade(cascade) end)
   end
 
   defp extract_items(_input, _name, _index, _over, _opts, _run_id), do: []
+
+  defp cascade_of(input),
+    do: Map.get(input, :__cascade__) || Map.get(input, "__cascade__") || %{}
+
+  # A fan-out unit is a bare item, so without this a body step would start from an
+  # empty fact and every `{{start.*}}` / `{{upstream.*}}` would collapse to "".
+  # Seeding the map node's own incoming cascade makes a body node resolve exactly
+  # like a top-level one, which is what `build_fork_spec/4` promises. `StepRunner`
+  # strips the key before the action sees it, and `summarize_map_item/1` strips it
+  # again on the way into the aggregate.
+  defp seed_cascade(unit, cascade) when map_size(cascade) == 0, do: unit
+  defp seed_cascade(unit, cascade), do: Map.put(unit, :__cascade__, cascade)
 
   # Run-time guard: a runtime collection larger than the effective cap must
   # not fan out unbounded. Runic swallows step exceptions and only logs them, so a

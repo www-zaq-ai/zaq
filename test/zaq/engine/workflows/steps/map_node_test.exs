@@ -477,6 +477,6 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
     }
 
     assert {:error, {:unsupported_map_body_node_type, "workflow"}} =
-             DagBuilder.build(snapshot, [])
+             DagBuilder.build(snapshot, run_id: Ecto.UUID.generate())
   end
 end
