@@ -2,6 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-04T14:43:30Z",
+  "close_reason": "completed",
   "created": "2026-09-04T14:32:10Z",
   "description": "Add regression coverage for the agent-facing materialization short-handle boundary: tool result signed handles alias to scoped short handles, later tool calls restore exact signed handles through Factory before dispatch, materialization succeeds, and unknown/expired/cross-session/multiple-handle cases are rejected or isolated.",
   "id": "zaq-mfg",
@@ -13,7 +15,7 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-mfg] Factory materialization short-handle regression test",
   "type": "task",
   "updated_at": "2026-09-04T14:43:30Z"
