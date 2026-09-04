@@ -365,6 +365,91 @@ defmodule Zaq.Agent.OpaqueAliasesTest do
              )
   end
 
+  test "aliases cannot be expanded from another scope", %{scope: scope} do
+    other_scope = "cross-scope-#{System.unique_integer([:positive])}"
+    handle = handle!("cross-scope")
+    tool_call = %{arguments: %{}, action_module: DirectHandleAction}
+
+    on_exit(fn -> OpaqueAliases.clear_scope(other_scope) end)
+
+    assert {:ok, {:ok, %{record: %Record{materialization_handle: alias}}, []}} =
+             OpaqueAliases.alias_tool_result(
+               tool_call,
+               {:ok, %{record: record("cross-scope", handle)}, []},
+               %{opaque_alias_scope: scope}
+             )
+
+    assert {:error, {:unknown_opaque_alias, ^alias}} =
+             OpaqueAliases.expand_tool_call(
+               %{tool_call | arguments: %{materialization_handle: alias}},
+               %{opaque_alias_scope: other_scope}
+             )
+  end
+
+  test "cleared scope aliases are rejected before tool execution", %{scope: scope} do
+    handle = handle!("expired")
+    tool_call = %{arguments: %{}, action_module: DirectHandleAction}
+
+    assert {:ok, {:ok, %{record: %Record{materialization_handle: alias}}, []}} =
+             OpaqueAliases.alias_tool_result(
+               tool_call,
+               {:ok, %{record: record("expired", handle)}, []},
+               %{opaque_alias_scope: scope}
+             )
+
+    OpaqueAliases.clear_scope(scope)
+
+    assert {:error, {:unknown_opaque_alias, ^alias}} =
+             OpaqueAliases.expand_tool_call(
+               %{tool_call | arguments: %{materialization_handle: alias}},
+               %{opaque_alias_scope: scope}
+             )
+  end
+
+  test "multiple aliases expand only to their originating handles", %{scope: scope} do
+    first = handle!("multi-a")
+    second = handle!("multi-b")
+
+    result =
+      {:ok,
+       %{
+         records: [
+           record("multi-a", first),
+           record("multi-b", second)
+         ]
+       }, []}
+
+    assert {:ok, {:ok, %{records: records}, []}} =
+             Factory.after_tool_call(
+               %{arguments: %{}, action_module: RecordListAction},
+               result,
+               %{opaque_alias_scope: scope}
+             )
+
+    [%Record{materialization_handle: first_alias}, %Record{materialization_handle: second_alias}] =
+      records
+
+    refute first_alias == second_alias
+
+    assert {:ok, %{arguments: %{materialization_handle: ^first}}} =
+             Factory.before_tool_call(
+               %{
+                 arguments: %{materialization_handle: first_alias},
+                 action_module: DirectHandleAction
+               },
+               %{opaque_alias_scope: scope}
+             )
+
+    assert {:ok, %{arguments: %{materialization_handle: ^second}}} =
+             Factory.before_tool_call(
+               %{
+                 arguments: %{materialization_handle: second_alias},
+                 action_module: DirectHandleAction
+               },
+               %{opaque_alias_scope: scope}
+             )
+  end
+
   test "accepts string-keyed alias scope context", %{scope: scope} do
     handle = handle!("string-scope")
     tool_call = %{arguments: %{}, action_module: DirectHandleAction}
