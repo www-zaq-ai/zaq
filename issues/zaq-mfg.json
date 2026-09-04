@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-04T14:32:10Z",
+  "description": "",
+  "id": "zaq-mfg",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Factory materialization short-handle regression test",
+  "type": "task",
+  "updated_at": "2026-09-04T14:32:10Z"
+}
