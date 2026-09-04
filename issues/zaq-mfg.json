@@ -6,9 +6,15 @@
   "description": "Add regression coverage for the agent-facing materialization short-handle boundary: tool result signed handles alias to scoped short handles, later tool calls restore exact signed handles through Factory before dispatch, materialization succeeds, and unknown/expired/cross-session/multiple-handle cases are rejected or isolated.",
   "id": "zaq-mfg",
   "labels": [],
+  "comments": [
+    {
+      "text": "Added regression coverage for Factory materialization short-handle translation. Focused tests pass: mix test test/zaq/agent/materialization_alias_integration_test.exs test/zaq/agent/opaque_aliases_test.exs. Full validation passes: mix q.",
+      "timestamp": "2026-09-04T14:43:30Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-mfg] Factory materialization short-handle regression test",
   "type": "task",
-  "updated_at": "2026-09-04T14:32:18Z"
+  "updated_at": "2026-09-04T14:43:30Z"
 }
