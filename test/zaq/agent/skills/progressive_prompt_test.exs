@@ -24,7 +24,7 @@ defmodule Zaq.Agent.Skills.ProgressivePromptTest do
         name: "calculator",
         description: "Precise arithmetic. Use when the user asks for a calculation.",
         body: "# Instructions\n#{@body_marker}",
-        tool_keys: [],
+        provided_tool_keys: [],
         tags: []
       }
       |> Map.merge(attrs)
@@ -78,7 +78,6 @@ defmodule Zaq.Agent.Skills.ProgressivePromptTest do
         description: "Precise arithmetic.",
         body: "# Instructions\n#{@body_marker}",
         provided_tool_keys: ["answering.search_knowledge_base"],
-        tool_keys: ["answering.search_knowledge_base"],
         enabled_mcp_endpoint_ids: [1, 2],
         tags: []
       }
@@ -100,10 +99,10 @@ defmodule Zaq.Agent.Skills.ProgressivePromptTest do
       {:ok, _} =
         Repo.query(
           """
-          INSERT INTO agent_skills (name, description, body, tool_keys, provided_tool_keys,
+          INSERT INTO agent_skills (name, description, body, provided_tool_keys,
                                     allowed_tools, enabled_mcp_endpoint_ids, tags, active,
                                     inserted_at, updated_at)
-          VALUES ('Not Kebab', 'A legacy row with an invalid name.', 'b', '{}', '{}', '{}',
+          VALUES ('Not Kebab', 'A legacy row with an invalid name.', 'b', '{}', '{}',
                   '{}', '{}', true, NOW(), NOW())
           """,
           []
@@ -175,10 +174,10 @@ defmodule Zaq.Agent.Skills.ProgressivePromptTest do
       {:ok, _} =
         Repo.query(
           """
-          INSERT INTO agent_skills (name, description, body, tool_keys, provided_tool_keys,
+          INSERT INTO agent_skills (name, description, body, provided_tool_keys,
                                     allowed_tools, enabled_mcp_endpoint_ids, tags, active,
                                     inserted_at, updated_at)
-          VALUES ('Bad Name', 'Legacy.', 'b', '{}', '{}', '{}', '{}', '{}', true, NOW(), NOW())
+          VALUES ('Bad Name', 'Legacy.', 'b', '{}', '{}', '{}', '{}', true, NOW(), NOW())
           """,
           []
         )

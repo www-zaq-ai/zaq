@@ -14,7 +14,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.Events, as: ChannelEvents
-  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Channels.WebhookUrl
   alias Zaq.Contracts.Record
   alias Zaq.Event
@@ -26,6 +25,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.System
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Live.BO.AI.BOActor
+  alias ZaqWeb.Live.BO.DataSourceBrowser
   alias ZaqWeb.Live.BO.DataSourceEvents
   alias ZaqWeb.Live.BO.PreviewHelpers
 
@@ -1235,37 +1235,13 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   end
 
   defp source_scope_nav(config, scope) do
-    provider = scope |> scope_value(:provider) |> source_scope_string(config.provider)
-    scope_id = scope |> scope_value(:scope_id) |> source_scope_string(config.id)
-    config_id = scope_value(scope, :config_id) || config.id
-    id = source_scope_id(provider, config_id, scope_id)
-
-    %{
-      id: id,
-      provider: provider,
-      config_id: config_id,
-      scope_id: scope_id,
-      filters: scope_value(scope, :filters) || %{},
-      label:
-        scope_value(scope, :label) ||
-          ProviderCatalog.label(config.provider),
-      path: ingestion_path(provider)
-    }
+    config
+    |> DataSourceBrowser.source(scope)
+    |> Map.put(:path, ingestion_path(config.provider))
   end
-
-  defp scope_value(scope, key) when is_map(scope) do
-    Map.get(scope, key) || Map.get(scope, to_string(key))
-  end
-
-  defp source_scope_string(nil, fallback), do: to_string(fallback)
-  defp source_scope_string(value, _fallback), do: to_string(value)
 
   defp source_scope_id(nil), do: nil
   defp source_scope_id(%{id: id}), do: id
-
-  defp source_scope_id(provider, config_id, scope_id) do
-    Enum.join([provider, to_string(config_id), scope_id], ":")
-  end
 
   defp resolve_source_scope(params, source_scopes) do
     requested_provider = Map.get(params, "provider")
@@ -1339,20 +1315,16 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     do: capability_provider(provider)
 
   defp create_document_destination(socket) do
-    folder = List.last(socket.assigns.provider_folder_stack)
-    folder_parent_id = provider_parent_id(folder)
-    parent_id = folder_parent_id || active_source_parent(socket)
-
-    %{
-      config_id:
-        socket.assigns.provider_config_id && to_string(socket.assigns.provider_config_id),
-      parent_id: parent_id,
-      path: data_source_parent(socket, folder_parent_id)
+    source = %{
+      provider: create_document_provider(socket),
+      config_id: socket.assigns.provider_config_id,
+      filters: active_source_filters(socket)
     }
-  end
 
-  defp provider_parent_id(%{id: id}) when is_binary(id) and id not in ["", "."], do: id
-  defp provider_parent_id(_folder), do: nil
+    source
+    |> DataSourceBrowser.destination_params(socket.assigns.provider_folder_stack)
+    |> Map.take([:config_id, :parent_id, :path])
+  end
 
   defp active_source_parent(socket) do
     socket
@@ -2380,7 +2352,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
       record = Map.get(socket.assigns.records_by_path, id) ->
         stack =
-          socket.assigns.provider_folder_stack ++ [%{id: record_path(record), name: record.name}]
+          socket.assigns.provider_folder_stack ++
+            [%{id: record_path(record), name: record.name, path: record.path}]
 
         socket
         |> assign(

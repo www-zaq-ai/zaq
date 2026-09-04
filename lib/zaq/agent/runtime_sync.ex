@@ -27,6 +27,7 @@ defmodule Zaq.Agent.RuntimeSync do
 
   require Logger
 
+  alias Jido.AI.Skill.AgentIntegration
   alias Jido.MCP.JidoAI.ProxyRegistry
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
@@ -119,8 +120,8 @@ defmodule Zaq.Agent.RuntimeSync do
   end
 
   @doc """
-  Reconciles the tool set on a running agent server against the agent's `enabled_tool_keys`
-  unioned with the tool keys of its attached skills (`Skills.provisioned_tool_keys/2`).
+  Reconciles the tool set on a running agent server against the runtime config that
+  `Factory` would install for the agent, including native Jido skill tools.
 
   Adds tools that are desired but not registered, and removes tools that are registered but
   no longer desired (only those owned by the managed registry). Returns `{:ok, map}` with
@@ -129,12 +130,7 @@ defmodule Zaq.Agent.RuntimeSync do
   @spec sync_agent_configured_tools(ConfiguredAgent.t(), GenServer.server(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def sync_agent_configured_tools(%ConfiguredAgent{} = agent, server_ref, opts \\ []) do
-    skills_module = Keyword.get(opts, :skills_module, Skills)
-
-    desired_keys =
-      skills_module.provisioned_tool_keys(agent, skills_module.enabled_for_agent(agent))
-
-    with {:ok, desired_tools} <- Registry.resolve_modules(desired_keys),
+    with {:ok, desired_tools} <- desired_tool_modules(agent, opts),
          {:ok, current_tools} <- list_tools(server_ref, opts) do
       managed_tools = managed_tool_modules()
 
@@ -160,6 +156,28 @@ defmodule Zaq.Agent.RuntimeSync do
        }}
     end
   end
+
+  defp desired_tool_modules(agent, opts) do
+    skills_module = Keyword.get(opts, :skills_module, Skills)
+    skills = skills_module.enabled_for_agent(agent)
+    desired_keys = skills_module.provisioned_tool_keys(agent, skills)
+
+    with {:ok, registry_tools} <- Registry.resolve_modules(desired_keys),
+         {:ok, integration} <- native_skill_integration(skills_module, skills) do
+      {:ok, Enum.uniq(registry_tools ++ integration.tools)}
+    end
+  end
+
+  defp native_skill_integration(Skills, []), do: {:ok, %{tools: []}}
+
+  defp native_skill_integration(Skills, skills) do
+    AgentIntegration.prepare(
+      specs: Skills.to_specs(skills),
+      resource_provider: {Zaq.Agent.Skill.ResourceProvider, :handle}
+    )
+  end
+
+  defp native_skill_integration(_skills_module, _skills), do: {:ok, %{tools: []}}
 
   @doc """
   Persists a new configured agent and starts its runtime.
@@ -789,8 +807,9 @@ defmodule Zaq.Agent.RuntimeSync do
   defp tool_name(tool_module) when is_atom(tool_module), do: tool_module.name()
 
   defp managed_tool_modules do
-    Registry.tools()
-    |> Enum.map(& &1.module)
-    |> MapSet.new()
+    registry_tools = Enum.map(Registry.tools(), & &1.module)
+    native_skill_tools = [Jido.AI.Actions.Skill.LoadSkill, Jido.AI.Actions.Skill.LoadResource]
+
+    MapSet.new(registry_tools ++ native_skill_tools)
   end
 end

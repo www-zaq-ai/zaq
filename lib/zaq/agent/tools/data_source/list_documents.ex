@@ -29,7 +29,8 @@ defmodule Zaq.Agent.Tools.DataSource.ListDocuments do
     schema: [
       provider: [type: :string, required: true, doc: "Datasource provider key"],
       path: [type: :string, required: true, doc: "Provider path to list"],
-      config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"]
+      config_id: [type: :string, required: false, doc: "Optional scoped datasource config id"],
+      scope_id: [type: :string, required: false, doc: "Optional provider source scope id"]
     ]
 
   alias Zaq.Agent.Tools.DataSourceTool
@@ -39,7 +40,7 @@ defmodule Zaq.Agent.Tools.DataSource.ListDocuments do
   def run(%{provider: provider, path: path} = params, context) do
     request =
       %{"path" => path}
-      |> DataSourceTool.merge_optional(params, [:config_id])
+      |> DataSourceTool.merge_optional(params, [:config_id, :scope_id])
       |> DataSourceTool.wrap_request(provider)
 
     DataSourceTool.dispatch(

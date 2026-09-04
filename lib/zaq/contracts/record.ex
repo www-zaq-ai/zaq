@@ -99,6 +99,13 @@ defmodule Zaq.Contracts.Record do
   """
   @spec zoi_type(keyword()) :: Zoi.schema()
   def zoi_type(opts \\ []) do
+    {verify_provenance?, opts} = Keyword.pop(opts, :verify_provenance, true)
+
+    validator =
+      if verify_provenance?,
+        do: :validate_zoi_type,
+        else: :validate_zoi_record_struct
+
     metadata =
       opts
       |> Keyword.get(:metadata, [])
@@ -108,10 +115,10 @@ defmodule Zaq.Contracts.Record do
     |> Keyword.put(:metadata, metadata)
     |> Zoi.any()
     |> Zoi.transform({__MODULE__, :zoi_record_from_map, []})
-    |> Zoi.refine({__MODULE__, :validate_zoi_type, []})
+    |> Zoi.refine({__MODULE__, validator, []})
   end
 
-  @doc false
+  @doc "Zoi transform callback that rebuilds public Record maps into verified structs."
   def zoi_record_from_map(%__MODULE__{} = record, _opts), do: {:ok, record}
 
   def zoi_record_from_map(%{} = map, _opts) do
@@ -238,4 +245,11 @@ defmodule Zaq.Contracts.Record do
   end
 
   def validate_zoi_type(_value, _opts), do: {:error, "expected %#{inspect(__MODULE__)}{}"}
+
+  @doc "Zoi refine callback that validates only the native Record struct shape."
+  @spec validate_zoi_record_struct(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_zoi_record_struct(%__MODULE__{}, _opts), do: :ok
+
+  def validate_zoi_record_struct(_value, _opts),
+    do: {:error, "expected %#{inspect(__MODULE__)}{}"}
 end

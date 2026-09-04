@@ -3,6 +3,8 @@ defmodule Zaq.Agent.FactoryTest do
 
   import Zaq.SystemConfigFixtures
 
+  alias Jido.AI.Actions.Skill.LoadResource
+  alias Jido.AI.Actions.Skill.LoadSkill
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent
   alias Zaq.Agent.Answering
@@ -138,7 +140,7 @@ defmodule Zaq.Agent.FactoryTest do
         name: "kb-skill",
         description: "Knowledge base usage",
         body: "Always search the knowledge base before answering.",
-        tool_keys: ["answering.search_knowledge_base"]
+        provided_tool_keys: ["answering.search_knowledge_base"]
       })
 
     configured_agent = %Agent.ConfiguredAgent{
@@ -154,47 +156,16 @@ defmodule Zaq.Agent.FactoryTest do
 
     # The skill's provisioned tool AND load_skill are both installed.
     assert kb_tool in config.tools
-    assert Zaq.Agent.Tools.Skills.LoadSkill in config.tools
+    assert LoadSkill in config.tools
+    assert LoadResource in config.tools
 
     # The prompt is the index: name + description present, body ABSENT.
     assert config.system_prompt =~ "You are a ZAQ agent."
     assert config.system_prompt =~ "kb-skill"
     assert config.system_prompt =~ "Knowledge base usage"
     assert config.system_prompt =~ "load_skill"
+    assert config.tool_context[LoadSkill.context_skills_key()]["kb-skill"]
     refute config.system_prompt =~ "Always search the knowledge base before answering."
-  end
-
-  test "runtime_config falls back to eager bodies when progressive disclosure is disabled" do
-    original = Application.fetch_env(:zaq, :skills_progressive_disclosure)
-
-    on_exit(fn ->
-      case original do
-        {:ok, value} -> Application.put_env(:zaq, :skills_progressive_disclosure, value)
-        :error -> Application.delete_env(:zaq, :skills_progressive_disclosure)
-      end
-    end)
-
-    Application.put_env(:zaq, :skills_progressive_disclosure, false)
-
-    {:ok, skill} =
-      Skills.create_skill(%{
-        name: "kb-skill",
-        description: "Knowledge base usage",
-        body: "Always search the knowledge base before answering.",
-        tool_keys: ["answering.search_knowledge_base"]
-      })
-
-    configured_agent = %Agent.ConfiguredAgent{
-      job: "You are a ZAQ agent.",
-      enabled_tool_keys: [],
-      enabled_skill_ids: [skill.id],
-      credential: nil
-    }
-
-    assert {:ok, config} = Factory.runtime_config(configured_agent)
-
-    # Flag off: the full body is concatenated into the prompt, as before Step 4.
-    assert config.system_prompt =~ "Always search the knowledge base before answering."
   end
 
   test "runtime_config ignores inactive and ghost skills" do
@@ -204,7 +175,7 @@ defmodule Zaq.Agent.FactoryTest do
         description: "What this skill does, and when to use it.",
         body: "Should not appear.",
         active: false,
-        tool_keys: ["answering.search_knowledge_base"]
+        provided_tool_keys: ["answering.search_knowledge_base"]
       })
 
     configured_agent = %Agent.ConfiguredAgent{
@@ -383,16 +354,22 @@ defmodule Zaq.Agent.FactoryTest do
     assert second_body =~ configured_agent.job
   end
 
-  test "ask_with_config uses overridden job (system_prompt) on server initialized with different prompt" do
-    # Verifies that ensure_system_prompt correctly patches a reused server's prompt
-    # when configured_agent.job differs from what the server was initialized with.
-    # This is the path exercised by RunAgent → Executor.apply_system_prompt_override.
+  test "ask_with_config keeps stored LLM options authoritative while refreshing prompt" do
+    # Structural runtime config belongs to the server. A per-request agent value may refresh
+    # prompt text, but must not hot-apply model/provider/LLM options.
     handler = fn conn, _body ->
       {200, streamed_reply(conn.request_path, "ok", "gpt-4.1-mini")}
     end
 
     {child_spec, endpoint} = OpenAIStub.server(handler, self())
     start_supervised!(child_spec)
+
+    previous_temperature = Zaq.System.get_config("llm.temperature")
+    Zaq.System.set_config("llm.temperature", "0.11")
+
+    on_exit(fn ->
+      Zaq.System.set_config("llm.temperature", previous_temperature)
+    end)
 
     credential =
       ai_credential_fixture(%{
@@ -423,9 +400,17 @@ defmodule Zaq.Agent.FactoryTest do
     server_id = "configured_agent_#{configured_agent.id}"
     {:ok, server} = ServerManager.ensure_server(configured_agent, server_id)
 
+    assert {:ok, status} = Jido.AgentServer.status(server)
+    assert status.raw_state.runtime_config.llm_opts[:temperature] == 0.11
+
+    Zaq.System.set_config("llm.temperature", "0.91")
+
     # Override job — simulates Executor.apply_system_prompt_override/2 substituting
     # per-run template variables before calling ask_with_config.
-    overridden_agent = %{configured_agent | job: "personalized prompt for John at Acme"}
+    overridden_agent = %{
+      configured_agent
+      | job: "personalized prompt for John at Acme"
+    }
 
     assert {:ok, request} =
              Factory.ask_with_config(server, "hello", overridden_agent, timeout: 35_000)
@@ -437,6 +422,103 @@ defmodule Zaq.Agent.FactoryTest do
     # The overridden prompt must appear in the request — not the original DB prompt.
     assert body =~ "personalized prompt for John at Acme"
     refute body =~ "original system prompt"
+
+    assert {:ok, status_after} = Jido.AgentServer.status(server)
+    assert status_after.raw_state.runtime_config.llm_opts[:temperature] == 0.11
+  end
+
+  test "ask_with_config refreshes current skill edits without replacing structural config" do
+    handler = fn conn, _body ->
+      {200, streamed_reply(conn.request_path, "ok", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Skill Refresh Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "skill-refresh-key"
+      })
+
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "refresh-skill",
+        description: "Old description",
+        body: "Old body.",
+        provided_tool_keys: []
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Skill Refresh Agent #{System.unique_integer([:positive])}",
+        job: "You are a helper",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_skill_ids: [skill.id]
+      })
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    {:ok, server} =
+      ServerManager.ensure_server(configured_agent, "configured_agent_#{configured_agent.id}")
+
+    {:ok, _updated} =
+      Skills.update_skill(skill, %{description: "New description", body: "New body."})
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server, "hello", configured_agent, timeout: 35_000)
+
+    assert {:ok, _answer} = Factory.await(request, timeout: 45_000)
+
+    assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
+    assert body =~ "New description"
+    refute body =~ "Old description"
+    refute body =~ "New body."
+  end
+
+  test "ask_with_config returns runtime sync error when native skill tools are absent" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Missing Native Tool Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        api_key: "unused"
+      })
+
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "tool-sync-skill",
+        description: "Needs native loader",
+        body: "Use the loader.",
+        provided_tool_keys: []
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Missing Native Tool Agent #{System.unique_integer([:positive])}",
+        job: "You are a helper",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        enabled_skill_ids: [skill.id]
+      })
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    {:ok, server} =
+      ServerManager.ensure_server(configured_agent, "configured_agent_#{configured_agent.id}")
+
+    assert {:ok, _} = Jido.AI.unregister_tool(server, LoadSkill.name())
+
+    assert {:error, {:runtime_sync_required, missing}} =
+             Factory.ask_with_config(server, "hello", configured_agent)
+
+    assert LoadSkill.name() in missing
   end
 
   # End-to-end progressive disclosure through ServerManager + the real request path: the
@@ -464,7 +546,7 @@ defmodule Zaq.Agent.FactoryTest do
         name: "e2e-sleep-skill",
         description: "Sleeping on demand",
         body: "When asked to wait, always use the sleep tool.",
-        tool_keys: ["basic.sleep"]
+        provided_tool_keys: ["basic.sleep"]
       })
 
     {:ok, configured_agent} =

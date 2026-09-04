@@ -6,11 +6,16 @@ defmodule Zaq.Materialization do
   alias Zaq.Contracts.Record
   alias Zaq.MapUtils
   alias Zaq.Materialization.{Handle, Registry}
+  alias Zaq.Utils.Map, as: MixedMap
 
   @max_nested_materializations 3
+  @document_mime_options ["document_mime_type", "export_mime_type"]
 
   @spec issue(String.t(), map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   defdelegate issue(type, locator, opts \\ []), to: Handle
+
+  @doc "Returns the shared request-time MIME option names for document materializers."
+  def document_mime_options, do: @document_mime_options
 
   @spec materialize(String.t(), map(), String.t(), map()) :: {:ok, map()} | {:error, String.t()}
   def materialize(
@@ -33,7 +38,7 @@ defmodule Zaq.Materialization do
 
     with {:ok, %{type: type, locator: locator}} <- Handle.verify(handle, handle_opts),
          {:ok, handler} <- Registry.lookup(type) do
-      case handler.materialize(locator, context, options) do
+      case materialize_with_handler(handler, locator, context, options) do
         {:ok, payload} -> normalize_payload(payload, context, error_prefix, depth)
         {:error, reason} -> {:error, "#{error_prefix}: #{format_reason(reason)}"}
         other -> {:error, "#{error_prefix}: unexpected materialize response #{inspect(other)}"}
@@ -41,6 +46,53 @@ defmodule Zaq.Materialization do
     else
       {:error, reason} -> {:error, "#{error_prefix}: #{format_reason(reason)}"}
     end
+  end
+
+  @doc "Validates and normalizes materialization options before calling a registered handler."
+  @spec materialize_with_handler(module(), map(), map(), map()) :: {:ok, map()} | {:error, term()}
+  def materialize_with_handler(handler, locator, context, options)
+      when is_atom(handler) and is_map(locator) and is_map(context) and is_map(options) do
+    with {:ok, options} <- validate_options(options, materialization_options(handler)) do
+      handler.do_materialize(locator, context, options)
+    end
+  end
+
+  def materialize_with_handler(_handler, _locator, _context, _options),
+    do: {:error, :invalid_materialization_locator}
+
+  defp materialization_options(handler) do
+    if function_exported?(handler, :materialization_options, 0),
+      do: handler.materialization_options(),
+      else: []
+  end
+
+  defp validate_options(options, allowed_options) do
+    allowed_options = Enum.map(allowed_options, &to_string/1)
+    allowed_keys = allowed_options ++ Enum.map(allowed_options, &String.to_existing_atom/1)
+
+    cond do
+      Map.keys(options) -- allowed_keys != [] ->
+        {:error, :invalid_materialization_options}
+
+      Enum.any?(allowed_options, &duplicate_option?(options, &1)) ->
+        {:error, :invalid_materialization_options}
+
+      true ->
+        {:ok, supplied_options(options, allowed_options)}
+    end
+  end
+
+  defp supplied_options(options, allowed_options) do
+    options
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.uniq()
+    |> Enum.filter(&(&1 in allowed_options))
+    |> Map.new(fn key -> {key, MixedMap.metadata_value(options, key)} end)
+  end
+
+  defp duplicate_option?(options, key) do
+    Map.has_key?(options, key) and Map.has_key?(options, String.to_existing_atom(key))
   end
 
   defp normalize_payload(%{record: %Record{} = record}, context, prefix, depth),

@@ -83,6 +83,19 @@
           </button>
           <button
             phx-click="switch_tab"
+            phx-value-tab="skills"
+            class={[
+              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
+              if(@active_tab == :skills,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
+                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
+              )
+            ]}
+          >
+            Skills
+          </button>
+          <button
+            phx-click="switch_tab"
             phx-value-tab="llm"
             class={[
               "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
@@ -194,6 +207,19 @@
         global_language={@global_language}
         global_timezone={@global_timezone}
         detected_timezone={@detected_timezone}
+      />
+      <SkillsTab.panel
+        :if={@active_tab == :skills}
+        config={@skill_resource_config}
+        sources={@skill_resource_sources}
+        source_id={@skill_resource_source_id}
+        folder_modal={@skill_resource_folder_modal}
+        new_folder_modal={@skill_resource_new_folder_modal}
+        folder_entries={@skill_resource_folder_entries}
+        folder_stack={@skill_resource_folder_stack}
+        folder_error={@skill_resource_folder_error}
+        modal_error={@modal_error}
+        modal_name={@modal_name}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.LLMTab.panel
         :if={@active_tab == :llm}

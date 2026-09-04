@@ -29,7 +29,6 @@ defmodule Zaq.Agent.Skills.Validation do
   faithfully exported and parsed back, not a reimplementation of Jido's validator.
   """
 
-  alias Jido.AI.Skill.Diagnostics
   alias Jido.AI.Skill.Loader
   alias Jido.AI.Skill.Spec
 
@@ -38,18 +37,54 @@ defmodule Zaq.Agent.Skills.Validation do
   @doc """
   Validates skill attrs through Jido's loader.
 
-  Returns the parsed `%Spec{}` plus its diagnostics as a plain map (persisted on the
-  record so the BO can badge warnings without re-parsing every row).
+  Returns the parsed `%Spec{}` when the attrs can be represented as a conformant
+  `SKILL.md` document.
   """
-  @spec validate(map(), keyword()) :: {:ok, Spec.t(), map() | nil} | {:error, [field_error()]}
+  @spec validate(map(), keyword()) :: {:ok, Spec.t()} | {:error, [field_error()]}
   def validate(attrs, opts \\ [])
 
   def validate(%{name: name, description: description, body: body} = attrs, opts)
       when is_binary(name) and is_binary(description) and is_binary(body) do
     allowed_tools = Map.get(attrs, :allowed_tools) || []
+    license = Map.get(attrs, :license)
+    compatibility = Map.get(attrs, :compatibility)
+    metadata = Map.get(attrs, :metadata) || %{}
     loader = Keyword.get(opts, :loader, Loader)
 
-    content = to_skill_md(name, description, body, allowed_tools)
+    with :ok <- validate_metadata_shape(metadata),
+         {:ok, %Spec{} = spec} <-
+           parse_skill_md(
+             loader,
+             name,
+             description,
+             body,
+             allowed_tools,
+             license,
+             compatibility,
+             metadata
+           ),
+         [] <- round_trip_errors(spec, allowed_tools, license, compatibility, metadata) do
+      {:ok, spec}
+    else
+      {:error, error} -> {:error, [error]}
+      errors when is_list(errors) -> {:error, errors}
+    end
+  end
+
+  def validate(_attrs, _opts), do: {:error, []}
+
+  defp parse_skill_md(
+         loader,
+         name,
+         description,
+         body,
+         allowed_tools,
+         license,
+         compatibility,
+         metadata
+       ) do
+    content =
+      to_skill_md(name, description, body, allowed_tools, license, compatibility, metadata)
 
     # The source path is NOT "inline". Jido checks `name` against the parent directory
     # name and warns on a mismatch — and `Path.dirname("inline")` is ".", which never
@@ -58,30 +93,42 @@ defmodule Zaq.Agent.Skills.Validation do
     source_path = Path.join(name, "SKILL.md")
 
     case loader.parse(content, source_path, lenient: false) do
-      {:ok, %Spec{} = spec} ->
-        case round_trip_errors(spec, allowed_tools) do
-          [] -> {:ok, spec, diagnostics_map(spec.diagnostics)}
-          errors -> {:error, errors}
-        end
-
-      {:error, error} ->
-        {:error, [to_field_error(error)]}
+      {:ok, %Spec{} = spec} -> {:ok, spec}
+      {:error, error} -> {:error, to_field_error(error)}
     end
   end
-
-  def validate(_attrs, _opts), do: {:error, []}
 
   @doc """
   Serializes skill attrs to Open Agent Skills `SKILL.md` content.
 
   Exposed for round-trip tests and for the export path (Part 2).
   """
-  @spec to_skill_md(String.t(), String.t(), String.t(), [String.t()]) :: String.t()
-  def to_skill_md(name, description, body, allowed_tools \\ []) do
+  @spec to_skill_md(
+          String.t(),
+          String.t(),
+          String.t(),
+          [String.t()],
+          String.t() | nil,
+          String.t() | nil,
+          map()
+        ) ::
+          String.t()
+  def to_skill_md(
+        name,
+        description,
+        body,
+        allowed_tools \\ [],
+        license \\ nil,
+        compatibility \\ nil,
+        metadata \\ %{}
+      ) do
     frontmatter =
       [
         "name: #{name}",
         "description: #{yaml_string(description)}",
+        optional_string_line("license", license),
+        optional_string_line("compatibility", compatibility),
+        metadata_block(metadata),
         allowed_tools_line(allowed_tools)
       ]
       |> Enum.reject(&is_nil/1)
@@ -92,6 +139,34 @@ defmodule Zaq.Agent.Skills.Validation do
     # delimiter, and everything after it — including any `---` — is body.
     "---\n#{frontmatter}\n---\n\n#{body}"
   end
+
+  defp optional_string_line(_key, nil), do: nil
+  defp optional_string_line(_key, ""), do: nil
+  defp optional_string_line(key, value) when is_binary(value), do: "#{key}: #{yaml_string(value)}"
+  defp optional_string_line(_key, _value), do: nil
+
+  defp metadata_block(metadata) when metadata in [nil, %{}], do: nil
+
+  defp metadata_block(metadata) when is_map(metadata) do
+    lines =
+      metadata
+      |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+      |> Enum.map(fn {key, value} -> "  #{key}: #{yaml_string(value)}" end)
+
+    Enum.join(["metadata:" | lines], "\n")
+  end
+
+  defp metadata_block(_metadata), do: nil
+
+  defp validate_metadata_shape(metadata) when is_map(metadata) do
+    if Enum.all?(metadata, fn {key, value} -> is_binary(to_string(key)) and is_binary(value) end) do
+      :ok
+    else
+      {:error, {:metadata, "could not be encoded"}}
+    end
+  end
+
+  defp validate_metadata_shape(_metadata), do: {:error, {:metadata, "could not be encoded"}}
 
   # The OAS spec encodes `allowed-tools` as a SPACE-SEPARATED STRING under a kebab-case
   # key — not a YAML list. Emitting a list would parse fine in Jido (it accepts both) but
@@ -117,8 +192,21 @@ defmodule Zaq.Agent.Skills.Validation do
 
   # Compare fields whose SKILL.md encoding can be lossy and refuse to persist any
   # value that does not parse back to the submitted shape.
-  defp round_trip_errors(%Spec{} = spec, allowed_tools) do
+  defp round_trip_errors(%Spec{} = spec, allowed_tools, license, compatibility, metadata) do
     [
+      field_mismatch(:license, spec.license, blank_to_nil(license), "could not be encoded"),
+      field_mismatch(
+        :compatibility,
+        spec.compatibility,
+        blank_to_nil(compatibility),
+        "could not be encoded"
+      ),
+      field_mismatch(
+        :metadata,
+        spec.metadata || %{},
+        stringify_keys(metadata || %{}),
+        "could not be encoded"
+      ),
       field_mismatch(
         :allowed_tools,
         spec.allowed_tools,
@@ -132,23 +220,16 @@ defmodule Zaq.Agent.Skills.Validation do
   defp field_mismatch(_field, same, same, _message), do: nil
   defp field_mismatch(field, _parsed, _submitted, message), do: {field, message}
 
-  # Stored in a `:map` column, so it comes back from the DB with string keys. Normalize to
-  # string keys at write time too, so the in-memory, persisted and reloaded shapes are
-  # identical — and so ZAQ can merge its own warnings (e.g. an over-long body) into the
-  # same map without mixing atom and string keys.
-  defp diagnostics_map(nil), do: nil
-
-  defp diagnostics_map(diagnostics) do
-    diagnostics
-    |> Diagnostics.to_map()
-    |> stringify_keys()
+  defp blank_to_nil(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
   end
+
+  defp blank_to_nil(value), do: value
 
   defp stringify_keys(map) when is_map(map) and not is_struct(map) do
-    Map.new(map, fn {k, v} -> {to_string(k), stringify_keys(v)} end)
+    Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
 
-  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   defp stringify_keys(value), do: value
 
   defp to_field_error(%{__struct__: mod} = error) do

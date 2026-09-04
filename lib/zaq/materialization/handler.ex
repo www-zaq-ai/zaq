@@ -9,4 +9,11 @@ defmodule Zaq.Materialization.Handler do
 
   @callback materialize(locator :: map(), context :: map(), options :: map()) ::
               {:ok, map()} | {:error, term()}
+
+  @callback do_materialize(locator :: map(), context :: map(), options :: map()) ::
+              {:ok, map()} | {:error, term()}
+
+  @callback materialization_options() :: [String.t()]
+
+  @optional_callbacks materialization_options: 0
 end

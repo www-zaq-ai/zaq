@@ -185,15 +185,15 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 ### Skills (`Zaq.Agent.Skills` context)
 
 BO-managed skills built on **Open Agent Skills**, using Jido's *stateless* skill surface
-(`Jido.AI.Skill.Spec`, `Loader`, `Diagnostics`, `Prompt`) and **none** of its stateful layer
-(`Skill.Registry`, `Skill.Activation`, `Actions.Skill.LoadSkill`, `Prompt.filter_tools/2`).
+(`Jido.AI.Skill.Spec`, `Loader`, `Diagnostics`, `Prompt`, `AgentIntegration`, and native
+`Actions.Skill.*`).
 
 **Lifecycle: DB → validate → Spec → index → `load_skill`**
 
 1. **Declaration.** `Zaq.Agent.Skill` (`agent_skills` table) is the source of truth: `name`
    (kebab-case, unique), `description` (**required**), `body` (markdown), `provided_tool_keys`
    (ZAQ `Tools.Registry` keys), `allowed_tools` (OAS tool names), `enabled_mcp_endpoint_ids`,
-   `resource_root`, `diagnostics` (validation cache), `tags`, `active`. BO CRUD at `/bo/skills`;
+   `resource_root`, `tags`, `active`. BO CRUD at `/bo/skills`;
    agents attach via `enabled_skill_ids` (array, no FK — ghost ids dropped at runtime).
 2. **Validation** (`Zaq.Agent.Skills.Validation`). Field shape is validated **by Jido's
    `Loader`**, not by ZAQ regexes: attrs are serialized to SKILL.md text and round-tripped
@@ -205,16 +205,14 @@ BO-managed skills built on **Open Agent Skills**, using Jido's *stateless* skill
    ZAQ tool/MCP concepts never enter the Spec.
 4. **Index** (`Skills.system_prompt/3` → `Prompt.render/2, include_body: false`). The system
    prompt carries **name + description only** — never bodies. Token cost is O(skill count).
-5. **`load_skill`** (`Zaq.Agent.Tools.Skills.LoadSkill`). The model pulls a full body on demand;
-   the body arrives as a tool result. See the tool section below.
+5. **Native skill actions** (`Jido.AI.Actions.Skill.LoadSkill` and `LoadResource`). The model
+   pulls full instructions and resources on demand through Jido's runtime tool context.
 
 **Two kinds of "tools" — kept apart on purpose:**
 - `provided_tool_keys` (ZAQ) — registry keys ZAQ *provisions* on the agent when a skill is
   attached. Unioned by `provisioned_tool_keys/2`. This is what actually installs tools.
 - `allowed_tools` (OAS) — tool *names* the skill may use. Stored and rendered into the prompt,
   **not enforced** in Part 1 (enforcement needs per-skill request scoping — a Part 2 item).
-- `tool_keys` is the pre-split column, **dual-written** with `provided_tool_keys` through the
-  rollout window; dropped once every node runs the new code.
 
 **Why validation round-trips through Jido.** Jido owns OAS field-shape validation and rejects
 over-long fields in strict mode. ZAQ serializes DB-backed skills to `SKILL.md`, parses them back,
@@ -225,16 +223,22 @@ and rejects lossy fields such as `allowed_tools` so persisted skills remain impo
 stays in the agent's context for the server's life, so this protects the very window progressive
 disclosure exists to preserve.
 
-**Hot runtime patch tier (no restart):** skill changes propagate like `enabled_tool_keys` —
-tools reconcile through `RuntimeSync.sync_agent_configured_tools/3`; the system prompt (the index)
-is recomputed on every ask in `Factory.ask_with_config/4`, so edits self-heal on the next
-question. Skills are deliberately excluded from the `ServerManager` restart fingerprint. Record
-mutations (update/delete) fan out a re-sync to every active agent referencing the skill
-(`Zaq.Agent.list_agents_with_skill/1`) via `:agent_skill_updated` / `:agent_skill_deleted`.
+**Runtime config boundary:** server state owns structural runtime config. The `runtime_config`
+stored in `Jido.AgentServer.status/1` is authoritative during asks for model/provider,
+credentials, LLM options, context-window settings, registered ordinary tools, and tool timeout
+derivation. `Factory.ask_with_config/4` falls back to `Factory.runtime_config/1` only when a
+server has no stored runtime config, and propagates fallback errors.
 
-**Rollback.** `config :zaq, :skills_progressive_disclosure` (default `true`) gates prompt
-assembly only. Set it `false` to restore the eager renderer (`effective_system_prompt/2` +
-`render_prompt_block/1`), which is kept solely as this off-path until rollout is confirmed.
+**Dynamic skill refresh:** skill content is the only per-request refresh. On each ask, Factory
+re-runs `Jido.AI.Skill.AgentIntegration.prepare/1` for the current attached skills, rebuilds the
+skill index in the prompt, and merges only Jido's reserved skill/resource `tool_context` entries
+into the caller's existing context. Caller actor, permissions, conversation metadata, and
+context-window data are preserved.
+
+**RuntimeSync owns tool registration:** attaching or detaching skills reconciles native
+`LoadSkill`/`LoadResource` through `RuntimeSync.sync_agent_configured_tools/3`. If a request sees
+current skills but the corresponding native tools are not registered on the server, Factory returns
+an explicit runtime-sync error rather than issuing a request with an unusable skill catalog.
 
 **Accepted behaviors (intentional — do not "fix"):**
 - A skill **edited mid-loop** serves its pre-edit body for the in-flight request; the next ask
@@ -246,18 +250,21 @@ assembly only. Set it `false` to restore the eager renderer (`effective_system_p
 
 ### Skill resources (`Zaq.Agent.Skill.Resources`)
 
-Pure path derivation for a skill's reference files. Files live on a **storage volume**
-under `.agents/skills/{slug}/references/`, accessed through the Disk data source — there
-is no separate storage mechanism.
+Pure path derivation for a skill's resource files. Files live in a flat `{slug}/` folder
+under the globally configured Skills data-source folder — there is no separate storage
+mechanism and no hardcoded `.agents/skills/` prefix.
 
-- `default_root/1` — `.agents/skills/{slug}` derived from `Skill.name`
+- `default_root/1` — `{slug}` derived from `Skill.name`
 - `root/1` — the skill's effective root: the stored `resource_root` when present and safe,
   else `default_root/1`. This is the directory removed on skill deletion
-- `references_dir/1` — `{root}/references`, where uploads land
-- `destination/2` — `{references_dir}/{basename}`; the client filename is reduced to a bare
-  basename so directory components and traversal segments cannot survive
+- `references_dir/1` — kept for call-site compatibility; returns `root/1`
+- `destination/2` — `{root}/{basename}`; the client filename is reduced to a bare basename
+  so directory components and traversal segments cannot survive
 - `slug/1` — defensive normaliser; identity for any persisted skill, since Jido already
   constrains `name` to `~r/^[a-z0-9]+(-[a-z0-9]+)*$/`
+- Runtime resources live in `agent_skill_resources`. The row is the authoritative manifest
+  entry exposed to Jido: `provider_resource_id` is the opaque provider `id`, with `name`,
+  `resource_type`, `size`, optional MIME type, and modified time.
 
 **The module never touches the filesystem.** It derives path *strings* only; resolution and
 the authoritative containment check belong to the `:ingestion` role, the only node
@@ -267,10 +274,12 @@ boundary — `FileExplorer.resolve_path/2` still rejects traversal independently
 `resource_root` is **sticky**: written once on the first successful upload and reused
 thereafter, so renaming a skill does not orphan files already uploaded under the old name.
 
-**Write path (BO):** `SkillsLive` → `NodeRouter` (`:ingestion`) → `Ingestion.upload_file/3`
-+ `track_upload/2`. Uploading is gated on `Ingestion.volumes_configured?/0`. Wiring these
-files into the skill at runtime (progressive disclosure via `load_skill`) is not implemented
-yet.
+**Write path (BO):** `SkillsLive` resolves `Skills.resource_location/1`, then writes through
+the configured data-source provider via `NodeRouter.dispatch/1` and `:data_source_create_file`.
+The first successful write pins `resource_provider`, `resource_config_id`, optional scope/folder
+fields, and `resource_root` on the skill. Each successful upload also stores an
+`agent_skill_resources` row with the canonical data-source document id and selected resource
+classification. Later global config changes do not move or retarget existing skill resources.
 
 **Staged uploads on an unsaved skill.** Resources can be added before a skill exists, as
 soon as a name is typed — the name is all the destination needs. Those entries are held in
@@ -290,37 +299,24 @@ Staged entries must be dropped whenever the form changes which skill it is about
 `consume_uploaded_entries/3` consumes *every* done entry in the config, so a leftover entry
 would otherwise be written into the next skill the operator touches.
 
-**Delete path (BO):** deleting a skill removes its whole `root/1` directory via
-`Ingestion.delete_path/4` (`"directory"`), which also clears the tracked `Document` rows.
-`Ingestion.file_info/2` gates each removal, because a skill that never had an upload has no
-directory and `delete_path/4` reports `{:error, :not_a_directory}` for a missing path.
+**Delete path (BO):** deleting a skill snapshots its persisted resource rows before deleting
+the skill row, then deletes each data-source document by its stored provider resource id.
+Removing one file from the Skill UI uses the same stored id and removes the DB row only after
+the provider delete succeeds. Runtime resource listing never scans directories.
 
-**Known gap — the volume is not persisted.** The upload modal lets the operator pick a
-volume, but only the volume-relative `resource_root` is stored, so which volume holds a
-skill's files is not recoverable from the record. Deletion therefore **sweeps every
-configured volume**, removing the root wherever it exists. This is correct but O(volumes);
-persisting a `resource_volume` column would make it a direct lookup and is the right fix if
-volume counts grow.
-
-### `load_skill` tool (`Zaq.Agent.Tools.Skills.LoadSkill`, key `skills.load_skill`)
-- Returns a skill's full `instructions` as a tool result. **Stateless** — records nothing; the
-  conversation transcript *is* the record of what was loaded, so a repeat call is idempotent and a
-  cold restart self-heals via history replay. (A separate activation set could only ever disagree
-  with the transcript — that is upstream gap G2.)
-- **Scoped to the invoking agent's own `enabled_skill_ids`** (read from `:configured_agent_id` in
-  the tool context) — never a global lookup, and the not-found payload **never lists the catalog**
-  (unlike upstream `LoadSkill`, gap G3). This is the security boundary; see the negative tests.
-- **Auto-provisioned:** `provisioned_tool_keys/2` appends `skills.load_skill` when an agent has
-  ≥1 active skill and omits it otherwise. It is a managed registry tool, so `RuntimeSync` installs
-  it when the first skill is attached and removes it when the last is detached — no BO opt-in.
-- Emits `[:zaq, :agent, :skill, :load]` telemetry (body bytes + tokens).
-- **Why ZAQ ships its own instead of upstream's:** the pinned fork has no `LoadSkill` at all (it
-  arrives with the deferred fork bump, Part 2 M0), and even that one resolves globally and leaks
-  the catalog. Part 2 M2 adopts upstream's once it gains caller scoping (upstream U3).
-
-**Skill resources** (`load_skill_resource`, reading bundled `scripts/`/`references/`/`assets/`
-from the storage volume) are **Part 2 (M8)** — deferred until a skill ships bundled files. The
-`resource_root` column and its write-time validation exist from Part 1 but are unused until then.
+### Native `load_skill` / `load_skill_resource`
+- `Factory.runtime_config/1` calls `Jido.AI.Skill.AgentIntegration.prepare/1` with DB-backed
+  runtime specs and `Zaq.Agent.Skill.ResourceProvider`.
+- `RuntimeSync.sync_agent_configured_tools/3` treats `Jido.AI.Actions.Skill.LoadSkill` and
+  `Jido.AI.Actions.Skill.LoadResource` as managed tools so attaching/removing the last skill hot
+  patches a warm server.
+- `Factory.ask_with_config/4` forwards Jido's reserved skill/resource tool context on each ask.
+- The ZAQ resource provider returns `resource_type` with both list and load callbacks so agents
+  can distinguish references, assets, and scripts without deriving meaning from paths.
+- The provider's `:list` callback reads only `agent_skill_resources`, returning an empty list for
+  a resource-less skill. The `:load` callback resolves the stored id through `get_document`,
+  receives a fresh `materialization_handle`, and immediately calls `download_document`; handles
+  are never persisted.
 
 ### Runtime Sync (`Zaq.Agent.RuntimeSync`)
 - Owns runtime orchestration after configured-agent, MCP endpoint, and skill mutations.

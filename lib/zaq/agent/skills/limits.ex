@@ -14,9 +14,8 @@ defmodule Zaq.Agent.Skills.Limits do
 
   ## Body: three thresholds, two behaviours
 
-    * `skill_body_warning_tokens` — a **non-blocking warning** recorded in the skill's
-      diagnostics and surfaced in the BO. "This is large; consider moving bulk into
-      `references/` resources."
+    * `skill_body_warning_tokens` — a **non-blocking threshold** reserved for future
+      surfacing. Bodies above it still save successfully.
     * `skill_body_max_tokens` — a **hard reject**. Tokens are the real context cost.
     * `skill_body_max_bytes` — a **hard reject** and the absolute backstop. Tokens are
       estimated (`TokenEstimator`, word-based), so a pathological body — CJK, base64, no

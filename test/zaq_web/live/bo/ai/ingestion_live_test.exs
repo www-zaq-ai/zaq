@@ -10,7 +10,6 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.DataSource.CreateDocument
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Chunk
@@ -354,6 +353,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     original_provider_browser_unwatch_response =
       Application.get_env(:zaq, :provider_browser_unwatch_response)
 
+    original_provider_browser_scopes_response =
+      Application.get_env(:zaq, :provider_browser_scopes_response)
+
     original_create_document_module =
       Application.get_env(:zaq, :ingestion_create_document_module)
 
@@ -418,6 +420,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
         nil -> Application.delete_env(:zaq, :provider_browser_unwatch_response)
         value -> Application.put_env(:zaq, :provider_browser_unwatch_response, value)
       end
+
+      restore_env(:provider_browser_scopes_response, original_provider_browser_scopes_response)
 
       restore_env(:ingestion_create_document_module, original_create_document_module)
       restore_env(:ingestion_create_document_response, original_create_document_response)
@@ -1383,7 +1387,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert state.socket.assigns.current_dir == "folder-1"
 
       assert state.socket.assigns.provider_folder_stack == [
-               %{id: "folder-1", name: "Project Docs"}
+               %{id: "folder-1", name: "Project Docs", path: nil}
              ]
 
       assert state.socket.assigns.breadcrumbs == [%{name: "Project Docs", path: "folder-1"}]
@@ -4362,7 +4366,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     end
 
     test "omits failed provider scopes and labels unnamed scopes", %{conn: conn} do
-      create_provider_config()
+      config = create_provider_config()
       Application.put_env(:zaq, :ingestion_data_source_bridge_module, ProviderBrowserBridgeStub)
       Application.put_env(:zaq, :provider_browser_scopes_response, {:error, :timeout})
       {:ok, _failed, html} = live(conn, ~p"/bo/ingestion")
@@ -4370,7 +4374,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       Application.put_env(:zaq, :provider_browser_scopes_response, {:ok, [%{"id" => "scope-1"}]})
       {:ok, _view, html} = live(conn, ~p"/bo/ingestion")
-      assert html =~ ProviderCatalog.label("google_drive")
+      assert html =~ "#{config.name} · #{config.provider}"
     end
   end
 

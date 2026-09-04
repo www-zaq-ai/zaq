@@ -105,8 +105,7 @@ defmodule ZaqWeb.Live.BO.AI.FilePreviewData do
            Materialization.materialize(
              payload["handle"],
              materialization_context(current_user),
-             "Preview materialization failed",
-             %{"encoding" => "base64"}
+             "Preview materialization failed"
            ),
          {:ok, content} <- decode_content(record.content, record.attributes) do
       filename = payload["filename"] || filename(record)

@@ -31,10 +31,13 @@ config dependencies without storing them in the transported context.
 2. JSON/tool serialization preserves the signed handle.
 3. `Zaq.Materialization` verifies the handle and looks up the materializer type in
    `Zaq.Materialization.Registry`.
-4. The trusted handler validates the locator and builds a fixed `%Zaq.Event{}` through
+4. `Zaq.Materialization` validates per-redemption options against the handler's
+   declared option list, normalizes accepted atom/string key spellings to strings,
+   and rejects duplicate spellings or undeclared keys as `:invalid_materialization_options`.
+5. The trusted handler validates the locator and builds a fixed `%Zaq.Event{}` through
    role event helpers.
-5. `NodeRouter` routes by role to any node running that service.
-6. Returned content is normalized into `%{record: %Zaq.Contracts.Record{}}`.
+6. `NodeRouter` routes by role to any node running that service.
+7. Returned content is normalized into `%{record: %Zaq.Contracts.Record{}}`.
 
 ## Data Source Documents
 
@@ -56,6 +59,9 @@ Per-redemption options:
   representation state, not document identity, so it is passed separately from the
   signed locator. When present it overrides any configured default for the source
   MIME type.
+
+`data_source_document` declares `document_mime_type` and `export_mime_type` in
+`materialization_options/0`; validation is centralized in `Zaq.Materialization`.
 
 The handler always dispatches `:data_source_download_document` to the Channels role via
 `Zaq.Channels.Events`; callers cannot select another action. Channels passes the normalized
@@ -98,9 +104,10 @@ Locator fields:
 
 Per-redemption options:
 
-- `encoding` — request `"base64"` to force the raw bytes of a file ingestion would
-  otherwise answer as text. Representation state, not identity, so it stays out of the
-  signed locator.
+- `document_mime_type` — accepted for cross-source compatibility with data-source
+  document redemption. Storage currently ignores it and returns the raw disk bytes.
+- `export_mime_type` — accepted for cross-source compatibility with data-source
+  document redemption. Storage currently ignores it until export conversion is implemented.
 
 The handler always dispatches `:materialize_document` directly to the Storage role via
 `Zaq.Storage.Events`. A consumer that already has a Disk record redeems this handle without
@@ -115,9 +122,10 @@ To add a new materializable source:
 
 1. Add a handler implementing `Zaq.Materialization.Handler` in the owning service context.
 2. Register a stable string key in `Zaq.Materialization.Registry`.
-3. Validate all locator fields strictly in the handler.
-4. Build fixed role events through the owning role's event helper.
-5. Add tampering, malformed input, registry, and role-routing tests.
+3. Declare supported per-redemption options through `materialization_options/0`.
+4. Validate all locator fields strictly in the handler.
+5. Build fixed role events through the owning role's event helper.
+6. Add tampering, malformed input, registry, option validation, and role-routing tests.
 
 Do not expose bridge modules, destination roles, action names, file paths, credentials, or
 permission claims in handles.

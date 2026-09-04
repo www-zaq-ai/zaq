@@ -345,6 +345,8 @@ defmodule Zaq.Storage do
     end
   end
 
+  defp list_directory_entries({nil, _path}, _params, _opts), do: {:error, :volume_required}
+
   defp list_directory_entries({volume_name, path}, params, opts) do
     with {:ok, entries} <- list_entries(volume_name, path, opts) do
       paginate_entries(entries, volume_name, path, params, opts)

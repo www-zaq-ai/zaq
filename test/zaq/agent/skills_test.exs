@@ -11,7 +11,7 @@ defmodule Zaq.Agent.SkillsTest do
       %{
         body: "Instructions.",
         description: "What this skill does, and when to use it.",
-        tool_keys: [],
+        provided_tool_keys: [],
         tags: []
       }
       |> Map.merge(attrs)
@@ -235,48 +235,37 @@ defmodule Zaq.Agent.SkillsTest do
   end
 
   describe "provisioned_tool_keys/2" do
-    test "unions agent keys with skill keys, deduped, and appends load_skill" do
-      skill = %Skill{tool_keys: ["data_source.get_document", "answering.search_knowledge_base"]}
+    test "unions agent keys with skill keys, deduped" do
+      skill = %Skill{
+        provided_tool_keys: ["data_source.get_document", "answering.search_knowledge_base"]
+      }
 
       agent = %ConfiguredAgent{enabled_tool_keys: ["answering.search_knowledge_base"]}
 
       assert Skills.provisioned_tool_keys(agent, [skill]) == [
                "answering.search_knowledge_base",
-               "data_source.get_document",
-               "skills.load_skill"
+               "data_source.get_document"
              ]
     end
 
     test "drops skill tool keys no longer present in the registry" do
-      skill = %Skill{tool_keys: ["ghost.removed_tool", "data_source.get_document"]}
+      skill = %Skill{provided_tool_keys: ["ghost.removed_tool", "data_source.get_document"]}
       agent = %ConfiguredAgent{enabled_tool_keys: []}
 
       assert Skills.provisioned_tool_keys(agent, [skill]) == [
-               "data_source.get_document",
-               "skills.load_skill"
+               "data_source.get_document"
              ]
     end
 
-    # load_skill is provisioned only when there is at least one skill to load. A skill-less
-    # agent must not carry a tool it can never use.
-    test "does NOT append load_skill when the agent has no skills" do
+    test "does not append skill loading as a registry tool when the agent has no skills" do
       agent = %ConfiguredAgent{enabled_tool_keys: ["files.missing"]}
       assert Skills.provisioned_tool_keys(agent, []) == ["files.missing"]
-      refute "skills.load_skill" in Skills.provisioned_tool_keys(agent, [])
     end
 
-    test "appends load_skill even for a skill that provides no tools of its own" do
+    test "does not append skill loading as a registry tool for a skill that provides no tools" do
       agent = %ConfiguredAgent{enabled_tool_keys: nil}
-      skill = %Skill{tool_keys: nil}
-      assert Skills.provisioned_tool_keys(agent, [skill]) == ["skills.load_skill"]
-    end
-
-    test "load_skill is not duplicated if somehow already an enabled key" do
-      agent = %ConfiguredAgent{enabled_tool_keys: ["skills.load_skill"]}
-      skill = %Skill{tool_keys: []}
-
-      keys = Skills.provisioned_tool_keys(agent, [skill])
-      assert Enum.count(keys, &(&1 == "skills.load_skill")) == 1
+      skill = %Skill{provided_tool_keys: nil}
+      assert Skills.provisioned_tool_keys(agent, [skill]) == []
     end
   end
 

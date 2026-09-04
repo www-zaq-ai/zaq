@@ -2,11 +2,11 @@ defmodule Zaq.Agent.Skill do
   @moduledoc """
   Schema for BO-managed agent skills.
 
-  A skill bundles a markdown instruction `body` with a set of tool keys from
-  `Zaq.Agent.Tools.Registry`, a set of MCP endpoint ids (`enabled_mcp_endpoint_ids`),
-  and searchable `tags`. Skills are attached to configured agents and take effect at
-  runtime through the same hot-patch path as `enabled_tool_keys` /
-  `enabled_mcp_endpoint_ids` (tool + MCP sync + per-ask system prompt injection).
+  A skill bundles an Agent Skills manifest, markdown instruction `body`, a set of
+  tool keys from `Zaq.Agent.Tools.Registry`, a set of MCP endpoint ids
+  (`enabled_mcp_endpoint_ids`), and searchable `tags`. Skills are attached to
+  configured agents and take effect at runtime through the same hot-patch path as
+  `enabled_tool_keys` / `enabled_mcp_endpoint_ids`.
 
   Field-shape validation against the Open Agent Skills spec (name format, length caps,
   `allowed-tools` encoding) is **owned by `Jido.AI.Skill.Loader`**, reached through
@@ -25,9 +25,6 @@ defmodule Zaq.Agent.Skill do
       stored and rendered into the prompt, but **not enforced** (enforcement needs
       per-skill request scoping, which Jido does not yet express).
 
-  `tool_keys` is the pre-split column. It is dual-written with `provided_tool_keys`
-  for the rollout window and dropped once every node runs the new code — see
-  `changeset/2`.
   """
 
   use Ecto.Schema
@@ -45,14 +42,22 @@ defmodule Zaq.Agent.Skill do
     field :name, :string
     field :description, :string
     field :body, :string
-    field :tool_keys, {:array, :string}, default: []
+    field :license, :string
+    field :compatibility, :string
+    field :metadata, :map, default: %{}
     field :provided_tool_keys, {:array, :string}, default: []
     field :allowed_tools, {:array, :string}, default: []
     field :enabled_mcp_endpoint_ids, {:array, :integer}, default: []
+    field :resource_provider, :string
+    field :resource_config_id, :integer
+    field :resource_scope_id, :string
+    field :resource_folder_id, :string
+    field :resource_folder_path, :string
     field :resource_root, :string
-    field :diagnostics, :map
     field :tags, {:array, :string}, default: []
     field :active, :boolean, default: true
+
+    has_many :resources, Zaq.Agent.Skill.Resource
 
     timestamps(type: :utc_datetime)
   end
@@ -63,16 +68,19 @@ defmodule Zaq.Agent.Skill do
   # decides to call `load_skill` on. A skill without one cannot be converted to a
   # `%Jido.AI.Skill.Spec{}` at all.
   @required_fields ~w(name description body)a
-  @optional_fields ~w(tool_keys provided_tool_keys allowed_tools
-                      enabled_mcp_endpoint_ids resource_root tags active)a
+  @optional_fields ~w(license compatibility metadata provided_tool_keys allowed_tools
+                      enabled_mcp_endpoint_ids resource_provider resource_config_id
+                      resource_scope_id resource_folder_id resource_folder_path
+                      resource_root tags active)a
 
   def changeset(skill, attrs) do
     skill
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_tool_keys()
-    |> dual_write_tool_keys()
     |> normalize_allowed_tools()
+    |> normalize_metadata()
+    |> normalize_resource_location()
     |> normalize_mcp_endpoint_ids()
     |> normalize_tags()
     |> validate_resource_root()
@@ -84,8 +92,7 @@ defmodule Zaq.Agent.Skill do
   # Jido caps `name`, `description` and `compatibility`, but NOT `body`. An unbounded body
   # defeats progressive disclosure — it stays in the agent's context for the server's life
   # once loaded — so ZAQ caps it. See `Zaq.Agent.Skills.Limits` for why this is a global
-  # write-time rail. Runs after validate_against_spec so it can fold a warning into the
-  # diagnostics that step produced.
+  # write-time rail.
   defp validate_body_size(changeset) do
     body = get_field(changeset, :body) || ""
     bytes = byte_size(body)
@@ -103,33 +110,11 @@ defmodule Zaq.Agent.Skill do
         add_error(changeset, :body, "is too long (max #{max_tokens} tokens)", count: tokens)
 
       tokens > warning_tokens ->
-        put_body_warning(changeset, tokens, warning_tokens)
+        changeset
 
       true ->
         changeset
     end
-  end
-
-  # A non-blocking notice, merged into the diagnostics cache so the BO can badge it exactly
-  # like a Jido warning — same channel, no separate surfacing path.
-  defp put_body_warning(changeset, tokens, warning_tokens) do
-    warning = %{
-      "type" => "body_large",
-      "severity" => "warning",
-      "message" =>
-        "Skill body is large (~#{tokens} tokens, warns above #{warning_tokens}). " <>
-          "Consider moving bulk into references/ resources loaded on demand."
-    }
-
-    diagnostics = get_field(changeset, :diagnostics) || %{"warnings" => [], "warning_count" => 0}
-    warnings = Map.get(diagnostics, "warnings", []) ++ [warning]
-
-    updated =
-      diagnostics
-      |> Map.put("warnings", warnings)
-      |> Map.put("warning_count", length(warnings))
-
-    put_change(changeset, :diagnostics, updated)
   end
 
   # `resource_root` is a path RELATIVE to a storage volume. This is a syntactic guard
@@ -162,6 +147,28 @@ defmodule Zaq.Agent.Skill do
     end
   end
 
+  defp normalize_resource_location(changeset) do
+    changeset
+    |> normalize_blank_string(:resource_provider)
+    |> normalize_blank_string(:resource_scope_id)
+    |> normalize_blank_string(:resource_folder_id)
+    |> normalize_blank_string(:resource_folder_path)
+  end
+
+  defp normalize_blank_string(changeset, field) do
+    case get_field(changeset, field) do
+      value when is_binary(value) -> put_change(changeset, field, blank_to_nil(value))
+      _ -> changeset
+    end
+  end
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
   # Field-shape validation (name format, length caps, allowed-tools encoding) is owned by
   # `Jido.AI.Skill.Loader` via `Validation.validate/1` — ZAQ does not reimplement it. See
   # `Zaq.Agent.Skills.Validation` for why this round-trips through SKILL.md text, and for
@@ -176,32 +183,20 @@ defmodule Zaq.Agent.Skill do
       name: get_field(changeset, :name),
       description: get_field(changeset, :description),
       body: get_field(changeset, :body),
+      license: get_field(changeset, :license),
+      compatibility: get_field(changeset, :compatibility),
+      metadata: get_field(changeset, :metadata) || %{},
       allowed_tools: get_field(changeset, :allowed_tools) || []
     }
 
     case Validation.validate(attrs) do
-      {:ok, _spec, diagnostics} ->
-        # Cached so the BO can badge a skill as having warnings without re-parsing every
-        # row on a list view. Refreshed on every write.
-        put_change(changeset, :diagnostics, diagnostics)
+      {:ok, _spec} ->
+        changeset
 
       {:error, errors} ->
         Enum.reduce(errors, changeset, fn {field, message}, acc ->
           add_error(acc, field, message)
         end)
-    end
-  end
-
-  # `tool_keys` and `provided_tool_keys` must hold the same value for the whole rollout
-  # window: a node still running the old code reads `tool_keys`, while new code writes
-  # `provided_tool_keys`. Mirror whichever side the caller wrote onto the other.
-  # `provided_tool_keys` wins if both were supplied — it is the field that survives.
-  # Delete this together with the `tool_keys` column, once every node runs the new code.
-  defp dual_write_tool_keys(changeset) do
-    case {fetch_change(changeset, :provided_tool_keys), fetch_change(changeset, :tool_keys)} do
-      {{:ok, keys}, _} -> put_change(changeset, :tool_keys, keys)
-      {:error, {:ok, keys}} -> put_change(changeset, :provided_tool_keys, keys)
-      {:error, :error} -> changeset
     end
   end
 
@@ -217,6 +212,20 @@ defmodule Zaq.Agent.Skill do
       |> Enum.uniq()
 
     put_change(changeset, :allowed_tools, tools)
+  end
+
+  defp normalize_metadata(changeset) do
+    metadata = get_field(changeset, :metadata) || %{}
+
+    if is_map(metadata) do
+      put_change(
+        changeset,
+        :metadata,
+        Map.new(metadata, fn {key, value} -> {to_string(key), value} end)
+      )
+    else
+      changeset
+    end
   end
 
   defp normalize_mcp_endpoint_ids(changeset) do
@@ -242,26 +251,12 @@ defmodule Zaq.Agent.Skill do
     put_change(changeset, :tags, tags)
   end
 
-  # Runs *before* `dual_write_tool_keys/1`, so the caller's own field is still the only
-  # one changed — the error is reported where they wrote, whichever column that was.
   # Keys already persisted are grandfathered: a tool key can be retired from the
   # Registry without making every skill that references it uneditable.
   defp validate_tool_keys(%Ecto.Changeset{data: data} = changeset) do
-    field =
-      case fetch_change(changeset, :provided_tool_keys) do
-        {:ok, _} ->
-          :provided_tool_keys
+    keys = get_field(changeset, :provided_tool_keys) || []
 
-        :error ->
-          if match?({:ok, _}, fetch_change(changeset, :tool_keys)),
-            do: :tool_keys,
-            else: :provided_tool_keys
-      end
-
-    keys = get_field(changeset, field) || []
-
-    original_keys =
-      (Map.get(data, :provided_tool_keys) || []) ++ (Map.get(data, :tool_keys) || [])
+    original_keys = Map.get(data, :provided_tool_keys) || []
 
     newly_unknown =
       keys
@@ -273,7 +268,7 @@ defmodule Zaq.Agent.Skill do
     else
       add_error(
         changeset,
-        field,
+        :provided_tool_keys,
         "contains unknown tools: #{Enum.join(newly_unknown, ", ")}"
       )
     end

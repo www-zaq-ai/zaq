@@ -63,6 +63,7 @@ defmodule Zaq.System do
     follow_redirects
   )
 
+  @skill_resource_prefix "system.agent_skills.resources"
   # ── Generic key/value ─────────────────────────────────────────────────
 
   @doc "Returns the stored value for `key`, or `nil`."
@@ -174,6 +175,54 @@ defmodule Zaq.System do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc "Returns the global default data-source location for new skill resources."
+  def get_skill_resource_config do
+    %{
+      provider: blank_to_nil(get_config("#{@skill_resource_prefix}.provider")),
+      config_id: parse_optional_int_config("#{@skill_resource_prefix}.config_id"),
+      scope_id: blank_to_nil(get_config("#{@skill_resource_prefix}.scope_id")),
+      folder_id: blank_to_nil(get_config("#{@skill_resource_prefix}.folder_id")),
+      folder_path: blank_to_nil(get_config("#{@skill_resource_prefix}.folder_path"))
+    }
+  end
+
+  @doc "Persists the global default data-source location for new skill resources."
+  def save_skill_resource_config(attrs) when is_map(attrs) do
+    config = normalize_skill_resource_config(attrs)
+
+    Enum.each(config, fn {field, value} ->
+      set_config("#{@skill_resource_prefix}.#{field}", value || "")
+    end)
+
+    {:ok, get_skill_resource_config()}
+  end
+
+  defp normalize_skill_resource_config(attrs) do
+    %{
+      provider: blank_to_nil(Map.get(attrs, :provider) || Map.get(attrs, "provider")),
+      config_id:
+        ParseUtils.parse_optional_int(
+          Map.get(attrs, :config_id) || Map.get(attrs, "config_id"),
+          nil
+        ),
+      scope_id: blank_to_nil(Map.get(attrs, :scope_id) || Map.get(attrs, "scope_id")),
+      folder_id: blank_to_nil(Map.get(attrs, :folder_id) || Map.get(attrs, "folder_id")),
+      folder_path: blank_to_nil(Map.get(attrs, :folder_path) || Map.get(attrs, "folder_path"))
+    }
+  end
+
+  defp parse_optional_int_config(key), do: ParseUtils.parse_optional_int(get_config(key), nil)
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(value), do: value
 
   # ── Telemetry ─────────────────────────────────────────────────────────
 

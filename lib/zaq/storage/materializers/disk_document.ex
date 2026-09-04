@@ -16,7 +16,6 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
 
   @type_key "disk_document"
   @locator_fields ~w(config_id)
-  @option_fields ~w(encoding)
 
   @doc "Issues a handle for the document a volume source names."
   @spec issue(String.t(), map() | keyword(), keyword()) :: {:ok, String.t()} | {:error, term()}
@@ -39,12 +38,20 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
 
   @doc "Reads the bytes by dispatching the fixed `:materialize_document` action to Storage."
   @impl true
+  def materialization_options, do: Zaq.Materialization.document_mime_options()
+
+  @impl true
   def materialize(locator, context, options \\ %{})
 
-  def materialize(locator, context, options)
+  def materialize(locator, context, options),
+    do: Zaq.Materialization.materialize_with_handler(__MODULE__, locator, context, options)
+
+  @impl true
+  def do_materialize(locator, context, options)
+
+  def do_materialize(locator, context, options)
       when is_map(locator) and is_map(context) and is_map(options) do
-    with {:ok, request} <- validate_locator(locator),
-         {:ok, request} <- merge_options(request, options) do
+    with {:ok, request} <- validate_locator(locator) do
       request
       |> Events.build_and_dispatch_materialize_document_event(
         TrustedContext.event_builder_opts(context)
@@ -53,7 +60,7 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
     end
   end
 
-  def materialize(_locator, _context, _options), do: {:error, :invalid_materialization_locator}
+  def do_materialize(_locator, _context, _options), do: {:error, :invalid_materialization_locator}
 
   # The source is the whole locator: anything else a tampered handle carries is ignored
   # rather than forwarded to ingestion.
@@ -73,21 +80,6 @@ defmodule Zaq.Storage.Materializers.DiskDocument do
         {:error, :invalid_materialization_locator}
     end
   end
-
-  # `encoding` is request-time representation state, not document identity, so it arrives as
-  # a redemption option rather than inside the signed locator.
-  defp merge_options(request, options) do
-    case Map.keys(options) -- @option_fields do
-      [] -> {:ok, put_encoding(request, Map.get(options, "encoding"))}
-      _unknown -> {:error, :invalid_materialization_options}
-    end
-  end
-
-  defp put_encoding(request, encoding) when is_binary(encoding) do
-    if Helpers.blank?(encoding), do: request, else: Map.put(request, :encoding, encoding)
-  end
-
-  defp put_encoding(request, _encoding), do: request
 
   defp drop_blank_values(map) do
     Map.reject(map, fn {_key, value} -> Helpers.blank?(value) end)

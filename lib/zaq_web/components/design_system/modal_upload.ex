@@ -73,8 +73,15 @@ defmodule ZaqWeb.Components.DesignSystem.ModalUpload do
   attr :label, :string, default: "Upload"
   attr :submit_label, :string, default: "Upload"
   attr :hint, :string, default: nil
+
+  attr :input_accept, :string,
+    default: nil,
+    doc: "Optional browser file-picker accept override passed to Dropzone."
+
   attr :too_large_message, :string, default: "File exceeds 20 MB limit."
   attr :folder_drop?, :boolean, default: true
+
+  slot :form_fields, doc: "Optional fields rendered inside the upload form before the dropzone."
 
   def modal_upload(assigns) do
     upload = Map.fetch!(assigns.uploads, assigns.upload_name)
@@ -148,10 +155,13 @@ defmodule ZaqWeb.Components.DesignSystem.ModalUpload do
           label={@label}
           submit_label={@submit_label}
           hint={@hint || default_hint()}
+          input_accept={@input_accept}
           too_large_message={@too_large_message}
           folder_drop?={@folder_drop?}
           show_submit?={false}
-        />
+        >
+          <:form_fields>{render_slot(@form_fields)}</:form_fields>
+        </.upload_section>
 
         <div :if={@error} class="px-3 py-2 rounded-xl bg-red-50 border border-red-100">
           <p class="font-mono text-[0.72rem] text-red-500">{@error}</p>

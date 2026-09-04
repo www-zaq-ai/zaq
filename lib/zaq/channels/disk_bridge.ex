@@ -113,7 +113,12 @@ defmodule Zaq.Channels.DiskBridge do
   def list_files(config, params, context \\ %{})
       when is_map(config) and is_map(params) and is_map(context) do
     with {:ok, page} <-
-           dispatch(:list_documents, %{params: list_request(params)}, config, context) do
+           dispatch(
+             :list_documents,
+             %{params: params |> scoped_params() |> list_request()},
+             config,
+             context
+           ) do
       {:ok, record_page(page, config)}
     end
   end
@@ -133,7 +138,12 @@ defmodule Zaq.Channels.DiskBridge do
     action = if folder?, do: :persist_directory, else: :persist_document
 
     with {:ok, %{entry: entry} = result} <-
-           dispatch(action, persist_request(params, folder?), config, context) do
+           dispatch(
+             action,
+             params |> scoped_params() |> persist_request(folder?),
+             config,
+             context
+           ) do
       {:ok, %{status: Map.get(result, :status, "created"), record: map_entry(entry, config)}}
     end
   end
@@ -142,7 +152,7 @@ defmodule Zaq.Channels.DiskBridge do
   @impl true
   def get_file(config, params, context \\ %{})
       when is_map(config) and is_map(params) and is_map(context) do
-    file_id = to_string(fetch(params, "file_id"))
+    file_id = params |> scoped_params() |> fetch("file_id") |> to_string()
 
     with {:ok, %Entry{} = entry} <-
            dispatch(:describe_document, %{file_id: file_id}, config, context) do
@@ -366,6 +376,43 @@ defmodule Zaq.Channels.DiskBridge do
     do: Map.put(params, "filters", Map.put(filters, "parent", parent))
 
   defp without_path(params), do: params |> Map.delete("path") |> Map.delete(:path)
+
+  defp scoped_params(params) do
+    case fetch(params, "scope_id") do
+      scope_id when is_binary(scope_id) and scope_id != "" ->
+        params
+        |> put_scoped_value("path", scope_id)
+        |> put_scoped_value("file_id", scope_id)
+        |> update_in(["filters"], fn
+          filters when is_map(filters) -> put_scoped_value(filters, "parent", scope_id)
+          other -> other
+        end)
+        |> Map.delete("scope_id")
+        |> Map.delete(:scope_id)
+
+      _ ->
+        params
+    end
+  end
+
+  defp put_scoped_value(params, key, scope_id) do
+    case fetch(params, key) do
+      value when is_binary(value) -> Map.put(params, key, scoped_path(scope_id, value))
+      _ -> params
+    end
+  end
+
+  defp scoped_path(_scope_id, "/"), do: "/"
+
+  defp scoped_path(scope_id, path) do
+    path = String.trim(path, "/")
+
+    cond do
+      path in ["", scope_id] -> scope_id
+      String.starts_with?(path, scope_id <> "/") -> path
+      true -> Path.join(scope_id, path)
+    end
+  end
 
   defp persist_request(params, folder?) do
     name = fetch(params, "name")

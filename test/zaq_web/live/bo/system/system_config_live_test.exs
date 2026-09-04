@@ -11,6 +11,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
+  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.DiskBridge
+  alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Engine.Connect
   alias Zaq.Repo
   alias Zaq.System
@@ -116,6 +119,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert_patch(view, ~p"/bo/system-config?tab=global")
       assert has_element?(view, "#global-default-agent-select")
       assert render(view) =~ "Default Zaq Agent"
+    end
+
+    test "switches to Skills tab", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config")
+
+      view
+      |> element("button[phx-value-tab='skills']")
+      |> render_click()
+
+      assert_patch(view, ~p"/bo/system-config?tab=skills")
+      assert has_element?(view, "#skill-resource-config-form")
+      assert render(view) =~ "Agent Skills Resources"
+
+      {:ok, _view, skills_html} = live(conn, ~p"/bo/system-config?tab=skills")
+      assert skills_html =~ "skill-resource-config-form"
+      assert skills_html =~ "Existing skills keep their"
     end
 
     test "renders each tab via URL param", %{conn: conn} do
@@ -282,6 +301,364 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "HTTP credential provider deleted."
       refute Enum.any?(System.list_http_credential_providers(), &(&1.id == provider.id))
+    end
+  end
+
+  describe "skills resource settings" do
+    test "saves the global Skills resource location", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=skills")
+
+      html =
+        render_submit(view, "save_skill_resource_config", %{
+          "skill_resources" => %{
+            "provider" => "disk",
+            "config_id" => "4",
+            "scope_id" => "volume-a",
+            "folder_id" => "folder-1",
+            "folder_path" => "Skills"
+          }
+        })
+
+      assert html =~ "Skills resource settings saved"
+
+      assert Zaq.System.get_skill_resource_config() == %{
+               provider: "disk",
+               config_id: 4,
+               scope_id: "volume-a",
+               folder_id: "folder-1",
+               folder_path: "Skills"
+             }
+    end
+
+    test "does not show data-source or scope dropdowns on the config form", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      config = channel_config_fixture(%{name: "Skills Disk", provider: "disk"})
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_list_skill_resource_data_sources ->
+            %Zaq.Event{event | response: {:ok, [config]}}
+
+          :data_source_list_source_scopes ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: "disk",
+                       config_id: config.id,
+                       scope_id: "main",
+                       label: "Main volume",
+                       filters: %{"parent" => "main"}
+                     }
+                   ]}
+            }
+
+          _ ->
+            build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, html} = live(conn, ~p"/bo/system-config?tab=skills")
+
+      assert html =~ "Choose folder"
+      refute html =~ "Data source"
+      refute has_element?(view, "#skill-resource-source")
+      refute has_element?(view, "#skill-resource-scope")
+    end
+
+    test "selects source, volume, and folder from the modal", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      config = channel_config_fixture(%{name: "Skills Disk", provider: "disk"})
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_list_skill_resource_data_sources ->
+            %Zaq.Event{event | response: {:ok, [config]}}
+
+          :data_source_list_source_scopes ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: "disk",
+                       config_id: config.id,
+                       scope_id: "main",
+                       label: "Main volume",
+                       filters: %{"parent" => "main"}
+                     },
+                     %{
+                       provider: "disk",
+                       config_id: config.id,
+                       scope_id: "archive",
+                       label: "Archive volume",
+                       filters: %{"parent" => "archive"}
+                     }
+                   ]}
+            }
+
+          :data_source_list_files ->
+            parent = get_in(event.request, [:params, "filters", "parent"])
+
+            records =
+              case parent do
+                "folder-1" -> []
+                _ -> [%Record{id: "folder-1", kind: :folder, name: "Skills", path: "Skills"}]
+              end
+
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %RecordPage{
+                     resource_type: :item,
+                     records: records,
+                     pagination: %{cursor: nil, has_more?: false},
+                     stats: %{},
+                     filters: %{},
+                     metadata: %{}
+                   }}
+            }
+
+          :system_config_save_skill_resource_config ->
+            %Zaq.Event{
+              event
+              | response: Zaq.System.save_skill_resource_config(event.request.attrs)
+            }
+
+          _ ->
+            build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=skills")
+
+      view
+      |> element("button[phx-click='open_skill_resource_folder_modal']")
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "Choose Skills Folder"
+      assert html =~ "Main volume"
+      assert html =~ "Archive volume"
+
+      view
+      |> element(
+        "button[phx-click='switch_source'][phx-value-source='source:disk:#{config.id}:main']"
+      )
+      |> render_click()
+
+      view
+      |> element("button[phx-click='skill_resource_folder_navigate'][phx-value-id='folder-1']")
+      |> render_click()
+
+      html =
+        view
+        |> element("button[phx-click='confirm_skill_resource_folder']")
+        |> render_click()
+
+      assert html =~ "Skills"
+
+      html =
+        render_submit(view, "save_skill_resource_config", %{
+          "skill_resources" => %{
+            "provider" => "disk",
+            "config_id" => to_string(config.id),
+            "scope_id" => "main",
+            "folder_id" => "folder-1",
+            "folder_path" => "Skills"
+          }
+        })
+
+      assert html =~ "Skills resource settings saved"
+      assert %{folder_id: "folder-1", folder_path: "Skills"} = System.get_skill_resource_config()
+    end
+
+    test "creates a folder from the resource browser and selects it", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      volume_path = tmp_volume("skills-folder-create")
+      File.mkdir_p!(Path.join(volume_path, "Parent"))
+      original_storage = Application.get_env(:zaq, Zaq.Storage)
+      Application.put_env(:zaq, Zaq.Storage, base_path: volume_path)
+
+      on_exit(fn ->
+        Application.put_env(:zaq, Zaq.Storage, original_storage || [])
+      end)
+
+      config =
+        channel_config_fixture(%{
+          name: "Skills Disk",
+          provider: "disk",
+          settings: %{"volumes" => [%{"name" => "main", "path" => "."}]}
+        })
+
+      test_pid = self()
+      created? = :atomics.new(1, [])
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_list_skill_resource_data_sources ->
+            %Zaq.Event{event | response: {:ok, [config]}}
+
+          :data_source_list_source_scopes ->
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: "disk",
+                       config_id: config.id,
+                       scope_id: "main",
+                       label: "Main volume",
+                       filters: %{"parent" => "main"}
+                     }
+                   ]}
+            }
+
+          :data_source_list_files ->
+            created = :atomics.get(created?, 1) == 1
+
+            records =
+              if created do
+                [
+                  %Record{
+                    id: "new-folder",
+                    kind: :folder,
+                    name: "References",
+                    path: "Parent/References"
+                  }
+                ]
+              else
+                [
+                  %Record{
+                    id: "parent-folder-id",
+                    kind: :folder,
+                    name: "Parent",
+                    path: "Parent"
+                  }
+                ]
+              end
+
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %RecordPage{
+                     resource_type: :item,
+                     records: records,
+                     pagination: %{cursor: nil, has_more?: false},
+                     stats: %{},
+                     filters: %{},
+                     metadata: %{}
+                   }}
+            }
+
+          :data_source_create_file ->
+            send(
+              test_pid,
+              {:create_file, event.request.provider, event.request.params, event.actor}
+            )
+
+            :atomics.put(created?, 1, 1)
+
+            {:ok, %{record: record}} =
+              DiskBridge.create_file(config, event.request.params, %{
+                actor: event.actor,
+                skip_permissions: true
+              })
+
+            %Zaq.Event{
+              event
+              | response:
+                  {:ok,
+                   %{
+                     status: "created",
+                     record: %{record | id: "new-folder", path: "Parent/References"}
+                   }}
+            }
+
+          :system_config_save_skill_resource_config ->
+            %Zaq.Event{
+              event
+              | response: Zaq.System.save_skill_resource_config(event.request.attrs)
+            }
+
+          _ ->
+            build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=skills")
+
+      view
+      |> element("button[phx-click='open_skill_resource_folder_modal']")
+      |> render_click()
+
+      view
+      |> element(
+        "button[phx-click='skill_resource_folder_navigate'][phx-value-id='parent-folder-id']"
+      )
+      |> render_click()
+
+      html =
+        view
+        |> element("button[phx-click='show_new_folder_modal']")
+        |> render_click()
+
+      assert html =~ "New Folder"
+      assert has_element?(view, "#new-folder-input")
+
+      html =
+        view
+        |> form("form[phx-submit='create_folder']", %{
+          "name" => "References"
+        })
+        |> render_submit()
+
+      assert_received {:create_file, "disk",
+                       %{
+                         "config_id" => config_id,
+                         "kind" => "folder",
+                         "name" => "References",
+                         "parent_id" => "parent-folder-id",
+                         "path" => "main/Parent"
+                       }, actor}
+
+      assert config_id == to_string(config.id)
+      assert actor.user_id
+      assert File.dir?(Path.join(volume_path, "Parent/References"))
+      refute html =~ "Create folder"
+
+      view
+      |> element("button[phx-click='skill_resource_folder_navigate'][phx-value-id='new-folder']")
+      |> render_click()
+
+      html =
+        view
+        |> element("button[phx-click='confirm_skill_resource_folder']")
+        |> render_click()
+
+      assert html =~ "References"
+
+      html =
+        render_submit(view, "save_skill_resource_config", %{
+          "skill_resources" => %{
+            "provider" => "disk",
+            "config_id" => to_string(config.id),
+            "scope_id" => "main",
+            "folder_id" => "new-folder",
+            "folder_path" => "Parent/References"
+          }
+        })
+
+      assert html =~ "Skills resource settings saved"
+
+      assert %{folder_id: "new-folder", folder_path: "Parent/References"} =
+               System.get_skill_resource_config()
     end
   end
 
@@ -5122,6 +5499,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   defp stub_response_for_action(:system_config_list_http_credential_providers), do: []
 
+  defp stub_response_for_action(:system_config_get_skill_resource_config),
+    do: Zaq.System.get_skill_resource_config()
+
   defp stub_response_for_action(:system_config_change_ai_provider_credential) do
     Ecto.Changeset.cast(
       %Zaq.System.AIProviderCredential{},
@@ -5168,6 +5548,39 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   defp stub_response_for_action(_), do: nil
+
+  defp channel_config_fixture(attrs) do
+    attrs =
+      Map.merge(
+        %{
+          name: "Data Source #{Elixir.System.unique_integer([:positive])}",
+          provider: "disk",
+          kind: "data_source",
+          enabled: true,
+          settings: %{"volumes" => [%{"name" => "default", "path" => "tmp"}]}
+        },
+        attrs
+      )
+
+    {:ok, config} =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(attrs)
+      |> Repo.insert()
+
+    config
+  end
+
+  defp tmp_volume(name) do
+    path =
+      Path.join(
+        Elixir.System.tmp_dir!(),
+        "system_config_#{name}_#{Elixir.System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(path)
+    on_exit(fn -> File.rm_rf!(path) end)
+    path
+  end
 
   # Later: These error-branch tests now use the LiveView session seam instead of
   # global Application env. If they become flaky again, migrate them to narrower

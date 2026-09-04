@@ -99,6 +99,17 @@ defmodule ZaqWeb.Components.DesignSystem.DropzoneTest do
       assert html =~ ".md .pdf — max 20 MB"
     end
 
+    test "passes through a browser accept override" do
+      html =
+        render_component(&Dropzone.upload_section/1,
+          uploads: %{skill_resources: upload_config(:skill_resources)},
+          upload_name: :skill_resources,
+          input_accept: ".md,.pdf,.txt"
+        )
+
+      assert html =~ ~s(accept=".md,.pdf,.txt")
+    end
+
     test "omits the FolderDrop hook when folder_drop? is false" do
       html =
         render_component(&Dropzone.upload_section/1,

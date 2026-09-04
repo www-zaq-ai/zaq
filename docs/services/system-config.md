@@ -80,6 +80,29 @@ an event-first boundary:
 This prevents BO LiveViews from calling runtime modules directly and keeps
 single-node/multi-node behavior consistent.
 
+## Agent Skills Resource Storage
+
+Agent Skill resource defaults are configured from Back Office at `/bo/system-config`, Skills tab,
+and persisted in `system_configs`.
+
+- `system.agent_skills.resources.provider`
+- `system.agent_skills.resources.config_id`
+- `system.agent_skills.resources.scope_id`
+- `system.agent_skills.resources.folder_id`
+- `system.agent_skills.resources.folder_path`
+
+These keys define where new skill resource uploads are written. The first successful upload pins
+the effective provider/config/scope/folder and `resource_root` onto the skill row. Changing global
+defaults later does not move existing resources or change already-pinned skills.
+
+Uploads land in a flat `{skill-name}/` folder under the configured folder path. The UI-selected
+resource classification (`reference`, `asset`, or `script`) is stored in `agent_skill_resources`
+with the canonical data-source document id; it is not encoded as a path suffix.
+
+Reads and writes go through `NodeRouter.dispatch/1` data-source actions. Runtime resource listing
+uses the DB rows only. Content reads first call `get_document` to mint a fresh
+`materialization_handle`, then immediately call `download_document`; handles are never persisted.
+
 ### Signal Adapter Pattern
 
 The `:mcp_endpoint_updated` action acts as an adapter signal from configuration

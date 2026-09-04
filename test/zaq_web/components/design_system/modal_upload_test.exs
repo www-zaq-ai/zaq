@@ -76,6 +76,12 @@ defmodule ZaqWeb.Components.DesignSystem.ModalUploadTest do
       refute html =~ ".docx"
     end
 
+    test "passes through a browser accept override" do
+      html = render_modal(input_accept: ".js,.lua,.rs")
+
+      assert html =~ ~s(accept=".js,.lua,.rs")
+    end
+
     test "does not attach the FolderDrop hook" do
       # Skill references are a flat directory — expanding dropped folders would create
       # nested paths the skill loader does not read.
