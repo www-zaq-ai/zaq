@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-04T10:45:01Z",
+  "description": "Enhance the BO Skill add/edit form with instructions help text, resource-type descriptions, dynamic file input accept guidance, staged-file compatibility restrictions, server-side compatibility validation, and LiveView/component tests.",
+  "id": "zaq-a5o",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Skill resource upload type-aware UI",
+  "type": "task",
+  "updated_at": "2026-09-04T10:45:01Z"
+}
