@@ -216,6 +216,25 @@ defmodule Zaq.Channels.DiskBridgeTest do
                        }}
     end
 
+    test "prefixes provider scope_id onto unscoped list paths" do
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(config(), %{
+                 "scope_id" => "archives",
+                 "path" => "Skills/.agents/skills/runtime/references"
+               })
+
+      assert_received {:dispatch, :storage, :list_documents,
+                       %{
+                         params: %{
+                           "filters" => %{
+                             "parent" => "archives/Skills/.agents/skills/runtime/references"
+                           }
+                         }
+                       }}
+    end
+
     property "normalizes rooted tool paths to the same storage parent" do
       check all(
               segments <-
@@ -337,6 +356,21 @@ defmodule Zaq.Channels.DiskBridgeTest do
                "content" => "# notes",
                "encoding" => "base64"
              }
+    end
+
+    test "prefixes provider scope_id onto unscoped create paths" do
+      stub_response({:ok, %{status: "created", entry: entry("42")}})
+
+      assert {:ok, %{status: "created", record: %Record{id: "42"}}} =
+               DiskBridge.create_file(config(), %{
+                 "scope_id" => "archives",
+                 "name" => "guide.md",
+                 "path" => "Skills/.agents/skills/runtime/references",
+                 "content" => "# Guide"
+               })
+
+      assert_received {:dispatch, :storage, :persist_document, request}
+      assert request["path"] == "archives/Skills/.agents/skills/runtime/references"
     end
 
     test "defaults absent content to an empty string and leaves encoding nil" do

@@ -379,7 +379,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
         body: "Do the thing."
       })
 
-    # A warm server that has no tools yet; attaching a skill must install load_skill
+    # A warm server that has no tools yet; attaching a skill must install native skill tools
     # without a restart (the fingerprint does not cover skills).
     agent = %ConfiguredAgent{enabled_tool_keys: [], enabled_skill_ids: [skill.id]}
 
@@ -400,15 +400,19 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              )
 
     assert "load_skill" in result.added_tools
-    assert_receive {:register_tool_called, Zaq.Agent.Tools.Skills.LoadSkill}
+    assert "load_skill_resource" in result.added_tools
+    assert_receive {:register_tool_called, Jido.AI.Actions.Skill.LoadSkill}
+    assert_receive {:register_tool_called, Jido.AI.Actions.Skill.LoadResource}
   end
 
-  test "sync_agent_configured_tools removes load_skill when the last skill is detached" do
-    # Server still has load_skill from when a skill was attached; the agent now has none,
-    # so it must be torn down — proving load_skill is a managed (removable) tool.
+  test "sync_agent_configured_tools removes native skill tools when the last skill is detached" do
+    # Server still has native skill tools from when a skill was attached; the agent now has none,
+    # so they must be torn down — proving they are managed runtime tools.
     agent = %ConfiguredAgent{enabled_tool_keys: [], enabled_skill_ids: []}
 
-    list_tools_fn = fn :server_ref -> {:ok, [Zaq.Agent.Tools.Skills.LoadSkill]} end
+    list_tools_fn = fn :server_ref ->
+      {:ok, [Jido.AI.Actions.Skill.LoadSkill, Jido.AI.Actions.Skill.LoadResource]}
+    end
 
     register_tool_fn = fn :server_ref, _module -> {:ok, :agent} end
 
@@ -425,7 +429,9 @@ defmodule Zaq.Agent.RuntimeSyncTest do
              )
 
     assert "load_skill" in result.removed_tools
+    assert "load_skill_resource" in result.removed_tools
     assert_receive {:unregister_tool_called, "load_skill"}
+    assert_receive {:unregister_tool_called, "load_skill_resource"}
   end
 
   test "sync_agent_configured_tools removes stale managed tools and keeps non-managed tools" do
@@ -1406,7 +1412,7 @@ defmodule Zaq.Agent.RuntimeSyncTest do
         name: "sleepy-skill",
         description: "What this skill does, and when to use it.",
         body: "Use the sleep tool.",
-        tool_keys: ["basic.sleep"]
+        provided_tool_keys: ["basic.sleep"]
       })
 
     agent = %ConfiguredAgent{

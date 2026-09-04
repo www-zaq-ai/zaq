@@ -1,5 +1,6 @@
 defmodule Zaq.MaterializationTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
@@ -68,6 +69,13 @@ defmodule Zaq.MaterializationTest do
   defmodule StringErrorNodeRouter do
     def dispatch(%Event{} = event),
       do: %{event | response: {:error, "upstream unavailable"}}
+  end
+
+  defmodule OptionNodeRouter do
+    def dispatch(%Event{request: %{params: params}} = event) do
+      send(self(), {:option_params, params})
+      %{event | response: {:ok, %{content: "downloaded"}}}
+    end
   end
 
   defmodule UnexpectedNodeRouter do
@@ -270,6 +278,64 @@ defmodule Zaq.MaterializationTest do
       )
 
     assert {:error, "failed: upstream unavailable"} = result
+  end
+
+  test "normalizes declared atom-keyed runtime options before handler dispatch" do
+    assert {:ok, _record} =
+             Materialization.materialize(
+               issue_handle!("f1"),
+               %{node_router: OptionNodeRouter},
+               "failed",
+               %{document_mime_type: "application/pdf", export_mime_type: "text/plain"}
+             )
+
+    assert_received {:option_params,
+                     %{
+                       "file_id" => "f1",
+                       "document_mime_type" => "application/pdf",
+                       "export_mime_type" => "text/plain"
+                     }}
+  end
+
+  test "does not generate absent runtime option keys before handler dispatch" do
+    assert {:ok, _record} =
+             Materialization.materialize(
+               issue_handle!("f1"),
+               %{node_router: OptionNodeRouter},
+               "failed"
+             )
+
+    assert_received {:option_params, %{"file_id" => "f1"} = params}
+    refute Map.has_key?(params, "document_mime_type")
+    refute Map.has_key?(params, "export_mime_type")
+  end
+
+  test "rejects duplicate runtime option spellings before dispatch" do
+    assert {:error, "failed: :invalid_materialization_options"} =
+             Materialization.materialize(
+               issue_handle!("f1"),
+               %{node_router: OptionNodeRouter},
+               "failed",
+               %{"document_mime_type" => "application/pdf", document_mime_type: "text/plain"}
+             )
+
+    refute_received {:option_params, _params}
+  end
+
+  property "rejects undeclared runtime options before dispatch" do
+    check all(suffix <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20)) do
+      key = "unsupported_#{suffix}"
+
+      assert {:error, "failed: :invalid_materialization_options"} =
+               Materialization.materialize(
+                 issue_handle!("f1"),
+                 %{node_router: OptionNodeRouter},
+                 "failed",
+                 %{key => "value"}
+               )
+
+      refute_received {:option_params, _params}
+    end
   end
 
   defp issue_handle(file_id) do

@@ -36,6 +36,7 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocument do
                    %{
                      record:
                        Zaq.Contracts.Record.zoi_type(
+                         verify_provenance: false,
                          description: "Normalized record including document content"
                        )
                        |> Zoi.optional()

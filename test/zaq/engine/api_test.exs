@@ -862,7 +862,8 @@ defmodule Zaq.Engine.ApiTest do
       {:system_config_connect_schedule_refresh, %{}},
       {:system_config_set_global_base_url, %{}},
       {:system_config_set_system_language, %{}},
-      {:system_config_set_system_timezone, %{}}
+      {:system_config_set_system_timezone, %{}},
+      {:system_config_save_skill_resource_config, %{}}
     ]
 
     Enum.each(invalid_cases, fn {action, request} ->
@@ -881,6 +882,75 @@ defmodule Zaq.Engine.ApiTest do
     assert result.response == :ok
     assert Zaq.System.get_global_default_agent_id() == agent.id
     assert result == %{event | response: :ok}
+  end
+
+  test "engine API gets and saves skill resource config" do
+    save =
+      Api.handle_event(
+        Event.new(%{attrs: %{provider: "disk", config_id: "7", folder_id: "skills"}}, :engine),
+        :system_config_save_skill_resource_config,
+        nil
+      )
+
+    assert {:ok, %{provider: "disk", config_id: 7, folder_id: "skills"}} = save.response
+
+    get =
+      Api.handle_event(
+        Event.new(%{}, :engine),
+        :system_config_get_skill_resource_config,
+        nil
+      )
+
+    assert %{provider: "disk", config_id: 7, folder_id: "skills"} = get.response
+  end
+
+  test "engine API lists enabled data source configs for skill resources" do
+    enabled = channel_config_fixture(%{name: "Enabled Disk", provider: "disk", enabled: true})
+
+    _disabled =
+      channel_config_fixture(%{name: "Disabled Drive", provider: "google_drive", enabled: false})
+
+    _retrieval =
+      channel_config_fixture(%{
+        name: "Mattermost",
+        provider: "mattermost",
+        kind: "retrieval",
+        url: "https://mattermost.example",
+        token: "token"
+      })
+
+    result =
+      Api.handle_event(
+        Event.new(%{}, :engine),
+        :system_config_list_skill_resource_data_sources,
+        nil
+      )
+
+    assert {:ok, configs} = result.response
+    assert Enum.map(configs, & &1.id) == [enabled.id]
+  end
+
+  defp channel_config_fixture(attrs) do
+    attrs =
+      Map.merge(
+        %{
+          name: "Data Source #{System.unique_integer([:positive])}",
+          provider: "disk",
+          kind: "data_source",
+          enabled: true,
+          url: "",
+          token: "",
+          settings: %{"volumes" => [%{"name" => "default", "path" => "tmp"}]}
+        },
+        attrs
+      )
+
+    {:ok, config} =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(attrs)
+      |> Repo.insert()
+
+    config
   end
 
   # --- :trigger handler ---

@@ -12,7 +12,6 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
 
   @type_key "communication_media"
   @locator_fields ~w(provider reference name mime_type media_kind size channel_config_id source_author_id source_channel_id source_message_id mailbox uid_validity uid section encoding disposition content_id)
-  @option_fields []
 
   @spec issue(atom() | String.t(), String.t(), map(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
@@ -32,12 +31,20 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
   def issue(_provider, _reference, _attrs, _opts), do: {:error, :invalid_materialization_handle}
 
   @impl true
+  def materialization_options, do: []
+
+  @impl true
   def materialize(locator, context, options \\ %{})
 
-  def materialize(locator, context, options)
+  def materialize(locator, context, options),
+    do: Zaq.Materialization.materialize_with_handler(__MODULE__, locator, context, options)
+
+  @impl true
+  def do_materialize(locator, context, options)
+
+  def do_materialize(locator, context, options)
       when is_map(locator) and is_map(context) and is_map(options) do
     with {:ok, request} <- validate_locator(locator),
-         :ok <- validate_options(options),
          :ok <- authorize(request, context) do
       request
       |> Events.build_and_dispatch_materialize_record_event(
@@ -49,7 +56,7 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
     end
   end
 
-  def materialize(_locator, _context, _options), do: {:error, :invalid_materialization_locator}
+  def do_materialize(_locator, _context, _options), do: {:error, :invalid_materialization_locator}
 
   defp validate_locator(locator) do
     provider = string(locator, "provider")
@@ -71,13 +78,6 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
           |> drop_blank_values()
 
         {:ok, request}
-    end
-  end
-
-  defp validate_options(options) do
-    case Map.keys(options) -- @option_fields do
-      [] -> :ok
-      _unknown -> {:error, :invalid_materialization_options}
     end
   end
 

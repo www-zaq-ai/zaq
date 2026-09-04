@@ -34,6 +34,10 @@ defmodule ZaqWeb.Components.DesignSystem.Dropzone do
 
   attr :hint, :string, default: @default_hint
 
+  attr :input_accept, :string,
+    default: nil,
+    doc: "Optional browser file-picker accept override. Defaults to the upload config."
+
   attr :too_large_message, :string,
     default: "File exceeds 20 MB limit.",
     doc: "Shown when a queued file exceeds `max_file_size` from `allow_upload/3`."
@@ -46,6 +50,8 @@ defmodule ZaqWeb.Components.DesignSystem.Dropzone do
     default: true,
     doc: "When false, omit the inline submit control (modal footers use `form` + `type=submit`)."
 
+  slot :form_fields, doc: "Optional fields rendered inside the upload form before the dropzone."
+
   def upload_section(assigns) do
     assigns = assign(assigns, :upload, Map.fetch!(assigns.uploads, assigns.upload_name))
 
@@ -53,6 +59,8 @@ defmodule ZaqWeb.Components.DesignSystem.Dropzone do
     <div>
       <p class="zaq-text-caption zaq-ingestion-meta-label">{@label}</p>
       <form id={"#{@id_prefix}-form"} phx-submit={@submit_event} phx-change={@change_event}>
+        {render_slot(@form_fields)}
+
         <div
           id={"#{@id_prefix}-drop-zone"}
           class="zaq-dropzone"
@@ -76,7 +84,7 @@ defmodule ZaqWeb.Components.DesignSystem.Dropzone do
             <p class="zaq-text-body-sm mb-1" style="color: var(--zaq-text-color-body-tertiary)">
               Drop files here or
               <label class="zaq-text-body-sm zaq-link-underline zaq-breadcrumb-crumb-link cursor-pointer">
-                browse <.live_file_input upload={@upload} class="hidden" />
+                browse <.live_file_input upload={@upload} class="hidden" accept={@input_accept} />
               </label>
             </p>
             <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">

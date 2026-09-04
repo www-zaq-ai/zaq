@@ -1,9 +1,9 @@
 defmodule Zaq.Agent.Skill.Resources do
   @moduledoc """
-  Derives the storage-volume paths that hold a skill's reference files.
+  Derives the data-source paths that hold a skill's resource files.
 
-  A skill's resources live under `.agents/skills/{slug}/references/` on a storage volume,
-  accessed through the Disk data source, and need no separate storage mechanism.
+  A skill's resources live in a flat `{slug}/` folder under the globally configured data-source
+  folder, and need no separate storage mechanism.
 
   ## This module is pure
 
@@ -28,19 +28,19 @@ defmodule Zaq.Agent.Skill.Resources do
 
   alias Zaq.Agent.Skill
 
-  @root_prefix ".agents/skills"
-  @references_dir "references"
+  @resource_types ~w(reference asset script)
   @fallback_slug "skill"
   @fallback_filename "file"
+  @default_resource_type "reference"
 
   @doc """
   The name-derived resource root for a skill, ignoring any stored `resource_root`.
 
       iex> Zaq.Agent.Skill.Resources.default_root(%Zaq.Agent.Skill{name: "pricing-faq"})
-      ".agents/skills/pricing-faq"
+      "pricing-faq"
   """
   @spec default_root(Skill.t()) :: String.t()
-  def default_root(%Skill{name: name}), do: Path.join(@root_prefix, slug(name))
+  def default_root(%Skill{name: name}), do: slug(name)
 
   @doc """
   The skill's effective resource root — everything belonging to this skill lives under it.
@@ -58,27 +58,46 @@ defmodule Zaq.Agent.Skill.Resources do
   end
 
   @doc """
-  The directory holding a skill's reference files.
+  The directory holding a skill's files.
 
-  Uses the stored `resource_root` when it is present and safe, else `default_root/1`.
+  Kept under the old name because callers still mean "the directory to list/load resource files
+  from". It now returns the flat skill root.
   """
   @spec references_dir(Skill.t()) :: String.t()
-  def references_dir(%Skill{} = skill), do: Path.join(root(skill), @references_dir)
+  def references_dir(%Skill{} = skill), do: root(skill)
 
   @doc """
-  The destination path for an uploaded file, relative to a storage volume.
+  The destination path for an uploaded file, relative to the configured data-source folder.
 
   `filename` is client-supplied: it is reduced to a bare basename, so directory
   components and traversal segments cannot survive.
 
       iex> skill = %Zaq.Agent.Skill{name: "pricing-faq"}
       iex> Zaq.Agent.Skill.Resources.destination(skill, "../../etc/passwd")
-      ".agents/skills/pricing-faq/references/passwd"
+      "pricing-faq/passwd"
   """
   @spec destination(Skill.t(), String.t()) :: String.t()
   def destination(%Skill{} = skill, filename) do
     Path.join(references_dir(skill), safe_filename(filename))
   end
+
+  @doc "Returns supported Agent Skill resource classifications."
+  @spec resource_types() :: [String.t()]
+  def resource_types, do: @resource_types
+
+  @doc "Normalizes a user-supplied resource classification."
+  @spec normalize_resource_type(term()) :: String.t()
+  def normalize_resource_type(type) when is_binary(type) do
+    type = String.trim(type)
+
+    if type in @resource_types do
+      type
+    else
+      @default_resource_type
+    end
+  end
+
+  def normalize_resource_type(_type), do: @default_resource_type
 
   @doc """
   Normalises a skill name into a path-safe slug.

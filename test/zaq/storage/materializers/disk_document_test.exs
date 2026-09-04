@@ -94,16 +94,24 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     assert opts[:action] == :materialize_document
   end
 
-  test "passes the encoding runtime option through to storage" do
+  test "accepts shared MIME runtime options for cross-source compatibility" do
     assert {:ok, _answer} =
+             DiskDocument.materialize(
+               %{"file_id" => "guide.md"},
+               %{node_router: StubNodeRouter},
+               %{"document_mime_type" => "text/markdown", "export_mime_type" => "text/plain"}
+             )
+
+    assert_received {:dispatch, :storage, :materialize_document, %{file_id: "guide.md"}}
+  end
+
+  test "rejects obsolete encoding runtime option" do
+    assert {:error, :invalid_materialization_options} =
              DiskDocument.materialize(
                %{"file_id" => "guide.md"},
                %{node_router: StubNodeRouter},
                %{"encoding" => "base64"}
              )
-
-    assert_received {:dispatch, :storage, :materialize_document,
-                     %{file_id: "guide.md", encoding: "base64"}}
   end
 
   test "rejects runtime options that try to override locator identity" do

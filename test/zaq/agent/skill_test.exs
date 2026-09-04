@@ -9,7 +9,7 @@ defmodule Zaq.Agent.SkillTest do
     name: "calculator",
     body: "# Calculator\nUse the arithmetic tools instead of mental math.",
     description: "Precise arithmetic via tools",
-    tool_keys: ["answering.search_knowledge_base"],
+    provided_tool_keys: ["answering.search_knowledge_base"],
     tags: ["math", "utility"]
   }
 
@@ -109,48 +109,50 @@ defmodule Zaq.Agent.SkillTest do
     end
   end
 
-  describe "changeset/2 tool_keys" do
+  describe "changeset/2 provided_tool_keys" do
     test "accepts known tool keys from the registry" do
       changeset =
         Skill.changeset(%Skill{}, %{
           @valid_attrs
-          | tool_keys: ["answering.search_knowledge_base", "data_source.get_document"]
+          | provided_tool_keys: ["answering.search_knowledge_base", "data_source.get_document"]
         })
 
       assert changeset.valid?
     end
 
     test "rejects unknown tool keys" do
-      changeset = Skill.changeset(%Skill{}, %{@valid_attrs | tool_keys: ["nope.not_a_tool"]})
-      assert "contains unknown tools: nope.not_a_tool" in errors_on(changeset).tool_keys
+      changeset =
+        Skill.changeset(%Skill{}, %{@valid_attrs | provided_tool_keys: ["nope.not_a_tool"]})
+
+      assert "contains unknown tools: nope.not_a_tool" in errors_on(changeset).provided_tool_keys
     end
 
     test "tolerates ghost keys already persisted on the record" do
-      skill = %Skill{tool_keys: ["ghost.removed_tool"]}
+      skill = %Skill{provided_tool_keys: ["ghost.removed_tool"]}
 
       changeset =
         Skill.changeset(skill, %{
           name: "ghosted",
           description: "A skill referencing a retired tool key.",
           body: "body",
-          tool_keys: ["ghost.removed_tool", "answering.search_knowledge_base"]
+          provided_tool_keys: ["ghost.removed_tool", "answering.search_knowledge_base"]
         })
 
       assert changeset.valid?
     end
 
     test "still rejects new unknown keys alongside ghost keys" do
-      skill = %Skill{tool_keys: ["ghost.removed_tool"]}
+      skill = %Skill{provided_tool_keys: ["ghost.removed_tool"]}
 
       changeset =
         Skill.changeset(skill, %{
           name: "ghosted",
           description: "A skill referencing a retired tool key.",
           body: "body",
-          tool_keys: ["ghost.removed_tool", "brand.new_unknown"]
+          provided_tool_keys: ["ghost.removed_tool", "brand.new_unknown"]
         })
 
-      assert "contains unknown tools: brand.new_unknown" in errors_on(changeset).tool_keys
+      assert "contains unknown tools: brand.new_unknown" in errors_on(changeset).provided_tool_keys
     end
   end
 
@@ -207,93 +209,6 @@ defmodule Zaq.Agent.SkillTest do
     end
   end
 
-  # `tool_keys` and `provided_tool_keys` hold the same value for the rollout window, so
-  # a node still running the old code can keep reading `tool_keys`. These tests are the
-  # contract for that window; they are deleted with the column.
-  describe "changeset/2 tool_keys ↔ provided_tool_keys dual-write" do
-    test "a write through the OLD field populates BOTH columns" do
-      assert {:ok, skill} =
-               %Skill{}
-               |> Skill.changeset(%{@valid_attrs | tool_keys: ["data_source.get_document"]})
-               |> Repo.insert()
-
-      assert skill.tool_keys == ["data_source.get_document"]
-      assert skill.provided_tool_keys == ["data_source.get_document"]
-    end
-
-    test "a write through the NEW field populates BOTH columns — old code still reads tool_keys" do
-      attrs =
-        @valid_attrs
-        |> Map.delete(:tool_keys)
-        |> Map.put(:provided_tool_keys, ["data_source.get_document"])
-
-      assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
-
-      assert skill.provided_tool_keys == ["data_source.get_document"]
-      assert skill.tool_keys == ["data_source.get_document"]
-    end
-
-    test "provided_tool_keys wins when both are supplied — it is the field that survives" do
-      attrs =
-        @valid_attrs
-        |> Map.put(:tool_keys, ["answering.search_knowledge_base"])
-        |> Map.put(:provided_tool_keys, ["data_source.get_document"])
-
-      changeset = Skill.changeset(%Skill{}, attrs)
-
-      assert get_field(changeset, :provided_tool_keys) == ["data_source.get_document"]
-      assert get_field(changeset, :tool_keys) == ["data_source.get_document"]
-    end
-
-    test "an unknown key written through the NEW field errors on that field" do
-      attrs =
-        @valid_attrs
-        |> Map.delete(:tool_keys)
-        |> Map.put(:provided_tool_keys, ["nope.not_a_tool"])
-
-      changeset = Skill.changeset(%Skill{}, attrs)
-
-      assert "contains unknown tools: nope.not_a_tool" in errors_on(changeset).provided_tool_keys
-    end
-
-    test "ghost keys persisted on either column are grandfathered" do
-      skill = %Skill{
-        provided_tool_keys: ["ghost.removed_tool"],
-        tool_keys: ["ghost.removed_tool"]
-      }
-
-      changeset =
-        Skill.changeset(skill, %{
-          name: "ghosted",
-          description: "A skill referencing a retired tool key.",
-          body: "body",
-          provided_tool_keys: ["ghost.removed_tool", "answering.search_knowledge_base"]
-        })
-
-      assert changeset.valid?
-    end
-
-    property "both columns always agree after a changeset" do
-      check all(
-              keys <-
-                list_of(
-                  member_of(["answering.search_knowledge_base", "data_source.get_document"]),
-                  max_length: 4
-                )
-            ) do
-        for field <- [:tool_keys, :provided_tool_keys] do
-          changeset =
-            Skill.changeset(
-              %Skill{},
-              @valid_attrs |> Map.delete(:tool_keys) |> Map.put(field, keys)
-            )
-
-          assert get_field(changeset, :tool_keys) == get_field(changeset, :provided_tool_keys)
-        end
-      end
-    end
-  end
-
   describe "changeset/2 allowed_tools (OAS — separate from provided_tool_keys)" do
     test "is not validated against the ZAQ tool registry — it is an OAS tool-name list" do
       changeset =
@@ -316,13 +231,53 @@ defmodule Zaq.Agent.SkillTest do
     test "does not leak into provided_tool_keys, and vice versa" do
       attrs =
         @valid_attrs
-        |> Map.put(:tool_keys, ["data_source.get_document"])
+        |> Map.put(:provided_tool_keys, ["data_source.get_document"])
         |> Map.put(:allowed_tools, ["Read"])
 
       assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
 
       assert skill.allowed_tools == ["Read"]
       assert skill.provided_tool_keys == ["data_source.get_document"]
+    end
+  end
+
+  describe "changeset/2 manifest fields" do
+    test "casts optional Agent Skills manifest fields" do
+      attrs =
+        @valid_attrs
+        |> Map.put(:license, "Apache-2.0")
+        |> Map.put(:compatibility, "Requires access to finance reports.")
+        |> Map.put(:metadata, %{"owner" => "finance", "tier" => "gold"})
+
+      assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
+
+      assert skill.license == "Apache-2.0"
+      assert skill.compatibility == "Requires access to finance reports."
+      assert skill.metadata == %{"owner" => "finance", "tier" => "gold"}
+    end
+
+    test "casts and normalizes pinned resource source fields" do
+      attrs =
+        @valid_attrs
+        |> Map.put(:resource_provider, " disk ")
+        |> Map.put(:resource_config_id, "12")
+        |> Map.put(:resource_scope_id, " volume-a ")
+        |> Map.put(:resource_folder_id, " folder-123 ")
+        |> Map.put(:resource_folder_path, " Skills/References ")
+
+      assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
+
+      assert skill.resource_provider == "disk"
+      assert skill.resource_config_id == 12
+      assert skill.resource_scope_id == "volume-a"
+      assert skill.resource_folder_id == "folder-123"
+      assert skill.resource_folder_path == "Skills/References"
+    end
+
+    test "rejects metadata values that cannot round-trip through SKILL.md" do
+      changeset = Skill.changeset(%Skill{}, Map.put(@valid_attrs, :metadata, %{owner: :finance}))
+
+      assert "could not be encoded" in errors_on(changeset).metadata
     end
   end
 
@@ -346,10 +301,10 @@ defmodule Zaq.Agent.SkillTest do
       {:ok, _} =
         Repo.query(
           """
-          INSERT INTO agent_skills (name, description, body, tool_keys, provided_tool_keys,
+          INSERT INTO agent_skills (name, description, body, provided_tool_keys,
                                     allowed_tools, enabled_mcp_endpoint_ids, tags, active,
                                     inserted_at, updated_at)
-          VALUES ('legacy', NULL, 'body', '{}', '{}', '{}', '{}', '{}', true, NOW(), NOW())
+          VALUES ('legacy', NULL, 'body', '{}', '{}', '{}', '{}', true, NOW(), NOW())
           """,
           []
         )
@@ -381,16 +336,12 @@ defmodule Zaq.Agent.SkillTest do
       changeset = Skill.changeset(%Skill{}, %{@valid_attrs | body: "A few words of guidance."})
 
       assert changeset.valid?
-      assert get_field(changeset, :diagnostics)["warning_count"] == 0
     end
 
-    test "a body over the warning threshold saves, with a non-blocking warning" do
+    test "a body over the warning threshold saves" do
       changeset = Skill.changeset(%Skill{}, %{@valid_attrs | body: body_of_tokens(17_000)})
 
       assert changeset.valid?
-
-      warnings = get_field(changeset, :diagnostics)["warnings"]
-      assert Enum.any?(warnings, &(&1["type"] == "body_large"))
     end
 
     test "a body over the token cap is rejected" do
@@ -417,9 +368,6 @@ defmodule Zaq.Agent.SkillTest do
 
       assert skill.allowed_tools == []
       assert skill.resource_root == nil
-      # diagnostics is written by validation, string-keyed to match the stored/reloaded
-      # shape, and a clean skill has none to report.
-      assert %{"warning_count" => 0, "errors" => []} = skill.diagnostics
     end
 
     test "resource_root round-trips" do
@@ -427,16 +375,6 @@ defmodule Zaq.Agent.SkillTest do
 
       assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
       assert skill.resource_root == "skills/calculator"
-    end
-
-    test "diagnostics is not user-settable — validation owns it" do
-      attrs = Map.put(@valid_attrs, :diagnostics, %{"warnings" => ["spoofed"]})
-
-      assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
-
-      # The submitted value is discarded, not merged: diagnostics is a cache of what the
-      # loader reported, and a user-supplied one would be a lie the BO then badges on.
-      assert %{"warnings" => []} = skill.diagnostics
     end
   end
 

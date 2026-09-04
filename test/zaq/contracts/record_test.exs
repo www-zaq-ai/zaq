@@ -151,6 +151,14 @@ defmodule Zaq.Contracts.RecordTest do
     test "encodes to JSON Schema for tool catalog validation" do
       assert is_map(Zoi.JSONSchema.encode(Record.zoi_type(description: "A ZAQ record")))
     end
+
+    test "can validate trusted native Record structs without provenance" do
+      schema = Record.zoi_type(verify_provenance: false)
+
+      assert {:ok, %Record{}} = Zoi.parse(schema, record(%{provenance_ref: nil}))
+      assert {:error, _errors} = Zoi.parse(schema, %{"id" => "42", "kind" => "file"})
+      assert {:error, _errors} = Zoi.parse(schema, "not-a-record")
+    end
   end
 
   describe "zoi_type/1 with JSON-safe maps" do

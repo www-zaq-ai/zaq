@@ -7,6 +7,7 @@ defmodule Zaq.Engine.Api do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Conversations
@@ -451,6 +452,22 @@ defmodule Zaq.Engine.Api do
     case event.request do
       %{timezone: timezone} -> %{event | response: System.set_system_timezone(timezone)}
       other -> %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_get_skill_resource_config, _context),
+    do: %{event | response: System.get_skill_resource_config()}
+
+  def handle_event(%Event{} = event, :system_config_list_skill_resource_data_sources, _context),
+    do: %{event | response: {:ok, ChannelConfig.list_enabled_data_source_configs()}}
+
+  def handle_event(%Event{} = event, :system_config_save_skill_resource_config, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.save_skill_resource_config(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
     end
   end
 

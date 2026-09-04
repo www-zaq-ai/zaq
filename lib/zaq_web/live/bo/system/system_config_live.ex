@@ -3,7 +3,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ProviderModels
+  alias Zaq.Agent.Tools.DataSource.CreateDocument
   alias Zaq.Agent.ZAQRouter
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Config
   alias Zaq.Event
   alias Zaq.System.EmbeddingConfig
@@ -14,7 +16,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.Utils.Map, as: MapUtils
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.Helpers.Timezone
+  alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
+  alias ZaqWeb.Live.BO.DataSourceBrowser
   alias ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.ConnectEvents
@@ -25,6 +29,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias ZaqWeb.Live.BO.System.SystemConfig.LLMEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPRows
+  alias ZaqWeb.Live.BO.System.SystemConfig.SkillsTab
   alias ZaqWeb.Live.BO.System.SystemConfig.TelemetryEvents
 
   def mount(_params, session, socket) do
@@ -63,6 +68,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:global_base_url, engine_get_global_base_url() || "")
      |> assign(:global_language, engine_get_system_language())
      |> assign(:global_timezone, engine_get_system_timezone())
+     |> assign(:skill_resource_config, engine_get_skill_resource_config())
+     |> assign_skill_resource_picker()
      |> assign(:detected_timezone, nil)
      |> assign(:ai_provider_options, provider_options(fn _ -> true end))
      |> assign(:connect_grants_modal, false)
@@ -92,7 +99,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(ai_credentials auth_credentials outbound_http mcps global llm embedding image_to_text telemetry) do
+      when tab in ~w(ai_credentials auth_credentials outbound_http mcps global skills llm embedding image_to_text telemetry) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -104,6 +111,89 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, push_patch(socket, to: ~p"/bo/system-config?tab=#{tab}")}
+  end
+
+  def handle_event("save_skill_resource_config", %{"skill_resources" => attrs}, socket) do
+    case engine_save_skill_resource_config(attrs) do
+      {:ok, config} ->
+        {:noreply,
+         socket
+         |> assign(:skill_resource_config, config)
+         |> put_flash(:info, "Skills resource settings saved")}
+
+      {:error, reason} ->
+        {:noreply,
+         put_flash(socket, :error, "Failed to save Skills resource settings: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("open_skill_resource_folder_modal", _params, socket) do
+    {:noreply, open_skill_resource_folder_modal(socket)}
+  end
+
+  def handle_event("switch_source", %{"source" => "source:" <> source_id}, socket)
+      when source_id != "" do
+    {:noreply, switch_skill_resource_source(socket, source_id)}
+  end
+
+  def handle_event(
+        "close_modal",
+        _params,
+        %{assigns: %{skill_resource_new_folder_modal: true}} = socket
+      ) do
+    {:noreply, assign(socket, skill_resource_new_folder_modal: false, modal_error: nil)}
+  end
+
+  def handle_event(
+        "close_modal",
+        _params,
+        %{assigns: %{skill_resource_folder_modal: true}} = socket
+      ) do
+    {:noreply,
+     assign(socket, skill_resource_folder_modal: false, skill_resource_new_folder_modal: false)}
+  end
+
+  def handle_event("skill_resource_folder_navigate", %{"id" => id}, socket) do
+    {:noreply, navigate_skill_resource_folder(socket, id)}
+  end
+
+  def handle_event("skill_resource_folder_up", _params, socket) do
+    {:noreply, navigate_skill_resource_folder_up(socket)}
+  end
+
+  def handle_event(
+        "show_new_folder_modal",
+        _params,
+        %{assigns: %{skill_resource_folder_modal: true}} = socket
+      ) do
+    {:noreply,
+     assign(socket, skill_resource_new_folder_modal: true, modal_name: "", modal_error: nil)}
+  end
+
+  def handle_event(
+        "create_folder",
+        %{"name" => name},
+        %{assigns: %{skill_resource_new_folder_modal: true}} = socket
+      ) do
+    {:noreply, create_skill_resource_folder(socket, name)}
+  end
+
+  def handle_event("confirm_skill_resource_folder", _params, socket) do
+    folder = current_skill_resource_folder(socket.assigns)
+    source = active_skill_resource_source(socket.assigns)
+
+    config =
+      socket.assigns.skill_resource_config
+      |> Map.put(:provider, source.provider)
+      |> Map.put(:config_id, source.config_id)
+      |> Map.put(:scope_id, source.scope_id)
+      |> Map.put(:folder_id, folder.id)
+      |> Map.put(:folder_path, folder.path)
+
+    {:noreply,
+     socket
+     |> assign(:skill_resource_config, config)
+     |> assign(:skill_resource_folder_modal, false)}
   end
 
   def handle_event("oauth_popup_result", _params, socket) do
@@ -1544,6 +1634,207 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp engine_get_system_timezone,
     do: dispatch_engine(:system_config_get_system_timezone)
+
+  defp engine_get_skill_resource_config,
+    do: dispatch_engine(:system_config_get_skill_resource_config)
+
+  defp engine_list_skill_resource_data_sources,
+    do: dispatch_engine(:system_config_list_skill_resource_data_sources)
+
+  defp engine_save_skill_resource_config(attrs),
+    do: dispatch_engine(:system_config_save_skill_resource_config, %{attrs: attrs})
+
+  defp assign_skill_resource_picker(socket) do
+    sources =
+      case engine_list_skill_resource_data_sources() do
+        {:ok, configs} -> Enum.flat_map(configs, &skill_resource_sources_for_config/1)
+        _ -> []
+      end
+
+    source_id =
+      configured_skill_resource_source_id(socket.assigns.skill_resource_config) ||
+        (List.first(sources) && List.first(sources).id)
+
+    socket
+    |> assign(:skill_resource_sources, sources)
+    |> assign(:skill_resource_source_id, source_id)
+    |> assign(:skill_resource_folder_modal, false)
+    |> assign(:skill_resource_new_folder_modal, false)
+    |> assign(:skill_resource_folder_entries, [])
+    |> assign(:skill_resource_folder_stack, [])
+    |> assign(:skill_resource_folder_error, nil)
+    |> assign(:modal_error, nil)
+    |> assign(:modal_name, "")
+  end
+
+  defp open_skill_resource_folder_modal(socket) do
+    socket
+    |> assign(:skill_resource_folder_modal, true)
+    |> assign(:skill_resource_folder_stack, [])
+    |> load_skill_resource_folder_entries(nil)
+  end
+
+  defp switch_skill_resource_source(socket, source_id) do
+    if Enum.any?(socket.assigns.skill_resource_sources, &(&1.id == source_id)) do
+      socket
+      |> assign(:skill_resource_source_id, source_id)
+      |> assign(:skill_resource_folder_stack, DataSourceBrowser.reset_stack())
+      |> load_skill_resource_folder_entries(nil)
+    else
+      socket
+    end
+  end
+
+  defp navigate_skill_resource_folder(socket, id) do
+    stack =
+      DataSourceBrowser.enter_folder(
+        socket.assigns.skill_resource_folder_stack,
+        socket.assigns.skill_resource_folder_entries,
+        id
+      )
+
+    socket
+    |> assign(:skill_resource_folder_stack, stack)
+    |> load_skill_resource_folder_entries((List.last(stack) || %{})[:id])
+  end
+
+  defp navigate_skill_resource_folder_up(socket) do
+    stack = DataSourceBrowser.up_stack(socket.assigns.skill_resource_folder_stack)
+
+    socket
+    |> assign(:skill_resource_folder_stack, stack)
+    |> load_skill_resource_folder_entries((List.last(stack) || %{})[:id])
+  end
+
+  defp create_skill_resource_folder(socket, name) do
+    source = active_skill_resource_source(socket.assigns)
+    name = String.trim(to_string(name || ""))
+
+    cond do
+      is_nil(source) ->
+        assign(socket, :modal_error, "Could not create folder: no data source selected")
+
+      name == "" ->
+        assign(socket, :modal_error, "Folder name cannot be empty.")
+
+      true ->
+        do_create_skill_resource_folder(socket, source, name)
+    end
+  end
+
+  defp do_create_skill_resource_folder(socket, source, name) do
+    params =
+      DataSourceBrowser.create_folder_params(
+        source,
+        socket.assigns.skill_resource_folder_stack,
+        name
+      )
+
+    action_module = Config.get(:zaq, :ingestion_create_document_module, CreateDocument, [])
+
+    case action_module.run(params, skill_resource_create_context(socket)) do
+      {:ok, %{record: _record}} ->
+        parent_id = current_skill_resource_folder(socket.assigns).id
+
+        socket
+        |> assign(:skill_resource_new_folder_modal, false)
+        |> assign(:modal_error, nil)
+        |> assign(:skill_resource_folder_error, nil)
+        |> load_skill_resource_folder_entries(parent_id)
+
+      {:error, reason} ->
+        assign(socket, :modal_error, "Could not create folder: #{inspect(reason)}")
+
+      {:ok, other} ->
+        assign(
+          socket,
+          :modal_error,
+          "Could not create folder: unexpected response #{inspect(other)}"
+        )
+    end
+  end
+
+  defp load_skill_resource_folder_entries(socket, parent_id) do
+    source = active_skill_resource_source(socket.assigns)
+
+    if is_nil(source) do
+      assign(socket, :skill_resource_folder_entries, [])
+    else
+      request = %{
+        provider: source.provider,
+        params: DataSourceBrowser.list_params(source, parent_id, false)
+      }
+
+      case dispatch_channels(
+             :data_source_list_files,
+             request,
+             BOActor.build(socket.assigns.current_user)
+           ) do
+        {:ok, %{records: records}} ->
+          folders = DataSourceBrowser.folders_from_records(records)
+
+          socket
+          |> assign(:skill_resource_folder_entries, folders)
+          |> assign(:skill_resource_folder_error, nil)
+
+        {:error, reason} ->
+          socket
+          |> assign(:skill_resource_folder_entries, [])
+          |> assign(:skill_resource_folder_error, "Could not load folders: #{inspect(reason)}")
+      end
+    end
+  end
+
+  defp dispatch_channels(action, request, actor) do
+    Event.new(request, :channels, opts: [action: action], actor: actor)
+    |> node_router_module().dispatch()
+    |> Map.get(:response)
+  end
+
+  defp skill_resource_create_context(socket) do
+    %{
+      actor: BOActor.build(socket.assigns.current_user),
+      node_router: node_router_module(),
+      event_opts: [data_source_bridge_module: data_source_bridge_module()]
+    }
+  end
+
+  defp data_source_bridge_module do
+    Application.get_env(:zaq, :ingestion_data_source_bridge_module, DataSourceBridge)
+  end
+
+  defp current_skill_resource_folder(assigns) do
+    DataSourceBrowser.current_folder(
+      active_skill_resource_source(assigns),
+      assigns.skill_resource_folder_stack
+    )
+  end
+
+  defp active_skill_resource_source(assigns) do
+    Enum.find(assigns.skill_resource_sources, &(&1.id == assigns.skill_resource_source_id))
+  end
+
+  defp skill_resource_sources_for_config(config) do
+    request = %{provider: config.provider, params: %{"config_id" => config.id}}
+
+    case dispatch_channels(:data_source_list_source_scopes, request) do
+      {:ok, scopes} when is_list(scopes) ->
+        Enum.map(scopes, &DataSourceBrowser.source(config, &1))
+
+      _ ->
+        []
+    end
+  end
+
+  defp configured_skill_resource_source_id(%{
+         provider: provider,
+         config_id: config_id,
+         scope_id: scope_id
+       })
+       when not is_nil(provider) and not is_nil(config_id) and not is_nil(scope_id),
+       do: DataSourceBrowser.source_id(provider, config_id, scope_id)
+
+  defp configured_skill_resource_source_id(_), do: nil
 
   defp engine_set_system_timezone(timezone),
     do: dispatch_engine(:system_config_set_system_timezone, %{timezone: timezone})

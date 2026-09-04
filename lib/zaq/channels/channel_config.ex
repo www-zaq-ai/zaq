@@ -253,6 +253,14 @@ defmodule Zaq.Channels.ChannelConfig do
     |> Zaq.Repo.all()
   end
 
+  @doc "Returns all enabled data source configs."
+  def list_enabled_data_source_configs do
+    __MODULE__
+    |> where([c], c.kind == "data_source" and c.enabled == true)
+    |> order_by([c], asc: c.provider, asc: c.name)
+    |> Zaq.Repo.all()
+  end
+
   @doc "Returns enabled receiving channel configs that can route incoming messages for a person channel platform."
   def list_incoming_routing_configs_for_platform(platform) when is_binary(platform) do
     :retrieval

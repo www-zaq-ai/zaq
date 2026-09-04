@@ -152,6 +152,54 @@ defmodule Zaq.SystemTest do
     end
   end
 
+  describe "skill resource config" do
+    test "returns empty defaults when unset" do
+      assert System.get_skill_resource_config() == %{
+               provider: nil,
+               config_id: nil,
+               scope_id: nil,
+               folder_id: nil,
+               folder_path: nil
+             }
+    end
+
+    test "persists stable data-source identity and trims blank fields" do
+      assert {:ok, config} =
+               System.save_skill_resource_config(%{
+                 "provider" => "disk",
+                 "config_id" => "42",
+                 "scope_id" => "volume-a",
+                 "folder_id" => "folder-123",
+                 "folder_path" => "  Skills/References  "
+               })
+
+      assert config == %{
+               provider: "disk",
+               config_id: 42,
+               scope_id: "volume-a",
+               folder_id: "folder-123",
+               folder_path: "Skills/References"
+             }
+
+      assert {:ok, cleared} =
+               System.save_skill_resource_config(%{
+                 provider: " ",
+                 config_id: "bad",
+                 scope_id: "",
+                 folder_id: nil,
+                 folder_path: ""
+               })
+
+      assert cleared == %{
+               provider: nil,
+               config_id: nil,
+               scope_id: nil,
+               folder_id: nil,
+               folder_path: nil
+             }
+    end
+  end
+
   describe "system language/timezone config" do
     test "get_system_language/0 defaults to en" do
       assert System.get_system_language() == "en"
