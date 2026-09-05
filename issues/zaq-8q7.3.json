@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-05T18:10:27Z",
+  "description": "Approved cleanup plan step: Simplify Skills upload state. Add/preserve behavioral tests before edits, use real internal boundaries with controlled external edges, update affected documentation, run focused tests and final mix q. No commit or PR requested.",
+  "id": "zaq-8q7.3",
+  "labels": [],
+  "parent": "zaq-8q7",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8q7] Simplify Skills upload state",
+  "type": "task",
+  "updated_at": "2026-09-05T18:10:27Z"
+}
