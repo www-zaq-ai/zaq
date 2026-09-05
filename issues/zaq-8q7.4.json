@@ -13,11 +13,15 @@
     {
       "text": "Implemented in isolated skills-cleanup-ingestion worktree, uncommitted: persist actor only, reject nil runtime router; added DB reload worker regression and runtime-key property. Targeted mix format and git diff --check passed. Tests and mix q intentionally deferred to parent to avoid shared-build conflicts. Recommended: mix test test/zaq/ingestion/ingestion_record_test.exs test/zaq/ingestion/ingest_worker_test.exs test/zaq/ingestion/record_source_test.exs, then mix q. No staging, commits, or GitHub actions.",
       "timestamp": "2026-09-05T18:15:48Z"
+    },
+    {
+      "text": "Regression tests failed before production fix: reloaded source_record contained node_router=Elixir.Zaq.NodeRouterMock; nil router also unnecessarily persisted. Actor-only projection now passes property. Worker regression fixture needs a signed materialization handle as required by existing contract.",
+      "timestamp": "2026-09-05T19:56:35Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8q7] Exclude runtime dependencies from persisted ingestion context",
   "type": "task",
-  "updated_at": "2026-09-05T18:15:48Z"
+  "updated_at": "2026-09-05T19:56:35Z"
 }
