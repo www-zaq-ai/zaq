@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-05T03:29:09Z",
+  "description": "Replace all NodeRouter.call/4 and NodeRouter.invoke/4 compatibility usages in ChatLive with explicit Event dispatch contracts, adding Engine/Ingestion API actions and tests.",
+  "id": "zaq-v6o",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Migrate ChatLive to NodeRouter.dispatch",
+  "type": "bug",
+  "updated_at": "2026-09-05T03:29:09Z"
+}
