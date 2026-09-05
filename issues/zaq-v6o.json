@@ -6,9 +6,15 @@
   "description": "Replace all NodeRouter.call/4 and NodeRouter.invoke/4 compatibility usages in ChatLive with explicit Event dispatch contracts, adding Engine/Ingestion API actions and tests.",
   "id": "zaq-v6o",
   "labels": [],
+  "comments": [
+    {
+      "text": "Migrated all ChatLive NodeRouter.call/4 and NodeRouter.invoke/4 usages to explicit Event dispatch contracts. Added Engine :conversation and Ingestion :list_document_sources handlers plus API/LiveView coverage. Focused suites: 170 tests, 0 failures. mix q passes.",
+      "timestamp": "2026-09-05T03:41:15Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-v6o] Migrate ChatLive to NodeRouter.dispatch",
   "type": "bug",
-  "updated_at": "2026-09-05T03:29:15Z"
+  "updated_at": "2026-09-05T03:41:15Z"
 }
