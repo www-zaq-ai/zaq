@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-05T20:06:17Z",
   "created": "2026-09-05T18:10:08Z",
   "description": "Approved six-step cleanup: retire dead prompt API; remove inert limits/helpers; simplify Skills upload state; keep runtime dependencies out of persisted ingestion context; refresh active guidance; validate. Preserve native binary resources and distinct integration tests. No commits or PR requested.",
   "id": "zaq-8q7",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "Agent Skills cleanup",
   "type": "epic",
-  "updated_at": "2026-09-05T20:06:16Z"
+  "updated_at": "2026-09-05T20:06:17Z"
 }
