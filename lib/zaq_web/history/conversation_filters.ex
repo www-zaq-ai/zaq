@@ -54,6 +54,7 @@ defmodule ZaqWeb.History.ConversationFilters do
       </span>
 
       <form
+        id="conversation-history-filter-form"
         phx-change="filter"
         class="zaq-ingestion-chrome-actions zaq-ingestion-chrome-actions--end flex flex-wrap items-center gap-3"
       >

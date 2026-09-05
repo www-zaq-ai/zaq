@@ -31,7 +31,13 @@
 
       <!-- Form -->
       <div class="px-8 py-6">
-        <.form for={@form} phx-submit="save" phx-change="validate" class="space-y-6 group">
+        <.form
+          for={@form}
+          id="user-form"
+          phx-submit="save"
+          phx-change="validate"
+          class="space-y-6 group"
+        >
           <!-- Username -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
@@ -198,6 +204,7 @@
           <.form
             for={@password_change_form}
             as={:password_change}
+            id="user-password-change-form"
             phx-submit="save_password_change"
             phx-change="validate_password_change"
             class="space-y-5"

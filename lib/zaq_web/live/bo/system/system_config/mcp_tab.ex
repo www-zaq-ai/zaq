@@ -41,6 +41,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.MCPTab do
       </div>
 
       <form
+        id="mcp-endpoint-filter-form"
         phx-change="filter_mcp_endpoints"
         class="px-8 py-4 border-b border-black/[0.06] grid grid-cols-3 gap-3"
       >

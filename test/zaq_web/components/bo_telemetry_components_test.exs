@@ -9,7 +9,6 @@ defmodule ZaqWeb.Components.BOTelemetryComponentsTest do
   alias Zaq.Engine.Telemetry.Contracts.Payloads.{
     CategoryVectorPayload,
     ProgressPayload,
-    SeriesPayload,
     StatusListPayload
   }
 
