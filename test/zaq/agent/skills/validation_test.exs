@@ -79,6 +79,81 @@ defmodule Zaq.Agent.Skills.ValidationTest do
       assert spec.metadata == @valid.metadata
     end
 
+    test "serializer defaults are parseable and trailing fields stay absent" do
+      content = Validation.to_skill_md(@valid.name, @valid.description, @valid.body)
+
+      assert {:ok, %Spec{} = spec} = Loader.parse(content, "calculator/SKILL.md", lenient: false)
+      assert spec.allowed_tools == []
+      assert spec.license == nil
+      assert spec.compatibility == nil
+      assert spec.metadata == %{}
+
+      assert {:ok, %Spec{} = spec} =
+               Validation.to_skill_md(
+                 @valid.name,
+                 @valid.description,
+                 @valid.body,
+                 @valid.allowed_tools,
+                 "MIT"
+               )
+               |> then(&Loader.parse(&1, "calculator/SKILL.md", lenient: false))
+
+      assert spec.license == "MIT"
+      assert spec.compatibility == nil
+      assert spec.metadata == %{}
+
+      assert {:ok, %Spec{} = spec} =
+               Validation.to_skill_md(
+                 @valid.name,
+                 @valid.description,
+                 @valid.body,
+                 @valid.allowed_tools,
+                 "BSD-3-Clause",
+                 "Needs networking."
+               )
+               |> then(&Loader.parse(&1, "calculator/SKILL.md", lenient: false))
+
+      assert spec.license == "BSD-3-Clause"
+      assert spec.compatibility == "Needs networking."
+      assert spec.metadata == %{}
+    end
+
+    test "optional fields are defensively serialized" do
+      content =
+        Validation.to_skill_md(
+          @valid.name,
+          @valid.description,
+          @valid.body,
+          @valid.allowed_tools,
+          :invalid,
+          "Requires networking.",
+          %{}
+        )
+
+      refute content =~ "license:"
+      assert content =~ ~s(compatibility: "Requires networking.")
+
+      assert {:ok, %Spec{license: nil, compatibility: "Requires networking."}} =
+               Loader.parse(content, "calculator/SKILL.md", lenient: false)
+    end
+
+    test "non-map metadata is omitted from serialization" do
+      content =
+        Validation.to_skill_md(
+          @valid.name,
+          @valid.description,
+          @valid.body,
+          @valid.allowed_tools,
+          @valid.license,
+          @valid.compatibility,
+          :invalid
+        )
+
+      refute content =~ "metadata:"
+      assert {:ok, %Spec{} = spec} = Loader.parse(content, "calculator/SKILL.md", lenient: false)
+      assert spec.metadata == %{}
+    end
+
     # The body is markdown and may legitimately contain a `---` horizontal rule. If that
     # were mistaken for the frontmatter delimiter, the body would be silently truncated.
     test "a body containing --- survives serialization intact" do
@@ -115,6 +190,19 @@ defmodule Zaq.Agent.Skills.ValidationTest do
 
     test "rejects metadata values that are not strings" do
       assert {:error, errors} = Validation.validate(%{@valid | metadata: %{"owner" => :ops}})
+
+      assert {:metadata, "could not be encoded"} in errors
+    end
+
+    test "rejects metadata that is not a map" do
+      assert {:error, errors} = Validation.validate(%{@valid | metadata: ["not", "a", "map"]})
+
+      assert {:metadata, "could not be encoded"} in errors
+    end
+
+    test "rejects enumerable metadata structs" do
+      assert {:error, errors} =
+               Validation.validate(%{@valid | metadata: MapSet.new([{"owner", "ops"}])})
 
       assert {:metadata, "could not be encoded"} in errors
     end

@@ -107,6 +107,58 @@ defmodule ZaqWeb.Components.DesignSystem.ButtonTest do
     refute icon_before_text?(right_html, "Dismiss", "hero-x-mark")
   end
 
+  test "button/1 string icon positions render in the requested order" do
+    for {position, icon_before_text} <- [{"left", true}, {"right", false}] do
+      html =
+        render_component(&Button.button/1,
+          icon: "hero-arrow-right",
+          icon_position: position,
+          inner_block: [%{inner_block: fn _, _ -> "Continue" end}]
+        )
+
+      assert html =~ "hero-arrow-right"
+      assert html =~ "Continue"
+      assert icon_before_text?(html, "Continue", "hero-arrow-right") == icon_before_text
+    end
+  end
+
+  test "button/1 string variants render canonical classes and text" do
+    for {variant, class} <- [
+          {"primary", "zaq-btn-primary"},
+          {"secondary", "zaq-btn-secondary"},
+          {"ghost", "zaq-btn-ghost"},
+          {"tertiary", "zaq-btn-tertiary"}
+        ] do
+      html =
+        render_component(&Button.button/1,
+          variant: variant,
+          inner_block: [%{inner_block: fn _, _ -> "Continue" end}]
+        )
+
+      assert html =~ ~s(class="zaq-btn #{class} zaq-btn-text_label-default")
+      assert html =~ "Continue"
+    end
+
+    secondary_html =
+      render_component(&Button.button/1,
+        variant: "secondary",
+        shape: :pill,
+        active: true,
+        inner_block: [%{inner_block: fn _, _ -> "Continue" end}]
+      )
+
+    assert secondary_html =~ "zaq-btn-secondary--active"
+
+    tertiary_html =
+      render_component(&Button.button/1,
+        variant: "tertiary",
+        active: true,
+        inner_block: [%{inner_block: fn _, _ -> "Continue" end}]
+      )
+
+    assert tertiary_html =~ "zaq-btn-tertiary--active"
+  end
+
   test "button/1 icon_only uses zaq-btn-icon without label typography" do
     html =
       render_component(&Button.button/1,
@@ -135,6 +187,23 @@ defmodule ZaqWeb.Components.DesignSystem.ButtonTest do
     assert html =~ "zaq-btn-secondary"
     assert html =~ "/bo/dashboard"
     assert html =~ "Dashboard"
+  end
+
+  test "button/1 patch renders a secondary patch link" do
+    html =
+      render_component(&Button.button/1,
+        patch: "/bo/users?page=2",
+        variant: :secondary,
+        inner_block: [%{inner_block: fn _, _ -> "Next page" end}]
+      )
+
+    assert html =~ "<a"
+    refute html =~ "<button"
+    assert html =~ ~s(href="/bo/users?page=2")
+    assert html =~ ~s(data-phx-link="patch")
+    assert html =~ "zaq-btn-secondary"
+    assert html =~ "Next page"
+    refute html =~ "data-phx-link=\"redirect\""
   end
 
   test "button/1 loading adds hook and loading spans" do

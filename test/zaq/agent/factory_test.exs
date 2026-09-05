@@ -168,6 +168,30 @@ defmodule Zaq.Agent.FactoryTest do
     refute config.system_prompt =~ "Always search the knowledge base before answering."
   end
 
+  test "runtime_config renders an index for a blank job without a leading blank line" do
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "private-skill",
+        description: "Private skill description",
+        body: "Private skill body.",
+        provided_tool_keys: []
+      })
+
+    configured_agent = %ConfiguredAgent{
+      job: "",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [skill.id],
+      credential: nil
+    }
+
+    assert {:ok, config} = Factory.runtime_config(configured_agent)
+    assert config.system_prompt =~ "private-skill"
+    assert config.system_prompt =~ "Private skill description"
+    assert config.system_prompt =~ "load_skill"
+    refute config.system_prompt =~ "Private skill body."
+    refute String.starts_with?(config.system_prompt, "\n\n")
+  end
+
   test "runtime_config ignores inactive and ghost skills" do
     {:ok, skill} =
       Skills.create_skill(%{
@@ -354,6 +378,62 @@ defmodule Zaq.Agent.FactoryTest do
     assert second_body =~ configured_agent.job
   end
 
+  test "ask_with_config normalizes an invalid tool context before asking" do
+    handler = fn conn, body ->
+      payload = Jason.decode!(body)
+
+      assert payload["model"] == "gpt-4.1-mini"
+
+      {200, streamed_reply(conn.request_path, "Factory reply", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Invalid Tool Context Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "factory-key"
+      })
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Invalid Tool Context Agent #{System.unique_integer([:positive])}",
+        description: "",
+        job: "You are a helper",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    assert {:ok, server} =
+             ServerManager.ensure_server(
+               configured_agent,
+               "configured_agent_#{configured_agent.id}"
+             )
+
+    assert {:ok, request} =
+             Factory.ask_with_config(server, "hello", configured_agent,
+               tool_context: :invalid,
+               timeout: 35_000
+             )
+
+    assert {:ok, answer} = Factory.await(request, timeout: 45_000)
+    assert is_binary(answer)
+
+    assert_receive {:openai_request, "POST", "/v1/responses", "", body}, 1_000
+    assert body =~ "gpt-4.1-mini"
+    assert body =~ configured_agent.job
+  end
+
   test "ask_with_config keeps stored LLM options authoritative while refreshing prompt" do
     # Structural runtime config belongs to the server. A per-request agent value may refresh
     # prompt text, but must not hot-apply model/provider/LLM options.
@@ -481,14 +561,7 @@ defmodule Zaq.Agent.FactoryTest do
     refute body =~ "New body."
   end
 
-  test "ask_with_config returns runtime sync error when native skill tools are absent" do
-    credential =
-      ai_credential_fixture(%{
-        name: "Missing Native Tool Credential #{System.unique_integer([:positive, :monotonic])}",
-        provider: "openai",
-        api_key: "unused"
-      })
-
+  test "ask_with_config wraps native skill tool inspection errors" do
     {:ok, skill} =
       Skills.create_skill(%{
         name: "tool-sync-skill",
@@ -497,28 +570,17 @@ defmodule Zaq.Agent.FactoryTest do
         provided_tool_keys: []
       })
 
-    {:ok, configured_agent} =
-      Agent.create_agent(%{
-        name: "Missing Native Tool Agent #{System.unique_integer([:positive])}",
-        job: "You are a helper",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        enabled_tool_keys: [],
-        enabled_skill_ids: [skill.id]
-      })
+    configured_agent = %ConfiguredAgent{
+      job: "You are a helper",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [skill.id],
+      credential: nil
+    }
 
-    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+    assert {:error, reason} = Jido.AI.list_tools(:missing_factory_server)
 
-    {:ok, server} =
-      ServerManager.ensure_server(configured_agent, "configured_agent_#{configured_agent.id}")
-
-    assert {:ok, _} = Jido.AI.unregister_tool(server, LoadSkill.name())
-
-    assert {:error, {:runtime_sync_required, missing}} =
-             Factory.ask_with_config(server, "hello", configured_agent)
-
-    assert LoadSkill.name() in missing
+    assert {:error, {:runtime_sync_check_failed, ^reason}} =
+             Factory.ask_with_config(:missing_factory_server, "hello", configured_agent)
   end
 
   # End-to-end progressive disclosure through ServerManager + the real request path: the
@@ -746,6 +808,10 @@ defmodule Zaq.Agent.FactoryTest do
       assert Factory.spawn_opts_from_server_id("configured_agent_123") == %{}
       assert Factory.spawn_opts_from_server_id("agent:scope::conv:") == %{}
       assert Factory.spawn_opts_from_server_id("agent:scope:email%ZZimap:person:5") == %{}
+
+      assert Factory.spawn_opts_from_server_id("agent:scope:email%ZZimap:conv:conversation-5") ==
+               %{}
+
       assert Factory.spawn_opts_from_server_id("agent:email:imap:person:5") == %{}
     end
 

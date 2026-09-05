@@ -180,6 +180,33 @@ defmodule ZaqWeb.Components.DesignSystem.DropzoneTest do
       refute html =~ "File exceeds 20 MB limit."
     end
 
+    test "renders the too many files error" do
+      entry = entry()
+      upload = upload_config(:files, [entry])
+
+      html =
+        render_component(&Dropzone.upload_section/1,
+          uploads: %{files: %{upload | errors: [{entry.ref, :too_many_files}]}}
+        )
+
+      assert html =~ "Too many files selected (max 10)."
+      refute html =~ "Upload failed."
+    end
+
+    test "renders the generic upload error for an unknown reason" do
+      entry = entry()
+      upload = upload_config(:files, [entry])
+
+      html =
+        render_component(&Dropzone.upload_section/1,
+          uploads: %{files: %{upload | errors: [{entry.ref, :unexpected_upload_error}]}}
+        )
+
+      assert html =~ "Upload failed."
+      refute html =~ "Too many files selected (max 10)."
+      refute html =~ "File type not supported."
+    end
+
     test "renders skipped folder entries with their reason" do
       html =
         render_component(&Dropzone.upload_section/1,

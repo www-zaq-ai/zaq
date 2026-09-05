@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.ProviderModelsTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
@@ -128,6 +129,59 @@ defmodule Zaq.Agent.ProviderModelsTest do
     end
   end
 
+  defmodule ZAQRouterAuthAdapter do
+    def models(:zaq_router),
+      do: [
+        %LLMDB.Model{
+          id: "router-model",
+          provider: :zaq_router,
+          name: "Router Model",
+          deprecated: false,
+          retired: false
+        }
+      ]
+
+    def models(_), do: []
+    def parse_provider("zaq_router"), do: {:ok, :zaq_router}
+    def parse_provider(_), do: :error
+    def provider(:zaq_router), do: {:ok, %LLMDB.Provider{id: :zaq_router, catalog_only: false}}
+    def provider(_), do: :error
+    def available_models(_opts), do: []
+
+    def model("zaq_router:router-model"),
+      do:
+        {:ok,
+         %LLMDB.Model{
+           id: "router-model",
+           provider: :zaq_router,
+           name: "Router Model",
+           deprecated: false,
+           retired: false
+         }}
+
+    def model(_), do: {:error, :unknown_model}
+  end
+
+  defmodule RaisingCatalogProbeAdapter do
+    def models(_), do: []
+    def parse_provider(_), do: raise("catalog probe failed")
+    def provider(_), do: :error
+    def available_models(_opts), do: ["openai:probe-model"]
+
+    def model("openai:probe-model"),
+      do:
+        {:ok,
+         %LLMDB.Model{
+           id: "probe-model",
+           provider: :openai,
+           name: "Probe Model",
+           deprecated: false,
+           retired: false
+         }}
+
+    def model(_), do: {:error, :unknown_model}
+  end
+
   defmodule AdapterConfig do
     def get(:zaq, :provider_models_adapter, default, opts),
       do: Keyword.get(opts, :provider_models_adapter, default)
@@ -136,6 +190,37 @@ defmodule Zaq.Agent.ProviderModelsTest do
   end
 
   defp adapter_opts(adapter), do: [config: AdapterConfig, provider_models_adapter: adapter]
+
+  describe "normalize_provider_id/1" do
+    test "normalizes concrete labels" do
+      assert ProviderModels.normalize_provider_id(" OpenAI ") == "openai"
+      assert ProviderModels.normalize_provider_id("Open-AI") == "open_ai"
+      assert ProviderModels.normalize_provider_id("open_ai") == "open_ai"
+    end
+
+    test "returns nil for nil and unsupported values" do
+      assert ProviderModels.normalize_provider_id(nil) == nil
+      assert ProviderModels.normalize_provider_id(123) == nil
+      assert ProviderModels.normalize_provider_id(%{provider: "openai"}) == nil
+    end
+
+    property "is idempotent for bounded provider labels" do
+      label_generator =
+        StreamData.list_of(
+          StreamData.member_of(
+            Enum.to_list(?a..?z) ++ Enum.to_list(?A..?Z) ++ [9, 10, 13, 32, ?_, ?-]
+          ),
+          min_length: 1,
+          max_length: 32
+        )
+        |> StreamData.map(&List.to_string/1)
+
+      check all(label <- label_generator, max_runs: 32) do
+        normalized = ProviderModels.normalize_provider_id(label)
+        assert ProviderModels.normalize_provider_id(normalized) == normalized
+      end
+    end
+  end
 
   describe "models_for_credential/1 auth gating" do
     setup do
@@ -158,6 +243,18 @@ defmodule Zaq.Agent.ProviderModelsTest do
       }
 
       assert ProviderModels.models_for_credential(credential) == []
+    end
+
+    test "returns the injected ZAQ Router model only when endpoint and api key are present" do
+      credential = %AIProviderCredential{provider: "zaq_router", endpoint: "https://llm.test/v1"}
+      opts = adapter_opts(ZAQRouterAuthAdapter)
+
+      assert ProviderModels.models_for_credential(credential, opts) == []
+
+      credential = %{credential | api_key: "sk-test-123"}
+
+      assert [%LLMDB.Model{id: "router-model", provider: :zaq_router}] =
+               ProviderModels.models_for_credential(credential, opts)
     end
 
     test "returns the catalog once an api key is present" do
@@ -193,6 +290,11 @@ defmodule Zaq.Agent.ProviderModelsTest do
   test "models returns [] for unsupported provider id types" do
     assert ProviderModels.models(123) == []
     assert ProviderModels.models(%{provider: "openai"}) == []
+  end
+
+  test "models returns [] for nil and empty provider ids without using the adapter" do
+    assert ProviderModels.models(nil, adapter_opts(FailingAvailabilityAdapter)) == []
+    assert ProviderModels.models("", adapter_opts(FailingAvailabilityAdapter)) == []
   end
 
   test "models returns [] for custom provider id" do
@@ -270,6 +372,20 @@ defmodule Zaq.Agent.ProviderModelsTest do
     model_ids = credential |> ProviderModels.models_for_credential() |> Enum.map(& &1.id)
 
     assert "gpt-4o" in model_ids
+  end
+
+  test "models_for_credential rescues catalog probe errors and uses available models" do
+    credential = %AIProviderCredential{
+      provider: "openai",
+      endpoint: "https://api.openai.com/v1",
+      api_key: "sk-test"
+    }
+
+    assert [%LLMDB.Model{id: "probe-model", provider: :openai}] =
+             ProviderModels.models_for_credential(
+               credential,
+               adapter_opts(RaisingCatalogProbeAdapter)
+             )
   end
 
   test "models_for_credential falls back to provider models when availability lookup fails" do
