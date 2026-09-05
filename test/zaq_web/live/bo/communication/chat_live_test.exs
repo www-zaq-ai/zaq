@@ -2259,7 +2259,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         name: "Timeout MCP #{System.unique_integer([:positive])}",
         type: "remote",
         status: "enabled",
-        timeout_ms: 120,
+        timeout_ms: 50,
         url: mcp_endpoint <> "/mcp"
       })
 
@@ -2269,6 +2269,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         description: "",
         job: "Use tools when needed.",
         model: "gpt-4.1-mini",
+        model_max_context_tokens: 128_000,
         credential_id: credential.id,
         strategy: "react",
         enabled_tool_keys: [],
@@ -2314,14 +2315,24 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     select_chat_agent(view, configured_agent.id)
 
     view |> element("#chat-form") |> render_submit(%{"message" => "Run MCP timeout tool"})
+    assert_mcp_tool_called()
 
     assert_eventually(
       fn ->
-        html = render(view)
+        assigns = :sys.get_state(view.pid).socket.assigns
 
-        String.contains?(html, "final") and
-          not String.contains?(html, "mcp_runtime_call_exit") and
-          not String.contains?(html, "{:error")
+        bot_message =
+          Enum.find(assigns.messages, fn message ->
+            message.role == :bot and not Map.get(message, :welcome, false) and
+              Map.get(message, :streaming) != true
+          end)
+
+        body = if bot_message, do: bot_message.body || "", else: ""
+
+        not is_nil(bot_message) and
+          (body == "final" or Map.get(bot_message, :error) == true) and
+          not String.contains?(body, "mcp_runtime_call_exit") and
+          not String.contains?(body, "{:error")
       end,
       160
     )
@@ -3240,7 +3251,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
          {__MODULE__.MCPTimeoutPlug,
           %{
             test_pid: test_pid,
-            timeout_ms: 300,
+            timeout_ms: 150,
             tool_name: "slow_tool",
             server_name: "mcp-timeout"
           }},
@@ -3255,6 +3266,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     {:ok, port} = :inet.port(socket)
     :ok = :gen_tcp.close(socket)
     port
+  end
+
+  defp assert_mcp_tool_called do
+    assert_receive {:mcp_request, "tools/call", _payload}, 2_000
   end
 
   defmodule MCPTimeoutPlug do

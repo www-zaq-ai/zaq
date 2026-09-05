@@ -10,9 +10,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchHangReproTest do
   Every scenario below has ONE failing step in the body (`process`) and ONE
   failing step in `post_process`, matching the reported repro shape. Each test
   wraps `WorkflowRunAgent.execute/1` in a `Task` with a bounded `Task.yield/2` so
-  a genuine hang fails the test with a clear message instead of blocking forever
-  (`IO.puts` — not `Logger` — so progress is visible even mid-hang, since stdout
-  is not captured).
+  a genuine hang logs diagnostics and fails the test with a clear message instead
+  of blocking forever.
   """
 
   use Zaq.DataCase, async: true
@@ -21,6 +20,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchHangReproTest do
   alias Zaq.Engine.Workflows.Step
   alias Zaq.Engine.Workflows.Workflow
   alias Zaq.Engine.Workflows.WorkflowRunAgent
+
+  require Logger
 
   @source_event %{
     "request" => nil,
@@ -61,10 +62,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchHangReproTest do
 
     task =
       Task.async(fn ->
-        IO.puts("[repro] starting WorkflowRunAgent.execute for run=#{run.id}")
-        result = WorkflowRunAgent.execute(run)
-        IO.puts("[repro] WorkflowRunAgent.execute RETURNED for run=#{run.id}")
-        result
+        WorkflowRunAgent.execute(run)
       end)
 
     case Task.yield(task, @hang_timeout_ms) do
@@ -72,7 +70,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchHangReproTest do
         result
 
       nil ->
-        IO.puts(
+        Logger.error(
           "[repro] HANG DETECTED: run=#{run.id} did not return within #{@hang_timeout_ms}ms " <>
             "task_pid=#{inspect(task.pid)} " <>
             "current_stacktrace=#{inspect(Process.info(task.pid, :current_stacktrace))}"
@@ -113,11 +111,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchHangReproTest do
             "HUNG (skip_and_continue): run #{run_id} never returned within #{@hang_timeout_ms}ms"
           )
 
-        {:ok, finished} ->
-          IO.puts("[repro] skip_and_continue finished with status=#{finished.status}")
-
-          rows = finished.id |> Workflows.list_step_runs()
-          IO.puts("[repro] step_runs: " <> inspect(Enum.map(rows, &{&1.step_name, &1.status})))
+        {:ok, _finished} ->
+          :ok
 
         other ->
           flunk("unexpected result: #{inspect(other)}")
@@ -152,11 +147,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchHangReproTest do
         {:hung, _pid, run_id} ->
           flunk("HUNG (fail_workflow): run #{run_id} never returned within #{@hang_timeout_ms}ms")
 
-        {:ok, finished} ->
-          IO.puts("[repro] fail_workflow finished with status=#{finished.status}")
-
-          rows = finished.id |> Workflows.list_step_runs()
-          IO.puts("[repro] step_runs: " <> inspect(Enum.map(rows, &{&1.step_name, &1.status})))
+        {:ok, _finished} ->
+          :ok
 
         other ->
           flunk("unexpected result: #{inspect(other)}")
@@ -191,11 +183,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchHangReproTest do
         {:hung, _pid, run_id} ->
           flunk("HUNG (retry): run #{run_id} never returned within #{@hang_timeout_ms}ms")
 
-        {:ok, finished} ->
-          IO.puts("[repro] retry finished with status=#{finished.status}")
-
-          rows = finished.id |> Workflows.list_step_runs()
-          IO.puts("[repro] step_runs: " <> inspect(Enum.map(rows, &{&1.step_name, &1.status})))
+        {:ok, _finished} ->
+          :ok
 
         other ->
           flunk("unexpected result: #{inspect(other)}")
@@ -232,11 +221,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchHangReproTest do
         {:hung, _pid, run_id} ->
           flunk("HUNG (post-only): run #{run_id} never returned within #{@hang_timeout_ms}ms")
 
-        {:ok, finished} ->
-          IO.puts("[repro] post-only finished with status=#{finished.status}")
-
-          rows = finished.id |> Workflows.list_step_runs()
-          IO.puts("[repro] step_runs: " <> inspect(Enum.map(rows, &{&1.step_name, &1.status})))
+        {:ok, _finished} ->
+          :ok
 
         other ->
           flunk("unexpected result: #{inspect(other)}")

@@ -939,8 +939,8 @@ end
 defmodule Zaq.Engine.Workflows.Test.RecordItemTime do
   @moduledoc """
   Map body step (delivery `"list"`): runs **once per delivered chunk** (i.e. once
-  per Batch iteration). It logs the execution time and records one `TimeRecorder`
-  mark keyed by the chunk's item indices, then passes the chunk through as `items`.
+  per Batch iteration). It records one `TimeRecorder` mark keyed by the chunk's
+  item indices, then passes the chunk through as `items`.
   It does **not** sleep — the wait is a separate `Zaq.Agent.Tools.Workflow.Sleep`
   node in the Batch's `post_process`.
   """
@@ -956,11 +956,6 @@ defmodule Zaq.Engine.Workflows.Test.RecordItemTime do
   @impl Jido.Action
   def run(%{items: items}, _context) do
     indices = Enum.map(items, fn item -> Map.get(item, :index) || Map.get(item, "index") end)
-
-    # IO.puts (not Logger) so it prints regardless of the test logger level (:warning).
-    IO.puts(
-      "[RecordItemTime] executing chunk #{inspect(indices)} at #{DateTime.utc_now() |> DateTime.to_iso8601()}"
-    )
 
     # One mark per chunk — NOT per item — so the recorded count reflects Batch
     # iterations, faithfully honoring `batch_size`.
