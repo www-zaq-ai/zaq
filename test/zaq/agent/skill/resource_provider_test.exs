@@ -1,6 +1,7 @@
 defmodule Zaq.Agent.Skill.ResourceProviderTest do
   use Zaq.DataCase, async: false
 
+  alias Jido.AI.Skill.ResourcePolicy
   alias Jido.AI.Skill.Spec
   alias Zaq.Agent.Skill.ResourceProvider
   alias Zaq.Agent.Skills
@@ -154,6 +155,97 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
               resource_id: "doc-1",
               size: 12
             }} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
+               %{node_router: Router}
+             )
+  end
+
+  test "decodes a base64 binary resource with filename and MIME metadata", %{spec: spec} do
+    bytes = <<137, "PNG", 13, 10, 26, 10, 0, 1, 2>>
+
+    set_router_responses(%{
+      data_source_download_document:
+        {:ok,
+         %{
+           record:
+             content_record(
+               content: Base.encode64(bytes),
+               name: "diagram.png",
+               mime_type: "image/png",
+               size: byte_size(bytes),
+               attributes: %{"encoding" => "base64"}
+             )
+         }}
+    })
+
+    assert {:ok,
+            %{
+              content: ^bytes,
+              filename: "diagram.png",
+              mime_type: "image/png",
+              resource_id: "doc-1",
+              size: 11
+            }} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
+               %{node_router: Router}
+             )
+  end
+
+  test "satisfies Jido's provider contract for binary resources", %{spec: spec} do
+    bytes = <<137, "PNG", 13, 10, 26, 10, 0, 1, 2>>
+
+    set_router_responses(%{
+      data_source_download_document:
+        {:ok,
+         %{
+           record:
+             content_record(
+               content: Base.encode64(bytes),
+               name: "diagram.png",
+               mime_type: "image/png",
+               attributes: %{"encoding" => "base64"}
+             )
+         }}
+    })
+
+    policy = %{ResourcePolicy.default() | binary: :allow}
+
+    assert {:ok,
+            %{
+              content: ^bytes,
+              filename: "diagram.png",
+              kind: :image,
+              mime_type: "image/png",
+              resource_id: "doc-1",
+              size: 11
+            }} =
+             Jido.AI.Skill.ResourceProvider.load(
+               {ResourceProvider, :handle},
+               spec,
+               "doc-1",
+               policy,
+               %{node_router: Router}
+             )
+  end
+
+  test "rejects malformed base64 resource content", %{spec: spec} do
+    set_router_responses(%{
+      data_source_download_document:
+        {:ok,
+         %{
+           record:
+             content_record(
+               content: "not base64!",
+               name: "diagram.png",
+               mime_type: "image/png",
+               attributes: %{"encoding" => "base64"}
+             )
+         }}
+    })
+
+    assert {:error, :invalid_encoding} =
              ResourceProvider.handle(
                %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
                %{node_router: Router}

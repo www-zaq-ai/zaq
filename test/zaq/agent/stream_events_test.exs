@@ -1,6 +1,7 @@
 defmodule Zaq.Agent.StreamEventsTest do
   use ExUnit.Case, async: true
 
+  alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
   alias Zaq.Agent.StreamEvents
   alias Zaq.Contracts.Record
@@ -256,6 +257,46 @@ defmodule Zaq.Agent.StreamEventsTest do
     refute Map.has_key?(artifact.record, "content")
     assert Jason.encode!(result.trace)
     refute inspect(result.trace) =~ inspect(bytes)
+  end
+
+  test "externalizes binary skill resource content parts without adding bytes to trace" do
+    bytes = <<137, "PNG", 13, 10, 26, 10, 0, 1, 2>>
+
+    payload = %{
+      skill: "diagram-skill",
+      resource_id: "resource-1",
+      kind: :image,
+      filename: "diagram.png",
+      size: byte_size(bytes),
+      mime_type: "image/png",
+      __content_parts__: [ContentPart.image(bytes, "image/png")]
+    }
+
+    events = [
+      event(:tool_started, 10, %{tool_name: "load_skill_resource", arguments: %{}},
+        tool_call_id: "tool-skill-resource"
+      ),
+      event(
+        :tool_completed,
+        20,
+        %{tool_name: "load_skill_resource", result: {:ok, payload, []}},
+        tool_call_id: "tool-skill-resource"
+      ),
+      event(:request_completed, 30, %{result: "done"})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [artifact] = result.trace_artifacts
+    assert artifact.content == bytes
+    assert artifact.name == "diagram.png"
+    assert artifact.mime_type == "image/png"
+    assert artifact.record["skill"] == "diagram-skill"
+    assert artifact.record["resource_id"] == "resource-1"
+
+    encoded_trace = Jason.encode!(result.trace)
+    refute encoded_trace =~ Base.encode64(bytes)
+    refute encoded_trace =~ "__content_parts__"
   end
 
   test "uses struct event timestamps for tool started entries" do

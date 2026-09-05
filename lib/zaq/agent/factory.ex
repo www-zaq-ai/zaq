@@ -52,7 +52,8 @@ defmodule Zaq.Agent.Factory do
     MediaResultTransformer,
     OpaqueAliases,
     ProviderSpec,
-    Skills
+    Skills,
+    Skills.Limits
   }
 
   alias Zaq.Agent.Tools.Registry
@@ -126,7 +127,12 @@ defmodule Zaq.Agent.Factory do
   defp skill_runtime_integration(skills) do
     AgentIntegration.prepare(
       specs: Skills.to_specs(skills),
-      resource_provider: {Zaq.Agent.Skill.ResourceProvider, :handle}
+      resource_provider: {Zaq.Agent.Skill.ResourceProvider, :handle},
+      resource_policy: [
+        binary: :allow,
+        max_file_bytes: Limits.get(:resource_max_bytes),
+        max_text_bytes: Limits.get(:resource_read_max_bytes)
+      ]
     )
   end
 

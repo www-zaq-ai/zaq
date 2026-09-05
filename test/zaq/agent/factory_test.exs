@@ -6,6 +6,7 @@ defmodule Zaq.Agent.FactoryTest do
   alias Jido.AI.Actions.Skill.LoadResource
   alias Jido.AI.Actions.Skill.LoadSkill
   alias Jido.AI.Context, as: AIContext
+  alias Jido.AI.Skill.Resources
   alias Zaq.Agent
   alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
@@ -165,6 +166,10 @@ defmodule Zaq.Agent.FactoryTest do
     assert config.system_prompt =~ "Knowledge base usage"
     assert config.system_prompt =~ "load_skill"
     assert config.tool_context[LoadSkill.context_skills_key()]["kb-skill"]
+    resource_policy = config.tool_context[Resources.context_policy_key()]
+    assert resource_policy.binary == :allow
+    assert resource_policy.max_file_bytes == 5 * 1024 * 1024
+    assert resource_policy.max_text_bytes == 262_144
     refute config.system_prompt =~ "Always search the knowledge base before answering."
   end
 
