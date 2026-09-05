@@ -36,13 +36,14 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
            get_document(location, resource, context),
          {:ok, %{record: %Record{content: content} = loaded_record}} <-
            Jido.Exec.run(DownloadDocument, download_params(handle, record), context),
-         {:ok, text} <- text_content(content) do
+         {:ok, content} <- decode_content(content, loaded_record.attributes) do
       {:ok,
        %{
          resource_id: resource.provider_resource_id,
-         content: text,
+         content: content,
+         filename: loaded_record.name || record.name || resource.name,
          mime_type: loaded_record.mime_type || record.mime_type || resource.mime_type,
-         size: byte_size(text)
+         size: byte_size(content)
        }}
     else
       nil -> {:error, :not_found}
@@ -98,6 +99,20 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
     }
   end
 
-  defp text_content(content) when is_binary(content), do: {:ok, content}
-  defp text_content(_content), do: {:error, :binary_resource}
+  defp decode_content(content, attributes) when is_binary(content) and is_map(attributes) do
+    case Map.get(attributes, "encoding") || Map.get(attributes, :encoding) do
+      "base64" -> decode_base64(content)
+      _encoding -> {:ok, content}
+    end
+  end
+
+  defp decode_content(content, _attributes) when is_binary(content), do: {:ok, content}
+  defp decode_content(_content, _attributes), do: {:error, :binary_resource}
+
+  defp decode_base64(content) do
+    case Base.decode64(content) do
+      {:ok, decoded} -> {:ok, decoded}
+      :error -> {:error, :invalid_encoding}
+    end
+  end
 end

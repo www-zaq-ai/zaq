@@ -6,6 +6,7 @@ defmodule Zaq.Agent.StreamEvents do
   per-turn trace capture, tool-call capture, and final usage/result extraction.
   """
 
+  alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
   alias Zaq.Agent.RequestRegistry
   alias Zaq.Agent.Status
@@ -249,6 +250,19 @@ defmodule Zaq.Agent.StreamEvents do
 
   defp externalize_trace_artifacts({:ok, payload, effects}, tool_call_id, tool_name)
        when is_map(payload) do
+    case skill_resource_parts(payload) do
+      {[_ | _] = parts, safe_payload} ->
+        artifacts = skill_resource_artifacts(parts, safe_payload, tool_call_id, tool_name)
+        {{:ok, safe_payload, effects}, artifacts}
+
+      {[], _safe_payload} ->
+        externalize_record_artifact(payload, effects, tool_call_id, tool_name)
+    end
+  end
+
+  defp externalize_trace_artifacts(result, _tool_call_id, _tool_name), do: {result, []}
+
+  defp externalize_record_artifact(payload, effects, tool_call_id, tool_name) do
     case payload_record(payload) do
       {key, %Record{} = record} ->
         case trace_media_artifact(record, tool_call_id, tool_name) do
@@ -269,7 +283,39 @@ defmodule Zaq.Agent.StreamEvents do
     end
   end
 
-  defp externalize_trace_artifacts(result, _tool_call_id, _tool_name), do: {result, []}
+  defp skill_resource_parts(payload) do
+    case Map.get(payload, :__content_parts__) || Map.get(payload, "__content_parts__") do
+      parts when is_list(parts) ->
+        {parts, Map.drop(payload, [:__content_parts__, "__content_parts__"])}
+
+      _parts ->
+        {[], payload}
+    end
+  end
+
+  defp skill_resource_artifacts(parts, payload, tool_call_id, tool_name) do
+    Enum.flat_map(parts, fn
+      %ContentPart{type: type, data: content} = part
+      when type in [:image, :file] and is_binary(content) ->
+        [
+          %{
+            record: json_safe(payload),
+            content: content,
+            name: part.filename || map_value(payload, :filename) || "skill-resource",
+            mime_type:
+              part.media_type || map_value(payload, :mime_type) || "application/octet-stream",
+            size: byte_size(content),
+            tool_call_id: tool_call_id,
+            tool_name: tool_name || "tool"
+          }
+        ]
+
+      _part ->
+        []
+    end)
+  end
+
+  defp map_value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   defp payload_record(payload) do
     cond do

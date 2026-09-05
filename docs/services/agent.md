@@ -317,6 +317,11 @@ the provider delete succeeds. Runtime resource listing never scans directories.
   a resource-less skill. The `:load` callback resolves the stored id through `get_document`,
   receives a fresh `materialization_handle`, and immediately calls `download_document`; handles
   are never persisted.
+- Runtime integration enables Jido's binary resource policy. The provider decodes ZAQ's base64
+  data-source transport into raw bytes and supplies filename, MIME type, and decoded size so Jido
+  can validate and project supported images and files into model-facing content parts.
+- Skill resource bytes are removed from JSON traces and persisted separately as trace artifacts;
+  the trace retains only resource metadata.
 
 ### Runtime Sync (`Zaq.Agent.RuntimeSync`)
 - Owns runtime orchestration after configured-agent, MCP endpoint, and skill mutations.
