@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-05T03:04:19Z",
+  "description": "Consolidate ZAQ testing policy and recipes into docs/testing-approach.md, remove duplicated guidance, and align validation and coverage references.",
+  "id": "zaq-3b3",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Author authoritative ZAQ testing handbook",
+  "type": "task",
+  "updated_at": "2026-09-05T03:04:19Z"
+}
