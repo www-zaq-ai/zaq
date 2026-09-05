@@ -71,8 +71,17 @@ use this format instead:
 When detailing the implementation for a module:
 
 - Public function signatures represent boundaries between modules and should be treated with high care, their modifications should be avoided when possible.
-- When creating new public functions account for an `opts \\ []` keyword list as a last future-proofing param.
+- Add `opts \\ []` to a new public function only when that boundary resolves runtime
+  dependencies. Do not add speculative opts parameters to pure functions.
 - If new feature code reads application/runtime config, route it through `Zaq.Config.get/4` with that `opts` list instead of calling `Application.get_env/3` directly. This keeps production behavior unchanged while allowing async-safe test overrides with `config: TestConfig`.
+- Identify nondeterministic and side-effecting dependencies before implementation:
+  runtime config, external clients, clocks, randomness, ID generation, storage, process
+  names, schedulers, and retry timers.
+- Define the production seam for each dependency. Resolve dependencies at the public
+  boundary, propagate the established opts/event/context carrier where required, and
+  pass resolved modules or values to internal pure functions.
+- Confirm planned tests can control dependencies without global mutation or a later
+  test-only refactor. Follow `docs/conventions.md` and `docs/testing-approach.md`.
 
 ---
 
@@ -132,4 +141,4 @@ A plan is done only when:
 - Step-level test definitions were written before implementation.
 - Required tests were implemented and passing.
 - Coverage for every touched file is >= 95%.
-- `mix precommit` passes.
+- `mix q` passes.

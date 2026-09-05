@@ -77,23 +77,9 @@ Rules:
 
 ## Tests
 
-- Start from `docs/testing-approach.md` for policy (test pyramid + property-testing requirements).
-- Use `ExUnitProperties`/`StreamData` when testing invariants, broad input spaces, or normalization/safety rules.
-- For invariant-heavy changes, add at least one property test in addition to example-based tests.
-- Do not use global application env mutation as a seam in `async: true` tests. Prefer `opts[:config]` plus `Zaq.Config.get/4`, and thread opts into events or spawned runtime processes that need the same override.
-
-- **Never use `Ecto.Adapters.SQL.Sandbox` in production code.** It is a test-only module. Do not alias or call it from any module outside `test/`. To allow a GenServer started in a test to access the DB, call `Ecto.Adapters.SQL.Sandbox.allow(Repo, owner_pid, genserver_pid)` from test setup **after** starting the process — never from inside `init/1`. With `async: false` tests and a shared sandbox (`shared: true`), all processes share the DB connection automatically and no explicit `allow` is needed.
-- **Never blanket-stub `NodeRouterMock`.** Stub `:dispatch` per test with a `%Zaq.Event{}` pattern match, or assert the exact dispatched event when dispatch is the behavior under test.
-- **Always use `start_supervised!/1`** to start processes in tests — guarantees cleanup between tests.
-- **Avoid** `Process.sleep/1` and `Process.alive?/1` in tests.
-- Instead of sleeping to wait for a process to finish, use `Process.monitor/1` and assert on the DOWN message:
-
-  ```elixir
-  ref = Process.monitor(pid)
-  assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
-  ```
-
-- Instead of sleeping to synchronize before the next call, use `_ = :sys.get_state/1` to ensure the process has handled prior messages.
+`docs/testing-approach.md` is the single authoritative ZAQ testing handbook. Follow it
+for test-level selection, scenarios, Mox, dependency injection, process synchronization,
+async and database isolation, property testing, coverage, and validation.
 
 ---
 

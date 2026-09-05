@@ -71,9 +71,9 @@ Follow this for every bug — no exceptions:
 
 ## PR Workflow
 
-1. Validate current codebase state before starting (`mix test`, `mix precommit`).
+1. Validate current codebase state before starting with `mix q`.
 2. Implement the change.
-3. Run `mix precommit` — fix all failures before opening a PR. Never replace it with ad-hoc checks.
+3. Run `mix q` as required by `docs/testing-approach.md` and fix all failures before opening a PR.
 4. Open a PR with a clear description referencing the task or Beadwork issue(s).
 5. Respond to all review feedback before merging.
 6. Update relevant docs if behavior or architecture changed.

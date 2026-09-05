@@ -142,13 +142,24 @@
 
 ### Injectable modules for testability
 
-- When a module calls a cross-node service or external integration, make the dependency injectable via `Application.get_env(:zaq, :module_key, DefaultModule)`.
-- This allows test overrides without mocking internals.
-- Example: `JidoChatBridge` injects `:chat_bridge_pipeline_module`, `:chat_bridge_router_module`, etc.
+- Design side-effecting boundaries for deterministic execution before implementation.
+  Identify runtime configuration, external clients, clocks, randomness, ID generation,
+  storage, process names, schedulers, and retry timers that tests may need to control.
+- Public boundaries that resolve runtime dependencies should accept `opts \\ []`. Do not
+  add speculative opts parameters to pure functions or functions that already receive
+  all their dependencies explicitly.
 - When production code needs runtime application config that may need per-call test overrides, use `Zaq.Config.get/4` with an `opts` keyword list instead of calling `Application.get_env/3` directly.
-- Public functions that read runtime config should accept `opts \\ []`, pass those opts through the call chain, and read config with `Zaq.Config.get(:zaq, :key, default, opts)`.
+- Public functions that read runtime config should accept `opts \\ []` and read config with `Zaq.Config.get(:zaq, :key, default, opts)`.
 - `Zaq.Config` remains the production default and delegates to `Application.get_env/3`; tests can pass `config: TestConfig` where `TestConfig` implements `get/3` or `get/4`.
 - For routed calls, carry the override in `%Zaq.Event{opts: [config: TestConfig]}` so the role boundary and downstream modules use the same config source.
+- Resolve dependencies once at the public boundary, then pass the resolved module or
+  value to internal functions instead of threading an untyped opts bag through pure code.
+- Long-lived processes should receive dependencies at startup and retain the resolved
+  values in state rather than repeatedly reading global configuration.
+- If an established context, event, command, or request struct already carries opts, use
+  that carrier instead of adding a parallel function argument.
+- Coverage work should use these production seams; it should not need to retrofit
+  test-only hooks into implementation code.
 - Example:
 
   ```elixir
