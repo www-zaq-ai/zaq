@@ -9,6 +9,7 @@
   "blocks": [
     "zaq-8q7.6"
   ],
+  "closed_at": "2026-09-05T20:05:24Z",
   "created": "2026-09-05T18:10:28Z",
   "description": "Approved cleanup plan step: Refresh active API guidance. Add/preserve behavioral tests before edits, use real internal boundaries with controlled external edges, update affected documentation, run focused tests and final mix q. No commit or PR requested.",
   "id": "zaq-8q7.5",
@@ -25,7 +26,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8q7] Refresh active API guidance",
   "type": "task",
   "updated_at": "2026-09-05T20:05:24Z"
