@@ -10,6 +10,10 @@
     {
       "text": "BLOCKED before planner execution. This coordinator session exposes no Task/subagent invocation tool. Installed CLI lists general and mini-worker as subagents, but a read-only capability probe using opencode run --agent general --format json explicitly reported: agent general is a subagent, not a primary agent. Falling back to default agent. The resulting session confirmed it ran as Primary, not general (session ses_f8e78f15fffercHSb1uwNAXxuF). No requested planners or mini-workers were started; no implementation plans were generated, so none could be reviewed, ownership-merged, or delegated verbatim. No source/test edits. No mix format, mix q, or coverage run: implementation phase could not start, and the final added/edited test-path set is empty. The percentages in the epic are user-provided baselines, not fresh measurements. Resume with a session exposing actual general and mini-worker delegation; create per-step children and DAG before running planners, retain full plans in issues, and follow the exact sequence in the epic. No commits, pushes, or PRs performed.",
       "timestamp": "2026-09-05T12:25:04Z"
+    },
+    {
+      "text": "Delegation unblocked in primary session. Eight independent complete per-file plans persisted in children .1-.8. Reviewed test ownership: disjoint, no merges needed. DAG: .1,.2,.3,.4,.5,.6,.7,.8 run independently then coordinator validation; no child-to-child dependencies. Validation amendments prohibit full-suite coverage; contract-inaccessible paths recorded rather than fabricated. Implementation workers receive full plan artifacts without summaries.",
+      "timestamp": "2026-09-05T13:07:52Z"
     }
   ],
   "priority": 2,
