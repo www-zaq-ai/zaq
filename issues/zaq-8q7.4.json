@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-8q7.5"
   ],
+  "closed_at": "2026-09-05T20:01:37Z",
   "created": "2026-09-05T18:10:27Z",
   "description": "Approved cleanup plan step: Exclude runtime dependencies from persisted ingestion context. Add/preserve behavioral tests before edits, use real internal boundaries with controlled external edges, update affected documentation, run focused tests and final mix q. No commit or PR requested.",
   "id": "zaq-8q7.4",
@@ -20,8 +21,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8q7] Exclude runtime dependencies from persisted ingestion context",
   "type": "task",
-  "updated_at": "2026-09-05T19:56:35Z"
+  "updated_at": "2026-09-05T20:01:37Z"
 }
