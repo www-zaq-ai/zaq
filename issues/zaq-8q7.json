@@ -6,9 +6,15 @@
   "description": "Approved six-step cleanup: retire dead prompt API; remove inert limits/helpers; simplify Skills upload state; keep runtime dependencies out of persisted ingestion context; refresh active guidance; validate. Preserve native binary resources and distinct integration tests. No commits or PR requested.",
   "id": "zaq-8q7",
   "labels": [],
+  "comments": [
+    {
+      "text": "All six approved cleanup steps implemented and validated in current worktree, uncommitted as requested. Separate follow-up zaq-5qu tracks existing coverage gaps. Native binary resource handling preserved. All-invalid DB skills discovery fallback fixed while migrating old prompt invariant tests to Factory. Spec tests renamed to test/zaq/agent/skills/spec_test.exs.",
+      "timestamp": "2026-09-05T20:06:16Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Agent Skills cleanup",
   "type": "epic",
-  "updated_at": "2026-09-05T18:10:08Z"
+  "updated_at": "2026-09-05T20:06:16Z"
 }
