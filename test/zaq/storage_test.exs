@@ -276,10 +276,10 @@ defmodule Zaq.StorageTest do
   end
 
   test "filesystem delegates use configured defaults and nil-volume paths", %{root: root} do
-    original = Application.get_env(:zaq, Zaq.Storage)
+    original = Application.fetch_env(:zaq, Zaq.Storage)
     Application.put_env(:zaq, Zaq.Storage, base_path: root, volumes: %{"archives" => root})
 
-    on_exit(fn -> Application.put_env(:zaq, Zaq.Storage, original || []) end)
+    on_exit(fn -> restore_storage_config(original) end)
 
     assert :ok = Storage.create_directory("archives", "nested")
     assert {:ok, path} = Storage.save_file("archives", "nested/report.md", "report")
@@ -289,12 +289,23 @@ defmodule Zaq.StorageTest do
     assert info.size == byte_size("report")
     assert {:ok, nil_volume} = Storage.file_info(nil, "nested/report.md")
     assert nil_volume.relative_path == "nested/report.md"
+    assert {:ok, [listed]} = Storage.list_entries("archives", "nested")
+    assert listed.name == "report.md"
+    assert listed.type == :file
+    assert listed.relative_path == "nested/report.md"
+    assert listed.volume == "archives"
     assert {:ok, duplicate} = Storage.upload_file("archives", "nested/report.md", "copy")
     assert duplicate == Path.join(root, "nested/report(1).md")
     assert {:ok, resolved} = Storage.resolve_path("archives", "nested/report.md")
     assert resolved == path
     assert :ok = Storage.rename_entry("archives", "nested/report.md", "nested/renamed.md")
     assert File.exists?(Path.join(root, "nested/renamed.md"))
+    assert :ok = Storage.delete_file("archives", "nested/renamed.md")
+    refute File.exists?(Path.join(root, "nested/renamed.md"))
+
+    assert Repo.get_by(EntryCatalog, volume: "archives", relative_path: "nested/renamed.md").deleted_at !=
+             nil
+
     assert :ok = Storage.delete_directory("archives", "nested")
     refute File.exists?(Path.join(root, "nested"))
   end
@@ -321,6 +332,19 @@ defmodule Zaq.StorageTest do
 
     refute File.exists?(Path.join(root, "folder"))
     assert Repo.get(EntryCatalog, folder.id).deleted_at != nil
+  end
+
+  test "delete_document/1 denies by default", %{root: root} do
+    original = Application.fetch_env(:zaq, Zaq.Storage)
+    Application.put_env(:zaq, Zaq.Storage, base_path: root, volumes: %{"archives" => root})
+    on_exit(fn -> restore_storage_config(original) end)
+
+    File.write!(Path.join(root, "protected.md"), "protected")
+    {:ok, entry} = EntryCatalog.ensure("archives", "protected.md", :file)
+
+    assert {:error, :unauthorized} = Storage.delete_document(entry.id)
+    assert File.read!(Path.join(root, "protected.md")) == "protected"
+    assert Repo.get(EntryCatalog, entry.id).deleted_at == nil
   end
 
   test "document grants list person and team targets with normalized fields", %{
@@ -501,6 +525,24 @@ defmodule Zaq.StorageTest do
     for value <- [0, -1, "0", "wat", [], %{}] do
       assert {:error, :invalid_page_size} = Storage.list_documents(%{"page_size" => value}, admin)
     end
+  end
+
+  test "list_documents rejects an unqualified parent without a volume", %{storage_opts: opts} do
+    assert {:error, :volume_required} =
+             Storage.list_documents(%{"filters" => %{"parent" => "unqualified"}}, opts)
+  end
+
+  test "persistence rejects a regular file as a destination", %{root: root, storage_opts: opts} do
+    File.write!(Path.join(root, "blocked"), "blocked")
+    {:ok, blocked} = Storage.file_info("archives", "blocked", opts)
+    assert blocked.type == :file
+    admin_opts = Keyword.put(opts, :skip_permissions, true)
+    request = %{"path" => "archives/blocked", "name" => "child", "content" => "child"}
+
+    assert {:error, :not_a_directory} = Storage.persist_document(request, admin_opts)
+    assert {:error, :not_a_directory} = Storage.persist_directory(request, admin_opts)
+    assert File.read!(Path.join(root, "blocked")) == "blocked"
+    assert EntryCatalog.get_active("archives", "blocked/child") == nil
   end
 
   test "list_documents rejects malformed and wrong-type cursors", %{
@@ -908,6 +950,41 @@ defmodule Zaq.StorageTest do
     assert Enum.map(page.entries, & &1.name) == ["private.md"]
   end
 
+  test "listing permissions falls back to scalar permission loading", %{
+    root: root,
+    storage_opts: opts
+  } do
+    File.write!(Path.join(root, "public.md"), "public")
+    File.write!(Path.join(root, "private.md"), "private")
+    assert {:ok, public} = Storage.file_info("archives", "public.md", opts)
+    assert {:ok, private} = Storage.file_info("archives", "private.md", opts)
+    {:ok, permission} = Permissions.grant_public(%StorageEntry{id: public.id})
+
+    opts = Keyword.put(opts, :permissions_module, Zaq.Test.StorageScalarPermissions)
+
+    assert {:ok, page} =
+             Storage.list_documents(
+               %{"filters" => %{"parent" => "archives"}, "include_permissions" => true},
+               opts
+             )
+
+    assert Enum.map(page.entries, & &1.id) == [public.id]
+
+    assert [
+             %{
+               id: id,
+               type: "public",
+               access_rights: ["read"],
+               inherited?: false,
+               origin_resource_id: origin_id
+             }
+           ] = page.permissions_by_id[public.id]
+
+    assert id == permission.id
+    assert origin_id == public.id
+    assert private.id not in Enum.map(page.entries, & &1.id)
+  end
+
   test "list_documents/1 hides entries with resource permissions from nil actors", %{
     root: root,
     storage_opts: opts
@@ -1310,6 +1387,8 @@ defmodule Zaq.StorageTest do
 
     assert {:error, :unauthorized} = Storage.replace_document_grants(entry.id, [], opts)
     assert Repo.get(Permissions.ResourcePermission, existing.id) != nil
+    assert {:error, :unauthorized} = Storage.replace_document_grants(entry.id, [])
+    assert Repo.get(Permissions.ResourcePermission, existing.id) != nil
   end
 
   test "replace grants normalizes every accepted input shape", %{storage_opts: opts} do
@@ -1337,6 +1416,52 @@ defmodule Zaq.StorageTest do
              %{person_id: 4, access_rights: ["read", "write"]},
              %{team_id: 13, access_rights: ["read"]}
            ]
+  end
+
+  test "public grant representations always persist read-only Everyone access", %{
+    storage_opts: opts
+  } do
+    for {grant, index} <-
+          Enum.with_index([
+            %{"type" => "public", "access_rights" => ["manage"]},
+            %{type: "public", access_rights: ["delete"]},
+            %{type: :public, access_rights: [:write]}
+          ]) do
+      {:ok, entry} = EntryCatalog.ensure("archives", "public-#{index}.md", :file)
+
+      assert {:ok, _} =
+               Storage.replace_document_grants(
+                 entry.id,
+                 [grant],
+                 Keyword.put(opts, :skip_permissions, true)
+               )
+
+      [permission] = Permissions.list(%StorageEntry{id: entry.id})
+      assert permission.team_id == Permissions.everyone_team_id()
+      assert permission.access_rights == ["read"]
+    end
+  end
+
+  property "public grants never elevate supplied rights", %{storage_opts: opts} do
+    check all(
+            rights <- list_of(member_of([:read, :write, :manage, :delete]), max_length: 8),
+            max_runs: 12
+          ) do
+      {:ok, entry} =
+        EntryCatalog.ensure("archives", "public-property-#{System.unique_integer()}.md", :file)
+
+      grant = %{type: :public, access_rights: rights}
+
+      assert {:ok, _} =
+               Storage.replace_document_grants(
+                 entry.id,
+                 [grant],
+                 Keyword.put(opts, :skip_permissions, true)
+               )
+
+      [permission] = Permissions.list(%StorageEntry{id: entry.id})
+      assert permission.access_rights == ["read"]
+    end
   end
 
   property "atom-key person rights are stringified", %{storage_opts: opts} do
@@ -1437,4 +1562,7 @@ defmodule Zaq.StorageTest do
     })
     |> Repo.insert!()
   end
+
+  defp restore_storage_config({:ok, value}), do: Application.put_env(:zaq, Zaq.Storage, value)
+  defp restore_storage_config(:error), do: Application.delete_env(:zaq, Zaq.Storage)
 end

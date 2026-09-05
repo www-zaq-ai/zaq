@@ -274,10 +274,56 @@ defmodule Zaq.Agent.SkillTest do
       assert skill.resource_folder_path == "Skills/References"
     end
 
+    test "clears existing blank pinned resource fields" do
+      skill =
+        struct!(
+          Skill,
+          @valid_attrs
+          |> Map.put(:resource_provider, " ")
+          |> Map.put(:resource_scope_id, "\t")
+          |> Map.put(:resource_folder_id, "\n")
+          |> Map.put(:resource_folder_path, " \t\r\n ")
+          |> Map.put(:resource_config_id, 12)
+          |> Map.put(:resource_root, "skills/calculator")
+        )
+
+      changeset = Skill.changeset(skill, %{description: "Updated arithmetic guidance."})
+
+      assert changeset.valid?
+      assert get_change(changeset, :resource_provider) == nil
+      assert get_change(changeset, :resource_scope_id) == nil
+      assert get_change(changeset, :resource_folder_id) == nil
+      assert get_change(changeset, :resource_folder_path) == nil
+      assert get_field(changeset, :resource_config_id) == 12
+      assert get_field(changeset, :resource_root) == "skills/calculator"
+
+      assert {:ok, inserted} = Repo.insert(changeset)
+      reloaded = Repo.get!(Skill, inserted.id)
+
+      assert reloaded.resource_provider == nil
+      assert reloaded.resource_scope_id == nil
+      assert reloaded.resource_folder_id == nil
+      assert reloaded.resource_folder_path == nil
+      assert reloaded.resource_config_id == 12
+      assert reloaded.resource_root == "skills/calculator"
+    end
+
     test "rejects metadata values that cannot round-trip through SKILL.md" do
       changeset = Skill.changeset(%Skill{}, Map.put(@valid_attrs, :metadata, %{owner: :finance}))
 
       assert "could not be encoded" in errors_on(changeset).metadata
+    end
+
+    test "rejects non-map metadata without replacing existing metadata" do
+      skill = struct!(Skill, Map.put(@valid_attrs, :metadata, %{"owner" => "finance"}))
+
+      for metadata <- ["invalid", 42, ["invalid"]] do
+        changeset = Skill.changeset(skill, Map.put(@valid_attrs, :metadata, metadata))
+
+        refute changeset.valid?
+        assert errors_on(changeset).metadata == ["is invalid"]
+        assert get_field(changeset, :metadata) == %{"owner" => "finance"}
+      end
     end
   end
 
@@ -376,6 +422,21 @@ defmodule Zaq.Agent.SkillTest do
       assert {:ok, skill} = %Skill{} |> Skill.changeset(attrs) |> Repo.insert()
       assert skill.resource_root == "skills/calculator"
     end
+
+    test "normalizes an existing empty resource root to nil" do
+      skill = struct!(Skill, Map.put(@valid_attrs, :resource_root, ""))
+      changeset = Skill.changeset(skill, %{description: "Updated arithmetic guidance."})
+
+      assert changeset.valid?
+      assert get_change(changeset, :resource_root) == nil
+      assert Map.has_key?(changeset.changes, :resource_root)
+
+      assert {:ok, inserted} = Repo.insert(changeset)
+      reloaded = Repo.get!(Skill, inserted.id)
+
+      assert reloaded.resource_root == nil
+      assert reloaded.description == "Updated arithmetic guidance."
+    end
   end
 
   describe "tag normalization invariants" do
@@ -389,6 +450,37 @@ defmodule Zaq.Agent.SkillTest do
                end)
 
         assert normalized == Enum.uniq(normalized)
+      end
+    end
+  end
+
+  describe "resource-location normalization invariants" do
+    property "blank resource-location normalization is idempotent" do
+      check all(
+              whitespace <-
+                list_of(member_of([" ", "\t", "\r", "\n"]), min_length: 1, max_length: 20),
+              max_runs: 50
+            ) do
+        value = Enum.join(whitespace)
+
+        for field <- [
+              :resource_provider,
+              :resource_scope_id,
+              :resource_folder_id,
+              :resource_folder_path
+            ] do
+          skill = struct!(Skill, Map.put(@valid_attrs, field, value))
+          changeset = Skill.changeset(skill, %{description: "Updated arithmetic guidance."})
+
+          assert changeset.valid?
+          assert get_change(changeset, field) == nil
+
+          normalized = Ecto.Changeset.apply_changes(changeset)
+          second_changeset = Skill.changeset(normalized, %{description: "Updated again."})
+
+          assert second_changeset.valid?
+          assert get_field(second_changeset, field) == nil
+        end
       end
     end
   end
