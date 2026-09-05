@@ -14,11 +14,15 @@
     {
       "text": "Delegation unblocked in primary session. Eight independent complete per-file plans persisted in children .1-.8. Reviewed test ownership: disjoint, no merges needed. DAG: .1,.2,.3,.4,.5,.6,.7,.8 run independently then coordinator validation; no child-to-child dependencies. Validation amendments prohibit full-suite coverage; contract-inaccessible paths recorded rather than fabricated. Implementation workers receive full plan artifacts without summaries.",
       "timestamp": "2026-09-05T13:07:52Z"
+    },
+    {
+      "text": "zaq-5vh.7: Added six planned StreamEvents coverage scenarios (base64 success/invalid/unmaterialized, ignored parts, timestamp-free struct, property). Targeted mix test with --cover passes: 29 tests, 1 property, 0 failures; StreamEvents coverage 91.6% (26 misses remain). Unreachable branches from plan remain intentionally uncovered. Worker did not run mix q or full suite per amendment; ticket left open for review.",
+      "timestamp": "2026-09-05T13:18:05Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vh] Coordinate eight-file coverage workflow",
   "type": "epic",
-  "updated_at": "2026-09-05T13:07:52Z"
+  "updated_at": "2026-09-05T13:18:05Z"
 }
