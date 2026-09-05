@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-05T03:41:16Z",
   "created": "2026-09-05T03:29:09Z",
   "description": "Replace all NodeRouter.call/4 and NodeRouter.invoke/4 compatibility usages in ChatLive with explicit Event dispatch contracts, adding Engine/Ingestion API actions and tests.",
   "id": "zaq-v6o",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-v6o] Migrate ChatLive to NodeRouter.dispatch",
   "type": "bug",
-  "updated_at": "2026-09-05T03:41:15Z"
+  "updated_at": "2026-09-05T03:41:16Z"
 }
