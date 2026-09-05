@@ -4,6 +4,7 @@
     "zaq-8q7.5"
   ],
   "blocks": [],
+  "closed_at": "2026-09-05T20:06:16Z",
   "created": "2026-09-05T18:10:28Z",
   "description": "Approved cleanup plan step: Validate Agent Skills cleanup. Add/preserve behavioral tests before edits, use real internal boundaries with controlled external edges, update affected documentation, run focused tests and final mix q. No commit or PR requested.",
   "id": "zaq-8q7.6",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8q7] Validate Agent Skills cleanup",
   "type": "task",
   "updated_at": "2026-09-05T20:06:16Z"
