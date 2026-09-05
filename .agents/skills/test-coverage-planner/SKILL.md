@@ -17,17 +17,20 @@ I receive a filename with the line numbers that are not covered by a test
 
 ## How I do it
 
+Before planning, read and apply `docs/testing-approach.md` as the authoritative repository
+testing strategy. Also follow any more specific testing guidance for the affected domain.
+
 Step 1: Read the code in the actual file for the uncovered lines
 Step 2: Write a detailed plan to develop test scenarios that would cover the missing lines for the target file
 Step 3: Report the plan with the test file to add/edit, the detailed scenario and branches that will be covered, the helpers that will be reused and the mocks to produce when applicable
 
 When producing test scenarios plan:
 
-- Favor contracted collaborator tests + thin integration tests
-- Write tests that hit actual code implementation for a wider branch activation
-- Build mocks/stubs using Mox when there's a need to predictably simulate an external API call
-- Re-use helpers, mocks and stubs when they already exists
-- DO NOT leak test concerns into implementation code
+- Apply the test pyramid, property-testing policy, isolation rules, and test-seam guidance
+  from `docs/testing-approach.md`
+- Identify observable events that avoid sleeps, delays, and timing-dependent polling
+- Explain any necessary global-state mutation and place those scenarios in isolated
+  `async: false` test modules
 
 ## When to use me
 
