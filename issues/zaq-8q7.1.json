@@ -9,9 +9,15 @@
   "id": "zaq-8q7.1",
   "labels": [],
   "parent": "zaq-8q7",
+  "comments": [
+    {
+      "text": "Moved old prompt invariants to Factory tests before deleting unused API. Regression exposed all-invalid specs triggering Jido filesystem discovery; explicitly set paths: [] in Factory and RuntimeSync. Keep native providers and resource policies unchanged.",
+      "timestamp": "2026-09-05T19:47:04Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8q7] Retire legacy prompt rendering",
   "type": "task",
-  "updated_at": "2026-09-05T18:11:54Z"
+  "updated_at": "2026-09-05T19:47:04Z"
 }
