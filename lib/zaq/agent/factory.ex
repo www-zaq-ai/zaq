@@ -63,12 +63,12 @@ defmodule Zaq.Agent.Factory do
     |> Keyword.delete(:model)
   end
 
-  # Jido.AI.Agent discovers these optional interception callbacks by name.
+  @impl Jido.AI.ToolInterceptor
   def before_tool_call(tool_call, context) do
     OpaqueAliases.expand_tool_call(tool_call, context)
   end
 
-  # Jido.AI.Agent discovers these optional interception callbacks by name.
+  @impl Jido.AI.ToolInterceptor
   def after_tool_call(tool_call, result, context) do
     case OpaqueAliases.alias_tool_result(tool_call, result, context) do
       {:ok, result} -> MediaResultTransformer.project_tool_result(tool_call, result, context)
