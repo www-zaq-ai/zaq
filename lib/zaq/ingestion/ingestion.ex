@@ -43,7 +43,6 @@ defmodule Zaq.Ingestion do
 
   alias Zaq.Contracts.Record
   alias Zaq.Event
-  alias Zaq.NodeRouter
   alias Zaq.Permissions
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
@@ -622,7 +621,7 @@ defmodule Zaq.Ingestion do
       actor: Map.get(context, :actor) || Map.get(context, "actor")
     )
     |> then(fn event -> %{event | request: %{provider: provider, params: params}} end)
-    |> NodeRouter.dispatch()
+    |> node_router(context).dispatch()
     |> Map.get(:response)
   end
 
@@ -666,7 +665,7 @@ defmodule Zaq.Ingestion do
         opts: [action: :data_source_list_permissions],
         actor: Map.get(context, :actor) || Map.get(context, "actor")
       )
-      |> NodeRouter.dispatch()
+      |> node_router().dispatch()
       |> Map.get(:response)
 
     case response do
@@ -989,10 +988,12 @@ defmodule Zaq.Ingestion do
   defp record_error_ref(record), do: inspect(record)
 
   defp materialization_context(params) do
-    case Map.get(params, :actor) || Map.get(params, "actor") do
-      actor when is_map(actor) -> %{actor: actor}
-      _ -> %{}
-    end
+    %{}
+    |> maybe_put_context(:actor, Map.get(params, :actor) || Map.get(params, "actor"))
+    |> maybe_put_context(
+      :node_router,
+      Map.get(params, :node_router) || Map.get(params, "node_router")
+    )
   end
 
   defp source_record_for_job(record, context) do
@@ -1001,10 +1002,18 @@ defmodule Zaq.Ingestion do
     |> maybe_put_materialization_context(context)
   end
 
-  defp maybe_put_materialization_context(source_record, %{actor: actor}) when is_map(actor),
-    do: Map.put(source_record, "materialization_context", %{"actor" => actor})
+  defp maybe_put_materialization_context(source_record, context) when map_size(context) > 0,
+    do: Map.put(source_record, "materialization_context", context)
 
   defp maybe_put_materialization_context(source_record, _context), do: source_record
+
+  defp maybe_put_context(context, :actor, actor) when is_map(actor),
+    do: Map.put(context, :actor, actor)
+
+  defp maybe_put_context(context, :node_router, node_router) when is_atom(node_router),
+    do: Map.put(context, :node_router, node_router)
+
+  defp maybe_put_context(context, _key, _value), do: context
 
   defp changed_records_from_request(request) do
     explicit_records = request |> read_any([:records, "records"]) |> List.wrap()
@@ -1306,4 +1315,11 @@ defmodule Zaq.Ingestion do
     do: where(query, [j], j.status in ^statuses)
 
   defp maybe_filter_status(query, status), do: where(query, [j], j.status == ^status)
+
+  defp node_router, do: Zaq.NodeRouter
+
+  defp node_router(%{} = context),
+    do: Map.get(context, :node_router) || Map.get(context, "node_router") || Zaq.NodeRouter
+
+  defp node_router(_context), do: Zaq.NodeRouter
 end

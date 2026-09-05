@@ -21,7 +21,7 @@ defmodule Zaq.Addons.PackageLoader do
          {:ok, addon_data} <- decode_payload(payload),
          key <- BeamDecryptor.derive_key(payload),
          {:ok, loaded_modules} <- decrypt_and_load_modules(files, key),
-         :ok <- maybe_check_expiry(addon_data) do
+         :ok <- maybe_check_expiry(addon_data, loaded_modules) do
       migration_files = extract_migration_files(files)
       view_files = extract_view_files(files)
       FeatureStore.store(addon_data, loaded_modules)
@@ -53,13 +53,18 @@ defmodule Zaq.Addons.PackageLoader do
   end
 
   defp parse_license_dat(files) do
-    with {:ok, dat} <- Map.fetch(files, "license.dat"),
-         [payload_b64, signature_b64] <- split_license_dat(dat),
+    case Map.fetch(files, "license.dat") do
+      {:ok, dat} -> decode_license_dat(dat)
+      :error -> {:error, :missing_license_dat}
+    end
+  end
+
+  defp decode_license_dat(dat) do
+    with [payload_b64, signature_b64] <- split_license_dat(dat),
          {:ok, payload} <- Base.decode64(payload_b64),
          {:ok, signature} <- Base.decode64(signature_b64) do
       {:ok, payload, signature}
     else
-      :error -> {:error, :missing_license_dat}
       :invalid_format -> {:error, :invalid_license_dat_format}
       _ -> {:error, :invalid_license_dat_encoding}
     end
@@ -92,10 +97,14 @@ defmodule Zaq.Addons.PackageLoader do
     end
   end
 
-  defp maybe_check_expiry(addon_data) do
-    if function_exported?(LicenseManager.Paid.License, :check_expiry, 1) do
+  defp maybe_check_expiry(addon_data, loaded_modules) do
+    expiry_module =
+      Enum.find(loaded_modules, &function_exported?(&1, :check_expiry, 1)) ||
+        LicenseManager.Paid.License
+
+    if function_exported?(expiry_module, :check_expiry, 1) do
       # credo:disable-for-next-line Credo.Check.Refactor.Apply
-      apply(LicenseManager.Paid.License, :check_expiry, [addon_data])
+      apply(expiry_module, :check_expiry, [addon_data])
     else
       :ok
     end

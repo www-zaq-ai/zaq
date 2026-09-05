@@ -83,24 +83,8 @@ defmodule Zaq.Addons.PackageLoaderTest do
 
     signature_b64 = Base.encode64("sig")
 
-    :code.purge(Base)
-    :code.delete(Base)
-
-    Code.compile_string("""
-    defmodule Base do
-      def decode64(_), do: {:error, :invalid_base64}
-      def encode64(bin), do: :base64.encode(bin)
-    end
-    """)
-
-    on_exit(fn ->
-      :code.purge(Base)
-      :code.delete(Base)
-      :code.load_file(Base)
-    end)
-
     create_archive!(path, [
-      {~c"license.dat", "not-base64?!." <> signature_b64}
+      {~c"license.dat", "a." <> signature_b64}
     ])
 
     log =
@@ -175,14 +159,15 @@ defmodule Zaq.Addons.PackageLoaderTest do
     payload = Jason.encode!(%{"license_key" => "lic_missing_exp", "features" => []})
     signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
     key = BeamDecryptor.derive_key(payload)
-    encrypted_module = encrypt_module(paid_license_beam(), key, <<20::96>>)
+    {module_name, beam} = paid_license_beam()
+    encrypted_module = encrypt_module(beam, key, <<20::96>>)
 
     path = Path.join(tmp_dir, "missing_exp.zaq-license")
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
       {~c"public.key", Base.encode64(pub)},
-      {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
+      {String.to_charlist("modules/#{module_name}.beam.enc"), encrypted_module}
     ])
 
     log = capture_log(fn -> assert {:error, :missing_expires_at} = PackageLoader.load(path) end)
@@ -203,14 +188,15 @@ defmodule Zaq.Addons.PackageLoaderTest do
 
     signature = :crypto.sign(:eddsa, :none, payload, [priv, :ed25519])
     key = BeamDecryptor.derive_key(payload)
-    encrypted_module = encrypt_module(paid_license_beam(), key, <<21::96>>)
+    {module_name, beam} = paid_license_beam()
+    encrypted_module = encrypt_module(beam, key, <<21::96>>)
 
     path = Path.join(tmp_dir, "expired.zaq-license")
 
     create_archive!(path, [
       {~c"license.dat", Base.encode64(payload) <> "." <> Base.encode64(signature)},
       {~c"public.key", Base.encode64(pub)},
-      {~c"modules/Elixir.LicenseManager.Paid.License.beam.enc", encrypted_module}
+      {String.to_charlist("modules/#{module_name}.beam.enc"), encrypted_module}
     ])
 
     log = capture_log(fn -> assert {:error, :license_expired} = PackageLoader.load(path) end)
@@ -513,8 +499,10 @@ defmodule Zaq.Addons.PackageLoaderTest do
   end
 
   defp paid_license_beam do
+    module_name = "Elixir.LicenseManager.Paid.License#{System.unique_integer([:positive])}"
+
     module_source = """
-    defmodule LicenseManager.Paid.License do
+    defmodule #{module_name} do
       def check_expiry(addon_data) do
         case Map.fetch(addon_data, "expires_at") do
           :error ->
@@ -532,10 +520,8 @@ defmodule Zaq.Addons.PackageLoaderTest do
     end
     """
 
-    :code.purge(LicenseManager.Paid.License)
-    :code.delete(LicenseManager.Paid.License)
     [{_module, beam_binary}] = Code.compile_string(module_source)
-    beam_binary
+    {module_name, beam_binary}
   end
 
   defp encrypt_module(beam_binary, key, nonce) do

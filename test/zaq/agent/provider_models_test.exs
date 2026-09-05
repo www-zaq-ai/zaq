@@ -1,11 +1,141 @@
 defmodule Zaq.Agent.ProviderModelsTest do
-  # Not async: with_temporary_modules/2 purges and recompiles ReqLLM and LLMDB.*,
-  # which is VM-global state a concurrent test would see or clobber.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
   alias Zaq.System.AIProviderCredential
+
+  defmodule FailingAvailabilityAdapter do
+    def models(:openai), do: []
+    def models(_), do: []
+    def provider(_), do: :error
+    def parse_provider(_), do: :error
+    def available_models(_opts), do: raise("boom")
+    def model(_), do: {:error, :unknown_model}
+  end
+
+  defmodule OpenRouterFallbackAdapter do
+    def models(:openrouter) do
+      [
+        %LLMDB.Model{
+          id: "openai/gpt-5.1-chat",
+          provider: :openrouter,
+          name: "GPT 5.1 Chat",
+          deprecated: false,
+          retired: false
+        }
+      ]
+    end
+
+    def models(_), do: []
+    def provider(_), do: :error
+    def parse_provider(_), do: :error
+    def available_models(_opts), do: raise("boom")
+    def model(_), do: {:error, :unknown_model}
+  end
+
+  defmodule CatalogOnlyAdapter do
+    def models(:scaleway),
+      do: [
+        %LLMDB.Model{
+          id: "mistral-small-3.2-24b-instruct-2506",
+          provider: :scaleway,
+          name: "Mistral Small",
+          deprecated: false,
+          retired: false
+        }
+      ]
+
+    def models(:openai),
+      do: [
+        %LLMDB.Model{
+          id: "gpt-4o",
+          provider: :openai,
+          name: "GPT-4o",
+          deprecated: false,
+          retired: false
+        }
+      ]
+
+    def models(_), do: []
+    def provider(:scaleway), do: {:ok, %LLMDB.Provider{id: :scaleway, catalog_only: true}}
+    def provider(_), do: :error
+    def parse_provider("scaleway"), do: {:ok, :scaleway}
+    def parse_provider(_), do: :error
+
+    def available_models(_opts),
+      do: raise("catalog-only providers must not use runtime discovery")
+
+    def model(_), do: {:error, :unknown_model}
+  end
+
+  defmodule CodexFallbackAdapter do
+    def models(:openai), do: raise("boom")
+    def models(_), do: []
+    def provider(_), do: :error
+    def parse_provider(_), do: :error
+    def available_models(_opts), do: []
+
+    def model("openai_codex:gpt-5.3-codex-spark"),
+      do:
+        {:ok,
+         %LLMDB.Model{
+           id: "gpt-5.3-codex-spark",
+           provider: :openai_codex,
+           deprecated: false,
+           retired: false
+         }}
+
+    def model(_), do: {:error, :unknown_model}
+  end
+
+  defmodule MissingCodexAdapter do
+    def models(:openai),
+      do: [
+        %LLMDB.Model{
+          id: "missing-from-reqllm",
+          provider: :openai,
+          deprecated: false,
+          retired: false
+        }
+      ]
+
+    def models(_), do: []
+    def provider(_), do: :error
+    def parse_provider(_), do: :error
+    def available_models(_opts), do: []
+
+    def model(spec) do
+      send(self(), {:reqllm_model_called, spec})
+      {:error, :unknown_model}
+    end
+  end
+
+  defmodule MissingAvailableModelAdapter do
+    def models(:openai), do: []
+    def models(_), do: []
+    def provider(_), do: :error
+    def parse_provider(_), do: :error
+
+    def available_models(opts) do
+      send(self(), {:reqllm_available_models_called, opts})
+      ["openai:not-in-catalog"]
+    end
+
+    def model(spec) do
+      send(self(), {:reqllm_model_called, spec})
+      {:error, :unknown_model}
+    end
+  end
+
+  defmodule AdapterConfig do
+    def get(:zaq, :provider_models_adapter, default, opts),
+      do: Keyword.get(opts, :provider_models_adapter, default)
+
+    def get(app, key, default, _opts), do: Application.get_env(app, key, default)
+  end
+
+  defp adapter_opts(adapter), do: [config: AdapterConfig, provider_models_adapter: adapter]
 
   describe "models_for_credential/1 auth gating" do
     setup do
@@ -149,33 +279,10 @@ defmodule Zaq.Agent.ProviderModelsTest do
       api_key: "sk-test"
     }
 
-    with_temporary_modules(
-      [
-        {LLMDB.Model,
-         """
-         defmodule LLMDB.Model do
-           defstruct [:id, :provider, :deprecated, :retired]
-         end
-         """},
-        {LLMDB,
-         """
-         defmodule LLMDB do
-           def models(:openai), do: []
-           def models(_), do: []
-         end
-         """},
-        {ReqLLM,
-         """
-         defmodule ReqLLM do
-           def available_models(_opts), do: raise("boom")
-           def model(_), do: {:error, :unknown_model}
-         end
-         """}
-      ],
-      fn ->
-        assert ProviderModels.models_for_credential(credential) == []
-      end
-    )
+    assert ProviderModels.models_for_credential(
+             credential,
+             adapter_opts(FailingAvailabilityAdapter)
+           ) == []
   end
 
   test "models_for_credential normalizes display-case provider labels before fallback" do
@@ -185,53 +292,11 @@ defmodule Zaq.Agent.ProviderModelsTest do
       api_key: "sk-test"
     }
 
-    with_temporary_modules(
-      [
-        {LLMDB.Model,
-         """
-         defmodule LLMDB.Model do
-           defstruct [:id, :provider, :name, :deprecated, :retired]
-         end
-         """},
-        {LLMDB,
-         """
-         defmodule LLMDB do
-           def models(:openrouter) do
-             [
-               %LLMDB.Model{
-                 id: "openai/gpt-5.1-chat",
-                 provider: :openrouter,
-                 name: "GPT 5.1 Chat",
-                 deprecated: false,
-                 retired: false
-               }
-             ]
-           end
-
-           def models(_), do: []
-         end
-         """},
-        {ReqLLM,
-         """
-         defmodule ReqLLM do
-           def provider(_), do: {:error, :unknown_provider}
-           def available_models(_opts), do: raise("boom")
-           def model(_), do: {:error, :unknown_model}
-         end
-         """},
-        {Zaq.Agent.ProviderSpec,
-         """
-         defmodule Zaq.Agent.ProviderSpec do
-           def reqllm_provider(_provider), do: :openai
-           def credential_opts(_credential), do: []
-         end
-         """}
-      ],
-      fn ->
-        assert [%{id: "openai/gpt-5.1-chat", provider: :openrouter}] =
-                 ProviderModels.models_for_credential(credential)
-      end
-    )
+    assert [%{id: "openai/gpt-5.1-chat", provider: :openrouter}] =
+             ProviderModels.models_for_credential(
+               credential,
+               adapter_opts(OpenRouterFallbackAdapter)
+             )
   end
 
   test "models_for_credential uses catalog models for catalog-only OpenAI-compatible providers" do
@@ -241,72 +306,8 @@ defmodule Zaq.Agent.ProviderModelsTest do
       api_key: "sk-test"
     }
 
-    with_temporary_modules(
-      [
-        {LLMDB.Model,
-         """
-         defmodule LLMDB.Model do
-           defstruct [:id, :provider, :name, :deprecated, :retired]
-         end
-         """},
-        {LLMDB.Provider,
-         """
-         defmodule LLMDB.Provider do
-           defstruct [:id, :catalog_only]
-         end
-         """},
-        {LLMDB.Spec,
-         """
-         defmodule LLMDB.Spec do
-           def parse_provider("scaleway"), do: {:ok, :scaleway}
-           def parse_provider(_), do: :error
-         end
-         """},
-        {LLMDB,
-         """
-         defmodule LLMDB do
-           def provider(:scaleway), do: {:ok, %LLMDB.Provider{id: :scaleway, catalog_only: true}}
-
-           def models(:scaleway) do
-             [
-               %LLMDB.Model{
-                 id: "mistral-small-3.2-24b-instruct-2506",
-                 provider: :scaleway,
-                 name: "Mistral Small",
-                 deprecated: false,
-                 retired: false
-               }
-             ]
-           end
-
-           def models(:openai) do
-             [
-               %LLMDB.Model{
-                 id: "gpt-4o",
-                 provider: :openai,
-                 name: "GPT-4o",
-                 deprecated: false,
-                 retired: false
-               }
-             ]
-           end
-
-           def models(_), do: []
-         end
-         """},
-        {ReqLLM,
-         """
-         defmodule ReqLLM do
-           def available_models(_opts), do: raise("catalog-only providers must not use runtime discovery")
-           def model(_), do: {:error, :unknown_model}
-         end
-         """}
-      ],
-      fn ->
-        assert [%{id: "mistral-small-3.2-24b-instruct-2506", provider: :scaleway}] =
-                 ProviderModels.models_for_credential(credential)
-      end
-    )
+    assert [%{id: "mistral-small-3.2-24b-instruct-2506", provider: :scaleway}] =
+             ProviderModels.models_for_credential(credential, adapter_opts(CatalogOnlyAdapter))
   end
 
   test "models_for_credential falls back to OpenAI catalog models resolved as Codex" do
@@ -326,87 +327,14 @@ defmodule Zaq.Agent.ProviderModelsTest do
   end
 
   test "models returns ReqLLM fallback candidates when OpenAI catalog lookup fails" do
-    with_temporary_modules(
-      [
-        {LLMDB.Model,
-         """
-         defmodule LLMDB.Model do
-           defstruct [:id, :provider, :deprecated, :retired]
-         end
-         """},
-        {LLMDB,
-         """
-         defmodule LLMDB do
-           def models(:openai), do: raise("boom")
-           def models(_), do: []
-         end
-         """},
-        {ReqLLM,
-         """
-         defmodule ReqLLM do
-           def model("openai_codex:gpt-5.3-codex-spark") do
-             {:ok,
-              %LLMDB.Model{
-                id: "gpt-5.3-codex-spark",
-                provider: :openai_codex,
-                deprecated: false,
-                retired: false
-              }}
-           end
+    models = ProviderModels.models("openai_codex", adapter_opts(CodexFallbackAdapter))
 
-           def model(_), do: {:error, :unknown_model}
-         end
-         """}
-      ],
-      fn ->
-        models = ProviderModels.models("openai_codex")
-
-        assert [%{id: "gpt-5.3-codex-spark", provider: :openai_codex}] = models
-      end
-    )
+    assert [%{id: "gpt-5.3-codex-spark", provider: :openai_codex}] = models
   end
 
   test "models drops OpenAI Codex candidates that ReqLLM cannot resolve" do
-    with_temporary_modules(
-      [
-        {LLMDB.Model,
-         """
-         defmodule LLMDB.Model do
-           defstruct [:id, :provider, :deprecated, :retired]
-         end
-         """},
-        {LLMDB,
-         """
-         defmodule LLMDB do
-           def models(:openai) do
-             [
-               %LLMDB.Model{
-                 id: "missing-from-reqllm",
-                 provider: :openai,
-                 deprecated: false,
-                 retired: false
-               }
-             ]
-           end
-
-           def models(_), do: []
-         end
-         """},
-        {ReqLLM,
-         """
-         defmodule ReqLLM do
-           def model(spec) do
-             send(self(), {:reqllm_model_called, spec})
-             {:error, :unknown_model}
-           end
-         end
-         """}
-      ],
-      fn ->
-        assert ProviderModels.models("openai_codex") == []
-        assert_received {:reqllm_model_called, "openai_codex:missing-from-reqllm"}
-      end
-    )
+    assert ProviderModels.models("openai_codex", adapter_opts(MissingCodexAdapter)) == []
+    assert_received {:reqllm_model_called, "openai_codex:missing-from-reqllm"}
   end
 
   test "models_for_credential drops available model specs that ReqLLM cannot resolve" do
@@ -416,83 +344,11 @@ defmodule Zaq.Agent.ProviderModelsTest do
       api_key: "sk-test"
     }
 
-    with_temporary_modules(
-      [
-        {LLMDB.Model,
-         """
-         defmodule LLMDB.Model do
-           defstruct [:id, :provider, :deprecated, :retired]
-         end
-         """},
-        {LLMDB,
-         """
-         defmodule LLMDB do
-           def models(:openai), do: []
-           def models(_), do: []
-         end
-         """},
-        {ReqLLM,
-         """
-         defmodule ReqLLM do
-           def available_models(opts) do
-             send(self(), {:reqllm_available_models_called, opts})
-             ["openai:not-in-catalog"]
-           end
+    assert ProviderModels.models_for_credential(
+             credential,
+             adapter_opts(MissingAvailableModelAdapter)
+           ) == []
 
-           def model(spec) do
-             send(self(), {:reqllm_model_called, spec})
-             {:error, :unknown_model}
-           end
-         end
-         """}
-      ],
-      fn ->
-        assert ReqLLM.available_models([]) == ["openai:not-in-catalog"]
-        assert ProviderModels.models_for_credential(credential) == []
-        assert_received {:reqllm_available_models_called, _opts}
-      end
-    )
-  end
-
-  defp with_temporary_modules(stubs, fun) when is_list(stubs) and is_function(fun, 0) do
-    original_paths =
-      Enum.into(stubs, %{}, fn {module, _source} ->
-        {module, :code.which(module)}
-      end)
-
-    Enum.each(stubs, fn {module, _source} ->
-      purge_module(module)
-    end)
-
-    try do
-      Enum.each(stubs, fn {_module, source} ->
-        Code.compile_string(source)
-      end)
-
-      fun.()
-    after
-      Enum.each(Enum.map(stubs, &elem(&1, 0)) |> Enum.reverse(), &purge_module/1)
-
-      Enum.each(original_paths, fn {module, original_path} ->
-        restore_module(module, original_path)
-      end)
-    end
-  end
-
-  defp purge_module(module) do
-    :code.purge(module)
-    :code.delete(module)
-  end
-
-  defp restore_module(_module, path) when path in [:non_existing, :preloaded, nil], do: :ok
-
-  defp restore_module(_module, path) do
-    path
-    |> to_string()
-    |> Path.rootname()
-    |> String.to_charlist()
-    |> :code.load_abs()
-
-    :ok
+    assert_received {:reqllm_available_models_called, _opts}
   end
 end
