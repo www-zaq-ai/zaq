@@ -9,27 +9,6 @@ defmodule Zaq.Ingestion.RecordIngestionTest do
   alias Zaq.Repo
 
   setup do
-    {Zaq.NodeRouter, node_router_binary, node_router_path} =
-      :code.get_object_code(Zaq.NodeRouter)
-
-    node_router_stub = """
-    defmodule Zaq.NodeRouter do
-      alias Zaq.Event
-
-      def dispatch(%Event{} = event), do: dispatch(event, %{})
-      def dispatch(%Event{} = event, _runtime), do: Zaq.NodeRouterMock.dispatch(event)
-      def find_node(supervisor), do: Zaq.NodeRouterMock.find_node(supervisor)
-      def invoke(role, mod, fun, args), do: Zaq.NodeRouterMock.invoke(role, mod, fun, args)
-      def invoke(role, mod, fun, args, runtime), do: Zaq.NodeRouterMock.invoke(role, mod, fun, args, runtime)
-      def call(role, mod, fun, args), do: Zaq.NodeRouterMock.call(role, mod, fun, args)
-      def fire(%Event{} = event), do: event
-    end
-    """
-
-    :code.purge(Zaq.NodeRouter)
-    :code.delete(Zaq.NodeRouter)
-    Code.compile_string(node_router_stub)
-
     tmp_dir =
       Path.join(System.tmp_dir!(), "ingestion_record_#{System.unique_integer([:positive])}")
 
@@ -46,10 +25,6 @@ defmodule Zaq.Ingestion.RecordIngestionTest do
     on_exit(fn ->
       Application.put_env(:zaq, Zaq.Ingestion, previous || [])
       File.rm_rf!(tmp_dir)
-
-      :code.purge(Zaq.NodeRouter)
-      :code.delete(Zaq.NodeRouter)
-      :code.load_binary(Zaq.NodeRouter, node_router_path, node_router_binary)
     end)
 
     %{tmp_dir: tmp_dir}
@@ -101,7 +76,10 @@ defmodule Zaq.Ingestion.RecordIngestionTest do
 
     Oban.Testing.with_testing_mode(:manual, fn ->
       assert {:error, {:partial_failure, [job], [error]}} =
-               Ingestion.ingest_records([folder], %{mode: "async"})
+               Ingestion.ingest_records([folder], %{
+                 mode: "async",
+                 node_router: Zaq.NodeRouterMock
+               })
 
       assert job.mode == "async"
 

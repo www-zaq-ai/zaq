@@ -31,12 +31,19 @@ defmodule Zaq.Permissions.DocumentPermission do
   @after_compile __MODULE__
   @doc false
   def __after_compile__(_env, _bytecode) do
-    all = ResourcePermission.valid_rights()
-    diff = @valid_rights -- all
+    validate_rights!(@valid_rights, ResourcePermission.valid_rights())
+    nil
+  end
+
+  @doc false
+  def validate_rights!(document_rights, resource_rights) do
+    diff = document_rights -- resource_rights
 
     unless diff == [] do
       raise "DocumentPermission @valid_rights contains rights not in ResourcePermission: #{inspect(diff)}"
     end
+
+    :ok
   end
 
   schema "resource_permissions" do

@@ -12,7 +12,6 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Materialization
 
   alias Zaq.Ingestion.{ExternalSource, TemporaryMaterializationStore}
-  alias Zaq.NodeRouter
 
   @doc "Returns the normalized ingestion kind for a canonical record."
   @spec kind(Record.t()) :: atom()
@@ -174,7 +173,7 @@ defmodule Zaq.Ingestion.RecordSource do
       actor: Map.get(context, :actor) || Map.get(context, "actor"),
       opts: data_source_opts(:data_source_list_files)
     )
-    |> NodeRouter.dispatch()
+    |> node_router(context).dispatch()
     |> Map.get(:response)
     |> case do
       {:ok, %Zaq.Contracts.RecordPage{records: records}} ->
@@ -353,10 +352,19 @@ defmodule Zaq.Ingestion.RecordSource do
           :zaq,
           :ingestion_data_source_bridge_module,
           Zaq.Channels.DataSourceBridge
-        )
+        ),
+      node_router: Map.get(context, :node_router) || Map.get(context, "node_router")
     })
   end
 
   defp maybe_put_actor(context, actor) when is_map(actor), do: Map.put(context, :actor, actor)
   defp maybe_put_actor(context, _actor), do: context
+
+  defp node_router(%{} = context),
+    do:
+      Map.get(context, :node_router) ||
+        Map.get(context, "node_router") ||
+        Zaq.NodeRouter
+
+  defp node_router(_context), do: Zaq.NodeRouter
 end

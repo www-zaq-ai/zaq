@@ -33,54 +33,56 @@ defmodule Zaq.Agent.ProviderModels do
   def normalize_provider_id(_provider_id), do: nil
 
   @doc "Returns active model metadata for a provider."
-  @spec models(String.t() | atom() | nil) :: [LLMDB.Model.t()]
-  def models(provider_id)
-  def models(provider_id) when provider_id in [nil, ""], do: []
+  @spec models(String.t() | atom() | nil, keyword()) :: [LLMDB.Model.t()]
+  def models(provider_id, opts \\ [])
+  def models(provider_id, _opts) when provider_id in [nil, ""], do: []
 
-  def models(provider_id) when is_atom(provider_id) do
+  def models(provider_id, opts) when is_atom(provider_id) do
     provider_id
     |> normalize_provider_id()
-    |> models()
+    |> models(opts)
   end
 
-  def models(provider_id) when is_binary(provider_id) do
+  def models(provider_id, opts) when is_binary(provider_id) do
     provider_id = normalize_provider_id(provider_id)
 
     case provider_id do
       id when id in [nil, "", "custom"] -> []
-      "openai_codex" -> openai_codex_fallback_models()
-      _ -> llmdb_provider_models(provider_id)
+      "openai_codex" -> openai_codex_fallback_models(opts)
+      _ -> llmdb_provider_models(provider_id, opts)
     end
   end
 
-  def models(_provider_id), do: []
+  def models(_provider_id, _opts), do: []
 
   @doc "Returns active model metadata for one configured AI credential."
-  @spec models_for_credential(Zaq.System.AIProviderCredential.t() | map() | nil) :: [
+  @spec models_for_credential(Zaq.System.AIProviderCredential.t() | map() | nil, keyword()) :: [
           LLMDB.Model.t()
         ]
-  def models_for_credential(nil), do: []
+  def models_for_credential(credential, opts \\ [])
+  def models_for_credential(nil, _opts), do: []
 
-  def models_for_credential(%{provider: provider_id} = credential) when is_binary(provider_id) do
+  def models_for_credential(%{provider: provider_id} = credential, opts)
+      when is_binary(provider_id) do
     provider_id = normalize_provider_id(provider_id)
 
     cond do
       provider_id == "custom" ->
         []
 
-      catalog_only_provider?(provider_id) ->
-        models(provider_id)
+      catalog_only_provider?(provider_id, opts) ->
+        models(provider_id, opts)
 
       true ->
         normalized = normalize_credential_provider(credential, provider_id)
 
         normalized
-        |> available_models_for_credential()
-        |> fallback_to_provider_models(provider_id, normalized)
+        |> available_models_for_credential(opts)
+        |> fallback_to_provider_models(provider_id, normalized, opts)
     end
   end
 
-  def models_for_credential(_credential), do: []
+  def models_for_credential(_credential, _opts), do: []
 
   @doc "Returns model metadata for one configured AI credential/model pair."
   @spec model_for_credential(Zaq.System.AIProviderCredential.t() | map() | nil, String.t() | nil) ::
@@ -110,20 +112,20 @@ defmodule Zaq.Agent.ProviderModels do
 
   defp normalize_credential_provider(credential, _provider_id), do: credential
 
-  defp reqllm_provider_models(provider_id, candidates) do
+  defp reqllm_provider_models(provider_id, candidates, opts) do
     candidates
-    |> Enum.map(&reqllm_model(provider_id, &1))
+    |> Enum.map(&reqllm_model(provider_id, &1, opts))
     |> Enum.reject(&(is_nil(&1) or deprecated_or_retired?(&1)))
   end
 
-  defp available_models_for_credential(%{provider: provider_id} = credential) do
+  defp available_models_for_credential(%{provider: provider_id} = credential, opts) do
     provider = ProviderSpec.reqllm_provider(provider_id)
 
     credential
     |> ProviderSpec.credential_opts()
     |> Keyword.put(:scope, provider)
-    |> ReqLLM.available_models()
-    |> Enum.map(&reqllm_model/1)
+    |> adapter(opts).available_models()
+    |> Enum.map(&reqllm_model(&1, opts))
     |> Enum.reject(&(is_nil(&1) or deprecated_or_retired?(&1)))
   rescue
     _ -> []
@@ -139,15 +141,15 @@ defmodule Zaq.Agent.ProviderModels do
   # ZAQ Router is the exception: it is a hosted gateway that always requires both
   # an endpoint and a key, so a credential without one means "not configured yet"
   # and must advertise no models rather than a catalog it cannot reach.
-  defp fallback_to_provider_models([], provider_id, credential) do
+  defp fallback_to_provider_models([], provider_id, credential, opts) do
     if zaq_router?(provider_id) and not credential_auth_present?(credential) do
       []
     else
-      models(provider_id)
+      models(provider_id, opts)
     end
   end
 
-  defp fallback_to_provider_models(models, _provider_id, _credential), do: models
+  defp fallback_to_provider_models(models, _provider_id, _credential, _opts), do: models
 
   defp zaq_router?(provider_id), do: provider_id == "zaq_router"
 
@@ -161,9 +163,11 @@ defmodule Zaq.Agent.ProviderModels do
     _ -> false
   end
 
-  defp catalog_only_provider?(provider_id) when is_binary(provider_id) do
-    with {:ok, atom} <- LLMDB.Spec.parse_provider(provider_id),
-         {:ok, %LLMDB.Provider{catalog_only: true}} <- LLMDB.provider(atom) do
+  defp catalog_only_provider?(provider_id, opts) when is_binary(provider_id) do
+    adapter = adapter(opts)
+
+    with {:ok, atom} <- adapter.parse_provider(provider_id),
+         {:ok, %LLMDB.Provider{catalog_only: true}} <- adapter.provider(atom) do
       true
     else
       _ -> false
@@ -172,49 +176,67 @@ defmodule Zaq.Agent.ProviderModels do
     _ -> false
   end
 
-  defp catalog_only_provider?(_provider_id), do: false
+  defp catalog_only_provider?(_provider_id, _opts), do: false
 
-  defp openai_codex_fallback_models do
-    openai_models_as_codex()
+  defp openai_codex_fallback_models(opts) do
+    openai_models_as_codex(opts)
     |> Kernel.++(
-      reqllm_provider_models("openai_codex", @reqllm_provider_model_candidates["openai_codex"])
+      reqllm_provider_models(
+        "openai_codex",
+        @reqllm_provider_model_candidates["openai_codex"],
+        opts
+      )
     )
     |> Enum.uniq_by(& &1.id)
   end
 
-  defp openai_models_as_codex do
+  defp openai_models_as_codex(opts) do
     :openai
-    |> LLMDB.models()
+    |> adapter(opts).models()
     |> Enum.reject(&deprecated_or_retired?/1)
-    |> Enum.map(&reqllm_model("openai_codex", &1.id))
+    |> Enum.map(&reqllm_model("openai_codex", &1.id, opts))
     |> Enum.reject(&(is_nil(&1) or deprecated_or_retired?(&1)))
   rescue
     _ -> []
   end
 
-  defp llmdb_provider_models(provider_id) do
+  defp llmdb_provider_models(provider_id, opts) do
     provider_atom = String.to_existing_atom(provider_id)
 
     provider_atom
-    |> LLMDB.models()
+    |> adapter(opts).models()
     |> Enum.reject(&deprecated_or_retired?/1)
   rescue
     ArgumentError -> []
   end
 
-  defp reqllm_model(provider_id, model_id) do
-    case ReqLLM.model("#{provider_id}:#{model_id}") do
+  defp reqllm_model(provider_id, model_id, opts) do
+    case adapter(opts).model("#{provider_id}:#{model_id}") do
       {:ok, model} -> model
       _ -> nil
     end
   end
 
-  defp reqllm_model(model_spec) when is_binary(model_spec) do
-    case ReqLLM.model(model_spec) do
+  defp reqllm_model(model_spec, opts) when is_binary(model_spec) do
+    case adapter(opts).model(model_spec) do
       {:ok, model} -> model
       _ -> nil
     end
+  end
+
+  defp adapter(opts) do
+    Zaq.Config.get(:zaq, :provider_models_adapter, __MODULE__.Adapter, opts)
   end
 
   defp deprecated_or_retired?(model), do: model.deprecated or model.retired
+end
+
+defmodule Zaq.Agent.ProviderModels.Adapter do
+  @moduledoc false
+
+  def models(provider), do: LLMDB.models(provider)
+  def provider(provider), do: LLMDB.provider(provider)
+  def parse_provider(provider), do: LLMDB.Spec.parse_provider(provider)
+  def available_models(opts), do: ReqLLM.available_models(opts)
+  def model(spec), do: ReqLLM.model(spec)
 end
