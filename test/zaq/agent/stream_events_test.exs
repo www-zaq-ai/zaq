@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.StreamEventsTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
@@ -16,6 +17,10 @@ defmodule Zaq.Agent.StreamEventsTest do
 
   defmodule StructEvent do
     defstruct [:kind, :at_ms, :iteration, :tool_call_id, :tool_name, :data]
+  end
+
+  defmodule StreamEventWithoutTimestamp do
+    defstruct [:kind, :iteration, :tool_call_id, :tool_name, :data]
   end
 
   defmodule JsonStruct do
@@ -299,6 +304,194 @@ defmodule Zaq.Agent.StreamEventsTest do
     refute encoded_trace =~ "__content_parts__"
   end
 
+  test "externalizes base64 communication media from canonical tool results" do
+    record = %Record{
+      id: "media",
+      kind: :file,
+      content: "AAECAw==",
+      attributes: %{source_type: "communication_media", encoding: "base64"}
+    }
+
+    events = [
+      event(
+        :tool_completed,
+        20,
+        %{
+          tool_name: "download_document",
+          result: {:ok, %{record: record}, []}
+        },
+        tool_call_id: "coverage-tool"
+      ),
+      event(:request_completed, 30, %{result: "done"})
+    ]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, coverage_incoming(),
+               status_module: FakeStatus,
+               started_at: 0
+             )
+
+    assert result.answer == "done"
+
+    assert [
+             %{
+               content: <<0, 1, 2, 3>>,
+               size: 4,
+               name: "attachment",
+               mime_type: "application/octet-stream",
+               tool_call_id: "coverage-tool",
+               tool_name: "download_document",
+               record: %{"id" => "media"} = artifact_record
+             }
+           ] = result.trace_artifacts
+
+    refute Map.has_key?(artifact_record, "content")
+
+    assert [%{"id" => "coverage-tool", "response" => ["ok", %{"record" => safe_record}, []]}] =
+             result.trace
+
+    assert safe_record["content"] == "nil"
+    assert [%{"id" => "coverage-tool", "response" => response}] = result.tool_calls
+    assert response == ["ok", %{"record" => safe_record}, []]
+    assert Jason.encode!(result.trace)
+    assert Jason.encode!(result.tool_calls)
+    assert_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
+  end
+
+  test "sanitizes invalid base64 communication media without failing the request" do
+    record = %Record{
+      id: "media",
+      kind: :file,
+      content: "%%%invalid%%%",
+      attributes: %{"source_type" => "communication_media", "encoding" => "base64"}
+    }
+
+    events = [
+      event(
+        :tool_completed,
+        20,
+        %{
+          tool_name: "download_document",
+          result: {:ok, %{"record" => record}, []}
+        },
+        tool_call_id: "coverage-tool"
+      ),
+      event(:request_completed, 30, %{result: "done"})
+    ]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, coverage_incoming(),
+               status_module: FakeStatus,
+               started_at: 0
+             )
+
+    assert result.answer == "done"
+    assert result.trace_artifacts == []
+    assert [%{"response" => ["ok", %{"record" => safe_record}, []]} = trace_entry] = result.trace
+    assert safe_record["id"] == "media"
+    assert safe_record["content"] == "nil"
+    assert [%{"response" => response}] = result.tool_calls
+    assert response == ["ok", %{"record" => safe_record}, []]
+    refute Jason.encode!(result.trace) =~ "%%%invalid%%%"
+    refute Jason.encode!(result.tool_calls) =~ "%%%invalid%%%"
+    assert_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
+    assert trace_entry["id"] == "coverage-tool"
+  end
+
+  test "retains metadata for unmaterialized communication media records" do
+    record = %Record{
+      id: "media",
+      kind: :file,
+      content: nil,
+      attributes: %{source_type: "communication_media", encoding: "base64"}
+    }
+
+    events = [
+      event(
+        :tool_completed,
+        20,
+        %{tool_name: "download_document", result: {:ok, %{record: record}, []}},
+        tool_call_id: "coverage-tool"
+      ),
+      event(:request_completed, 30, %{result: "done"})
+    ]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, coverage_incoming(),
+               status_module: FakeStatus,
+               started_at: 0
+             )
+
+    assert result.answer == "done"
+    assert result.trace_artifacts == []
+    assert [%{"response" => ["ok", %{"record" => safe_record}, []]}] = result.trace
+    assert safe_record["id"] == "media"
+    assert safe_record["content"] == "nil"
+    assert_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
+  end
+
+  test "omits ignored resource content parts from tool results" do
+    payload = %{
+      resource_id: "resource-1",
+      label: "private",
+      __content_parts__: [ContentPart.text("private-resource-text")]
+    }
+
+    events = [
+      event(:tool_completed, 20, %{tool_name: "download_document", result: {:ok, payload, []}},
+        tool_call_id: "coverage-tool"
+      ),
+      event(:request_completed, 30, %{result: "done"})
+    ]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, coverage_incoming(),
+               status_module: FakeStatus,
+               started_at: 0
+             )
+
+    assert result.answer == "done"
+    assert result.trace_artifacts == []
+    assert [%{"response" => ["ok", safe_payload, []]}] = result.trace
+    assert safe_payload["resource_id"] == "resource-1"
+    assert safe_payload["label"] == "private"
+    refute Map.has_key?(safe_payload, "__content_parts__")
+    encoded = Jason.encode!(result.trace) <> Jason.encode!(result.tool_calls)
+    refute encoded =~ "private-resource-text"
+    assert_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
+  end
+
+  property "base64 communication media round-trips into artifacts only" do
+    check all(bytes <- binary(min_length: 0, max_length: 64), max_runs: 25) do
+      record = %Record{
+        id: "property-media",
+        kind: :file,
+        content: Base.encode64(bytes),
+        attributes: %{source_type: "communication_media", encoding: "base64"}
+      }
+
+      events = [
+        event(
+          :tool_completed,
+          20,
+          %{tool_name: "download_document", result: {:ok, %{record: record}, []}},
+          tool_call_id: "coverage-tool"
+        ),
+        event(:request_completed, 30, %{result: "done"})
+      ]
+
+      assert {:ok, result} =
+               StreamEvents.consume(events, coverage_incoming(),
+                 status_module: FakeStatus,
+                 started_at: 0
+               )
+
+      assert [%{content: ^bytes, size: size}] = result.trace_artifacts
+      assert size == byte_size(bytes)
+      assert [%{"response" => ["ok", %{"record" => %{"content" => "nil"}}, []]}] = result.trace
+    end
+  end
+
   test "uses struct event timestamps for tool started entries" do
     events = [
       %StructEvent{
@@ -331,6 +524,27 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
 
     assert [%{"id" => "map-tool", "started_at" => nil}] = result.tool_calls
+  end
+
+  test "keeps tool started timestamps nil when a struct has no at_ms field" do
+    events = [
+      %StreamEventWithoutTimestamp{
+        kind: :tool_started,
+        iteration: 0,
+        tool_call_id: "missing-time-tool",
+        tool_name: "lookup",
+        data: %{tool_name: "lookup"}
+      },
+      event(:request_completed, 30, %{result: "done"})
+    ]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, coverage_incoming(), status_module: FakeStatus)
+
+    assert [%{"id" => "missing-time-tool", "started_at" => nil, "started_at_ms" => nil}] =
+             result.tool_calls
+
+    assert_receive {:broadcast, :tool_call, "Using lookup", :tool_call}
   end
 
   describe "terminal events" do
@@ -511,6 +725,10 @@ defmodule Zaq.Agent.StreamEventsTest do
       provider: :web,
       metadata: %{request_id: "req-1", session_id: "sess-1"}
     }
+  end
+
+  defp coverage_incoming do
+    %{incoming() | metadata: %{request_id: nil, session_id: "coverage"}, message_id: nil}
   end
 
   defp event(kind, at_ms, data, attrs \\ []) do

@@ -625,6 +625,40 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
                skill.id |> Skills.get_skill!() |> Skills.list_skill_resources()
     end
 
+    test "removing an already-missing provider file preserves its manifest row", %{conn: conn} do
+      volume = tmp_volume("remove_missing")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "remove-missing"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "obsolete.exs", content: "old", type: "text/x-elixir"}
+        ])
+
+      assert render_upload(upload, "obsolete.exs")
+      view |> form("#skill-resource-form", %{"resource_type" => "script"}) |> render_submit()
+
+      path = Path.join(volume, "remove-missing/obsolete.exs")
+      assert File.exists?(path)
+      [resource] = Skills.list_skill_resources(Skills.get_skill!(skill.id))
+      resource_id = resource.id
+      assert resource.name == "obsolete.exs"
+
+      File.rm!(path)
+      html = view |> element("#remove-resource-obsolete-exs") |> render_click()
+
+      assert html =~ "Resource could not be removed"
+      refute html =~ "Resource already removed"
+      assert Skills.get_skill!(skill.id).id == skill.id
+      assert [%{id: ^resource_id, name: "obsolete.exs"}] = Skills.list_skill_resources(skill)
+      assert has_element?(view, "#remove-resource-obsolete-exs")
+    end
+
     test "writes into the globally configured resource location", %{conn: conn} do
       documents = tmp_volume("multi_docs")
       archives = tmp_volume("multi_arch")
@@ -2157,14 +2191,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert socket.assigns.form[:allowed_tools].value == []
   end
 
-  test "selecting a volume without a skill clears resources" do
-    configure_volumes(%{"documents" => tmp_volume("raw_volume_select")})
+  test "selecting an unknown volume is a no-op" do
     {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+    original_socket = socket
 
-    {:noreply, socket} =
+    {:noreply, ^original_socket} =
       SkillsLive.handle_event("select_resource_volume", %{"volume" => "documents"}, socket)
-
-    assert socket.assigns.skill_resources == []
   end
 
   test "malformed asset-only upload entries cannot select script" do
@@ -2208,7 +2240,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
            ]
   end
 
-  test "renders an atom-keyed resource without a type as a reference", %{conn: conn} do
+  test "renders a nil resource type as Reference", %{conn: conn} do
     skill = create_skill!(%{name: "atom-resource"})
 
     Repo.insert!(%Resource{
@@ -2257,7 +2289,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert socket.assigns.form[:metadata].value == %{}
   end
 
-  test "renders binary and map tag/tool values through a form", %{conn: conn} do
+  test "normalizes binary and map tag/tool values through a form", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/skills")
     render_click(element(view, "#new-skill-button"))
 

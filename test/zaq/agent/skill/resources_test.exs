@@ -112,6 +112,30 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
                "s/file"
     end
 
+    test "uses the placeholder for non-binary filenames without losing the resource root" do
+      default_skill = skill(%{name: "pricing-faq"})
+      pinned_skill = skill(%{name: "renamed", resource_root: "original/resources"})
+
+      for filename <- [
+            nil,
+            false,
+            :missing,
+            42,
+            1.5,
+            [],
+            ~c"report.pdf",
+            %{},
+            {:filename, "report.pdf"},
+            <<1::1>>
+          ] do
+        assert Resources.destination(default_skill, filename) == "pricing-faq/file",
+               "expected placeholder for #{inspect(filename)}"
+
+        assert Resources.destination(pinned_skill, filename) == "original/resources/file",
+               "expected placeholder with preserved root for #{inspect(filename)}"
+      end
+    end
+
     test "preserves spaces and case in the filename itself" do
       # Only the *path shape* is sanitised — the filename is the operator's to choose,
       # and the storage browser displays it verbatim.
@@ -145,6 +169,28 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
 
         refute ".." in Path.split(dest)
         refute String.starts_with?(dest, "/")
+      end
+    end
+
+    property "non-binary filenames always become the placeholder" do
+      check all(
+              filename <-
+                one_of([
+                  constant(nil),
+                  boolean(),
+                  integer(),
+                  list_of(integer(), max_length: 8),
+                  map_of(integer(), integer(), max_length: 8),
+                  tuple({integer(), integer()}),
+                  constant(<<1::1>>)
+                ]),
+              max_runs: 100
+            ) do
+        assert Resources.destination(
+                 skill(%{name: "s", resource_root: "original/resources"}),
+                 filename
+               ) ==
+                 "original/resources/file"
       end
     end
   end
