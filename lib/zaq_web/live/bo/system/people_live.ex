@@ -835,6 +835,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     ~H"""
     <div>
       <form
+        id="people-filter-form"
         phx-change="filter_people"
         class="zaq-master-pane-filter-bar"
       >
@@ -1067,7 +1068,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             </span>
           </div>
           <% unassigned_teams = Enum.reject(@teams, &(&1.id in @selected_person.team_ids)) %>
-          <form phx-change="assign_team_select">
+          <form id={"assign-team-form-#{@selected_person.id}"} phx-change="assign_team_select">
             <.searchable_select
               id={"team-select-#{@selected_person.id}-#{length(@selected_person.team_ids)}"}
               name="team_id"
@@ -1668,7 +1669,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           </button>
         </div>
         <div :if={@merge_survivor == nil}>
-          <form phx-change="merge_search">
+          <form id="merge-survivor-search-form" phx-change="merge_search">
             <input
               type="text"
               name="merge_search"
@@ -1733,7 +1734,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           </button>
         </div>
         <div :if={@merge_loser == nil}>
-          <form phx-change="merge_search">
+          <form id="merge-loser-search-form" phx-change="merge_search">
             <input
               type="text"
               name="merge_search"

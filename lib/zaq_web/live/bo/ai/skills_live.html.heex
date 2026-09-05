@@ -617,7 +617,7 @@
     title="Add tools"
     max_width_class="zaq-modal--width-lg"
   >
-    <form phx-change="add_tool_from_picker">
+    <form id="skill-tools-picker-form" phx-change="add_tool_from_picker">
       <.searchable_select
         id="skill-tools-picker-select"
         name="tool_key"
@@ -651,7 +651,7 @@
     title="Add MCP endpoints"
     max_width_class="zaq-modal--width-lg"
   >
-    <form phx-change="add_mcp_from_picker">
+    <form id="skill-mcp-picker-form" phx-change="add_mcp_from_picker">
       <.searchable_select
         id="skill-mcp-picker-select"
         name="endpoint_id"

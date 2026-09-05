@@ -742,7 +742,7 @@
       title="Add MCP endpoint"
       max_width_class="zaq-modal--width-lg"
     >
-      <form phx-change="add_mcp_from_picker">
+      <form id="agent-mcp-picker-form" phx-change="add_mcp_from_picker">
         <.searchable_select
           id="agent-mcp-picker-select"
           name="endpoint_id"
@@ -775,7 +775,7 @@
       title="Add tools"
       max_width_class="zaq-modal--width-lg"
     >
-      <form phx-change="add_tool_from_picker">
+      <form id="agent-tools-picker-form" phx-change="add_tool_from_picker">
         <.searchable_select
           id="agent-tools-picker-select"
           name="tool_key"
@@ -809,7 +809,7 @@
       title="Add skills"
       max_width_class="zaq-modal--width-lg"
     >
-      <form phx-change="add_skill_from_picker">
+      <form id="agent-skills-picker-form" phx-change="add_skill_from_picker">
         <.searchable_select
           id="agent-skills-picker-select"
           name="skill_id"

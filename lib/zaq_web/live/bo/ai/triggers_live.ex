@@ -260,7 +260,12 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
 
       <%!-- Create modal --%>
       <BOModal.form_dialog :if={@modal == :create} title="New Trigger" cancel_event="close_modal">
-        <form phx-change="validate" phx-submit="create_trigger" class="space-y-4">
+        <form
+          id="create-trigger-form"
+          phx-change="validate"
+          phx-submit="create_trigger"
+          class="space-y-4"
+        >
           <.trigger_form
             form={@form}
             known_events={@known_events}
@@ -291,6 +296,7 @@ defmodule ZaqWeb.Live.BO.AI.TriggersLive do
         cancel_event="close_modal"
       >
         <form
+          id={"trigger-edit-form-#{elem(@modal, 1)}"}
           phx-change="validate"
           phx-submit="update_trigger"
           phx-value-trigger_id={elem(@modal, 1)}

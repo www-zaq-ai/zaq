@@ -117,7 +117,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalUpload do
         </DSButton.button>
       </:actions>
       <div class="zaq-layout-stack">
-        <form :if={length(@volume_options) > 1} phx-change={@volume_event}>
+        <form :if={length(@volume_options) > 1} id={"#{@id}-volume-form"} phx-change={@volume_event}>
           <.select
             id={"#{@id}-volume"}
             name="volume"
